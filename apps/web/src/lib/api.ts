@@ -85,6 +85,13 @@ export async function createAndRunTask(prompt: string): Promise<RunTaskResult> {
   };
 }
 
+export async function cancelTask(taskId: string): Promise<Task> {
+  const task = await request<ApiTask>(`/api/v1/tasks/${taskId}/cancel`, {
+    method: 'POST',
+  });
+  return mapTask(task);
+}
+
 export async function approveTask(approvalId: string): Promise<ApprovalDecisionResult> {
   const result = await request<ApiApprovalDecisionResponse>(`/api/v1/approvals/${approvalId}/approve`, {
     method: 'POST',
