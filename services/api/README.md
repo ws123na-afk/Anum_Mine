@@ -27,12 +27,13 @@ x-user-roles: owner,member
 - Custom runtime with approval-aware state transitions.
 - Approval approve/reject endpoints.
 - Tenant-scoped task lookup.
-- In-memory store for first validation.
+- Repository boundary around task, run, approval, and event access.
+- In-memory repository adapter for first validation.
 - SQLAlchemy model declarations for tenants, workspaces, tasks, runs, steps, approvals, and events.
 - Initial PostgreSQL migration with pgvector and tenant RLS policies.
 
 ## Persistence Direction
 
-The API still uses the in-memory store for endpoint behavior so the first vertical slice stays simple and deterministic. The database foundation prepares the next step: wiring task, run, approval, event, and memory operations through PostgreSQL with RLS enforced by `anum.tenant_id` session context.
+The API routes and runtime now depend on an ANUM repository boundary instead of reaching directly into storage dictionaries. The active adapter remains in-memory so the first vertical slice stays simple and deterministic. The next persistence step is to implement a PostgreSQL-backed repository using the SQLAlchemy models, migration, and RLS session context already in place.
 
 Temporal, NATS, Keycloak token validation, and durable object storage remain the next implementation boundaries after PostgreSQL persistence is connected.

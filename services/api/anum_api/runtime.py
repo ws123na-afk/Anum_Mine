@@ -1,4 +1,5 @@
 from .model_gateway import MockModelGateway
+from .repository import AnumRepository
 from .schemas import (
     AgentRun,
     AgentRunStep,
@@ -12,13 +13,12 @@ from .schemas import (
     new_id,
     utc_now,
 )
-from .store import InMemoryStore
 
 
 class AgentRuntime:
-    def __init__(self, model_gateway: MockModelGateway, store: InMemoryStore) -> None:
+    def __init__(self, model_gateway: MockModelGateway, repository: AnumRepository) -> None:
         self.model_gateway = model_gateway
-        self.store = store
+        self.repository = repository
 
     async def run_task(self, task: Task, context: TenantContext) -> tuple[AgentRun, Approval | None]:
         now = utc_now()
@@ -66,7 +66,7 @@ class AgentRuntime:
                     created_at=utc_now(),
                 )
             )
-            self.store.approvals[approval.id] = approval
+            self.repository.save_approval(approval)
             self._record_event("approval.requested", context, approval.id, {"task_id": task.id})
             return run, approval
 
@@ -144,7 +144,7 @@ class AgentRuntime:
         subject: str,
         payload: dict[str, str],
     ) -> None:
-        self.store.events.append(
+        self.repository.record_event(
             DomainEvent(
                 id=new_id("event"),
                 type=event_type,
