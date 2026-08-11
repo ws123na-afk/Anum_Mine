@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     environment: str = "local"
     database_url: str = "postgresql+psycopg://anum:anum@localhost:5432/anum"
     keycloak_issuer: str = "http://localhost:8080/realms/anum"
+    cors_origins: list[str] = ["http://localhost:5173"]
 
     model_config = SettingsConfigDict(env_prefix="ANUM_", env_file=".env", extra="ignore")
 
