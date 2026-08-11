@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -38,7 +38,7 @@ class Workspace(Base, TimestampMixin, TenantScopedMixin):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
 
     tenant: Mapped[Tenant] = relationship(back_populates="workspaces")
-    __table_args__ = (ForeignKey("tenants.id", name="fk_workspaces_tenant_id"),)
+    __table_args__ = (ForeignKeyConstraint(["tenant_id"], ["tenants.id"]),)
 
 
 class TaskRecord(Base, TimestampMixin, TenantScopedMixin):
@@ -55,7 +55,7 @@ class TaskRecord(Base, TimestampMixin, TenantScopedMixin):
     approvals: Mapped[list["ApprovalRecord"]] = relationship(back_populates="task")
 
     __table_args__ = (
-        ForeignKey("workspaces.id", name="fk_tasks_workspace_id"),
+        ForeignKeyConstraint(["workspace_id"], ["workspaces.id"]),
         Index("ix_tasks_tenant_workspace_status", "tenant_id", "workspace_id", "status"),
     )
 
