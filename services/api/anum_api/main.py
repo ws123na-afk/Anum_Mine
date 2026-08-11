@@ -104,7 +104,7 @@ async def cancel_task(
 
     task.status = TaskStatus.CANCELLED
     task.updated_at = utc_now()
-    repository.create_task(task)
+    repository.save_task(task)
     repository.record_event(
         DomainEvent(
             id=new_id("event"),
