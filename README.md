@@ -1,10 +1,18 @@
 # ANUM
 
-ANUM is planned as a monorepo for a personal and organizational AI operating layer: a secure agent runtime, automation platform, memory system, and multi-surface application suite. This repository currently contains documentation only. Implementation code should be added after the foundation decisions are reviewed and accepted.
+ANUM is a monorepo for a personal and organizational AI operating layer: a secure agent runtime, automation platform, memory system, and multi-surface application suite.
 
 ## Current Status
 
-This branch establishes the project documentation baseline. It defines the intended architecture, security model, tenant model, agent runtime, model gateway, memory layer, integrations, infrastructure, development standards, and roadmap. It deliberately separates what ANUM should support now from what can be added later.
+Phase 0 documentation is complete. Phase 1 has started with an executable foundation:
+
+- FastAPI backend service under `services/api`.
+- React+TypeScript+Vite web app under `apps/web`.
+- Shared TypeScript contracts under `packages/contracts`.
+- Local infrastructure composition under `infra/docker`.
+- GitHub Actions CI for web/contracts, API tests, and Docker Compose validation.
+
+The backend currently uses in-memory persistence and stub tenant headers so the task/runtime/approval flow can be exercised before PostgreSQL, RLS, Keycloak, Temporal, and NATS are fully wired.
 
 ## Target Stack
 
@@ -19,9 +27,40 @@ This branch establishes the project documentation baseline. It defines the inten
 - Identity: Keycloak/OIDC with ANUM authorization and PostgreSQL row-level security
 - Operations: Docker, OpenTofu, GitHub Actions, and OpenTelemetry
 
-## Repository Map
+## Local Development
 
-The future monorepo is expected to contain backend, web, desktop, Android, contracts, infrastructure, docs, and testing workspaces. See [docs/repository-structure.md](docs/repository-structure.md) for the proposed layout.
+Install web dependencies and run checks:
+
+```bash
+pnpm install
+pnpm check
+pnpm build
+```
+
+Run the API:
+
+```bash
+cd services/api
+python -m pip install -e .[test]
+uvicorn anum_api.main:app --reload --port 8000
+```
+
+Run local infrastructure:
+
+```bash
+docker compose -f infra/docker/compose.yaml up
+```
+
+## Tenant Headers for Phase 1
+
+Until OIDC is implemented, API routes require explicit development headers:
+
+```text
+x-tenant-id: tenant_local
+x-workspace-id: workspace_foundation
+x-user-id: user_local
+x-user-roles: owner,member
+```
 
 ## Documentation Index
 
@@ -47,10 +86,11 @@ The future monorepo is expected to contain backend, web, desktop, Android, contr
 - [Infrastructure](docs/infrastructure.md)
 - [Observability](docs/observability.md)
 - [Development standards](docs/development-standards.md)
+- [Repository structure](docs/repository-structure.md)
 - [Scaling](docs/scaling.md)
 - [ADR-0001: Foundation](docs/decisions/ADR-0001-foundation.md)
 - [ADR-0002: Custom agent runtime](docs/decisions/ADR-0002-custom-agent-runtime.md)
 
 ## Development Rule
 
-Until the foundation is approved, changes should stay documentation-first. Code added later should follow the contracts, boundaries, and security model described here rather than growing from ad hoc prototypes.
+Code should follow the contracts, boundaries, tenant model, and security expectations described in the documentation. Prototype shortcuts are acceptable only when they are isolated, named clearly, and replaced before production use.
