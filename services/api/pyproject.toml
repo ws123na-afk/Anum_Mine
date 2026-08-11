@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "ANUM FastAPI backend foundation"
 requires-python = ">=3.11"
 dependencies = [
+  "alembic>=1.13.3",
   "fastapi>=0.115.0",
   "psycopg[binary]>=3.2.3",
   "pydantic-settings>=2.5.2",
