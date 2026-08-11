@@ -19,6 +19,22 @@ x-user-id: user_local
 x-user-roles: owner,member
 ```
 
+## Database Migrations
+
+Run PostgreSQL locally first:
+
+```bash
+docker compose -f ../../infra/docker/compose.yaml up postgres
+```
+
+Apply migrations from `services/api`:
+
+```bash
+alembic upgrade head
+```
+
+The current Alembic baseline executes `migrations/0001_foundation.sql`, which creates the core tables, enables pgvector, and applies tenant RLS policies.
+
 ## Included Slice
 
 - Health endpoint.
@@ -30,7 +46,7 @@ x-user-roles: owner,member
 - Repository boundary around task, run, approval, and event access.
 - In-memory repository adapter for first validation.
 - SQLAlchemy model declarations for tenants, workspaces, tasks, runs, steps, approvals, and events.
-- Initial PostgreSQL migration with pgvector and tenant RLS policies.
+- Alembic baseline for the initial PostgreSQL migration with pgvector and tenant RLS policies.
 
 ## Persistence Direction
 
