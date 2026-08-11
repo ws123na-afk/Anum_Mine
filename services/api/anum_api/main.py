@@ -93,6 +93,33 @@ async def run_task(
     return RunTaskResponse(task=task, run=run, approval=approval)
 
 
+@app.post("/api/v1/tasks/{task_id}/cancel", response_model=Task)
+async def cancel_task(
+    task_id: str,
+    context: TenantContext = Depends(tenant_context),
+) -> Task:
+    task = _get_task_for_context(task_id, context)
+    if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be cancelled")
+
+    task.status = TaskStatus.CANCELLED
+    task.updated_at = utc_now()
+    repository.save_task(task)
+    repository.record_event(
+        DomainEvent(
+            id=new_id("event"),
+            type="task.cancelled",
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            subject=task.id,
+            correlation_id=new_id("correlation"),
+            created_at=utc_now(),
+            payload={"task_id": task.id},
+        )
+    )
+    return task
+
+
 @app.get("/api/v1/agent-runs/{run_id}", response_model=AgentRun)
 async def get_agent_run(
     run_id: str,
@@ -152,7 +179,7 @@ async def _decide_approval(
     approval.decided_at = utc_now()
     repository.save_approval(approval)
     task = _get_task_for_context(approval.task_id, context)
-    run = repository.find_run_for_task(task.id)
+    run = repository.find_run_for_task(task.id, context)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     if resumed_run:
         repository.save_run(resumed_run)

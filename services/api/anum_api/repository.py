@@ -6,10 +6,11 @@ from .store import InMemoryStore
 
 class AnumRepository(Protocol):
     def create_task(self, task: Task) -> Task: ...
+    def save_task(self, task: Task) -> Task: ...
     def get_task(self, task_id: str, context: TenantContext) -> Task | None: ...
     def save_run(self, run: AgentRun) -> AgentRun: ...
     def get_run(self, run_id: str, context: TenantContext) -> AgentRun | None: ...
-    def find_run_for_task(self, task_id: str) -> AgentRun | None: ...
+    def find_run_for_task(self, task_id: str, context: TenantContext) -> AgentRun | None: ...
     def save_approval(self, approval: Approval) -> Approval: ...
     def get_approval(self, approval_id: str, context: TenantContext) -> Approval | None: ...
     def list_approvals(self, context: TenantContext) -> list[Approval]: ...
@@ -22,6 +23,9 @@ class InMemoryRepository:
         self.store = store
 
     def create_task(self, task: Task) -> Task:
+        return self.save_task(task)
+
+    def save_task(self, task: Task) -> Task:
         self.store.tasks[task.id] = task
         return task
 
@@ -44,7 +48,9 @@ class InMemoryRepository:
         task = self.get_task(run.task_id, context)
         return run if task else None
 
-    def find_run_for_task(self, task_id: str) -> AgentRun | None:
+    def find_run_for_task(self, task_id: str, context: TenantContext) -> AgentRun | None:
+        if not self.get_task(task_id, context):
+            return None
         return next((run for run in self.store.runs.values() if run.task_id == task_id), None)
 
     def save_approval(self, approval: Approval) -> Approval:
