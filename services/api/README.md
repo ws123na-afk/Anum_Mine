@@ -28,5 +28,11 @@ x-user-roles: owner,member
 - Approval approve/reject endpoints.
 - Tenant-scoped task lookup.
 - In-memory store for first validation.
+- SQLAlchemy model declarations for tenants, workspaces, tasks, runs, steps, approvals, and events.
+- Initial PostgreSQL migration with pgvector and tenant RLS policies.
 
-PostgreSQL, RLS, Temporal, NATS, and Keycloak remain the next implementation boundaries after this executable foundation.
+## Persistence Direction
+
+The API still uses the in-memory store for endpoint behavior so the first vertical slice stays simple and deterministic. The database foundation prepares the next step: wiring task, run, approval, event, and memory operations through PostgreSQL with RLS enforced by `anum.tenant_id` session context.
+
+Temporal, NATS, Keycloak token validation, and durable object storage remain the next implementation boundaries after PostgreSQL persistence is connected.
