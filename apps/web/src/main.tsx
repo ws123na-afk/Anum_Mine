@@ -1,8 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, CheckCircle2, Clock, Database, KeyRound, Play, ShieldCheck, Workflow } from 'lucide-react';
+import { Activity, CheckCircle2, Clock, Database, KeyRound, Play, ShieldCheck, Square, Workflow } from 'lucide-react';
 import type { AgentRun, Approval, Task } from '@anum/contracts';
-import { approveTask, createAndRunTask, defaultTenantContext } from './lib/api';
+import { approveTask, cancelTask, createAndRunTask, defaultTenantContext } from './lib/api';
 import { demoApproval, demoRun, demoTask } from './lib/demoData';
 import './styles.css';
 
@@ -30,6 +30,21 @@ function App() {
       setStatusText(result.approval ? 'Task is waiting for approval.' : 'Task completed.');
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : 'Unable to reach ANUM API.');
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleCancelTask() {
+    setIsBusy(true);
+    setStatusText('Cancelling task through ANUM API...');
+    try {
+      const cancelled = await cancelTask(task.id);
+      setTask(cancelled);
+      setApproval(null);
+      setStatusText('Task cancelled.');
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : 'Unable to cancel task.');
     } finally {
       setIsBusy(false);
     }
@@ -96,6 +111,9 @@ function App() {
           <div className="actions">
             <button type="button" onClick={handleRunTask} disabled={isBusy || !prompt.trim()}>
               <Play size={18} /> Run task
+            </button>
+            <button type="button" className="secondary" onClick={handleCancelTask} disabled={isBusy || ['completed', 'failed', 'cancelled'].includes(task.status)}>
+              <Square size={18} /> Cancel
             </button>
           </div>
           <p className="notice" role="status">{statusText}</p>
