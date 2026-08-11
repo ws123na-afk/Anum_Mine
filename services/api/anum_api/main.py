@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from .dependencies import tenant_context
 from .model_gateway import MockModelGateway
@@ -22,6 +23,13 @@ from .settings import settings
 from .store import store
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["content-type", "x-tenant-id", "x-workspace-id", "x-user-id", "x-user-roles"],
+)
 repository = InMemoryRepository(store)
 runtime = AgentRuntime(MockModelGateway(), repository)
 
