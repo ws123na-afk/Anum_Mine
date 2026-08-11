@@ -15,7 +15,8 @@ body {
 }
 
 button,
-a {
+a,
+textarea {
   font: inherit;
 }
 
@@ -159,9 +160,44 @@ h2 {
   padding: 20px;
 }
 
-.prompt {
+.prompt,
+.notice {
   color: #445960;
   margin-top: 14px;
+}
+
+.notice {
+  background: #f5f8f9;
+  border: 1px solid #dce7ea;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.taskComposer {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.taskComposer span {
+  color: #5f737b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+textarea {
+  border: 1px solid #c7d4d9;
+  border-radius: 8px;
+  color: #172026;
+  min-height: 88px;
+  padding: 10px 12px;
+  resize: vertical;
+  width: 100%;
+}
+
+textarea:focus-visible {
+  border-color: #0f7b8f;
+  outline: 3px solid rgba(15, 123, 143, 0.18);
 }
 
 .timeline {
@@ -217,6 +253,11 @@ button {
 button.secondary {
   background: #dce7ea;
   color: #28414a;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
 }
 
 @media (max-width: 880px) {
