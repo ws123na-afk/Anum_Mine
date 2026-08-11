@@ -6,6 +6,7 @@ from .store import InMemoryStore
 
 class AnumRepository(Protocol):
     def create_task(self, task: Task) -> Task: ...
+    def save_task(self, task: Task) -> Task: ...
     def get_task(self, task_id: str, context: TenantContext) -> Task | None: ...
     def save_run(self, run: AgentRun) -> AgentRun: ...
     def get_run(self, run_id: str, context: TenantContext) -> AgentRun | None: ...
@@ -22,6 +23,9 @@ class InMemoryRepository:
         self.store = store
 
     def create_task(self, task: Task) -> Task:
+        return self.save_task(task)
+
+    def save_task(self, task: Task) -> Task:
         self.store.tasks[task.id] = task
         return task
 
