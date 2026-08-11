@@ -42,6 +42,36 @@ def test_create_and_run_low_risk_task() -> None:
     assert payload["approval"] is None
 
 
+def test_cancel_created_task() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Cancel me", "prompt": "Do not run yet"},
+    )
+    task_id = created.json()["id"]
+
+    cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel", headers=headers)
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    events = client.get("/api/v1/events", headers=headers).json()
+    assert any(event["type"] == "task.cancelled" for event in events)
+
+
+def test_completed_task_cannot_be_cancelled() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Run me", "prompt": "Summarize the project notes"},
+    )
+    task_id = created.json()["id"]
+    client.post(f"/api/v1/tasks/{task_id}/run", headers=headers)
+
+    cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel", headers=headers)
+
+    assert cancelled.status_code == 409
+
+
 def test_high_risk_task_waits_for_approval_then_completes() -> None:
     created = client.post(
         "/api/v1/tasks",
@@ -77,5 +107,20 @@ def test_tenant_isolation_hides_task() -> None:
     other_headers["x-tenant-id"] = "tenant_b"
 
     response = client.get(f"/api/v1/tasks/{task_id}", headers=other_headers)
+
+    assert response.status_code == 404
+
+
+def test_other_tenant_cannot_cancel_task() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Scoped", "prompt": "Keep scoped"},
+    )
+    task_id = created.json()["id"]
+
+    other_headers = dict(headers)
+    other_headers["x-tenant-id"] = "tenant_b"
+    response = client.post(f"/api/v1/tasks/{task_id}/cancel", headers=other_headers)
 
     assert response.status_code == 404
