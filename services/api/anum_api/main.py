@@ -5,6 +5,7 @@ from .model_gateway import MockModelGateway
 from .runtime import AgentRuntime
 from .schemas import (
     AgentRun,
+    Approval,
     ApprovalDecisionResponse,
     ApprovalStatus,
     DomainEvent,
@@ -100,8 +101,8 @@ async def list_events(context: TenantContext = Depends(tenant_context)) -> list[
     return [event for event in store.events if event.tenant_id == context.tenant_id]
 
 
-@app.get("/api/v1/approvals", response_model=list[object])
-async def list_approvals(context: TenantContext = Depends(tenant_context)) -> list[object]:
+@app.get("/api/v1/approvals", response_model=list[Approval])
+async def list_approvals(context: TenantContext = Depends(tenant_context)) -> list[Approval]:
     return [
         approval
         for approval in store.approvals.values()
