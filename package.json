@@ -1,0 +1,16 @@
+{
+  "name": "anum",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ANUM monorepo foundation",
+  "packageManager": "pnpm@9.12.3",
+  "scripts": {
+    "dev:web": "pnpm --filter @anum/web dev",
+    "build": "pnpm --filter @anum/contracts build && pnpm --filter @anum/web build",
+    "check": "pnpm --filter @anum/contracts check && pnpm --filter @anum/web check",
+    "lint": "pnpm --filter @anum/web lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
