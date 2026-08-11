@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 
 from .dependencies import tenant_context
 from .model_gateway import MockModelGateway
+from .repository import InMemoryRepository
 from .runtime import AgentRuntime
 from .schemas import (
     AgentRun,
@@ -21,7 +22,8 @@ from .settings import settings
 from .store import store
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
-runtime = AgentRuntime(MockModelGateway(), store)
+repository = InMemoryRepository(store)
+runtime = AgentRuntime(MockModelGateway(), repository)
 
 
 @app.get("/health")
@@ -45,8 +47,8 @@ async def create_task(
         created_at=now,
         updated_at=now,
     )
-    store.tasks[task.id] = task
-    store.events.append(
+    repository.create_task(task)
+    repository.record_event(
         DomainEvent(
             id=new_id("event"),
             type="task.created",
@@ -66,8 +68,7 @@ async def get_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> Task:
-    task = _get_task_for_context(task_id, context)
-    return task
+    return _get_task_for_context(task_id, context)
 
 
 @app.post("/api/v1/tasks/{task_id}/run", response_model=RunTaskResponse)
@@ -80,7 +81,7 @@ async def run_task(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
     run, approval = await runtime.run_task(task, context)
-    store.runs[run.id] = run
+    repository.save_run(run)
     return RunTaskResponse(task=task, run=run, approval=approval)
 
 
@@ -89,25 +90,20 @@ async def get_agent_run(
     run_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> AgentRun:
-    run = store.runs.get(run_id)
+    run = repository.get_run(run_id, context)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
-    _get_task_for_context(run.task_id, context)
     return run
 
 
 @app.get("/api/v1/events", response_model=list[DomainEvent])
 async def list_events(context: TenantContext = Depends(tenant_context)) -> list[DomainEvent]:
-    return [event for event in store.events if event.tenant_id == context.tenant_id]
+    return repository.list_events(context)
 
 
 @app.get("/api/v1/approvals", response_model=list[Approval])
 async def list_approvals(context: TenantContext = Depends(tenant_context)) -> list[Approval]:
-    return [
-        approval
-        for approval in store.approvals.values()
-        if _approval_belongs_to_context(approval.task_id, context)
-    ]
+    return repository.list_approvals(context)
 
 
 @app.post("/api/v1/approvals/{approval_id}/approve", response_model=ApprovalDecisionResponse)
@@ -127,20 +123,10 @@ async def reject(
 
 
 def _get_task_for_context(task_id: str, context: TenantContext) -> Task:
-    task = store.tasks.get(task_id)
+    task = repository.get_task(task_id, context)
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    if task.tenant_id != context.tenant_id or task.workspace_id != context.workspace_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task
-
-
-def _approval_belongs_to_context(task_id: str, context: TenantContext) -> bool:
-    try:
-        _get_task_for_context(task_id, context)
-    except HTTPException:
-        return False
-    return True
 
 
 async def _decide_approval(
@@ -148,15 +134,18 @@ async def _decide_approval(
     decision: ApprovalStatus,
     context: TenantContext,
 ) -> ApprovalDecisionResponse:
-    approval = store.approvals.get(approval_id)
-    if not approval or not _approval_belongs_to_context(approval.task_id, context):
+    approval = repository.get_approval(approval_id, context)
+    if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval already decided")
 
     approval.status = decision
     approval.decided_at = utc_now()
+    repository.save_approval(approval)
     task = _get_task_for_context(approval.task_id, context)
-    run = next((item for item in store.runs.values() if item.task_id == task.id), None)
+    run = repository.find_run_for_task(task.id)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
+    if resumed_run:
+        repository.save_run(resumed_run)
     return ApprovalDecisionResponse(approval=approval, task=task, run=resumed_run)
