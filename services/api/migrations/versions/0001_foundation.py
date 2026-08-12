@@ -14,11 +14,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("drop table if exists memories cascade")
-    op.execute("drop table if exists domain_events cascade")
-    op.execute("drop table if exists approvals cascade")
-    op.execute("drop table if exists agent_run_steps cascade")
-    op.execute("drop table if exists agent_runs cascade")
-    op.execute("drop table if exists tasks cascade")
-    op.execute("drop table if exists workspaces cascade")
-    op.execute("drop table if exists tenants cascade")
+    # Child-first drops remove only objects owned by this revision. The vector
+    # extension may be shared by other schemas, so this migration leaves it in place.
+    op.execute("drop table if exists memories")
+    op.execute("drop table if exists domain_events")
+    op.execute("drop table if exists approvals")
+    op.execute("drop table if exists agent_run_steps")
+    op.execute("drop table if exists agent_runs")
+    op.execute("drop table if exists tasks")
+    op.execute("drop table if exists workspaces")
+    op.execute("drop table if exists tenants")

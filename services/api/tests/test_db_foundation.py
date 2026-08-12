@@ -37,5 +37,6 @@ def test_initial_migration_enables_rls_and_pgvector() -> None:
 
     assert "create extension if not exists vector" in sql
     assert "alter table tasks enable row level security" in sql
+    assert "alter table tasks force row level security" in sql
     assert "create policy tenant_isolation_tasks" in sql
-    assert "current_setting('anum.tenant_id', true)" in sql
+    assert "workspace_id = nullif(current_setting('anum.workspace_id', true), '')" in sql

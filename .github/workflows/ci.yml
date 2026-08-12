@@ -18,22 +18,58 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm check
       - run: pnpm build
 
-  api:
-    name: API tests
+  api-unit:
+    name: API unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e services/api[test]
-      - run: pytest services/api
+          cache: pip
+          cache-dependency-path: services/api/pyproject.toml
+      - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
+      - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      - run: python -m pytest services/api -m "not database"
+
+  api-persistence:
+    name: API PostgreSQL persistence tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: anum
+          POSTGRES_PASSWORD: anum
+          POSTGRES_DB: anum_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anum -d anum_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      ANUM_TEST_DATABASE_URL: postgresql+psycopg://anum:anum@localhost:5432/anum_test
+      ANUM_DATABASE_URL: postgresql+psycopg://anum:anum@localhost:5432/anum_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/pyproject.toml
+      - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
+      - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      - name: Apply database migrations
+        working-directory: services/api
+        run: python -m alembic upgrade head
+      - name: Run database tests
+        run: python -m pytest services/api -m database
 
   compose:
     name: Docker Compose config

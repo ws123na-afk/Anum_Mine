@@ -1,6 +1,14 @@
-from fastapi import Header, HTTPException, status
+from collections.abc import AsyncIterator
 
+from fastapi import Depends, Header, HTTPException, status
+
+from .repository import AnumRepository, InMemoryRepository
 from .schemas import TenantContext
+from .settings import settings
+from .store import store
+
+
+memory_repository = InMemoryRepository(store)
 
 
 async def tenant_context(
@@ -22,3 +30,29 @@ async def tenant_context(
         user_id=x_user_id,
         roles=roles,
     )
+
+
+async def repository_context(
+    context: TenantContext = Depends(tenant_context),
+) -> AsyncIterator[AnumRepository]:
+    if settings.repository_backend == "memory":
+        yield memory_repository
+        return
+
+    if settings.repository_backend != "postgresql":
+        raise RuntimeError(f"Unsupported repository backend: {settings.repository_backend}")
+
+    from .db.repository import SqlAlchemyRepository
+    from .db.session import SessionLocal, set_tenant_context
+
+    session = SessionLocal()
+    try:
+        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        session.info["user_id"] = context.user_id
+        yield SqlAlchemyRepository(session, created_by_user_id=context.user_id)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
