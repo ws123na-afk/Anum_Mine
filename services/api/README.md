@@ -33,6 +33,12 @@ Apply migrations from `services/api`:
 alembic upgrade head
 ```
 
+Enable request-scoped PostgreSQL persistence after creating the tenant and workspace rows:
+
+```text
+ANUM_REPOSITORY_BACKEND=postgresql
+```
+
 The current Alembic baseline executes `migrations/0001_foundation.sql`, which creates the core tables, enables pgvector, and applies tenant RLS policies.
 
 ## Included Slice
@@ -44,12 +50,12 @@ The current Alembic baseline executes `migrations/0001_foundation.sql`, which cr
 - Approval approve/reject endpoints.
 - Tenant-scoped task lookup.
 - Repository boundary around task, run, approval, and event access.
-- In-memory repository adapter for first validation.
+- In-memory and request-scoped PostgreSQL repository adapters.
 - SQLAlchemy model declarations for tenants, workspaces, tasks, runs, steps, approvals, and events.
 - Alembic baseline for the initial PostgreSQL migration with pgvector and tenant RLS policies.
 
 ## Persistence Direction
 
-The API routes and runtime now depend on an ANUM repository boundary instead of reaching directly into storage dictionaries. The active adapter remains in-memory so the first vertical slice stays simple and deterministic. The next persistence step is to implement a PostgreSQL-backed repository using the SQLAlchemy models, migration, and RLS session context already in place.
+The API routes and runtime depend on an ANUM repository boundary instead of reaching directly into storage dictionaries. In-memory storage remains the local default; setting `ANUM_REPOSITORY_BACKEND=postgresql` selects the SQLAlchemy adapter, applies tenant and workspace context to one transaction per request, and commits task, run, approval, and event changes atomically.
 
 Temporal, NATS, Keycloak token validation, and durable object storage remain the next implementation boundaries after PostgreSQL persistence is connected.

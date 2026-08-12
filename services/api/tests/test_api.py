@@ -95,6 +95,79 @@ def test_high_risk_task_waits_for_approval_then_completes() -> None:
     assert approved_payload["run"]["status"] == "completed"
 
 
+def test_rejected_high_risk_task_fails_and_records_events() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Publish update", "prompt": "Publish the final update"},
+    )
+    task_id = created.json()["id"]
+    started = client.post(f"/api/v1/tasks/{task_id}/run", headers=headers).json()
+    approval_id = started["approval"]["id"]
+
+    rejected = client.post(f"/api/v1/approvals/{approval_id}/reject", headers=headers)
+
+    assert rejected.status_code == 200
+    assert rejected.json()["approval"]["status"] == "rejected"
+    assert rejected.json()["task"]["status"] == "failed"
+    assert rejected.json()["run"]["status"] == "failed"
+    event_types = [event["type"] for event in client.get("/api/v1/events", headers=headers).json()]
+    assert event_types == [
+        "task.created",
+        "approval.requested",
+        "approval.rejected",
+        "agent_run.failed",
+    ]
+
+
+def test_duplicate_approval_decision_returns_conflict_without_duplicate_events() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Publish update", "prompt": "Publish the final update"},
+    )
+    task_id = created.json()["id"]
+    started = client.post(f"/api/v1/tasks/{task_id}/run", headers=headers).json()
+    approval_id = started["approval"]["id"]
+
+    assert client.post(
+        f"/api/v1/approvals/{approval_id}/approve", headers=headers
+    ).status_code == 200
+    duplicate = client.post(
+        f"/api/v1/approvals/{approval_id}/reject", headers=headers
+    )
+
+    assert duplicate.status_code == 409
+    event_types = [event["type"] for event in client.get("/api/v1/events", headers=headers).json()]
+    assert event_types.count("approval.approved") == 1
+    assert event_types.count("approval.rejected") == 0
+    assert event_types.count("agent_run.completed") == 1
+
+
+def test_cancel_waiting_task_expires_approval_and_blocks_late_decision() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Publish update", "prompt": "Publish the final update"},
+    )
+    task_id = created.json()["id"]
+    started = client.post(f"/api/v1/tasks/{task_id}/run", headers=headers).json()
+    run_id = started["run"]["id"]
+    approval_id = started["approval"]["id"]
+
+    cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel", headers=headers)
+    late_decision = client.post(
+        f"/api/v1/approvals/{approval_id}/approve", headers=headers
+    )
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert late_decision.status_code == 409
+    assert client.get(f"/api/v1/agent-runs/{run_id}", headers=headers).json()["status"] == "cancelled"
+    approvals = client.get("/api/v1/approvals", headers=headers).json()
+    assert approvals[0]["status"] == "expired"
+
+
 def test_tenant_isolation_hides_task() -> None:
     created = client.post(
         "/api/v1/tasks",

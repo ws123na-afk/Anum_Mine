@@ -1,26 +1,42 @@
+[build-system]
+requires = [
+  "setuptools==75.6.0",
+  "wheel==0.45.1"
+]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "anum-api"
 version = "0.1.0"
 description = "ANUM FastAPI backend foundation"
 requires-python = ">=3.11"
 dependencies = [
-  "alembic>=1.13.3",
-  "fastapi>=0.115.0",
-  "psycopg[binary]>=3.2.3",
-  "pydantic-settings>=2.5.2",
-  "sqlalchemy>=2.0.35",
-  "uvicorn[standard]>=0.30.6"
+  "alembic==1.13.3",
+  "fastapi==0.115.0",
+  "psycopg[binary]==3.2.3",
+  "pydantic-settings==2.5.2",
+  "sqlalchemy==2.0.35",
+  "uvicorn[standard]==0.30.6"
 ]
 
 [project.optional-dependencies]
 test = [
-  "httpx>=0.27.2",
-  "pytest>=8.3.3"
+  "httpx==0.27.2",
+  "pytest==8.3.3"
 ]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["anum_api*"]
+exclude = ["migrations*", "tests*"]
+
 [tool.pytest.ini_options]
+addopts = "--strict-markers"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "database: tests that require a migrated PostgreSQL database"
+]
 
 [tool.ruff]
 line-length = 100

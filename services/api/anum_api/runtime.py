@@ -67,7 +67,13 @@ class AgentRuntime:
                 )
             )
             self.repository.save_approval(approval)
-            self._record_event("approval.requested", context, approval.id, {"task_id": task.id})
+            self._record_event(
+                "approval.requested",
+                context,
+                approval.id,
+                {"task_id": task.id},
+                correlation_id=task.id,
+            )
             return run, approval
 
         task.status = TaskStatus.COMPLETED
@@ -83,7 +89,13 @@ class AgentRuntime:
                 created_at=utc_now(),
             )
         )
-        self._record_event("agent_run.completed", context, run.id, {"task_id": task.id})
+        self._record_event(
+            "agent_run.completed",
+            context,
+            run.id,
+            {"task_id": task.id},
+            correlation_id=task.id,
+        )
         return run, None
 
     async def resume_after_approval(
@@ -105,6 +117,13 @@ class AgentRuntime:
                     summary="High-risk action was not approved.",
                     created_at=utc_now(),
                 )
+            )
+            self._record_event(
+                "agent_run.failed",
+                context,
+                run.id,
+                {"task_id": task.id, "approval_id": approval.id},
+                correlation_id=task.id,
             )
             return run
 
@@ -129,7 +148,13 @@ class AgentRuntime:
                 created_at=utc_now(),
             )
         )
-        self._record_event("agent_run.completed", context, run.id, {"task_id": task.id})
+        self._record_event(
+            "agent_run.completed",
+            context,
+            run.id,
+            {"task_id": task.id, "approval_id": approval.id},
+            correlation_id=task.id,
+        )
         return run
 
     def _requires_approval(self, prompt: str) -> bool:
@@ -143,6 +168,7 @@ class AgentRuntime:
         context: TenantContext,
         subject: str,
         payload: dict[str, str],
+        correlation_id: str,
     ) -> None:
         self.repository.record_event(
             DomainEvent(
@@ -151,7 +177,7 @@ class AgentRuntime:
                 tenant_id=context.tenant_id,
                 workspace_id=context.workspace_id,
                 subject=subject,
-                correlation_id=new_id("correlation"),
+                correlation_id=correlation_id,
                 created_at=utc_now(),
                 payload=payload,
             )
