@@ -210,6 +210,7 @@ class MemoryRecord(Base, TimestampMixin, TenantScopedMixin):
     retention_policy: Mapped[str] = mapped_column(
         String(80), nullable=False, server_default="default"
     )
+    retention_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         ForeignKeyConstraint(

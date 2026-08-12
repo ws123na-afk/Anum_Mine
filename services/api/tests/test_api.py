@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from anum_api.dependencies import memory_note_repository
 from anum_api.main import app, store
 
 client = TestClient(app)
@@ -16,6 +17,7 @@ def setup_function() -> None:
     store.runs.clear()
     store.approvals.clear()
     store.events.clear()
+    memory_note_repository._notes.clear()
 
 
 def test_health() -> None:
@@ -197,3 +199,83 @@ def test_other_tenant_cannot_cancel_task() -> None:
     response = client.post(f"/api/v1/tasks/{task_id}/cancel", headers=other_headers)
 
     assert response.status_code == 404
+
+
+def test_create_list_and_delete_task_memory() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Remember", "prompt": "Keep a task note"},
+    )
+    task_id = created.json()["id"]
+
+    memory = client.post(
+        "/api/v1/memories",
+        headers=headers,
+        json={
+            "task_id": task_id,
+            "content": "The launch decision is Friday.",
+            "source_type": "user_note",
+        },
+    )
+    assert memory.status_code == 201
+    memory_id = memory.json()["id"]
+
+    listed = client.get(
+        "/api/v1/memories",
+        headers=headers,
+        params={"task_id": task_id, "query": "launch Friday"},
+    )
+    assert listed.status_code == 200
+    assert [note["id"] for note in listed.json()] == [memory_id]
+
+    deleted = client.delete(f"/api/v1/memories/{memory_id}", headers=headers)
+    assert deleted.status_code == 204
+    assert client.get("/api/v1/memories", headers=headers).json() == []
+
+
+def test_viewer_cannot_create_memory() -> None:
+    viewer_headers = dict(headers)
+    viewer_headers["x-user-roles"] = "viewer"
+    response = client.post(
+        "/api/v1/memories",
+        headers=viewer_headers,
+        json={
+            "task_id": "task_missing",
+            "content": "No write access",
+            "source_type": "user_note",
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "forbidden"
+
+
+def test_invalid_memory_retention_uses_validation_error_contract() -> None:
+    task = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Retention task", "prompt": "Remember briefly"},
+    )
+
+    response = client.post(
+        "/api/v1/memories",
+        headers={**headers, "X-Correlation-ID": "memory-request-1"},
+        json={
+            "task_id": task.json()["id"],
+            "content": "This expiry is invalid.",
+            "source_type": "user_note",
+            "retention": {
+                "kind": "expires_at",
+                "expires_at": "2000-01-01T00:00:00Z",
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.headers["X-Correlation-ID"] == "memory-request-1"
+    assert response.json()["error"] == {
+        "code": "validation_error",
+        "message": "memory expiry must be in the future",
+        "correlation_id": "memory-request-1",
+        "details": [],
+    }

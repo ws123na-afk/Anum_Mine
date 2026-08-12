@@ -1,11 +1,11 @@
 from .model_gateway import MockModelGateway
+from .events import CanonicalEventName, create_event
 from .repository import AnumRepository
 from .schemas import (
     AgentRun,
     AgentRunStep,
     Approval,
     ApprovalStatus,
-    DomainEvent,
     RiskLevel,
     Task,
     TaskStatus,
@@ -170,15 +170,11 @@ class AgentRuntime:
         payload: dict[str, str],
         correlation_id: str,
     ) -> None:
-        self.repository.record_event(
-            DomainEvent(
-                id=new_id("event"),
-                type=event_type,
-                tenant_id=context.tenant_id,
-                workspace_id=context.workspace_id,
-                subject=subject,
-                correlation_id=correlation_id,
-                created_at=utc_now(),
-                payload=payload,
-            )
+        envelope = create_event(
+            CanonicalEventName(event_type),
+            context,
+            subject,
+            payload,
+            correlation_id=correlation_id,
         )
+        self.repository.record_event(envelope.event)
