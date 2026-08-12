@@ -12,7 +12,7 @@ Phase 0 documentation is complete. Phase 1 has started with an executable founda
 - Local infrastructure composition under `infra/docker`.
 - GitHub Actions CI for web/contracts, API tests, and Docker Compose validation.
 
-The backend currently uses in-memory persistence and stub tenant headers so the task/runtime/approval flow can be exercised before PostgreSQL, RLS, Keycloak, Temporal, and NATS are fully wired.
+The backend supports in-memory development storage and request-scoped PostgreSQL persistence with row-level tenant isolation for task, runtime, approval, event, and memory flows. Stub tenant and role headers remain in place until Keycloak/OIDC membership validation is wired; Temporal and NATS are also still future boundaries.
 
 ## Target Stack
 

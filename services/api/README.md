@@ -39,7 +39,7 @@ Enable request-scoped PostgreSQL persistence after creating the tenant and works
 ANUM_REPOSITORY_BACKEND=postgresql
 ```
 
-The current Alembic baseline executes `migrations/0001_foundation.sql`, which creates the core tables, enables pgvector, and applies tenant RLS policies.
+The Alembic chain executes `migrations/0001_foundation.sql`, which creates the core tables, enables pgvector, and applies tenant RLS policies. Revision `0002_memory_retention` adds expiry metadata for durable task memory.
 
 ## Included Slice
 
@@ -48,14 +48,18 @@ The current Alembic baseline executes `migrations/0001_foundation.sql`, which cr
 - Deterministic mock model gateway.
 - Custom runtime with approval-aware state transitions.
 - Approval approve/reject endpoints.
+- Role-based authorization policy for owner, member, and viewer development claims.
+- Stable API error envelopes and request correlation IDs.
 - Tenant-scoped task lookup.
-- Repository boundary around task, run, approval, and event access.
-- In-memory and request-scoped PostgreSQL repository adapters.
-- SQLAlchemy model declarations for tenants, workspaces, tasks, runs, steps, approvals, and events.
-- Alembic baseline for the initial PostgreSQL migration with pgvector and tenant RLS policies.
+- Task-memory create, list, filter, retention, and delete flows.
+- Repository boundaries around task, run, approval, event, and memory access.
+- In-memory and request-scoped PostgreSQL repository adapters, including durable memory.
+- SQLAlchemy model declarations for tenants, workspaces, tasks, runs, steps, approvals, events, and memories.
+- Alembic migrations with pgvector, tenant RLS policies, and memory retention metadata.
+- Contracts and focused tests for canonical events, audit records, and idempotency state.
 
 ## Persistence Direction
 
-The API routes and runtime depend on an ANUM repository boundary instead of reaching directly into storage dictionaries. In-memory storage remains the local default; setting `ANUM_REPOSITORY_BACKEND=postgresql` selects the SQLAlchemy adapter, applies tenant and workspace context to one transaction per request, and commits task, run, approval, and event changes atomically.
+The API routes and runtime depend on ANUM repository boundaries instead of reaching directly into storage dictionaries. In-memory storage remains the local default; setting `ANUM_REPOSITORY_BACKEND=postgresql` selects SQLAlchemy adapters, applies tenant and workspace context to each request transaction, and durably stores task, run, approval, event, and memory changes.
 
-Temporal, NATS, Keycloak token validation, and durable object storage remain the next implementation boundaries after PostgreSQL persistence is connected.
+Keycloak token validation and persisted workspace membership remain required before the development header roles are production-safe. SQL-backed audit/idempotency records, a transactional event outbox, Temporal, NATS, and durable object storage remain subsequent implementation boundaries.
