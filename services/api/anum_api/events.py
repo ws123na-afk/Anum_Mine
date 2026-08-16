@@ -244,17 +244,28 @@ def _sanitize_value(value: Any, *, depth: int) -> JsonValue:
     raise ValueError(f"Event payload contains unsupported value type: {type(value).__name__}")
 
 
-def _is_secret_key(key: str) -> bool:
+SECRET_KEY_MARKERS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "apikey",
+    "authorization",
+    "cookie",
+    "credential",
+    "privatekey",
+)
+
+
+def is_secret_key(key: str) -> bool:
+    """Return whether a field name looks like it holds a credential.
+
+    Shared by every subsystem that redacts payloads (events, audit) so the
+    allow-list of secret markers has a single source of truth.
+    """
+
     normalized = "".join(character for character in key.casefold() if character.isalnum())
-    secret_markers = (
-        "password",
-        "passwd",
-        "secret",
-        "token",
-        "apikey",
-        "authorization",
-        "cookie",
-        "credential",
-        "privatekey",
-    )
-    return any(marker in normalized for marker in secret_markers)
+    return any(marker in normalized for marker in SECRET_KEY_MARKERS)
+
+
+_is_secret_key = is_secret_key
