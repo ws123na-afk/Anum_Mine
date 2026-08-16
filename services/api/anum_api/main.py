@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .authorization import Permission
 from .dependencies import (
+    idempotency_key_header,
     memory_repository,
     memory_repository_context,
     repository_context,
@@ -11,6 +12,7 @@ from .dependencies import (
 )
 from .errors import register_exception_handlers
 from .events import CanonicalEventName, create_event
+from .idempotency_support import run_idempotently
 from .model_gateway import MockModelGateway
 from .memory import (
     MemoryAccess,
@@ -71,31 +73,42 @@ async def create_task(
     payload: TaskCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> Task:
+    idempotency_key: str | None = Depends(idempotency_key_header),
+) -> Response:
     require_permission(context, Permission.TASK_CREATE)
-    now = utc_now()
-    task = Task(
-        id=new_id("task"),
-        title=payload.title,
-        prompt=payload.prompt,
-        status=TaskStatus.CREATED,
-        tenant_id=context.tenant_id,
-        workspace_id=context.workspace_id,
-        created_at=now,
-        updated_at=now,
-    )
-    repository.create_task(task)
-    repository.record_event(
-        create_event(
-            CanonicalEventName.TASK_CREATED,
-            context,
-            task.id,
-            {"title": task.title},
-            correlation_id=task.id,
+
+    async def _create_task() -> tuple[int, Task]:
+        now = utc_now()
+        task = Task(
+            id=new_id("task"),
+            title=payload.title,
+            prompt=payload.prompt,
+            status=TaskStatus.CREATED,
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
             created_at=now,
-        ).event
+            updated_at=now,
+        )
+        repository.create_task(task)
+        repository.record_event(
+            create_event(
+                CanonicalEventName.TASK_CREATED,
+                context,
+                task.id,
+                {"title": task.title},
+                correlation_id=task.id,
+                created_at=now,
+            ).event
+        )
+        return status.HTTP_201_CREATED, task
+
+    return await run_idempotently(
+        context=context,
+        action="task.create",
+        key=idempotency_key,
+        payload=payload,
+        execute=_create_task,
     )
-    return task
 
 
 @app.get("/api/v1/tasks/{task_id}", response_model=Task)
@@ -113,17 +126,31 @@ async def run_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> RunTaskResponse:
+    idempotency_key: str | None = Depends(idempotency_key_header),
+) -> Response:
     require_permission(context, Permission.TASK_RUN)
-    task = _get_task_for_context(task_id, context, repository, for_update=True)
-    if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
-    runtime = AgentRuntime(MockModelGateway(), repository)
-    run, approval = await runtime.run_task(task, context)
-    repository.save_task(task)
-    repository.save_run(run)
-    return RunTaskResponse(task=task, run=run, approval=approval)
+    async def _run_task() -> tuple[int, RunTaskResponse]:
+        task = _get_task_for_context(task_id, context, repository, for_update=True)
+        if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Task cannot be run from current state",
+            )
+
+        runtime = AgentRuntime(MockModelGateway(), repository)
+        run, approval = await runtime.run_task(task, context)
+        repository.save_task(task)
+        repository.save_run(run)
+        return status.HTTP_200_OK, RunTaskResponse(task=task, run=run, approval=approval)
+
+    return await run_idempotently(
+        context=context,
+        action="task.run",
+        key=idempotency_key,
+        payload={"task_id": task_id},
+        execute=_run_task,
+    )
 
 
 @app.post("/api/v1/tasks/{task_id}/cancel", response_model=Task)
@@ -131,37 +158,48 @@ async def cancel_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> Task:
+    idempotency_key: str | None = Depends(idempotency_key_header),
+) -> Response:
     require_permission(context, Permission.TASK_CANCEL)
-    task = _get_task_for_context(task_id, context, repository, for_update=True)
-    if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be cancelled")
 
-    task.status = TaskStatus.CANCELLED
-    task.updated_at = utc_now()
-    repository.save_task(task)
+    async def _cancel_task() -> tuple[int, Task]:
+        task = _get_task_for_context(task_id, context, repository, for_update=True)
+        if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be cancelled")
 
-    run = repository.find_run_for_task(task.id, context)
-    if run and run.status == TaskStatus.WAITING_APPROVAL:
-        run.status = TaskStatus.CANCELLED
-        run.updated_at = task.updated_at
-        repository.save_run(run)
+        task.status = TaskStatus.CANCELLED
+        task.updated_at = utc_now()
+        repository.save_task(task)
 
-    for approval in repository.list_approvals_for_update(context):
-        if approval.task_id == task.id and approval.status == ApprovalStatus.PENDING:
-            approval.status = ApprovalStatus.EXPIRED
-            approval.decided_at = task.updated_at
-            repository.save_approval(approval)
-    repository.record_event(
-        create_event(
-            CanonicalEventName.TASK_CANCELLED,
-            context,
-            task.id,
-            {"task_id": task.id},
-            correlation_id=task.id,
-        ).event
+        run = repository.find_run_for_task(task.id, context)
+        if run and run.status == TaskStatus.WAITING_APPROVAL:
+            run.status = TaskStatus.CANCELLED
+            run.updated_at = task.updated_at
+            repository.save_run(run)
+
+        for approval in repository.list_approvals_for_update(context):
+            if approval.task_id == task.id and approval.status == ApprovalStatus.PENDING:
+                approval.status = ApprovalStatus.EXPIRED
+                approval.decided_at = task.updated_at
+                repository.save_approval(approval)
+        repository.record_event(
+            create_event(
+                CanonicalEventName.TASK_CANCELLED,
+                context,
+                task.id,
+                {"task_id": task.id},
+                correlation_id=task.id,
+            ).event
+        )
+        return status.HTTP_200_OK, task
+
+    return await run_idempotently(
+        context=context,
+        action="task.cancel",
+        key=idempotency_key,
+        payload={"task_id": task_id},
+        execute=_cancel_task,
     )
-    return task
 
 
 @app.get("/api/v1/agent-runs/{run_id}", response_model=AgentRun)
@@ -201,17 +239,26 @@ async def create_memory(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
     memories: MemoryRepository = Depends(memory_repository_context),
-) -> MemoryNote:
+    idempotency_key: str | None = Depends(idempotency_key_header),
+) -> Response:
     require_permission(context, Permission.MEMORY_CREATE)
-    if repository.get_task(payload.task_id, context) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    try:
-        return MemoryService(memories).create(context, payload)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=str(exc),
-        ) from exc
+
+    async def _create_memory() -> tuple[int, MemoryNote]:
+        if repository.get_task(payload.task_id, context) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        try:
+            note = MemoryService(memories).create(context, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return status.HTTP_201_CREATED, note
+
+    return await run_idempotently(
+        context=context,
+        action="memory.create",
+        key=idempotency_key,
+        payload=payload,
+        execute=_create_memory,
+    )
 
 
 @app.get("/api/v1/memories", response_model=list[MemoryNote])
@@ -241,19 +288,30 @@ async def delete_memory(
     memory_id: str,
     context: TenantContext = Depends(tenant_context),
     memories: MemoryRepository = Depends(memory_repository_context),
+    idempotency_key: str | None = Depends(idempotency_key_header),
 ) -> Response:
     require_permission(context, Permission.MEMORY_DELETE)
-    deleted = MemoryService(memories).delete(
-        context,
-        memory_id,
-        MemoryAccess(
-            can_read_all_workspace_tasks=True,
-            can_delete_any="owner" in {role.lower() for role in context.roles},
-        ),
+
+    async def _delete_memory() -> tuple[int, None]:
+        deleted = MemoryService(memories).delete(
+            context,
+            memory_id,
+            MemoryAccess(
+                can_read_all_workspace_tasks=True,
+                can_delete_any="owner" in {role.lower() for role in context.roles},
+            ),
+        )
+        if not deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+        return status.HTTP_204_NO_CONTENT, None
+
+    return await run_idempotently(
+        context=context,
+        action="memory.delete",
+        key=idempotency_key,
+        payload={"memory_id": memory_id},
+        execute=_delete_memory,
     )
-    if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/api/v1/approvals/{approval_id}/approve", response_model=ApprovalDecisionResponse)
@@ -261,9 +319,18 @@ async def approve(
     approval_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> ApprovalDecisionResponse:
+    idempotency_key: str | None = Depends(idempotency_key_header),
+) -> Response:
     require_permission(context, Permission.APPROVAL_DECIDE)
-    return await _decide_approval(approval_id, ApprovalStatus.APPROVED, context, repository)
+    return await run_idempotently(
+        context=context,
+        action="approval.approve",
+        key=idempotency_key,
+        payload={"approval_id": approval_id},
+        execute=lambda: _decide_approval(
+            approval_id, ApprovalStatus.APPROVED, context, repository
+        ),
+    )
 
 
 @app.post("/api/v1/approvals/{approval_id}/reject", response_model=ApprovalDecisionResponse)
@@ -271,9 +338,18 @@ async def reject(
     approval_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> ApprovalDecisionResponse:
+    idempotency_key: str | None = Depends(idempotency_key_header),
+) -> Response:
     require_permission(context, Permission.APPROVAL_DECIDE)
-    return await _decide_approval(approval_id, ApprovalStatus.REJECTED, context, repository)
+    return await run_idempotently(
+        context=context,
+        action="approval.reject",
+        key=idempotency_key,
+        payload={"approval_id": approval_id},
+        execute=lambda: _decide_approval(
+            approval_id, ApprovalStatus.REJECTED, context, repository
+        ),
+    )
 
 
 def _get_task_for_context(
@@ -298,7 +374,7 @@ async def _decide_approval(
     decision: ApprovalStatus,
     context: TenantContext,
     repository: AnumRepository,
-) -> ApprovalDecisionResponse:
+) -> tuple[int, ApprovalDecisionResponse]:
     approval = repository.get_approval(approval_id, context)
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
@@ -333,4 +409,4 @@ async def _decide_approval(
     repository.save_task(task)
     if resumed_run:
         repository.save_run(resumed_run)
-    return ApprovalDecisionResponse(approval=approval, task=task, run=resumed_run)
+    return status.HTTP_200_OK, ApprovalDecisionResponse(approval=approval, task=task, run=resumed_run)
