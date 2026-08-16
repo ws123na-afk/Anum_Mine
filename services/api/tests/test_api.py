@@ -279,3 +279,21 @@ def test_invalid_memory_retention_uses_validation_error_contract() -> None:
         "correlation_id": "memory-request-1",
         "details": [],
     }
+
+
+def test_unmatched_route_uses_error_envelope() -> None:
+    response = client.get("/api/v1/does-not-exist", headers=headers)
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["error"]["code"] == "not_found"
+    assert body["error"]["correlation_id"]
+
+
+def test_wrong_method_uses_error_envelope() -> None:
+    response = client.delete("/api/v1/tasks", headers=headers)
+
+    assert response.status_code == 405
+    body = response.json()
+    assert body["error"]["code"] == "bad_request"
+    assert body["error"]["correlation_id"]
