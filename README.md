@@ -4,15 +4,16 @@ ANUM is a monorepo for a personal and organizational AI operating layer: a secur
 
 ## Current Status
 
-Phase 0 documentation is complete. Phase 1 has started with an executable foundation:
+Phase 0 documentation is complete. Phase 1 has an executable foundation with a working dashboard, real identity, and a deployable stack:
 
-- FastAPI backend service under `services/api`.
-- React+TypeScript+Vite web app under `apps/web`.
+- FastAPI backend service under `services/api`: task/approval/memory/event APIs, idempotency support, rate limiting, and security headers.
+- React+TypeScript+Vite web app under `apps/web`: a dashboard covering Tasks, Agent activity, Approvals, Memory, and Settings, with a Vitest + Testing Library suite.
 - Shared TypeScript contracts under `packages/contracts`.
-- Local infrastructure composition under `infra/docker`.
+- Local infrastructure composition under `infra/docker`, including a Keycloak realm with the claim mappers Phase 1 identity needs.
+- Production Dockerfiles for both the API and web app, a CI workflow publishing images to GHCR, and Fly.io deploy configs (`services/api/fly.toml`, `fly.web.toml`, `infra/fly/`) — see [Deployment](docs/deployment.md).
 - GitHub Actions CI for web/contracts, API tests, and Docker Compose validation.
 
-The backend supports in-memory development storage and request-scoped PostgreSQL persistence with row-level tenant isolation for task, runtime, approval, event, and memory flows. Stub tenant and role headers remain in place until Keycloak/OIDC membership validation is wired; Temporal and NATS are also still future boundaries.
+The backend supports in-memory development storage and request-scoped PostgreSQL persistence with row-level tenant isolation for task, runtime, approval, event, and memory flows. Identity has two modes, selected by `ANUM_AUTH_MODE` (backend) / `VITE_ANUM_AUTH_MODE` (frontend build-time): the original stub tenant/role headers (`stub_headers`, still the default — nothing changes unless you opt in), or real Keycloak/OIDC login with Authorization Code + PKCE (`oidc`) — see [Tenant Headers for Phase 1](#tenant-headers-for-phase-1) below. Temporal and NATS are still future boundaries.
 
 ## Target Stack
 
@@ -35,6 +36,7 @@ Install web dependencies and run checks:
 pnpm install
 pnpm check
 pnpm build
+pnpm --filter @anum/web test
 ```
 
 Run the API:
@@ -43,17 +45,20 @@ Run the API:
 cd services/api
 python -m pip install -e .[test]
 uvicorn anum_api.main:app --reload --port 8000
+python -m pytest -m "not database"
 ```
 
-Run local infrastructure:
+Run local infrastructure — Postgres, Keycloak (with the dev realm auto-imported), and, once you've built the images, the API and web app themselves:
 
 ```bash
 docker compose -f infra/docker/compose.yaml up
 ```
 
+To build and run the API/web app as containers instead of via `pnpm dev`/`uvicorn --reload`, or to deploy either one somewhere real, see [Deployment](docs/deployment.md).
+
 ## Tenant Headers for Phase 1
 
-Until OIDC is implemented, API routes require explicit development headers:
+By default (`ANUM_AUTH_MODE=stub_headers`, unset is the same thing), API routes trust explicit development headers with no verification — convenient for local work, not for anything reachable outside your own machine:
 
 ```text
 x-tenant-id: tenant_local
@@ -61,6 +66,8 @@ x-workspace-id: workspace_foundation
 x-user-id: user_local
 x-user-roles: owner,member
 ```
+
+Set `ANUM_AUTH_MODE=oidc` on the API and `VITE_ANUM_AUTH_MODE=oidc` (plus `VITE_ANUM_KEYCLOAK_URL`/`VITE_ANUM_KEYCLOAK_REALM`/`VITE_ANUM_KEYCLOAK_CLIENT_ID`, build-time) on the web app to switch to real Keycloak login instead — the stub headers stop working entirely once that's on. `infra/docker/keycloak/` has a ready-to-import dev/test realm with the claim mappers this expects; see `infra/docker/keycloak/README.md` for how to sign in against it.
 
 ## Documentation Index
 
@@ -84,6 +91,7 @@ x-user-roles: owner,member
 - [Desktop](docs/desktop.md)
 - [Android](docs/android.md)
 - [Infrastructure](docs/infrastructure.md)
+- [Deployment](docs/deployment.md)
 - [Observability](docs/observability.md)
 - [Development standards](docs/development-standards.md)
 - [Repository structure](docs/repository-structure.md)
