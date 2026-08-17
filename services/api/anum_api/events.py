@@ -224,7 +224,7 @@ def _sanitize_mapping(payload: Mapping[str, Any], *, depth: int) -> dict[str, Js
     for key, value in payload.items():
         if not isinstance(key, str) or not key:
             raise ValueError("Event payload keys must be non-empty strings")
-        clean[key] = REDACTED if _is_secret_key(key) else _sanitize_value(value, depth=depth + 1)
+        clean[key] = REDACTED if is_secret_key(key) else _sanitize_value(value, depth=depth + 1)
     return clean
 
 
@@ -266,6 +266,3 @@ def is_secret_key(key: str) -> bool:
 
     normalized = "".join(character for character in key.casefold() if character.isalnum())
     return any(marker in normalized for marker in SECRET_KEY_MARKERS)
-
-
-_is_secret_key = is_secret_key

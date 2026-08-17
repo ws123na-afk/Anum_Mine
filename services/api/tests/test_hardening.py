@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from anum_api.rate_limit import RateLimitMiddleware
+from anum_api.request_context import CorrelationIdMiddleware
 from anum_api.security_headers import SecurityHeadersMiddleware
 
 
@@ -130,3 +131,29 @@ def test_default_app_has_rate_limiting_disabled_and_security_headers_enabled() -
     # tripping a limit unless a test explicitly enables one.
     for _ in range(50):
         assert client.get("/health").status_code == 200
+
+
+def test_429_correlation_id_matches_header_and_body_when_stacked_with_correlation_middleware() -> None:
+    """Regression test: RateLimitMiddleware must reuse the correlation ID
+    CorrelationIdMiddleware already put on the request, not mint its own -
+    otherwise the 429 body and the X-Correlation-ID header disagree.
+    Registered in the same relative order main.py uses (CorrelationId
+    added after RateLimit, so it wraps it and runs first on the request).
+    """
+
+    app = FastAPI()
+
+    @app.get("/ping")
+    def ping() -> dict[str, str]:
+        return {"status": "ok"}
+
+    app.add_middleware(RateLimitMiddleware, limit=1, window_seconds=60)
+    app.add_middleware(CorrelationIdMiddleware)
+    client = TestClient(app)
+
+    client.get("/ping")
+    blocked = client.get("/ping", headers={"X-Correlation-ID": "corr_client_supplied"})
+
+    assert blocked.status_code == 429
+    assert blocked.headers["X-Correlation-ID"] == "corr_client_supplied"
+    assert blocked.json()["error"]["correlation_id"] == "corr_client_supplied"

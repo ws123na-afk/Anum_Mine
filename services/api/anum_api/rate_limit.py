@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from .errors import ErrorCode
-from .request_context import CORRELATION_ID_HEADER, correlation_id_from_request
+from .request_context import CORRELATION_ID_HEADER, correlation_id_from_request, get_correlation_id
 
 
 class _FixedWindowCounter:
@@ -88,7 +88,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         allowed, retry_after = self._counter.hit(key)
 
         if not allowed:
-            correlation_id = correlation_id_from_request(request)
+            # Reuse the correlation ID CorrelationIdMiddleware already put on
+            # this request (so the 429 body and the X-Correlation-ID header
+            # agree - main.py always registers CorrelationIdMiddleware
+            # around this one). Fall back to minting a fresh one when this
+            # middleware is used standalone, e.g. in its own unit tests,
+            # where no CorrelationIdMiddleware ran first.
+            try:
+                correlation_id = get_correlation_id(request)
+            except RuntimeError:
+                correlation_id = correlation_id_from_request(request)
             return JSONResponse(
                 status_code=429,
                 content={
