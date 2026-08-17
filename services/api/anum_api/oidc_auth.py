@@ -15,23 +15,30 @@ JSON Web Key Set (JWKS), and checking its standard claims (`iss`, `aud`,
   JWKS — is fully testable with a locally generated RSA keypair and is
   the part of OIDC that actually protects API requests.
 
-CLAIM-NAME ASSUMPTIONS (NOT YET CONFIRMED):
-There is no real Keycloak realm/client configured for ANUM yet, so the
-mapping from OIDC claims to `TenantContext` fields below is a reasonable
-placeholder, not a contract:
+CLAIM-NAME MAPPING:
+The mapping from OIDC claims to `TenantContext` fields below matches
+`infra/docker/keycloak/anum-realm.json`, a local dev/test Keycloak realm
+whose protocol mappers are configured to produce exactly these claim
+names (see `infra/docker/keycloak/README.md`; confirmed end-to-end,
+without needing a live Keycloak, by
+`services/api/tests/test_oidc_realm_config.py`, which builds a token from
+that realm file's own seeded users and checks it resolves correctly):
 
   - `sub`            -> TenantContext.user_id   (standard OIDC claim)
-  - `tenant_id`       -> TenantContext.tenant_id  (assumed custom claim,
-                          e.g. via a Keycloak protocol mapper)
-  - `workspace_id`    -> TenantContext.workspace_id (assumed custom claim)
-  - `roles`           -> TenantContext.roles (assumed custom claim, a list
-                          of strings; Keycloak's default role claims live
-                          under `realm_access.roles` / `resource_access.*.roles`
-                          instead, so this will very likely need to change
-                          once the actual realm/client mappers exist)
+  - `tenant_id`       -> TenantContext.tenant_id  (custom claim, from a
+                          `tenant_id` user attribute via a protocol mapper)
+  - `workspace_id`    -> TenantContext.workspace_id (same pattern)
+  - `roles`           -> TenantContext.roles (a list of strings; mapped
+                          from the user's realm roles with `claim.name`
+                          explicitly set to `roles` — Keycloak's default
+                          role mapper instead nests these under
+                          `realm_access.roles` / `resource_access.*.roles`,
+                          so this is a deliberate override, not the default)
 
-These names MUST be finalized once the real Keycloak realm and client are
-configured, in coordination with whoever wires this dependency into routes.
+A **production** Keycloak realm is a separate thing to provision — this
+dev realm's seeded users/passwords must never be reused there — but it
+would need the same mapper `claim.name`s configured to work with this
+module unchanged.
 """
 
 from __future__ import annotations

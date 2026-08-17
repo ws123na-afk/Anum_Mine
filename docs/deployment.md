@@ -73,7 +73,7 @@ Ports:
 | `web` (nginx) | `8081` | **Not** `5173` — `5173` is reserved for the separate `pnpm dev` Vite dev server, so the two never collide or get confused with each other. |
 | `api` | `8000` | Same port whether run via compose or via `uvicorn --reload` directly. |
 | `postgres` | `5432` | `anum` / `anum` / db `anum`. |
-| `keycloak` | `8080` | Bare `start-dev` instance, no realm provisioned (see [What's NOT production-ready yet](#whats-not-production-ready-yet-and-why)). |
+| `keycloak` | `8080` | Auto-imports the `anum` dev/test realm from `infra/docker/keycloak/anum-realm.json` — see `infra/docker/keycloak/README.md` to fetch a test token. Local dev/test only, not production (see [What's NOT production-ready yet](#whats-not-production-ready-yet-and-why)). |
 
 - Reach the web UI at `http://localhost:8081`.
 - Reach the API directly at `http://localhost:8000` (e.g.
@@ -164,18 +164,23 @@ internet without addressing all of the following:
   decision — it is not fine for anything reachable outside a trusted
   developer's own machine.
 
-- **Switching to OIDC is not a one-variable change.** Setting
-  `ANUM_AUTH_MODE=oidc` makes the API validate bearer tokens against a
-  JWKS, but that alone does nothing useful unless a real Keycloak realm
-  exists with a client and, critically, claim mappers that populate
-  `tenant_id`, `workspace_id`, and `roles` claims on issued tokens in the
-  shape the API expects. Nothing in this repository provisions that
-  automatically: `infra/docker/compose.yaml`'s `keycloak` service starts a
-  bare `start-dev` Keycloak instance with no realm, client, or mappers
-  configured. Someone has to provision the realm/client/mappers (by hand,
-  via the Keycloak admin console/API, or via a future OpenTofu module) and
-  set `ANUM_OIDC_AUDIENCE` / `ANUM_KEYCLOAK_ISSUER` / `ANUM_OIDC_JWKS_URL`
-  to match before OIDC mode is actually usable, let alone secure. See
+- **OIDC has a working dev/test realm now, but not a production one.**
+  `infra/docker/compose.yaml`'s `keycloak` service auto-imports
+  `infra/docker/keycloak/anum-realm.json` on startup: a realm with a
+  client and claim mappers that populate `tenant_id`, `workspace_id`, and
+  `roles` on issued tokens in exactly the shape the API expects (see
+  `infra/docker/keycloak/README.md` for how to fetch a token from it with
+  `curl`, and `services/api/tests/test_oidc_realm_config.py`, which
+  confirms the mapper shape against the actual code without needing a
+  live Keycloak). Setting `ANUM_AUTH_MODE=oidc` against that local realm
+  now genuinely works end-to-end.
+
+  That realm is explicitly **local dev/test only** — seeded users have
+  plaintext, well-known passwords and `sslRequired: none`. A production
+  deployment needs its own realm/client/mappers provisioned separately
+  (by hand, via the Keycloak admin console/API, or a future OpenTofu
+  module), with `ANUM_OIDC_AUDIENCE` / `ANUM_KEYCLOAK_ISSUER` /
+  `ANUM_OIDC_JWKS_URL` pointed at it. See
   [Security → Identity](security.md#identity) for the target design.
 
 - **No rate limiting.** There is no request throttling, brute-force

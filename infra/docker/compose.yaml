@@ -46,12 +46,20 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
-    command: ["start-dev"]
+    # --import-realm loads infra/docker/keycloak/anum-realm.json on startup:
+    # an "anum" realm with tenant_id/workspace_id/roles claim mappers already
+    # configured, matching what services/api/anum_api/oidc_auth.py expects.
+    # See infra/docker/keycloak/README.md for how to get a test token from
+    # it. This realm is for local dev/testing ONLY (plaintext seeded
+    # passwords, sslRequired: none) - never reuse it in production.
+    command: ["start-dev", "--import-realm"]
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
     ports:
       - "8080:8080"
+    volumes:
+      - ./keycloak/anum-realm.json:/opt/keycloak/data/import/anum-realm.json:ro
 
   minio:
     image: minio/minio:RELEASE.2024-09-13T20-26-02Z
