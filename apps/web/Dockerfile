@@ -54,6 +54,23 @@ RUN pnpm install --frozen-lockfile=false
 ARG VITE_ANUM_API_URL=""
 ENV VITE_ANUM_API_URL=${VITE_ANUM_API_URL}
 
+# Same build-time-inlining rule applies to the OIDC login config (see
+# apps/web/src/lib/auth.ts). All four default to the stub-header dev flow
+# (VITE_ANUM_AUTH_MODE unset/anything but "oidc") if left unset - only
+# override these together, for a real Keycloak-backed deployment:
+#   --build-arg VITE_ANUM_AUTH_MODE=oidc
+#   --build-arg VITE_ANUM_KEYCLOAK_URL=https://your-keycloak-host
+#   --build-arg VITE_ANUM_KEYCLOAK_REALM=anum
+#   --build-arg VITE_ANUM_KEYCLOAK_CLIENT_ID=anum-web
+ARG VITE_ANUM_AUTH_MODE=""
+ARG VITE_ANUM_KEYCLOAK_URL=""
+ARG VITE_ANUM_KEYCLOAK_REALM=""
+ARG VITE_ANUM_KEYCLOAK_CLIENT_ID=""
+ENV VITE_ANUM_AUTH_MODE=${VITE_ANUM_AUTH_MODE}
+ENV VITE_ANUM_KEYCLOAK_URL=${VITE_ANUM_KEYCLOAK_URL}
+ENV VITE_ANUM_KEYCLOAK_REALM=${VITE_ANUM_KEYCLOAK_REALM}
+ENV VITE_ANUM_KEYCLOAK_CLIENT_ID=${VITE_ANUM_KEYCLOAK_CLIENT_ID}
+
 # @anum/contracts must be built before apps/web, since apps/web imports its
 # compiled output (see packages/contracts/package.json "main"/"exports" and
 # the root package.json "build" script, which orders it the same way).

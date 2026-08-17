@@ -25,6 +25,16 @@ env:
   # PRODUCTION_API_URL repo variable (Settings -> Secrets and variables ->
   # Actions -> Variables) to override this default if it ever changes.
   VITE_ANUM_API_URL: ${{ vars.PRODUCTION_API_URL || 'https://anum-api.fly.dev' }}
+  # Real OIDC login (apps/web/src/lib/auth.ts) is opt-in at build time and
+  # OFF by default here too - these repo variables are unset until a
+  # maintainer sets them (Settings -> Secrets and variables -> Actions ->
+  # Variables), matching infra/fly/README.md's Keycloak-on-Fly runbook.
+  # Empty/unset flows through to the Dockerfile's own ARG defaults, which
+  # keep the stub-header dev flow active.
+  VITE_ANUM_AUTH_MODE: ${{ vars.PRODUCTION_AUTH_MODE }}
+  VITE_ANUM_KEYCLOAK_URL: ${{ vars.PRODUCTION_KEYCLOAK_URL }}
+  VITE_ANUM_KEYCLOAK_REALM: ${{ vars.PRODUCTION_KEYCLOAK_REALM }}
+  VITE_ANUM_KEYCLOAK_CLIENT_ID: ${{ vars.PRODUCTION_KEYCLOAK_CLIENT_ID }}
 
 permissions:
   contents: read
@@ -62,6 +72,12 @@ jobs:
         # Build context is the repo root (not apps/web), since the web
         # image needs the pnpm workspace root, matching fly.web.toml's
         # build-context convention.
-        run: flyctl deploy --config fly.web.toml --remote-only --build-arg VITE_ANUM_API_URL=${{ env.VITE_ANUM_API_URL }}
+        run: |
+          flyctl deploy --config fly.web.toml --remote-only \
+            --build-arg VITE_ANUM_API_URL="${{ env.VITE_ANUM_API_URL }}" \
+            --build-arg VITE_ANUM_AUTH_MODE="${{ env.VITE_ANUM_AUTH_MODE }}" \
+            --build-arg VITE_ANUM_KEYCLOAK_URL="${{ env.VITE_ANUM_KEYCLOAK_URL }}" \
+            --build-arg VITE_ANUM_KEYCLOAK_REALM="${{ env.VITE_ANUM_KEYCLOAK_REALM }}" \
+            --build-arg VITE_ANUM_KEYCLOAK_CLIENT_ID="${{ env.VITE_ANUM_KEYCLOAK_CLIENT_ID }}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

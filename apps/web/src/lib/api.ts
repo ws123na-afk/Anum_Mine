@@ -1,4 +1,5 @@
 import type { AgentRun, Approval, DomainEvent, TenantContext, Task } from '@anum/contracts';
+import { getTenantContext, getValidToken, isOidcEnabled } from './auth';
 
 const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
@@ -8,6 +9,17 @@ export const defaultTenantContext: TenantContext = {
   userId: 'user_local',
   roles: ['owner', 'member'],
 };
+
+/**
+ * The identity to display/use for the current session: real token claims
+ * when OIDC login is active, otherwise the stub dev identity. See
+ * lib/auth.ts's getTenantContext() docstring - this is for display/routing
+ * purposes only, not a trust boundary; the API independently derives and
+ * enforces its own TenantContext from the validated token server-side.
+ */
+export function currentTenantContext(): TenantContext {
+  return getTenantContext() ?? defaultTenantContext;
+}
 
 export interface ApiTask {
   id: string;
@@ -290,15 +302,32 @@ interface ErrorEnvelope {
   error: { code: string; message: string; correlation_id: string };
 }
 
+async function authHeaders(): Promise<Record<string, string>> {
+  if (isOidcEnabled) {
+    // Mirrors the backend: while OIDC mode is active, only a validated
+    // Bearer token is trusted - the stub headers below are not sent, so
+    // there's no ambiguity about which identity a request is using (see
+    // anum_api.dependencies.tenant_context's own "ignore stub headers
+    // entirely in oidc mode" behavior, and its test coverage for exactly
+    // this case).
+    const token = await getValidToken();
+    return token ? { authorization: `Bearer ${token}` } : {};
+  }
+
+  return {
+    'x-tenant-id': defaultTenantContext.tenantId,
+    'x-workspace-id': defaultTenantContext.workspaceId,
+    'x-user-id': defaultTenantContext.userId,
+    'x-user-roles': defaultTenantContext.roles.join(','),
+  };
+}
+
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
-      'x-tenant-id': defaultTenantContext.tenantId,
-      'x-workspace-id': defaultTenantContext.workspaceId,
-      'x-user-id': defaultTenantContext.userId,
-      'x-user-roles': defaultTenantContext.roles.join(','),
+      ...(await authHeaders()),
       ...init.headers,
     },
   });

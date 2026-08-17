@@ -141,12 +141,15 @@ today (via `pydantic-settings`, prefix `ANUM_`, optionally from a
 | `rate_limit_trust_forwarded_for` | `ANUM_RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` | Key the rate limiter by `X-Forwarded-For` instead of the raw connection IP. Only safe behind a trusted reverse proxy. |
 | `security_headers_hsts_enabled` | `ANUM_SECURITY_HEADERS_HSTS_ENABLED` | `false` | Adds `Strict-Transport-Security` to every response. Only enable once served over HTTPS end-to-end. |
 
-Additionally, `apps/web/Dockerfile` reads one build-time (not runtime)
-variable:
+Additionally, `apps/web/Dockerfile` reads these build-time (not runtime)
+variables — Vite inlines them into the static bundle when it builds, so
+changing any of them requires a rebuild, not a restart:
 
 | Variable | Where it's set | Purpose |
 | --- | --- | --- |
-| `VITE_ANUM_API_URL` | Docker build `ARG` | Base URL the web app's JS calls out to. Baked into the static bundle at build time; changing it requires a rebuild. |
+| `VITE_ANUM_API_URL` | Docker build `ARG` | Base URL the web app's JS calls out to. |
+| `VITE_ANUM_AUTH_MODE` | Docker build `ARG` | `oidc` opts into real Keycloak login (Authorization Code + PKCE, via `apps/web/src/lib/auth.ts`); unset/anything else keeps the stub-header dev flow the app has always used. Mirrors the API's own `ANUM_AUTH_MODE` — set both together. |
+| `VITE_ANUM_KEYCLOAK_URL` / `VITE_ANUM_KEYCLOAK_REALM` / `VITE_ANUM_KEYCLOAK_CLIENT_ID` | Docker build `ARG` | Only read when `VITE_ANUM_AUTH_MODE=oidc`. Point these at the same Keycloak realm the API's `ANUM_KEYCLOAK_ISSUER` validates tokens against (client id defaults to `anum-web`, the client both the dev and production realm configs define — see `infra/docker/keycloak/`). |
 
 [`.env.production.example`](../.env.production.example) (repo root) is a
 filled-in-the-blanks template covering exactly these settings for a real
@@ -186,11 +189,14 @@ internet until every item here is actually done, not just available:
   For production, use `infra/docker/keycloak/anum-realm.production-template.json`
   (see `infra/docker/keycloak/README.md#production`): same claim-mapper
   shape, zero seeded users. It still needs, from you: a real Keycloak (or
-  other OIDC IdP) instance, users provisioned through it, and — if real
-  end users need to log in through a browser rather than a token minted
-  some other way — an actual Authorization Code + PKCE login flow built
-  into `apps/web`, which does not exist yet (the dev realm's password
-  grant is a testing convenience, not a login UI).
+  other OIDC IdP) instance and users provisioned through it. The
+  browser login flow itself is now built — `apps/web` implements real
+  Authorization Code + PKCE login via `keycloak-js` (see
+  `apps/web/src/lib/auth.ts`), opt-in at build time through
+  `VITE_ANUM_AUTH_MODE=oidc` (see the build-time variables table above).
+  Set that alongside `ANUM_AUTH_MODE=oidc` on the API — the frontend and
+  backend auth modes are independent build/runtime switches and need to
+  be turned on together for a coherent deployment.
 
 - **Set `ANUM_REPOSITORY_BACKEND=postgresql` and a real `ANUM_DATABASE_URL`.**
   It defaults to `memory` — an in-process store with no persistence.

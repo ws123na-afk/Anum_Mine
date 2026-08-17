@@ -1,5 +1,6 @@
 import type { TenantContext } from '@anum/contracts';
-import { Boxes, Info, KeyRound, PlugZap, Server } from 'lucide-react';
+import { Boxes, Info, KeyRound, LogOut, PlugZap, Server } from 'lucide-react';
+import { isOidcEnabled, logout } from '../lib/auth';
 
 const API_BASE_URL = (import.meta.env.VITE_ANUM_API_URL as string | undefined) ?? 'http://localhost:8000';
 
@@ -67,9 +68,22 @@ export default function SettingsView({ tenantContext }: { tenantContext: TenantC
           <div style={{ flex: '1 1 auto' }}>
             <h3 id="settings-identity-heading">Identity &amp; tenant</h3>
             <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-1)' }}>
-              ANUM Phase 1 uses stub <code>x-tenant-id</code> / <code>x-workspace-id</code> / <code>x-user-id</code> /{' '}
-              <code>x-user-roles</code> request headers to establish identity — there is no Keycloak/OIDC login yet.
-              Real membership validation is planned but not wired in.
+              {isOidcEnabled ? (
+                <>
+                  Signed in via Keycloak (OIDC) — this identity comes from your validated access
+                  token&apos;s <code>tenant_id</code> / <code>workspace_id</code> / <code>sub</code> /{' '}
+                  <code>roles</code> claims, the same claims the API independently validates
+                  server-side (see <code>anum_api/oidc_auth.py</code>). This panel is a read-only
+                  display of that token, not a separate source of truth.
+                </>
+              ) : (
+                <>
+                  ANUM Phase 1 uses stub <code>x-tenant-id</code> / <code>x-workspace-id</code> /{' '}
+                  <code>x-user-id</code> / <code>x-user-roles</code> request headers to establish
+                  identity — there is no verification on this deployment. Set{' '}
+                  <code>VITE_ANUM_AUTH_MODE=oidc</code> (build-time) to switch to real Keycloak login.
+                </>
+              )}
             </p>
 
             <dl style={{ margin: 'var(--space-4) 0 0' }}>
@@ -78,6 +92,14 @@ export default function SettingsView({ tenantContext }: { tenantContext: TenantC
               <IdentityRow label="User ID" value={tenantContext.userId} />
               <IdentityRow label="Roles" value={tenantContext.roles.join(', ') || '(none)'} />
             </dl>
+
+            {isOidcEnabled && (
+              <div className="actions" style={{ marginTop: 'var(--space-4)' }}>
+                <button type="button" className="secondary" onClick={() => logout()}>
+                  <LogOut size={16} aria-hidden="true" /> Sign out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </section>

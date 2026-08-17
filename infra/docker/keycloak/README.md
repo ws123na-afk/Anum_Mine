@@ -63,6 +63,13 @@ curl http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Or exercise the real browser login flow: run the web app with
+`VITE_ANUM_AUTH_MODE=oidc` (plus `VITE_ANUM_KEYCLOAK_URL=http://localhost:8080`,
+`VITE_ANUM_KEYCLOAK_REALM=anum`, `VITE_ANUM_KEYCLOAK_CLIENT_ID=anum-web` — see
+`apps/web/src/lib/auth.ts`) and sign in as `user_local` when redirected to
+Keycloak. This exercises the actual Authorization Code + PKCE flow
+end-to-end, not just token validation.
+
 ## Production
 
 `anum-realm.production-template.json` in this directory defines the same
@@ -71,13 +78,14 @@ but with **zero seeded users** — production credentials must never live in
 source control. It is a template, not a ready-to-import file:
 
 1. Edit `redirectUris` / `webOrigins` to your real web app's origin.
-2. Decide how users will actually log in. The template keeps `anum-web` as
-   a public client with `directAccessGrantsEnabled: false` (the password
-   grant is fine for local `curl` testing, not for production) but ships
-   with no login UI wired up anywhere in `apps/web` — building that (an
-   Authorization Code + PKCE flow) is separate frontend work not done yet.
-   Alternatively, swap `anum-web` for a confidential client if tokens will
-   be issued by a backend service instead of a browser.
+2. The template keeps `anum-web` as a public client with
+   `directAccessGrantsEnabled: false` and `pkce.code.challenge.method: S256`
+   enforced — matching what `apps/web`'s real Authorization Code + PKCE
+   login flow (`apps/web/src/lib/auth.ts`, opt-in via
+   `VITE_ANUM_AUTH_MODE=oidc`) actually uses; no further client-type
+   decision is needed unless tokens will instead be issued to a backend
+   service rather than a browser, in which case swap `anum-web` for a
+   confidential client.
 3. Remove the `_comment` fields (informational only, not real Keycloak
    config) before importing.
 4. Import via the Keycloak Admin REST API or `kc.sh import`, then create

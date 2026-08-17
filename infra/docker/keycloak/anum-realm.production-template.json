@@ -26,7 +26,7 @@
       "enabled": true
     },
     {
-      "_comment": "publicClient/directAccessGrantsEnabled here mirror the dev realm for continuity. For a real user-facing login, replace this with a confidential client using the Authorization Code flow (publicClient: false, a real client secret from your secret store, standardFlowEnabled: true, directAccessGrantsEnabled: false) and build the actual login redirect in apps/web - none of that exists in this repo yet.",
+      "_comment": "apps/web/src/lib/auth.ts implements a real Authorization Code + PKCE login against exactly this client shape (publicClient: true, no client secret - PKCE is what secures a public SPA client instead) via keycloak-js, gated behind VITE_ANUM_AUTH_MODE=oidc. pkce.code.challenge.method is enforced below so a client secret is never needed or expected. directAccessGrantsEnabled stays false here (unlike the dev realm) - the password grant is a local curl-testing convenience, not something a production client should expose.",
       "clientId": "anum-web",
       "name": "ANUM web app",
       "protocol": "openid-connect",
@@ -35,6 +35,9 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "enabled": true,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
       "redirectUris": ["REPLACE_WITH_YOUR_WEB_APP_URL/*"],
       "webOrigins": ["REPLACE_WITH_YOUR_WEB_APP_URL"],
       "protocolMappers": [

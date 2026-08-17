@@ -49,6 +49,27 @@ primary_region = "iad"
     # calls the wrong API host until the next rebuild.
     VITE_ANUM_API_URL = "https://anum-api.fly.dev"
 
+    # Real OIDC login (see apps/web/src/lib/auth.ts) is also opt-in at
+    # build time, same rule as above: left unset, the web app stays on the
+    # stub-header dev flow it's always used. To ship a build with real
+    # Keycloak login, set all four together and redeploy - point
+    # VITE_ANUM_KEYCLOAK_URL at wherever anum-keycloak ends up (see
+    # infra/fly/keycloak.fly.toml and infra/fly/README.md):
+    #
+    #     fly deploy --config fly.web.toml \
+    #       --build-arg VITE_ANUM_AUTH_MODE=oidc \
+    #       --build-arg VITE_ANUM_KEYCLOAK_URL=https://anum-keycloak.fly.dev \
+    #       --build-arg VITE_ANUM_KEYCLOAK_REALM=anum \
+    #       --build-arg VITE_ANUM_KEYCLOAK_CLIENT_ID=anum-web
+    #
+    # Left commented out (not set to empty strings) so the Dockerfile's own
+    # ARG defaults apply and this stays a visible, deliberate opt-in rather
+    # than a wall of blank values to skim past.
+    # VITE_ANUM_AUTH_MODE = "oidc"
+    # VITE_ANUM_KEYCLOAK_URL = "https://anum-keycloak.fly.dev"
+    # VITE_ANUM_KEYCLOAK_REALM = "anum"
+    # VITE_ANUM_KEYCLOAK_CLIENT_ID = "anum-web"
+
 [http_service]
   internal_port = 80
   force_https = true

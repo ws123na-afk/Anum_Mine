@@ -1,8 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Activity, Database, ListChecks, Settings as SettingsIcon, ShieldCheck } from 'lucide-react';
-import type { TenantContext } from '@anum/contracts';
-import { defaultTenantContext } from './lib/api';
+import { currentTenantContext } from './lib/api';
+import { initAuth } from './lib/auth';
 import TasksView from './views/TasksView';
 import ApprovalsView from './views/ApprovalsView';
 import MemoryView from './views/MemoryView';
@@ -36,7 +36,7 @@ const VIEW_TITLES: Record<ViewId, { eyebrow: string; title: string }> = {
 
 function App() {
   const [view, setView] = useState<ViewId>('tasks');
-  const tenantContext: TenantContext = defaultTenantContext;
+  const tenantContext = useMemo(() => currentTenantContext(), []);
   const tenantLabel = useMemo(
     () => `${tenantContext.tenantId} / ${tenantContext.workspaceId}`,
     [tenantContext],
@@ -82,4 +82,47 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+function SplashScreen({ children }: { children: ReactNode }) {
+  return (
+    <main className="shell">
+      <aside className="sidebar" aria-label="Primary navigation">
+        <div className="brand">ANUM</div>
+      </aside>
+      <section className="workspace">
+        <div className="card" role="status">
+          {children}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+async function bootstrap() {
+  const container = document.getElementById('root')!;
+  const root = createRoot(container);
+
+  // In OIDC mode, initAuth() may navigate the browser away to Keycloak's
+  // login page entirely (onLoad: 'login-required') - this splash is what's
+  // visible for the brief moment before that redirect, and again on the way
+  // back while the adapter parses the returned tokens. In stub-header mode
+  // (the default) initAuth() resolves immediately and this is never seen.
+  root.render(<SplashScreen>Loading ANUM…</SplashScreen>);
+
+  try {
+    await initAuth();
+  } catch (error) {
+    root.render(
+      <SplashScreen>
+        <p className="errorNotice">
+          Sign-in failed: {error instanceof Error ? error.message : 'Unknown error'}. Reload the
+          page to try again.
+        </p>
+      </SplashScreen>,
+    );
+    return;
+  }
+
+  root.render(<App />);
+}
+
+void bootstrap();
