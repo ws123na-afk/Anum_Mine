@@ -101,6 +101,11 @@ export async function getTask(taskId: string): Promise<Task> {
   return mapTask(await request<ApiTask>(`/api/v1/tasks/${taskId}`));
 }
 
+export async function listTasks(): Promise<Task[]> {
+  const tasks = await request<ApiTask[]>('/api/v1/tasks');
+  return tasks.map(mapTask);
+}
+
 export interface ApiDomainEvent {
   id: string;
   type: string;

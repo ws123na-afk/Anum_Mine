@@ -79,7 +79,7 @@ From `@anum/contracts`: `TenantContext`, `Task`, `TaskStatus`, `AgentRun`,
 writing your own `fetch`/`request` calls:
 
 - Core: `request`, `ApiError`, `defaultTenantContext`
-- Tasks: `createAndRunTask(prompt)`, `getTask(id)`, `cancelTask(id)`
+- Tasks: `createAndRunTask(prompt)`, `getTask(id)`, `listTasks()`, `cancelTask(id)`
 - Approvals: `listApprovals()`, `decideApproval(id, 'approve' | 'reject')`
 - Agent runs: `getAgentRun(id)`
 - Events: `listEvents()` (returns camelCase `DomainEvent[]`; `event.subject`
@@ -96,7 +96,6 @@ writing your own `fetch`/`request` calls:
 From `@anum/contracts`: `TenantContext`, `Task`, `TaskStatus`, `AgentRun`,
 `AgentRunStep`, `Approval`, `ApprovalStatus`, `RiskLevel`, `DomainEvent`.
 
-There is **no "list all tasks" endpoint** on the backend. To show a task
-list, derive task ids from `listEvents()` (filter `type === 'task.created'`,
-`event.subject` is the task id, `event.payload.title` is the task title),
-then optionally hydrate current status via `getTask(id)`.
+Use `listTasks()` to show a task list — it calls `GET /api/v1/tasks`, which
+returns every task in the caller's tenant/workspace directly (no need to
+derive task ids from `listEvents()` and hydrate each one individually).

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Task, TaskStatus, TenantContext } from '@anum/contracts';
 import { AlertTriangle, Ban, Inbox, ListChecks, RefreshCw, Send } from 'lucide-react';
-import { ApiError, cancelTask, createAndRunTask, getTask, listEvents } from '../lib/api';
+import { ApiError, cancelTask, createAndRunTask, listTasks } from '../lib/api';
 
 const MAX_TASKS = 15;
 const NON_CANCELLABLE_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
@@ -83,23 +83,11 @@ export default function TasksView({ tenantContext }: { tenantContext: TenantCont
     setLoading(true);
     setLoadError(null);
     try {
-      const events = await listEvents();
-      const createdEvents = events
-        .filter((event) => event.type === 'task.created')
+      const fetched = await listTasks();
+      const sorted = fetched
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, MAX_TASKS);
-
-      const hydrated = await Promise.all(
-        createdEvents.map(async (event) => {
-          try {
-            return await getTask(event.subject);
-          } catch {
-            return null;
-          }
-        }),
-      );
-
-      setFetchedTasks(hydrated.filter((task): task is Task => task !== null));
+      setFetchedTasks(sorted);
     } catch (err) {
       if (err instanceof ApiError) {
         setLoadError(err.message);
