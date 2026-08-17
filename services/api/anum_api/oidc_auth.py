@@ -319,23 +319,19 @@ def _extract_bearer_token(authorization: str | None) -> str:
     return credentials.strip()
 
 
-async def oidc_tenant_context(
-    authorization: str | None = Header(default=None),
-    jwks_client: JWKSClient = Depends(get_jwks_client),
+async def resolve_tenant_context_from_bearer(
+    authorization: str | None,
+    jwks_client: JWKSClient,
 ) -> TenantContext:
-    """OIDC-backed alternative to `dependencies.tenant_context`.
+    """Validate a raw `Authorization` header value and map it to a `TenantContext`.
 
-    Extracts a Bearer token from the `Authorization` header, validates it
-    against the configured Keycloak issuer/JWKS, and maps its claims onto a
-    `TenantContext` (see the module docstring for the claim-name
-    assumptions this relies on). Returns the same `TenantContext` shape as
-    the stub-header dependency it is meant to eventually replace, so
-    downstream code (route handlers, `require_permission`, repositories)
-    does not need to change when the cutover happens.
-
-    Not currently used by any route — this dependency exists so the
-    cryptographic validation path can be built and tested ahead of an
-    actual Keycloak deployment.
+    This is the plain (non-FastAPI-dependency) core of OIDC resolution:
+    extract a Bearer token, validate it against the configured Keycloak
+    issuer/JWKS, and map its claims onto a `TenantContext` (see the module
+    docstring for the claim-name assumptions this relies on). It takes no
+    FastAPI-injected parameters so it can be called directly from any other
+    dependency (e.g. `dependencies.tenant_context` when `auth_mode ==
+    "oidc"`), not just from `oidc_tenant_context` below.
     """
 
     token = _extract_bearer_token(authorization)
@@ -375,3 +371,23 @@ async def oidc_tenant_context(
         user_id=str(user_id),
         roles=[str(role) for role in roles],
     )
+
+
+async def oidc_tenant_context(
+    authorization: str | None = Header(default=None),
+    jwks_client: JWKSClient = Depends(get_jwks_client),
+) -> TenantContext:
+    """OIDC-backed alternative to `dependencies.tenant_context`.
+
+    Thin FastAPI-dependency wrapper around
+    `resolve_tenant_context_from_bearer`. Returns the same `TenantContext`
+    shape as the stub-header dependency it is meant to eventually replace,
+    so downstream code (route handlers, `require_permission`, repositories)
+    does not need to change when the cutover happens.
+
+    Not currently used by any route directly — `dependencies.tenant_context`
+    calls the shared helper above when `settings.auth_mode == "oidc"`; this
+    dependency remains available as a standalone alternative and for tests.
+    """
+
+    return await resolve_tenant_context_from_bearer(authorization, jwks_client)

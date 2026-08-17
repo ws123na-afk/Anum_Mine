@@ -7,6 +7,7 @@ from .repository import AnumRepository, InMemoryRepository
 from .authorization import AuthorizationError, Permission, Role, WorkspaceMembership, policy
 from .idempotency import InMemoryIdempotencyRepository, InvalidIdempotencyKey, validate_idempotency_key
 from .memory import InMemoryMemoryRepository, MemoryRepository
+from .oidc_auth import get_jwks_client, resolve_tenant_context_from_bearer
 from .schemas import TenantContext
 from .settings import settings
 from .store import store
@@ -51,7 +52,13 @@ async def tenant_context(
     x_workspace_id: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
     x_user_roles: str | None = Header(default="member"),
+    authorization: str | None = Header(default=None),
 ) -> TenantContext:
+    if settings.auth_mode == "oidc":
+        # OIDC opt-in: the stub tenant/workspace/user/role headers above are
+        # ignored entirely — trust only a validated Bearer token.
+        return await resolve_tenant_context_from_bearer(authorization, get_jwks_client())
+
     if not x_tenant_id or not x_workspace_id or not x_user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
