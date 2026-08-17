@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.env
+*.egg-info/
+
+# Tests (not needed in the production image)
+tests/
+
+# VCS / editor / OS cruft
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# Docker
+Dockerfile
+.dockerignore
