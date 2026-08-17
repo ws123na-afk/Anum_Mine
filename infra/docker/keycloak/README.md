@@ -62,3 +62,29 @@ with `ANUM_AUTH_MODE=oidc`:
 curl http://localhost:8000/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+## Production
+
+`anum-realm.production-template.json` in this directory defines the same
+realm/client/claim-mapper shape (so `oidc_auth.py` needs no code changes),
+but with **zero seeded users** — production credentials must never live in
+source control. It is a template, not a ready-to-import file:
+
+1. Edit `redirectUris` / `webOrigins` to your real web app's origin.
+2. Decide how users will actually log in. The template keeps `anum-web` as
+   a public client with `directAccessGrantsEnabled: false` (the password
+   grant is fine for local `curl` testing, not for production) but ships
+   with no login UI wired up anywhere in `apps/web` — building that (an
+   Authorization Code + PKCE flow) is separate frontend work not done yet.
+   Alternatively, swap `anum-web` for a confidential client if tokens will
+   be issued by a backend service instead of a browser.
+3. Remove the `_comment` fields (informational only, not real Keycloak
+   config) before importing.
+4. Import via the Keycloak Admin REST API or `kc.sh import`, then create
+   real users (with `tenant_id`/`workspace_id` attributes and realm roles)
+   through the admin console, SCIM, or your identity provider's normal
+   user-provisioning path — not by editing this JSON.
+5. Point `ANUM_KEYCLOAK_ISSUER` / `ANUM_OIDC_AUDIENCE` at the resulting
+   realm, and set `ANUM_AUTH_MODE=oidc`.
+
+See `docs/deployment.md` for how this fits into the rest of the deployment.

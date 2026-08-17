@@ -100,17 +100,19 @@ services:
       ANUM_KEYCLOAK_ISSUER: http://keycloak:8080/realms/anum
       # Defaults to the Phase 1 stub-header auth path so this compose stack
       # is easy to hit locally (x-tenant-id/x-workspace-id/x-user-id/
-      # x-user-roles headers, no token verification). To exercise the OIDC
-      # path instead, set:
-      #   ANUM_AUTH_MODE: oidc
-      # Note that this compose file only starts a bare Keycloak instance
-      # (see the `keycloak` service above) with no realm, client, or
-      # tenant_id/workspace_id/roles claim mappers configured. Switching
-      # ANUM_AUTH_MODE to "oidc" here will NOT work out of the box until
-      # someone provisions a real realm/client and the matching claim
-      # mappers in Keycloak, and points ANUM_OIDC_AUDIENCE / an issued
-      # bearer token at it.
+      # x-user-roles headers, no token verification). To exercise OIDC
+      # instead, set ANUM_AUTH_MODE: oidc - the `keycloak` service above
+      # auto-imports a realm (infra/docker/keycloak/anum-realm.json) with
+      # the client/claim mappers already configured, so this genuinely
+      # works locally; see infra/docker/keycloak/README.md for a curl
+      # example to fetch a test token. That realm is dev/test only - see
+      # infra/docker/keycloak/README.md#production for a real deployment.
       ANUM_AUTH_MODE: stub_headers
+      # Off by default (matches the API's own default). Uncomment to test
+      # the rate limiter locally; see docs/deployment.md's production
+      # checklist and anum_api/rate_limit.py before relying on this beyond
+      # a single instance.
+      # ANUM_RATE_LIMIT_ENABLED: "true"
 
   web:
     build:

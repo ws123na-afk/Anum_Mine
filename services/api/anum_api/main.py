@@ -38,19 +38,31 @@ from .schemas import (
     new_id,
     utc_now,
 )
+from .rate_limit import RateLimitMiddleware
+from .security_headers import SecurityHeadersMiddleware
 from .settings import settings
 from .store import store
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
+app.add_middleware(SecurityHeadersMiddleware, hsts=settings.security_headers_hsts_enabled)
+if settings.rate_limit_enabled:
+    app.add_middleware(
+        RateLimitMiddleware,
+        limit=settings.rate_limit_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+        trust_forwarded_for=settings.rate_limit_trust_forwarded_for,
+    )
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS", "DELETE"],
     allow_headers=[
         "content-type",
+        "authorization",
+        "idempotency-key",
         "x-tenant-id",
         "x-workspace-id",
         "x-user-id",

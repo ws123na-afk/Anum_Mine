@@ -135,6 +135,11 @@ today (via `pydantic-settings`, prefix `ANUM_`, optionally from a
 | `oidc_audience` | `ANUM_OIDC_AUDIENCE` | `anum-api` | Expected `aud` claim when validating OIDC bearer tokens (only used when `auth_mode=oidc`). |
 | `oidc_jwks_url` | `ANUM_OIDC_JWKS_URL` | `""` (empty — derived from `keycloak_issuer`) | Explicit JWKS endpoint override; when unset, derived as `{keycloak_issuer}/protocol/openid-connect/certs`. |
 | `oidc_jwks_cache_seconds` | `ANUM_OIDC_JWKS_CACHE_SECONDS` | `300` | How long fetched JWKS keys are cached before being re-fetched. |
+| `rate_limit_enabled` | `ANUM_RATE_LIMIT_ENABLED` | `false` | Turns on the single-process rate limiter (see `anum_api/rate_limit.py`). |
+| `rate_limit_requests` | `ANUM_RATE_LIMIT_REQUESTS` | `120` | Max requests per client per window before `429`. |
+| `rate_limit_window_seconds` | `ANUM_RATE_LIMIT_WINDOW_SECONDS` | `60` | Fixed-window length, in seconds. |
+| `rate_limit_trust_forwarded_for` | `ANUM_RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` | Key the rate limiter by `X-Forwarded-For` instead of the raw connection IP. Only safe behind a trusted reverse proxy. |
+| `security_headers_hsts_enabled` | `ANUM_SECURITY_HEADERS_HSTS_ENABLED` | `false` | Adds `Strict-Transport-Security` to every response. Only enable once served over HTTPS end-to-end. |
 
 Additionally, `apps/web/Dockerfile` reads one build-time (not runtime)
 variable:
@@ -143,62 +148,91 @@ variable:
 | --- | --- | --- |
 | `VITE_ANUM_API_URL` | Docker build `ARG` | Base URL the web app's JS calls out to. Baked into the static bundle at build time; changing it requires a rebuild. |
 
-For reference, the root [`.env.example`](../.env.example) also lists a few
-env vars for infra pieces (`ANUM_VALKEY_URL`, `ANUM_NATS_URL`,
-`ANUM_TEMPORAL_TARGET`, `ANUM_S3_*`) that are aspirational placeholders for
-future integrations — they are not currently read by `settings.py` and have
-no effect on the API today.
+[`.env.production.example`](../.env.production.example) (repo root) is a
+filled-in-the-blanks template covering exactly these settings for a real
+deployment. For reference, the broader
+[`.env.example`](../.env.example) also lists a few env vars for infra
+pieces (`ANUM_VALKEY_URL`, `ANUM_NATS_URL`, `ANUM_TEMPORAL_TARGET`,
+`ANUM_S3_*`) that are aspirational placeholders for future integrations —
+they are not currently read by `settings.py` and have no effect on the API
+today.
 
-## What's NOT production-ready yet, and why
+## Production checklist
 
-This stack should not be pointed at real user data or exposed on the public
-internet without addressing all of the following:
+Copy `.env.production.example` (repo root) and fill in every placeholder —
+it lists the exact settings below with the real `ANUM_*` env var names. This
+stack should not be pointed at real user data or exposed on the public
+internet until every item here is actually done, not just available:
 
-- **Auth defaults to trusting arbitrary headers.** `auth_mode` defaults to
-  `stub_headers`: the API accepts whatever `x-tenant-id`, `x-workspace-id`,
-  `x-user-id`, and `x-user-roles` values a caller sends, with no
-  verification whatsoever. Anyone who can reach the API can claim to be any
-  tenant, any workspace, any user, with any role. This is fine for local
-  development (see the README's "Tenant Headers for Phase 1" section) and
-  is exactly why the default must never change without an explicit
-  decision — it is not fine for anything reachable outside a trusted
-  developer's own machine.
+- **Set `ANUM_AUTH_MODE=oidc`.** It defaults to `stub_headers`: the API
+  accepts whatever `x-tenant-id`/`x-workspace-id`/`x-user-id`/`x-user-roles`
+  values a caller sends, with zero verification — anyone who can reach the
+  API can claim to be any tenant, workspace, user, or role. Fine for local
+  development (see the README's "Tenant Headers for Phase 1" section); the
+  default must never change without an explicit decision, because it is
+  not fine for anything reachable outside a trusted developer's own
+  machine.
 
-- **OIDC has a working dev/test realm now, but not a production one.**
+  A **local dev/test realm** now exists and genuinely works end-to-end:
   `infra/docker/compose.yaml`'s `keycloak` service auto-imports
-  `infra/docker/keycloak/anum-realm.json` on startup: a realm with a
-  client and claim mappers that populate `tenant_id`, `workspace_id`, and
-  `roles` on issued tokens in exactly the shape the API expects (see
-  `infra/docker/keycloak/README.md` for how to fetch a token from it with
-  `curl`, and `services/api/tests/test_oidc_realm_config.py`, which
-  confirms the mapper shape against the actual code without needing a
-  live Keycloak). Setting `ANUM_AUTH_MODE=oidc` against that local realm
-  now genuinely works end-to-end.
+  `infra/docker/keycloak/anum-realm.json`, a realm whose claim mappers
+  produce exactly the `tenant_id`/`workspace_id`/`roles` shape
+  `oidc_auth.py` expects (see `infra/docker/keycloak/README.md`, and
+  `services/api/tests/test_oidc_realm_config.py`, which confirms the
+  mapping without needing a live Keycloak). **That realm is dev/test
+  only** — seeded users have plaintext, well-known passwords and
+  `sslRequired: none`.
 
-  That realm is explicitly **local dev/test only** — seeded users have
-  plaintext, well-known passwords and `sslRequired: none`. A production
-  deployment needs its own realm/client/mappers provisioned separately
-  (by hand, via the Keycloak admin console/API, or a future OpenTofu
-  module), with `ANUM_OIDC_AUDIENCE` / `ANUM_KEYCLOAK_ISSUER` /
-  `ANUM_OIDC_JWKS_URL` pointed at it. See
-  [Security → Identity](security.md#identity) for the target design.
+  For production, use `infra/docker/keycloak/anum-realm.production-template.json`
+  (see `infra/docker/keycloak/README.md#production`): same claim-mapper
+  shape, zero seeded users. It still needs, from you: a real Keycloak (or
+  other OIDC IdP) instance, users provisioned through it, and — if real
+  end users need to log in through a browser rather than a token minted
+  some other way — an actual Authorization Code + PKCE login flow built
+  into `apps/web`, which does not exist yet (the dev realm's password
+  grant is a testing convenience, not a login UI).
 
-- **No rate limiting.** There is no request throttling, brute-force
-  protection, or abuse mitigation anywhere in the API. Any deployment
-  reachable from untrusted clients needs this in front of (or inside) the
-  service before going live.
+- **Set `ANUM_REPOSITORY_BACKEND=postgresql` and a real `ANUM_DATABASE_URL`.**
+  It defaults to `memory` — an in-process store with no persistence.
+  Every restart, redeploy, or crash silently discards all tasks, runtime
+  state, approvals, events, and memory records until this is set.
 
-- **The in-memory repository backend loses all data on restart.**
-  `repository_backend` defaults to `memory` — an in-process store with no
-  persistence. Any real deployment must explicitly set
-  `ANUM_REPOSITORY_BACKEND=postgresql` (and a real `ANUM_DATABASE_URL`),
-  or every restart, redeploy, or crash silently discards all tasks,
-  runtime state, approvals, events, and memory records.
-
-- **CORS defaults to the local dev server only.** `cors_origins` defaults
+- **Set `ANUM_CORS_ORIGINS` to your real web app origin(s).** It defaults
   to `["http://localhost:5173"]`. Any deployment where the web app is
-  served from a different origin (which is the normal case — e.g. the
-  compose `web` service on `localhost:8081`, or any real hostname) needs
-  `ANUM_CORS_ORIGINS` set explicitly to the actual origin(s) the web app
-  will be served from, or browser requests from the web app to the API
-  will be blocked.
+  served from a different origin (the normal case) needs this set
+  explicitly, as a JSON array, or browser requests from the web app to
+  the API are blocked. (CORS is now also configured to allow the
+  `Authorization` and `Idempotency-Key` request headers and the `DELETE`
+  method — both were missing before and would have silently broken
+  cross-origin OIDC bearer auth, idempotent retries, and memory deletion
+  from a browser.)
+
+- **Set `ANUM_RATE_LIMIT_ENABLED=true`.** Off by default. When on, the API
+  applies a single-process, fixed-window rate limit per client IP (see
+  `services/api/anum_api/rate_limit.py`), returning `429` with the
+  standard error envelope and a `Retry-After` header once
+  `ANUM_RATE_LIMIT_REQUESTS` is exceeded within
+  `ANUM_RATE_LIMIT_WINDOW_SECONDS`. This does **not** coordinate across
+  multiple API replicas — each instance enforces its own independent
+  count. A multi-instance deployment needs a shared store (the `valkey`
+  compose service is unused by the app today and is the natural fit) for
+  the limit to actually hold across instances; that isn't built. Only set
+  `ANUM_RATE_LIMIT_TRUST_FORWARDED_FOR=true` if a trusted reverse proxy
+  sits in front of the API and sets `X-Forwarded-For` itself — otherwise
+  that header is spoofable by any client and defeats the limit entirely.
+
+- **Set `ANUM_SECURITY_HEADERS_HSTS_ENABLED=true` once served over HTTPS.**
+  Every response now carries `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, and `Permissions-Policy` unconditionally (see
+  `services/api/anum_api/security_headers.py`). `Strict-Transport-Security`
+  is opt-in because enabling it over plain HTTP (e.g. local dev) tells
+  browsers to require HTTPS for that host going forward, breaking
+  `http://localhost` access — only turn it on once TLS is actually
+  terminated end-to-end for this deployment.
+
+- **TLS termination is not this repo's job.** Neither Dockerfile/image
+  serves HTTPS directly (the API serves plain HTTP on `8000`, the web
+  image serves plain HTTP on `80` via nginx). A real deployment needs a
+  load balancer, reverse proxy, or platform feature (e.g. a managed
+  ingress/CDN) terminating TLS in front of both — pick one as part of
+  choosing where to host this (see "Two independent deployables" above).

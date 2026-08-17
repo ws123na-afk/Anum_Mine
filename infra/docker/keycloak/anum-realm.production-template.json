@@ -1,0 +1,99 @@
+{
+  "_comment": "TEMPLATE, not ready to import as-is. This defines the same realm/client/claim-mapper shape as anum-realm.json (the local dev/test realm oidc_auth.py is built and tested against), but deliberately ships with ZERO users and no seeded passwords - a production realm's users/credentials must never live in source control. See infra/docker/keycloak/README.md#production for how to use this.",
+
+  "realm": "anum",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 300,
+
+  "roles": {
+    "realm": [
+      { "name": "owner", "description": "ANUM workspace owner (see anum_api.authorization.Role)" },
+      { "name": "member", "description": "ANUM workspace member" },
+      { "name": "viewer", "description": "ANUM workspace viewer (read-only)" }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "anum-api",
+      "name": "ANUM API (resource server)",
+      "description": "Bearer-only client representing the API itself. Exists so anum-web's audience mapper below has a real client to target, producing an aud claim of \"anum-api\" that matches ANUM_OIDC_AUDIENCE.",
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "enabled": true
+    },
+    {
+      "_comment": "publicClient/directAccessGrantsEnabled here mirror the dev realm for continuity. For a real user-facing login, replace this with a confidential client using the Authorization Code flow (publicClient: false, a real client secret from your secret store, standardFlowEnabled: true, directAccessGrantsEnabled: false) and build the actual login redirect in apps/web - none of that exists in this repo yet.",
+      "clientId": "anum-web",
+      "name": "ANUM web app",
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "enabled": true,
+      "redirectUris": ["REPLACE_WITH_YOUR_WEB_APP_URL/*"],
+      "webOrigins": ["REPLACE_WITH_YOUR_WEB_APP_URL"],
+      "protocolMappers": [
+        {
+          "name": "anum-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "anum-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "workspace-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "workspace_id",
+            "claim.name": "workspace_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapping-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+
+  "users": []
+}
