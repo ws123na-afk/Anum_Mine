@@ -25,6 +25,11 @@ The backend supports in-memory development storage and request-scoped PostgreSQL
 
 None of this is exercised unless you set the corresponding env var — `docker compose -f infra/docker/compose.yaml up` wires the API to every one of them locally (see that file's `api` service); a bare `uvicorn --reload` with no `.env` still behaves exactly like Phase 1.
 
+**Phase 3 clients have started**, sharing `apps/web`'s contracts and OIDC identity rather than duplicating runtime logic:
+
+- `apps/desktop` — a Tauri shell wrapping `apps/web`'s build output, plus one native capability (a user-initiated file picker). Actually compiled, built, and launched (under Xvfb) in this environment against real GTK/WebKit system libraries — see that app's README for exactly what was verified.
+- `apps/android` — a Kotlin/Jetpack Compose client covering task capture and mobile approvals, using AppAuth for the same Authorization Code + PKCE flow the web app uses. **Not build-verified**: this environment has no Android SDK and cannot reach the Google Maven repository that serves the Android Gradle Plugin itself — see that app's README for the exact failure and what building it for real requires.
+
 ## Target Stack
 
 - Backend core: Python with FastAPI
