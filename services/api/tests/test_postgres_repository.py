@@ -184,6 +184,33 @@ def test_reads_are_isolated_by_tenant_and_workspace(
             assert repository.list_events(hidden_context) == []
 
 
+def test_list_tasks_is_ordered_and_scoped_by_tenant_and_workspace(
+    seed_scopes: None,
+    repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],
+) -> None:
+    context = tenant_context()
+    first = make_task("task_repo_a")
+    second = make_task("task_repo_b")
+    second.created_at = first.created_at + timedelta(seconds=1)
+    second.updated_at = second.created_at
+
+    with repository_factory(context, commit=True) as repository:
+        repository.create_task(second)
+        repository.create_task(first)
+
+    with repository_factory(context) as repository:
+        tasks = repository.list_tasks(context)
+        assert [task.id for task in tasks] == [first.id, second.id]
+
+    hidden_contexts = (
+        tenant_context(TENANT_B, WORKSPACE_B),
+        tenant_context(TENANT_A, WORKSPACE_A2),
+    )
+    for hidden_context in hidden_contexts:
+        with repository_factory(hidden_context) as repository:
+            assert repository.list_tasks(hidden_context) == []
+
+
 def test_events_are_deterministically_ordered_and_workspace_scoped(
     seed_scopes: None,
     repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],

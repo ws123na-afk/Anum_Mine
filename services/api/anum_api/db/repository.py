@@ -80,6 +80,17 @@ class SqlAlchemyRepository(AnumRepository):
         )
         return self._task_from_record(record) if record is not None else None
 
+    def list_tasks(self, context: TenantContext) -> list[Task]:
+        records = self.session.scalars(
+            select(TaskRecord)
+            .where(
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+            .order_by(TaskRecord.created_at, TaskRecord.id)
+        ).all()
+        return [self._task_from_record(record) for record in records]
+
     def save_run(self, run: AgentRun) -> AgentRun:
         task = self.session.get(TaskRecord, run.task_id)
         if task is None:

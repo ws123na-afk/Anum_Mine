@@ -170,6 +170,44 @@ def test_cancel_waiting_task_expires_approval_and_blocks_late_decision() -> None
     assert approvals[0]["status"] == "expired"
 
 
+def test_list_tasks_returns_created_tasks() -> None:
+    first = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "First task", "prompt": "Do the first thing"},
+    )
+    second = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Second task", "prompt": "Do the second thing"},
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    listed = client.get("/api/v1/tasks", headers=headers)
+
+    assert listed.status_code == 200
+    task_ids = {task["id"] for task in listed.json()}
+    assert task_ids == {first.json()["id"], second.json()["id"]}
+
+
+def test_list_tasks_is_tenant_isolated() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Private", "prompt": "Keep scoped"},
+    )
+    assert created.status_code == 201
+
+    other_headers = dict(headers)
+    other_headers["x-tenant-id"] = "tenant_b"
+
+    listed = client.get("/api/v1/tasks", headers=other_headers)
+
+    assert listed.status_code == 200
+    assert listed.json() == []
+
+
 def test_tenant_isolation_hides_task() -> None:
     created = client.post(
         "/api/v1/tasks",

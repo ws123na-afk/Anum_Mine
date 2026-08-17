@@ -111,6 +111,15 @@ async def create_task(
     )
 
 
+@app.get("/api/v1/tasks", response_model=list[Task])
+async def list_tasks(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> list[Task]:
+    require_permission(context, Permission.TASK_READ)
+    return repository.list_tasks(context)
+
+
 @app.get("/api/v1/tasks/{task_id}", response_model=Task)
 async def get_task(
     task_id: str,
