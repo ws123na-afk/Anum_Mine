@@ -1,0 +1,41 @@
+# This .dockerignore applies to the repo-root build context used by
+# apps/web/Dockerfile (see the comment at the top of that file for why the
+# context must be the repo root and not apps/web). Paths below are therefore
+# repo-root-relative.
+
+# VCS / editor noise
+.git
+.gitattributes
+.gitignore
+.github
+.vscode
+.idea
+
+# Dependency + build output anywhere in the workspace (re-installed and
+# rebuilt inside the image; copying these in would poison caching and can
+# leak host-specific native binaries into the build stage).
+**/node_modules
+**/dist
+**/.turbo
+**/.cache
+
+# The Python API service is not needed to build the web app; excluding it
+# keeps the build context small and avoids invalidating layer caching when
+# unrelated backend files change.
+services/
+
+# Docs and infra are irrelevant to the web image build.
+docs/
+infra/
+
+# Env files / secrets - never bake these into an image layer.
+.env
+.env.*
+!.env.example
+
+# Misc OS / log noise
+*.log
+.DS_Store
+
+# NOTE: do not add packages/contracts or apps/web here - the build stage
+# needs both.
