@@ -74,6 +74,49 @@ services:
       - "4317:4317"
       - "4318:4318"
 
+  api:
+    build:
+      # services/api/Dockerfile is self-contained (no monorepo dependency),
+      # so its build context is services/api itself, not the repo root --
+      # this differs from the `web` service below, which needs repo-root
+      # context for its pnpm workspace dependency on packages/contracts.
+      context: ../../services/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    environment:
+      ANUM_DATABASE_URL: postgresql+psycopg://anum:anum@postgres:5432/anum
+      ANUM_REPOSITORY_BACKEND: postgresql
+      ANUM_KEYCLOAK_ISSUER: http://keycloak:8080/realms/anum
+      # Defaults to the Phase 1 stub-header auth path so this compose stack
+      # is easy to hit locally (x-tenant-id/x-workspace-id/x-user-id/
+      # x-user-roles headers, no token verification). To exercise the OIDC
+      # path instead, set:
+      #   ANUM_AUTH_MODE: oidc
+      # Note that this compose file only starts a bare Keycloak instance
+      # (see the `keycloak` service above) with no realm, client, or
+      # tenant_id/workspace_id/roles claim mappers configured. Switching
+      # ANUM_AUTH_MODE to "oidc" here will NOT work out of the box until
+      # someone provisions a real realm/client and the matching claim
+      # mappers in Keycloak, and points ANUM_OIDC_AUDIENCE / an issued
+      # bearer token at it.
+      ANUM_AUTH_MODE: stub_headers
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_ANUM_API_URL: http://localhost:8000
+    ports:
+      # 8081, not 5173 -- 5173 is reserved for the separate `pnpm dev`
+      # local dev server, so the two don't collide or get confused.
+      - "8081:80"
+    depends_on:
+      - api
+
 volumes:
   postgres-data:
   minio-data:
