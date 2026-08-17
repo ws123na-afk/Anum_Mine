@@ -5,12 +5,19 @@ from fastapi import Depends, Header, HTTPException, status
 
 from .repository import AnumRepository, InMemoryRepository
 from .authorization import AuthorizationError, Permission, Role, WorkspaceMembership, policy
-from .idempotency import InMemoryIdempotencyRepository, InvalidIdempotencyKey, validate_idempotency_key
+from .idempotency import (
+    IdempotencyRepository,
+    InMemoryIdempotencyRepository,
+    InvalidIdempotencyKey,
+    ValkeyIdempotencyRepository,
+    validate_idempotency_key,
+)
 from .memory import InMemoryMemoryRepository, MemoryRepository
 from .oidc_auth import get_jwks_client, resolve_tenant_context_from_bearer
 from .schemas import TenantContext
 from .settings import settings
 from .store import store
+from .valkey_client import build_redis_client
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -18,7 +25,15 @@ if TYPE_CHECKING:
 
 memory_repository = InMemoryRepository(store)
 memory_note_repository = InMemoryMemoryRepository()
-idempotency_repository = InMemoryIdempotencyRepository()
+
+# Valkey-backed when `settings.valkey_url` is set (survives restarts, shared
+# across replicas); otherwise the original in-memory store, unchanged.
+_idempotency_redis_client = build_redis_client(settings.valkey_url)
+idempotency_repository: IdempotencyRepository = (
+    ValkeyIdempotencyRepository(_idempotency_redis_client)
+    if _idempotency_redis_client is not None
+    else InMemoryIdempotencyRepository()
+)
 
 
 def require_permission(context: TenantContext, permission: Permission) -> None:

@@ -1,7 +1,7 @@
 import type { AgentRun, Approval, DomainEvent, TenantContext, Task } from '@anum/contracts';
 import { getTenantContext, getValidToken, isOidcEnabled } from './auth';
 
-const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
+export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
 export const defaultTenantContext: TenantContext = {
   tenantId: 'tenant_local',
@@ -307,7 +307,13 @@ interface ErrorEnvelope {
   error: { code: string; message: string; correlation_id: string };
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
+/**
+ * Exported so lib/useEventStream.ts can attach the same identity to its
+ * fetch-based SSE connection - the browser's native EventSource can't send
+ * custom headers, so the realtime hook builds its own request with `fetch`
+ * and needs these same auth headers on it. See that module for details.
+ */
+export async function authHeaders(): Promise<Record<string, string>> {
   if (isOidcEnabled) {
     // Mirrors the backend: while OIDC mode is active, only a validated
     // Bearer token is trusted - the stub headers below are not sent, so

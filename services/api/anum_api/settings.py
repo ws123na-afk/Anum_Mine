@@ -47,6 +47,45 @@ class Settings(BaseSettings):
     # (e.g. local dev).
     security_headers_hsts_enabled: bool = False
 
+    # Phase 2: Valkey-backed ephemeral coordination (see
+    # anum_api/valkey_client.py). Unset (the default) keeps every existing
+    # in-memory store (idempotency, rate limiting) exactly as it behaves
+    # today - single-process, lost on restart. Set to a redis://... URL to
+    # move that coordination into Valkey instead, so it survives restarts
+    # and is shared across replicas. Valkey speaks the Redis protocol, so
+    # any redis:// client library works against it unmodified.
+    valkey_url: str | None = None
+
+    # Phase 2: NATS JetStream event bus (see anum_api/events_nats.py).
+    # Unset (the default) keeps domain events exactly as they are today -
+    # written only to the repository's event log, read only by polling
+    # GET /api/v1/events. Set to a nats://... URL to also publish every
+    # domain event to JetStream, which anum_api/realtime.py's SSE endpoint
+    # then fans out to live-subscribed clients.
+    nats_url: str | None = None
+    nats_stream_name: str = "ANUM_EVENTS"
+
+    # Phase 2: Temporal-backed durable task execution (see
+    # anum_api/workflows/). Unset (the default) keeps POST /tasks/{id}/run
+    # exactly as it behaves today - a synchronous in-process call into
+    # AgentRuntime that returns once the mock model call (and, if
+    # triggered, the approval pause) completes. Set an address to instead
+    # start a Temporal workflow for the run, giving it retries, durable
+    # waits, and resumability across worker restarts.
+    temporal_address: str | None = None
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "anum-tasks"
+
+    # Phase 2: S3-compatible object storage (see anum_api/object_storage.py)
+    # for task/memory attachments. Unset endpoint (the default) keeps file
+    # upload/download endpoints returning 503 "not configured" - no change
+    # for deployments that haven't provisioned a bucket yet.
+    object_storage_endpoint_url: str | None = None
+    object_storage_bucket: str = "anum-files"
+    object_storage_region: str = "us-east-1"
+    object_storage_access_key: str | None = None
+    object_storage_secret_key: str | None = None
+
     model_config = SettingsConfigDict(env_prefix="ANUM_", env_file=".env", extra="ignore")
 
 

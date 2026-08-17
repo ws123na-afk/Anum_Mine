@@ -1,12 +1,12 @@
-"""A minimal, single-process rate limiter.
+"""A minimal, single-process rate limiter, with an optional Valkey backend.
 
-This is a fixed-window counter, keyed by client IP, held entirely in this
-process's memory. That makes it real protection for a single-instance
+This is a fixed-window counter, keyed by client IP. By default it is held
+entirely in this process's memory: real protection for a single-instance
 deployment, but it does NOT coordinate across multiple API replicas — each
-instance enforces its own independent limit. A multi-instance production
-deployment needs a shared store (the `valkey` service already defined in
-infra/docker/compose.yaml, unused by the app today, is the natural fit) for
-the limit to hold across instances; that is not implemented here.
+instance enforces its own independent limit. Passing `redis_client` (see
+anum_api/settings.py `valkey_url`) switches the counter to Valkey, so the
+limit is shared across replicas and survives restarts; leaving it unset (the
+default) keeps today's in-memory-only behavior exactly as it is.
 
 Disabled by default (`ANUM_RATE_LIMIT_ENABLED=false`) so it never changes
 behavior for existing local/dev/test usage unless explicitly turned on.
@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 from threading import Lock
 
+import redis
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -53,6 +54,42 @@ class _FixedWindowCounter:
         return count <= self._limit, seconds_until_reset
 
 
+# INCR then EXPIRE as two separate round trips would leave a window key with
+# no TTL forever if the process died between them; a Lua script runs the
+# increment-and-maybe-expire as one atomic step on the server instead.
+_HIT_SCRIPT = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return count
+"""
+
+
+class _ValkeyFixedWindowCounter:
+    """Same `.hit()` contract as `_FixedWindowCounter`, backed by Valkey so
+    the count is shared across every process/replica using this client."""
+
+    def __init__(self, *, limit: int, window_seconds: int, client: redis.Redis) -> None:
+        self._limit = limit
+        self._window_seconds = window_seconds
+        self._client = client
+        self._hit_script = client.register_script(_HIT_SCRIPT)
+
+    def hit(self, key: str) -> tuple[bool, int]:
+        """Record one request for `key`. Returns (allowed, seconds_until_reset)."""
+
+        now = time.time()
+        window_index = int(now // self._window_seconds)
+        window_ends_at = (window_index + 1) * self._window_seconds
+        seconds_until_reset = max(0, int(window_ends_at - now))
+
+        redis_key = f"anum:ratelimit:{key}:{window_index}"
+        count = self._hit_script(keys=[redis_key], args=[self._window_seconds])
+
+        return count <= self._limit, seconds_until_reset
+
+
 def _client_key(request: Request, *, trust_forwarded_for: bool) -> str:
     if trust_forwarded_for:
         forwarded = request.headers.get("x-forwarded-for")
@@ -74,9 +111,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         limit: int,
         window_seconds: int,
         trust_forwarded_for: bool = False,
+        redis_client: redis.Redis | None = None,
     ) -> None:
         super().__init__(app)
-        self._counter = _FixedWindowCounter(limit=limit, window_seconds=window_seconds)
+        self._counter: _FixedWindowCounter | _ValkeyFixedWindowCounter
+        if redis_client is not None:
+            self._counter = _ValkeyFixedWindowCounter(
+                limit=limit, window_seconds=window_seconds, client=redis_client
+            )
+        else:
+            self._counter = _FixedWindowCounter(limit=limit, window_seconds=window_seconds)
         self._trust_forwarded_for = trust_forwarded_for
 
     async def dispatch(

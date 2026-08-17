@@ -34,6 +34,20 @@ jobs:
           cache-dependency-path: services/api/pyproject.toml
       - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
       - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      # redis-server/nats-server/the temporal CLI back the (marker-gated but
+      # not database-gated) Valkey/NATS/Temporal integration tests below -
+      # install them so those tests actually run here instead of skipping.
+      # Each test file's fixture skips gracefully if its binary is missing,
+      # so this step failing to find a package is not fatal to the job, but
+      # keeping it green means Phase 2's durable-workflow/event-bus/
+      # coordination code stays verified on every push, not just locally.
+      - name: Install Valkey/NATS/Temporal dev-server binaries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server nats-server
+          curl -sSL -o /tmp/temporal-cli.tar.gz \
+            https://github.com/temporalio/cli/releases/download/v1.4.0/temporal_cli_1.4.0_linux_amd64.tar.gz
+          tar -xzf /tmp/temporal-cli.tar.gz -C /usr/local/bin temporal
       - run: python -m pytest services/api -m "not database"
 
   api-persistence:

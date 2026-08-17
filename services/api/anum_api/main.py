@@ -1,3 +1,8 @@
+import asyncio
+import contextlib
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,6 +17,7 @@ from .dependencies import (
 )
 from .errors import register_exception_handlers
 from .events import CanonicalEventName, create_event
+from .events_nats import NatsEventPublisher, build_nats_publisher
 from .idempotency_support import run_idempotently
 from .model_gateway import MockModelGateway
 from .memory import (
@@ -22,7 +28,9 @@ from .memory import (
     MemoryRepository,
     MemoryService,
 )
+from .realtime import router as realtime_router
 from .repository import AnumRepository
+from .routes_files import router as files_router
 from .runtime import AgentRuntime
 from .schemas import (
     AgentRun,
@@ -42,9 +50,53 @@ from .rate_limit import RateLimitMiddleware
 from .security_headers import SecurityHeadersMiddleware
 from .settings import settings
 from .store import store
+from .valkey_client import build_redis_client
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
+from .workflows.client import (
+    signal_approval_decision as _signal_temporal_approval_decision,
+    signal_cancel as _signal_temporal_cancel,
+    start_task_workflow as _start_temporal_task_workflow,
+    wait_for_task_change as _wait_for_temporal_task_change,
+)
+from .workflows.worker import run_worker_in_background
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+nats_publisher: NatsEventPublisher | None = build_nats_publisher()
+
+
+async def _publish_to_nats(event: DomainEvent) -> None:
+    """Best-effort NATS publish alongside the durable repository write.
+
+    A NATS outage must never fail the HTTP request that's already durably
+    recorded the event via `repository.record_event` - realtime.py's SSE
+    endpoint falls back to polling the repository directly, so a dropped
+    publish only costs a little latency for connected clients, not data.
+    """
+
+    if nats_publisher is None:
+        return
+    try:
+        await nats_publisher.publish(event)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Failed to publish event %s to NATS; it remains durable in the repository", event.id
+        )
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    worker_task = await run_worker_in_background()
+    try:
+        yield
+    finally:
+        if worker_task is not None:
+            worker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await worker_task
+        if nats_publisher is not None:
+            await nats_publisher.close()
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=_lifespan)
 app.add_middleware(SecurityHeadersMiddleware, hsts=settings.security_headers_hsts_enabled)
 if settings.rate_limit_enabled:
     app.add_middleware(
@@ -52,6 +104,7 @@ if settings.rate_limit_enabled:
         limit=settings.rate_limit_requests,
         window_seconds=settings.rate_limit_window_seconds,
         trust_forwarded_for=settings.rate_limit_trust_forwarded_for,
+        redis_client=build_redis_client(settings.valkey_url),
     )
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
@@ -72,6 +125,8 @@ app.add_middleware(
     expose_headers=[CORRELATION_ID_HEADER],
 )
 register_exception_handlers(app)
+app.include_router(realtime_router)
+app.include_router(files_router)
 repository = memory_repository
 
 
@@ -102,16 +157,16 @@ async def create_task(
             updated_at=now,
         )
         repository.create_task(task)
-        repository.record_event(
-            create_event(
-                CanonicalEventName.TASK_CREATED,
-                context,
-                task.id,
-                {"title": task.title},
-                correlation_id=task.id,
-                created_at=now,
-            ).event
-        )
+        created_event = create_event(
+            CanonicalEventName.TASK_CREATED,
+            context,
+            task.id,
+            {"title": task.title},
+            correlation_id=task.id,
+            created_at=now,
+        ).event
+        repository.record_event(created_event)
+        await _publish_to_nats(created_event)
         return status.HTTP_201_CREATED, task
 
     return await run_idempotently(
@@ -159,6 +214,49 @@ async def run_task(
                 detail="Task cannot be run from current state",
             )
 
+        if settings.temporal_address:
+            # Durable path: a Temporal workflow does the mutation (see
+            # workflows/task_workflow.py); wait briefly for its first
+            # activity to land, then read the resulting state back from the
+            # repository so the response shape matches the non-Temporal path
+            # exactly - see workflows/client.py's wait_for_task_change.
+            starting_status = task.status
+            await _start_temporal_task_workflow(task.id, context)
+            try:
+                task = await _wait_for_temporal_task_change(
+                    repository, task.id, context, from_status=starting_status
+                )
+            except TimeoutError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_202_ACCEPTED,
+                    detail="Task run started but has not completed yet",
+                ) from exc
+            # The activity saves the task before the run (see
+            # workflows/activities.py's run_agent_activity) - close a narrow
+            # window where the task's new status is already visible but the
+            # run row isn't yet, rather than returning a response with a
+            # required-but-missing `run`.
+            run = repository.find_run_for_task(task.id, context)
+            for _ in range(20):
+                if run is not None:
+                    break
+                await asyncio.sleep(0.05)
+                run = repository.find_run_for_task(task.id, context)
+            if run is None:
+                raise HTTPException(
+                    status_code=status.HTTP_202_ACCEPTED,
+                    detail="Task run started but has not completed yet",
+                )
+            approval = next(
+                (
+                    approval
+                    for approval in repository.list_approvals(context)
+                    if approval.task_id == task.id and approval.status.value == "pending"
+                ),
+                None,
+            )
+            return status.HTTP_200_OK, RunTaskResponse(task=task, run=run, approval=approval)
+
         runtime = AgentRuntime(MockModelGateway(), repository)
         run, approval = await runtime.run_task(task, context)
         repository.save_task(task)
@@ -188,6 +286,26 @@ async def cancel_task(
         if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be cancelled")
 
+        if settings.temporal_address and task.status == TaskStatus.WAITING_APPROVAL:
+            # A task only reaches WAITING_APPROVAL via the Temporal path when
+            # Temporal is configured (see run_task above), so its workflow is
+            # durably parked in workflow.wait_condition - signal it rather
+            # than mutating state directly, so the workflow's own
+            # cancel_task_activity (identical logic, run once, durably) does
+            # the work instead of racing a second, independent mutation here.
+            try:
+                await _signal_temporal_cancel(task.id)
+                cancelled = await _wait_for_temporal_task_change(
+                    repository, task.id, context, from_status=TaskStatus.WAITING_APPROVAL
+                )
+                return status.HTTP_200_OK, cancelled
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Temporal cancel signal failed for task %s; falling back to direct cancel",
+                    task.id,
+                    exc_info=True,
+                )
+
         task.status = TaskStatus.CANCELLED
         task.updated_at = utc_now()
         repository.save_task(task)
@@ -203,15 +321,15 @@ async def cancel_task(
                 approval.status = ApprovalStatus.EXPIRED
                 approval.decided_at = task.updated_at
                 repository.save_approval(approval)
-        repository.record_event(
-            create_event(
-                CanonicalEventName.TASK_CANCELLED,
-                context,
-                task.id,
-                {"task_id": task.id},
-                correlation_id=task.id,
-            ).event
-        )
+        cancelled_event = create_event(
+            CanonicalEventName.TASK_CANCELLED,
+            context,
+            task.id,
+            {"task_id": task.id},
+            correlation_id=task.id,
+        ).event
+        repository.record_event(cancelled_event)
+        await _publish_to_nats(cancelled_event)
         return status.HTTP_200_OK, task
 
     return await run_idempotently(
@@ -411,20 +529,41 @@ async def _decide_approval(
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval already decided")
 
+    if settings.temporal_address and task.status == TaskStatus.WAITING_APPROVAL:
+        # See cancel_task's matching comment: a WAITING_APPROVAL task, with
+        # Temporal configured, has its workflow durably parked on this exact
+        # decision - signal it instead of mutating state here directly.
+        try:
+            await _signal_temporal_approval_decision(task.id, decision.value)
+            resolved_task = await _wait_for_temporal_task_change(
+                repository, task.id, context, from_status=TaskStatus.WAITING_APPROVAL
+            )
+            resolved_approval = repository.get_approval(approval_id, context)
+            resolved_run = repository.find_run_for_task(task.id, context)
+            return status.HTTP_200_OK, ApprovalDecisionResponse(
+                approval=resolved_approval, task=resolved_task, run=resolved_run
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Temporal approval signal failed for task %s; falling back to direct decision",
+                task.id,
+                exc_info=True,
+            )
+
     approval.status = decision
     approval.decided_at = utc_now()
     repository.save_approval(approval)
     run = repository.find_run_for_task(task.id, context)
-    repository.record_event(
-        create_event(
-            CanonicalEventName(f"approval.{decision.value}"),
-            context,
-            approval.id,
-            {"task_id": task.id},
-            correlation_id=task.id,
-            created_at=approval.decided_at,
-        ).event
-    )
+    decision_event = create_event(
+        CanonicalEventName(f"approval.{decision.value}"),
+        context,
+        approval.id,
+        {"task_id": task.id},
+        correlation_id=task.id,
+        created_at=approval.decided_at,
+    ).event
+    repository.record_event(decision_event)
+    await _publish_to_nats(decision_event)
     runtime = AgentRuntime(MockModelGateway(), repository)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)

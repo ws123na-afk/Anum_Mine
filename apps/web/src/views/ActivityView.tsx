@@ -18,11 +18,14 @@ import {
   ShieldOff,
   ShieldQuestion,
   ShieldX,
+  Wifi,
+  WifiOff,
   XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import type { AgentRun, DomainEvent, TenantContext } from '@anum/contracts';
 import { ApiError, getAgentRun, listEvents } from '../lib/api';
+import { useEventStream } from '../lib/useEventStream';
 
 type Category = 'task' | 'approval' | 'agent_run' | 'other';
 type CategoryFilter = 'all' | 'task' | 'approval' | 'agent_run';
@@ -186,6 +189,42 @@ function formatTime(iso: string): string {
   return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
+/** Merge live-streamed events into the REST-loaded list, deduping by id.
+ * The SSE stream replays the same persisted backlog on every (re)connect
+ * (see anum_api/realtime.py), so this can't just concatenate - it only
+ * needs to contribute events the initial/last `listEvents()` load doesn't
+ * already have. */
+function mergeLiveEvents(base: DomainEvent[], live: DomainEvent[]): DomainEvent[] {
+  if (live.length === 0) return base;
+  const seen = new Set(base.map((event) => event.id));
+  const merged = base.slice();
+  for (const event of live) {
+    if (!seen.has(event.id)) {
+      seen.add(event.id);
+      merged.push(event);
+    }
+  }
+  return merged;
+}
+
+function getLiveIndicator(status: 'connecting' | 'open' | 'closed' | 'error'): {
+  icon: LucideIcon;
+  label: string;
+  variant: 'success' | 'warning' | 'danger' | 'info';
+} {
+  switch (status) {
+    case 'open':
+      return { icon: Wifi, label: 'Live', variant: 'success' };
+    case 'connecting':
+      return { icon: RefreshCw, label: 'Reconnecting…', variant: 'warning' };
+    case 'error':
+      return { icon: WifiOff, label: 'Live updates unavailable', variant: 'danger' };
+    case 'closed':
+    default:
+      return { icon: WifiOff, label: 'Not connected', variant: 'info' };
+  }
+}
+
 function groupByDay(events: DomainEvent[]): DayGroup[] {
   const groups: DayGroup[] = [];
   for (const event of events) {
@@ -200,13 +239,19 @@ function groupByDay(events: DomainEvent[]): DayGroup[] {
   return groups;
 }
 
-export default function ActivityView({ tenantContext: _tenantContext }: { tenantContext: TenantContext }) {
+export default function ActivityView({ tenantContext }: { tenantContext: TenantContext }) {
   const [events, setEvents] = useState<DomainEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<CategoryFilter>('all');
   const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(new Set());
   const [runCache, setRunCache] = useState<Record<string, RunDrilldownState>>({});
+
+  // Live SSE feed (anum_api/realtime.py) - purely additive on top of the
+  // REST-loaded list below: it never blocks the initial load, and if it
+  // errors this view still works exactly as it did before (REST load +
+  // manual Refresh), just without the live indicator turning green.
+  const live = useEventStream(tenantContext);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -225,10 +270,15 @@ export default function ActivityView({ tenantContext: _tenantContext }: { tenant
     void fetchEvents();
   }, [fetchEvents]);
 
+  const mergedEvents = useMemo(() => {
+    if (!events) return null;
+    return mergeLiveEvents(events, live.events);
+  }, [events, live.events]);
+
   const sortedEvents = useMemo(() => {
-    if (!events) return [];
-    return [...events].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [events]);
+    if (!mergedEvents) return [];
+    return [...mergedEvents].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [mergedEvents]);
 
   const filteredEvents = useMemo(() => {
     if (filter === 'all') return sortedEvents;
@@ -267,7 +317,9 @@ export default function ActivityView({ tenantContext: _tenantContext }: { tenant
     [runCache, loadRun],
   );
 
-  const hasEvents = !loading && !loadError && !!events;
+  const hasEvents = !loading && !loadError && !!mergedEvents;
+  const liveIndicator = getLiveIndicator(live.status);
+  const LiveIcon = liveIndicator.icon;
 
   return (
     <>
@@ -276,10 +328,21 @@ export default function ActivityView({ tenantContext: _tenantContext }: { tenant
           <p className="eyebrow">Live feed</p>
           <h2>Activity</h2>
         </div>
-        <button type="button" className="secondary" onClick={() => void fetchEvents()} disabled={loading}>
-          <RefreshCw size={16} aria-hidden="true" />
-          Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <span
+            className={`pill pill--${liveIndicator.variant}`}
+            role="status"
+            aria-label={`Realtime stream status: ${liveIndicator.label}`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)' }}
+          >
+            <LiveIcon size={14} aria-hidden="true" />
+            {liveIndicator.label}
+          </span>
+          <button type="button" className="secondary" onClick={() => void fetchEvents()} disabled={loading}>
+            <RefreshCw size={16} aria-hidden="true" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="card">
@@ -303,14 +366,14 @@ export default function ActivityView({ tenantContext: _tenantContext }: { tenant
           </div>
         )}
 
-        {hasEvents && events!.length === 0 && (
+        {hasEvents && mergedEvents!.length === 0 && (
           <div className="emptyState">
             <Activity size={28} aria-hidden="true" />
             <p>No activity yet. Task, approval, and agent run events will show up here as they happen.</p>
           </div>
         )}
 
-        {hasEvents && events!.length > 0 && (
+        {hasEvents && mergedEvents!.length > 0 && (
           <>
             <div className="filterBar" role="group" aria-label="Filter activity by category">
               {CATEGORY_FILTERS.map((f) => {

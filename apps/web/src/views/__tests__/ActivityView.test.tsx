@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import type { AgentRun, DomainEvent, TenantContext } from '@anum/contracts';
 import ActivityView from '../ActivityView';
 import { ApiError, getAgentRun, listEvents } from '../../lib/api';
+import { useEventStream } from '../../lib/useEventStream';
+import type { UseEventStreamResult } from '../../lib/useEventStream';
 
 vi.mock('../../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../../lib/api')>('../../lib/api');
@@ -13,8 +15,16 @@ vi.mock('../../lib/api', async () => {
   };
 });
 
+// The live SSE hook is exercised on its own in
+// lib/__tests__/useEventStream.test.ts - here it's mocked so ActivityView's
+// tests stay deterministic and don't make a real network request.
+vi.mock('../../lib/useEventStream', () => ({
+  useEventStream: vi.fn(),
+}));
+
 const mockedListEvents = vi.mocked(listEvents);
 const mockedGetAgentRun = vi.mocked(getAgentRun);
+const mockedUseEventStream = vi.mocked(useEventStream);
 
 const tenantContext: TenantContext = {
   tenantId: 'tenant_local',
@@ -52,10 +62,15 @@ function makeRun(overrides: Partial<AgentRun> = {}): AgentRun {
   };
 }
 
+function liveResult(overrides: Partial<UseEventStreamResult> = {}): UseEventStreamResult {
+  return { status: 'connecting', events: [], error: null, ...overrides };
+}
+
 describe('ActivityView', () => {
   beforeEach(() => {
     eventCounter = 0;
     vi.clearAllMocks();
+    mockedUseEventStream.mockReturnValue(liveResult());
   });
 
   it('shows a loading state while listEvents is pending', async () => {
@@ -159,5 +174,50 @@ describe('ActivityView', () => {
 
     expect(await screen.findByText('Events service unavailable')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it('shows a "Live" indicator when the SSE stream is open', async () => {
+    mockedListEvents.mockResolvedValue([]);
+    mockedUseEventStream.mockReturnValue(liveResult({ status: 'open' }));
+
+    render(<ActivityView tenantContext={tenantContext} />);
+
+    expect(await screen.findByRole('status', { name: /realtime stream status: live/i })).toHaveTextContent('Live');
+  });
+
+  it('shows a "Reconnecting" indicator while the SSE stream is (re)connecting', async () => {
+    mockedListEvents.mockResolvedValue([]);
+    mockedUseEventStream.mockReturnValue(liveResult({ status: 'connecting' }));
+
+    render(<ActivityView tenantContext={tenantContext} />);
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/reconnecting/i);
+  });
+
+  it('shows an "unavailable" indicator when the SSE stream errors, without affecting the REST-loaded feed', async () => {
+    const restEvent = makeEvent({ type: 'task.created', payload: { title: 'Loaded via REST' } });
+    mockedListEvents.mockResolvedValue([restEvent]);
+    mockedUseEventStream.mockReturnValue(liveResult({ status: 'error', error: 'stream failed' }));
+
+    render(<ActivityView tenantContext={tenantContext} />);
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/unavailable/i);
+    expect(screen.getByText('Task created: Loaded via REST')).toBeInTheDocument();
+  });
+
+  it('merges a new event pushed over the live stream into the feed without duplicating REST-loaded events', async () => {
+    const restEvent = makeEvent({ id: 'evt_rest', type: 'task.created', payload: { title: 'From REST' } });
+    const duplicateOfRestEvent = makeEvent({ ...restEvent }); // same id as restEvent - must not duplicate
+    const liveOnlyEvent = makeEvent({ id: 'evt_live', type: 'task.completed', payload: {} });
+    mockedListEvents.mockResolvedValue([restEvent]);
+    mockedUseEventStream.mockReturnValue(
+      liveResult({ status: 'open', events: [duplicateOfRestEvent, liveOnlyEvent] }),
+    );
+
+    render(<ActivityView tenantContext={tenantContext} />);
+
+    expect(await screen.findByText('Task created: From REST')).toBeInTheDocument();
+    expect(screen.getByText('Task completed')).toBeInTheDocument();
+    expect(screen.getAllByText('Task created: From REST')).toHaveLength(1);
   });
 });

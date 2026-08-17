@@ -90,6 +90,20 @@ class Approval(BaseModel):
     decided_at: datetime | None = None
 
 
+class FileObject(BaseModel):
+    id: str
+    tenant_id: str
+    workspace_id: str
+    task_id: str | None = None
+    owner_user_id: str
+    bucket: str
+    key: str
+    checksum_sha256: str = Field(min_length=64, max_length=64)
+    size_bytes: int = Field(ge=0)
+    content_type: str
+    created_at: datetime
+
+
 class DomainEvent(BaseModel):
     id: str
     type: str

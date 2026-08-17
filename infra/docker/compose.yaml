@@ -94,6 +94,10 @@ services:
       - "8000:8000"
     depends_on:
       - postgres
+      - valkey
+      - nats
+      - temporal
+      - minio
     environment:
       ANUM_DATABASE_URL: postgresql+psycopg://anum:anum@postgres:5432/anum
       ANUM_REPOSITORY_BACKEND: postgresql
@@ -113,6 +117,22 @@ services:
       # checklist and anum_api/rate_limit.py before relying on this beyond
       # a single instance.
       # ANUM_RATE_LIMIT_ENABLED: "true"
+      # Phase 2 coordination/event-bus/workflow services (see settings.py's
+      # comments on each) - active in this compose stack since the services
+      # above already run either way; a bare `uvicorn --reload` with no env
+      # file still defaults every one of these to off, unchanged.
+      ANUM_VALKEY_URL: redis://valkey:6379/0
+      ANUM_NATS_URL: nats://nats:4222
+      # The API process itself runs the Temporal worker in-process (see
+      # anum_api/workflows/worker.py) - no separate worker container needed
+      # for this "Now"-scoped, single-instance deployment.
+      ANUM_TEMPORAL_ADDRESS: temporal:7233
+      # Matches the `minio` service's MINIO_ROOT_USER/MINIO_ROOT_PASSWORD
+      # below - local dev/test credentials only, never reuse in production.
+      ANUM_OBJECT_STORAGE_ENDPOINT_URL: http://minio:9000
+      ANUM_OBJECT_STORAGE_BUCKET: anum-files
+      ANUM_OBJECT_STORAGE_ACCESS_KEY: anum
+      ANUM_OBJECT_STORAGE_SECRET_KEY: anum-local-secret
 
   web:
     build:
