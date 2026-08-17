@@ -1,0 +1,84 @@
+# =============================================================================
+# ANUM web app (apps/web) - Fly.io app config.
+#
+# This file lives at the REPO ROOT, not inside apps/web, on purpose:
+# apps/web/Dockerfile requires its build context to be the repo root (it
+# needs to see pnpm-workspace.yaml and packages/contracts to resolve the
+# "@anum/contracts": "workspace:*" dependency - see the comment block at the
+# top of apps/web/Dockerfile). `fly deploy` defaults its build context to the
+# current working directory, and resolves [build] dockerfile (below) relative
+# to that context - so this fly.toml has to sit at repo root, and you have to
+# run `fly deploy` from repo root, for the paths to line up.
+#
+# DEPLOY FROM THE REPO ROOT:
+#
+#     fly deploy --config fly.web.toml
+#
+# Do NOT run this from apps/web or with apps/web as the working directory -
+# that would make apps/web itself the build context, apps/web/Dockerfile
+# would try to COPY packages/contracts and pnpm-workspace.yaml from inside
+# apps/web (where they don't exist), and the build would fail, exactly as
+# documented in apps/web/Dockerfile's own top-of-file comment.
+# =============================================================================
+
+app = "anum-web"
+primary_region = "iad"
+
+[build]
+  # Path is relative to the build context, which is the directory `fly
+  # deploy` is run from (repo root, per the instructions above) - NOT
+  # relative to this fly.toml's own location, even though the two happen to
+  # coincide here.
+  dockerfile = "apps/web/Dockerfile"
+
+  [build.args]
+    # VITE_ANUM_API_URL is a Vite build-time value: it gets inlined into the
+    # static JS bundle when `vite build` runs inside the Dockerfile's build
+    # stage (see apps/web/Dockerfile and apps/web/src/lib/api.ts) - it is NOT
+    # a runtime environment variable, so it cannot be changed by editing
+    # [env] or by `fly secrets set` and restarting the machine. Changing it
+    # requires rebuilding the image and redeploying:
+    #
+    #     fly deploy --config fly.web.toml --build-arg VITE_ANUM_API_URL=https://<real-api-url>
+    #
+    # Defaulted here to https://anum-api.fly.dev, the conventional Fly app
+    # URL for ANUM's backend (app name "anum-api", per the other in-flight
+    # fly.toml for services/api). CHANGE THIS if the backend ends up
+    # deployed under a different app name or custom domain, and redeploy -
+    # a value baked in here that's wrong will silently ship a web app that
+    # calls the wrong API host until the next rebuild.
+    VITE_ANUM_API_URL = "https://anum-api.fly.dev"
+
+[http_service]
+  internal_port = 80
+  force_https = true
+
+  # This service is a static nginx site (see apps/web/nginx.conf) with no
+  # in-memory session state, background jobs, or websockets to keep alive -
+  # every request is either a cached, content-hashed asset or a fast local
+  # disk read of index.html. That makes it cheap and safe to scale to zero:
+  #   - min_machines_running = 0: don't pay for an idle machine overnight /
+  #     between deploys; there's no warm cache or session worth keeping hot.
+  #   - auto_stop_machines = "stop": fully stop (not just suspend) idle
+  #     machines - nginx:alpine has no meaningful startup work to skip, so
+  #     suspend's memory-snapshot benefit isn't needed here.
+  #   - auto_start_machines = true: the Fly proxy boots a machine on the
+  #     first incoming request. nginx:alpine containers start in well under
+  #     a second (no app runtime to initialize, no DB connections to open),
+  #     so the cold-start latency is negligible for a low-traffic static
+  #     site - unlike a heavier backend service, which may want
+  #     min_machines_running >= 1 to avoid cold starts on real request paths.
+  min_machines_running = 0
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+
+  [[http_service.checks]]
+    # Hits nginx's SPA root, which serves apps/web/dist/index.html (see
+    # apps/web/nginx.conf's `location /` block) - a 200 here means the
+    # container booted, nginx is listening on 80, and the static build
+    # output was copied in correctly.
+    method = "GET"
+    path = "/"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
