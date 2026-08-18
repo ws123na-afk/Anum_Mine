@@ -19,7 +19,7 @@ from .errors import register_exception_handlers
 from .events import CanonicalEventName, create_event
 from .events_nats import NatsEventPublisher, build_nats_publisher
 from .idempotency_support import run_idempotently
-from .model_gateway import MockModelGateway
+from .model_gateway import build_model_gateway
 from .memory import (
     MemoryAccess,
     MemoryCreate,
@@ -257,7 +257,7 @@ async def run_task(
             )
             return status.HTTP_200_OK, RunTaskResponse(task=task, run=run, approval=approval)
 
-        runtime = AgentRuntime(MockModelGateway(), repository)
+        runtime = AgentRuntime(build_model_gateway(), repository)
         run, approval = await runtime.run_task(task, context)
         repository.save_task(task)
         repository.save_run(run)
@@ -564,7 +564,7 @@ async def _decide_approval(
     ).event
     repository.record_event(decision_event)
     await _publish_to_nats(decision_event)
-    runtime = AgentRuntime(MockModelGateway(), repository)
+    runtime = AgentRuntime(build_model_gateway(), repository)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)
     if resumed_run:

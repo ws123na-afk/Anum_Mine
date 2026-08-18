@@ -20,7 +20,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from ..events import CanonicalEventName, create_event
-from ..model_gateway import MockModelGateway
+from ..model_gateway import build_model_gateway
 from ..repository import AnumRepository
 from ..runtime import AgentRuntime
 from ..schemas import ApprovalStatus, TaskStatus, TenantContext
@@ -124,7 +124,7 @@ async def run_agent_activity(input: RunAgentInput) -> RunAgentOutput:
                 "Task cannot be run from current state", non_retryable=True
             )
 
-        runtime = AgentRuntime(MockModelGateway(), repository)
+        runtime = AgentRuntime(build_model_gateway(), repository)
         run, approval = await runtime.run_task(task, context)
         repository.save_task(task)
         repository.save_run(run)
@@ -162,7 +162,7 @@ async def resume_after_approval_activity(
         repository.save_approval(approval)
 
         run = repository.find_run_for_task(task.id, context)
-        runtime = AgentRuntime(MockModelGateway(), repository)
+        runtime = AgentRuntime(build_model_gateway(), repository)
         resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
         repository.save_task(task)
         if resumed_run:

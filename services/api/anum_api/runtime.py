@@ -1,6 +1,7 @@
 from .model_gateway import MockModelGateway
 from .events import CanonicalEventName, create_event
 from .repository import AnumRepository
+from .skills_library import DEFAULT_SKILL_REGISTRY
 from .schemas import (
     AgentRun,
     AgentRunStep,
@@ -13,6 +14,52 @@ from .schemas import (
     new_id,
     utc_now,
 )
+from .tools import (
+    ToolContract,
+    ToolExecutionContext,
+    ToolRegistry,
+    ToolResult,
+    ToolResultStatus,
+    execute_approved_tool,
+    execute_tool,
+)
+
+_HIGH_RISK_TOOL_NAME = "agent_high_risk_action"
+
+
+async def _run_high_risk_mock_action(
+    inputs: dict[str, object], context: ToolExecutionContext
+) -> ToolResult:
+    # Stands in for a real side-effecting action (sending a message,
+    # deleting a record, spending money, ...) until a real tool adapter is
+    # registered here for a given deployment - see docs/tools-and-integrations.md.
+    # The mediation (risk gate, approval pause, audit trail) is real even
+    # though this particular handler is a placeholder.
+    return ToolResult(
+        status=ToolResultStatus.SUCCESS,
+        output={"summary": "Executed approved high-risk mock action."},
+    )
+
+
+def _build_high_risk_tool_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(
+        ToolContract(
+            name=_HIGH_RISK_TOOL_NAME,
+            description="Placeholder high-risk action gated by approval - see runtime.py.",
+            risk_level=RiskLevel.HIGH,
+            timeout_seconds=30,
+            idempotent=False,
+        ),
+        _run_high_risk_mock_action,
+    )
+    return registry
+
+
+# Module-level: contracts/handlers are stateless, and every AgentRuntime
+# instance (one per request/activity - see main.py, workflows/activities.py)
+# would otherwise rebuild an identical registry for no reason.
+_HIGH_RISK_TOOL_REGISTRY = _build_high_risk_tool_registry()
 
 
 class AgentRuntime:
@@ -33,6 +80,23 @@ class AgentRuntime:
             updated_at=now,
         )
 
+        # Skill selection is advisory only (see skills.py's module docstring):
+        # it decides which guidance to consult, not what's actually allowed -
+        # tool/memory access is still separately mediated below and by
+        # authorization.py. Recorded here purely so the run trace shows why
+        # the agent behaved a certain way (docs/skills.md).
+        skill = DEFAULT_SKILL_REGISTRY.select_for_task(task.prompt)
+        if skill is not None:
+            run.steps.append(
+                AgentRunStep(
+                    id=new_id("step"),
+                    type="tool_proposal",
+                    summary=f"Selected skill '{skill.name}' (v{skill.version}).",
+                    created_at=utc_now(),
+                    metadata={"skill_id": skill.id, "skill_version": skill.version},
+                )
+            )
+
         model_response = await self.model_gateway.generate_text(task.prompt)
         run.steps.append(
             AgentRunStep(
@@ -45,15 +109,19 @@ class AgentRuntime:
         )
 
         if self._requires_approval(task.prompt):
-            approval = Approval(
-                id=new_id("approval"),
-                task_id=task.id,
-                action="high_risk_tool_execution",
-                risk_level=RiskLevel.HIGH,
-                status=ApprovalStatus.PENDING,
-                reason="The task appears to request an external, destructive, publishing, spending, or permission-changing action.",
-                created_at=utc_now(),
+            tool_context = ToolExecutionContext(
+                tenant=context, correlation_id=task.id, actor_id=context.user_id, task_id=task.id
             )
+            mediated, _audit_record = await execute_tool(
+                _HIGH_RISK_TOOL_REGISTRY,
+                _HIGH_RISK_TOOL_NAME,
+                {"prompt": task.prompt},
+                tool_context,
+                repository_for_approval=self.repository,
+            )
+            assert isinstance(mediated, Approval)  # risk_level=HIGH always yields an Approval
+            approval = mediated
+
             task.status = TaskStatus.WAITING_APPROVAL
             task.updated_at = utc_now()
             run.status = TaskStatus.WAITING_APPROVAL
@@ -66,7 +134,6 @@ class AgentRuntime:
                     created_at=utc_now(),
                 )
             )
-            self.repository.save_approval(approval)
             self._record_event(
                 "approval.requested",
                 context,
@@ -127,16 +194,49 @@ class AgentRuntime:
             )
             return run
 
+        tool_context = ToolExecutionContext(
+            tenant=context, correlation_id=task.id, actor_id=context.user_id, task_id=task.id
+        )
+        tool_result, _audit_record = await execute_approved_tool(
+            _HIGH_RISK_TOOL_REGISTRY,
+            _HIGH_RISK_TOOL_NAME,
+            {"prompt": task.prompt},
+            tool_context,
+        )
+
+        if tool_result.status != ToolResultStatus.SUCCESS:
+            task.status = TaskStatus.FAILED
+            run.status = TaskStatus.FAILED
+            run.updated_at = utc_now()
+            task.updated_at = utc_now()
+            run.steps.append(
+                AgentRunStep(
+                    id=new_id("step"),
+                    type="tool_result",
+                    summary=tool_result.error_message or "Approved high-risk action failed to execute.",
+                    created_at=utc_now(),
+                )
+            )
+            self._record_event(
+                "agent_run.failed",
+                context,
+                run.id,
+                {"task_id": task.id, "approval_id": approval.id},
+                correlation_id=task.id,
+            )
+            return run
+
         task.status = TaskStatus.COMPLETED
         task.updated_at = utc_now()
         run.status = TaskStatus.COMPLETED
         run.result = "Approved high-risk action completed by the Phase 1 mock runtime."
         run.updated_at = utc_now()
+        tool_summary = (tool_result.output or {}).get("summary", "Executed approved high-risk mock action.")
         run.steps.append(
             AgentRunStep(
                 id=new_id("step"),
                 type="tool_result",
-                summary="Executed approved high-risk mock action.",
+                summary=str(tool_summary),
                 created_at=utc_now(),
             )
         )

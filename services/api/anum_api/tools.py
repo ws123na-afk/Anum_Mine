@@ -202,6 +202,38 @@ async def execute_tool(
     return result, record
 
 
+async def execute_approved_tool(
+    registry: ToolRegistry,
+    name: str,
+    inputs: dict[str, Any],
+    context: ToolExecutionContext,
+    *,
+    audit_recorder: AuditRecorder | None = None,
+) -> tuple[ToolResult, AuditRecord]:
+    """Execute a tool whose HIGH-risk approval has already been granted.
+
+    Unlike `execute_tool`, this skips the risk-level gate entirely and
+    always invokes the handler for real - the caller is responsible for
+    confirming a matching `Approval` was actually `APPROVED` before calling
+    this (see `AgentRuntime.resume_after_approval`, the only caller today).
+    Calling it for a tool that was never gated is a caller bug, not
+    something this function can detect from a bare tool name + inputs.
+    """
+
+    entry = registry.get(name)
+    if entry is None:
+        raise ToolNotFoundError(name)
+    contract, handler = entry
+
+    result = await _execute_with_retry(contract, handler, inputs, context)
+    extra = {"error_message": result.error_message} if result.error_message else None
+    record = _build_audit_record(
+        contract, context, outcome=result.status.value, inputs=inputs, extra=extra
+    )
+    _maybe_record(audit_recorder, record)
+    return result, record
+
+
 async def _execute_with_retry(
     contract: ToolContract,
     handler: ToolHandler,

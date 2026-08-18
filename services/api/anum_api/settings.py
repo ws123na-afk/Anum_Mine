@@ -86,7 +86,19 @@ class Settings(BaseSettings):
     object_storage_access_key: str | None = None
     object_storage_secret_key: str | None = None
 
-    model_config = SettingsConfigDict(env_prefix="ANUM_", env_file=".env", extra="ignore")
+    # Model gateway (see anum_api/model_gateway.py, docs/model-gateway.md).
+    # "mock" (the default) keeps every task run exactly as it behaves
+    # today - a deterministic, instant, non-network MockModelGateway call.
+    # "anthropic" opts a deployment into real model calls; requires
+    # anthropic_api_key to be set (deliberately never falls back to an
+    # ambient ANTHROPIC_API_KEY env var - see that module's docstring).
+    model_provider: str = "mock"
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-5"
+
+    model_config = SettingsConfigDict(
+        env_prefix="ANUM_", env_file=".env", extra="ignore", protected_namespaces=()
+    )
 
 
 settings = Settings()

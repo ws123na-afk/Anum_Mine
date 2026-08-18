@@ -140,6 +140,17 @@ today (via `pydantic-settings`, prefix `ANUM_`, optionally from a
 | `rate_limit_window_seconds` | `ANUM_RATE_LIMIT_WINDOW_SECONDS` | `60` | Fixed-window length, in seconds. |
 | `rate_limit_trust_forwarded_for` | `ANUM_RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` | Key the rate limiter by `X-Forwarded-For` instead of the raw connection IP. Only safe behind a trusted reverse proxy. |
 | `security_headers_hsts_enabled` | `ANUM_SECURITY_HEADERS_HSTS_ENABLED` | `false` | Adds `Strict-Transport-Security` to every response. Only enable once served over HTTPS end-to-end. |
+| `valkey_url` | `ANUM_VALKEY_URL` | unset | Set to a `redis://...` URL to move idempotency + rate-limit state into Valkey (survives restarts, shared across replicas) instead of single-process memory. See `anum_api/valkey_client.py`. |
+| `nats_url` | `ANUM_NATS_URL` | unset | Set to a `nats://...` URL to publish domain events to JetStream and enable the live (non-polling) path of `GET /api/v1/events/stream`. See `anum_api/events_nats.py`, `anum_api/realtime.py`. |
+| `nats_stream_name` | `ANUM_NATS_STREAM_NAME` | `ANUM_EVENTS` | JetStream stream name events publish to / the SSE endpoint subscribes to. |
+| `temporal_address` | `ANUM_TEMPORAL_ADDRESS` | unset | Set to a `host:port` to make task run/approve/cancel a durable Temporal workflow instead of one synchronous call; the API process itself runs the worker. See `anum_api/workflows/`. |
+| `temporal_namespace` | `ANUM_TEMPORAL_NAMESPACE` | `default` | Temporal namespace to connect to. |
+| `temporal_task_queue` | `ANUM_TEMPORAL_TASK_QUEUE` | `anum-tasks` | Temporal task queue the in-process worker polls. |
+| `object_storage_endpoint_url` | `ANUM_OBJECT_STORAGE_ENDPOINT_URL` | unset | Set to an S3-compatible endpoint (e.g. MinIO) to enable `/api/v1/files`; unset returns `503`. See `anum_api/object_storage.py`. |
+| `object_storage_bucket` / `object_storage_region` / `object_storage_access_key` / `object_storage_secret_key` | `ANUM_OBJECT_STORAGE_BUCKET` / `_REGION` / `_ACCESS_KEY` / `_SECRET_KEY` | `anum-files` / `us-east-1` / unset / unset | Bucket + credentials for the object storage endpoint above. |
+| `model_provider` | `ANUM_MODEL_PROVIDER` | `mock` | `mock` (default) keeps every task run's model call deterministic and offline. `anthropic` opts into real calls via `AnthropicModelGateway` — requires `anthropic_api_key`. See `anum_api/model_gateway.py`. |
+| `anthropic_api_key` | `ANUM_ANTHROPIC_API_KEY` | unset | Required when `model_provider=anthropic`. Never falls back to an ambient `ANTHROPIC_API_KEY` env var. |
+| `anthropic_model` | `ANUM_ANTHROPIC_MODEL` | `claude-sonnet-5` | Model id passed to the Anthropic Messages API. |
 
 Additionally, `apps/web/Dockerfile` reads these build-time (not runtime)
 variables — Vite inlines them into the static bundle when it builds, so
@@ -153,12 +164,9 @@ changing any of them requires a rebuild, not a restart:
 
 [`.env.production.example`](../.env.production.example) (repo root) is a
 filled-in-the-blanks template covering exactly these settings for a real
-deployment. For reference, the broader
-[`.env.example`](../.env.example) also lists a few env vars for infra
-pieces (`ANUM_VALKEY_URL`, `ANUM_NATS_URL`, `ANUM_TEMPORAL_TARGET`,
-`ANUM_S3_*`) that are aspirational placeholders for future integrations —
-they are not currently read by `settings.py` and have no effect on the API
-today.
+deployment; make sure it includes the Valkey/NATS/Temporal/object-storage/
+model-provider rows above before using it as a production checklist - it
+may still only reflect the settings that existed when it was last updated.
 
 ## Production checklist
 
