@@ -1,0 +1,83 @@
+# ---------------------------------------------------------------------------
+# ONE-TIME SETUP REQUIRED before this workflow can succeed:
+#
+#   A repo maintainer must generate a Fly.io deploy token and add it as a
+#   repository secret named FLY_API_TOKEN (Settings -> Secrets and
+#   variables -> Actions -> Secrets), e.g.:
+#
+#       fly tokens create deploy -x 999999h
+#
+#   (or generate a deploy token via the Fly.io dashboard for the
+#   anum-api / anum-web apps). Until FLY_API_TOKEN exists as a secret,
+#   both jobs below will fail at the `flyctl deploy` step - that is
+#   expected and does not indicate a problem with this workflow file.
+# ---------------------------------------------------------------------------
+
+name: Fly Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # No production API URL is known at this stage of the project. Set the
+  # PRODUCTION_API_URL repo variable (Settings -> Secrets and variables ->
+  # Actions -> Variables) to override this default if it ever changes.
+  VITE_ANUM_API_URL: ${{ vars.PRODUCTION_API_URL || 'https://anum-api.fly.dev' }}
+  # Real OIDC login (apps/web/src/lib/auth.ts) is opt-in at build time and
+  # OFF by default here too - these repo variables are unset until a
+  # maintainer sets them (Settings -> Secrets and variables -> Actions ->
+  # Variables), matching infra/fly/README.md's Keycloak-on-Fly runbook.
+  # Empty/unset flows through to the Dockerfile's own ARG defaults, which
+  # keep the stub-header dev flow active.
+  VITE_ANUM_AUTH_MODE: ${{ vars.PRODUCTION_AUTH_MODE }}
+  VITE_ANUM_KEYCLOAK_URL: ${{ vars.PRODUCTION_KEYCLOAK_URL }}
+  VITE_ANUM_KEYCLOAK_REALM: ${{ vars.PRODUCTION_KEYCLOAK_REALM }}
+  VITE_ANUM_KEYCLOAK_CLIENT_ID: ${{ vars.PRODUCTION_KEYCLOAK_CLIENT_ID }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-api:
+    name: Deploy API to Fly
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-api-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy anum-api
+        working-directory: services/api
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-web:
+    name: Deploy web to Fly
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-web-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy anum-web
+        # Build context is the repo root (not apps/web), since the web
+        # image needs the pnpm workspace root, matching fly.web.toml's
+        # build-context convention.
+        run: |
+          flyctl deploy --config fly.web.toml --remote-only \
+            --build-arg VITE_ANUM_API_URL="${{ env.VITE_ANUM_API_URL }}" \
+            --build-arg VITE_ANUM_AUTH_MODE="${{ env.VITE_ANUM_AUTH_MODE }}" \
+            --build-arg VITE_ANUM_KEYCLOAK_URL="${{ env.VITE_ANUM_KEYCLOAK_URL }}" \
+            --build-arg VITE_ANUM_KEYCLOAK_REALM="${{ env.VITE_ANUM_KEYCLOAK_REALM }}" \
+            --build-arg VITE_ANUM_KEYCLOAK_CLIENT_ID="${{ env.VITE_ANUM_KEYCLOAK_CLIENT_ID }}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

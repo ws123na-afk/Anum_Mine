@@ -10,6 +10,7 @@ from anum_api.schemas import (
     Approval,
     ApprovalStatus,
     DomainEvent,
+    FileObject,
     RiskLevel,
     Task,
     TaskStatus,
@@ -21,6 +22,7 @@ from .models import (
     AgentRunStepRecord,
     ApprovalRecord,
     DomainEventRecord,
+    FileRecord,
     TaskRecord,
 )
 
@@ -79,6 +81,17 @@ class SqlAlchemyRepository(AnumRepository):
             .with_for_update()
         )
         return self._task_from_record(record) if record is not None else None
+
+    def list_tasks(self, context: TenantContext) -> list[Task]:
+        records = self.session.scalars(
+            select(TaskRecord)
+            .where(
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+            .order_by(TaskRecord.created_at, TaskRecord.id)
+        ).all()
+        return [self._task_from_record(record) for record in records]
 
     def save_run(self, run: AgentRun) -> AgentRun:
         task = self.session.get(TaskRecord, run.task_id)
@@ -260,6 +273,78 @@ class SqlAlchemyRepository(AnumRepository):
         self.session.flush()
         return self._event_from_record(record)
 
+    def save_file(self, file: FileObject) -> FileObject:
+        if file.task_id is not None:
+            task = self.session.scalar(
+                select(TaskRecord).where(
+                    TaskRecord.id == file.task_id,
+                    TaskRecord.tenant_id == file.tenant_id,
+                    TaskRecord.workspace_id == file.workspace_id,
+                )
+            )
+            if task is None:
+                raise ValueError(f"Cannot save file for missing task {file.task_id!r}")
+
+        record = self.session.get(FileRecord, file.id)
+        if record is None:
+            record = FileRecord(
+                id=file.id,
+                tenant_id=file.tenant_id,
+                workspace_id=file.workspace_id,
+            )
+            self.session.add(record)
+        elif record.tenant_id != file.tenant_id or record.workspace_id != file.workspace_id:
+            raise ValueError(f"File {file.id!r} cannot be moved between tenant scopes")
+
+        record.task_id = file.task_id
+        record.owner_user_id = file.owner_user_id
+        record.bucket = file.bucket
+        record.key = file.key
+        record.checksum_sha256 = file.checksum_sha256
+        record.size_bytes = file.size_bytes
+        record.content_type = file.content_type
+        record.created_at = file.created_at
+        self.session.flush()
+        return self._file_from_record(record)
+
+    def get_file(self, file_id: str, context: TenantContext) -> FileObject | None:
+        record = self.session.scalar(
+            select(FileRecord).where(
+                FileRecord.id == file_id,
+                FileRecord.tenant_id == context.tenant_id,
+                FileRecord.workspace_id == context.workspace_id,
+            )
+        )
+        return self._file_from_record(record) if record is not None else None
+
+    def list_files_for_task(self, task_id: str, context: TenantContext) -> list[FileObject]:
+        records = self.session.scalars(
+            select(FileRecord)
+            .where(
+                FileRecord.tenant_id == context.tenant_id,
+                FileRecord.workspace_id == context.workspace_id,
+                FileRecord.task_id == task_id,
+            )
+            .order_by(FileRecord.created_at, FileRecord.id)
+        ).all()
+        return [self._file_from_record(record) for record in records]
+
+    def delete_file(self, file_id: str, context: TenantContext) -> bool:
+        record = self.session.scalar(
+            select(FileRecord)
+            .where(
+                FileRecord.id == file_id,
+                FileRecord.tenant_id == context.tenant_id,
+                FileRecord.workspace_id == context.workspace_id,
+            )
+            .with_for_update()
+        )
+        if record is None:
+            return False
+        self.session.delete(record)
+        self.session.flush()
+        return True
+
     def _sync_steps(
         self,
         run_record: AgentRunRecord,
@@ -363,6 +448,22 @@ class SqlAlchemyRepository(AnumRepository):
             reason=record.reason,
             created_at=record.created_at,
             decided_at=record.decided_at,
+        )
+
+    @staticmethod
+    def _file_from_record(record: FileRecord) -> FileObject:
+        return FileObject(
+            id=record.id,
+            tenant_id=record.tenant_id,
+            workspace_id=record.workspace_id,
+            task_id=record.task_id,
+            owner_user_id=record.owner_user_id,
+            bucket=record.bucket,
+            key=record.key,
+            checksum_sha256=record.checksum_sha256,
+            size_bytes=record.size_bytes,
+            content_type=record.content_type,
+            created_at=record.created_at,
         )
 
     @staticmethod

@@ -1,0 +1,104 @@
+# Fly.io app configuration for the ANUM API (anum-api).
+#
+# This file lives in services/api/ (not the repo root) on purpose: Fly's
+# build context defaults to the directory containing fly.toml, and
+# services/api/Dockerfile's COPY instructions are written relative to
+# services/api being the context root (see the comment at the top of that
+# Dockerfile: `docker build -f services/api/Dockerfile services/api`).
+# Always run `fly` commands for this app from inside services/api/.
+#
+# --- First-time deploy ---------------------------------------------------
+#
+# 1. Create the Fly app (one time only; skip if it already exists):
+#      fly apps create anum-api
+#
+# 2. Provision a Postgres cluster for it (adjust --vm-size for real load;
+#    `shared-cpu-1x` + 1 volume is the cheapest option, fine for a
+#    smoke-test deploy):
+#      fly postgres create --name anum-db --region iad \
+#        --vm-size shared-cpu-1x --volume-size 1 --initial-cluster-size 1
+#      fly postgres attach anum-db --app anum-api
+#    `fly postgres attach` sets a DATABASE_URL secret, NOT the ANUM_-
+#    prefixed one this app actually reads (see anum_api/settings.py, which
+#    uses env_prefix="ANUM_") - copy the connection string it prints and
+#    set ANUM_DATABASE_URL yourself (see step 3). Fly Postgres connection
+#    strings use `postgres://`; rewrite the scheme to
+#    `postgresql+psycopg://` to match what this app's SQLAlchemy setup
+#    expects (see .env.production.example).
+#
+# 3. Set the required secrets (see anum_api/settings.py and
+#    .env.production.example at the repo root for the full, authoritative
+#    list of ANUM_* settings and what each one does). At minimum, before
+#    ANY deploy:
+#      fly secrets set --app anum-api \
+#        ANUM_REPOSITORY_BACKEND=postgresql \
+#        ANUM_DATABASE_URL="postgresql+psycopg://USER:PASSWORD@HOST:5432/DBNAME"
+#
+#    Do NOT set ANUM_AUTH_MODE for an initial smoke-test deploy: it is
+#    unset here on purpose, so it defaults to "stub_headers" (see
+#    anum_api/settings.py). That means the API trusts the
+#    x-tenant-id/x-workspace-id/x-user-id/x-user-roles headers from any
+#    caller with zero verification - acceptable ONLY for a private,
+#    not-yet-exposed smoke test. Before this deployment is used for real
+#    (i.e. before real user traffic or real data reaches it), you MUST set:
+#      fly secrets set --app anum-api \
+#        ANUM_AUTH_MODE=oidc \
+#        ANUM_KEYCLOAK_ISSUER="https://<your-real-keycloak-host>/realms/anum" \
+#        ANUM_OIDC_AUDIENCE=anum-api
+#    (see docs/deployment.md's "Production checklist" - this is the same
+#    checklist item it calls out first, for the same reason.)
+#
+#    Also set your real deployed web app origin(s) before anything other
+#    than a curl/smoke test talks to this API cross-origin:
+#      fly secrets set --app anum-api \
+#        ANUM_CORS_ORIGINS='["https://<your-real-web-app-host>"]'
+#
+#    Optional, but recommended before real traffic (see
+#    .env.production.example for the reasoning behind each):
+#      fly secrets set --app anum-api \
+#        ANUM_RATE_LIMIT_ENABLED=true \
+#        ANUM_RATE_LIMIT_TRUST_FORWARDED_FOR=true \
+#        ANUM_SECURITY_HEADERS_HSTS_ENABLED=true
+#    (ANUM_RATE_LIMIT_TRUST_FORWARDED_FOR=true is only correct because Fly's
+#    edge proxy sits in front of this app and sets X-Forwarded-For itself -
+#    see the warning on that setting in anum_api/settings.py before copying
+#    this elsewhere.)
+#
+# 4. Deploy, from inside services/api/:
+#      fly deploy --app anum-api
+#
+# ---------------------------------------------------------------------------
+
+app = "anum-api"
+primary_region = "iad"
+
+[build]
+  # fly.toml sits next to services/api/Dockerfile, so Fly auto-detects it
+  # as the build context and Dockerfile with no further config needed.
+  # Named explicitly anyway for clarity/unambiguity to future readers.
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+
+  # Low-traffic test/staging defaults: allow scale-to-zero when idle (this
+  # is a smoke-test/staging deployment, not a latency-critical production
+  # service, so paying for an always-on machine isn't worth it) but keep
+  # auto_start_machines on so an idle app wakes on the next request rather
+  # than staying down. min_machines_running = 0 means occasional cold
+  # starts (Fly machines typically start in ~1-2s for a slim image), which
+  # is an acceptable tradeoff for this deployment's traffic level. Bump
+  # min_machines_running to 1 (or higher) once this serves real, latency-
+  # sensitive traffic and cold starts become a problem.
+  min_machines_running = 0
+  auto_stop_machines = true
+  auto_start_machines = true
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    path = "/health"
+    port = 8000
+    timeout = "3s"

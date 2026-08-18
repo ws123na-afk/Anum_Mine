@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities granted to the main ANUM window. Narrow by design (docs/desktop.md's security model): only the native file-open dialog is granted, nothing else - no raw filesystem read/write, no shell access.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

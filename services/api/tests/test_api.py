@@ -170,6 +170,44 @@ def test_cancel_waiting_task_expires_approval_and_blocks_late_decision() -> None
     assert approvals[0]["status"] == "expired"
 
 
+def test_list_tasks_returns_created_tasks() -> None:
+    first = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "First task", "prompt": "Do the first thing"},
+    )
+    second = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Second task", "prompt": "Do the second thing"},
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    listed = client.get("/api/v1/tasks", headers=headers)
+
+    assert listed.status_code == 200
+    task_ids = {task["id"] for task in listed.json()}
+    assert task_ids == {first.json()["id"], second.json()["id"]}
+
+
+def test_list_tasks_is_tenant_isolated() -> None:
+    created = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Private", "prompt": "Keep scoped"},
+    )
+    assert created.status_code == 201
+
+    other_headers = dict(headers)
+    other_headers["x-tenant-id"] = "tenant_b"
+
+    listed = client.get("/api/v1/tasks", headers=other_headers)
+
+    assert listed.status_code == 200
+    assert listed.json() == []
+
+
 def test_tenant_isolation_hides_task() -> None:
     created = client.post(
         "/api/v1/tasks",
@@ -279,3 +317,21 @@ def test_invalid_memory_retention_uses_validation_error_contract() -> None:
         "correlation_id": "memory-request-1",
         "details": [],
     }
+
+
+def test_unmatched_route_uses_error_envelope() -> None:
+    response = client.get("/api/v1/does-not-exist", headers=headers)
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["error"]["code"] == "not_found"
+    assert body["error"]["correlation_id"]
+
+
+def test_wrong_method_uses_error_envelope() -> None:
+    response = client.delete("/api/v1/tasks", headers=headers)
+
+    assert response.status_code == 405
+    body = response.json()
+    assert body["error"]["code"] == "bad_request"
+    assert body["error"]["correlation_id"]

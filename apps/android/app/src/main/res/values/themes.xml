@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns theming (see ui/theme/Theme.kt) - this base theme just
+         needs to satisfy the platform's launch-theme requirement before
+         Compose takes over, with no visible flash of an unstyled window. -->
+    <style name="Theme.Anum" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

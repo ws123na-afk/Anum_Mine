@@ -25,6 +25,7 @@ jobs:
   api-unit:
     name: API unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,6 +35,30 @@ jobs:
           cache-dependency-path: services/api/pyproject.toml
       - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
       - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      # redis-server/nats-server/the temporal CLI back the (marker-gated but
+      # not database-gated) Valkey/NATS/Temporal integration tests below -
+      # install them so those tests actually run here instead of skipping.
+      # Each test file's fixture skips gracefully if its binary is missing,
+      # so this step failing to find a package is not fatal to the job, but
+      # keeping it green means Phase 2's durable-workflow/event-bus/
+      # coordination code stays verified on every push, not just locally.
+      - name: Install Valkey/NATS/Temporal dev-server binaries
+        env:
+          # redis-server/nats-server are real systemd services - apt asking
+          # (via needrestart) whether to restart them interactively is what
+          # actually hung this step on a real runner (not reproducible in a
+          # plain container without systemd, which is why this wasn't
+          # caught locally). DEBIAN_FRONTEND alone doesn't suppress
+          # needrestart's own prompt; NEEDRESTART_MODE=a (automatic, no
+          # prompt) is what's needed.
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server nats-server
+          curl -sSL --max-time 60 -o /tmp/temporal-cli.tar.gz \
+            https://github.com/temporalio/cli/releases/download/v1.4.0/temporal_cli_1.4.0_linux_amd64.tar.gz
+          tar -xzf /tmp/temporal-cli.tar.gz -C /usr/local/bin temporal
       - run: python -m pytest services/api -m "not database"
 
   api-persistence:
@@ -77,3 +102,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose -f infra/docker/compose.yaml config
+
+  desktop:
+    name: Desktop shell (cargo check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri Linux build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev
+      - run: pnpm install --frozen-lockfile=false
+      # cargo check needs frontendDist (apps/web/dist) to exist, even though
+      # it never actually loads it - the web app's own build/tests are
+      # covered by the `web` job above, this job only verifies the Rust
+      # shell itself compiles.
+      - run: pnpm --filter @anum/web build
+      - working-directory: apps/desktop/src-tauri
+        run: cargo check

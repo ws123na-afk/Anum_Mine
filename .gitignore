@@ -6,12 +6,24 @@ __pycache__/
 .mypy_cache/
 .venv/
 .env
+*.egg-info/
 
 # Node
 node_modules/
 dist/
 .vite/
 coverage/
+
+# Rust / Tauri
+target/
+gen/
+
+# Android / Gradle
+.gradle/
+apps/android/**/build/
+apps/android/local.properties
+*.iml
+.idea/
 
 # IDE
 .vscode/

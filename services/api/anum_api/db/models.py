@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKeyConstraint,
@@ -228,4 +229,33 @@ class MemoryRecord(Base, TimestampMixin, TenantScopedMixin):
             name="ck_memories_source_task_workspace",
         ),
         Index("ix_memories_tenant_workspace", "tenant_id", "workspace_id"),
+    )
+
+
+class FileRecord(Base, TimestampMixin, WorkspaceScopedMixin):
+    __tablename__ = "files"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    task_id: Mapped[str | None] = mapped_column(String(80))
+    owner_user_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(160), nullable=False)
+    key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id"],
+            ["workspaces.tenant_id", "workspaces.id"],
+            name="fk_files_workspace",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "task_id"],
+            ["tasks.tenant_id", "tasks.workspace_id", "tasks.id"],
+            name="fk_files_task",
+        ),
+        UniqueConstraint("bucket", "key", name="uq_files_bucket_key"),
+        Index("ix_files_tenant_workspace", "tenant_id", "workspace_id"),
+        Index("ix_files_task", "task_id"),
     )

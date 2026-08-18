@@ -224,7 +224,7 @@ def _sanitize_mapping(payload: Mapping[str, Any], *, depth: int) -> dict[str, Js
     for key, value in payload.items():
         if not isinstance(key, str) or not key:
             raise ValueError("Event payload keys must be non-empty strings")
-        clean[key] = REDACTED if _is_secret_key(key) else _sanitize_value(value, depth=depth + 1)
+        clean[key] = REDACTED if is_secret_key(key) else _sanitize_value(value, depth=depth + 1)
     return clean
 
 
@@ -244,17 +244,25 @@ def _sanitize_value(value: Any, *, depth: int) -> JsonValue:
     raise ValueError(f"Event payload contains unsupported value type: {type(value).__name__}")
 
 
-def _is_secret_key(key: str) -> bool:
+SECRET_KEY_MARKERS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "apikey",
+    "authorization",
+    "cookie",
+    "credential",
+    "privatekey",
+)
+
+
+def is_secret_key(key: str) -> bool:
+    """Return whether a field name looks like it holds a credential.
+
+    Shared by every subsystem that redacts payloads (events, audit) so the
+    allow-list of secret markers has a single source of truth.
+    """
+
     normalized = "".join(character for character in key.casefold() if character.isalnum())
-    secret_markers = (
-        "password",
-        "passwd",
-        "secret",
-        "token",
-        "apikey",
-        "authorization",
-        "cookie",
-        "credential",
-        "privatekey",
-    )
-    return any(marker in normalized for marker in secret_markers)
+    return any(marker in normalized for marker in SECRET_KEY_MARKERS)

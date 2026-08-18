@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from .schemas import AgentRun, Approval, DomainEvent, Task, TenantContext
+from .schemas import AgentRun, Approval, DomainEvent, FileObject, Task, TenantContext
 from .store import InMemoryStore
 
 
@@ -9,6 +9,7 @@ class AnumRepository(Protocol):
     def save_task(self, task: Task) -> Task: ...
     def get_task(self, task_id: str, context: TenantContext) -> Task | None: ...
     def get_task_for_update(self, task_id: str, context: TenantContext) -> Task | None: ...
+    def list_tasks(self, context: TenantContext) -> list[Task]: ...
     def save_run(self, run: AgentRun) -> AgentRun: ...
     def get_run(self, run_id: str, context: TenantContext) -> AgentRun | None: ...
     def find_run_for_task(self, task_id: str, context: TenantContext) -> AgentRun | None: ...
@@ -21,6 +22,10 @@ class AnumRepository(Protocol):
     def list_approvals_for_update(self, context: TenantContext) -> list[Approval]: ...
     def list_events(self, context: TenantContext) -> list[DomainEvent]: ...
     def record_event(self, event: DomainEvent) -> DomainEvent: ...
+    def save_file(self, file: FileObject) -> FileObject: ...
+    def get_file(self, file_id: str, context: TenantContext) -> FileObject | None: ...
+    def list_files_for_task(self, task_id: str, context: TenantContext) -> list[FileObject]: ...
+    def delete_file(self, file_id: str, context: TenantContext) -> bool: ...
 
 
 class InMemoryRepository:
@@ -44,6 +49,14 @@ class InMemoryRepository:
 
     def get_task_for_update(self, task_id: str, context: TenantContext) -> Task | None:
         return self.get_task(task_id, context)
+
+    def list_tasks(self, context: TenantContext) -> list[Task]:
+        tasks = [
+            task
+            for task in self.store.tasks.values()
+            if task.tenant_id == context.tenant_id and task.workspace_id == context.workspace_id
+        ]
+        return sorted(tasks, key=lambda task: (task.created_at, task.id))
 
     def save_run(self, run: AgentRun) -> AgentRun:
         self.store.runs[run.id] = run
@@ -97,3 +110,34 @@ class InMemoryRepository:
     def record_event(self, event: DomainEvent) -> DomainEvent:
         self.store.events.append(event)
         return event
+
+    def save_file(self, file: FileObject) -> FileObject:
+        self.store.files[file.id] = file
+        return file
+
+    def get_file(self, file_id: str, context: TenantContext) -> FileObject | None:
+        file = self.store.files.get(file_id)
+        if not file:
+            return None
+        if file.tenant_id != context.tenant_id or file.workspace_id != context.workspace_id:
+            return None
+        return file
+
+    def list_files_for_task(self, task_id: str, context: TenantContext) -> list[FileObject]:
+        files = [
+            file
+            for file in self.store.files.values()
+            if file.tenant_id == context.tenant_id
+            and file.workspace_id == context.workspace_id
+            and file.task_id == task_id
+        ]
+        return sorted(files, key=lambda file: (file.created_at, file.id))
+
+    def delete_file(self, file_id: str, context: TenantContext) -> bool:
+        file = self.store.files.get(file_id)
+        if file is None or not (
+            file.tenant_id == context.tenant_id and file.workspace_id == context.workspace_id
+        ):
+            return False
+        del self.store.files[file_id]
+        return True

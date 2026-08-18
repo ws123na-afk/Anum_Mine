@@ -23,6 +23,9 @@ class Permission(StrEnum):
     MEMORY_READ = "memory:read"
     MEMORY_CREATE = "memory:create"
     MEMORY_DELETE = "memory:delete"
+    FILE_READ = "file:read"
+    FILE_CREATE = "file:create"
+    FILE_DELETE = "file:delete"
 
 
 class AuthorizationFailure(StrEnum):
@@ -54,6 +57,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.APPROVAL_READ,
         Permission.EVENT_READ,
         Permission.MEMORY_READ,
+        Permission.FILE_READ,
     }
 )
 
@@ -66,6 +70,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.TASK_RUN,
             Permission.MEMORY_CREATE,
             Permission.MEMORY_DELETE,
+            Permission.FILE_CREATE,
+            Permission.FILE_DELETE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

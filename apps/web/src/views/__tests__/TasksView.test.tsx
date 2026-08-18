@@ -1,0 +1,144 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import type { AgentRun, Task, TenantContext } from '@anum/contracts';
+import TasksView from '../TasksView';
+import { ApiError, createAndRunTask, listTasks } from '../../lib/api';
+
+vi.mock('../../lib/api', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/api')>('../../lib/api');
+  return {
+    ...actual,
+    listTasks: vi.fn(),
+    createAndRunTask: vi.fn(),
+    cancelTask: vi.fn(),
+  };
+});
+
+const tenantContext: TenantContext = {
+  tenantId: 'tenant_local',
+  workspaceId: 'workspace_foundation',
+  userId: 'user_local',
+  roles: ['owner', 'member'],
+};
+
+function makeTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 'task_1',
+    title: 'Summarize Q3 report',
+    prompt: 'Summarize the Q3 financial report',
+    status: 'completed',
+    tenantId: 'tenant_local',
+    workspaceId: 'workspace_foundation',
+    createdAt: '2026-08-10T09:00:00.000Z',
+    updatedAt: '2026-08-10T09:05:00.000Z',
+    ...overrides,
+  };
+}
+
+afterEach(() => {
+  vi.resetAllMocks();
+});
+
+describe('TasksView', () => {
+  it('shows a loading state while the initial tasks request is pending', async () => {
+    let resolveTasks!: (tasks: Task[]) => void;
+    const pending = new Promise<Task[]>((resolve) => {
+      resolveTasks = resolve;
+    });
+    vi.mocked(listTasks).mockReturnValue(pending);
+
+    render(<TasksView tenantContext={tenantContext} />);
+
+    expect(screen.getByRole('button', { name: /refresh/i })).toBeDisabled();
+    expect(screen.queryByText(/no tasks yet/i)).not.toBeInTheDocument();
+
+    resolveTasks([]);
+    await screen.findByText(/no tasks yet/i);
+  });
+
+  it('renders an empty state when there are no tasks', async () => {
+    vi.mocked(listTasks).mockResolvedValue([]);
+
+    render(<TasksView tenantContext={tenantContext} />);
+
+    expect(await screen.findByText(/no tasks yet/i)).toBeInTheDocument();
+  });
+
+  it('renders task rows once the tasks request resolves', async () => {
+    const task1 = makeTask({
+      id: 'task_1',
+      title: 'Summarize Q3 report',
+      status: 'completed',
+      createdAt: '2026-08-10T09:00:00.000Z',
+    });
+    const task2 = makeTask({
+      id: 'task_2',
+      title: 'Rotate API keys',
+      status: 'running',
+      createdAt: '2026-08-10T10:00:00.000Z',
+    });
+    vi.mocked(listTasks).mockResolvedValue([task1, task2]);
+
+    render(<TasksView tenantContext={tenantContext} />);
+
+    expect(await screen.findByText('Summarize Q3 report')).toBeInTheDocument();
+    expect(screen.getByText('Rotate API keys')).toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
+    expect(screen.getByText('Running')).toBeInTheDocument();
+  });
+
+  it('submits the composer, calls createAndRunTask with the prompt, and shows the new task', async () => {
+    vi.mocked(listTasks).mockResolvedValue([]);
+    const newTask = makeTask({
+      id: 'task_new',
+      title: 'Web task',
+      prompt: 'Investigate billing spike',
+      status: 'queued',
+    });
+    const newRun: AgentRun = { id: 'run_1', taskId: 'task_new', status: 'queued', steps: [] };
+    vi.mocked(createAndRunTask).mockResolvedValue({ task: newTask, run: newRun, approval: null });
+
+    const user = userEvent.setup();
+    render(<TasksView tenantContext={tenantContext} />);
+
+    await screen.findByText(/no tasks yet/i);
+
+    const textarea = screen.getByRole('textbox', { name: /prompt/i });
+    await user.type(textarea, 'Investigate billing spike');
+    await user.click(screen.getByRole('button', { name: /run task/i }));
+
+    expect(createAndRunTask).toHaveBeenCalledWith('Investigate billing spike');
+    expect(await screen.findByText('Web task')).toBeInTheDocument();
+    expect(screen.getByText('Queued')).toBeInTheDocument();
+  });
+
+  it('disables Run task until the prompt has non-whitespace text', async () => {
+    vi.mocked(listTasks).mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<TasksView tenantContext={tenantContext} />);
+
+    await screen.findByText(/no tasks yet/i);
+
+    const runButton = screen.getByRole('button', { name: /run task/i });
+    const textarea = screen.getByRole('textbox', { name: /prompt/i });
+
+    expect(runButton).toBeDisabled();
+
+    await user.type(textarea, '   ');
+    expect(runButton).toBeDisabled();
+
+    await user.type(textarea, 'Do something useful');
+    expect(runButton).toBeEnabled();
+  });
+
+  it('shows the ApiError message when the initial tasks request fails', async () => {
+    vi.mocked(listTasks).mockRejectedValue(
+      new ApiError('Tenant header missing', 400, 'bad_request', 'corr-42'),
+    );
+
+    render(<TasksView tenantContext={tenantContext} />);
+
+    expect(await screen.findByText('Tenant header missing')).toBeInTheDocument();
+  });
+});

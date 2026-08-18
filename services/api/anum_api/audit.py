@@ -5,20 +5,11 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Mapping, Protocol
 
+from anum_api.events import is_secret_key
 from anum_api.schemas import TenantContext
 
 
 REDACTED = "[REDACTED]"
-_SECRET_KEY_PARTS = (
-    "authorization",
-    "credential",
-    "password",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "private_key",
-)
 
 
 class DuplicateAuditRecordError(ValueError):
@@ -29,13 +20,8 @@ class ImmutableAuditError(RuntimeError):
     """Raised when code attempts to alter append-only audit history."""
 
 
-def _is_secret_key(key: str) -> bool:
-    normalized = key.lower().replace("-", "_").replace(" ", "_")
-    return any(part in normalized for part in _SECRET_KEY_PARTS)
-
-
 def _sanitize(value: Any, *, key: str | None = None) -> Any:
-    if key is not None and _is_secret_key(key):
+    if key is not None and is_secret_key(key):
         return REDACTED
     if isinstance(value, Mapping):
         return MappingProxyType(

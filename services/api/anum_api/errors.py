@@ -5,10 +5,11 @@ from enum import StrEnum
 from http import HTTPStatus
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .request_context import CORRELATION_ID_HEADER, get_correlation_id
 
@@ -133,7 +134,7 @@ async def validation_error_handler(
     )
 
 
-async def http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     code = _STATUS_CODES.get(exc.status_code, ErrorCode.BAD_REQUEST)
     message = exc.detail if isinstance(exc.detail, str) else HTTPStatus(exc.status_code).phrase
     return _error_response(
@@ -162,5 +163,5 @@ async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResp
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApplicationError, application_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
-    app.add_exception_handler(HTTPException, http_error_handler)
+    app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.add_exception_handler(Exception, unexpected_error_handler)

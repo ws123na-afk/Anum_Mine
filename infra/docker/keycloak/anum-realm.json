@@ -1,0 +1,129 @@
+{
+  "realm": "anum",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 300,
+
+  "roles": {
+    "realm": [
+      { "name": "owner", "description": "ANUM workspace owner (see anum_api.authorization.Role)" },
+      { "name": "member", "description": "ANUM workspace member" },
+      { "name": "viewer", "description": "ANUM workspace viewer (read-only)" }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "anum-api",
+      "name": "ANUM API (resource server)",
+      "description": "Bearer-only client representing the API itself. Not used to log in - it exists so the anum-web client's audience mapper below has a real client to target, producing an aud claim of \"anum-api\" that matches ANUM_OIDC_AUDIENCE (see services/api/anum_api/settings.py).",
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "enabled": true
+    },
+    {
+      "clientId": "anum-web",
+      "name": "ANUM web app",
+      "description": "Public client used by apps/web's real Authorization Code + PKCE login (see apps/web/src/lib/auth.ts). directAccessGrantsEnabled is ALSO on so a token can be fetched with a plain curl (Resource Owner Password Credentials grant) for local testing/scripting, without going through a browser - a convenience this dev/test realm accepts that a production realm should not (see anum-realm.production-template.json, which disables it).",
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "enabled": true,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "redirectUris": ["http://localhost:5173/*", "http://localhost:8081/*"],
+      "webOrigins": ["http://localhost:5173", "http://localhost:8081"],
+      "protocolMappers": [
+        {
+          "name": "anum-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "anum-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "workspace-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "workspace_id",
+            "claim.name": "workspace_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapping-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "user_local",
+      "enabled": true,
+      "email": "user_local@anum.local",
+      "emailVerified": true,
+      "attributes": {
+        "tenant_id": ["tenant_local"],
+        "workspace_id": ["workspace_foundation"]
+      },
+      "realmRoles": ["owner", "member"],
+      "credentials": [
+        { "type": "password", "value": "anum-dev-password", "temporary": false }
+      ]
+    },
+    {
+      "username": "user_beta_viewer",
+      "enabled": true,
+      "email": "user_beta_viewer@anum.local",
+      "emailVerified": true,
+      "attributes": {
+        "tenant_id": ["tenant_beta"],
+        "workspace_id": ["workspace_beta"]
+      },
+      "realmRoles": ["viewer"],
+      "credentials": [
+        { "type": "password", "value": "anum-dev-password", "temporary": false }
+      ]
+    }
+  ]
+}

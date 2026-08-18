@@ -1,4 +1,4 @@
-from .schemas import AgentRun, Approval, DomainEvent, Task
+from .schemas import AgentRun, Approval, DomainEvent, FileObject, Task
 
 
 class InMemoryStore:
@@ -7,6 +7,7 @@ class InMemoryStore:
         self.runs: dict[str, AgentRun] = {}
         self.approvals: dict[str, Approval] = {}
         self.events: list[DomainEvent] = []
+        self.files: dict[str, FileObject] = {}
 
 
 store = InMemoryStore()

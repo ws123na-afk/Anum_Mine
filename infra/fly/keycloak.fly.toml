@@ -1,0 +1,148 @@
+# Fly.io app configuration for ANUM's production Keycloak instance
+# (anum-keycloak), the identity provider that services/api/anum_api/
+# oidc_auth.py validates tokens against when ANUM_AUTH_MODE=oidc.
+#
+# This runs the STOCK quay.io/keycloak/keycloak:25.0 image (same tag pinned
+# in infra/docker/compose.yaml's `keycloak` service) directly via Fly's
+# `[build] image = ...`, with no custom Dockerfile in this repo. That is
+# also why the command below is plain `start`, not `start --optimized`:
+# `--optimized` (see Keycloak's "Running Keycloak in a container" guide,
+# "Trimming down the number of options with an optimized build" section)
+# assumes you already baked build-time options (notably `--db=postgres`)
+# into a custom image via `kc.sh build` in your own Dockerfile. We haven't
+# done that here, so build-time options set only at runtime (as KC_DB below
+# is) would be SILENTLY IGNORED under `--optimized`, leaving Keycloak on its
+# default dev/H2 storage. Plain `start` re-runs the (cheap) build-reaugmentation
+# step on every boot, which costs a bit of startup time but guarantees
+# runtime env vars like KC_DB actually take effect. If this ever gets its
+# own Dockerfile (`FROM quay.io/keycloak/keycloak:25.0` + `kc.sh build
+# --db=postgres`), switch this to `start --optimized` for faster boots.
+#
+# See infra/fly/README.md for the full runbook (secrets, admin bootstrap,
+# realm import, production checklist). This file only covers running the
+# Keycloak server itself — it does NOT import any realm; that's a
+# post-deploy Admin REST API step (README section 2).
+#
+# --- Secrets (set these via `fly secrets set`, NEVER in [env] below) -----
+#
+# Keycloak's own admin bootstrap user (master realm, created only on first
+# boot against an empty database — see README section 1c):
+#   fly secrets set --app anum-keycloak \
+#     KEYCLOAK_ADMIN=admin \
+#     KEYCLOAK_ADMIN_PASSWORD="$(openssl rand -base64 24)"
+#
+# Keycloak's OWN Postgres database — separate from ANUM's `anum` app
+# database (see README section 1b for provisioning it with
+# `fly postgres create --name anum-keycloak-db`). Do NOT use
+# `fly postgres attach`, which would set a generic DATABASE_URL secret that
+# Keycloak does not read (Keycloak wants a JDBC URL split into KC_DB_URL /
+# KC_DB_USERNAME / KC_DB_PASSWORD, not one `postgres://user:pass@host/db`
+# string) — copy the connection details `fly postgres create` prints and
+# set these yourself:
+#   fly secrets set --app anum-keycloak \
+#     KC_DB_URL="jdbc:postgresql://<db-host>.flycast:5432/<db-name>" \
+#     KC_DB_USERNAME="<db-user>" \
+#     KC_DB_PASSWORD="<db-password>"
+#
+# --------------------------------------------------------------------------
+
+app = "anum-keycloak"
+primary_region = "iad"
+
+[build]
+  # No Dockerfile in this repo for Keycloak — pull the stock image directly,
+  # same tag as infra/docker/compose.yaml's `keycloak` service, so local dev
+  # and production run identical Keycloak code.
+  image = "quay.io/keycloak/keycloak:25.0"
+
+[processes]
+  # Plain `start` (production mode — NOT `start-dev`, which enables
+  # insecure defaults like HTTP without warnings and is documented by
+  # Keycloak as dev-only). All actual configuration (hostname, proxy
+  # headers, DB, health checks) comes from the KC_* environment variables
+  # below and from secrets, per Keycloak's env-var-driven config model —
+  # see https://www.keycloak.org/server/all-config for the full option
+  # reference if any of these need to change.
+  app = "start"
+
+[env]
+  # --- Public hostname (Keycloak "hostname v2" provider, default since
+  # Keycloak 22) --------------------------------------------------------
+  # Bare hostname, not a full URL: with KC_PROXY_HEADERS set (below),
+  # Keycloak derives the scheme (https) from the X-Forwarded-Proto header
+  # Fly's edge proxy sets, so redirect/issuer URLs come out as
+  # https://anum-keycloak.fly.dev/... even though Keycloak itself only
+  # speaks plain HTTP internally (KC_HTTP_ENABLED below). Swap this for a
+  # custom domain if/when one is attached to this Fly app (`fly certs
+  # add ...`) — whatever value ends up here becomes the realm issuer
+  # (`{KC_HOSTNAME}/realms/anum`), i.e. the value you'll eventually set as
+  # ANUM_KEYCLOAK_ISSUER on the API — see README section 5.
+  KC_HOSTNAME = "anum-keycloak.fly.dev"
+
+  # --- Running behind Fly's edge proxy ----------------------------------
+  # Fly terminates TLS at its edge and forwards plain HTTP to this app,
+  # setting X-Forwarded-For / X-Forwarded-Proto (not the RFC 7239
+  # `Forwarded` header) — so `xforwarded` is the correct value, not
+  # `forwarded`. KC_PROXY_HEADERS is the Keycloak 24+ replacement for the
+  # older KC_PROXY=edge setting (still present in 25.0 but deprecated,
+  # slated for removal in 26) — using the new name now avoids a forced
+  # rewrite on the next Keycloak upgrade. Getting this wrong is exactly the
+  # kind of thing that silently breaks login: without it (or with the
+  # wrong value), Keycloak thinks every request arrived over plain HTTP on
+  # its internal port and mints http:// redirect/issuer URLs that browsers
+  # then refuse to follow from an https:// page.
+  KC_PROXY_HEADERS = "xforwarded"
+
+  # Keycloak itself serves plain HTTP — TLS is terminated by Fly's edge,
+  # not by Keycloak. (Fly's [http_service] below still forces https at the
+  # edge via force_https.) Enabling this without a trusted TLS-terminating
+  # proxy in front would be wrong; here it's correct because that proxy is
+  # exactly what KC_PROXY_HEADERS above assumes.
+  KC_HTTP_ENABLED = "true"
+
+  # DB vendor selection (build-time option, must be present at `start` time
+  # — see the `--optimized` comment at the top of this file for why plain
+  # `start`, not `start --optimized`, is required for this to actually take
+  # effect). The connection itself (KC_DB_URL / KC_DB_USERNAME /
+  # KC_DB_PASSWORD) is set via `fly secrets set`, not here — see the
+  # top-of-file secrets comment.
+  KC_DB = "postgres"
+
+  # Exposes /health/ready and /health/live on the same HTTP port Keycloak
+  # already serves on (8080) — Keycloak 25.0 predates the separate
+  # management-port split introduced later, so no extra port config is
+  # needed for the Fly health check below to reach it.
+  KC_HEALTH_ENABLED = "true"
+
+[[vm]]
+  # Keycloak is a JVM app; Fly's smallest default (256MB) is not enough and
+  # will OOM during boot. 1GB is a reasonable floor for a low-traffic
+  # instance — increase if you see OOM kills under real login load.
+  size = "shared-cpu-1x"
+  memory = "1024mb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # Unlike anum-api's fly.toml, this does NOT scale to zero by default:
+  # Keycloak's boot path (re-running build-reaugmentation on every start,
+  # per the `--optimized` note above, plus a DB connection/migration check)
+  # is meaningfully slower than the API's, and a cold start in the middle
+  # of a user's login redirect is a much worse experience than a cold start
+  # on an API call. Revisit this once real traffic volume/cost tradeoffs
+  # are known.
+  min_machines_running = 1
+  auto_stop_machines = false
+  auto_start_machines = true
+
+  [[http_service.checks]]
+    # Generous grace_period: first boot against a fresh KC_DB also runs
+    # Keycloak's own schema migration, which can take longer than a normal
+    # restart.
+    grace_period = "60s"
+    interval = "15s"
+    method = "GET"
+    path = "/health/ready"
+    port = 8080
+    timeout = "5s"

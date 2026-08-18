@@ -46,12 +46,20 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
-    command: ["start-dev"]
+    # --import-realm loads infra/docker/keycloak/anum-realm.json on startup:
+    # an "anum" realm with tenant_id/workspace_id/roles claim mappers already
+    # configured, matching what services/api/anum_api/oidc_auth.py expects.
+    # See infra/docker/keycloak/README.md for how to get a test token from
+    # it. This realm is for local dev/testing ONLY (plaintext seeded
+    # passwords, sslRequired: none) - never reuse it in production.
+    command: ["start-dev", "--import-realm"]
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
     ports:
       - "8080:8080"
+    volumes:
+      - ./keycloak/anum-realm.json:/opt/keycloak/data/import/anum-realm.json:ro
 
   minio:
     image: minio/minio:RELEASE.2024-09-13T20-26-02Z
@@ -73,6 +81,71 @@ services:
     ports:
       - "4317:4317"
       - "4318:4318"
+
+  api:
+    build:
+      # services/api/Dockerfile is self-contained (no monorepo dependency),
+      # so its build context is services/api itself, not the repo root --
+      # this differs from the `web` service below, which needs repo-root
+      # context for its pnpm workspace dependency on packages/contracts.
+      context: ../../services/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - valkey
+      - nats
+      - temporal
+      - minio
+    environment:
+      ANUM_DATABASE_URL: postgresql+psycopg://anum:anum@postgres:5432/anum
+      ANUM_REPOSITORY_BACKEND: postgresql
+      ANUM_KEYCLOAK_ISSUER: http://keycloak:8080/realms/anum
+      # Defaults to the Phase 1 stub-header auth path so this compose stack
+      # is easy to hit locally (x-tenant-id/x-workspace-id/x-user-id/
+      # x-user-roles headers, no token verification). To exercise OIDC
+      # instead, set ANUM_AUTH_MODE: oidc - the `keycloak` service above
+      # auto-imports a realm (infra/docker/keycloak/anum-realm.json) with
+      # the client/claim mappers already configured, so this genuinely
+      # works locally; see infra/docker/keycloak/README.md for a curl
+      # example to fetch a test token. That realm is dev/test only - see
+      # infra/docker/keycloak/README.md#production for a real deployment.
+      ANUM_AUTH_MODE: stub_headers
+      # Off by default (matches the API's own default). Uncomment to test
+      # the rate limiter locally; see docs/deployment.md's production
+      # checklist and anum_api/rate_limit.py before relying on this beyond
+      # a single instance.
+      # ANUM_RATE_LIMIT_ENABLED: "true"
+      # Phase 2 coordination/event-bus/workflow services (see settings.py's
+      # comments on each) - active in this compose stack since the services
+      # above already run either way; a bare `uvicorn --reload` with no env
+      # file still defaults every one of these to off, unchanged.
+      ANUM_VALKEY_URL: redis://valkey:6379/0
+      ANUM_NATS_URL: nats://nats:4222
+      # The API process itself runs the Temporal worker in-process (see
+      # anum_api/workflows/worker.py) - no separate worker container needed
+      # for this "Now"-scoped, single-instance deployment.
+      ANUM_TEMPORAL_ADDRESS: temporal:7233
+      # Matches the `minio` service's MINIO_ROOT_USER/MINIO_ROOT_PASSWORD
+      # below - local dev/test credentials only, never reuse in production.
+      ANUM_OBJECT_STORAGE_ENDPOINT_URL: http://minio:9000
+      ANUM_OBJECT_STORAGE_BUCKET: anum-files
+      ANUM_OBJECT_STORAGE_ACCESS_KEY: anum
+      ANUM_OBJECT_STORAGE_SECRET_KEY: anum-local-secret
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_ANUM_API_URL: http://localhost:8000
+    ports:
+      # 8081, not 5173 -- 5173 is reserved for the separate `pnpm dev`
+      # local dev server, so the two don't collide or get confused.
+      - "8081:80"
+    depends_on:
+      - api
 
 volumes:
   postgres-data:

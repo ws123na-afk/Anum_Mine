@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Cleartext HTTP is allowed ONLY for the Android emulator's alias to
+         the host machine's localhost, for local development against
+         `uvicorn --reload` (see ../../../../../README.md). Every other
+         destination, including production, requires HTTPS. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

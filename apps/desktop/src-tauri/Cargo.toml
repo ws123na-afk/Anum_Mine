@@ -1,0 +1,22 @@
+[package]
+name = "anum-desktop"
+version = "0.1.0"
+description = "ANUM desktop shell (Tauri wrapper around apps/web)"
+edition = "2021"
+rust-version = "1.77"
+
+# See docs/desktop.md: "Desktop should share the React+TypeScript UI where
+# practical. Native code should be limited to capabilities that require OS
+# access." This crate is deliberately thin - it points Tauri's webview at
+# apps/web's existing build output and, for "Now", adds exactly one native
+# capability (a native file-open dialog) as a proof of the pattern, not a
+# fork of the product. See src/main.rs and tauri.conf.json.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
