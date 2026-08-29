@@ -1,11 +1,27 @@
 from typing import Protocol
 
-from .schemas import AgentRun, Approval, DomainEvent, Task, TenantContext
+from .schemas import (
+    AgentRun,
+    Approval,
+    DomainEvent,
+    Task,
+    Tenant,
+    TenantContext,
+    Workspace,
+    WorkspaceMembership,
+)
 from .store import InMemoryStore
 
 
 class AnumRepository(Protocol):
+    def create_tenant(self, tenant: Tenant) -> Tenant: ...
+    def get_tenant(self, tenant_id: str) -> Tenant | None: ...
+    def create_workspace(self, workspace: Workspace) -> Workspace: ...
+    def get_workspace(self, workspace_id: str, context: TenantContext) -> Workspace | None: ...
+    def save_membership(self, membership: WorkspaceMembership) -> WorkspaceMembership: ...
+    def get_membership(self, context: TenantContext) -> WorkspaceMembership | None: ...
     def create_task(self, task: Task) -> Task: ...
+    def list_tasks(self, context: TenantContext) -> list[Task]: ...
     def save_task(self, task: Task) -> Task: ...
     def get_task(self, task_id: str, context: TenantContext) -> Task | None: ...
     def get_task_for_update(self, task_id: str, context: TenantContext) -> Task | None: ...
@@ -27,8 +43,51 @@ class InMemoryRepository:
     def __init__(self, store: InMemoryStore) -> None:
         self.store = store
 
+    def create_tenant(self, tenant: Tenant) -> Tenant:
+        if tenant.id in self.store.tenants:
+            raise ValueError(f"Tenant already exists: {tenant.id}")
+        self.store.tenants[tenant.id] = tenant
+        return tenant
+
+    def get_tenant(self, tenant_id: str) -> Tenant | None:
+        return self.store.tenants.get(tenant_id)
+
+    def create_workspace(self, workspace: Workspace) -> Workspace:
+        if workspace.id in self.store.workspaces:
+            raise ValueError(f"Workspace already exists: {workspace.id}")
+        if workspace.tenant_id not in self.store.tenants:
+            raise ValueError(f"Tenant does not exist: {workspace.tenant_id}")
+        self.store.workspaces[workspace.id] = workspace
+        return workspace
+
+    def get_workspace(self, workspace_id: str, context: TenantContext) -> Workspace | None:
+        workspace = self.store.workspaces.get(workspace_id)
+        return workspace if workspace and workspace.tenant_id == context.tenant_id else None
+
+    def save_membership(self, membership: WorkspaceMembership) -> WorkspaceMembership:
+        key = (membership.tenant_id, membership.workspace_id, membership.user_id)
+        self.store.memberships[key] = membership
+        return membership
+
+    def get_membership(self, context: TenantContext) -> WorkspaceMembership | None:
+        return self.store.memberships.get(
+            (context.tenant_id, context.workspace_id, context.user_id)
+        )
+
     def create_task(self, task: Task) -> Task:
         return self.save_task(task)
+
+    def list_tasks(self, context: TenantContext) -> list[Task]:
+        return sorted(
+            (
+                task
+                for task in self.store.tasks.values()
+                if task.tenant_id == context.tenant_id
+                and task.workspace_id == context.workspace_id
+            ),
+            key=lambda task: (task.created_at, task.id),
+            reverse=True,
+        )
 
     def save_task(self, task: Task) -> Task:
         self.store.tasks[task.id] = task

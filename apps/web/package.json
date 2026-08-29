@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -p tsconfig.json && vite build",
     "check": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anum/contracts": "workspace:*",
@@ -19,6 +20,7 @@
     "lucide-react": "latest"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@types/react": "latest",
     "@types/react-dom": "latest"
   }

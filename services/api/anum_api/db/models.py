@@ -73,6 +73,25 @@ class Workspace(Base, TimestampMixin, TenantScopedMixin):
     )
 
 
+class WorkspaceMembershipRecord(Base, TimestampMixin, WorkspaceScopedMixin):
+    __tablename__ = "workspace_memberships"
+
+    user_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    role: Mapped[str] = mapped_column(String(40), nullable=False)
+    active: Mapped[bool] = mapped_column(nullable=False, server_default="true")
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id"],
+            ["workspaces.tenant_id", "workspaces.id"],
+            name="fk_workspace_memberships_workspace",
+        ),
+        Index("ix_workspace_memberships_user", "user_id", "tenant_id", "workspace_id"),
+    )
+
+
 class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     __tablename__ = "tasks"
 
@@ -104,6 +123,9 @@ class AgentRunRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     task_id: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     result: Mapped[str | None] = mapped_column(Text)
+    checkpoint: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
 
     task: Mapped[TaskRecord] = relationship(back_populates="runs")
     steps: Mapped[list["AgentRunStepRecord"]] = relationship(back_populates="run")

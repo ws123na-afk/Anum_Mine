@@ -8,6 +8,10 @@ Phase 0 documentation is complete. Phase 1 has started with an executable founda
 
 - FastAPI backend service under `services/api`.
 - React+TypeScript+Vite web app under `apps/web`.
+- Tauri v2 desktop shell under `apps/desktop`.
+- Native Kotlin/Compose Android client under `apps/android`.
+- Flutter Android/iOS/tablet client under `apps/mobile`, aligned to the approved Figma system.
+- Tenant-scoped voice sessions and browser push-to-talk task capture.
 - Shared TypeScript contracts under `packages/contracts`.
 - Local infrastructure composition under `infra/docker`.
 - GitHub Actions CI for web/contracts, API tests, and Docker Compose validation.
@@ -20,6 +24,7 @@ The backend supports in-memory development storage and request-scoped PostgreSQL
 - Web app: React, TypeScript, and Vite
 - Desktop app: Tauri shell around the web experience with native capabilities
 - Android app: Kotlin, with shared contracts where practical
+- Cross-platform mobile app: Flutter, using semantic design tokens and shared API contracts
 - Data: PostgreSQL with pgvector, object storage through an S3-compatible API, and Valkey for fast ephemeral state
 - Messaging and workflows: NATS JetStream for event streams and Temporal for durable workflows
 - Agent runtime: custom ANUM runtime for planning, tool execution, memory access, approval gates, and risk controls
@@ -51,6 +56,14 @@ Run local infrastructure:
 docker compose -f infra/docker/compose.yaml up
 ```
 
+Run the Flutter client after installing Flutter 3.22 or newer:
+
+```bash
+cd apps/mobile
+flutter pub get
+flutter run --dart-define=ANUM_API_URL=http://10.0.2.2:8000/
+```
+
 ## Tenant Headers for Phase 1
 
 Until OIDC is implemented, API routes require explicit development headers:
@@ -73,6 +86,7 @@ x-user-roles: owner,member
 - [Model gateway](docs/model-gateway.md)
 - [Memory](docs/memory.md)
 - [Skills](docs/skills.md)
+- [Workspace files](docs/files.md)
 - [Tools and integrations](docs/tools-and-integrations.md)
 - [Automation](docs/automation.md)
 - [Approvals and risk](docs/approvals-and-risk.md)
@@ -83,11 +97,15 @@ x-user-roles: owner,member
 - [Voice](docs/voice.md)
 - [Desktop](docs/desktop.md)
 - [Android](docs/android.md)
+- [Flutter mobile](docs/mobile.md)
 - [Infrastructure](docs/infrastructure.md)
 - [Observability](docs/observability.md)
 - [Development standards](docs/development-standards.md)
+- [Production readiness gates](docs/production-readiness.md)
+- [Figma mobile design system](docs/figma-mobile-design.md)
 - [Repository structure](docs/repository-structure.md)
 - [Scaling](docs/scaling.md)
+- [Governance and scale](docs/governance-and-scale.md)
 - [ADR-0001: Foundation](docs/decisions/ADR-0001-foundation.md)
 - [ADR-0002: Custom agent runtime](docs/decisions/ADR-0002-custom-agent-runtime.md)
 

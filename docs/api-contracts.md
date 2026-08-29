@@ -16,6 +16,7 @@ Resource paths should be tenant-aware through authenticated context, not by trus
 ```text
 POST /v1/tasks
 GET /v1/tasks/{task_id}
+GET /v1/tasks/{task_id}/latest-run
 POST /v1/tasks/{task_id}/cancel
 POST /v1/approvals/{approval_id}/decide
 GET /v1/agent-runs/{run_id}/events

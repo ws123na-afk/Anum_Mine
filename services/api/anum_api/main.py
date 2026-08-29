@@ -1,17 +1,23 @@
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+import asyncio
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from .authorization import Permission
 from .dependencies import (
     memory_repository,
     memory_repository_context,
     repository_context,
+    provisioning_repository_context,
     require_permission,
     tenant_context,
 )
 from .errors import register_exception_handlers
 from .events import CanonicalEventName, create_event
-from .model_gateway import MockModelGateway
+from .integrations import IntegrationHealth, default_integration_registry
+from .integration_tools import configured_external_handler
+from .model_gateway import build_model_gateway
 from .memory import (
     MemoryAccess,
     MemoryCreate,
@@ -22,6 +28,7 @@ from .memory import (
 )
 from .repository import AnumRepository
 from .runtime import AgentRuntime
+from .agent_tools import default_tool_registry
 from .schemas import (
     AgentRun,
     Approval,
@@ -29,16 +36,29 @@ from .schemas import (
     ApprovalStatus,
     DomainEvent,
     RunTaskResponse,
+    RunPhase,
     Task,
     TaskCreate,
     TaskStatus,
+    Tenant,
+    TenantCreate,
     TenantContext,
+    Workspace,
+    WorkspaceCreate,
+    WorkspaceMembership,
     new_id,
     utc_now,
 )
 from .settings import settings
 from .store import store
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
+from .voice import router as voice_router
+from .phase5 import router as phase5_router
+from .governance import router as governance_router
+from .automation import router as automation_router
+from .files import router as files_router
+from .skills_api import router as skills_router
+from .onboarding import router as onboarding_router
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.add_middleware(CorrelationIdMiddleware)
@@ -46,24 +66,141 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=[
         "content-type",
+        "authorization",
         "x-tenant-id",
         "x-workspace-id",
         "x-user-id",
         "x-user-roles",
+        "last-event-id",
+        "idempotency-key",
         CORRELATION_ID_HEADER,
     ],
     expose_headers=[CORRELATION_ID_HEADER],
 )
 register_exception_handlers(app)
+app.include_router(voice_router)
+app.include_router(phase5_router)
+app.include_router(governance_router)
+app.include_router(automation_router)
+app.include_router(files_router)
+app.include_router(skills_router)
+app.include_router(onboarding_router)
 repository = memory_repository
+model_gateway = build_model_gateway(
+    settings.model_provider,
+    api_key=settings.model_api_key,
+    model=settings.model_name,
+    base_url=settings.model_base_url,
+)
+integration_registry = default_integration_registry(settings)
+tool_registry = default_tool_registry(configured_external_handler(settings))
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "environment": settings.environment}
+
+
+@app.post("/api/v1/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED)
+async def create_tenant(
+    payload: TenantCreate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(provisioning_repository_context),
+) -> Tenant:
+    require_permission(context, Permission.TENANT_CREATE)
+    now = utc_now()
+    tenant = Tenant(
+        id=context.tenant_id,
+        name=payload.name,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        return repository.create_tenant(tenant)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/workspaces", response_model=Workspace, status_code=status.HTTP_201_CREATED)
+async def create_workspace(
+    payload: WorkspaceCreate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(provisioning_repository_context),
+) -> Workspace:
+    require_permission(context, Permission.WORKSPACE_CREATE)
+    now = utc_now()
+    workspace = Workspace(
+        id=context.workspace_id,
+        tenant_id=context.tenant_id,
+        name=payload.name,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        return repository.create_workspace(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/workspace-memberships/current",
+    response_model=WorkspaceMembership,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_current_membership(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(provisioning_repository_context),
+) -> WorkspaceMembership:
+    require_permission(context, Permission.MEMBERSHIP_MANAGE)
+    if repository.get_workspace(context.workspace_id, context) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+    role = next((role for role in ("owner", "member", "viewer") if role in context.roles), "viewer")
+    now = utc_now()
+    return repository.save_membership(
+        WorkspaceMembership(
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            user_id=context.user_id,
+            role=role,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+
+
+@app.get("/api/v1/workspaces/current", response_model=Workspace)
+async def get_current_workspace(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Workspace:
+    require_permission(context, Permission.TASK_READ)
+    workspace = repository.get_workspace(context.workspace_id, context)
+    if workspace is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+    return workspace
+
+
+@app.get("/api/v1/workspace-memberships/current", response_model=WorkspaceMembership)
+async def get_current_membership(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> WorkspaceMembership:
+    require_permission(context, Permission.TASK_READ)
+    membership = repository.get_membership(context)
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membership not found")
+    return membership
+
+
+@app.get("/api/v1/integrations", response_model=list[IntegrationHealth])
+async def list_integrations(
+    context: TenantContext = Depends(tenant_context),
+) -> list[IntegrationHealth]:
+    require_permission(context, Permission.INTEGRATION_READ)
+    return await integration_registry.health()
 
 
 @app.post("/api/v1/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
@@ -98,6 +235,21 @@ async def create_task(
     return task
 
 
+@app.get("/api/v1/tasks", response_model=list[Task])
+async def list_tasks(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = None,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> list[Task]:
+    require_permission(context, Permission.TASK_READ)
+    tasks = repository.list_tasks(context)
+    if cursor:
+        cursor_index = next((index for index, task in enumerate(tasks) if task.id == cursor), None)
+        tasks = tasks[cursor_index + 1 :] if cursor_index is not None else []
+    return tasks[:limit]
+
+
 @app.get("/api/v1/tasks/{task_id}", response_model=Task)
 async def get_task(
     task_id: str,
@@ -119,7 +271,7 @@ async def run_task(
     if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
-    runtime = AgentRuntime(MockModelGateway(), repository)
+    runtime = AgentRuntime(model_gateway, repository, tools=tool_registry)
     run, approval = await runtime.run_task(task, context)
     repository.save_task(task)
     repository.save_run(run)
@@ -142,8 +294,10 @@ async def cancel_task(
     repository.save_task(task)
 
     run = repository.find_run_for_task(task.id, context)
-    if run and run.status == TaskStatus.WAITING_APPROVAL:
+    if run and run.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
         run.status = TaskStatus.CANCELLED
+        run.checkpoint.phase = RunPhase.CANCELLED
+        run.checkpoint.version += 1
         run.updated_at = task.updated_at
         repository.save_run(run)
 
@@ -177,6 +331,46 @@ async def get_agent_run(
     return run
 
 
+@app.get("/api/v1/tasks/{task_id}/latest-run", response_model=AgentRun)
+async def get_latest_task_run(
+    task_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> AgentRun:
+    require_permission(context, Permission.TASK_READ)
+    _get_task_for_context(task_id, context, repository)
+    run = repository.find_run_for_task(task_id, context)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
+    return run
+
+
+@app.post("/api/v1/agent-runs/{run_id}/resume", response_model=RunTaskResponse)
+async def resume_agent_run(
+    run_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> RunTaskResponse:
+    require_permission(context, Permission.TASK_RUN)
+    run = repository.get_run(run_id, context)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
+    task = _get_task_for_context(run.task_id, context, repository, for_update=True)
+    runtime = AgentRuntime(model_gateway, repository, tools=tool_registry)
+    try:
+        resumed = await runtime.resume_run(task, run, context)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    repository.save_task(task)
+    repository.save_run(resumed)
+    approval = (
+        repository.get_approval(resumed.checkpoint.approval_id, context)
+        if resumed.checkpoint.approval_id
+        else None
+    )
+    return RunTaskResponse(task=task, run=resumed, approval=approval)
+
+
 @app.get("/api/v1/events", response_model=list[DomainEvent])
 async def list_events(
     context: TenantContext = Depends(tenant_context),
@@ -184,6 +378,66 @@ async def list_events(
 ) -> list[DomainEvent]:
     require_permission(context, Permission.EVENT_READ)
     return repository.list_events(context)
+
+
+@app.get("/api/v1/events/stream")
+async def stream_events(
+    request: Request,
+    task_id: str | None = None,
+    follow: bool = True,
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> StreamingResponse:
+    require_permission(context, Permission.EVENT_READ)
+
+    async def event_source():
+        cursor = last_event_id
+        idle_cycles = 0
+        while not await request.is_disconnected():
+            events = repository.list_events(context)
+            if task_id:
+                events = [
+                    event
+                    for event in events
+                    if event.subject == task_id or event.payload.get("task_id") == task_id
+                ]
+            if cursor:
+                cursor_index = next(
+                    (index for index, event in enumerate(events) if event.id == cursor),
+                    None,
+                )
+                events = events[cursor_index + 1 :] if cursor_index is not None else events
+
+            if events:
+                idle_cycles = 0
+                for event in events:
+                    cursor = event.id
+                    yield (
+                        f"id: {event.id}\n"
+                        f"event: {event.type}\n"
+                        f"data: {event.model_dump_json()}\n\n"
+                    )
+            elif not follow:
+                break
+            else:
+                idle_cycles += 1
+                if idle_cycles >= 15:
+                    yield ": keep-alive\n\n"
+                    idle_cycles = 0
+            if not follow:
+                break
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/v1/approvals", response_model=list[Approval])
@@ -328,7 +582,7 @@ async def _decide_approval(
             created_at=approval.decided_at,
         ).event
     )
-    runtime = AgentRuntime(MockModelGateway(), repository)
+    runtime = AgentRuntime(model_gateway, repository, tools=tool_registry)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)
     if resumed_run:

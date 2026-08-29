@@ -35,6 +35,7 @@ TABLES_IN_DELETE_ORDER = (
     "agent_run_steps",
     "agent_runs",
     "tasks",
+    "workspace_memberships",
     "workspaces",
     "tenants",
 )

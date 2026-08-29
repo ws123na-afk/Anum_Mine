@@ -1,6 +1,6 @@
 # Voice
 
-Voice should become a natural ANUM surface, but it should not be the first core dependency. The platform should first establish identity, task state, approvals, memory, and event streaming so voice sessions can reuse the same runtime.
+Voice is an implemented ANUM surface built on the same identity, task, approval, memory, and event boundaries as typed commands.
 
 ## Voice Use Cases
 
@@ -18,10 +18,18 @@ Voice clients should connect to the same backend task APIs and realtime streams 
 
 Voice approval requires extra care. The system should confirm high-impact decisions using clear summaries and may require visual confirmation or device authentication for sensitive actions. Voice transcripts should be treated as sensitive memory sources.
 
-## Now
+## Implemented
 
-Document voice as a later surface and keep core APIs modality-neutral.
+- Tenant-scoped voice sessions and configurable session, 30-day, or permanent transcript retention.
+- Flutter push-to-talk with device speech recognition, English and Arabic locale selection, partial transcription, stop/cancel, and editable review.
+- Explicit command confirmation before task creation and governed execution.
+- Visual approval escalation for sensitive actions; spoken approval cannot bypass policy.
+- Permission-denied recovery and a keyboard fallback.
+- Optional text-to-speech confirmation of the created task status.
+- Seven approved Figma screens, a six-state Voice Capture component, and an eight-step voice safety workflow.
 
-## Later
+## Remaining Release Gates
 
-Add push-to-talk sessions, streaming transcription, spoken task summaries, voice approval policy, Android voice entry, desktop hotkey activation, and configurable transcript retention.
+- Physical Android and iOS microphone, Bluetooth headset, interruption, and background lifecycle testing.
+- OIDC release authentication, notification deep links, and device-authenticated approval where policy requires it.
+- Provider-backed streaming audio only if short device speech recognition is insufficient; the current implementation is intentionally push-to-talk for concise commands.

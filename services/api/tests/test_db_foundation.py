@@ -6,6 +6,7 @@ from anum_api.db.models import Base
 def test_tenant_scoped_tables_include_tenant_id() -> None:
     tenant_scoped_tables = {
         "workspaces",
+        "workspace_memberships",
         "tasks",
         "agent_runs",
         "agent_run_steps",
@@ -23,6 +24,7 @@ def test_core_database_tables_are_declared() -> None:
     assert {
         "tenants",
         "workspaces",
+        "workspace_memberships",
         "tasks",
         "agent_runs",
         "agent_run_steps",

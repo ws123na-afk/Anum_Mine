@@ -25,3 +25,14 @@ def test_memory_retention_migration_extends_the_foundation_chain() -> None:
     assert '"retention_expires_at"' in revision_text
     assert "sa.DateTime(timezone=True)" in revision_text
     assert 'op.drop_column("memories", "retention_expires_at")' in revision_text
+
+
+def test_workspace_membership_migration_extends_the_chain_with_rls() -> None:
+    api_root = Path(__file__).parents[1]
+    revision = api_root / "migrations" / "versions" / "0003_workspace_memberships.py"
+    revision_text = revision.read_text(encoding="utf-8")
+
+    assert 'revision = "0003_workspace_memberships"' in revision_text
+    assert 'down_revision = "0002_memory_retention"' in revision_text
+    assert '"workspace_memberships"' in revision_text
+    assert "tenant_isolation_workspace_memberships" in revision_text

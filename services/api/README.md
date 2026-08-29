@@ -15,6 +15,19 @@ Phase 1 uses stub tenant headers instead of full Keycloak/OIDC validation:
 ```text
 x-tenant-id: tenant_local
 x-workspace-id: workspace_foundation
+
+For the local web journey, create an expiring process-local session with
+`POST /api/v1/auth/local/session`, then send the returned opaque token as a
+Bearer token. The server stores only its SHA-256 hash and rejects this flow
+outside `ANUM_ENVIRONMENT=local`. Complete organization, workspace, and owner
+membership setup idempotently with `PUT /api/v1/onboarding`.
+
+Workspace model setup is available at `GET|PUT /api/v1/model-config`. Provider
+credentials are write-only: responses contain only `credential_configured` and
+the last four characters. User notification settings are available at
+`GET|PUT /api/v1/notification-preferences` and are scoped by tenant, workspace,
+and user. These local stores are development foundations and must be replaced
+by encrypted persistent storage before production deployment.
 x-user-id: user_local
 x-user-roles: owner,member
 ```
@@ -47,6 +60,14 @@ The Alembic chain executes `migrations/0001_foundation.sql`, which creates the c
 - Task creation and lookup.
 - Deterministic mock model gateway.
 - Custom runtime with approval-aware state transitions.
+- Structured agent planner with auditable skill selection.
+- Declarative internal skill manifests for planning, drafting, and external actions.
+- Governed tool registry with allow, approval, and blocked policy outcomes.
+- Mediated internal response and mock external-action tool adapters.
+- Live integration registry for PostgreSQL, Keycloak, NATS, Temporal, Valkey, and MinIO.
+- Governed external REST tool adapter with host allowlisting and credential references.
+- MCP-style tool adapter with tenant and actor context propagation.
+- Tenant-scoped SSE event stream with task filters, cursors, and reconnect support.
 - Approval approve/reject endpoints.
 - Role-based authorization policy for owner, member, and viewer development claims.
 - Stable API error envelopes and request correlation IDs.

@@ -64,3 +64,6 @@ export interface DomainEvent<TPayload = Record<string, unknown>> {
   createdAt: string;
   payload: TPayload;
 }
+
+export * from './governance.js';
+export * from './phase2.js';

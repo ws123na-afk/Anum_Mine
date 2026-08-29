@@ -4,11 +4,13 @@ The ANUM roadmap is staged to keep the system useful early while protecting long
 
 ## Phase 0: Documentation Foundation
 
-Status: current.
+Status: complete.
 
 Create the repository documentation baseline, decide the foundational stack, define security and tenant principles, and record architecture decisions. No production implementation code is expected in this phase.
 
 ## Phase 1: Thin Vertical Slice
+
+Status: in progress.
 
 Build the smallest complete ANUM path:
 
@@ -28,15 +30,25 @@ Add reusable skills, more tools, richer task timelines, file/object storage, Tem
 
 ## Phase 3: Multi-Surface Product
 
-Package the web app in Tauri, add native desktop permissions, ship the first Kotlin Android client, and introduce voice sessions. All clients should use the same backend contracts and auth model.
+Status: in progress.
+
+Package the web app in Tauri, add native desktop permissions, retain the first Kotlin Android client, ship the Flutter Android/iOS/tablet client, and introduce voice sessions. All clients should use the same backend contracts and auth model. Flutter source now covers authentication, onboarding, model setup, the governed workbench, responsive state handling, and secure session storage; native analysis and binary builds remain pending until the Flutter toolchain is installed.
 
 ## Phase 4: Team and Organization Controls
 
+Status: control-plane foundation implemented; durable production persistence pending.
+
 Add tenant administration, role templates, policy packs, scoped integrations, audit export, memory governance, admin dashboards, and organization-level approval rules.
+
+The security invariants and acceptance gates are defined in [Governance and scale](governance-and-scale.md).
 
 ## Phase 5: Scale and Ecosystem
 
+Status: control-plane foundation implemented; deployed multi-region infrastructure pending.
+
 Add multi-region deployment patterns, advanced queues, skill distribution, integration marketplace concepts, fine-grained cost controls, model routing policies, and enterprise operations features.
+
+The shared control-plane contracts and production readiness gates are defined in [Governance and scale](governance-and-scale.md).
 
 ## Roadmap Discipline
 

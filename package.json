@@ -6,8 +6,17 @@
   "packageManager": "pnpm@9.12.3",
   "scripts": {
     "dev:web": "pnpm --filter @anum/web dev",
+    "dev:desktop": "pnpm --filter @anum/desktop dev",
     "build": "pnpm --filter @anum/contracts build && pnpm --filter @anum/web build",
-    "check": "pnpm --filter @anum/contracts check && pnpm --filter @anum/web check",
+    "build:desktop": "pnpm --filter @anum/desktop build",
+    "check": "pnpm docs:check && pnpm --filter @anum/contracts check && pnpm --filter @anum/web check",
+    "check:desktop": "pnpm --filter @anum/desktop check",
+    "check:android": "gradle -p apps/android testDebugUnitTest",
+    "build:android": "gradle -p apps/android assembleDebug",
+    "check:mobile": "cd apps/mobile && flutter analyze && flutter test",
+    "build:mobile:android": "cd apps/mobile && flutter build apk --debug",
+    "test:e2e": "pnpm --filter @anum/web test:e2e",
+    "docs:check": "node scripts/check-docs.mjs",
     "lint": "pnpm --filter @anum/web lint"
   },
   "devDependencies": {

@@ -30,6 +30,8 @@ class CanonicalEventName(StrEnum):
     AGENT_RUN_WAITING_APPROVAL = "agent_run.waiting_approval"
     AGENT_RUN_COMPLETED = "agent_run.completed"
     AGENT_RUN_FAILED = "agent_run.failed"
+    AGENT_RUN_RESUMED = "agent_run.resumed"
+    AGENT_RUN_CHECKPOINTED = "agent_run.checkpointed"
     APPROVAL_REQUESTED = "approval.requested"
     APPROVAL_APPROVED = "approval.approved"
     APPROVAL_REJECTED = "approval.rejected"

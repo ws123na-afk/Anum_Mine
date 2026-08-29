@@ -14,10 +14,10 @@ Tauri permissions must be narrow. Local filesystem access should be user-selecte
 
 The desktop app is a client, not a separate agent brain. It can provide local signals and native actions to the backend runtime through approved tool interfaces. Offline behavior should be limited until conflict handling and encrypted local storage are designed.
 
-## Now
+## Implemented
 
-Define Tauri as the desktop direction and keep the web app reusable.
+The Tauri v2 shell reuses the production web build and includes a scoped capability manifest, tray controls, notifications, dialogs, external-link opening, and a global task-launcher shortcut. CI performs a Rust compile check on Windows.
 
-## Later
+## Release Gate
 
-Add desktop notifications, global task launcher, local file context, screen-aware assistance with explicit consent, local-only tools, offline drafts, and encrypted local cache.
+A signed installer still requires the MSVC C++ linker toolchain and a Windows code-signing identity. Local file context, screen-aware assistance with explicit consent, local-only tools, offline drafts, and encrypted local cache remain future capabilities.

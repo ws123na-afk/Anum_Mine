@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ANUM",
+  "version": "0.1.0",
+  "identifier": "com.anum.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm --dir ../web dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm --dir ../web build",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 ws://127.0.0.1:8000 ws://localhost:8000; img-src 'self' asset: data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "ANUM",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "category": "Productivity",
+    "shortDescription": "Agent operations workspace",
+    "longDescription": "ANUM desktop client for governed agent tasks, approvals, and local context.",
+    "targets": "all",
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      }
+    }
+  }
+}

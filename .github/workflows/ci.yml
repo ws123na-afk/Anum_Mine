@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile=false
+      - run: pnpm docs:check
       - run: pnpm check
       - run: pnpm build
 
@@ -35,6 +36,21 @@ jobs:
       - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
       - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
       - run: python -m pytest services/api -m "not database"
+
+  browser-e2e:
+    name: Browser end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm --filter @anum/web exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
 
   api-persistence:
     name: API PostgreSQL persistence tests
@@ -77,3 +93,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose -f infra/docker/compose.yaml config
+
+  desktop:
+    name: Tauri desktop
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm build
+      - run: pnpm check:desktop
+
+  android:
+    name: Android client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - run: gradle -p apps/android testDebugUnitTest assembleDebug
+
+  flutter-mobile:
+    name: Flutter mobile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate native platform wrappers
+        run: flutter create --platforms=android,ios .
+      - name: Configure voice permissions
+        run: dart run tool/configure_native.dart
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --debug

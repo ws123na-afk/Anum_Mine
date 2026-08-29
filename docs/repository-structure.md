@@ -12,6 +12,7 @@ ANUM should be a monorepo so shared contracts, docs, infrastructure, and clients
     web/
     desktop/
     android/
+    mobile/
   services/
     api/
     workers/
@@ -36,7 +37,7 @@ ANUM should be a monorepo so shared contracts, docs, infrastructure, and clients
 
 ## Ownership
 
-`services/api` should own FastAPI routes and backend composition. `runtime` should own agent execution concepts and adapters. `packages/contracts` should hold OpenAPI-derived types and shared schemas. `apps/web` should be the primary UI. `apps/desktop` should wrap web functionality with Tauri. `apps/android` should hold the Kotlin client.
+`services/api` owns FastAPI routes and backend composition. `runtime` owns agent execution concepts and adapters. `packages/contracts` holds shared schemas. `apps/web` is the primary browser UI. `apps/desktop` wraps the web experience with Tauri. `apps/android` preserves the native Kotlin client, while `apps/mobile` is the approved Flutter implementation for Android, iOS, and tablets.
 
 ## Docs
 
@@ -44,7 +45,7 @@ Architecture decisions should live in `docs/decisions`. Product and platform doc
 
 ## Now
 
-Only documentation is required. The future folder layout is a guide, not a mandate to create empty implementation directories.
+The web, desktop, Android, Flutter mobile, API, contracts, infrastructure, and documentation roots are implemented. Future directories remain a guide and should only be created with working code.
 
 ## Later
 

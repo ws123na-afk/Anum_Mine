@@ -18,10 +18,10 @@ Permissions should be requested only when a feature needs them. Microphone, noti
 
 Early Android versions can support offline drafts and queued user messages. Agent execution should remain server-side until a separate local runtime design is approved.
 
-## Now
+## Implemented
 
-Document Kotlin as the Android direction and design APIs that mobile can consume cleanly.
+The Kotlin and Compose client provides task capture and execution, task status, approval decisions, voice capture with just-in-time microphone permission, typed REST access, and encrypted token storage. CI runs unit tests and assembles a debug APK.
 
-## Later
+## Release Gate
 
-Add push notifications, mobile approvals, voice capture, widgets, share-sheet ingestion, offline drafts, and optional local context tools.
+Local APK validation requires JDK 17, Gradle, the Android SDK, and ADB. A production release additionally requires OIDC configuration, push-notification credentials, an Android signing identity, and physical-device testing. Widgets, share-sheet ingestion, offline drafts, and optional local context tools remain future capabilities.

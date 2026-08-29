@@ -1,167 +1,49 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, CheckCircle2, Clock, Database, KeyRound, Play, ShieldCheck, Square, Workflow } from 'lucide-react';
+import { Activity, Bot, Brain, Building2, CheckCircle2, CircleDot, Database, Download, File, FileText, GitBranch, KeyRound, ListTodo, MemoryStick, Mic, PackageCheck, Play, Plug, RefreshCw, Search, Settings, ShieldCheck, Square, Store, Trash2, Upload, Workflow, XCircle } from 'lucide-react';
 import type { AgentRun, Approval, Task } from '@anum/contracts';
-import { approveTask, cancelTask, createAndRunTask, defaultTenantContext } from './lib/api';
-import { demoApproval, demoRun, demoTask } from './lib/demoData';
+import * as api from './lib/api';
 import './styles.css';
+import { VoiceView } from './VoiceView';
+import { EnterpriseView, GovernanceView } from './EnterpriseViews';
+import { AutomationWorkbench } from './AutomationWorkbench';
 
-function App() {
-  const [task, setTask] = useState<Task>(demoTask);
-  const [run, setRun] = useState<AgentRun>(demoRun);
-  const [approval, setApproval] = useState<Approval | null>(demoApproval);
-  const [prompt, setPrompt] = useState('Send and publish the Phase 1 status update');
-  const [statusText, setStatusText] = useState('Demo data loaded. Start the API to run live tasks.');
-  const [isBusy, setIsBusy] = useState(false);
+type View='tasks'|'automation'|'agents'|'approvals'|'memory'|'files'|'skills'|'integrations'|'voice'|'governance'|'enterprise'|'settings';
+const nav:{id:View;label:string;icon:ReactNode}[]=[['tasks','Tasks',<ListTodo/>],['automation','Workbench',<Workflow/>],['agents','Agents',<Bot/>],['approvals','Approvals',<ShieldCheck/>],['memory','Memory',<MemoryStick/>],['files','Files',<File/>],['skills','Skills',<PackageCheck/>],['integrations','Integrations',<Plug/>],['voice','Voice',<Mic/>],['governance','Governance',<Building2/>],['enterprise','Enterprise',<Store/>],['settings','Settings',<Settings/>]].map(([id,label,icon])=>({id:id as View,label:label as string,icon:icon as ReactNode}));
+const err=(e:unknown)=>e instanceof Error?e.message:'Operation failed.';
 
-  const tenantLabel = useMemo(
-    () => `${defaultTenantContext.tenantId} / ${defaultTenantContext.workspaceId}`,
-    [],
-  );
-
-  async function handleRunTask() {
-    setIsBusy(true);
-    setStatusText('Creating task through ANUM API...');
-    try {
-      const result = await createAndRunTask(prompt);
-      setTask(result.task);
-      setRun(result.run);
-      setApproval(result.approval);
-      setStatusText(result.approval ? 'Task is waiting for approval.' : 'Task completed.');
-    } catch (error) {
-      setStatusText(error instanceof Error ? error.message : 'Unable to reach ANUM API.');
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleCancelTask() {
-    setIsBusy(true);
-    setStatusText('Cancelling task through ANUM API...');
-    try {
-      const cancelled = await cancelTask(task.id);
-      setTask(cancelled);
-      setApproval(null);
-      setStatusText('Task cancelled.');
-    } catch (error) {
-      setStatusText(error instanceof Error ? error.message : 'Unable to cancel task.');
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleApprove() {
-    if (!approval) {
-      return;
-    }
-    setIsBusy(true);
-    setStatusText('Approving task through ANUM API...');
-    try {
-      const result = await approveTask(approval.id);
-      setTask(result.task);
-      setRun(result.run ?? run);
-      setApproval(result.approval);
-      setStatusText('Approval accepted and runtime resumed.');
-    } catch (error) {
-      setStatusText(error instanceof Error ? error.message : 'Unable to approve task.');
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  return (
-    <main className="shell">
-      <aside className="sidebar" aria-label="Primary navigation">
-        <div className="brand">ANUM</div>
-        <nav>
-          {['Tasks', 'Agents', 'Approvals', 'Memory', 'Integrations', 'Settings'].map((item) => (
-            <a href={`#${item.toLowerCase()}`} key={item}>{item}</a>
-          ))}
-        </nav>
-      </aside>
-
-      <section className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Workspace</p>
-            <h1>Foundation Control Center</h1>
-          </div>
-          <span className="tenant">{tenantLabel}</span>
-        </header>
-
-        <section className="statusGrid" aria-label="System foundation status">
-          <Metric icon={<ShieldCheck />} label="Tenant boundary" value="Header scoped" />
-          <Metric icon={<KeyRound />} label="Identity" value="OIDC stub" />
-          <Metric icon={<Workflow />} label="Runtime" value="Approval aware" />
-          <Metric icon={<Database />} label="Persistence" value="Repository ready" />
-        </section>
-
-        <section className="panel" id="tasks">
-          <div className="panelHeader">
-            <div>
-              <p className="eyebrow">Active task</p>
-              <h2>{task.title}</h2>
-            </div>
-            <span className="badge">{task.status.replace('_', ' ')}</span>
-          </div>
-          <label className="taskComposer">
-            <span>Task prompt</span>
-            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={3} />
-          </label>
-          <div className="actions">
-            <button type="button" onClick={handleRunTask} disabled={isBusy || !prompt.trim()}>
-              <Play size={18} /> Run task
-            </button>
-            <button type="button" className="secondary" onClick={handleCancelTask} disabled={isBusy || ['completed', 'failed', 'cancelled'].includes(task.status)}>
-              <Square size={18} /> Cancel
-            </button>
-          </div>
-          <p className="notice" role="status">{statusText}</p>
-          <p className="prompt">{task.prompt}</p>
-          <div className="timeline">
-            {run.steps.map((step) => (
-              <div className="step" key={step.id}>
-                <Activity size={18} />
-                <div>
-                  <strong>{step.type.replace('_', ' ')}</strong>
-                  <p>{step.summary}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel" id="approvals">
-          <div className="panelHeader">
-            <div>
-              <p className="eyebrow">Approval gate</p>
-              <h2>{approval?.action ?? 'No pending approval'}</h2>
-            </div>
-            {approval ? <span className="risk">{approval.riskLevel}</span> : <span className="badge">clear</span>}
-          </div>
-          <p className="prompt">{approval?.reason ?? 'The current task does not require approval.'}</p>
-          <div className="actions">
-            <button type="button" onClick={handleApprove} disabled={isBusy || !approval || approval.status !== 'pending'}>
-              <CheckCircle2 size={18} /> Approve
-            </button>
-            <button type="button" className="secondary" disabled>
-              <Clock size={18} /> {approval?.status ?? 'idle'}
-            </button>
-          </div>
-        </section>
-      </section>
-    </main>
-  );
+function App(){
+ const [view,setView]=useState<View>(()=>nav.some(x=>x.id===location.hash.slice(1))?location.hash.slice(1) as View:'tasks');
+ const [tasks,setTasks]=useState<Task[]>([]),[task,setTask]=useState<Task|null>(null),[run,setRun]=useState<AgentRun|null>(null),[approvals,setApprovals]=useState<Approval[]>([]);
+ const [prompt,setPrompt]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null),[message,setMessage]=useState('Loading live workspace state...');
+ const [stream,setStream]=useState<'connecting'|'live'|'offline'>('connecting'),[event,setEvent]=useState<string|null>(null);
+ const load=useCallback(async()=>{setLoading(true);try{const [ts,as]=await Promise.all([api.getTasks(),api.getApprovals()]);setTasks(ts);setApprovals(as);setTask(old=>ts.find(x=>x.id===old?.id)??ts[0]??null);setError(null);setMessage(ts.length?'Workspace state is current.':'No tasks yet. Create the first task.')}catch(e){setError(err(e))}finally{setLoading(false)}},[]);
+ useEffect(()=>{void api.ensureLocalSession().then(load)},[load]); useEffect(()=>{const c=new AbortController();api.streamEvents(e=>{setStream('live');setEvent(e.type);void load()},c.signal,()=>setStream('live')).catch(()=>{if(!c.signal.aborted)setStream('offline')});return()=>c.abort()},[load]);
+ async function doIt(fn:()=>Promise<void>){setBusy(true);setError(null);try{await fn()}catch(e){setError(err(e))}finally{setBusy(false)}}
+ const pending=approvals.filter(x=>x.status==='pending');
+ return <main className="shell"><aside className="sidebar"><div className="brand"><span className="brandMark">A</span><div>ANUM<small>Agent OS</small></div></div><nav>{nav.map(x=><button key={x.id} className={`navItem ${view===x.id?'active':''}`} onClick={()=>{setView(x.id);history.replaceState(null,'',`#${x.id}`)}}>{x.icon}<span>{x.label}</span>{x.id==='approvals'&&pending.length>0&&<span className="navCount">{pending.length}</span>}</button>)}</nav><div className="systemState"><span className={`onlineDot ${stream}`}/>Event stream {stream}<small>{event??'Waiting for events'}</small></div></aside><section className="workspace"><header className="topbar"><div><p className="eyebrow">Workspace / {nav.find(x=>x.id===view)?.label}</p><h1>{nav.find(x=>x.id===view)?.label}</h1></div><div className="topActions"><button className="iconButton" title="Refresh" onClick={()=>void load()}><RefreshCw/></button><span className="tenant">{api.defaultTenantContext.tenantId} / {api.defaultTenantContext.workspaceId}</span></div></header>{error&&<Notice error>{error}</Notice>}
+ {view==='tasks'&&<Tasks {...{tasks,task,run,prompt,setPrompt,busy,loading,message,setTask}} runTask={()=>void doIt(async()=>{const r=await api.createAndRunTask(prompt);setTask(r.task);setRun(r.run);setPrompt('');setMessage(r.approval?'Task paused for approval.':'Task completed.');await load()})} cancel={()=>void doIt(async()=>{if(task)setTask(await api.cancelTask(task.id));await load()})} resume={()=>void doIt(async()=>{if(run){const r=await api.resumeRun(run.id);setTask(r.task);setRun(r.run)}await load()})}/>} {view==='automation'&&<AutomationWorkbench/>} {view==='agents'&&<Agents/>} {view==='approvals'&&<Approvals items={approvals} busy={busy} decide={(a,d)=>void doIt(async()=>{const r=d==='approve'?await api.approveTask(a.id):await api.rejectTask(a.id);setTask(r.task);setRun(r.run);await load()})}/>} {view==='memory'&&<Memory tasks={tasks}/>} {view==='files'&&<Files/>} {view==='skills'&&<Skills/>} {view==='integrations'&&<Integrations/>} {view==='voice'&&<VoiceView/>} {view==='governance'&&<GovernanceView/>} {view==='enterprise'&&<EnterpriseView/>} {view==='settings'&&<WorkspaceSettings/>}</section></main>
 }
 
-function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <article className="metric">
-      <div className="metricIcon">{icon}</div>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
-  );
-}
+type TaskProps={tasks:Task[];task:Task|null;run:AgentRun|null;prompt:string;setPrompt(v:string):void;busy:boolean;loading:boolean;message:string;setTask(t:Task):void;runTask():void;cancel():void;resume():void};
+function Tasks(p:TaskProps){const active=p.tasks.filter(x=>['queued','running','waiting_approval'].includes(x.status)).length;return <><section className="metrics three"><Metric icon={<Activity/>} label="Active" value={String(active)} detail="Live tasks"/><Metric icon={<CheckCircle2/>} label="Completed" value={String(p.tasks.filter(x=>x.status==='completed').length)} detail="Workspace total"/><Metric icon={<ListTodo/>} label="All tasks" value={String(p.tasks.length)} detail="API records"/></section><div className="taskLayout"><section className="surface composerSurface"><div className="sectionHeader"><div><p className="eyebrow">New execution</p><h2>Run an agent task</h2></div><span className="statusBadge success">Live API</span></div><label className="field"><span>Task instructions</span><textarea value={p.prompt} onChange={e=>p.setPrompt(e.target.value)} placeholder="Describe the result the agent should produce"/></label><div className="actions"><button onClick={p.runTask} disabled={p.busy||!p.prompt.trim()}><Play/>Run task</button>{p.task&&<button className="secondary" onClick={p.cancel} disabled={p.busy||['completed','failed','cancelled'].includes(p.task.status)}><Square/>Cancel</button>}{p.run&&['failed','cancelled'].includes(p.run.status)&&<button className="secondary" onClick={p.resume}><RefreshCw/>Resume</button>}</div><Notice>{p.message}</Notice></section><section className="surface taskSummary"><div className="sectionHeader"><div><p className="eyebrow">Task history</p><h2>{p.loading?'Loading...':`${p.tasks.length} tasks`}</h2></div></div><div className="compactList">{p.tasks.map(x=><button className={`recordButton ${p.task?.id===x.id?'selected':''}`} key={x.id} onClick={()=>p.setTask(x)}><span><strong>{x.title}</strong><small>{date(x.updatedAt)}</small></span><Status value={x.status}/></button>)}{!p.loading&&!p.tasks.length&&<Empty title="No tasks" text="Create a task to start the runtime."/>}</div></section></div><section className="surface timelineSurface"><div className="sectionHeader"><div><p className="eyebrow">Execution trace</p><h2>{p.task?.title??'No task selected'}</h2></div>{p.task&&<Status value={p.task.status}/>}</div>{p.run?<div className="timeline">{p.run.steps.map((s,i)=><div className="timelineRow" key={s.id}><div className="timelineRail"><span className="stepDot">{i+1}</span>{i<p.run!.steps.length-1&&<span className="railLine"/>}</div><div className="timelineBody"><div className="timelineTitle"><strong>{s.type.replaceAll('_',' ')}</strong><time>{time(s.createdAt)}</time></div><p>{s.summary}</p></div></div>)}</div>:<Empty title="No execution trace loaded" text="Run a task to inspect its live execution steps."/>}</section></>}
 
-createRoot(document.getElementById('root')!).render(<App />);
+function useSkills(){const [versions,setV]=useState<api.SkillVersion[]>([]),[installs,setI]=useState<api.SkillInstallation[]>([]),[state,setState]=useState('Loading skills...');const load=useCallback(()=>Promise.all([api.getSkillVersions(),api.getSkillInstallations()]).then(([v,i])=>{setV(v);setI(i);setState('')}).catch(e=>setState(err(e))),[]);useEffect(()=>{void load()},[load]);return{versions,installs,state,setState,load}}
+function Agents(){const s=useSkills();return <><Intro eyebrow="Runtime capability" title="Installed agent skills" text="Agents resolve only enabled, governed workspace skills."/>{s.state&&<Notice>{s.state}</Notice>}<div className="agentList">{s.installs.map(i=>{const v=s.versions.find(x=>x.skill_id===i.skill_id);return <article className="surface agentRow" key={i.id}><div className="agentIcon"><Bot/></div><div className="agentMain"><div className="rowTitle"><h3>{v?.name??i.skill_id}</h3><span className="statusBadge success">ready</span></div><p>{v?.description}</p><div className="tagRow">{i.approved_tools.map(x=><span key={x}>{x}</span>)}</div></div><dl><div><dt>Version</dt><dd>{i.version}</dd></div></dl></article>})}</div>{!s.state&&!s.installs.length&&<Empty title="No agent skills installed" text="Install a published skill from Skills."/>}</>}
+function Skills(){const s=useSkills();return <><Intro eyebrow="Governed capabilities" title="Skills" text="Published versions and approved tool grants." action={<button onClick={()=>void s.load()}><RefreshCw/>Refresh</button>}/>{s.state&&<Notice>{s.state}</Notice>}<div className="integrationGrid">{s.versions.map(v=>{const installed=s.installs.some(i=>i.skill_id===v.skill_id&&i.version===v.version);return <article className="surface integration" key={v.id}><div className="integrationIcon"><PackageCheck/></div><div><h3>{v.name}</h3><p>{v.description}</p><div className="tagRow">{v.required_tools.map(x=><span key={x}>{x}</span>)}</div></div>{installed?<span className="statusBadge success">installed</span>:<button onClick={()=>void api.installSkill(v.skill_id,v.version,v.required_tools).then(s.load).catch(e=>s.setState(err(e)))}>Install</button>}</article>})}</div>{!s.state&&!s.versions.length&&<Empty title="No published skills" text="No skill versions are available."/>}</>}
+function Approvals({items,busy,decide}:{items:Approval[];busy:boolean;decide(a:Approval,d:'approve'|'reject'):void}){return <><section className="metrics three"><Metric icon={<ShieldCheck/>} label="Pending" value={String(items.filter(x=>x.status==='pending').length)} detail="Needs review"/><Metric icon={<CheckCircle2/>} label="Approved" value={String(items.filter(x=>x.status==='approved').length)} detail="Workspace total"/><Metric icon={<XCircle/>} label="Rejected" value={String(items.filter(x=>x.status==='rejected').length)} detail="Workspace total"/></section><section className="surface approvalTable">{items.map(a=><div className="approvalDetail" key={a.id}><div className="approvalIcon"><ShieldCheck/></div><div><h3>{a.action}</h3><p>{a.reason}</p><small>{a.taskId} · {date(a.createdAt)}</small></div><div className="approvalActions"><button disabled={busy||a.status!=='pending'} onClick={()=>decide(a,'approve')}><CheckCircle2/>Approve</button><button className="danger" disabled={busy||a.status!=='pending'} onClick={()=>decide(a,'reject')}><XCircle/>Reject</button></div></div>)}{!items.length&&<Empty title="Queue clear" text="No actions need approval."/>}</section></>}
+
+function Memory({tasks}:{tasks:Task[]}){const [items,setItems]=useState<api.MemoryNote[]>([]),[content,setContent]=useState(''),[taskId,setTaskId]=useState(''),[state,setState]=useState('Loading memory...');const load=useCallback(()=>api.getMemories().then(x=>{setItems(x);setState('')}).catch(e=>setState(err(e))),[]);useEffect(()=>{void load()},[load]);useEffect(()=>{if(!taskId&&tasks[0])setTaskId(tasks[0].id)},[tasks,taskId]);return <><Intro eyebrow="Workspace knowledge" title="Agent memory" text="Live notes with provenance and retention."/><section className="surface composerSurface"><div className="formGrid"><label className="field"><span>Task</span><select value={taskId} onChange={e=>setTaskId(e.target.value)}><option value="">Select task</option>{tasks.map(t=><option value={t.id} key={t.id}>{t.title}</option>)}</select></label><label className="field"><span>Memory</span><input value={content} onChange={e=>setContent(e.target.value)} placeholder="Add durable context"/></label></div><div className="actions"><button disabled={!taskId||!content.trim()} onClick={()=>void api.createMemory(taskId,content).then(()=>{setContent('');return load()}).catch(e=>setState(err(e)))}><Brain/>Add memory</button></div></section>{state&&<Notice>{state}</Notice>}<Records>{items.map(x=><div className="memoryRow" key={x.id}><RecordIcon title={x.provenance.source_type} text={x.content}/><code>{x.task_id}</code><button className="iconButton" onClick={()=>void api.deleteMemory(x.id).then(load)}><Trash2/></button></div>)}</Records>{!state&&!items.length&&<Empty title="No memories" text="Add context associated with a task."/>}</>}
+function Files(){const [items,setItems]=useState<api.FileRecord[]>([]),[state,setState]=useState('Loading files...');const load=useCallback(()=>api.getFiles().then(x=>{setItems(x);setState('')}).catch(e=>setState(err(e))),[]);useEffect(()=>{void load()},[load]);return <><Intro eyebrow="Workspace storage" title="Files" text="Scoped files with checksum-backed integrity." action={<label className="uploadButton"><Upload/>Upload<input type="file" onChange={e=>{const f=e.target.files?.[0];if(f)void api.uploadFile(f).then(load).catch(x=>setState(err(x)))}}/></label>}/>{state&&<Notice>{state}</Notice>}<Records>{items.map(x=><div className="memoryRow" key={x.id}><RecordIcon title={x.name} text={`${x.content_type} · ${bytes(x.size_bytes)}`}/><code>{x.sha256.slice(0,16)}...</code><div className="rowActions"><button className="iconButton" onClick={()=>void api.downloadFile(x.id,x.name)}><Download/></button><button className="iconButton" onClick={()=>void api.deleteFile(x.id).then(load)}><Trash2/></button></div></div>)}</Records>{!state&&!items.length&&<Empty title="No files" text="Upload a file to this workspace."/>}</>}
+function Integrations(){const [items,setItems]=useState<api.IntegrationHealth[]>([]),[state,setState]=useState('Loading integrations...');const load=useCallback(()=>api.getIntegrations().then(x=>{setItems(x);setState('')}).catch(e=>setState(err(e))),[]);useEffect(()=>{void load()},[load]);const icons:Record<string,ReactNode>={postgresql:<Database/>,keycloak:<KeyRound/>,nats:<GitBranch/>,temporal:<Workflow/>,valkey:<MemoryStick/>,minio:<FileText/>};return <><Intro eyebrow="Connected systems" title="Integrations" text="Live service health and connectivity." action={<button onClick={()=>void load()}><RefreshCw/>Refresh</button>}/>{state&&<Notice>{state}</Notice>}<div className="integrationGrid">{items.map(x=><article className="surface integration" key={x.id}><div className="integrationIcon">{icons[x.id]??<Plug/>}</div><div><h3>{x.name}</h3><p>{x.endpoint}</p><small>{x.detail}{x.latency_ms!==null?` · ${x.latency_ms} ms`:''}</small></div><span className={`statusBadge ${x.status==='connected'?'success':x.status==='degraded'?'dangerTone':'neutral'}`}>{x.status}</span></article>)}</div></>}
+function WorkspaceSettings(){const [onboard,setOnboard]=useState<api.OnboardingStatus|null>(null),[org,setOrg]=useState('ANUM'),[workspace,setWorkspace]=useState('Foundation'),[provider,setProvider]=useState('mock'),[model,setModel]=useState('anum-mock-planner'),[baseUrl,setBaseUrl]=useState('http://localhost:8000'),[key,setKey]=useState(''),[prefs,setPrefs]=useState<api.NotificationPreferences|null>(null),[state,setState]=useState('Loading setup...');const load=useCallback(()=>Promise.all([api.getOnboarding(),api.getNotificationPreferences(),api.getModelConfig().catch(()=>null)]).then(([o,n,m])=>{setOnboard(o);setPrefs(n);if(m){setProvider(m.provider);setModel(m.model);setBaseUrl(m.base_url)}setState('')}).catch(e=>setState(err(e))),[]);useEffect(()=>{void load()},[load]);return <div className="settingsStack"><section className="surface settingsForm"><div className="sectionHeader"><div><p className="eyebrow">Organization</p><h2>Workspace onboarding</h2></div>{onboard&&<span className={`statusBadge ${onboard.complete?'success':'warning'}`}>{onboard.complete?'complete':'required'}</span>}</div><div className="formGrid"><label className="field"><span>Organization name</span><input value={org} onChange={e=>setOrg(e.target.value)}/></label><label className="field"><span>Workspace name</span><input value={workspace} onChange={e=>setWorkspace(e.target.value)}/></label></div><div className="actions"><button onClick={()=>void api.completeOnboarding(org,workspace).then(load).catch(e=>setState(err(e)))}>Complete setup</button></div></section><section className="surface settingsForm"><p className="eyebrow">Runtime</p><h2>Model gateway</h2><div className="formGrid"><label className="field"><span>Provider</span><select value={provider} onChange={e=>setProvider(e.target.value)}><option value="mock">Local mock</option><option value="openai_compatible">OpenAI compatible</option></select></label><label className="field"><span>Model</span><input value={model} onChange={e=>setModel(e.target.value)}/></label><label className="field"><span>Base URL</span><input value={baseUrl} onChange={e=>setBaseUrl(e.target.value)}/></label><label className="field"><span>API key</span><input type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="Required for external providers"/></label></div><div className="actions"><button onClick={()=>void api.saveModelConfig(provider,model,baseUrl,key).then(load).catch(e=>setState(err(e)))}>Save model</button></div></section>{prefs&&<section className="surface settingsForm"><p className="eyebrow">Delivery</p><h2>Notifications</h2>{(['task_completed','approval_required','run_failed','automation_failed','email_enabled','desktop_enabled'] as const).map(k=><label className="settingToggle" key={k}><div><strong>{k.replaceAll('_',' ')}</strong></div><input type="checkbox" checked={prefs[k]} onChange={e=>setPrefs({...prefs,[k]:e.target.checked})}/></label>)}<div className="actions"><button onClick={()=>void api.saveNotificationPreferences(prefs).then(setPrefs).catch(e=>setState(err(e)))}>Save notifications</button></div></section>}{state&&<Notice>{state}</Notice>}</div>}
+
+function Intro({eyebrow,title,text,action}:{eyebrow:string;title:string;text:string;action?:ReactNode}){return <section className="moduleIntro"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2><p>{text}</p></div>{action}</section>}
+function Records({children}:{children:ReactNode}){return <section className="surface memoryTable">{children}</section>}
+function RecordIcon({title,text}:{title:string;text:string}){return <div><span className="typeIcon"><FileText/></span><div><strong>{title}</strong><p>{text}</p></div></div>}
+function Metric({icon,label,value,detail}:{icon:ReactNode;label:string;value:string;detail:string}){return <article className="metric"><div className="metricTop"><span>{label}</span><div className="metricIcon">{icon}</div></div><strong>{value}</strong><small>{detail}</small></article>}
+function Status({value}:{value:string}){return <span className={`statusBadge ${value==='completed'?'success':value==='failed'||value==='cancelled'?'dangerTone':'warning'}`}>{value.replaceAll('_',' ')}</span>}
+function Notice({children,error}:{children:ReactNode;error?:boolean}){return <p className={`notice ${error?'errorNotice':''}`}><CircleDot/>{children}</p>}
+function Empty({title,text}:{title:string;text:string}){return <div className="emptyState"><Search/><h3>{title}</h3><p>{text}</p></div>}
+const date=(v:string)=>new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(new Date(v));const time=(v:string)=>new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(v));const bytes=(v:number)=>v<1024?`${v} B`:v<1048576?`${(v/1024).toFixed(1)} KB`:`${(v/1048576).toFixed(1)} MB`;
+createRoot(document.getElementById('root')!).render(<App/>);

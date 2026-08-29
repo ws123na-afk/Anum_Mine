@@ -13,7 +13,10 @@ from anum_api.schemas import (
     RiskLevel,
     Task,
     TaskStatus,
+    Tenant,
     TenantContext,
+    Workspace,
+    WorkspaceMembership,
 )
 
 from .models import (
@@ -22,6 +25,9 @@ from .models import (
     ApprovalRecord,
     DomainEventRecord,
     TaskRecord,
+    Tenant as TenantRecord,
+    Workspace as WorkspaceRecord,
+    WorkspaceMembershipRecord,
 )
 
 
@@ -33,6 +39,71 @@ class SqlAlchemyRepository(AnumRepository):
         self.created_by_user_id = (
             created_by_user_id or session.info.get("user_id") or "system"
         )
+
+    def create_tenant(self, tenant: Tenant) -> Tenant:
+        if self.session.get(TenantRecord, tenant.id) is not None:
+            raise ValueError(f"Tenant already exists: {tenant.id}")
+        record = TenantRecord(
+            id=tenant.id,
+            name=tenant.name,
+            status=tenant.status,
+            created_at=tenant.created_at,
+            updated_at=tenant.updated_at,
+        )
+        self.session.add(record)
+        self.session.flush()
+        return self._tenant_from_record(record)
+
+    def get_tenant(self, tenant_id: str) -> Tenant | None:
+        record = self.session.get(TenantRecord, tenant_id)
+        return self._tenant_from_record(record) if record else None
+
+    def create_workspace(self, workspace: Workspace) -> Workspace:
+        if self.session.get(WorkspaceRecord, workspace.id) is not None:
+            raise ValueError(f"Workspace already exists: {workspace.id}")
+        record = WorkspaceRecord(
+            id=workspace.id,
+            tenant_id=workspace.tenant_id,
+            name=workspace.name,
+            created_at=workspace.created_at,
+            updated_at=workspace.updated_at,
+        )
+        self.session.add(record)
+        self.session.flush()
+        return self._workspace_from_record(record)
+
+    def get_workspace(self, workspace_id: str, context: TenantContext) -> Workspace | None:
+        record = self.session.scalar(
+            select(WorkspaceRecord).where(
+                WorkspaceRecord.id == workspace_id,
+                WorkspaceRecord.tenant_id == context.tenant_id,
+            )
+        )
+        return self._workspace_from_record(record) if record else None
+
+    def save_membership(self, membership: WorkspaceMembership) -> WorkspaceMembership:
+        key = (membership.user_id, membership.tenant_id, membership.workspace_id)
+        record = self.session.get(WorkspaceMembershipRecord, key)
+        if record is None:
+            record = WorkspaceMembershipRecord(
+                user_id=membership.user_id,
+                tenant_id=membership.tenant_id,
+                workspace_id=membership.workspace_id,
+            )
+            self.session.add(record)
+        record.role = membership.role
+        record.active = membership.active
+        record.created_at = membership.created_at
+        record.updated_at = membership.updated_at
+        self.session.flush()
+        return self._membership_from_record(record)
+
+    def get_membership(self, context: TenantContext) -> WorkspaceMembership | None:
+        record = self.session.get(
+            WorkspaceMembershipRecord,
+            (context.user_id, context.tenant_id, context.workspace_id),
+        )
+        return self._membership_from_record(record) if record else None
 
     def create_task(self, task: Task) -> Task:
         record = self.session.get(TaskRecord, task.id)
@@ -54,6 +125,17 @@ class SqlAlchemyRepository(AnumRepository):
         record.updated_at = task.updated_at
         self.session.flush()
         return self._task_from_record(record)
+
+    def list_tasks(self, context: TenantContext) -> list[Task]:
+        records = self.session.scalars(
+            select(TaskRecord)
+            .where(
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+            .order_by(TaskRecord.created_at.desc(), TaskRecord.id.desc())
+        ).all()
+        return [self._task_from_record(record) for record in records]
 
     def save_task(self, task: Task) -> Task:
         return self.create_task(task)
@@ -103,6 +185,7 @@ class SqlAlchemyRepository(AnumRepository):
 
         record.status = run.status.value
         record.result = run.result
+        record.checkpoint = run.checkpoint.model_dump(mode="json")
         record.created_at = run.created_at
         record.updated_at = run.updated_at
         self._sync_steps(record, run.steps, task.tenant_id, task.workspace_id)
@@ -325,6 +408,7 @@ class SqlAlchemyRepository(AnumRepository):
             status=TaskStatus(record.status),
             steps=[self._step_from_record(step) for step in steps],
             result=record.result,
+            checkpoint=record.checkpoint or {},
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
@@ -338,6 +422,38 @@ class SqlAlchemyRepository(AnumRepository):
             status=TaskStatus(record.status),
             tenant_id=record.tenant_id,
             workspace_id=record.workspace_id,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    @staticmethod
+    def _tenant_from_record(record: TenantRecord) -> Tenant:
+        return Tenant(
+            id=record.id,
+            name=record.name,
+            status=record.status,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    @staticmethod
+    def _workspace_from_record(record: WorkspaceRecord) -> Workspace:
+        return Workspace(
+            id=record.id,
+            tenant_id=record.tenant_id,
+            name=record.name,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    @staticmethod
+    def _membership_from_record(record: WorkspaceMembershipRecord) -> WorkspaceMembership:
+        return WorkspaceMembership(
+            tenant_id=record.tenant_id,
+            workspace_id=record.workspace_id,
+            user_id=record.user_id,
+            role=record.role,
+            active=record.active,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )

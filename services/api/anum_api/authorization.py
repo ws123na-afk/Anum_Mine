@@ -23,6 +23,23 @@ class Permission(StrEnum):
     MEMORY_READ = "memory:read"
     MEMORY_CREATE = "memory:create"
     MEMORY_DELETE = "memory:delete"
+    INTEGRATION_READ = "integration:read"
+    TENANT_CREATE = "tenant:create"
+    WORKSPACE_CREATE = "workspace:create"
+    MEMBERSHIP_MANAGE = "membership:manage"
+    MARKETPLACE_READ = "marketplace:read"
+    MARKETPLACE_MANAGE = "marketplace:manage"
+    ROUTING_READ = "routing:read"
+    ROUTING_MANAGE = "routing:manage"
+    OPERATIONS_READ = "operations:read"
+    ORGANIZATION_READ = "organization:read"
+    ORGANIZATION_MANAGE = "organization:manage"
+    POLICY_READ = "policy:read"
+    POLICY_MANAGE = "policy:manage"
+    AUDIT_EXPORT = "audit:export"
+    GOVERNANCE_MANAGE = "governance:manage"
+    AUTOMATION_READ = "automation:read"
+    AUTOMATION_MANAGE = "automation:manage"
 
 
 class AuthorizationFailure(StrEnum):
@@ -54,6 +71,13 @@ _READ_PERMISSIONS = frozenset(
         Permission.APPROVAL_READ,
         Permission.EVENT_READ,
         Permission.MEMORY_READ,
+        Permission.INTEGRATION_READ,
+        Permission.ORGANIZATION_READ,
+        Permission.POLICY_READ,
+        Permission.MARKETPLACE_READ,
+        Permission.ROUTING_READ,
+        Permission.OPERATIONS_READ,
+        Permission.AUTOMATION_READ,
     }
 )
 
@@ -66,6 +90,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.TASK_RUN,
             Permission.MEMORY_CREATE,
             Permission.MEMORY_DELETE,
+            Permission.AUTOMATION_MANAGE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

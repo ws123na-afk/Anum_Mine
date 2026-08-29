@@ -18,10 +18,12 @@ Skills are not trusted code by default. They should not grant access to tools or
 
 The monorepo should eventually include a `skills/` workspace for first-party skill definitions, examples, and tests. Skill packages should avoid secrets and environment-specific configuration.
 
-## Now
+## Implemented Control Plane
 
-Define the skill manifest shape, ship a few internal skills for task planning and document drafting, and create validation tests.
+The Phase 2 API provides immutable semantic versions, tenant-owned publishing, workspace installations, declared and administrator-approved tool grants, and execution-time resolution. Resolution intersects the installed grants with runtime tool availability and rejects skills above the caller's risk ceiling. Skill instructions never grant tools by themselves.
 
-## Later
+Endpoints are under `/api/v1/skills`: `POST /versions`, `GET /versions`, `POST /installations`, `GET /installations`, and `POST /resolve`.
 
-Add a governed skill registry, user-installed skills, organization-approved skill packs, skill quality scoring, and marketplace-style distribution.
+## Remaining Distribution Work
+
+Marketplace signing, organization-wide promotion workflows, quality scoring, and durable PostgreSQL persistence remain part of the distribution and production-hardening work.

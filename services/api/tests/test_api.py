@@ -17,6 +17,9 @@ def setup_function() -> None:
     store.runs.clear()
     store.approvals.clear()
     store.events.clear()
+    store.tenants.clear()
+    store.workspaces.clear()
+    store.memberships.clear()
     memory_note_repository._notes.clear()
 
 
@@ -24,6 +27,17 @@ def test_health() -> None:
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_tenant_workspace_and_membership_provisioning() -> None:
+    tenant = client.post("/api/v1/tenants", headers=headers, json={"name": "Tenant A"})
+    workspace = client.post("/api/v1/workspaces", headers=headers, json={"name": "Workspace A"})
+    membership = client.post("/api/v1/workspace-memberships/current", headers=headers)
+
+    assert tenant.status_code == 201
+    assert workspace.status_code == 201
+    assert membership.status_code == 201
+    assert membership.json()["role"] == "owner"
 
 
 def test_create_and_run_low_risk_task() -> None:
@@ -42,6 +56,41 @@ def test_create_and_run_low_risk_task() -> None:
     assert payload["task"]["status"] == "completed"
     assert payload["run"]["status"] == "completed"
     assert payload["approval"] is None
+    assert [step["type"] for step in payload["run"]["steps"]] == [
+        "model_call",
+        "tool_proposal",
+        "tool_result",
+        "final",
+    ]
+    assert payload["run"]["steps"][0]["metadata"]["selected_skills"] == [
+        "anum.task-planning",
+        "anum.document-drafting",
+    ]
+
+
+def test_list_tasks_is_tenant_scoped_and_cursor_paginated() -> None:
+    created = [
+        client.post(
+            "/api/v1/tasks",
+            headers=headers,
+            json={"title": title, "prompt": "Summarize notes"},
+        ).json()
+        for title in ("First", "Second", "Third")
+    ]
+
+    first_page = client.get("/api/v1/tasks", headers=headers, params={"limit": 2})
+    second_page = client.get(
+        "/api/v1/tasks",
+        headers=headers,
+        params={"limit": 2, "cursor": first_page.json()[-1]["id"]},
+    )
+
+    assert first_page.status_code == 200
+    assert len(first_page.json()) == 2
+    assert len(second_page.json()) == 1
+    assert {task["id"] for task in first_page.json() + second_page.json()} == {
+        task["id"] for task in created
+    }
 
 
 def test_cancel_created_task() -> None:
@@ -87,6 +136,8 @@ def test_high_risk_task_waits_for_approval_then_completes() -> None:
 
     assert payload["task"]["status"] == "waiting_approval"
     approval_id = payload["approval"]["id"]
+    assert payload["approval"]["action"] == "external.action"
+    assert payload["run"]["steps"][1]["metadata"]["policy_outcome"] == "require_approval"
 
     approved = client.post(f"/api/v1/approvals/{approval_id}/approve", headers=headers)
 
@@ -166,6 +217,9 @@ def test_cancel_waiting_task_expires_approval_and_blocks_late_decision() -> None
     assert cancelled.json()["status"] == "cancelled"
     assert late_decision.status_code == 409
     assert client.get(f"/api/v1/agent-runs/{run_id}", headers=headers).json()["status"] == "cancelled"
+    latest = client.get(f"/api/v1/tasks/{task_id}/latest-run", headers=headers)
+    assert latest.status_code == 200
+    assert latest.json()["id"] == run_id
     approvals = client.get("/api/v1/approvals", headers=headers).json()
     assert approvals[0]["status"] == "expired"
 
@@ -199,6 +253,68 @@ def test_other_tenant_cannot_cancel_task() -> None:
     response = client.post(f"/api/v1/tasks/{task_id}/cancel", headers=other_headers)
 
     assert response.status_code == 404
+
+
+def test_event_stream_filters_task_and_emits_sse_contract() -> None:
+    first = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "First", "prompt": "Summarize the first task"},
+    ).json()
+    client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Second", "prompt": "Summarize the second task"},
+    )
+
+    response = client.get(
+        "/api/v1/events/stream",
+        headers=headers,
+        params={"task_id": first["id"], "follow": "false"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: task.created" in response.text
+    assert f'"subject":"{first["id"]}"' in response.text
+    assert "Second" not in response.text
+
+
+def test_event_stream_resumes_after_last_event_id() -> None:
+    first = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "First", "prompt": "Summarize the first task"},
+    ).json()
+    first_event_id = client.get("/api/v1/events", headers=headers).json()[0]["id"]
+    second = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Second", "prompt": "Summarize the second task"},
+    ).json()
+
+    response = client.get(
+        "/api/v1/events/stream",
+        headers={**headers, "Last-Event-ID": first_event_id},
+        params={"follow": "false"},
+    )
+
+    assert first["id"] not in response.text
+    assert second["id"] in response.text
+
+
+def test_event_stream_cors_allows_cursor_header() -> None:
+    response = client.options(
+        "/api/v1/events/stream",
+        headers={
+            "Origin": "http://127.0.0.1:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "last-event-id,x-tenant-id,x-workspace-id,x-user-id,x-user-roles",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "last-event-id" in response.headers["access-control-allow-headers"].lower()
 
 
 def test_create_list_and_delete_task_memory() -> None:
