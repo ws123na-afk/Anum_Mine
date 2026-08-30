@@ -42,7 +42,7 @@ class VoiceScreen extends StatelessWidget {
               const SizedBox(height: AnumSpacing.md),
               OutlinedButton.icon(onPressed: controller.speech.openSettings, icon: const Icon(Icons.settings), label: const Text('Open app settings')),
             ],
-            const SizedBox(height:14),Container(minHeight:104,padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,border:Border.all(color:const Color(0xFFD8E0E3)),borderRadius:BorderRadius.circular(8)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[Text('Privacy',style:TextStyle(fontSize:14,fontWeight:FontWeight.w600)),SizedBox(height:8),Text('Audio is handled by device speech recognition. The editable transcript is sent to ANUM only after review.',style:TextStyle(fontSize:12,color:Color(0xFF667980)))])),
+            const SizedBox(height:14),Container(constraints:const BoxConstraints(minHeight:104),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,border:Border.all(color:const Color(0xFFD8E0E3)),borderRadius:BorderRadius.circular(8)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[Text('Privacy',style:TextStyle(fontSize:14,fontWeight:FontWeight.w600)),SizedBox(height:8),Text('Audio is handled by device speech recognition. The editable transcript is sent to ANUM only after review.',style:TextStyle(fontSize:12,color:Color(0xFF667980)))])),
           ],
         )),
       );
@@ -53,7 +53,7 @@ class _PrivacyControls extends StatelessWidget {
   final VoiceController controller;
   @override
   Widget build(BuildContext context) => Container(
-        minHeight:104,decoration:BoxDecoration(color:Colors.white,border:Border.all(color:const Color(0xFFD8E0E3)),borderRadius:BorderRadius.circular(8)),child:Padding(
+        constraints:const BoxConstraints(minHeight:104),decoration:BoxDecoration(color:Colors.white,border:Border.all(color:const Color(0xFFD8E0E3)),borderRadius:BorderRadius.circular(8)),child:Padding(
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(controller.locale=='ar-SA'?'Arabic (Saudi Arabia)':'English (US)', style: const TextStyle(fontSize:14,fontWeight:FontWeight.w600)),
@@ -72,7 +72,7 @@ class _CapturePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final listening = controller.phase == VoicePhase.listening;
     return Column(children:[Container(
-      minHeight:150,decoration:BoxDecoration(color:const Color(0xFFE7F2EF),borderRadius:BorderRadius.circular(8)),child:Padding(
+      constraints:const BoxConstraints(minHeight:150),decoration:BoxDecoration(color:const Color(0xFFE7F2EF),borderRadius:BorderRadius.circular(8)),child:Padding(
         padding: const EdgeInsets.all(16),
         child: Column(children: [
           Text(listening?'LISTENING':'MICROPHONE OFF',style:const TextStyle(fontSize:13,fontWeight:FontWeight.w600,color:Color(0xFF087568))),const SizedBox(height:4),Text(listening?'Speak now':'Tap below when ready',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w600)),

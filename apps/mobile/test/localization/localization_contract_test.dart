@@ -4,8 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('English and Arabic catalogs cover primary navigation', () {
-    const english = AnumLocalizations(Locale('en'));
-    const arabic = AnumLocalizations(Locale('ar'));
+    final english = AnumLocalizations(Locale('en'));
+    final arabic = AnumLocalizations(Locale('ar'));
     for (final key in ['workspace', 'tasks', 'voice', 'approvals', 'automation', 'resources', 'settings', 'refresh']) {
       expect(english.t(key), isNot(key));
       expect(arabic.t(key), isNot(key));
@@ -15,7 +15,7 @@ void main() {
   });
 
   testWidgets('Arabic locale establishes RTL direction', (tester) async {
-    await tester.pumpWidget(const WidgetsApp(
+    await tester.pumpWidget(WidgetsApp(
       color: Color(0xFFFFFFFF),
       locale: Locale('ar'),
       supportedLocales: [Locale('en'), Locale('ar')],
