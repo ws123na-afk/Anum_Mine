@@ -106,7 +106,7 @@ class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, _detail(response.body));
     }
-    await FilePicker.saveFile(
+    await FilePicker.platform.saveFile(
       dialogTitle: 'Save ${file.name}',
       fileName: file.name,
       bytes: response.bodyBytes,
@@ -143,7 +143,7 @@ class HttpAuditExporter implements AuditExporter {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, 'Audit export failed');
     }
-    await FilePicker.saveFile(
+    await FilePicker.platform.saveFile(
       dialogTitle: 'Save audit export',
       fileName: 'audit-export.$format',
       bytes: response.bodyBytes,
