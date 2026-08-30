@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from threading import RLock
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from .authorization import Permission
@@ -51,6 +51,10 @@ class SkillResolveRequest(BaseModel):
     skill_id: str
     available_tools: list[str] = Field(default_factory=list, max_length=200)
     maximum_risk: RiskLevel = RiskLevel.HIGH
+
+
+class SkillInstallationUpdate(BaseModel):
+    enabled: bool
 
 
 class SkillResolution(BaseModel):
@@ -125,6 +129,33 @@ def list_installations(context: TenantContext = Depends(tenant_context)) -> list
     require_permission(context, Permission.POLICY_READ)
     return [i for (tenant, workspace, _), i in skill_store.installations.items()
             if tenant == context.tenant_id and workspace == context.workspace_id]
+
+
+def _installation(skill_id: str, context: TenantContext) -> tuple[tuple[str, str, str], SkillInstallation]:
+    key = (context.tenant_id, context.workspace_id, skill_id)
+    installation = skill_store.installations.get(key)
+    if installation is None:
+        raise HTTPException(404, "Skill installation not found")
+    return key, installation
+
+
+@router.patch("/skills/installations/{skill_id}", response_model=SkillInstallation)
+def update_installation(skill_id: str, payload: SkillInstallationUpdate, context: TenantContext = Depends(tenant_context)) -> SkillInstallation:
+    require_permission(context, Permission.POLICY_MANAGE)
+    key, installation = _installation(skill_id, context)
+    updated = installation.model_copy(update={"enabled": payload.enabled})
+    with skill_store._lock:
+        skill_store.installations[key] = updated
+    return updated
+
+
+@router.delete("/skills/installations/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def uninstall_skill(skill_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    require_permission(context, Permission.POLICY_MANAGE)
+    key, _ = _installation(skill_id, context)
+    with skill_store._lock:
+        skill_store.installations.pop(key)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/skills/resolve", response_model=SkillResolution)

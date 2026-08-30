@@ -43,3 +43,43 @@ Widget tests exercise compact phone and expanded tablet dimensions, status seman
 ## Platform Boundaries
 
 Tokens belong in platform secure storage. Microphone, notification, and file access are requested only when the corresponding action starts. Release builds require OIDC and API configuration supplied outside source, Android and iOS signing identities, and device-level validation. Provider credentials and agent tool secrets must never be stored in the mobile application.
+
+## Figma Implementation Audit
+
+Audited against `docs/figma-mobile-design.md`, `docs/figma-design-state.json`, the product vision, and the roadmap on 2026-08-30.
+
+Implemented runtime surfaces:
+
+- Local session restoration and sign-in, workspace onboarding, model configuration, and secure session storage.
+- Backend model connection testing, profile/session security, notification preferences, and confirmed sign-out.
+- Task capture, task list, execution trace, cancellation, resumption, result review, and empty trace handling.
+- Governed approvals with pending count, approve, and reject actions.
+- Automation list with start, resume, retry, and cancel actions.
+- File upload/download/delete and memory create/delete in a shared resource surface.
+- Voice idle, listening, editable transcript, review, running, completion/read-aloud, permission recovery, Arabic recognition selection, and transcript retention controls.
+- Loading, empty, generic error, and offline behavior on the main workspace.
+
+Open screen and workflow gaps:
+
+- OIDC provider sign-in is not implemented; sign-in remains the development local-session flow.
+- Local OTP verification and password recovery are connected end to end. Production identity-provider recovery still depends on the selected OIDC provider.
+- Authenticated workspace switching rotates and atomically persists the local session; the complete visual workspace directory remains to be implemented.
+- Model testing reports success or the backend error and supports retry, but detailed provider latency, quota, and capability diagnostics are not implemented.
+- Named routes now cover onboarding and each workbench destination, task URLs resolve through an authentication-gated deep link, and selected navigation state is restorable. Platform intent-filter and universal-link association still require deployment-specific domains.
+- Home is currently the task surface; the separate operational overview shown in the Figma main-app coverage is absent.
+- Files and memory share one destination, while deep links and independent information architecture are absent.
+- Audit history and provenance review from the primary journey are absent.
+- Tablet layouts switch to a labeled navigation rail at `840` logical pixels. Tasks and policy governance use master/detail panes; automation, marketplace, routing, and resources remain single-pane.
+- Arabic platform locales receive Material localization, automatic RTL direction, persisted English/Arabic selection, translated core navigation and onboarding labels, and system Noto/Arial Arabic font fallbacks. Secondary feature copy still needs full catalog extraction before localization can be considered complete.
+- The Android permission education screen and iOS approval bottom-sheet presentation are not wired as platform-specific workflows.
+- Figma's expanded detailed-operations and enterprise screen sets are only partially represented by the current workspace and organization-operation surfaces.
+- Expired-session recovery and notification preferences are implemented. Return-to-intended-route behavior after authentication is absent.
+
+Open state gaps from the Figma state matrix:
+
+- Success confirmation, partial-data, expired-auth, rate-limit, and cancelled states do not have shared product components or consistent screen handling.
+- Skeleton loading is absent; current loading uses indeterminate progress indicators.
+- Permission-denied presentation is implemented for authentication/settings and voice. File permission recovery is not yet a shared end-to-end workflow.
+- Offline state displays cached-state wording, but durable offline drafts, replay, and conflict handling are not implemented.
+
+Release acceptance must include all five Figma frames (`360x800`, `393x852`, `412x915`, `768x1024`, and `1024x768`), light and dark themes, English LTR and Arabic RTL, 200 percent text scaling, keyboard traversal, screen-reader labels, Android back behavior, iOS safe areas, deep links, and process restoration. The widget suite currently enforces the frame matrix, component RTL direction, 200 percent text scaling, minimum touch targets, status semantics, route declarations, navigation labels, and voice safety copy. Full app localization and adaptive navigation remain implementation blockers, not passing capabilities.

@@ -7,17 +7,32 @@ Future<void> pumpAt(
   WidgetTester tester,
   Widget child, {
   required Size size,
+  TextDirection direction = TextDirection.ltr,
+  double textScale = 1,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(MaterialApp(theme: AnumTheme.light(), home: Scaffold(body: child)));
+  await tester.pumpWidget(MaterialApp(
+    theme: AnumTheme.light(),
+    builder: (context, content) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+      child: Directionality(textDirection: direction, child: content!),
+    ),
+    home: Scaffold(body: child),
+  ));
   await tester.pump();
 }
 
 void main() {
-  for (final size in <Size>[const Size(360, 800), const Size(1024, 1366)]) {
+  for (final size in <Size>[
+    const Size(360, 800),
+    const Size(393, 852),
+    const Size(412, 915),
+    const Size(768, 1024),
+    const Size(1024, 768),
+  ]) {
     testWidgets('operational card fits ${size.width.toInt()}px viewport', (tester) async {
       await pumpAt(
         tester,
@@ -37,6 +52,27 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('Arabic RTL content survives compact layout at 200 percent text', (tester) async {
+    await pumpAt(
+      tester,
+      const Padding(
+        padding: EdgeInsets.all(16),
+        child: AnumOperationalCard(
+          title: 'مراجعة تشغيل الوكيل والموافقة على الإجراء',
+          metadata: 'مساحة العمل / العمليات / تم التحديث الآن',
+          status: AnumStatus.approval,
+        ),
+      ),
+      size: const Size(360, 800),
+      direction: TextDirection.rtl,
+      textScale: 2,
+    );
+
+    expect(find.text('مراجعة تشغيل الوكيل والموافقة على الإجراء'), findsOneWidget);
+    expect(Directionality.of(tester.element(find.byType(AnumOperationalCard))), TextDirection.rtl);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('feedback exposes its message and usable retry action', (tester) async {
     var retries = 0;

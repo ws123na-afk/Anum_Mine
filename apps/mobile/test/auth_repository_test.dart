@@ -2,6 +2,7 @@ import '../lib/data/api_client.dart';
 import '../lib/data/api_models.dart';
 import '../lib/data/session_store.dart';
 import '../lib/features/auth/auth_repository.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 class FakeTransport implements ApiTransport {
   final List<ApiRequest> requests = [];
@@ -45,7 +46,8 @@ class FakeTransport implements ApiTransport {
   }
 }
 
-Future<void> main() async {
+void main() {
+ test('local session supports onboarding and sign out', () async {
   final sessions = MemorySessionStore();
   final transport = FakeTransport();
   final api = AnumApiClient(
@@ -60,17 +62,18 @@ Future<void> main() async {
     workspaceId: 'workspace_test',
     userId: 'user_test',
   );
-  assert(session.context.roles.single == 'owner');
-  assert((await sessions.read())?.accessToken == 'anum_local_test');
+  expect(session.context.roles.single, 'owner');
+  expect((await sessions.read())?.accessToken, 'anum_local_test');
 
   final onboarding = await auth.completeOnboarding(
     organizationName: 'Test Org',
     workspaceName: 'Test Workspace',
   );
-  assert(onboarding.complete);
-  assert(onboarding.membership?.role == 'owner');
-  assert(transport.requests.last.headers['authorization'] == 'Bearer anum_local_test');
+  expect(onboarding.complete, isTrue);
+  expect(onboarding.membership?.role, 'owner');
+  expect(transport.requests.last.headers['authorization'], 'Bearer anum_local_test');
 
   await auth.signOut();
-  assert(await sessions.read() == null);
+  expect(await sessions.read(), isNull);
+ });
 }

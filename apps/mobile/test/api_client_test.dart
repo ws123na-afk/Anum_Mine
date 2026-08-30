@@ -1,6 +1,7 @@
 import '../lib/data/api_client.dart';
 import '../lib/data/api_models.dart';
 import '../lib/data/session_store.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 class NeverTransport implements ApiTransport {
   @override
@@ -9,7 +10,8 @@ class NeverTransport implements ApiTransport {
   }
 }
 
-Future<void> main() async {
+void main() {
+ test('expired sessions are cleared before transport', () async {
   final sessions = MemorySessionStore();
   await sessions.write(LocalSession(
     accessToken: 'expired',
@@ -28,11 +30,7 @@ Future<void> main() async {
     sessions: sessions,
   );
 
-  try {
-    await api.request('GET', '/api/v1/onboarding');
-    assert(false, 'request should reject an expired session');
-  } on ApiException catch (error) {
-    assert(error.statusCode == 401);
-  }
-  assert(await sessions.read() == null);
+  await expectLater(api.request('GET', '/api/v1/onboarding'), throwsA(isA<ApiException>().having((error) => error.statusCode, 'statusCode', 401)));
+  expect(await sessions.read(), isNull);
+ });
 }

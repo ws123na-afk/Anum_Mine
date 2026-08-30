@@ -117,7 +117,23 @@ class Phase5Store:
     def __init__(self) -> None:
         self._installs: dict[tuple[str, str, str], PackageInstall] = {}
         self._targets: dict[tuple[str, str], RoutingTarget] = {}
+        self._catalog: dict[str, MarketplacePackage] = {item.id: item.model_copy(deep=True) for item in CATALOG}
         self._lock = RLock()
+
+    def catalog(self) -> list[MarketplacePackage]:
+        with self._lock:
+            return [item.model_copy(deep=True) for item in self._catalog.values()]
+
+    def upsert_package(self, package: MarketplacePackage) -> MarketplacePackage:
+        with self._lock:
+            self._catalog[package.id] = package.model_copy(deep=True)
+        return package
+
+    def delete_package(self, package_id: str) -> bool:
+        with self._lock:
+            if any(key[2] == package_id for key in self._installs):
+                raise ValueError("Installed marketplace package cannot be deleted")
+            return self._catalog.pop(package_id, None) is not None
 
     def installs(self, context: TenantContext) -> list[PackageInstall]:
         with self._lock:
@@ -178,7 +194,27 @@ async def list_packages(
     context: TenantContext = Depends(tenant_context),
 ) -> list[MarketplacePackage]:
     require_permission(context, Permission.MARKETPLACE_READ)
-    return [item for item in CATALOG if kind is None or item.kind == kind]
+    return [item for item in store.catalog() if kind is None or item.kind == kind]
+
+
+@router.put("/marketplace/packages/{package_id}", response_model=MarketplacePackage)
+async def upsert_package(package_id: str, payload: MarketplacePackage, context: TenantContext = Depends(tenant_context)) -> MarketplacePackage:
+    require_permission(context, Permission.MARKETPLACE_MANAGE)
+    if payload.id != package_id:
+        raise HTTPException(status_code=422, detail="Marketplace package id does not match path")
+    return store.upsert_package(payload)
+
+
+@router.delete("/marketplace/packages/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_package(package_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    require_permission(context, Permission.MARKETPLACE_MANAGE)
+    try:
+        deleted = store.delete_package(package_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Marketplace package not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/marketplace/installs", response_model=list[PackageInstall])
@@ -198,7 +234,7 @@ async def install_package(
     context: TenantContext = Depends(tenant_context),
 ) -> PackageInstall:
     require_permission(context, Permission.MARKETPLACE_MANAGE)
-    package = next((item for item in CATALOG if item.id == package_id), None)
+    package = next((item for item in store.catalog() if item.id == package_id), None)
     if package is None:
         raise HTTPException(status_code=404, detail="Marketplace package not found")
     try:

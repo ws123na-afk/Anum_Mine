@@ -28,6 +28,20 @@ the last four characters. User notification settings are available at
 `GET|PUT /api/v1/notification-preferences` and are scoped by tenant, workspace,
 and user. These local stores are development foundations and must be replaced
 by encrypted persistent storage before production deployment.
+
+Local authentication also supports the Figma recovery and workspace-switching
+flows. These endpoints return `404` outside local header/session mode:
+
+- `POST /api/v1/auth/local/otp/request` and `/otp/verify`
+- `POST /api/v1/auth/local/password/forgot` and `/password/reset`
+- `POST /api/v1/auth/local/workspace/switch`
+
+OTP and reset challenges expire, are single-use, retain only salted hashes, and
+lock after five failed attempts. The raw `debug_secret` is returned only because
+the entire route family is local-only; a production identity provider must own
+delivery and recovery. Reset passwords are PBKDF2-HMAC hashed in the process-local
+store and become mandatory for direct local sign-in. Workspace switching requires
+an active membership and rotates the bearer session, invalidating the old token.
 x-user-id: user_local
 x-user-roles: owner,member
 ```

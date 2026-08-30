@@ -171,6 +171,35 @@ def list_policy_packs(active_only: bool = False, context: TenantContext = Depend
     return [pack for pack in packs if pack.active or not active_only]
 
 
+def _policy_pack(policy_id: str, context: TenantContext) -> PolicyPack:
+    pack = next((item for item in governance_store.policy_packs.get(context.tenant_id, []) if item.id == policy_id), None)
+    if pack is None:
+        raise HTTPException(status_code=404, detail="Policy pack not found")
+    return pack
+
+
+@router.post("/policy-packs/{policy_id}/activate", response_model=PolicyPack)
+def activate_policy_pack(policy_id: str, context: TenantContext = Depends(tenant_context)) -> PolicyPack:
+    _owner(context, Permission.POLICY_MANAGE)
+    pack = _policy_pack(policy_id, context)
+    with governance_store._lock:
+        for item in governance_store.policy_packs.get(context.tenant_id, []):
+            if item.name.casefold() == pack.name.casefold():
+                item.active = item.id == pack.id
+    _audit(context, "policy_pack.activated", f"policy_pack:{pack.id}", {"name": pack.name, "version": pack.version})
+    return pack
+
+
+@router.post("/policy-packs/{policy_id}/archive", response_model=PolicyPack)
+def archive_policy_pack(policy_id: str, context: TenantContext = Depends(tenant_context)) -> PolicyPack:
+    _owner(context, Permission.POLICY_MANAGE)
+    pack = _policy_pack(policy_id, context)
+    with governance_store._lock:
+        pack.active = False
+    _audit(context, "policy_pack.archived", f"policy_pack:{pack.id}", {"name": pack.name, "version": pack.version})
+    return pack
+
+
 @router.post("/role-templates", response_model=RoleTemplate, status_code=status.HTTP_201_CREATED)
 def create_role_template(payload: RoleTemplateCreate, context: TenantContext = Depends(tenant_context)) -> RoleTemplate:
     _owner(context, Permission.ORGANIZATION_MANAGE)

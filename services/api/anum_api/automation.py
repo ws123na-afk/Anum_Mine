@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Protocol
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
 
 from .authorization import Permission
@@ -77,6 +77,20 @@ class ScheduleCreate(BaseModel):
         return value
 
 
+class ScheduleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    cron: str | None = Field(default=None, min_length=9, max_length=120)
+    timezone: str | None = Field(default=None, min_length=1, max_length=80)
+    enabled: bool | None = None
+
+    @field_validator("cron")
+    @classmethod
+    def valid_cron(cls, value: str | None) -> str | None:
+        if value is not None and len(value.split()) != 5:
+            raise ValueError("Cron expressions must contain five fields")
+        return value
+
+
 class AutomationSchedule(ScheduleCreate):
     id: str
     tenant_id: str
@@ -114,6 +128,9 @@ class AutomationEngine(Protocol):
     def list_workflows(self, context: TenantContext) -> list[WorkflowDefinition]: ...
     def create_schedule(self, context: TenantContext, payload: ScheduleCreate) -> AutomationSchedule: ...
     def list_schedules(self, context: TenantContext) -> list[AutomationSchedule]: ...
+    def get_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule: ...
+    def update_schedule(self, context: TenantContext, schedule_id: str, payload: ScheduleUpdate) -> AutomationSchedule: ...
+    def delete_schedule(self, context: TenantContext, schedule_id: str) -> None: ...
     def start(self, context: TenantContext, workflow_id: str, idempotency_key: str | None = None, retry_of: str | None = None) -> WorkflowRun: ...
     def list_runs(self, context: TenantContext) -> list[WorkflowRun]: ...
     def get_run(self, context: TenantContext, run_id: str) -> WorkflowRun: ...
@@ -206,6 +223,24 @@ class LocalAutomationEngine:
 
     def list_schedules(self, context: TenantContext) -> list[AutomationSchedule]:
         return self._list("automation_schedules", AutomationSchedule, context)
+
+    def get_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule:
+        schedule = next((item for item in self.list_schedules(context) if item.id == schedule_id), None)
+        if schedule is None:
+            raise KeyError(schedule_id)
+        return schedule
+
+    def update_schedule(self, context: TenantContext, schedule_id: str, payload: ScheduleUpdate) -> AutomationSchedule:
+        schedule = self.get_schedule(context, schedule_id)
+        updates = payload.model_dump(exclude_none=True)
+        updated = schedule.model_copy(update={**updates, "updated_at": utc_now()})
+        self._save("automation_schedules", updated, context)
+        return updated
+
+    def delete_schedule(self, context: TenantContext, schedule_id: str) -> None:
+        self.get_schedule(context, schedule_id)
+        with self._connect() as connection:
+            connection.execute("delete from automation_schedules where id = ? and tenant_id = ? and workspace_id = ?", (schedule_id, *self._scope(context)))
 
     def _run(self, context: TenantContext, run_id: str) -> WorkflowRun:
         run = next((item for item in self.list_runs(context) if item.id == run_id), None)
@@ -312,6 +347,45 @@ def create_schedule(payload: ScheduleCreate, context: TenantContext = Depends(te
 def list_schedules(context: TenantContext = Depends(tenant_context)) -> list[AutomationSchedule]:
     require_permission(context, Permission.AUTOMATION_READ)
     return engine.list_schedules(context)
+
+
+@router.get("/schedules/{schedule_id}", response_model=AutomationSchedule)
+def get_schedule(schedule_id: str, context: TenantContext = Depends(tenant_context)) -> AutomationSchedule:
+    require_permission(context, Permission.AUTOMATION_READ)
+    try:
+        return engine.get_schedule(context, schedule_id)
+    except KeyError as exc:
+        raise _not_found_or_conflict(exc) from exc
+
+
+@router.put("/schedules/{schedule_id}", response_model=AutomationSchedule)
+def update_schedule(schedule_id: str, payload: ScheduleUpdate, context: TenantContext = Depends(tenant_context)) -> AutomationSchedule:
+    require_permission(context, Permission.AUTOMATION_MANAGE)
+    try:
+        return engine.update_schedule(context, schedule_id, payload)
+    except KeyError as exc:
+        raise _not_found_or_conflict(exc) from exc
+
+
+@router.post("/schedules/{schedule_id}/{action}", response_model=AutomationSchedule)
+def toggle_schedule(schedule_id: str, action: str, context: TenantContext = Depends(tenant_context)) -> AutomationSchedule:
+    require_permission(context, Permission.AUTOMATION_MANAGE)
+    if action not in {"enable", "disable"}:
+        raise HTTPException(status_code=404, detail="Schedule action not found")
+    try:
+        return engine.update_schedule(context, schedule_id, ScheduleUpdate(enabled=action == "enable"))
+    except KeyError as exc:
+        raise _not_found_or_conflict(exc) from exc
+
+
+@router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_schedule(schedule_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    require_permission(context, Permission.AUTOMATION_MANAGE)
+    try:
+        engine.delete_schedule(context, schedule_id)
+    except KeyError as exc:
+        raise _not_found_or_conflict(exc) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/workflows/{workflow_id}/runs", response_model=WorkflowRun, status_code=status.HTTP_201_CREATED)

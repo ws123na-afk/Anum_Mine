@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
+import secrets
 from threading import RLock
 from urllib.parse import urlparse
 
@@ -10,6 +13,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 from .authorization import Permission
 from .dependencies import provisioning_repository_context, require_permission, tenant_context
 from .identity import local_sessions
+from .model_gateway import build_model_gateway
 from .repository import AnumRepository
 from .schemas import Tenant, TenantContext, Workspace, WorkspaceMembership, utc_now
 from .settings import settings
@@ -21,6 +25,7 @@ class LocalSessionCreate(BaseModel):
     tenant_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,80}$")
     workspace_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,80}$")
     user_id: str = Field(pattern=r"^[a-zA-Z0-9@._-]{3,160}$")
+    password: SecretStr | None = None
 
 
 class LocalSessionResponse(BaseModel):
@@ -28,6 +33,42 @@ class LocalSessionResponse(BaseModel):
     token_type: str = "bearer"
     expires_at: datetime
     context: TenantContext
+
+
+class LocalAccountScope(BaseModel):
+    tenant_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,80}$")
+    workspace_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,80}$")
+    user_id: str = Field(pattern=r"^[a-zA-Z0-9@._-]{3,160}$")
+
+
+class ChallengeResponse(BaseModel):
+    challenge_id: str
+    expires_at: datetime
+    delivery_hint: str
+    debug_secret: str | None = None
+
+
+class OtpVerify(BaseModel):
+    challenge_id: str
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class PasswordReset(BaseModel):
+    challenge_id: str
+    token: str = Field(min_length=20, max_length=300)
+    new_password: SecretStr
+
+    @field_validator("new_password")
+    @classmethod
+    def strong_password(cls, value: SecretStr) -> SecretStr:
+        raw = value.get_secret_value()
+        if len(raw) < 12 or raw.isalpha() or raw.isdigit():
+            raise ValueError("password must be at least 12 characters and contain mixed character types")
+        return value
+
+
+class WorkspaceSwitch(BaseModel):
+    workspace_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,80}$")
 
 
 class OnboardingCreate(BaseModel):
@@ -69,6 +110,13 @@ class ModelConfigView(BaseModel):
     updated_at: datetime
 
 
+class ModelConnectionTest(BaseModel):
+    provider: str
+    model: str
+    latency_ms: int = Field(ge=0)
+    status: str = "connected"
+
+
 class NotificationPreferences(BaseModel):
     task_completed: bool = True
     approval_required: bool = True
@@ -102,6 +150,84 @@ _model_configs: dict[tuple[str, str], _StoredModelConfig] = {}
 _notifications: dict[tuple[str, str, str], NotificationPreferences] = {}
 
 
+class _Challenge:
+    def __init__(self, scope: LocalAccountScope, secret: str, minutes: int) -> None:
+        self.scope = scope
+        self.salt = secrets.token_bytes(16)
+        self.digest = hashlib.sha256(self.salt + secret.encode()).digest()
+        self.expires_at = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+        self.attempts = 0
+
+    def verify(self, value: str) -> bool:
+        self.attempts += 1
+        return self.attempts <= 5 and self.expires_at > datetime.now(timezone.utc) and hmac.compare_digest(
+            self.digest, hashlib.sha256(self.salt + value.encode()).digest()
+        )
+
+
+class _LocalAuthStore:
+    def __init__(self) -> None:
+        self.otp: dict[str, _Challenge] = {}
+        self.resets: dict[str, _Challenge] = {}
+        self.passwords: dict[tuple[str, str], tuple[bytes, bytes]] = {}
+        self.lock = RLock()
+
+    def challenge(self, target: dict[str, _Challenge], scope: LocalAccountScope, secret: str, minutes: int) -> tuple[str, _Challenge]:
+        challenge_id = f"challenge_{secrets.token_urlsafe(18)}"
+        item = _Challenge(scope, secret, minutes)
+        with self.lock:
+            target[challenge_id] = item
+        return challenge_id, item
+
+    def consume(self, target: dict[str, _Challenge], challenge_id: str, secret: str) -> LocalAccountScope | None:
+        with self.lock:
+            item = target.get(challenge_id)
+            if item is None or not item.verify(secret):
+                return None
+            target.pop(challenge_id, None)
+            return item.scope
+
+    def set_password(self, tenant_id: str, user_id: str, password: str) -> None:
+        salt = secrets.token_bytes(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 210_000)
+        with self.lock:
+            self.passwords[(tenant_id, user_id)] = (salt, digest)
+
+    def password_valid(self, tenant_id: str, user_id: str, password: str | None) -> bool:
+        stored = self.passwords.get((tenant_id, user_id))
+        if stored is None:
+            return True
+        if password is None:
+            return False
+        salt, expected = stored
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 210_000)
+        return hmac.compare_digest(actual, expected)
+
+    def clear(self) -> None:
+        with self.lock:
+            self.otp.clear(); self.resets.clear(); self.passwords.clear()
+
+
+_local_auth = _LocalAuthStore()
+
+
+def _local_enabled() -> None:
+    if settings.environment != "local" or settings.auth_mode not in {"headers", "local"}:
+        raise HTTPException(status_code=404, detail="Local authentication is unavailable")
+
+
+def _session_response(context: TenantContext) -> LocalSessionResponse:
+    token, expires_at = local_sessions.create(context)
+    return LocalSessionResponse(access_token=token, expires_at=expires_at, context=context)
+
+
+def _delivery_hint(user_id: str) -> str:
+    if "@" in user_id:
+        name, domain = user_id.split("@", 1)
+        return f"{name[:1]}***@{domain}"
+    return f"{user_id[:2]}***"
+
+
 def _model_is_configured(context: TenantContext) -> bool:
     config = _model_configs.get((context.tenant_id, context.workspace_id))
     return bool(config and (config.provider == "mock" or config.api_key))
@@ -109,16 +235,71 @@ def _model_is_configured(context: TenantContext) -> bool:
 
 @router.post("/auth/local/session", response_model=LocalSessionResponse, status_code=201)
 async def create_local_session(payload: LocalSessionCreate) -> LocalSessionResponse:
-    if settings.environment != "local" or settings.auth_mode not in {"headers", "local"}:
-        raise HTTPException(status_code=404, detail="Local authentication is unavailable")
+    _local_enabled()
+    password = payload.password.get_secret_value() if payload.password else None
+    if not _local_auth.password_valid(payload.tenant_id, payload.user_id, password):
+        raise HTTPException(status_code=401, detail="Invalid local credentials")
     context = TenantContext(
         tenant_id=payload.tenant_id,
         workspace_id=payload.workspace_id,
         user_id=payload.user_id,
         roles=["owner"],
     )
-    token, expires_at = local_sessions.create(context)
-    return LocalSessionResponse(access_token=token, expires_at=expires_at, context=context)
+    return _session_response(context)
+
+
+@router.post("/auth/local/otp/request", response_model=ChallengeResponse, status_code=202)
+async def request_local_otp(payload: LocalAccountScope) -> ChallengeResponse:
+    _local_enabled()
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    challenge_id, challenge = _local_auth.challenge(_local_auth.otp, payload, code, 10)
+    return ChallengeResponse(challenge_id=challenge_id, expires_at=challenge.expires_at, delivery_hint=_delivery_hint(payload.user_id), debug_secret=code)
+
+
+@router.post("/auth/local/otp/verify", response_model=LocalSessionResponse)
+async def verify_local_otp(payload: OtpVerify) -> LocalSessionResponse:
+    _local_enabled()
+    scope = _local_auth.consume(_local_auth.otp, payload.challenge_id, payload.code)
+    if scope is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired verification code")
+    return _session_response(TenantContext(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id, user_id=scope.user_id, roles=["owner"]))
+
+
+@router.post("/auth/local/password/forgot", response_model=ChallengeResponse, status_code=202)
+async def forgot_local_password(payload: LocalAccountScope) -> ChallengeResponse:
+    _local_enabled()
+    token = secrets.token_urlsafe(32)
+    challenge_id, challenge = _local_auth.challenge(_local_auth.resets, payload, token, 15)
+    return ChallengeResponse(challenge_id=challenge_id, expires_at=challenge.expires_at, delivery_hint=_delivery_hint(payload.user_id), debug_secret=token)
+
+
+@router.post("/auth/local/password/reset", response_model=LocalSessionResponse)
+async def reset_local_password(payload: PasswordReset) -> LocalSessionResponse:
+    _local_enabled()
+    scope = _local_auth.consume(_local_auth.resets, payload.challenge_id, payload.token)
+    if scope is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired password reset")
+    _local_auth.set_password(scope.tenant_id, scope.user_id, payload.new_password.get_secret_value())
+    return _session_response(TenantContext(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id, user_id=scope.user_id, roles=["owner"]))
+
+
+@router.post("/auth/local/workspace/switch", response_model=LocalSessionResponse)
+async def switch_local_workspace(
+    payload: WorkspaceSwitch,
+    authorization: str | None = Header(default=None),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(provisioning_repository_context),
+) -> LocalSessionResponse:
+    _local_enabled()
+    target = context.model_copy(update={"workspace_id": payload.workspace_id})
+    workspace = repository.get_workspace(payload.workspace_id, target)
+    membership = repository.get_membership(target)
+    if workspace is None or membership is None or not membership.active:
+        raise HTTPException(status_code=403, detail="Active target workspace membership required")
+    target.roles = [membership.role]
+    if authorization and authorization.lower().startswith("bearer anum_local_"):
+        local_sessions.revoke(authorization.split(" ", 1)[1])
+    return _session_response(target)
 
 
 @router.delete("/auth/local/session", status_code=204, response_model=None)
@@ -178,6 +359,33 @@ async def get_model_config(context: TenantContext = Depends(tenant_context)) -> 
     if config is None:
         raise HTTPException(status_code=404, detail="Model configuration not found")
     return config.view()
+
+
+@router.post("/model-config/test", response_model=ModelConnectionTest)
+async def test_model_config(
+    context: TenantContext = Depends(tenant_context),
+) -> ModelConnectionTest:
+    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    config = _model_configs.get((context.tenant_id, context.workspace_id))
+    if config is None:
+        raise HTTPException(status_code=404, detail="Model configuration not found")
+    secret = config.api_key.get_secret_value() if config.api_key else None
+    provider = "openai-compatible" if config.provider == "openai_compatible" else config.provider
+    try:
+        gateway = build_model_gateway(
+            provider,
+            api_key=secret,
+            model=config.model,
+            base_url=config.base_url,
+        )
+        response = await gateway.generate_text("Reply with ANUM_OK only.")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Model provider connection failed") from exc
+    return ModelConnectionTest(
+        provider=config.provider,
+        model=config.model,
+        latency_ms=response.metadata.latency_ms if response.metadata else 0,
+    )
 
 
 @router.get("/notification-preferences", response_model=NotificationPreferences)

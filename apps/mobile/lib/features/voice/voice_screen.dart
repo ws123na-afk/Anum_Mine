@@ -11,15 +11,16 @@ class VoiceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: controller,
-        builder: (context, _) => ListView(
-          padding: const EdgeInsets.all(AnumSpacing.md),
+        builder: (context, _) => ColoredBox(color:const Color(0xFFF3F5F6),child:ListView(
+          padding: const EdgeInsets.fromLTRB(24,20,24,28),
           children: [
-            Text('Voice command', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: AnumSpacing.xs),
-            Text('Speak a short instruction. You can edit and review it before anything runs.', style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: AnumSpacing.lg),
+            const Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text('9:41',style:TextStyle(fontSize:12,color:Color(0xFF667980))),Text('5G  100%',style:TextStyle(fontSize:12,color:Color(0xFF667980)))]),
+            const SizedBox(height:14),Text('VOICE COMMAND · ${controller.phase==VoicePhase.listening?'LISTENING':'READY'}',style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600,color:Color(0xFF087568))),
+            const SizedBox(height:14),const Text('Speak a command',style:TextStyle(fontSize:26,fontWeight:FontWeight.w700,color:Color(0xFF172026))),
+            const SizedBox(height:14),const Text('Short commands work best. Nothing runs until you review the transcript.',style:TextStyle(fontSize:13,color:Color(0xFF667980))),
+            const SizedBox(height:14),
             _PrivacyControls(controller: controller),
-            const SizedBox(height: AnumSpacing.md),
+            const SizedBox(height:14),
             _CapturePanel(controller: controller),
             if (controller.message != null) ...[
               const SizedBox(height: AnumSpacing.md),
@@ -41,8 +42,9 @@ class VoiceScreen extends StatelessWidget {
               const SizedBox(height: AnumSpacing.md),
               OutlinedButton.icon(onPressed: controller.speech.openSettings, icon: const Icon(Icons.settings), label: const Text('Open app settings')),
             ],
+            const SizedBox(height:14),Container(minHeight:104,padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,border:Border.all(color:const Color(0xFFD8E0E3)),borderRadius:BorderRadius.circular(8)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[Text('Privacy',style:TextStyle(fontSize:14,fontWeight:FontWeight.w600)),SizedBox(height:8),Text('Audio is handled by device speech recognition. The editable transcript is sent to ANUM only after review.',style:TextStyle(fontSize:12,color:Color(0xFF667980)))])),
           ],
-        ),
+        )),
       );
 }
 
@@ -50,27 +52,14 @@ class _PrivacyControls extends StatelessWidget {
   const _PrivacyControls({required this.controller});
   final VoiceController controller;
   @override
-  Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(AnumSpacing.md),
+  Widget build(BuildContext context) => Container(
+        minHeight:104,decoration:BoxDecoration(color:Colors.white,border:Border.all(color:const Color(0xFFD8E0E3)),borderRadius:BorderRadius.circular(8)),child:Padding(
+          padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Language and transcript retention', style: Theme.of(context).textTheme.titleSmall),
+            Text(controller.locale=='ar-SA'?'Arabic (Saudi Arabia)':'English (US)', style: const TextStyle(fontSize:14,fontWeight:FontWeight.w600)),
             const SizedBox(height: AnumSpacing.sm),
-            DropdownButtonFormField<String>(
-              initialValue: controller.locale,
-              decoration: const InputDecoration(labelText: 'Recognition language'),
-              items: const [DropdownMenuItem(value: 'en-US', child: Text('English (US)')), DropdownMenuItem(value: 'ar-SA', child: Text('Arabic (Saudi Arabia)'))],
-              onChanged: (value) { if (value != null) controller.setLocale(value); },
-            ),
-            const SizedBox(height: AnumSpacing.sm),
-            SegmentedButton<VoiceRetention>(
-              segments: const [ButtonSegment(value: VoiceRetention.session, label: Text('Session')), ButtonSegment(value: VoiceRetention.thirtyDays, label: Text('30 days')), ButtonSegment(value: VoiceRetention.permanent, label: Text('Keep'))],
-              selected: {controller.retention},
-              onSelectionChanged: (value) => controller.setRetention(value.single),
-              showSelectedIcon: false,
-            ),
-            const SizedBox(height: AnumSpacing.xs),
-            Text('Session transcripts are removed when the voice session closes.', style: Theme.of(context).textTheme.bodySmall),
+            Text('Transcript retention · ${controller.retention==VoiceRetention.session?'Session only':controller.retention==VoiceRetention.thirtyDays?'30 days':'Permanent'}',style:const TextStyle(fontSize:12,color:Color(0xFF667980))),
+            Align(alignment:AlignmentDirectional.centerEnd,child:TextButton(onPressed:()=>_voiceOptions(context,controller),child:const Text('Change'))),
           ]),
         ),
       );
@@ -82,36 +71,24 @@ class _CapturePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final listening = controller.phase == VoicePhase.listening;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AnumSpacing.md),
+    return Column(children:[Container(
+      minHeight:150,decoration:BoxDecoration(color:const Color(0xFFE7F2EF),borderRadius:BorderRadius.circular(8)),child:Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 72, height: 72,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: listening ? Theme.of(context).colorScheme.errorContainer : Theme.of(context).colorScheme.primaryContainer),
-            child: Icon(listening ? Icons.graphic_eq : Icons.mic, size: 34),
-          ),
-          const SizedBox(height: AnumSpacing.sm),
-          Text(listening ? 'Listening now' : 'Microphone is off', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: AnumSpacing.md),
-          TextFormField(
+          Text(listening?'LISTENING':'MICROPHONE OFF',style:const TextStyle(fontSize:13,fontWeight:FontWeight.w600,color:Color(0xFF087568))),const SizedBox(height:4),Text(listening?'Speak now':'Tap below when ready',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w600)),
+          if(controller.transcript.isNotEmpty)...[const SizedBox(height:12),TextFormField(
             key: ValueKey(controller.transcript),
             initialValue: controller.transcript,
             minLines: 4, maxLines: 8,
             onChanged: controller.setTranscript,
             decoration: const InputDecoration(labelText: 'Transcript', hintText: 'Your recognized command appears here'),
-          ),
-          const SizedBox(height: AnumSpacing.md),
-          Row(children: [
-            Expanded(child: FilledButton.icon(onPressed: listening ? controller.stop : controller.start, icon: Icon(listening ? Icons.stop : Icons.mic), label: Text(listening ? 'Stop listening' : 'Start listening'))),
-            if (controller.transcript.isNotEmpty) ...[const SizedBox(width: AnumSpacing.xs), IconButton.outlined(onPressed: controller.discard, tooltip: 'Discard transcript', icon: const Icon(Icons.delete_outline))],
-          ]),
+          )],
         ]),
-      ),
-    );
+      )),const SizedBox(height:14),SizedBox(width:double.infinity,height:48,child:FilledButton(onPressed:listening?controller.stop:controller.start,style:FilledButton.styleFrom(backgroundColor:const Color(0xFF087568),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(8))),child:Text(listening?'Stop listening':'Start listening'))),if(controller.transcript.isNotEmpty)TextButton.icon(onPressed:controller.discard,icon:const Icon(Icons.delete_outline),label:const Text('Discard transcript'))]);
   }
 }
+
+Future<void> _voiceOptions(BuildContext context,VoiceController controller)=>showModalBottomSheet(context:context,showDragHandle:true,builder:(context)=>SafeArea(child:Column(mainAxisSize:MainAxisSize.min,children:[ListTile(title:const Text('English (US)'),onTap:(){controller.setLocale('en-US');Navigator.pop(context);}),ListTile(title:const Text('Arabic (Saudi Arabia)'),onTap:(){controller.setLocale('ar-SA');Navigator.pop(context);}),const Divider(),...VoiceRetention.values.map((value)=>RadioListTile<VoiceRetention>(value:value,groupValue:controller.retention,onChanged:(next){if(next!=null)controller.setRetention(next);Navigator.pop(context);},title:Text(value==VoiceRetention.session?'Session only':value==VoiceRetention.thirtyDays?'30 days':'Permanent')))])));
 
 class _CommandReview extends StatelessWidget {
   const _CommandReview({required this.controller}); final VoiceController controller;

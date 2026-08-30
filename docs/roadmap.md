@@ -26,13 +26,15 @@ Build the smallest complete ANUM path:
 
 ## Phase 2: Practical Agent Workbench
 
+Status: source foundation implemented; production infrastructure and full client verification pending.
+
 Add reusable skills, more tools, richer task timelines, file/object storage, Temporal-backed long-running workflows, Valkey-backed ephemeral coordination, and a usable React workbench. Agents should become resumable, auditable, and cancellable.
 
 ## Phase 3: Multi-Surface Product
 
-Status: in progress.
+Status: source implementation in progress; native and production verification pending.
 
-Package the web app in Tauri, add native desktop permissions, retain the first Kotlin Android client, ship the Flutter Android/iOS/tablet client, and introduce voice sessions. All clients should use the same backend contracts and auth model. Flutter source now covers authentication, onboarding, model setup, the governed workbench, responsive state handling, and secure session storage; native analysis and binary builds remain pending until the Flutter toolchain is installed.
+Package the web app in Tauri, add native desktop permissions, retain the first Kotlin Android client, ship the Flutter Android/iOS/tablet client, and introduce voice sessions. All clients should use the same backend contracts and auth model. Flutter source now covers authentication, onboarding, model setup and connection verification, profile/session security, notifications, the governed workbench, organization operations, voice, responsive state handling, and secure session storage. Flutter analysis, widget-test execution, native binaries, full localization, signing, and device verification remain pending.
 
 ## Phase 4: Team and Organization Controls
 

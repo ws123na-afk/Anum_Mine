@@ -10,6 +10,7 @@ import '../../data/api_models.dart';
 import '../../data/session_store.dart';
 import '../../features/workspace/api_workspace_repository.dart';
 import '../../features/workspace/workspace_models.dart';
+import '../../features/governance/api_governance_repository.dart';
 
 class HttpApiTransport implements ApiTransport {
   HttpApiTransport({http.Client? client}) : _client = client ?? http.Client();
@@ -119,5 +120,33 @@ class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {
     } on Object {
       return 'File transfer failed';
     }
+  }
+}
+
+class HttpAuditExporter implements AuditExporter {
+  HttpAuditExporter({required this.baseUri, required this.sessions, http.Client? client})
+      : _client = client ?? http.Client();
+  final Uri baseUri;
+  final SessionStore sessions;
+  final http.Client _client;
+
+  @override
+  Future<void> export(String format) async {
+    final session = await sessions.read();
+    if (session == null || session.isExpired) {
+      throw const ApiException(401, 'Authentication required');
+    }
+    final response = await _client.get(
+      baseUri.resolve('api/v1/audit/export?format=$format'),
+      headers: {'authorization': 'Bearer ${session.accessToken}'},
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(response.statusCode, 'Audit export failed');
+    }
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Save audit export',
+      fileName: 'audit-export.$format',
+      bytes: response.bodyBytes,
+    );
   }
 }

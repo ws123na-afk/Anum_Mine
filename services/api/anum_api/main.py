@@ -15,7 +15,7 @@ from .dependencies import (
 )
 from .errors import register_exception_handlers
 from .events import CanonicalEventName, create_event
-from .integrations import IntegrationHealth, default_integration_registry
+from .integrations import IntegrationConfiguration, IntegrationConfigurationView, IntegrationHealth, default_integration_registry
 from .integration_tools import configured_external_handler
 from .model_gateway import build_model_gateway
 from .memory import (
@@ -200,7 +200,25 @@ async def list_integrations(
     context: TenantContext = Depends(tenant_context),
 ) -> list[IntegrationHealth]:
     require_permission(context, Permission.INTEGRATION_READ)
-    return await integration_registry.health()
+    return await integration_registry.health(context)
+
+
+@app.get("/api/v1/integrations/{integration_id}/configuration", response_model=IntegrationConfigurationView)
+async def get_integration_configuration(integration_id: str, context: TenantContext = Depends(tenant_context)) -> IntegrationConfigurationView:
+    require_permission(context, Permission.INTEGRATION_READ)
+    try:
+        return integration_registry.configuration(integration_id, context)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Integration not found") from exc
+
+
+@app.put("/api/v1/integrations/{integration_id}/configuration", response_model=IntegrationConfigurationView)
+async def configure_integration(integration_id: str, payload: IntegrationConfiguration, context: TenantContext = Depends(tenant_context)) -> IntegrationConfigurationView:
+    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    try:
+        return integration_registry.configure(integration_id, context, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Integration not found") from exc
 
 
 @app.post("/api/v1/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
@@ -447,6 +465,19 @@ async def list_approvals(
 ) -> list[Approval]:
     require_permission(context, Permission.APPROVAL_READ)
     return repository.list_approvals(context)
+
+
+@app.get("/api/v1/approvals/{approval_id}", response_model=Approval)
+async def get_approval(
+    approval_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Approval:
+    require_permission(context, Permission.APPROVAL_READ)
+    approval = repository.get_approval(approval_id, context)
+    if approval is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
+    return approval
 
 
 @app.post("/api/v1/memories", response_model=MemoryNote, status_code=status.HTTP_201_CREATED)
