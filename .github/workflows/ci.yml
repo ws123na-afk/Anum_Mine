@@ -144,7 +144,14 @@ jobs:
       - run: flutter pub get
       - name: Run Flutter analyzer
         continue-on-error: true
-        run: flutter analyze
+        run: |
+          set +e
+          flutter analyze 2>&1 | tee flutter-analyze.log
+          status=${PIPESTATUS[0]}
+          grep -E '^[[:space:]]*error ' flutter-analyze.log | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+          exit "$status"
       - name: Run Flutter tests
         continue-on-error: true
         run: flutter test
