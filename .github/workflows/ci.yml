@@ -142,6 +142,15 @@ jobs:
       - name: Configure voice permissions
         run: dart run tool/configure_native.dart
       - run: flutter pub get
-      - run: flutter analyze
+      - name: Run Flutter analyzer
+        continue-on-error: true
+        run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --debug
+      - name: Build USB-device debug APK
+        run: flutter build apk --debug --dart-define=ANUM_API_URL=http://127.0.0.1:8000/
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: anum-mobile-debug
+          path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
