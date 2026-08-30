@@ -150,6 +150,7 @@ jobs:
         run: flutter test
       - name: Build USB-device debug APK
         run: |
+          set +e
           set -o pipefail
           flutter build apk --debug --dart-define=ANUM_API_URL=http://127.0.0.1:8000/ 2>&1 | tee flutter-build.log
           status=${PIPESTATUS[0]}
