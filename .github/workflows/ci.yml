@@ -162,9 +162,9 @@ jobs:
           flutter build apk --debug --dart-define=ANUM_API_URL=http://127.0.0.1:8000/ 2>&1 | tee flutter-build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            while IFS= read -r line; do
+            grep -Ei '(error:|failed|failure|exception|what went wrong|requires |could not|problem occurred)' flutter-build.log | tail -n 40 | while IFS= read -r line; do
               echo "::error::$line"
-            done < flutter-build.log
+            done
           fi
           exit "$status"
       - name: Upload debug APK
