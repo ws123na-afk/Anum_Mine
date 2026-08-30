@@ -7,7 +7,9 @@ void main() {
 
 void _configureAndroid() {
   final file = File('android/app/src/main/AndroidManifest.xml');
+  final gradleFile = File('android/app/build.gradle.kts');
   if (!file.existsSync()) throw StateError('Run flutter create before native configuration.');
+  if (!gradleFile.existsSync()) throw StateError('Android Gradle configuration is missing.');
   var value = file.readAsStringSync();
   const permissions = '''
     <uses-permission android:name="android.permission.INTERNET" />
@@ -24,8 +26,21 @@ void _configureAndroid() {
 ''';
   if (!value.contains('android.permission.RECORD_AUDIO')) {
     value = value.replaceFirst('<application', '$permissions    <application');
-    file.writeAsStringSync(value);
   }
+  if (!value.contains('android:usesCleartextTraffic')) {
+    value = value.replaceFirst(
+      '<application',
+      '<application android:usesCleartextTraffic="true"',
+    );
+  }
+  file.writeAsStringSync(value);
+
+  var gradle = gradleFile.readAsStringSync();
+  gradle = gradle.replaceFirst(
+    'compileSdk = flutter.compileSdkVersion',
+    'compileSdk = 37',
+  );
+  gradleFile.writeAsStringSync(gradle);
 }
 
 void _configureIos() {
