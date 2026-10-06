@@ -109,8 +109,13 @@ def test_session_retention_erases_transcript_when_completed() -> None:
 
 
 def test_voice_api_exposes_no_approval_decision_route() -> None:
-    paths = {route.path for route in app.routes}
-    assert all("approv" not in path for path in paths if path.startswith("/api/v1/voice"))
+    # FastAPI keeps included routers nested in app.routes, so read the public schema;
+    # no route in the API is excluded from it.
+    paths = set(app.openapi()["paths"])
+    voice_paths = {path for path in paths if path.startswith("/api/v1/voice")}
+    assert voice_paths
+    assert voice_paths == {route.path for route in router.routes}
+    assert all("approv" not in path for path in voice_paths)
 
 
 def _ask(
