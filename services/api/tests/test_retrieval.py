@@ -576,6 +576,51 @@ def test_memory_creation_survives_an_exhausted_budget_and_records_the_failure() 
     assert status["failed"] == 1 and status["sources"][0]["error"] == "budget_exceeded"
 
 
+class _NextModelEmbedder(LocalEmbedder):
+    """The same vectors under another model name: stands in for an embedding model change."""
+
+    model_name = "anum-local-hash-next"
+
+    async def embed(self, texts: list[str]):  # type: ignore[no-untyped-def]
+        response = await super().embed(texts)
+        return response.model_copy(update={"model": self.model_name})
+
+
+def test_reindex_reembeds_sources_of_another_model_within_the_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import retrieval_api
+
+    headers = _headers()
+    task_id = _create_task(headers)
+    for content in ("release checklist one", "release checklist two", "release checklist three"):
+        created = client.post(
+            "/api/v1/memories", headers=headers, json={"task_id": task_id, "content": content, "source_type": "note"}
+        )
+        assert created.status_code == 201
+    upload = client.post(
+        "/api/v1/files",
+        headers={**headers, "x-file-name": "notes.md", "content-type": "text/markdown"},
+        content=b"release checklist from a file",
+    )
+    assert upload.status_code == 201
+    assert client.get("/api/v1/retrieval/status", headers=headers).json()["indexed"] == 4
+
+    monkeypatch.setattr(retrieval_api, "build_embedder", lambda context, gateway: _NextModelEmbedder())
+    status = client.get("/api/v1/retrieval/status", headers=headers).json()
+    assert status["embedding_model"] == "anum-local-hash-next"
+    assert (status["stale"], status["indexed"], status["stale_models"]) == (4, 0, {LOCAL_EMBEDDING_MODEL: 4})
+
+    first = client.post("/api/v1/retrieval/index?limit=3", headers=headers).json()
+    assert (first["indexed"], first["reembedded"], first["remaining"], first["stale_remaining"]) == (3, 3, 1, 1)
+    assert (first["status"]["stale"], first["status"]["indexed"]) == (1, 3)
+    second = client.post("/api/v1/retrieval/index?limit=3", headers=headers).json()
+    assert (second["reembedded"], second["remaining"], second["reused"]) == (1, 0, 3)
+    assert second["status"]["stale"] == 0 and second["status"]["stale_models"] == {}
+    assert {source["embedding_model"] for source in second["status"]["sources"]} == {"anum-local-hash-next"}
+    # Nothing left: a third call embeds nothing.
+    third = client.post("/api/v1/retrieval/index", headers=headers).json()
+    assert (third["indexed"], third["reembedded"], third["reused"]) == (0, 0, 4)
+
+
 def test_search_sql_matches_the_partial_hnsw_index_only_for_indexed_dimensions() -> None:
     from anum_api.db.retrieval_repository import ANN_DIMENSIONS, pgvector_version, search_sql
 

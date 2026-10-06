@@ -59,7 +59,7 @@ Search ignores a chunk the moment its memory expires or its memory or file is de
 | `gateway` (default) | The workspace's own model gateway (`budgeted_model_gateway`): its saved Ollama or OpenAI-compatible endpoint, or the server default, through the SSRF guard, with retries, redacted logging and metrics, and the monthly budget (each embedding call is checked before and recorded after, like a text call; [Model gateway](model-gateway.md#embeddings)). The model is `ANUM_EMBEDDING_MODEL`, or `nomic-embed-text` for Ollama and `text-embedding-3-small` otherwise. With the `mock` provider (the local and test default) it is the deterministic local embedder. |
 | `local` | The deterministic local embedder only (`anum-local-hash-v1`): feature hashing of word tokens into 256 signed buckets, L2-normalised. No model server, no network, no budget; it finds word overlap rather than meaning. |
 
-An embedder is built per tenant context and only ever receives that workspace's text, so no model call carries another tenant's data. Changing the embedding model leaves older chunks unused (`stale` in the status) until they are re-indexed.
+An embedder is built per tenant context and only ever receives that workspace's text, so no model call carries another tenant's data. Changing the embedding model leaves older chunks unused (`stale` in the status, counted per old model in `stale_models`) until `POST /api/v1/retrieval/index` re-embeds them (below); a search only compares chunks of the current model, so a workspace finds nothing it has not re-embedded yet.
 
 ### At run time
 
@@ -77,8 +77,8 @@ The run's `retrieval` step is the audit record. Its metadata: `status` (`ok`, `n
 
 ### API
 
-- `GET /api/v1/retrieval/status` (memory read): the embedding model in use and, per source, status, error code, chunk count and model; counts of `indexed`, `failed`, `skipped`, `stale` sources and of chunks.
-- `POST /api/v1/retrieval/index?limit=100` (memory create, because it spends budget): indexes memories and files that are missing, failed, changed or on another model (at most `limit` per call, `remaining` says how many are left) and deletes index rows whose memory or file is gone or expired. Use it after upgrading to `0014_retrieval_index` to index existing memories and files.
+- `GET /api/v1/retrieval/status` (memory read): the embedding model in use and, per source, status, error code, chunk count and model; counts of `indexed`, `failed`, `skipped`, `stale` sources and of chunks, and `stale_models` (stale sources per model they were indexed with).
+- `POST /api/v1/retrieval/index?limit=100` (memory create, because it spends budget): indexes memories and files that are missing, failed, changed or on another model (at most `limit` embedded per call, `remaining` says how many are left) and deletes index rows whose memory or file is gone or expired. Unchanged sources on the current model are not counted against `limit`. After an embedding model change (`ANUM_EMBEDDING_MODEL`, the provider, or a workspace's saved endpoint) it re-embeds the sources still on the old model: `reembedded` counts them (they are also in `indexed`), `stale_remaining` counts those left for the next call, and the response's `status` shows what is still `stale`. Call it until `stale_remaining` is 0. Use it after upgrading to `0014_retrieval_index` to index existing memories and files.
 
 ## Governance
 

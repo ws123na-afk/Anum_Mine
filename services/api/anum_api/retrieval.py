@@ -761,15 +761,26 @@ class RetrievalIndexStatus(BaseModel):
     failed: int = 0
     skipped: int = 0
     stale: int = Field(default=0, description="Indexed with a different embedding model")
+    stale_models: dict[str, int] = Field(
+        default_factory=dict,
+        description="Stale sources per embedding model they were indexed with; POST /index re-embeds them",
+    )
     chunks: int = 0
     sources: list[RetrievalSourceView] = Field(default_factory=list)
+
+
+def is_stale(source: RetrievalSource, embedding_model: str) -> bool:
+    """Indexed, but with another embedding model than the current one."""
+    return source.status == IndexStatus.INDEXED and source.embedding_model != embedding_model
 
 
 def index_status(sources: Sequence[RetrievalSource], embedding_model: str) -> RetrievalIndexStatus:
     status = RetrievalIndexStatus(embedding_model=embedding_model)
     for source in sources:
-        if source.status == IndexStatus.INDEXED and source.embedding_model != embedding_model:
+        if is_stale(source, embedding_model):
             status.stale += 1
+            model = source.embedding_model or "unknown"
+            status.stale_models[model] = status.stale_models.get(model, 0) + 1
         elif source.status == IndexStatus.INDEXED:
             status.indexed += 1
             status.chunks += source.chunk_count

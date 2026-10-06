@@ -5,6 +5,8 @@
 * ``POST /api/v1/retrieval/index``: (re)index memories and files that are missing,
   failed, changed or embedded with another model, and drop index rows whose memory or
   file is gone or expired. Memory create permission, because it spends model budget.
+  After an embedding model change it re-embeds sources still on the old model, at most
+  ``limit`` per call, and reports ``reembedded`` and ``stale_remaining``.
 
 Creating a memory indexes it in the same transaction; uploading a text file indexes it
 after its metadata is committed. Indexing failures (provider down, budget used up) are
@@ -31,13 +33,16 @@ from .retrieval import (
     IndexStatus,
     RetrievalIndexer,
     RetrievalIndexStatus,
+    RetrievalSource,
     RetrievalStore,
     Retriever,
     SourceType,
     build_embedder,
     index_status,
+    is_stale,
     open_retrieval_store,
     retrieval_store_for_session,
+    sha256_text,
 )
 from .schemas import TenantContext
 from .settings import settings
@@ -141,6 +146,10 @@ class ReindexResult(BaseModel):
     skipped: int = 0
     removed: int = Field(default=0, description="Index rows whose memory or file is gone or expired")
     remaining: int = Field(default=0, description="Sources left for another call (limit reached)")
+    reembedded: int = Field(
+        default=0, description="Of `indexed`: sources re-embedded because their stored embedding model was not the current one"
+    )
+    stale_remaining: int = Field(default=0, description="Of `remaining`: sources still on another embedding model")
     status: RetrievalIndexStatus
 
 
@@ -189,24 +198,36 @@ async def reindex(
             store.delete_source(context, key[0], key[1])
             result.removed += 1
 
+    model = embedder.model_name
     budget = limit
     for note in notes:
-        if budget <= 0:
-            result.remaining += 1
-            continue
-        outcome = await indexer.index_memory(context, note)
-        budget -= 0 if outcome.reused else 1
-        _count(result, outcome)
-    for record in records:
-        source = existing.get((SourceType.FILE, record.id))
-        if source is not None and source.content_sha256 == record.sha256 and (
-            source.status == IndexStatus.SKIPPED
-            or (source.status == IndexStatus.INDEXED and source.embedding_model == embedder.model_name)
+        source = existing.get((SourceType.MEMORY, note.id))
+        if (
+            source is not None
+            and source.status == IndexStatus.INDEXED
+            and source.embedding_model == model
+            and source.content_sha256 == sha256_text(note.content)
         ):
             result.reused += 1
             continue
         if budget <= 0:
             result.remaining += 1
+            result.stale_remaining += int(source is not None and is_stale(source, model))
+            continue
+        outcome = await indexer.index_memory(context, note)
+        budget -= 0 if outcome.reused else 1
+        _count(result, outcome, source, model)
+    for record in records:
+        source = existing.get((SourceType.FILE, record.id))
+        if source is not None and source.content_sha256 == record.sha256 and (
+            source.status == IndexStatus.SKIPPED
+            or (source.status == IndexStatus.INDEXED and source.embedding_model == model)
+        ):
+            result.reused += 1
+            continue
+        if budget <= 0:
+            result.remaining += 1
+            result.stale_remaining += int(source is not None and is_stale(source, model))
             continue
         try:
             content = file_store.storage.get(record.storage_key)
@@ -215,16 +236,32 @@ async def reindex(
             continue
         outcome = await indexer.index_file(context, record, content)
         budget -= 1
-        _count(result, outcome)
-    result.status = index_status(store.list_sources(context), embedder.model_name)
+        _count(result, outcome, source, model)
+    result.status = index_status(store.list_sources(context), model)
+    if result.reembedded or result.stale_remaining:
+        logger.info(
+            "retrieval_reembedded count=%d remaining=%d",
+            result.reembedded,
+            result.stale_remaining,
+            extra={
+                "anum_retrieval": {
+                    "event": "reembedded",
+                    "embedding_model": model,
+                    "count": result.reembedded,
+                    "remaining": result.stale_remaining,
+                }
+            },
+        )
     return result
 
 
-def _count(result: ReindexResult, outcome: IndexOutcome) -> None:
+def _count(result: ReindexResult, outcome: IndexOutcome, before: RetrievalSource | None, model: str) -> None:
     if outcome.reused:
         result.reused += 1
     elif outcome.status == IndexStatus.INDEXED:
         result.indexed += 1
+        if before is not None and is_stale(before, model):
+            result.reembedded += 1
     elif outcome.status == IndexStatus.FAILED:
         result.failed += 1
     else:

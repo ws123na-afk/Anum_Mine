@@ -50,6 +50,7 @@ from anum_api.settings import settings
 from anum_api.voice_retention import main as voice_retention_main
 
 from conftest import APP_ROLE, FIXED_NOW, TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B, tenant_context
+from test_postgres_control_plane import postgres_backend  # noqa: F401 (fixture)
 
 
 pytestmark = pytest.mark.database
@@ -647,3 +648,68 @@ def test_deleting_a_memory_or_file_deletes_its_index_rows_in_the_same_transactio
         assert set(session.execute(text("select source_id from retrieval_sources")).scalars()) == {note.id, "file_trigger"}
     with app_session(other) as session:
         assert set(session.execute(text("select source_id from retrieval_sources")).scalars()) == {kept.id}
+
+
+# Re-indexing after an embedding model change -------------------------------------------
+
+
+class _NextModelEmbedder(LocalEmbedder):
+    model_name = "anum-local-hash-next"
+
+    async def embed(self, texts: list[str]):  # type: ignore[no-untyped-def]
+        response = await super().embed(texts)
+        return response.model_copy(update={"model": self.model_name})
+
+
+def test_reindex_reembeds_stale_sources_in_postgres_within_the_limit_and_the_workspace(
+    postgres_backend: None,  # noqa: F811
+    database_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from anum_api import retrieval_api
+    from anum_api.main import app
+
+    client = TestClient(app)
+    mine = {"x-tenant-id": TENANT_A, "x-workspace-id": WORKSPACE_A, "x-user-id": "user_test", "x-user-roles": "owner"}
+    theirs = {**mine, "x-tenant-id": TENANT_B, "x-workspace-id": WORKSPACE_B}
+    for hdrs in (mine, theirs):
+        task = client.post("/api/v1/tasks", headers=hdrs, json={"title": "t", "prompt": "Collect notes"})
+        assert task.status_code == 201, task.text
+        for content in ("release checklist one", "release checklist two"):
+            created = client.post(
+                "/api/v1/memories",
+                headers=hdrs,
+                json={"task_id": task.json()["id"], "content": content, "source_type": "note"},
+            )
+            assert created.status_code == 201, created.text
+
+    def models() -> list[tuple[str, str, int]]:
+        with database_engine.connect() as connection:
+            return sorted(
+                tuple(row)
+                for row in connection.execute(
+                    text(
+                        "select tenant_id, embedding_model, count(*) from retrieval_chunks "
+                        "group by tenant_id, embedding_model"
+                    )
+                ).all()
+            )
+
+    assert models() == [(TENANT_A, LOCAL_EMBEDDING_MODEL, 2), (TENANT_B, LOCAL_EMBEDDING_MODEL, 2)]
+
+    monkeypatch.setattr(retrieval_api, "build_embedder", lambda context, gateway: _NextModelEmbedder())
+    assert client.get("/api/v1/retrieval/status", headers=mine).json()["stale_models"] == {LOCAL_EMBEDDING_MODEL: 2}
+    first = client.post("/api/v1/retrieval/index?limit=1", headers=mine)
+    assert first.status_code == 200, first.text
+    assert (first.json()["reembedded"], first.json()["stale_remaining"]) == (1, 1)
+    second = client.post("/api/v1/retrieval/index?limit=1", headers=mine).json()
+    assert (second["reembedded"], second["stale_remaining"], second["status"]["stale"]) == (1, 0, 0)
+    # Only the caller's workspace was re-embedded; the other tenant's chunks are untouched.
+    assert models() == [(TENANT_A, "anum-local-hash-next", 2), (TENANT_B, LOCAL_EMBEDDING_MODEL, 2)]
+    with database_engine.connect() as connection:
+        sources = connection.execute(
+            text("select distinct embedding_model from retrieval_sources where tenant_id = :t"), {"t": TENANT_A}
+        ).scalars().all()
+    assert sources == ["anum-local-hash-next"]
