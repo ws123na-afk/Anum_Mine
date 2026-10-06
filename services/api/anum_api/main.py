@@ -18,7 +18,7 @@ from .dependencies import (
     require_permission,
     tenant_context,
 )
-from .errors import register_exception_handlers
+from .errors import ApplicationError, ErrorCode, application_error_handler, register_exception_handlers
 from .events import CanonicalEventName, create_event
 from .integrations import IntegrationConfiguration, IntegrationConfigurationView, IntegrationHealth, default_integration_registry
 from .integration_tools import configured_external_handler
@@ -68,7 +68,8 @@ from .governance import router as governance_router
 from .automation import router as automation_router
 from .files import router as files_router
 from .skills_api import router as skills_router
-from .onboarding import router as onboarding_router, workspace_model_gateway
+from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
+from .onboarding import budgeted_model_gateway, router as onboarding_router
 from .workspace_members import router as workspace_members_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
@@ -120,6 +121,17 @@ app.add_middleware(HttpMetricsMiddleware)
 # otherwise only log correlation (docs/observability.md).
 setup_telemetry(settings, service_name="anum-api", app=app, engines=sqlalchemy_engines(event_runtime))
 register_exception_handlers(app)
+
+
+@app.exception_handler(ModelBudgetExceededError)
+async def model_budget_exceeded_handler(request: Request, exc: ModelBudgetExceededError) -> Response:
+    # 402: the tenant's or workspace's monthly model budget is used up (threat model G4).
+    return await application_error_handler(
+        request,
+        ApplicationError(ErrorCode.MODEL_BUDGET_EXCEEDED, exc.message, status_code=status.HTTP_402_PAYMENT_REQUIRED),
+    )
+
+
 app.include_router(voice_router)
 app.include_router(phase5_router)
 app.include_router(governance_router)
@@ -128,6 +140,7 @@ app.include_router(files_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
+app.include_router(model_budget_router)
 repository = memory_repository
 model_gateway = build_model_gateway(
     settings.model_provider,
@@ -369,12 +382,14 @@ async def run_task(
     repository: AnumRepository = Depends(repository_context),
 ) -> RunTaskResponse:
     require_permission(context, Permission.TASK_RUN)
+    # Refuse before the task changes state when the monthly model budget is used up.
+    check_model_budget(context)
     async with _task_lock(context, task_id):
         task = _get_task_for_context(task_id, context, repository, for_update=True)
         if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
-        runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
         if run_dispatcher is not None:
             return await _queue_durable_run(task, context, repository, runtime)
         run, approval = await runtime.run_task(task, context)
@@ -490,7 +505,7 @@ async def resume_agent_run(
     async with _task_lock(context, run.task_id):
         task = _get_task_for_context(run.task_id, context, repository, for_update=True)
         run = repository.get_run(run_id, context) or run
-        runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
         try:
             if run_dispatcher is not None:
                 # The worker resumes from the same checkpoint; this only (re)starts its workflow.
@@ -767,7 +782,7 @@ async def _decide_approval_locked(
         if run:
             await run_dispatcher.approval_decided(context, task.id, approval.id)
         return ApprovalDecisionResponse(approval=approval, task=task, run=run)
-    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+    runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)
     if resumed_run:

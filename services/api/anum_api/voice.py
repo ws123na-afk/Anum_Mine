@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
 from .model_gateway import ModelGateway, build_model_gateway
-from .onboarding import workspace_model_gateway
+from .model_budget import ModelBudgetExceededError
+from .onboarding import budgeted_model_gateway
 from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .settings import settings
@@ -237,7 +238,7 @@ def _default_voice_gateway() -> ModelGateway:
 
 def voice_model_gateway(context: TenantContext = Depends(tenant_context)) -> ModelGateway:
     """Answer with the model this workspace chose in Settings, else the server default."""
-    return workspace_model_gateway(context, _default_voice_gateway())
+    return budgeted_model_gateway(context, _default_voice_gateway())
 
 
 def _session_or_404(session_id: str, context: TenantContext) -> VoiceSession:
@@ -371,7 +372,12 @@ async def ask_voice_assistant(
     elif intent in SMALL_TALK:
         tier, reply = VoiceRiskTier.READ, small_talk_reply(intent, name, facts, arabic)
     else:
-        tier, reply = VoiceRiskTier.READ, await answer_question(gateway, text, facts, name, arabic)
+        try:
+            reply = await answer_question(gateway, text, facts, name, arabic)
+        except ModelBudgetExceededError as exc:
+            # Said aloud instead of an error: the monthly model budget is used up.
+            reply = exc.spoken(arabic)
+        tier = VoiceRiskTier.READ
 
     assistant_segment = voice_store.add_assistant_reply(session, reply, segment.client_sequence)
     return VoiceAskResult(

@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))
+    # SSRF guard for workspace model base URLs (anum_api/model_egress.py, threat model G1).
+    # Outside local/test only public HTTPS endpoints on port 443 are called. This
+    # comma-separated list of host or host:port entries lets an operator allow a
+    # self-hosted model on a private network, e.g. "ollama.internal:11434".
+    model_allowed_hosts: str = ""
     # Fernet key(s) that encrypt stored provider credentials (comma-separated: the first
     # encrypts, all decrypt, for rotation). Required outside ANUM_ENVIRONMENT=local.
     secrets_key: SecretStr | None = Field(default=None, validate_default=True)
@@ -128,6 +133,14 @@ class Settings(BaseSettings):
         # Startup validation errors must never echo secrets (keys, passwords) into logs.
         hide_input_in_errors=True,
     )
+
+    @field_validator("model_allowed_hosts")
+    @classmethod
+    def _valid_model_allowed_hosts(cls, value: str) -> str:
+        from .model_egress import parse_allowed_hosts
+
+        parse_allowed_hosts(value)
+        return value
 
     @field_validator("secrets_key")
     @classmethod

@@ -113,3 +113,17 @@ def test_control_plane_migration_puts_every_new_table_under_forced_rls() -> None
     # File bytes stay in object storage; only the key and digest are columns.
     assert '"storage_key"' in revision_text and '"content"' not in revision_text
     assert "bypassrls" not in revision_text.lower()
+
+
+def test_model_budget_migration_extends_the_chain_with_forced_rls() -> None:
+    api_root = Path(__file__).parents[1]
+    revision_text = (api_root / "migrations" / "versions" / "0009_model_budgets.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'revision = "0009_model_budgets"' in revision_text
+    assert 'down_revision = "0008_control_plane_stores"' in revision_text
+    assert "force row level security" in revision_text
+    assert "bypassrls" not in revision_text.lower()
+    for table in ("model_budgets", "model_usage_monthly"):
+        assert f'_policies("{table}"' in revision_text
