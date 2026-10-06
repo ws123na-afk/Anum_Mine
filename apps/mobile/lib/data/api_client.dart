@@ -51,7 +51,8 @@ class AnumApiClient {
     if (!value.hasScheme || value.host.isEmpty) {
       throw ArgumentError.value(value, 'baseUri', 'must be absolute');
     }
-    return value.replace(path: value.path.endsWith('/') ? value.path : '${value.path}/');
+    return value.replace(
+        path: value.path.endsWith('/') ? value.path : '${value.path}/');
   }
 
   Future<JsonMap> request(
@@ -77,7 +78,8 @@ class AnumApiClient {
     ));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final detail = response.body?['detail'];
-      throw ApiException(response.statusCode, detail is String ? detail : 'Request failed');
+      throw ApiException(
+          response.statusCode, detail is String ? detail : 'Request failed');
     }
     return response.body ?? const {};
   }

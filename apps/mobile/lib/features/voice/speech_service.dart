@@ -5,7 +5,9 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 abstract interface class SpeechService {
   Future<bool> initialize({required void Function(String message) onError});
-  Future<void> listen({required String locale, required void Function(String text, bool finalResult) onResult});
+  Future<void> listen(
+      {required String locale,
+      required void Function(String text, bool finalResult) onResult});
   Future<void> stop();
   Future<void> cancel();
   Future<void> openSettings();
@@ -21,7 +23,8 @@ class DeviceSpeechService implements SpeechService {
   final FlutterTts _tts;
 
   @override
-  Future<bool> initialize({required void Function(String message) onError}) async {
+  Future<bool> initialize(
+      {required void Function(String message) onError}) async {
     final permission = await Permission.microphone.request();
     if (!permission.isGranted) return false;
     return _speech.initialize(
@@ -30,7 +33,9 @@ class DeviceSpeechService implements SpeechService {
   }
 
   @override
-  Future<void> listen({required String locale, required void Function(String text, bool finalResult) onResult}) =>
+  Future<void> listen(
+          {required String locale,
+          required void Function(String text, bool finalResult) onResult}) =>
       _speech.listen(
         listenOptions: SpeechListenOptions(localeId: locale),
         onResult: (SpeechRecognitionResult result) =>
@@ -44,7 +49,9 @@ class DeviceSpeechService implements SpeechService {
   Future<void> cancel() => _speech.cancel();
 
   @override
-  Future<void> openSettings() async { await openAppSettings(); }
+  Future<void> openSettings() async {
+    await openAppSettings();
+  }
 
   @override
   Future<void> speak(String text, String locale) async {

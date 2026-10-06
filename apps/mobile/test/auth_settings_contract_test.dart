@@ -4,7 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('authentication exposes every approved journey state', () {
-    final source = File('lib/features/auth/auth_screens.dart').readAsStringSync();
+    final source =
+        File('lib/features/auth/auth_screens.dart').readAsStringSync();
     for (final label in <String>[
       'Your work, coordinated.',
       'Sign in to ANUM',
@@ -21,9 +22,17 @@ void main() {
     expect(source, contains("'openai_compatible'"));
   });
 
-  test('authentication repository covers recovery and workspace rotation APIs', () {
-    final source = File('lib/features/auth/auth_repository.dart').readAsStringSync();
-    for (final path in <String>['/auth/local/otp/request','/auth/local/otp/verify','/auth/local/password/forgot','/auth/local/password/reset','/auth/local/workspace/switch']) {
+  test('authentication repository covers recovery and workspace rotation APIs',
+      () {
+    final source =
+        File('lib/features/auth/auth_repository.dart').readAsStringSync();
+    for (final path in <String>[
+      '/auth/local/otp/request',
+      '/auth/local/otp/verify',
+      '/auth/local/password/forgot',
+      '/auth/local/password/reset',
+      '/auth/local/workspace/switch'
+    ]) {
       expect(source, contains(path));
     }
     expect(source, contains("'password': password"));
@@ -31,7 +40,8 @@ void main() {
   });
 
   test('settings exposes account security and preference controls', () {
-    final source = File('lib/features/settings/settings_screen.dart').readAsStringSync();
+    final source =
+        File('lib/features/settings/settings_screen.dart').readAsStringSync();
     for (final label in <String>[
       'Profile and session',
       'Model connection',

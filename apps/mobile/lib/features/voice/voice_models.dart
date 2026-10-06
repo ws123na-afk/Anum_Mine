@@ -9,7 +9,8 @@ extension VoiceRetentionValue on VoiceRetention {
 }
 
 class VoiceSession {
-  const VoiceSession({required this.id, required this.locale, required this.status});
+  const VoiceSession(
+      {required this.id, required this.locale, required this.status});
   final String id;
   final String locale;
   final String status;
@@ -22,7 +23,8 @@ class VoiceSegment {
 }
 
 class VoiceCommand {
-  const VoiceCommand({required this.taskId, required this.title, required this.status});
+  const VoiceCommand(
+      {required this.taskId, required this.title, required this.status});
   final String taskId;
   final String title;
   final String status;

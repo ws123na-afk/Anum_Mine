@@ -70,11 +70,13 @@ class _AnumAppState extends State<AnumApp> {
         sessions: sessions,
       ),
     ));
-    voice = VoiceController(repository: VoiceRepository(api), speech: DeviceSpeechService());
+    voice = VoiceController(
+        repository: VoiceRepository(api), speech: DeviceSpeechService());
     settings = SettingsController(authRepository);
     governance = GovernanceController(ApiGovernanceRepository(
       api,
-      auditExporter: HttpAuditExporter(baseUri: Uri.parse(configuredUrl), sessions: sessions),
+      auditExporter: HttpAuditExporter(
+          baseUri: Uri.parse(configuredUrl), sessions: sessions),
     ));
     locale = LocaleController()..restore();
     auth.addListener(_onAuthChanged);
@@ -100,35 +102,46 @@ class _AnumAppState extends State<AnumApp> {
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(listenable: locale, builder: (context, _) => MaterialApp(
-        title: 'ANUM',
-        debugShowCheckedModeBanner: false,
-        theme: AnumTheme.light(),
-        darkTheme: AnumTheme.dark(),
-        themeMode: ThemeMode.system,
-        locale: locale.locale,
-        restorationScopeId: 'anum_mobile',
-        supportedLocales: const [Locale('en'), Locale('ar')],
-        localizationsDelegates: const [AnumLocalizations.delegate, ...GlobalMaterialLocalizations.delegates],
-        onGenerateRoute: _onGenerateRoute,
-        home: ListenableBuilder(
-          listenable: auth,
-          builder: (context, _) => auth.phase == AuthPhase.ready
-              ? WorkspaceHome(
-                  controller: workspace,
-                  voiceController: voice,
-                  settingsController: settings,
-                  governanceController: governance,
-                  localeController: locale,
-                )
-              : AuthFlow(controller: auth),
-        ),
-      ));
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: locale,
+      builder: (context, _) => MaterialApp(
+            title: 'ANUM',
+            debugShowCheckedModeBanner: false,
+            theme: AnumTheme.light(),
+            darkTheme: AnumTheme.dark(),
+            themeMode: ThemeMode.system,
+            locale: locale.locale,
+            restorationScopeId: 'anum_mobile',
+            supportedLocales: const [Locale('en'), Locale('ar')],
+            localizationsDelegates: const [
+              AnumLocalizations.delegate,
+              ...GlobalMaterialLocalizations.delegates
+            ],
+            onGenerateRoute: _onGenerateRoute,
+            home: ListenableBuilder(
+              listenable: auth,
+              builder: (context, _) => auth.phase == AuthPhase.ready
+                  ? WorkspaceHome(
+                      controller: workspace,
+                      voiceController: voice,
+                      settingsController: settings,
+                      governanceController: governance,
+                      localeController: locale,
+                    )
+                  : AuthFlow(controller: auth),
+            ),
+          ));
 
   Route<void>? _onGenerateRoute(RouteSettings settings) {
     final name = settings.name;
-    if ({AnumRoutes.splash, AnumRoutes.signIn, AnumRoutes.workspaceSetup, AnumRoutes.modelSetup}.contains(name)) {
-      return MaterialPageRoute<void>(settings: settings, builder: (_) => AuthFlow(controller: auth));
+    if ({
+      AnumRoutes.splash,
+      AnumRoutes.signIn,
+      AnumRoutes.workspaceSetup,
+      AnumRoutes.modelSetup
+    }.contains(name)) {
+      return MaterialPageRoute<void>(
+          settings: settings, builder: (_) => AuthFlow(controller: auth));
     }
     final index = switch (name) {
       AnumRoutes.home => 0,
@@ -142,10 +155,13 @@ class _AnumAppState extends State<AnumApp> {
     if (index != null) {
       return MaterialPageRoute<void>(
         settings: settings,
-        builder: (_) => _AuthenticatedDestination(auth: auth, child: _workspace(index)),
+        builder: (_) =>
+            _AuthenticatedDestination(auth: auth, child: _workspace(index)),
       );
     }
-    if (name != null && name.startsWith('/tasks/') && name.length > '/tasks/'.length) {
+    if (name != null &&
+        name.startsWith('/tasks/') &&
+        name.length > '/tasks/'.length) {
       final taskId = Uri.decodeComponent(name.substring('/tasks/'.length));
       return MaterialPageRoute<void>(
         settings: settings,
@@ -172,9 +188,11 @@ class _AuthenticatedDestination extends StatelessWidget {
   const _AuthenticatedDestination({required this.auth, required this.child});
   final AuthController auth;
   final Widget child;
-  @override Widget build(BuildContext context) => ListenableBuilder(
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
         listenable: auth,
-        builder: (_, __) => auth.phase == AuthPhase.ready ? child : AuthFlow(controller: auth),
+        builder: (_, __) =>
+            auth.phase == AuthPhase.ready ? child : AuthFlow(controller: auth),
       );
 }
 
@@ -182,15 +200,22 @@ class _TaskDeepLink extends StatefulWidget {
   const _TaskDeepLink({required this.controller, required this.taskId});
   final WorkspaceController controller;
   final String taskId;
-  @override State<_TaskDeepLink> createState() => _TaskDeepLinkState();
+  @override
+  State<_TaskDeepLink> createState() => _TaskDeepLinkState();
 }
 
 class _TaskDeepLinkState extends State<_TaskDeepLink> {
   late final future = widget.controller.loadTask(widget.taskId);
-  @override Widget build(BuildContext context) => FutureBuilder(
+  @override
+  Widget build(BuildContext context) => FutureBuilder(
         future: future,
         builder: (context, snapshot) {
-          if (snapshot.hasError) return Scaffold(appBar: AppBar(title: const Text('Task detail')), body: Center(child: Text('Unable to load task: ${snapshot.error}')));
+          if (snapshot.hasError) {
+            return Scaffold(
+                appBar: AppBar(title: const Text('Task detail')),
+                body: Center(
+                    child: Text('Unable to load task: ${snapshot.error}')));
+          }
           final task = snapshot.data;
           return task == null
               ? const Scaffold(body: Center(child: CircularProgressIndicator()))

@@ -2,8 +2,24 @@ import 'package:flutter/foundation.dart';
 
 import 'auth_repository.dart';
 
-enum AuthPhase { restoring, signedOut, onboarding, modelSetup, ready, busy, error }
-enum AuthIssue { none, offline, permission, invalidSession, validation, unknown }
+enum AuthPhase {
+  restoring,
+  signedOut,
+  onboarding,
+  modelSetup,
+  ready,
+  busy,
+  error
+}
+
+enum AuthIssue {
+  none,
+  offline,
+  permission,
+  invalidSession,
+  validation,
+  unknown
+}
 
 class AuthController extends ChangeNotifier {
   AuthController(this.repository);
@@ -32,7 +48,8 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> signIn(String tenant, String workspace, String user, {String? password}) async {
+  Future<void> signIn(String tenant, String workspace, String user,
+      {String? password}) async {
     if ([tenant, workspace, user].any((value) => value.trim().length < 3)) {
       phase = AuthPhase.error;
       issue = AuthIssue.validation;
@@ -114,7 +131,8 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _run(AuthPhase retryPhase, Future<void> Function() action) async {
+  Future<void> _run(
+      AuthPhase retryPhase, Future<void> Function() action) async {
     _retryPhase = retryPhase;
     phase = AuthPhase.busy;
     message = null;
@@ -131,12 +149,15 @@ class AuthController extends ChangeNotifier {
 
   void _setError(Object error) {
     final text = error.toString();
-    message = text.replaceFirst(RegExp(r'^ApiException\(\d+,\s*'), '').replaceFirst(RegExp(r'\)$'), '');
+    message = text
+        .replaceFirst(RegExp(r'^ApiException\(\d+,\s*'), '')
+        .replaceFirst(RegExp(r'\)$'), '');
     issue = text.contains('(401,')
         ? AuthIssue.invalidSession
         : text.contains('(403,')
             ? AuthIssue.permission
-            : text.toLowerCase().contains('socket') || text.toLowerCase().contains('network')
+            : text.toLowerCase().contains('socket') ||
+                    text.toLowerCase().contains('network')
                 ? AuthIssue.offline
                 : AuthIssue.unknown;
   }

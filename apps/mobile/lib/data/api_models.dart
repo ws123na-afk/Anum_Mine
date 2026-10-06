@@ -179,7 +179,8 @@ class NotificationPreferences {
     this.desktopEnabled = true,
   });
 
-  factory NotificationPreferences.fromJson(JsonMap json) => NotificationPreferences(
+  factory NotificationPreferences.fromJson(JsonMap json) =>
+      NotificationPreferences(
         taskCompleted: json['task_completed']! as bool,
         approvalRequired: json['approval_required']! as bool,
         runFailed: json['run_failed']! as bool,

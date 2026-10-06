@@ -47,7 +47,11 @@ abstract final class AnumTheme {
         bodyColor: isDark ? Colors.white : _charcoal,
         displayColor: isDark ? Colors.white : _charcoal,
         fontFamily: 'Inter',
-        fontFamilyFallback: const ['Noto Sans Arabic', 'Noto Naskh Arabic', 'Arial'],
+        fontFamilyFallback: const [
+          'Noto Sans Arabic',
+          'Noto Naskh Arabic',
+          'Arial'
+        ],
       ),
       cardTheme: CardThemeData(
         elevation: 0,

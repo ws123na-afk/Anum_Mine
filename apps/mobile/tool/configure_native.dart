@@ -8,8 +8,12 @@ void main() {
 void _configureAndroid() {
   final file = File('android/app/src/main/AndroidManifest.xml');
   final gradleFile = File('android/app/build.gradle.kts');
-  if (!file.existsSync()) throw StateError('Run flutter create before native configuration.');
-  if (!gradleFile.existsSync()) throw StateError('Android Gradle configuration is missing.');
+  if (!file.existsSync()) {
+    throw StateError('Run flutter create before native configuration.');
+  }
+  if (!gradleFile.existsSync()) {
+    throw StateError('Android Gradle configuration is missing.');
+  }
   var value = file.readAsStringSync();
   const permissions = '''
     <uses-permission android:name="android.permission.INTERNET" />
@@ -45,7 +49,9 @@ void _configureAndroid() {
 
 void _configureIos() {
   final file = File('ios/Runner/Info.plist');
-  if (!file.existsSync()) throw StateError('Run flutter create before native configuration.');
+  if (!file.existsSync()) {
+    throw StateError('Run flutter create before native configuration.');
+  }
   var value = file.readAsStringSync();
   const privacy = '''
 	<key>NSMicrophoneUsageDescription</key>

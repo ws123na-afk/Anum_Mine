@@ -9,7 +9,8 @@ class VoiceRepository {
   Future<VoiceSession> createSession({
     required String locale,
     required VoiceRetention retention,
-  }) async => _session(await api.request('POST', '/api/v1/voice/sessions', body: {
+  }) async =>
+      _session(await api.request('POST', '/api/v1/voice/sessions', body: {
         'locale': locale,
         'retention': retention.apiValue,
       }));
@@ -29,7 +30,8 @@ class VoiceRepository {
         'client_sequence': sequence,
       },
     );
-    return VoiceSegment(id: value['id']! as String, text: value['text']! as String);
+    return VoiceSegment(
+        id: value['id']! as String, text: value['text']! as String);
   }
 
   Future<VoiceCommand> submitAndRun(
