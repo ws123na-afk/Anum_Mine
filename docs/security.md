@@ -27,7 +27,7 @@ Secrets must be stored outside source control. Provider keys, integration tokens
 | Security headers | Every response: `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin`, `Permissions-Policy`. `Strict-Transport-Security` is added outside `local`. | `ANUM_ENVIRONMENT` |
 | Interactive docs | `/docs` and `/redoc` are served only in `local` (and are exempt from the API CSP there). | `ANUM_ENVIRONMENT` |
 
-Rate-limit state is in memory per process today. The `RateLimitBackend` protocol is the seam for a Valkey backend (Stage 3) so limits hold across API replicas. Client IPs come from uvicorn's proxy-header handling, which only trusts `FORWARDED_ALLOW_IPS`; see [Infrastructure](infrastructure.md).
+Rate-limit state is in memory per process by default. `ANUM_RATE_LIMIT_BACKEND=valkey` shares it across API replicas: the token bucket runs as one atomic Valkey script on the server clock under `anum:ratelimit:<client>` keys that expire once the bucket would be full again. The call runs in a worker thread with a short timeout (`ANUM_VALKEY_TIMEOUT_SECONDS`, 0.5); if Valkey is unreachable the request is limited by a per-process bucket instead of failing or going unlimited. Client IPs come from uvicorn's proxy-header handling, which only trusts `FORWARDED_ALLOW_IPS`; see [Infrastructure](infrastructure.md).
 
 ### Startup policy
 
@@ -87,4 +87,4 @@ OIDC validation with membership resolution is implemented (`ANUM_AUTH_MODE=oidc`
 
 ## Later
 
-Add a Valkey rate-limit backend and per-tenant quotas, container image scanning, Dart and Rust SAST, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.
+Add per-tenant quotas, container image scanning, Dart and Rust SAST, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.

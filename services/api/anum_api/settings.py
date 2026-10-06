@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # encrypts, all decrypt, for rotation). Required outside ANUM_ENVIRONMENT=local.
     secrets_key: SecretStr | None = Field(default=None, validate_default=True)
     valkey_url: str = "redis://localhost:6379/0"
+    # Socket connect/read timeout for Valkey calls (rate limiting, run locks).
+    valkey_timeout_seconds: float = Field(default=0.5, gt=0)
+    # Run coordination lock (anum_api/valkey.py, docs/agent-runtime.md): "none" relies on
+    # the database row lock only; "valkey" also takes a distributed lock per task so API
+    # replicas and workers never run, resume or decide the same task concurrently.
+    run_lock_backend: str = Field(default="none", pattern="^(none|valkey)$")
+    run_lock_ttl_seconds: float = Field(default=300, gt=0)
+    run_lock_wait_seconds: float = Field(default=0, ge=0)
     nats_url: str = "nats://localhost:4222"
     event_bus: str = "memory"
     nats_stream: str = "ANUM_EVENTS"
@@ -69,11 +77,24 @@ class Settings(BaseSettings):
     outbox_database_url: str | None = None
     outbox_batch_size: int = Field(default=100, ge=1, le=1000)
     outbox_poll_seconds: float = Field(default=1.0, gt=0)
+    # Agent run execution (docs/agent-runtime.md): "inline" runs inside the API request;
+    # "temporal" starts a durable workflow that `python -m anum_api.worker` executes.
+    runtime_backend: str = Field(default="inline", pattern="^(inline|temporal)$")
     temporal_target: str = "localhost:7233"
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "anum-agent-runs"
+    # Workspace file bytes (docs/files.md): "local" filesystem, "memory", or "s3"
+    # (any S3-compatible endpoint such as MinIO).
+    object_storage_backend: str = Field(default="local", pattern="^(local|memory|s3)$")
+    object_storage_local_path: str = ".anum-data/objects"
     s3_endpoint: str = "http://localhost:9000"
+    s3_region: str = "us-east-1"
     s3_bucket: str = "anum-local"
     s3_access_key: str | None = None
     s3_secret_key: str | None = None
+    # Server-side encryption header for every object ("AES256", "aws:kms", or empty for none).
+    s3_server_side_encryption: str = ""
+    s3_create_bucket: bool = False
     external_webhook_url: str | None = None
     external_webhook_api_key: str | None = None
     automation_database_path: str = ".anum/automation.db"
@@ -85,6 +106,8 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_requests_per_minute: int = 600
     rate_limit_burst: int = 120
+    # "memory" keeps limits per process; "valkey" shares them across API replicas.
+    rate_limit_backend: str = Field(default="memory", pattern="^(memory|valkey)$")
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",

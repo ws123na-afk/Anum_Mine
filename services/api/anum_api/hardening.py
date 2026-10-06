@@ -23,6 +23,8 @@ from ipaddress import ip_address
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+import anyio.to_thread
+
 from .errors import ErrorCode
 from .request_context import CORRELATION_ID_HEADER, is_valid_correlation_id, new_correlation_id
 
@@ -207,8 +209,10 @@ class RateLimitDecision:
 class RateLimitBackend(Protocol):
     """Storage for rate-limit state.
 
-    The in-memory backend is per process. A Valkey backend (Stage 3) implements the
-    same method with an atomic script so limits hold across API replicas.
+    The in-memory backend is per process. ``anum_api.valkey.ValkeyTokenBucket``
+    implements the same method with an atomic script so limits hold across API
+    replicas. A backend that sets ``blocking = True`` does network I/O in
+    ``acquire``; the middleware then calls it from a worker thread.
     """
 
     def acquire(self, key: str, *, now: float | None = None) -> RateLimitDecision: ...
@@ -286,7 +290,11 @@ class RateLimitMiddleware:
         if scope["type"] != "http" or scope.get("method") == "OPTIONS" or scope.get("path") in self.exempt_paths:
             await self.app(scope, receive, send)
             return
-        decision = self.backend.acquire(self.key_func(scope))
+        key = self.key_func(scope)
+        if getattr(self.backend, "blocking", False):
+            decision = await anyio.to_thread.run_sync(self.backend.acquire, key)
+        else:
+            decision = self.backend.acquire(key)
         if not decision.allowed:
             await _send_error(
                 scope,
@@ -444,10 +452,10 @@ def install_hardening(app: Any, config: Any, *, upload_path_prefix: str, upload_
     )
     app.state.rate_limiter = None
     if config.rate_limit_enabled:
-        limiter = InMemoryTokenBucket(
-            rate_per_second=config.rate_limit_requests_per_minute / 60.0,
-            burst=config.rate_limit_burst,
-        )
+        # Imported here: anum_api.valkey builds on this module's types.
+        from .valkey import build_rate_limit_backend
+
+        limiter = build_rate_limit_backend(config)
         app.state.rate_limiter = limiter
         app.add_middleware(RateLimitMiddleware, backend=limiter)
     app.add_middleware(SecurityHeadersMiddleware, environment=config.environment)

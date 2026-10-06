@@ -12,7 +12,7 @@ Automation in ANUM turns recurring intent into governed execution. It should sup
 
 ## Temporal Role
 
-Temporal should own durable workflow execution, retries, timers, waits, and resumability. The application database remains the source of truth for user-visible tasks and policy. Temporal workflow IDs should be stored with ANUM tasks for traceability.
+Temporal should own durable workflow execution, retries, timers, waits, and resumability. The application database remains the source of truth for user-visible tasks and policy. Temporal workflow IDs should be stored with ANUM tasks for traceability. Agent runs already do this: with `ANUM_RUNTIME_BACKEND=temporal` the workflow id is `anum-run/<tenant>/<workspace>/<task>` and the run's first step records it ([Agent runtime](agent-runtime.md#durable-execution)).
 
 ## Event Role
 

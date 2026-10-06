@@ -12,13 +12,16 @@ The API and web containers sit behind the `app` profile, so they start only when
 docker compose -f infra/docker/compose.yaml --profile app up --build
 ```
 
-This serves the API on `http://localhost:8000` and the built web bundle on `http://localhost:4173`. The `api` service runs with `ANUM_ENVIRONMENT=local` and the compose development credentials; those credentials are refused by the API in every other environment (see [Security](security.md)).
+This serves the API on `http://localhost:8000` and the built web bundle on `http://localhost:4173`, and starts the Temporal `worker` (the API image running `python -m anum_api.worker`). The `api` and `worker` services run with `ANUM_ENVIRONMENT=local` and the compose development credentials; those credentials are refused by the API and worker in every other environment (see [Security](security.md)). The compose `api` keeps `ANUM_RUNTIME_BACKEND=inline` and the in-memory repository; to try durable runs, run the migrations and set `ANUM_REPOSITORY_BACKEND=postgresql` and `ANUM_RUNTIME_BACKEND=temporal` on both `api` and `worker` ([Agent runtime](agent-runtime.md#durable-execution)).
+
+Valkey (`valkey-cli ping`) and MinIO (`mc ready local`) have compose health checks.
 
 ## Container Images
 
 | Image | Dockerfile | Build context | Port | Runs as |
 |---|---|---|---|---|
 | API | `services/api/Dockerfile` | `services/api` | 8000 | uid 10001 (`anum`) |
+| Temporal worker | same image as the API, command `python -m anum_api.worker` | `services/api` | none | uid 10001 (`anum`) |
 | Web | `apps/web/Dockerfile` | repository root | 8080 | uid 101 (`nginx`, unprivileged image) |
 
 API image:
@@ -70,7 +73,7 @@ The **Docker images** job builds both images without pushing, checks that the AP
 
 ## Now
 
-Container images for the API and web, a compose `app` profile, CI image builds with smoke tests, and a staging workflow that pushes images to GHCR. Next: the Temporal worker image (Stage 3), OpenTofu, and the provider-specific deploy steps.
+Container images for the API and web, a compose `app` profile with the Temporal worker, CI image builds with smoke tests, and a staging workflow that pushes images to GHCR. The worker runs from the API image with a different command; its container needs the image health check disabled (it serves no HTTP port), as compose does. Next: OpenTofu and the provider-specific deploy steps.
 
 ## Later
 
