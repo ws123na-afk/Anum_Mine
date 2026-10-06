@@ -393,6 +393,10 @@ def insecure_configuration_problems(config: Any) -> list[str]:
     database = urlsplit(config.database_url)
     if (database.username, database.password) in DEFAULT_DEV_DATABASE_CREDENTIALS:
         problems.append("ANUM_DATABASE_URL uses the default development credentials from compose")
+    if config.outbox_database_url:
+        outbox = urlsplit(config.outbox_database_url)
+        if (outbox.username, outbox.password) in DEFAULT_DEV_DATABASE_CREDENTIALS:
+            problems.append("ANUM_OUTBOX_DATABASE_URL uses the default development credentials from compose")
 
     for name in ("s3_secret_key", "external_webhook_api_key", "model_api_key"):
         value = getattr(config, name, None)

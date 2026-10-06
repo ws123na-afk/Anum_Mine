@@ -1,9 +1,12 @@
 """Durable event publication for canonical ANUM events.
 
-Events recorded through the repository are handed to an outbox once the
-owning transaction commits. The outbox publishes them to the configured bus
-(NATS JetStream in production) with the event id as the dedupe key, and keeps
-retrying with backoff while the bus is unreachable. Publication never fails
+With the PostgreSQL repository every committed event row is a durable outbox
+entry, published by ``anum_api.outbox_relay`` (restart-safe, multi-instance).
+With the in-memory repository, events recorded through the repository are
+handed to the in-process ``EventOutbox`` below once the request finishes.
+Either path publishes to the configured bus (NATS JetStream in production) with
+the event id as the dedupe key, and keeps retrying with backoff while the bus is
+unreachable. Publication never fails
 the request that recorded the event: the repository remains the source of
 truth and clients can always recover history from the REST API.
 
@@ -553,6 +556,7 @@ class EventBusRuntime:
         mode: str,
         bus: EventBus | None = None,
         *,
+        relay: Any | None = None,
         reconnect_backoff: float = 1.0,
         max_reconnect_backoff: float = 30.0,
     ) -> None:
@@ -562,9 +566,14 @@ class EventBusRuntime:
             raise ValueError(f"Unsupported event bus: {mode}")
         if mode == "nats" and bus is None:
             raise ValueError("NATS event bus requires a bus adapter")
+        if relay is not None and bus is None:
+            raise ValueError("The outbox relay requires a bus adapter")
         self.mode = mode
         self.bus = bus
-        self.outbox = EventOutbox(bus) if bus is not None else None
+        # With PostgreSQL the durable relay (anum_api.outbox_relay) replaces the
+        # in-process outbox; the in-memory repository keeps the in-process outbox.
+        self.relay = relay
+        self.outbox = EventOutbox(bus) if bus is not None and relay is None else None
         self.hub = RealtimeHub()
         self.reconnect_backoff = reconnect_backoff
         self.max_reconnect_backoff = max_reconnect_backoff
@@ -578,17 +587,32 @@ class EventBusRuntime:
         return self.mode == "nats"
 
     def after_commit(self, events: Sequence[DomainEvent]) -> None:
-        if self.outbox is None or not events:
+        if not events:
             return
         try:
-            self.outbox.enqueue(events)
+            if self.relay is not None:
+                # The events are already durable outbox rows; just wake the relay.
+                self.relay.notify()
+            elif self.outbox is not None:
+                self.outbox.enqueue(events)
         except Exception:  # publication must never fail the request
-            logger.exception("Could not enqueue committed events for publication")
+            logger.exception("Could not hand committed events to publication")
+
+    def _flush_backlog(self) -> None:
+        if self.relay is not None:
+            self.relay.notify()
+        elif self.outbox is not None:
+            self.outbox.retry_now()
 
     async def start(self) -> None:
-        if self.bus is None or self.outbox is None:
+        if self.bus is None:
             return
-        self.outbox.start()
+        if self.relay is not None:
+            self.relay.start()
+        elif self.outbox is not None:
+            self.outbox.start()
+        else:
+            return
         self._supervisor = asyncio.create_task(self._connect_loop(), name="anum-event-bus")
 
     async def stop(self) -> None:
@@ -599,6 +623,8 @@ class EventBusRuntime:
                 await supervisor
             except asyncio.CancelledError:
                 pass
+        if self.relay is not None:
+            await self.relay.stop()
         if self.outbox is not None:
             await self.outbox.stop()
         if self._hub_unsubscribe is not None:
@@ -609,7 +635,7 @@ class EventBusRuntime:
             await self.bus.close()
 
     async def _connect_loop(self) -> None:
-        if self.bus is None or self.outbox is None:
+        if self.bus is None or (self.outbox is None and self.relay is None):
             raise RuntimeError("Event runtime connect loop started without a bus and outbox")
         delay = self.reconnect_backoff
         while True:
@@ -620,7 +646,7 @@ class EventBusRuntime:
                         f"{SUBJECT_ROOT}.>", self.hub.dispatch
                     )
                 self.hub.set_live(True)
-                self.outbox.retry_now()  # flush the backlog without waiting out backoff
+                self._flush_backlog()  # flush the backlog without waiting out backoff
                 break
             except asyncio.CancelledError:
                 raise
@@ -632,7 +658,7 @@ class EventBusRuntime:
         while True:
             connected = self.bus.connected
             if connected and not self.hub.live:
-                self.outbox.retry_now()
+                self._flush_backlog()
             self.hub.set_live(connected)
             await asyncio.sleep(1.0)
 
@@ -640,8 +666,17 @@ class EventBusRuntime:
 def build_event_runtime(settings: Any) -> EventBusRuntime:
     mode = (settings.event_bus or "memory").strip().lower()
     if mode == "nats":
-        return EventBusRuntime(
-            "nats", NatsJetStreamBus(settings.nats_url, stream_name=settings.nats_stream)
-        )
+        bus = NatsJetStreamBus(settings.nats_url, stream_name=settings.nats_stream)
+        relay = None
+        if (settings.repository_backend or "memory").strip().lower() == "postgresql":
+            from .outbox_relay import PostgresOutboxRelay, build_outbox_session_factory
+
+            relay = PostgresOutboxRelay(
+                bus,
+                build_outbox_session_factory(settings),
+                batch_size=settings.outbox_batch_size,
+                poll_interval=settings.outbox_poll_seconds,
+            )
+        return EventBusRuntime("nats", bus, relay=relay)
     return EventBusRuntime(mode)
 

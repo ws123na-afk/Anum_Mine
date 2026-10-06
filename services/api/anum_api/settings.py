@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     nats_url: str = "nats://localhost:4222"
     event_bus: str = "memory"
     nats_stream: str = "ANUM_EVENTS"
+    # Durable outbox relay (PostgreSQL backend + NATS bus only; docs/events.md). The relay
+    # connects with this URL when set (a login granted only the anum_outbox_relay role),
+    # otherwise with ANUM_DATABASE_URL, and always runs as anum_outbox_relay.
+    outbox_database_url: str | None = None
+    outbox_batch_size: int = Field(default=100, ge=1, le=1000)
+    outbox_poll_seconds: float = Field(default=1.0, gt=0)
     temporal_target: str = "localhost:7233"
     s3_endpoint: str = "http://localhost:9000"
     s3_bucket: str = "anum-local"

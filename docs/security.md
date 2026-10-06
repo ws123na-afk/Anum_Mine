@@ -10,7 +10,7 @@ The realm is code (`infra/keycloak/anum-realm.json`): public clients use authori
 
 ## Authorization
 
-ANUM authorization should combine application-level policy with PostgreSQL row-level security. The backend decides whether a user, service, or agent may perform an action. The database enforces tenant and workspace isolation so accidental query mistakes do not leak data across boundaries.
+ANUM authorization should combine application-level policy with PostgreSQL row-level security. The backend decides whether a user, service, or agent may perform an action. The database enforces tenant and workspace isolation so accidental query mistakes do not leak data across boundaries. The only cross-tenant reader is the event outbox relay, which runs as the narrowly privileged `anum_outbox_relay` role: it can read unpublished `domain_events` rows and update their publication columns, nothing else, and is not `BYPASSRLS` ([Events](events.md#relay-role-and-rls)).
 
 ## Secrets
 
@@ -79,11 +79,11 @@ Tenant data should be encrypted in transit and at rest by infrastructure default
 
 ## Auditability
 
-Security-relevant events should be recorded: login, token refresh failures, tenant membership changes, role grants, integration consent, tool execution, approval decisions, memory deletion, policy changes, and administrative exports.
+Security-relevant events should be recorded: login, token refresh failures, tenant membership changes, role grants, integration consent, tool execution, approval decisions, memory deletion, policy changes, and administrative exports. Invitation and membership changes are recorded today in the append-only `audit_records` table (RLS allows select and insert only); governance changes still use the in-memory audit recorder.
 
 ## Now
 
-OIDC validation with membership resolution is implemented (`ANUM_AUTH_MODE=oidc`). Keep tenant isolation, RLS, minimal roles, audit tables, secure defaults, and approval gates in place before real external actions. Replace the bootstrap self-service membership path with invitations before multi-user tenants reach production (see [Identity and sign-in](identity.md#bootstrap)). Request size limits, rate limiting, security headers, startup configuration checks, and dependency, secret and static analysis scanning in CI are in place.
+OIDC validation with membership resolution is implemented (`ANUM_AUTH_MODE=oidc`). Keep tenant isolation, RLS, minimal roles, audit tables, secure defaults, and approval gates in place before real external actions. Multi-user workspaces use single-use, expiring, hash-stored invitations and owner-managed memberships with last-owner protection; self-service membership only bootstraps an empty workspace (see [Identity and sign-in](identity.md#invitations-and-membership-management)). Request size limits, rate limiting, security headers, startup configuration checks, and dependency, secret and static analysis scanning in CI are in place.
 
 ## Later
 

@@ -247,6 +247,13 @@ def test_compose_database_credentials_are_refused_outside_local() -> None:
     assert any("ANUM_DATABASE_URL" in problem for problem in raised.value.problems)
 
 
+def test_compose_credentials_for_the_outbox_relay_are_refused_outside_local() -> None:
+    problems = insecure_configuration_problems(
+        _settings(outbox_database_url="postgresql+psycopg://anum:anum@db.internal:5432/anum")
+    )
+    assert any("ANUM_OUTBOX_DATABASE_URL" in problem for problem in problems)
+
+
 def test_compose_object_storage_secret_is_refused_outside_local() -> None:
     problems = insecure_configuration_problems(_settings(s3_secret_key="anum-local-secret"))
     assert any("ANUM_S3_SECRET_KEY" in problem for problem in problems)

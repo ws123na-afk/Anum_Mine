@@ -23,6 +23,8 @@ from conftest import (
 pytestmark = pytest.mark.database
 
 TENANT_TABLES = {
+    "audit_records",
+    "workspace_invitations",
     "workspace_memberships",
     "workspace_model_configs",
     "workspaces",

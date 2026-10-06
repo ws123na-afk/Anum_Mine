@@ -1,4 +1,6 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, status
 
@@ -269,11 +271,16 @@ def _header_context(
     )
 
 
-async def repository_context(
-    context: TenantContext = Depends(tenant_context),
-) -> AsyncIterator[AnumRepository]:
+@contextmanager
+def _unit_of_work(context: TenantContext, *, require_membership: bool) -> Iterator[AnumRepository]:
+    """One request transaction whose committed events are handed to the event runtime.
+
+    With PostgreSQL the session runs inside the tenant's RLS scope; in NATS mode the
+    events are also durable outbox rows written by the same transaction.
+    """
     if settings.repository_backend == "memory":
-        _require_persisted_membership(memory_repository, context)
+        if require_membership:
+            _require_persisted_membership(memory_repository, context)
         collecting = EventCollectingRepository(memory_repository)
         try:
             yield collecting
@@ -293,7 +300,8 @@ async def repository_context(
         set_tenant_context(session, context.tenant_id, context.workspace_id)
         session.info["user_id"] = context.user_id
         repository = SqlAlchemyRepository(session, created_by_user_id=context.user_id)
-        _require_persisted_membership(repository, context)
+        if require_membership:
+            _require_persisted_membership(repository, context)
         collecting = EventCollectingRepository(repository)
         yield collecting
         session.commit()
@@ -304,6 +312,53 @@ async def repository_context(
         raise
     finally:
         session.close()
+
+
+async def repository_context(
+    context: TenantContext = Depends(tenant_context),
+) -> AsyncIterator[AnumRepository]:
+    with _unit_of_work(context, require_membership=True) as repository:
+        yield repository
+
+
+@dataclass(frozen=True)
+class AuthenticatedIdentity:
+    """Who the caller is, before any workspace membership is required.
+
+    ``email`` is only used to match email-bound invitations. In OIDC mode it comes from
+    the token's ``email`` claim and counts only when ``email_verified`` is true; in the
+    local/test header mode it is the ``x-user-email`` development header.
+    """
+
+    context: TenantContext
+    email: str | None = None
+    email_verified: bool = False
+
+
+async def authenticated_identity(
+    authorization: str | None = Header(default=None),
+    x_tenant_id: str | None = Header(default=None),
+    x_workspace_id: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+    x_user_roles: str | None = Header(default="member"),
+    x_user_email: str | None = Header(default=None),
+) -> AuthenticatedIdentity:
+    if settings.auth_mode == "oidc":
+        claims, workspace_id = await _oidc_identity(authorization, x_tenant_id, x_workspace_id)
+        # Realm roles grant nothing here; the invitation decides the role.
+        identity = claims.tenant_context(workspace_id).model_copy(update={"roles": []})
+        return AuthenticatedIdentity(identity, claims.email, claims.email_verified)
+    context = _header_context(authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles)
+    email = x_user_email.strip() if x_user_email and x_user_email.strip() else None
+    return AuthenticatedIdentity(context, email, email_verified=email is not None)
+
+
+async def identity_repository_context(
+    identity: AuthenticatedIdentity = Depends(authenticated_identity),
+) -> AsyncIterator[AnumRepository]:
+    """A tenant-scoped unit of work for callers that may not be members yet (invitees)."""
+    with _unit_of_work(identity.context, require_membership=False) as repository:
+        yield repository
 
 
 async def memory_repository_context(

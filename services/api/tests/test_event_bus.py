@@ -221,6 +221,77 @@ def test_memory_mode_runtime_is_inert() -> None:
         EventBusRuntime("kafka")
 
 
+class FakeRelay:
+    def __init__(self) -> None:
+        self.notified = 0
+        self.started = False
+        self.stopped = False
+
+    def notify(self) -> None:
+        self.notified += 1
+
+    def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
+def test_runtime_with_durable_relay_has_no_in_process_outbox() -> None:
+    bus = InMemoryEventBus()
+    relay = FakeRelay()
+    runtime = EventBusRuntime("nats", bus, relay=relay, reconnect_backoff=0.01)
+    assert runtime.outbox is None
+
+    runtime.after_commit([])
+    runtime.after_commit([make_event("e1")])
+    assert relay.notified == 1  # committed rows are already durable; only wake the relay
+
+    async def scenario() -> None:
+        await runtime.start()
+        for _ in range(100):
+            if runtime.hub.live:
+                break
+            await asyncio.sleep(0.01)
+        await runtime.stop()
+
+    asyncio.run(scenario())
+    assert relay.started and relay.stopped
+    assert relay.notified >= 2  # connecting flushes the backlog through the relay
+    with pytest.raises(ValueError):
+        EventBusRuntime("memory", relay=FakeRelay())
+
+
+def test_build_event_runtime_picks_relay_only_for_postgresql() -> None:
+    from types import SimpleNamespace
+
+    from anum_api.event_bus import build_event_runtime
+    from anum_api.outbox_relay import PostgresOutboxRelay
+
+    def config(backend: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            event_bus="nats", nats_url="nats://127.0.0.1:1", nats_stream="ANUM_EVENTS",
+            repository_backend=backend, outbox_database_url=None,
+            outbox_batch_size=50, outbox_poll_seconds=0.5,
+        )
+
+    durable = build_event_runtime(config("postgresql"))
+    in_process = build_event_runtime(config("memory"))
+
+    assert isinstance(durable.relay, PostgresOutboxRelay) and durable.outbox is None
+    assert durable.relay.batch_size == 50 and durable.relay.poll_interval == 0.5
+    assert in_process.relay is None and isinstance(in_process.outbox, EventOutbox)
+
+
+def test_relay_backoff_is_exponential_and_capped() -> None:
+    from anum_api.outbox_relay import PostgresOutboxRelay
+
+    relay = PostgresOutboxRelay(InMemoryEventBus(), lambda: None, base_backoff=0.5, max_backoff=4)  # type: ignore[arg-type,return-value]
+    assert [relay.backoff_for(n) for n in (1, 2, 3, 4, 5)] == [0.5, 1, 2, 4, 4]
+    with pytest.raises(ValueError):
+        PostgresOutboxRelay(InMemoryEventBus(), lambda: None, batch_size=0)  # type: ignore[arg-type,return-value]
+
+
 def test_runtime_reconnects_and_flushes_backlog_when_bus_returns() -> None:
     bus = InMemoryEventBus()
     bus.available = False

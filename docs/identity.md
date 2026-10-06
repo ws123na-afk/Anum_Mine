@@ -64,7 +64,33 @@ Roles are read from `realm_access.roles` and a top-level `roles` array, lowercas
 
 Tenant, workspace, membership, and onboarding routes (`POST /api/v1/tenants`, `POST /api/v1/workspaces`, `POST /api/v1/workspace-memberships/current`, `GET`/`PUT /api/v1/onboarding`) use `provisioning_tenant_context`. When the caller has no membership yet, it authorizes with the token's ANUM realm roles, so a realm `owner` can create the tenant and workspace named by its claims and become their first owner. Once a membership exists, its role governs these routes too.
 
-`POST /api/v1/workspace-memberships/current` only bootstraps an empty workspace: a realm `owner` without a membership gets 403 when the workspace already has members, so it cannot take over someone else's workspace. Adding people to a workspace that has members needs invitations and membership management, which are not built yet.
+`POST /api/v1/workspace-memberships/current` only bootstraps an empty workspace: a realm `owner` without a membership gets 403 when the workspace already has members, so it cannot take over someone else's workspace. Everyone after the first owner joins through an invitation (below).
+
+## Invitations and Membership Management
+
+Implemented in `services/api/anum_api/workspace_members.py`, persisted in `workspace_invitations` and `audit_records` (migration `0006_workspace_invitations`, both under the same tenant and workspace RLS policy as the other workspace tables).
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `POST /api/v1/workspace-invitations` `{role, invitee_user_id?, invitee_email?, ttl_hours?}` | `membership:manage` (owners) | Creates a pending invitation for `owner`, `member` or `viewer`, bound to a user id (the OIDC `sub`), a verified email, or both. `ttl_hours` defaults to 168 (7 days), 1 to 720. Returns the invitation and the token, once. |
+| `GET /api/v1/workspace-invitations` | owners | Lists the workspace's invitations; a pending invitation past `expires_at` shows as `expired`. |
+| `POST /api/v1/workspace-invitations/{id}/revoke` | owners | Revokes a pending invitation. |
+| `POST /api/v1/workspace-invitations/accept` `{token}` | any authenticated caller, membership not required | Redeems the token for a membership in the workspace selected by `x-workspace-id` (or the token's default workspace). |
+| `GET /api/v1/workspace-members` | owners | Lists memberships, active and inactive. |
+| `PUT /api/v1/workspace-members/{user_id}/role` `{role}` | owners | Changes a member's role. |
+| `POST /api/v1/workspace-members/{user_id}/deactivate` / `reactivate` | owners | Deactivates (the member then gets `403 Active workspace membership required`) or reactivates a membership. |
+
+Rules:
+
+- The token is `anum_inv_` plus 256 random bits (`secrets.token_urlsafe(32)`). Only its SHA-256 hash is stored; a token cannot be shown again after creation. Event payloads and audit metadata never contain it.
+- Single use: accepting locks the invitation row (`FOR UPDATE`) and marks it `accepted` in the same transaction that writes the membership, so two concurrent accepts cannot both succeed. A reused token gets `409`.
+- Expired or revoked tokens get `410`. A token of another tenant or workspace is looked up inside the caller's RLS scope and is simply not found (`404`), as is a malformed token.
+- Identity binding: an invitation bound to a user id is accepted only by that `sub` (`403` otherwise). An email-bound invitation needs the token's `email` claim to match (case-insensitive) with `email_verified: true`. In local/test header mode the email is the `x-user-email` development header. A refused attempt does not consume the invitation.
+- In `oidc` mode the tenant still comes from the invitee's token, so an invitation can only be accepted by a user whose IdP-managed `tenant_id` is the invitation's tenant.
+- The invitee's token realm roles grant nothing: the new membership gets the invitation's role. An already active member gets `409`; a deactivated member is reactivated with the invited role.
+- The last active owner of a workspace cannot be demoted or deactivated (`409`). Role changes and deactivations lock all active owner rows (in a fixed order) before the target row, so two owners demoting each other at the same moment cannot leave the workspace without an owner.
+- Every change writes an append-only audit record (`workspace_invitation.create|accept|revoke`, `workspace_member.add|role_change|deactivate|reactivate`; the actor is the caller; RLS allows only select and insert on `audit_records`) and a canonical event ([Events](events.md#membership-events)), both in the request's transaction. With PostgreSQL the event is a durable outbox row, so it reaches NATS only if the change commits.
+- Refused attempts are not audited yet (the transaction rolls back).
 
 ## Errors
 
@@ -134,8 +160,8 @@ The API must allow the web origin (`ANUM_CORS_ORIGINS`) and run in `oidc` mode; 
 
 ## Now
 
-Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
+Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
 
 ## Later
 
-Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitations and membership management that replace the bootstrap self-service path; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.
+Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email and client screens for membership management; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.
