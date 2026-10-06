@@ -4,11 +4,11 @@ This is the ordered path from the current `main` to a first production release. 
 
 ## Where Things Stand (October 2026)
 
-Status on `main` after PR #12 (Stages 2 to 5, code side). Every CI job is green with no tolerated failures.
+Status on `main` after PR #13 (Stages 2 to 6, code side). Every CI job is green with no tolerated failures.
 
 | Area | State |
 |---|---|
-| CI | 15 checks: web, contracts, API unit, PostgreSQL/RLS, API integration (Valkey, S3, Temporal, NATS, none may skip), Authenticated journey (Keycloak + PostgreSQL + NATS end to end), Docker images (build, Trivy scan, smoke test, startup refusals, worker smoke test), Security scans (pip-audit, pnpm audit, bandit, gitleaks, OSV-Scanner, cargo audit), CodeQL (Python, JS/TS), Browser end-to-end, Flutter, Android, Tauri desktop, compose config. Branch protection is not yet required on `main` (owner action). |
+| CI | 15 checks, all required for merge once branch protection is on (owner action): web and contracts, API unit, PostgreSQL/RLS (incl. backup/restore drill), API integration (Valkey, S3, Temporal, NATS; none may skip), Authenticated journey, Docker images (Trivy, startup refusals, worker smoke test), Security scans (pip-audit, pnpm audit, OSV-Scanner, cargo audit, bandit, gitleaks), CodeQL, Browser end-to-end, Flutter (strict analyzer, OSV, debug APK and release bundle), Android, Tauri desktop (clippy), compose config. Third-party actions pinned to SHAs; Dependabot configured. |
 | Identity | Keycloak realm as code; `oidc` mode with JWKS rotation and persisted membership roles; PKCE sign-in in web, desktop and Flutter; invitations and member management with last-owner protection. Header and local sessions are refused outside `local`/`test`. |
 | API | Request limits, rate limiting, security headers, fail-fast startup checks. Model gateway with Ollama/OpenAI-compatible, retries, cost accounting, redacted logs and per-workspace configs in PostgreSQL (Fernet-encrypted keys). |
 | Events and runtime | NATS JetStream with a restart-durable PostgreSQL outbox and narrow relay role; tenant-filtered SSE. Valkey run locks and shared rate limits; S3-compatible file storage (SeaweedFS locally); Temporal worker for durable runs. All adapters are off by default and exercised in CI. |
