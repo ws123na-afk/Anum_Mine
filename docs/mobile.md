@@ -164,6 +164,7 @@ Install and identity
 - [ ] Kill the app after sign-in, reopen: the session restores without the browser. Leave it past the access-token lifetime: the next API call refreshes silently.
 - [ ] Disable the user or revoke the session in Keycloak: the next refresh signs the app out.
 - [ ] Sign-out ends the Keycloak session (a new sign-in asks for credentials) and clears secure storage even when the browser step is cancelled.
+- [ ] On Android, install the new build over one that stored a session with `flutter_secure_storage` 9 (any build before the 10.x upgrade): the session survives (the plugin migrates it to its new ciphers) or, if migration fails, the app shows the sign-in screen instead of crashing.
 - [ ] Airplane mode during refresh keeps the session and shows the offline state; reconnecting recovers.
 - [ ] A release build refuses a plain-HTTP API or issuer.
 
