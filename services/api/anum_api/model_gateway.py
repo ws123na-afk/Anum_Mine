@@ -16,6 +16,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Span, SpanKind
 from pydantic import BaseModel, Field
 
+from .model_egress import model_http_client
 from .settings import ModelPrice, settings
 from .telemetry import annotate_model_span, model_call_span, telemetry
 
@@ -222,6 +223,7 @@ class OpenAICompatibleGateway:
         prices: Mapping[str, ModelPrice] | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         jitter: Callable[[], float] = random.random,
+        egress_guard: bool = False,
     ) -> None:
         key = (api_key or "").strip()
         if require_api_key and not key:
@@ -237,6 +239,14 @@ class OpenAICompatibleGateway:
         self._client = client
         self._sleep = sleep
         self._jitter = jitter
+        # Workspace-configured endpoints go through the SSRF guard (model_egress.py);
+        # the operator's ANUM_MODEL_BASE_URL default is trusted configuration.
+        self.egress_guard = egress_guard
+
+    def _new_client(self) -> httpx.AsyncClient:
+        if self.egress_guard:
+            return model_http_client(self.timeout_seconds)
+        return httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=False)
 
     async def generate_text(self, prompt: str) -> ModelResponse:
         with model_call_span(self.provider, self.model, "generate_text"):
@@ -280,7 +290,7 @@ class OpenAICompatibleGateway:
         return response_model.model_validate_json(text), normalized
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
-        client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds)
+        client = self._client or self._new_client()
         owns_client = self._client is None
         state = _CallState()
         started = perf_counter()
@@ -382,7 +392,7 @@ class OpenAICompatibleGateway:
     async def _post(
         self, payload: dict[str, object], state: _CallState, operation: str
     ) -> httpx.Response:
-        client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds)
+        client = self._client or self._new_client()
         owns_client = self._client is None
         try:
             while True:
@@ -548,13 +558,19 @@ def build_model_gateway(
     model: str = OPENAI_DEFAULT_MODEL,
     base_url: str = OPENAI_DEFAULT_BASE_URL,
     client: httpx.AsyncClient | None = None,
+    egress_guard: bool = False,
 ) -> ModelGateway:
+    """``egress_guard=True`` for endpoints a workspace chose (SSRF guard, model_egress.py)."""
     provider = normalize_provider(provider)
     if provider == "mock":
         return MockModelGateway()
     if provider == "openai-compatible":
         return OpenAICompatibleGateway(
-            api_key=api_key or "", model=model, base_url=base_url, client=client
+            api_key=api_key or "",
+            model=model,
+            base_url=base_url,
+            client=client,
+            egress_guard=egress_guard,
         )
     if provider == "ollama":
         # Ollama serves an OpenAI-compatible API locally and needs no key. Fall back
@@ -572,5 +588,6 @@ def build_model_gateway(
             client=client,
             require_api_key=False,
             provider="ollama",
+            egress_guard=egress_guard,
         )
     raise ValueError(f"Unsupported model provider: {provider}")

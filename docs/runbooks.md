@@ -71,8 +71,8 @@ Alerts: `AnumTemporalActivityFailures`, `AnumRunCoordinationUnavailable`. See [A
 Alerts: `AnumModelCostSpike`, `AnumModelHourlySpendHigh`, `AnumModelErrorRate`.
 
 1. Open **ANUM model gateway: cost and usage**: which provider and model, input or output tokens, since when.
-2. Find the source: request traces with `generate_text` spans in the window, grouped by `anum.tenant_id`, show which workspace drives it. Per-tenant cost metrics do not exist yet.
-3. Contain: switch the workspace to a cheaper model or the mock provider (`PUT /api/v1/model-config` as its owner, or with the owner's agreement), or pause runs for that workspace. For a runaway loop, cancel its tasks. Revoke the provider key at the provider if it may have leaked.
+2. Find the source: request traces with `generate_text` spans in the window, grouped by `anum.tenant_id`, show which workspace drives it. `GET /api/v1/model-budgets` (as an owner of the workspace) shows this month's usage for the workspace and its organization, and `model_budget_threshold` log lines name tenants that crossed 80% or 100% of a budget. Per-tenant cost metrics do not exist (labels stay bounded).
+3. Contain: switch the workspace to a cheaper model or the mock provider (`PUT /api/v1/model-config` as its owner, or with the owner's agreement), or pause runs for that workspace. With the owner's agreement, set a monthly budget (`PUT /api/v1/model-budgets/workspace` or `/tenant`, audited; `{"monthly_token_limit": 0}` stops all model calls until it is raised). For a runaway loop, cancel its tasks. Revoke the provider key at the provider if it may have leaked.
 4. Costs are estimates from the price table (`ANUM_MODEL_PRICES`); reconcile with the provider's billing and fix stale prices.
 5. Error rate: provider outage, quota, or a revoked key (`HTTPStatusError` with 401/403 or 429 in spans). The gateway already retries timeouts, 429 and 5xx with backoff.
 

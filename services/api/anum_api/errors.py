@@ -23,6 +23,7 @@ class ErrorCode(StrEnum):
     FORBIDDEN = "forbidden"
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
+    MODEL_BUDGET_EXCEEDED = "model_budget_exceeded"
     PAYLOAD_TOO_LARGE = "payload_too_large"
     RATE_LIMITED = "rate_limited"
     SERVICE_UNAVAILABLE = "service_unavailable"
@@ -65,6 +66,7 @@ class ApplicationError(Exception):
 _STATUS_CODES: dict[int, ErrorCode] = {
     400: ErrorCode.BAD_REQUEST,
     401: ErrorCode.UNAUTHORIZED,
+    402: ErrorCode.MODEL_BUDGET_EXCEEDED,
     403: ErrorCode.FORBIDDEN,
     404: ErrorCode.NOT_FOUND,
     409: ErrorCode.CONFLICT,

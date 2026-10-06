@@ -30,6 +30,8 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "model_usage_monthly",
+    "model_budgets",
     "notification_preferences",
     "workspace_files",
     "integration_configurations",

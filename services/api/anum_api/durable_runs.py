@@ -21,6 +21,7 @@ from opentelemetry import trace
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from .model_budget import ModelBudgetExceededError
 from .repository import AnumRepository
 from .runtime import AgentRuntime
 from .schemas import AgentRun, ApprovalStatus, RunPhase, TaskStatus, TenantContext, utc_now
@@ -210,7 +211,12 @@ class AgentRunActivities:
             approval_id: str | None = None
             call = None
             if phase == RunPhase.PLANNING:
-                await runtime.plan_run(task, run, context)
+                try:
+                    await runtime.plan_run(task, run, context)
+                except ModelBudgetExceededError as exc:
+                    # Retrying cannot help until the budget resets or is raised: fail the
+                    # run with the budget message instead of retrying the activity.
+                    runtime._fail(task, run, context, exc.message)
             elif phase == RunPhase.TOOL_READY:
                 call = runtime.begin_execution(task, run, context)
             elif phase == RunPhase.WAITING_APPROVAL:

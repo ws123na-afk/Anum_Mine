@@ -58,6 +58,8 @@ OpenTelemetry names and their Prometheus names after the collector's Prometheus 
 | `anum.model.call.duration` (histogram, s) | `anum_model_call_duration_seconds_*` | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.operation.name`, `anum.model.status` (`ok`/`error`), `error.type` |
 | `anum.model.tokens` | `anum_model_tokens_total` | provider, model, `gen_ai.token.type` (`input`/`output`) |
 | `anum.model.estimated_cost_usd` | `anum_model_estimated_cost_usd_total` | provider, model. Estimate from the price table ([Model gateway](model-gateway.md)); mock and Ollama cost 0. |
+| `anum.model.budget.thresholds` | `anum_model_budget_thresholds_total` | `anum.budget.scope` (`tenant`, `workspace`), `anum.budget.kind` (`cost`, `tokens`), `anum.budget.percent` (`80`, `100`). A model call crossed that share of a monthly budget ([Model gateway](model-gateway.md#monthly-budgets)); the matching `model_budget_threshold` log line names the tenant and workspace. |
+| `anum.model.budget.rejections` | `anum_model_budget_rejections_total` | `anum.budget.scope`, `anum.budget.kind`. Model calls refused because a budget was used up. |
 | `anum.outbox.backlog` (gauge) | `anum_outbox_backlog` | `anum.outbox` (`postgresql` relay or in-process `memory` outbox). Committed, unpublished, not parked events. |
 | `anum.outbox.oldest_unpublished_age` (gauge, s) | `anum_outbox_oldest_unpublished_age_seconds` | `anum.outbox` |
 | `anum.outbox.parked` (gauge) | `anum_outbox_parked` | `anum.outbox`. Events marked unpublishable (`publish_next_attempt_at = 'infinity'`). |

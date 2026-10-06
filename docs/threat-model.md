@@ -74,7 +74,7 @@ What an injected instruction can do today, and what stops it:
 | Change what the external action sends | Possible: the arguments are the prompt and the model's reply (`planned_response`), and the approval prompt does not show them (see A1). |
 | Exfiltrate other tenants' data | Blocked: the model sees only the prompt; every repository query runs under RLS with the caller's tenant (`anum_api/db/session.py:set_tenant_context`). |
 | Redirect a tool to another host | Blocked: endpoints come from operator configuration and the adapter enforces a host allowlist (`integration_tools.py:38`). The model cannot supply URLs. |
-| Spend money with long outputs or loops | Bounded: one model call per plan, timeouts and bounded retries (`model_gateway.py` `RetryPolicy`); no per-tenant budget (see D2). |
+| Spend money with long outputs or loops | Bounded: one model call per plan, timeouts and bounded retries (`model_gateway.py` `RetryPolicy`); monthly per-tenant and per-workspace model budgets refuse calls once used up (`anum_api/model_budget.py`, M5). |
 | Leak the prompt into logs or telemetry | Blocked: gateway logs and spans carry metadata only; the span exporter strips query strings and exception messages (`anum_api/telemetry.py`, `tests/test_telemetry.py`). |
 
 ## Threats
@@ -96,11 +96,11 @@ What an injected instruction can do today, and what stops it:
 
 | # | STRIDE | Threat | Mitigation in code | Status |
 |---|---|---|---|---|
-| M1 | I | Provider or network observer reads prompts. | Prompts leave ANUM by design. HTTPS required for workspace `base_url` outside local (`anum_api/onboarding.py:108`). | Accepted risk; provider terms and region are owner decisions. |
-| M2 | S/I | Workspace owner points `base_url` at an internal address (SSRF: cloud metadata, internal services); the connection test reveals reachability through its error messages. | Scheme and credential checks only (`onboarding.py:108`); only owners can set it (`Permission.ORGANIZATION_MANAGE`). | **Gap** (G1) |
+| M1 | I | Provider or network observer reads prompts. | Prompts leave ANUM by design. HTTPS required for workspace `base_url` outside local and test (`anum_api/model_egress.py`), except for hosts an operator lists in `ANUM_MODEL_ALLOWED_HOSTS`. | Accepted risk; provider terms and region are owner decisions. |
+| M2 | S/I | Workspace owner points `base_url` at an internal address (SSRF: cloud metadata, internal services); the connection test reveals reachability through its error messages. | Outside `local`/`test` the SSRF guard (`anum_api/model_egress.py`) refuses non-HTTPS schemes, credentials, non-default ports, non-canonical IP literals and hosts resolving to loopback, private, unique-local, link-local/metadata, multicast, unspecified or reserved addresses (IPv4 embedded in IPv6 included), at save time and on every request; each request resolves once and connects to that address with the original Host and TLS name (no DNS rebinding); redirects are never followed; the connection test returns one generic error. Operator allow-list `ANUM_MODEL_ALLOWED_HOSTS` for self-hosted models. Only owners can set it (`Permission.ORGANIZATION_MANAGE`). Tests: `tests/test_model_egress.py`. | Mitigated (G1) |
 | M3 | I | Provider key leaks from the database or a backup. | Fernet encryption with rotation (`anum_api/secret_box.py`), `credential_hint` so reads never decrypt, RLS on `workspace_model_configs`. | Mitigated; rotation procedure in [Runbooks](runbooks.md#rotating-anum_secrets_key). |
 | M4 | I | Prompts or replies in logs, traces, metrics. | Metadata-only logging (`model_gateway.py` `_log_call`); spans with token counts only; redacting span exporter; tests assert absence. | Mitigated |
-| M5 | D | Cost exhaustion through many or large runs. | Rate limits per client, request size limits, one model call per plan, timeouts and bounded retries, cost metrics and `AnumModelCostSpike`/`AnumModelHourlySpendHigh` alerts. | Partial: no per-tenant budget or quota (G4). |
+| M5 | D | Cost exhaustion through many or large runs. | Rate limits per client, request size limits, one model call per plan, timeouts and bounded retries, cost metrics and `AnumModelCostSpike`/`AnumModelHourlySpendHigh` alerts. Monthly (UTC) estimated-cost and token budgets per tenant and per workspace (`anum_api/model_budget.py`, RLS tables `model_budgets` and `model_usage_monthly`), checked before each task or voice model call (402, or a spoken reply), usage recorded from the gateway's usage metadata, 80%/100% logs and `anum.model.budget.*` metrics. | Mitigated (G4). The check does not reserve spend, so concurrent calls can overshoot a limit by their own usage; unpriced models count tokens only. |
 | M6 | T | Malicious provider returns crafted output (markup, links, instructions). | Output is data: stored and rendered as text by clients (React escapes), never executed or used as a URL. | Partial: it can still shape the external action's payload (A1). |
 
 ### Identity, API and tenancy (B1, B2)
@@ -139,10 +139,10 @@ Reviewed against [Approvals and risk](approvals-and-risk.md). The basic flow hol
 
 | # | Gap | Proposed fix | Needed before |
 |---|---|---|---|
-| G1 | SSRF through workspace `base_url` and the model connection test (M2). | Resolve the host and refuse private, loopback, link-local and metadata ranges outside `local`, or restrict providers to an allowlist; return a generic error from the connection test. | Real tenants |
+| G1 | SSRF through workspace `base_url` and the model connection test (M2). | **Done**: `anum_api/model_egress.py` validates at save and request time with the resolved address pinned, refuses redirects, allow-lists self-hosted hosts only through `ANUM_MODEL_ALLOWED_HOSTS`, and the connection test answers generically outside `local`/`test` ([Model gateway](model-gateway.md#outbound-guard-ssrf)). | Real tenants |
 | G2 | Approval content and binding (A1, A2, A3). | As in the review above. | Real external integrations |
 | G3 | Tool responses are unbounded and untrusted (T7), and will become prompt input with multi-step runs. | Cap response size; mark tool output as untrusted data in prompts (delimited, never as instructions); keep the policy check outside the model. | Multi-step runs |
-| G4 | No per-tenant model budget or quota (M5). | Per-workspace spend limits enforced in the gateway, with metrics by workspace at bounded cardinality. | General availability |
+| G4 | No per-tenant model budget or quota (M5). | **Done**: monthly tenant and workspace budgets (estimated cost and tokens) enforced in front of the gateway, owner-only API with audit records, threshold metrics with bounded labels ([Model gateway](model-gateway.md#monthly-budgets)). Open: per-workspace cost dashboards. | General availability |
 | G5 | Memory and file retrieval into prompts will add indirect injection. | Provenance labels in prompts, retrieval scoped by tenant and permission, and no tool authority derived from retrieved text. | Memory retrieval |
 | G6 | Approval decider not persisted; governance audit in memory (T8, A4). | Persist decisions with actor; move governance stores to PostgreSQL. | Stage 3 exit |
 | G7 | External penetration test. | Stage 5 item; scope it on this document's boundaries. | General availability |

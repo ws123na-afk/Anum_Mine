@@ -49,7 +49,7 @@ def build_activities(
     model_gateway: ModelGateway | None = None,
     tools: ToolRegistry | None = None,
 ) -> AgentRunActivities:
-    from .onboarding import workspace_model_gateway
+    from .onboarding import budgeted_model_gateway
 
     gateway = model_gateway or build_model_gateway(
         config.model_provider,
@@ -60,7 +60,7 @@ def build_activities(
     registry = tools or default_tool_registry(configured_external_handler(config))
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
-        return AgentRuntime(workspace_model_gateway(context, gateway), repository, tools=registry)
+        return AgentRuntime(budgeted_model_gateway(context, gateway), repository, tools=registry)
 
     return AgentRunActivities(
         runtime_factory, locks=build_run_lock_manager(config, metric_source="worker")
