@@ -83,7 +83,7 @@ Enable request-scoped PostgreSQL persistence after creating the tenant and works
 ANUM_REPOSITORY_BACKEND=postgresql
 ```
 
-The Alembic chain executes `migrations/0001_foundation.sql`, which creates the core tables, enables pgvector, and applies tenant RLS policies. Revision `0002_memory_retention` adds expiry metadata for durable task memory. Revision `0005_workspace_model_configs` adds per-workspace model configurations with encrypted provider keys and RLS.
+The Alembic chain executes `migrations/0001_foundation.sql`, which creates the core tables, enables pgvector, and applies tenant RLS policies. Revision `0002_memory_retention` adds expiry metadata for durable task memory. Revision `0005_workspace_model_configs` adds per-workspace model configurations with encrypted provider keys and RLS. Revision `0006_workspace_invitations` adds hash-only workspace invitations and the append-only `audit_records` table, both with RLS. Revision `0007_event_outbox` turns `domain_events` into a durable outbox and creates the narrowly privileged `anum_outbox_relay` role (the migration user needs `CREATEROLE`, or a DBA creates the role first).
 
 ## Included Slice
 
@@ -114,10 +114,10 @@ The Alembic chain executes `migrations/0001_foundation.sql`, which creates the c
 
 The API routes and runtime depend on ANUM repository boundaries instead of reaching directly into storage dictionaries. In-memory storage remains the local default; setting `ANUM_REPOSITORY_BACKEND=postgresql` selects SQLAlchemy adapters, applies tenant and workspace context to each request transaction, and durably stores task, run, approval, event, and memory changes.
 
-Development header roles are never production-safe; shared environments must run `ANUM_AUTH_MODE=oidc`, where the persisted workspace membership role is authoritative. SQL-backed audit/idempotency records, a restart-durable (PostgreSQL) event outbox relay, Temporal, and durable object storage remain subsequent implementation boundaries.
+Development header roles are never production-safe; shared environments must run `ANUM_AUTH_MODE=oidc`, where the persisted workspace membership role is authoritative. SQL-backed audit records cover invitations and membership changes; SQL-backed idempotency records, governance audit, Temporal, and durable object storage remain subsequent implementation boundaries.
 ## Event Bus
 
-`ANUM_EVENT_BUS=nats` publishes committed canonical events to NATS JetStream (`ANUM_NATS_URL`, stream `ANUM_NATS_STREAM`, default `ANUM_EVENTS`) on `anum.<tenant>.<workspace>.<event type>` subjects and feeds `GET /api/v1/events/stream` from a JetStream consumer. The default, `memory`, keeps events in the repository only. Publishing never fails a request; while NATS is down events are queued and retried. See [Events](../../docs/events.md) and [Realtime](../../docs/realtime.md).
+`ANUM_EVENT_BUS=nats` publishes committed canonical events to NATS JetStream (`ANUM_NATS_URL`, stream `ANUM_NATS_STREAM`, default `ANUM_EVENTS`) on `anum.<tenant>.<workspace>.<event type>` subjects and feeds `GET /api/v1/events/stream` from a JetStream consumer. The default, `memory`, keeps events in the repository only. Publishing never fails a request; while NATS is down events wait and are retried. With `ANUM_REPOSITORY_BACKEND=postgresql` unpublished events are durable rows relayed by every API instance (`FOR UPDATE SKIP LOCKED`) as the `anum_outbox_relay` role, optionally over its own login (`ANUM_OUTBOX_DATABASE_URL`, `ANUM_OUTBOX_BATCH_SIZE`, `ANUM_OUTBOX_POLL_SECONDS`); with the memory backend they wait in a bounded in-process queue. See [Events](../../docs/events.md) and [Realtime](../../docs/realtime.md).
 
 Integration tests marked `nats` run against a JetStream server and are skipped when it is unreachable:
 

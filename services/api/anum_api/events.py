@@ -36,6 +36,13 @@ class CanonicalEventName(StrEnum):
     APPROVAL_APPROVED = "approval.approved"
     APPROVAL_REJECTED = "approval.rejected"
     APPROVAL_EXPIRED = "approval.expired"
+    WORKSPACE_INVITATION_CREATED = "workspace_invitation.created"
+    WORKSPACE_INVITATION_ACCEPTED = "workspace_invitation.accepted"
+    WORKSPACE_INVITATION_REVOKED = "workspace_invitation.revoked"
+    WORKSPACE_MEMBER_ADDED = "workspace_member.added"
+    WORKSPACE_MEMBER_ROLE_CHANGED = "workspace_member.role_changed"
+    WORKSPACE_MEMBER_DEACTIVATED = "workspace_member.deactivated"
+    WORKSPACE_MEMBER_REACTIVATED = "workspace_member.reactivated"
 
 
 class PublicationStatus(StrEnum):

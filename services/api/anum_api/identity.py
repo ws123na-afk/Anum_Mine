@@ -202,6 +202,9 @@ class OidcClaims(BaseModel):
     tenant_id: str
     workspace_id: str | None = None
     roles: list[str] = Field(default_factory=list)
+    # Used only to match email-bound workspace invitations; never for authorization.
+    email: str | None = None
+    email_verified: bool = False
 
     @property
     def anum_roles(self) -> list[str]:
@@ -294,9 +297,12 @@ class OidcValidator:
         extra_roles = payload.get("roles")
         if isinstance(extra_roles, list):
             roles.update(role for role in extra_roles if isinstance(role, str))
+        email = payload.get("email")
         return OidcClaims(
             subject=str(payload["sub"]),
             tenant_id=tenant_id,
             workspace_id=workspace_id,
             roles=sorted(role.lower() for role in roles),
+            email=email if isinstance(email, str) and email.strip() else None,
+            email_verified=payload.get("email_verified") is True,
         )

@@ -65,6 +65,7 @@ from .automation import router as automation_router
 from .files import router as files_router
 from .skills_api import router as skills_router
 from .onboarding import router as onboarding_router, workspace_model_gateway
+from .workspace_members import router as workspace_members_router
 from .identity import validate_auth_configuration
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
@@ -115,6 +116,7 @@ app.include_router(automation_router)
 app.include_router(files_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
+app.include_router(workspace_members_router)
 repository = memory_repository
 model_gateway = build_model_gateway(
     settings.model_provider,
