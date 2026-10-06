@@ -4,18 +4,17 @@ This is the ordered path from the current `main` to a first production release. 
 
 ## Where Things Stand (October 2026)
 
-Status after the `claude/festive-ride-ghttk0` branch merges. Before that, `main` is still red on the Tauri job.
+Status on `main` after PR #12 (Stages 2 to 5, code side). Every CI job is green with no tolerated failures.
 
 | Area | State |
 |---|---|
-| CI | All 8 original jobs green with no tolerated failures. Actions upgraded to Node 24 releases. New: Security scans (pip-audit, pnpm audit, bandit, gitleaks), Docker images (build and smoke test), a CodeQL workflow, and Authenticated journey (Keycloak, PostgreSQL and NATS end to end). Branch protection is not yet required on `main`. |
-| Flutter | Analyzer clean, 61 tests pass. Screens show live workspace data only, with a depth design system and a wake-by-name voice assistant. |
-| Web and desktop | Voice assistant with wake by name, free voices and a WebGL orb; depth redesign. Desktop builds an unsigned Windows installer in CI. |
-| API | Unit and PostgreSQL/RLS suites pass. Auth defaults to development headers (`ANUM_AUTH_MODE=headers`) locally; `oidc` mode is exercised end to end in CI by the Authenticated journey job. Request size limits, per-client rate limiting, security headers and fail-fast startup checks are in (`anum_api/hardening.py`). |
-| Model gateway | Mock, OpenAI-compatible and Ollama (free, local, keyless). A model saved per workspace runs that workspace's tasks and voice answers. Per-workspace configs are in memory only. No retries or cost accounting yet. |
-| Infra adapters | NATS JetStream publisher and consumer (Stage 2). Stage 3 adapters are in, all off by default: Valkey run locks and shared rate limits, an S3-compatible file store, and a Temporal worker for durable runs (`python -m anum_api.worker`). Not yet exercised against real Temporal and MinIO in CI. |
-| Deployment | API and web Dockerfiles, a compose `app` profile, and `deploy-staging.yml` pushing images to GHCR. No OpenTofu, no cloud, no staging environment yet; the deploy step waits on the cloud choice. |
-| Clients | Web, desktop, Android and Flutter sources exist; none are signed or device-verified. |
+| CI | 15 checks: web, contracts, API unit, PostgreSQL/RLS, API integration (Valkey, S3, Temporal, NATS, none may skip), Authenticated journey (Keycloak + PostgreSQL + NATS end to end), Docker images (build, smoke test, startup refusals), Security scans (pip-audit, pnpm audit, bandit, gitleaks), CodeQL (Python, JS/TS), Browser end-to-end, Flutter, Android, Tauri desktop, compose config. Branch protection is not yet required on `main` (owner action). |
+| Identity | Keycloak realm as code; `oidc` mode with JWKS rotation and persisted membership roles; PKCE sign-in in web, desktop and Flutter; invitations and member management with last-owner protection. Header and local sessions are refused outside `local`/`test`. |
+| API | Request limits, rate limiting, security headers, fail-fast startup checks. Model gateway with Ollama/OpenAI-compatible, retries, cost accounting, redacted logs and per-workspace configs in PostgreSQL (Fernet-encrypted keys). |
+| Events and runtime | NATS JetStream with a restart-durable PostgreSQL outbox and narrow relay role; tenant-filtered SSE. Valkey run locks and shared rate limits; S3-compatible file storage (SeaweedFS locally); Temporal worker for durable runs. All adapters are off by default and exercised in CI. |
+| Clients | Flutter (real data, depth design, wake-by-name voice), web/desktop (voice, WebGL orb), Kotlin Android. None signed or device-verified yet. |
+| Deployment | API and web images, compose `app` profile with a worker, `deploy-staging.yml` pushing to GHCR. No cloud, OpenTofu or staging environment yet: waits on the owner's cloud choice. |
+| Still in memory | Skills, governance, integrations, file metadata and notification preferences stores (Stage 3 remainder). |
 
 ## Stage 1: Green and Honest CI
 
@@ -49,9 +48,9 @@ Exit status: met in CI once the Authenticated journey job is green on `main`. Th
 
 Goal: agents are resumable, cancellable and auditable across restarts ([Agent runtime](agent-runtime.md), [Automation](automation.md)).
 
-- Temporal worker for long-running runs; a test kills the worker mid-run and asserts resume. Done in code: `ANUM_RUNTIME_BACKEND=temporal`, `AgentRunWorkflow` with one checkpoint-driven activity, the worker entrypoint and a compose `worker` service ([Agent runtime](agent-runtime.md#durable-execution)). The worker-restart test (`tests/test_temporal_worker.py`, marker `temporal`) needs a Temporal server: set `ANUM_TEST_TEMPORAL_TARGET`, or let the SDK download its test server; it passes locally against a Temporal 1.29 dev server, and `tests/test_postgres_durable_runs.py` covers the same crash/resume path on PostgreSQL with RLS. Open: a CI job that provides a Temporal server, and a worker image smoke test.
-- Valkey for locks, rate limits and ephemeral coordination, with a distributed-lock test. Done: `ANUM_RUN_LOCK_BACKEND=valkey` and `ANUM_RATE_LIMIT_BACKEND=valkey`; `tests/test_valkey_integration.py` (marker `valkey`) includes a contention test. Open: a CI job with a Valkey service.
-- S3-compatible object storage for workspace files with a round-trip test against an S3-compatible server ([Workspace files](files.md)). Done in code: `ANUM_OBJECT_STORAGE_BACKEND=s3`, tenant/workspace key prefixes, moto-backed tests, and an `s3`-marked round trip that passes locally against MinIO. Open: running it in CI against a MinIO service.
+- Temporal worker for long-running runs; a test kills the worker mid-run and asserts resume. Done in code: `ANUM_RUNTIME_BACKEND=temporal`, `AgentRunWorkflow` with one checkpoint-driven activity, the worker entrypoint and a compose `worker` service ([Agent runtime](agent-runtime.md#durable-execution)). The worker-restart test (`tests/test_temporal_worker.py`, marker `temporal`) runs in the CI "API integration" job against a dev server the SDK starts; `tests/test_postgres_durable_runs.py` covers the same crash/resume path on PostgreSQL with RLS. Open: a worker image smoke test.
+- Valkey for locks, rate limits and ephemeral coordination, with a distributed-lock test. Done: `ANUM_RUN_LOCK_BACKEND=valkey` and `ANUM_RATE_LIMIT_BACKEND=valkey`; `tests/test_valkey_integration.py` (marker `valkey`) includes a contention test and runs in the CI "API integration" job.
+- S3-compatible object storage for workspace files with a round-trip test against an S3-compatible server ([Workspace files](files.md)). Done in code: `ANUM_OBJECT_STORAGE_BACKEND=s3`, tenant/workspace key prefixes, moto-backed tests, and an `s3`-marked round trip that runs in the CI "API integration" job against SeaweedFS (MinIO no longer publishes community images).
 - Move remaining in-memory control-plane stores (skills, governance, integrations) to PostgreSQL with RLS and migrations. File metadata belongs here too.
 
 Exit: the infrastructure gates in [Production readiness gates](production-readiness.md) pass in CI.
