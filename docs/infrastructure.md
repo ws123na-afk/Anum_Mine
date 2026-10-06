@@ -25,6 +25,7 @@ The compose `api` and `worker` export OpenTelemetry to the `otel-collector` (`AN
 | API | `services/api/Dockerfile` | `services/api` | 8000 | uid 10001 (`anum`) |
 | Temporal worker | same image as the API, command `python -m anum_api.worker` | `services/api` | none | uid 10001 (`anum`) |
 | Web | `apps/web/Dockerfile` | repository root | 8080 | uid 101 (`nginx`, unprivileged image) |
+| Backup | `infra/backup/Dockerfile` | `infra/backup` | none | uid 10001 (`anum`) |
 
 API image:
 
@@ -42,6 +43,8 @@ Web image:
 - nginx config (`apps/web/nginx/default.conf.template`) adds the security headers listed in [Security](security.md), serves hashed `/assets/` as immutable, falls back to `index.html` for client routes, and answers `/healthz`.
 - `apps/web/Dockerfile.dockerignore` limits the root build context to the workspace manifests, `apps/web` and `packages/contracts`.
 
+Backup image: the official PostgreSQL 17 image (`pg_dump`/`pg_restore` and their libraries) with the Python runtime and pinned `psycopg` copied in from the official Python image of the same Debian release, running `infra/backup/anum_backup.py` as uid 10001. It is used only by the chart's optional backup CronJob ([Deployment](deployment.md)).
+
 `infra/docker/compose.yaml` starts Keycloak with `--import-realm` and mounts `infra/keycloak/anum-realm.json`, so the `anum` realm, its clients, roles, and claim mappers come up from code. `KC_HOSTNAME` pins the token issuer to `http://localhost:8080/realms/anum`; a containerized API should keep that issuer and point `ANUM_OIDC_JWKS_URL` at `http://keycloak:8080/realms/anum/protocol/openid-connect/certs`. The realm's `dev` user and the `admin`/`admin` console account are dev-only placeholders. See [Identity and sign-in](identity.md).
 
 ## Environments
@@ -49,6 +52,10 @@ Web image:
 Recommended environments are local, preview, staging, and production. Each environment should have separate secrets, databases, object buckets, identity realm settings, and telemetry configuration.
 
 Any `ANUM_ENVIRONMENT` other than `local` must provide, through the deployment secret store: `ANUM_DATABASE_URL` with non-default credentials, `ANUM_CORS_ORIGINS` listing the exact `https` web origins, and real object-storage and provider credentials. The API refuses to start otherwise.
+
+## Kubernetes
+
+Shared environments run on any Kubernetes cluster with the Helm chart in `infra/helm/anum`: API (HPA, PDB, probes on `/health`), Temporal worker, web, ingress, a pre-install/pre-upgrade migration Job, the voice retention CronJob, an optional backup CronJob, default-deny NetworkPolicies and token-less ServiceAccounts. Every secret is referenced by name from Secrets created outside the chart (External Secrets friendly), and the chart refuses to render values the API would refuse at startup. `infra/helm/bootstrap-database.sql` creates the migration, application and relay logins. Overlays exist for staging and production with placeholder hosts. See [Deployment](deployment.md) for values, Secrets, cluster access, migrations, rollback and scaling.
 
 ## OpenTofu
 
@@ -58,25 +65,27 @@ OpenTofu should define networks, compute, managed databases where used, object s
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci.yml` | PRs and pushes to `main` | Web, API, e2e, PostgreSQL, compose (including `--profile app`), **Security scans**, **Docker images**, desktop, Android, Flutter. |
+| `ci.yml` | PRs and pushes to `main` | Web, API, e2e, PostgreSQL, compose (including `--profile app`), **Security scans**, **Docker images**, **Helm deploy (kind)**, desktop, Android, Flutter. |
 | `codeql.yml` | PRs, pushes to `main`, weekly | CodeQL `security-extended` for Python and JavaScript/TypeScript. |
-| `deploy-staging.yml` | Pushes to `main`, manual | Builds and pushes `ghcr.io/<owner>/anum-api:<sha>` and `anum-web:<sha>`, then deploys to the `staging` environment once configured. |
+| `deploy-staging.yml` | Pushes to `main`, manual | Builds and pushes `ghcr.io/<owner>/anum-api:<sha>`, `anum-web:<sha>` and `anum-backup:<sha>`, then `helm upgrade --install` into the `staging` environment once `STAGING_DEPLOY_TARGET=kubernetes` is set. |
+| `deploy-production.yml` | Manual, `production` environment approval | Builds the production web bundle for a commit staging deployed, then `helm upgrade --install` with `values-production.yaml`; or `helm rollback` to a given revision. Skipped while `PRODUCTION_DEPLOY_TARGET` is unset. |
 
 The **Docker images** job builds both images without pushing, scans them with Trivy (fixable high and critical vulnerabilities and baked-in secrets fail the job; see [Security](security.md#scanning-in-ci)), checks that the API image and the worker command (`python -m anum_api.worker`) refuse development defaults in production mode and that the worker refuses the in-memory repository outside `local`, runs the worker against a Temporal dev server until it polls and then stops it with SIGTERM, and smoke-tests the API and web containers (health endpoint, non-root user, CSP header).
 
-### Staging deploy: owner decision needed
+The **Helm deploy (kind)** job lints the chart (`helm lint --strict`, `kubeconform -strict` against pinned schemas, twelve refusal checks), then installs it into a kind cluster with in-cluster PostgreSQL, NATS and Temporal and smoke-tests the result, including `helm test`, the CronJobs, worker SIGTERM, upgrade and rollback ([Deployment](deployment.md#checks)).
 
-`deploy-staging.yml` never runs on pull requests. Its `deploy` job is skipped while the `STAGING_DEPLOY_TARGET` repository variable is unset, so the workflow passes with only the image push until a cloud provider is chosen. To finish it:
+### Staging and production deploys: owner decision needed
 
-1. Choose the cloud provider and region (see [Production plan](production-plan.md)).
-2. Create the GitHub `staging` environment with its secrets (database URL, object storage, provider keys) and set variables `STAGING_DEPLOY_TARGET`, `STAGING_API_URL` and `STAGING_WEB_URL`.
-3. Replace the placeholder "Deploy images" step with the provider's steps: run `python -m alembic upgrade head` from the API image as a one-off job, then roll out the API and web images. The placeholder fails loudly if the variable is set before this is done.
-4. Add a `deploy-production.yml` (or a production job) behind a `production` environment with required reviewers.
+`deploy-staging.yml` never runs on pull requests. Its `deploy` job is skipped while the `STAGING_DEPLOY_TARGET` repository variable is unset, so the workflow passes with only the image push until a cluster exists. `deploy-production.yml` is manual and skipped while `PRODUCTION_DEPLOY_TARGET` is unset. To turn them on:
+
+1. Choose the cloud provider and region (see [Production plan](production-plan.md)) and create the cluster and managed services.
+2. Run `infra/helm/bootstrap-database.sql` and create the release Secrets in each namespace ([Deployment](deployment.md#secrets)).
+3. Create the GitHub `staging` and `production` environments (production with required reviewers), store `STAGING_KUBECONFIG` / `PRODUCTION_KUBECONFIG` or replace the cluster-access step with the cloud's OIDC login, and set `*_DEPLOY_TARGET=kubernetes`, `*_API_URL`, `*_OIDC_ISSUER`, `*_WEB_URL` and `*_HELM_VALUES` ([Deployment](deployment.md#cluster-access)).
 
 ## Now
 
-Container images for the API and web, a compose `app` profile with the Temporal worker, CI image builds with smoke tests, and a staging workflow that pushes images to GHCR. The worker runs from the API image with a different command; its container needs the image health check disabled (it serves no HTTP port), as compose does. Next: OpenTofu and the provider-specific deploy steps.
+Container images for the API, web and backups, a compose `app` profile with the Temporal worker, CI image builds with smoke tests, a cloud-neutral Helm chart tested in kind on every PR, and staging and production workflows that deploy it with `helm upgrade --install` once a cluster is configured. The worker runs from the API image with a different command; it serves no HTTP port, so compose disables the image health check and the chart gives it no HTTP probe. Next: OpenTofu for the chosen cloud.
 
 ## Later
 
-Add blue/green or rolling deploys, preview environments per PR, autoscaling, cross-region design, backup drills, disaster recovery tests, and cost controls.
+Add blue/green or canary deploys, preview environments per PR, cross-region design, disaster recovery tests, and cost controls.

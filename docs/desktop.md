@@ -41,11 +41,56 @@ The `anum-desktop` realm client already allows `http://127.0.0.1/*`, and Keycloa
 | `ANUM_TAURI_UPDATER_PUBKEY` | Updater public key (the `.pub` file from `tauri signer generate`). Turns on `createUpdaterArtifacts` and sets `plugins.updater.pubkey`. |
 | `ANUM_TAURI_UPDATER_ENDPOINT` | Required with the public key: the HTTPS update manifest URL (may use `{{target}}` and `{{current_version}}`). |
 | `ANUM_WINDOWS_CERTIFICATE_THUMBPRINT` | Authenticode certificate thumbprint in the build machine's certificate store; signs with SHA-256 and timestamps through `ANUM_WINDOWS_TIMESTAMP_URL` (DigiCert's by default). |
+| `ANUM_DESKTOP_VERSION` | Release version (`1.2.3`), overriding `tauri.conf.json`; the release pipeline sets it from the tag. The updater compares it with the manifest's version. |
 
 Private material never reaches the repository or the overlay: the Tauri CLI reads the updater private key from `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and macOS signing and notarization from `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID`, all as CI secrets. Missing values produce warnings, not failures, so an unsigned build still works locally. `scripts/release-config.test.mjs` runs in `pnpm check:desktop`.
 
-The overlay prepares signed updater artifacts; checking for and installing updates at runtime additionally needs `tauri-plugin-updater` registered in `src-tauri/src/lib.rs` with its capability, which is added together with the first update endpoint.
+## Updates
+
+`tauri-plugin-updater` (pinned to 2.12.0) is registered at startup only when the build carries `plugins.updater` with a public key and an endpoint, that is, a release build made with `ANUM_TAURI_UPDATER_PUBKEY` and `ANUM_TAURI_UPDATER_ENDPOINT` (`src-tauri/src/updater.rs`). Otherwise the plugin is not loaded, nothing contacts an update server, and the tray menu has no update item. When configured:
+
+- The app checks once at startup and the tray menu gains "Check for updates". A found update is offered in a dialog ("Install and restart" or "Later"). The startup check stays silent when there is nothing new or the server is unreachable; the tray check reports either.
+- The updater downloads the platform's artifact named in the manifest, verifies its minisign signature against the public key compiled into the build, installs it and restarts. An unsigned or wrongly signed artifact is refused.
+- Checks run in the Rust shell; the webview gets no updater permission, so the capability manifest is unchanged.
+
+`scripts/updater-manifest.mjs` writes the manifest (`latest.json`): `collect` copies a build's installers under release-unique names and turns each signed updater artifact (the NSIS and MSI installers on Windows, the `.app.tar.gz` on macOS) into a platform entry with its URL and signature, and `merge` combines the platforms. Its tests (`scripts/updater-manifest.test.mjs`) run in `pnpm check:desktop`. Updates only move forward: a client never installs a version lower than its own.
+
+## Release Pipeline
+
+`.github/workflows/release-clients.yml` builds the desktop installers on `windows-latest` (x86_64) and `macos-latest` (Apple silicon; Intel Macs are not built yet) with `pnpm --filter @anum/desktop build:release`, on every `v*` tag and on manual runs. The same workflow builds the mobile apps ([Flutter mobile](mobile.md#release-pipeline)). Each signing step runs only when its secrets exist; without them the build still runs unsigned and the job passes with a notice, so the workflow never fails for lack of the owner's credentials.
+
+Repository variables (Settings, Secrets and variables, Actions, Variables):
+
+| Variable | Value |
+| --- | --- |
+| `ANUM_PRODUCTION_API_URL` | Production API origin (HTTPS), compiled into the web bundle and the CSP. Shared with the mobile build. |
+| `ANUM_PRODUCTION_OIDC_ISSUER` | Production Keycloak issuer (HTTPS). Shared with the mobile build. |
+| `ANUM_TAURI_UPDATER_PUBKEY` | Contents of the `.pub` file from `pnpm --filter @anum/desktop exec tauri signer generate -w anum-updater.key` (run outside the repository). |
+| `ANUM_TAURI_UPDATER_ENDPOINT` | Manifest URL. For GitHub releases of a public repository: `https://github.com/<owner>/<repo>/releases/latest/download/latest.json`. |
+| `ANUM_TAURI_UPDATER_ARTIFACT_BASE_URL` | Optional. Where clients download the installers from; defaults to the tag's GitHub release download URL. Set it when the repository is private and the files are mirrored to public storage. |
+| `ANUM_WINDOWS_CERTIFICATE_THUMBPRINT` | Thumbprint of the Authenticode certificate in the PFX secret below. `ANUM_WINDOWS_TIMESTAMP_URL` optionally replaces the timestamp server. |
+
+Repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The private key file from `tauri signer generate` and its password. Without them no updater artifacts or manifest are produced, even when the public key variable is set. Losing the key means installed clients can never be updated again, so keep an offline backup. |
+| `ANUM_WINDOWS_CERTIFICATE_PFX_BASE64`, `ANUM_WINDOWS_CERTIFICATE_PASSWORD` | The Authenticode certificate as a base64 PFX (`base64 -w0 cert.pfx`) and its password, imported into the runner's user certificate store for the build. A certificate held in a cloud HSM needs a custom `signCommand` instead. |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | Developer ID Application certificate as a base64 `.p12`, its password, and the identity name (`Developer ID Application: <Name> (<TEAM>)`). |
+| `APPLE_TEAM_ID`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY_P8` | Shared with iOS ([Flutter mobile](mobile.md#release-pipeline)); here the API key notarizes the macOS app. macOS signing needs both the certificate and the key. |
+
+Each desktop job uploads its installers, their SHA-256 files and (when signed for updates) a manifest fragment as the workflow artifact `anum-desktop-<platform>`. On a tag, the `publish` job merges the fragments into `latest.json` and attaches everything to a draft GitHub release named after the tag. It publishes nothing (artifacts only) when the production API and issuer variables are missing, so a release never carries a build that talks to local services.
+
+Cutting a release:
+
+1. On `main`, set `version` in `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/src-tauri/Cargo.toml` and `apps/mobile/pubspec.yaml` to the new `X.Y.Z` (the tag overrides the build; the files keep manual runs consistent).
+2. Tag that commit `vX.Y.Z` and push the tag. Tags must be plain `vX.Y.Z`: MSI installers and the stores reject other shapes, and the workflow refuses them.
+3. Read the run summary (checksums, and notices about anything left unsigned), install the draft release's installers on a test machine, then publish the draft. Publishing is what makes `releases/latest/download/latest.json` point at the new version, so installed clients only see it from then on.
+
+Rolling back: the updater never downgrades, so a bad desktop release is fixed forward. Unpublish or delete the bad GitHub release at once (the `latest` URL falls back to the previous published release, which stops further installs and updates to the bad version), then tag a new patch version with the fix or from the last good commit. Users who already installed the bad version move to the patch through the normal update prompt; installing the previous installer by hand also works.
+
+The pipeline has not run yet: it needs the variables and secrets above, and the signed and macOS paths cannot be exercised from a development container.
 
 ## Release Gate
 
-A signed installer still requires the MSVC C++ linker toolchain, a Windows code-signing certificate, Apple notarization credentials and the updater key pair. Local file context, screen-aware assistance with explicit consent, local-only tools, offline drafts, and encrypted local cache remain future capabilities.
+A signed installer still requires a Windows code-signing certificate, Apple signing and notarization credentials and the updater key pair in the repository settings ([Release pipeline](#release-pipeline)), then a first signed release installed and updated on Windows and macOS. Local file context, screen-aware assistance with explicit consent, local-only tools, offline drafts, and encrypted local cache remain future capabilities.

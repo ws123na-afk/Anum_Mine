@@ -1,10 +1,11 @@
 mod oidc_loopback;
+mod updater;
 
 use serde::Serialize;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{IsMenuItem, Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, WebviewWindow,
+    AppHandle, Emitter, Manager, WebviewWindow, Wry,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -36,10 +37,22 @@ fn show_launcher(window: &WebviewWindow) {
     let _ = window.emit("anum://open-task-launcher", ());
 }
 
-fn install_tray(app: &AppHandle) -> tauri::Result<()> {
+fn install_tray(app: &AppHandle, updates: bool) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open ANUM", true, None::<&str>)?;
+    let check = MenuItem::with_id(
+        app,
+        updater::MENU_ID,
+        "Check for updates",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&open];
+    if updates {
+        items.push(&check);
+    }
+    items.push(&quit);
+    let menu = Menu::with_items(app, &items)?;
 
     TrayIconBuilder::new()
         .menu(&menu)
@@ -49,6 +62,7 @@ fn install_tray(app: &AppHandle) -> tauri::Result<()> {
                     show_launcher(&window);
                 }
             }
+            updater::MENU_ID => updater::check(app.clone(), updater::Trigger::User),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -82,7 +96,12 @@ pub fn run() {
             oidc_loopback::oidc_open_browser
         ])
         .setup(|app| {
-            install_tray(app.handle())?;
+            // No-op unless the build carries an updater public key and endpoint.
+            let updates = updater::register(app.handle())?;
+            install_tray(app.handle(), updates)?;
+            if updates {
+                updater::check(app.handle().clone(), updater::Trigger::Startup);
+            }
             app.global_shortcut().register(launcher_shortcut())?;
             Ok(())
         })

@@ -51,9 +51,27 @@ export function canApprove(approval: Approval, now: Date = new Date()): boolean 
   return effectiveStatus(approval, now) === 'pending' && Boolean(approval.payloadHash);
 }
 
-/** The decision body: the payload hash exactly as it was displayed. */
-export function decisionBody(approval: Approval): { payload_hash: string } | undefined {
-  return approval.payloadHash ? { payload_hash: approval.payloadHash } : undefined;
+/** Longest decision reason the API accepts. */
+export const REASON_MAX_CHARS = 500;
+
+/** A typed reason as sent: trimmed, blank means none. */
+export function normalizeReason(reason: string | null | undefined): string | undefined {
+  const trimmed = (reason ?? '').replace(/\r\n/g, '\n').trim();
+  return trimmed ? trimmed.slice(0, REASON_MAX_CHARS) : undefined;
+}
+
+export interface DecisionBody {
+  payload_hash?: string;
+  reason?: string;
+}
+
+/** The decision body: the payload hash exactly as it was displayed, and the optional reason. */
+export function decisionBody(approval: Approval, reason?: string | null): DecisionBody | undefined {
+  const body: DecisionBody = {};
+  if (approval.payloadHash) body.payload_hash = approval.payloadHash;
+  const normalized = normalizeReason(reason);
+  if (normalized) body.reason = normalized;
+  return Object.keys(body).length ? body : undefined;
 }
 
 /** Short form of the hash for display; the full value is in the title attribute. */

@@ -9,6 +9,7 @@ from .schemas import (
     Tenant,
     TenantContext,
     Workspace,
+    WorkspaceApprovalPolicy,
     WorkspaceInvitation,
     WorkspaceMembership,
 )
@@ -57,6 +58,10 @@ class AnumRepository(Protocol):
     def list_approvals_for_update(self, context: TenantContext) -> list[Approval]: ...
     def list_events(self, context: TenantContext) -> list[DomainEvent]: ...
     def record_event(self, event: DomainEvent) -> DomainEvent: ...
+    def get_approval_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy: ...
+    def save_approval_policy(
+        self, policy: WorkspaceApprovalPolicy, context: TenantContext
+    ) -> WorkspaceApprovalPolicy: ...
 
 
 class InMemoryRepository:
@@ -279,3 +284,13 @@ class InMemoryRepository:
     def record_event(self, event: DomainEvent) -> DomainEvent:
         self.store.events.append(event)
         return event
+
+    def get_approval_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy:
+        stored = self.store.approval_policies.get((context.tenant_id, context.workspace_id))
+        return stored.model_copy() if stored is not None else WorkspaceApprovalPolicy()
+
+    def save_approval_policy(
+        self, policy: WorkspaceApprovalPolicy, context: TenantContext
+    ) -> WorkspaceApprovalPolicy:
+        self.store.approval_policies[(context.tenant_id, context.workspace_id)] = policy.model_copy()
+        return policy

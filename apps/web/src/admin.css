@@ -1,0 +1,64 @@
+/* Members, invitations and model budgets (owner screens). Uses the depth tokens from styles.css. */
+.adminPanel { margin-top: 16px; padding: 18px; }
+.adminGrid { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
+.adminFields { display: grid; gap: 0 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+.adminFields .wide { grid-column: span 2; }
+.adminIcon, .adminAvatar {
+  align-items: center; background: linear-gradient(135deg, rgba(125, 211, 252, .22), rgba(167, 139, 250, .22)); border-radius: 12px;
+  box-shadow: 0 1px 0 var(--d-edge) inset, 0 6px 16px rgba(139, 124, 246, .25); color: var(--d-text); display: inline-flex; flex: none;
+  font-size: 13px; font-weight: 800; height: 40px; justify-content: center; width: 40px;
+}
+.adminIcon svg { height: 19px; width: 19px; }
+.adminForbidden { align-items: flex-start; display: flex; gap: 14px; margin-top: 16px; padding: 18px; }
+.adminForbidden h3 { margin-bottom: 4px; }
+.adminForbidden p + p { margin-top: 6px; }
+.memberList { display: grid; margin-top: 10px; }
+.memberRow { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: 12px; grid-template-columns: 40px minmax(0, 1fr) auto 130px auto; padding: 12px 0; }
+.memberRow.invitationRow { grid-template-columns: 40px minmax(0, 1fr) auto auto; }
+.memberRow.inactive .memberMain, .memberRow.inactive .adminAvatar { opacity: .6; }
+.memberMain { display: grid; gap: 2px; min-width: 0; }
+.memberMain strong { overflow-wrap: anywhere; }
+.memberMain small { color: var(--d-faint); font-size: 12px; }
+.memberMain .memberHint { color: var(--d-warn); }
+.memberRole select { padding: 7px 9px; }
+.memberRow > button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 36px; padding: 6px 12px; }
+.tokenReveal { border-color: rgba(252, 211, 141, .45); box-shadow: var(--d-elev-2), 0 0 0 1px rgba(252, 211, 141, .15), 0 10px 40px rgba(252, 211, 141, .12); }
+.tokenWarning { align-items: flex-start; color: var(--d-warn); display: flex; font-size: 13px; gap: 8px; margin-top: 10px; }
+.tokenWarning svg { flex: none; height: 17px; margin-top: 2px; width: 17px; }
+.tokenValue {
+  background: rgba(2, 6, 23, .55); border: 1px solid var(--d-line); border-radius: 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, .35) inset;
+  color: var(--d-text); display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; padding: 10px 12px; user-select: all;
+}
+.sectionIcon { color: var(--d-violet); height: 22px; width: 22px; }
+.budgetGrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); margin-top: 16px; }
+.budgetCard { display: grid; gap: 14px; padding: 18px; }
+.budgetCard.exceeded { border-color: rgba(253, 164, 175, .45); box-shadow: var(--d-elev-1), 0 10px 36px rgba(253, 164, 175, .12); }
+.budgetMeter { display: grid; gap: 6px; }
+.budgetMeterTop { align-items: baseline; display: flex; gap: 10px; justify-content: space-between; }
+.budgetMeterTop span { color: var(--d-muted); font-size: 12px; font-weight: 700; }
+.budgetMeterTop strong { font-size: 18px; }
+.budgetMeterTop small { color: var(--d-muted); font-size: 12px; font-weight: 600; }
+.meterTrack { background: rgba(2, 6, 23, .55); border: 1px solid var(--d-line); border-radius: 999px; box-shadow: 0 1px 2px rgba(0, 0, 0, .4) inset; height: 12px; overflow: hidden; }
+.meterTrack span { background: linear-gradient(90deg, var(--d-sky), var(--d-violet)); border-radius: inherit; box-shadow: 0 0 14px rgba(167, 139, 250, .5); display: block; height: 100%; transition: width 400ms var(--d-ease); }
+.meterTrack.warn span { background: linear-gradient(90deg, #fbbf24, var(--d-warn)); box-shadow: 0 0 14px rgba(252, 211, 141, .5); }
+.meterTrack.stop span { background: linear-gradient(90deg, #fb7185, var(--d-stop)); box-shadow: 0 0 14px rgba(253, 164, 175, .55); }
+.meterTrack.none span { width: 0 !important; }
+.budgetStats { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
+.budgetForm { border-top: 1px solid var(--d-line); display: grid; gap: 0 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); padding-top: 4px; }
+.budgetForm > .notice, .budgetForm > p, .budgetForm > .actions { grid-column: 1 / -1; }
+.budgetForm > p.muted { margin-top: 10px; }
+.budgetAlert { align-items: center; border-color: rgba(253, 164, 175, .45); display: grid; gap: 14px; grid-template-columns: 40px minmax(0, 1fr) auto; margin-bottom: 16px; padding: 16px 18px; }
+.budgetAlert p { color: var(--d-muted); font-size: 13px; margin-top: 2px; }
+.budgetAlertActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.budgetAlertActions button { align-items: center; background: linear-gradient(135deg, #7c6cf2, #a78bfa 60%, #c4b5fd); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 36px; padding: 6px 12px; }
+.budgetAlertActions button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
+@media (prefers-reduced-motion: reduce) { .meterTrack span { transition: none; } }
+@media (max-width: 720px) {
+  .memberRow, .memberRow.invitationRow { grid-template-columns: 40px minmax(0, 1fr); }
+  .memberRow > .statusBadge, .memberRow > .memberRole, .memberRow > button { grid-column: 2; justify-self: start; }
+  .memberRow > span:empty { display: none; }
+  .adminFields .wide { grid-column: auto; }
+  .budgetStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .budgetAlert { grid-template-columns: 40px minmax(0, 1fr); }
+  .budgetAlertActions { grid-column: 1 / -1; }
+}

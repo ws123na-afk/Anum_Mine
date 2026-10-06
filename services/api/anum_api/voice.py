@@ -420,6 +420,7 @@ async def submit_voice_command(
         workspace_id=context.workspace_id,
         created_at=now,
         updated_at=now,
+        created_by=context.user_id,
     )
     repository.create_task(task)
     return VoiceCommandResult(session=session, task=task, transcript_segment_id=segment.id)

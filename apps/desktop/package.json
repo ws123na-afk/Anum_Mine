@@ -7,7 +7,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "build:release": "node scripts/release-config.mjs && tauri build --config src-tauri/tauri.release.conf.json",
-    "check": "node --test scripts/release-config.test.mjs && cargo check --manifest-path src-tauri/Cargo.toml",
+    "check": "node --test scripts/release-config.test.mjs scripts/updater-manifest.test.mjs && cargo check --manifest-path src-tauri/Cargo.toml",
     "icons": "tauri icon"
   },
   "devDependencies": {

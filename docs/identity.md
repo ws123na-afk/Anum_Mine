@@ -92,6 +92,16 @@ Rules:
 - Every change writes an append-only audit record (`workspace_invitation.create|accept|revoke`, `workspace_member.add|role_change|deactivate|reactivate`; the actor is the caller; RLS allows only select and insert on `audit_records`) and a canonical event ([Events](events.md#membership-events)), both in the request's transaction. With PostgreSQL the event is a durable outbox row, so it reaches NATS only if the change commits.
 - Refused attempts are not audited yet (the transaction rolls back).
 
+### Client screens
+
+Web (`Members` in the navigation, `apps/web/src/AdminViews.tsx`) and Flutter (Settings › Workspace administration, `apps/mobile/lib/features/admin/`) show live data from these routes only:
+
+- **Members:** user id, role, active or deactivated, and a hint on the only active owner. Owners change roles and deactivate or reactivate members; the API's `409` last-owner refusal is shown in its own words.
+- **Invitations:** create with a user id, an email or both, a role and an expiry (1 to 720 hours, default 168), validated like the API before sending. The token is shown once, with a copy action, the expiry and a warning that it cannot be shown again; it is kept only in memory and dropped on Done. The web client also shows a link, `<web app URL>#invitation=<token>&workspace=<workspace_id>`: the token travels in the URL fragment, which browsers never send to a server. Pending invitations can be revoked; accepted, revoked and expired ones stay listed with their dates.
+- **Accept an invitation** is open to everyone signed in: paste the token or the link (Flutter also offers paste from the clipboard). Opening a link in the web app reads it once, removes it from the address bar and history, and pre-fills the form. The workspace from the link (or typed in) is sent as `x-workspace-id` for the accept call only, so an invitee can join a workspace other than the one the client has selected; the client then says to switch workspace.
+- **Permissions are the API's answer.** Clients do not guess roles from the token: listing members or invitations answers `403` for non-owners, and the screens then explain that the owner role is needed and quote the API's message. A `403` on a change is shown in place the same way.
+- Tests: `apps/web/test/admin.test.ts` (mapping, validation, links, error envelope), `apps/web/e2e/admin.spec.ts` (desktop and mobile projects, mocked API) and `apps/mobile/test/admin_test.dart` (repository, controllers and screens with a fake transport).
+
 ## Errors
 
 | Status | When |
@@ -162,8 +172,8 @@ The API must allow the web origin (`ANUM_CORS_ORIGINS`) and run in `oidc` mode; 
 
 ## Now
 
-Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
+Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
 
 ## Later
 
-Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email and client screens for membership management; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.
+Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; a workspace switcher in the web client for invitees who joined another workspace; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.

@@ -97,7 +97,11 @@ class ApprovalsScreen extends StatelessWidget {
                                 : AnumTone.stop,
                             title: approvalTitle(approval, controller.tasks),
                             subtitle: 'Tool: ${approval.action}',
-                            detail: decisionSummary(approval),
+                            detail: [
+                              decisionSummary(approval),
+                              if (approval.decisionReason != null)
+                                'Reason: ${approval.decisionReason}',
+                            ].join('\n'),
                             trailing: AnumPill(
                                 label: approval.risk,
                                 tone: riskTone(approval.risk)),
@@ -111,10 +115,26 @@ class ApprovalsScreen extends StatelessWidget {
       );
 }
 
-class _PendingCard extends StatelessWidget {
+class _PendingCard extends StatefulWidget {
   const _PendingCard({required this.approval, required this.controller});
   final WorkspaceApproval approval;
   final WorkspaceController controller;
+
+  @override
+  State<_PendingCard> createState() => _PendingCardState();
+}
+
+class _PendingCardState extends State<_PendingCard> {
+  final _reason = TextEditingController();
+
+  WorkspaceApproval get approval => widget.approval;
+  WorkspaceController get controller => widget.controller;
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -141,6 +161,11 @@ class _PendingCard extends StatelessWidget {
         const SizedBox(height: 2),
         Text('Tool: ${approval.action}',
             style: TextStyle(color: p.faint, fontSize: 12)),
+        if (approval.target != null) ...[
+          const SizedBox(height: 2),
+          Text('Sends to ${approval.target}',
+              style: TextStyle(color: p.muted, fontSize: 12)),
+        ],
         const SizedBox(height: 8),
         Text('Exactly what it will send',
             style: TextStyle(color: p.faint, fontSize: 12)),
@@ -187,12 +212,24 @@ class _PendingCard extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 12),
+        TextField(
+          controller: _reason,
+          maxLength: approvalReasonMaxChars,
+          minLines: 1,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Reason (optional)',
+            hintText: 'Why you approve or reject this; kept in the audit trail',
+          ),
+        ),
+        const SizedBox(height: 8),
         Row(children: [
           Expanded(
             child: OutlinedButton.icon(
               onPressed: controller.mutating
                   ? null
-                  : () => controller.decide(approval, approve: false),
+                  : () => controller.decide(approval,
+                      approve: false, reason: normalizeReason(_reason.text)),
               icon: const Icon(Icons.close),
               label: const Text('Reject'),
             ),
@@ -219,7 +256,8 @@ class _PendingCard extends StatelessWidget {
         title: const Text('Approve this action?'),
         content: Text(
             'The agent will now call ${approval.action} with the arguments shown '
-            '(payload hash ${shortHash(approval.payloadHash)}).\n\n'
+            '(payload hash ${shortHash(approval.payloadHash)})'
+            '${approval.target == null ? '' : ' and send them to ${approval.target}'}.\n\n'
             'Risk: ${approval.risk}. If the call changes before it runs, it is '
             'not executed. This is recorded in the audit log.'),
         actions: [
@@ -232,7 +270,10 @@ class _PendingCard extends StatelessWidget {
         ],
       ),
     );
-    if (ok == true) await controller.decide(approval, approve: true);
+    if (ok == true) {
+      await controller.decide(approval,
+          approve: true, reason: normalizeReason(_reason.text));
+    }
   }
 }
 

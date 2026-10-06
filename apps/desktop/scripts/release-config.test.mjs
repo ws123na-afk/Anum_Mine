@@ -51,3 +51,10 @@ test('extendCsp appends without duplicates', () => {
   assert.equal(extendCsp("default-src 'self'; connect-src 'self'", 'connect-src', ['https://a', "'self'"]), "default-src 'self'; connect-src 'self' https://a");
   assert.equal(extendCsp("default-src 'self'", 'connect-src', ['https://a']), "default-src 'self'; connect-src https://a");
 });
+
+test('the release version comes from ANUM_DESKTOP_VERSION and must be semantic', () => {
+  assert.equal(releaseConfig({}, base).config.version, undefined);
+  assert.equal(releaseConfig({ ANUM_DESKTOP_VERSION: '1.2.3' }, base).config.version, '1.2.3');
+  assert.equal(releaseConfig({ ANUM_DESKTOP_VERSION: '1.2.3-beta.1' }, base).config.version, '1.2.3-beta.1');
+  assert.throws(() => releaseConfig({ ANUM_DESKTOP_VERSION: 'v1.2.3' }, base), /semantic/);
+});

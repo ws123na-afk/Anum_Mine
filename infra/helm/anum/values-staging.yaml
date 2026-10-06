@@ -1,0 +1,56 @@
+# Staging overlay: helm upgrade --install anum infra/helm/anum -f infra/helm/anum/values-staging.yaml
+# Placeholders only (*.example hosts). The deploy workflow passes the image tags; the
+# owner replaces hosts, endpoints and CIDRs once the cloud is chosen
+# (docs/deployment.md). Secrets come from the Secrets named under `secrets`.
+
+image:
+  api:
+    repository: ghcr.io/OWNER/anum-api
+  web:
+    repository: ghcr.io/OWNER/anum-web
+
+config:
+  ANUM_ENVIRONMENT: staging
+  ANUM_KEYCLOAK_ISSUER: https://id.staging.anum.example/realms/anum
+  ANUM_CORS_ORIGINS: '["https://app.staging.anum.example"]'
+  ANUM_NATS_URL: nats://nats.anum-staging.svc.cluster.local:4222
+  ANUM_TEMPORAL_TARGET: temporal-frontend.temporal.svc.cluster.local:7233
+  ANUM_TEMPORAL_NAMESPACE: anum-staging
+  ANUM_VALKEY_URL: redis://valkey.anum-staging.svc.cluster.local:6379/0
+  ANUM_S3_ENDPOINT: https://s3.staging.anum.example
+  ANUM_S3_BUCKET: anum-staging-files
+  # Staging may run the mock model until the provider account exists (release gate:
+  # mock is a blocker in production only).
+  ANUM_MODEL_PROVIDER: mock
+  ANUM_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4318
+
+api:
+  replicas: 2
+  # The ingress controller's pod CIDR (placeholder).
+  forwardedAllowIps: "10.0.0.0/8"
+  hpa:
+    minReplicas: 2
+    maxReplicas: 4
+
+worker:
+  replicas: 1
+  pdb:
+    enabled: false
+
+web:
+  replicas: 2
+  cspConnectSrc: "https://api.staging.anum.example https://id.staging.anum.example"
+
+ingress:
+  className: nginx
+  annotations:
+    # SSE (/api/v1/events/stream) needs unbuffered, long-lived responses.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+  hosts:
+    web: app.staging.anum.example
+    api: api.staging.anum.example
+  tls:
+    secretName: anum-staging-tls
+    clusterIssuer: letsencrypt-staging

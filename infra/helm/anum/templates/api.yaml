@@ -1,0 +1,155 @@
+{{- if .Values.api.enabled }}
+{{- $component := "api" }}
+{{- $v := .Values.api }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "anum.fullname" . }}-api
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  {{- if not $v.hpa.enabled }}
+  replicas: {{ $v.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "anum.configChecksum" . }}
+        {{- with $v.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "anum.serviceAccountName" (dict "root" $ "component" $component) }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ $v.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: {{ $v.uid }}
+        runAsGroup: {{ $v.uid }}
+        fsGroup: {{ $v.uid }}
+      containers:
+        - name: api
+          image: {{ include "anum.image" (dict "image" .Values.image.api "root" $) }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          # The image's CMD: uvicorn anum_api.main:app on :8000 with proxy headers.
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "anum.configName" . }}
+          env:
+            {{- include "anum.secretEnv" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ $v.probes.startup.periodSeconds }}
+            failureThreshold: {{ $v.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ $v.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ $v.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ $v.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ $v.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ $v.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ $v.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "anum.apiVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "anum.apiVolumes" . | nindent 8 }}
+      affinity:
+        {{- include "anum.affinity" (dict "root" $ "component" $component "affinity" $v.affinity) | nindent 8 }}
+      {{- with $v.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "anum.fullname" . }}-api
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  type: {{ $v.service.type }}
+  selector:
+    {{- include "anum.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $v.service.port }}
+      targetPort: http
+      protocol: TCP
+{{- if $v.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "anum.fullname" . }}-api
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  minAvailable: {{ $v.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+{{- end }}
+{{- if $v.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "anum.fullname" . }}-api
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "anum.fullname" . }}-api
+  minReplicas: {{ $v.hpa.minReplicas }}
+  maxReplicas: {{ $v.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $v.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

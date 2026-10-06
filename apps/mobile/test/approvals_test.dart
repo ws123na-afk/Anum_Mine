@@ -19,7 +19,8 @@ Map<String, Object?> _approvalJson(
         {String status = 'pending',
         String? decidedBy,
         String? decidedAt,
-        String? expiresAt}) =>
+        String? expiresAt,
+        String? decisionReason}) =>
     {
       'id': 'approval_1',
       'task_id': 'task_1',
@@ -44,6 +45,9 @@ Map<String, Object?> _approvalJson(
               .toIso8601String(),
       'decided_at': decidedAt,
       'decided_by': decidedBy,
+      'decision_reason': decisionReason,
+      'requested_by': 'user_test',
+      'target': 'hooks.example',
     };
 
 class _Transport implements ApiTransport {
@@ -57,7 +61,8 @@ class _Transport implements ApiTransport {
         'approval': _approvalJson(
             status: 'approved',
             decidedBy: 'user_test',
-            decidedAt: '2026-10-06T11:00:00Z'),
+            decidedAt: '2026-10-06T11:00:00Z',
+            decisionReason: (request.body as Map?)?['reason'] as String?),
       });
     }
     final lists = <String, List<Object?>>{
@@ -79,6 +84,7 @@ class _FakeRepository implements WorkspaceRepository {
   _FakeRepository(this.approvals);
   final List<WorkspaceApproval> approvals;
   final decided = <(String, String?, bool)>[];
+  final reasons = <String?>[];
 
   @override
   Future<WorkspaceSnapshot> loadWorkspace() async => WorkspaceSnapshot(
@@ -90,8 +96,9 @@ class _FakeRepository implements WorkspaceRepository {
 
   @override
   Future<WorkspaceApproval> decideApproval(WorkspaceApproval approval,
-      {required bool approve}) async {
+      {required bool approve, String? reason}) async {
     decided.add((approval.id, approval.payloadHash, approve));
+    reasons.add(reason);
     return approval;
   }
 
@@ -104,7 +111,8 @@ WorkspaceApproval _approval(
         String? hash,
         DateTime? expiresAt,
         String? decidedBy,
-        DateTime? decidedAt}) =>
+        DateTime? decidedAt,
+        String? decisionReason}) =>
     WorkspaceApproval(
       id: 'approval_$status',
       taskId: 'task_1',
@@ -122,6 +130,7 @@ WorkspaceApproval _approval(
       expiresAt: expiresAt,
       decidedBy: decidedBy,
       decidedAt: decidedAt,
+      decisionReason: decisionReason,
     );
 
 Future<ApiWorkspaceRepository> _repository(_Transport transport) async {
@@ -163,6 +172,24 @@ void main() {
     expect(decided.status, 'approved');
     expect(decided.decidedBy, 'user_test');
     expect(decided.decidedAt, isNotNull);
+    expect(approval.target, 'hooks.example');
+    expect(approval.requestedBy, 'user_test');
+
+    final withReason = await repository.decideApproval(approval,
+        approve: true, reason: '  Checked with legal\r\n ');
+    expect(transport.requests.last.body,
+        {'payload_hash': _hash, 'reason': 'Checked with legal'});
+    expect(withReason.decisionReason, 'Checked with legal');
+
+    await repository.decideApproval(approval, approve: true, reason: '   ');
+    expect(transport.requests.last.body, {'payload_hash': _hash});
+  });
+
+  test('reasons are trimmed, capped and optional', () {
+    expect(normalizeReason(null), isNull);
+    expect(normalizeReason('  '), isNull);
+    expect(normalizeReason('x' * 600)!.length, approvalReasonMaxChars);
+    expect(decisionBody(_approval().copyWithoutHash(), 'No'), {'reason': 'No'});
   });
 
   test('arguments flatten into sorted readable rows with redaction marked', () {
@@ -246,6 +273,49 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.decided, [('approval_pending', _hash, true)]);
+    expect(repository.reasons, [null]);
+  });
+
+  testWidgets('the typed reason is sent and the target is shown',
+      (tester) async {
+    final repository = _FakeRepository([
+      WorkspaceApproval(
+        id: 'approval_target',
+        taskId: 'task_1',
+        action: 'external.action',
+        reason: 'Needs approval.',
+        risk: 'high',
+        status: 'pending',
+        createdAt: DateTime.utc(2026, 10, 6, 10),
+        payloadHash: _hash,
+        expiresAt: DateTime.now().add(const Duration(hours: 5)),
+        target: 'hooks.example',
+      ),
+      _approval(
+          status: 'approved',
+          decidedBy: 'user_owner',
+          decidedAt: DateTime.utc(2026, 10, 6, 11),
+          decisionReason: 'Second pair of eyes'),
+    ]);
+    final controller = WorkspaceController(repository);
+    await controller.load();
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: AnumTheme.dark(),
+      home: Scaffold(body: ApprovalsScreen(controller: controller)),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sends to hooks.example'), findsOneWidget);
+    expect(find.textContaining('Reason: Second pair of eyes'), findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Reason (optional)'), ' Wrong list ');
+    await tester.tap(find.text('Reject'));
+    await tester.pumpAndSettle();
+    expect(repository.decided, [('approval_target', _hash, false)]);
+    expect(repository.reasons, ['Wrong list']);
   });
 
   testWidgets('an approval without a hash cannot be approved', (tester) async {

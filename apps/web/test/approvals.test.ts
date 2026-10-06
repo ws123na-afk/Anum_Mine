@@ -11,6 +11,8 @@ import {
   decisionSummary,
   effectiveStatus,
   expiryLabel,
+  normalizeReason,
+  REASON_MAX_CHARS,
   shortHash,
 } from '../src/lib/approvals.ts';
 
@@ -119,5 +121,25 @@ describe('approval expiry and decider (A3)', () => {
       'Expired without a decision · at 2026-10-07T11:00:00Z',
     );
     assert.equal(decisionSummary(approval(), format, now), '');
+  });
+});
+
+describe('decision reason (A4)', () => {
+  test('the optional reason is trimmed and sent with the hash', () => {
+    assert.deepEqual(decisionBody(approval(), '  Checked with legal \r\n twice '), {
+      payload_hash: hash,
+      reason: 'Checked with legal \n twice',
+    });
+    assert.deepEqual(decisionBody(approval(), '   '), { payload_hash: hash });
+  });
+
+  test('rejecting an unbound approval may send only a reason', () => {
+    assert.deepEqual(decisionBody(approval({ payloadHash: null }), 'No'), { reason: 'No' });
+  });
+
+  test('reasons are capped at the API limit and blank means none', () => {
+    assert.equal(normalizeReason(undefined), undefined);
+    assert.equal(normalizeReason(''), undefined);
+    assert.equal(normalizeReason('x'.repeat(REASON_MAX_CHARS + 20))?.length, REASON_MAX_CHARS);
   });
 });

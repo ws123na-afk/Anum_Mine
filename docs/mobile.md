@@ -18,6 +18,7 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 - Approval decisions, automation controls, workspace files, and durable memory.
 - Push-to-talk voice commands with English/Arabic locales, editable transcript review, explicit retention, governed execution, permission recovery, and spoken status confirmation.
 - A wake-by-name voice assistant with a 3D orb, and Home, Tasks, Approvals, Automations, Resources and Governance screens that show only live workspace data, with honest empty states instead of samples.
+- Owner screens under Settings › Workspace administration: members and invitations (roles, deactivation, a one-time invitation token with copy), accepting an invitation by token or link, and monthly model budgets with usage; non-owners see the API's `403` explanation ([Identity](identity.md#client-screens), [Model gateway](model-gateway.md#monthly-budgets)). A task run refused for a used-up budget (`402`) shows the budget message on Tasks.
 - Loading, empty, error, offline, permission-denied, expired-session, and responsive phone/tablet components.
 - Widget and architecture tests for compact layout, accessibility semantics, route coverage, and embedded-secret detection.
 
@@ -90,9 +91,49 @@ Android signing (`android/app/build.gradle.kts`). The `release` build type uses 
 
 - With none set, release builds are signed with the debug key and Gradle prints a warning; that is what CI does to prove `flutter build appbundle --release` works. Such a bundle must never be uploaded.
 - Setting only some of the four fails the build. `ANUM_ANDROID_REQUIRE_RELEASE_SIGNING=true` makes a missing key fail the build; the release pipeline sets it.
-- Enrol in Play App Signing: Google holds the app signing key and the keystore above is only the upload key. In CI, store the keystore as a base64 secret, decode it to a temporary path, and pass the passwords as secrets.
+- Enrol in Play App Signing: Google holds the app signing key and the keystore above is only the upload key. In CI the keystore is a base64 secret decoded to a temporary path ([Release pipeline](#release-pipeline)).
 
-iOS. The bundle identifier is `com.anum.app`; the redirect scheme and the microphone and speech-recognition usage strings are in `ios/Runner/Info.plist`. Signing needs the Apple team, an App Store distribution certificate and a provisioning profile for `com.anum.app` (Xcode automatic signing or `flutter build ipa --export-options-plist=...`), then upload to TestFlight. None of these exist yet ([Production plan](production-plan.md#credentials-and-decisions-needed-from-the-owner)).
+iOS. The bundle identifier is `com.anum.app`; the redirect scheme and the microphone and speech-recognition usage strings are in `ios/Runner/Info.plist`. The project keeps automatic signing with no team; the release pipeline supplies the team and an App Store Connect API key, and Xcode creates the cloud-managed distribution certificate and the App Store profile for `com.anum.app`. Locally, `flutter build ipa` works once a team is selected in Xcode. The Apple account does not exist yet ([Production plan](production-plan.md#credentials-and-decisions-needed-from-the-owner)).
+
+## Release Pipeline
+
+`.github/workflows/release-clients.yml` builds the store apps on every `v*` tag and on manual runs (Actions, Release clients, Run workflow; tick "upload" to send a manual build to the stores). The desktop half is in [Desktop](desktop.md#release-pipeline). Signing and upload steps run only when their secrets exist; without them the jobs pass with a notice and no store artifact, so the workflow never fails for lack of the owner's credentials.
+
+- Android (`ubuntu-latest`): decodes the upload keystore into `$RUNNER_TEMP`, builds `flutter build appbundle --release` with `ANUM_ANDROID_REQUIRE_RELEASE_SIGNING=true` and the production values, refuses a debug-signed bundle, uploads `anum-<version>-<build>.aab` and its SHA-256 as the artifact `anum-android-release`, then (on tags, or manual runs with "upload") sends it to the Play internal track with `r0adkll/upload-google-play` pinned by commit. The keystore file is deleted at the end of the job.
+- iOS (`macos-latest`): with the Apple secrets, `flutter build ios --config-only` writes the production configuration and `xcodebuild archive` and `-exportArchive` sign with automatic, cloud-managed signing through the API key (`flutter build ipa` cannot pass an API key to Xcode). The IPA and its SHA-256 are uploaded as `anum-ios-release` and, on tags or with "upload", to TestFlight with `xcrun altool`. Without the secrets the job runs `flutter build ios --release --no-codesign` as a compile check. CI's `Flutter iOS compile check` job runs the cheaper debug variant on every pull request.
+
+The version name comes from the tag (`v1.2.3` becomes `1.2.3`; manual runs use `pubspec.yaml`) and the build number is the workflow run number plus `ANUM_BUILD_NUMBER_OFFSET`, so every upload has a higher Play version code and iOS build number than the last.
+
+Repository variables:
+
+| Variable | Value |
+| --- | --- |
+| `ANUM_PRODUCTION_API_URL` | Production API origin, HTTPS (becomes `ANUM_API_URL`). Shared with the desktop build. |
+| `ANUM_PRODUCTION_OIDC_ISSUER` | Production Keycloak issuer, HTTPS, equal to the API's `ANUM_KEYCLOAK_ISSUER` (becomes `ANUM_OIDC_ISSUER`). |
+| `ANUM_BUILD_NUMBER_OFFSET` | Optional. A whole number added to the run number, for example to continue above a build uploaded by hand. |
+| `ANUM_PLAY_RELEASE_STATUS` | Optional. `completed` by default; set `draft` while the Play app has never been reviewed (Play refuses `completed` releases for a draft app). |
+
+Repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `ANUM_ANDROID_KEYSTORE_BASE64` | The upload keystore, `base64 -w0 upload.jks`. |
+| `ANUM_ANDROID_KEYSTORE_PASSWORD`, `ANUM_ANDROID_KEY_ALIAS`, `ANUM_ANDROID_KEY_PASSWORD` | Keystore password, key alias and key password. |
+| `PLAY_SERVICE_ACCOUNT_JSON` | Optional. JSON key of a Google Cloud service account invited in Play Console (Users and permissions) with release rights for `com.anum.app`. Without it the bundle is built but not uploaded. |
+| `APPLE_TEAM_ID` | The ten-character Apple Developer team ID. |
+| `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID` | Key ID and issuer ID from App Store Connect, Users and Access, Integrations. |
+| `APP_STORE_CONNECT_API_KEY_P8` | The downloaded `AuthKey_<id>.p8` file's contents. The key needs the Admin role so Xcode may create the cloud-managed distribution certificate and profiles. |
+
+Before the first upload: create the app `com.anum.app` in Play Console and upload the first bundle by hand (the Play API cannot create an app), enrol in Play App Signing, and create the app record for `com.anum.app` in App Store Connect.
+
+Cutting a release: set the version (see [Desktop](desktop.md#release-pipeline) for all three files), then tag `vX.Y.Z` and push the tag. The run uploads to the Play internal track and TestFlight; promote from there in Play Console (internal to closed or production, with a staged rollout percentage) and App Store Connect (TestFlight groups, then submit for review).
+
+Rolling back a store release:
+
+- Play: halt the staged rollout in Play Console (Release, the track, Halt rollout), which stops new installs of that version. Play cannot downgrade installed users, so fix forward: tag a new patch version, which gets a higher version code, and roll it out. Internal-track builds can simply be superseded.
+- App Store: before release, remove the build from review or from the TestFlight groups. After release, pause the phased release if it is still running, then ship a fixed build through an expedited review; an approved version cannot be replaced by an older one.
+
+The pipeline has not run yet: it needs the accounts and secrets above, and no signed build or macOS job can be run from a Linux development container.
 
 ## Verification
 
@@ -105,7 +146,7 @@ flutter test
 flutter build apk --debug
 ```
 
-`test/oidc_session_test.dart` covers token-to-session mapping, refresh (including rotation, rejection and offline failures), workspace headers, sign-out and the controller flow with a fake authenticator; `test/configure_native_test.dart` covers the native configuration and checks that the committed projects match it. CI runs format, analyze and the tests, builds a debug APK and a (debug-signed) release app bundle. A real browser round trip against Keycloak, secure storage, notifications, microphone handling and file transfer still need the device checklist below before release.
+`test/oidc_session_test.dart` covers token-to-session mapping, refresh (including rotation, rejection and offline failures), workspace headers, sign-out and the controller flow with a fake authenticator; `test/configure_native_test.dart` covers the native configuration and checks that the committed projects match it. CI runs format, analyze and the tests, builds a debug APK and a (debug-signed) release app bundle, and compiles the iOS app (debug, unsigned) on macOS. A real browser round trip against Keycloak, secure storage, notifications, microphone handling and file transfer still need the device checklist below before release.
 
 ## Real-Device Test Checklist
 

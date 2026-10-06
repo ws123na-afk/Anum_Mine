@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_models.dart';
+import '../admin/admin_repository.dart';
 import '../auth/auth_repository.dart';
 
 enum SettingsPhase {
@@ -14,8 +15,11 @@ enum SettingsPhase {
 }
 
 class SettingsController extends ChangeNotifier {
-  SettingsController(this.repository);
+  SettingsController(this.repository, {this.admin});
   final AuthRepository repository;
+
+  /// Members, invitations and model budgets; the API decides who may use them.
+  final AdminRepository? admin;
   SettingsPhase phase = SettingsPhase.initial;
   LocalSession? session;
   ModelConfiguration? model;

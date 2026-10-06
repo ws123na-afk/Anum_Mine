@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../data/api_client.dart';
 import 'workspace_models.dart';
 import 'workspace_repository.dart';
 
@@ -9,6 +10,15 @@ class WorkspaceController extends ChangeNotifier {
   WorkspaceSnapshot? snapshot;
   String? message;
   bool mutating = false;
+
+  /// Set when a run is refused with 402: the API's sentence names the reset
+  /// date. Not an error state: the workspace stays usable.
+  String? budgetMessage;
+
+  void dismissBudget() {
+    budgetMessage = null;
+    notifyListeners();
+  }
 
   List<WorkspaceTask> get tasks => snapshot?.tasks ?? const [];
   List<WorkspaceApproval> get approvals => snapshot?.approvals ?? const [];
@@ -51,8 +61,9 @@ class WorkspaceController extends ChangeNotifier {
   Future<WorkspaceTask?> resumeTask(String id) =>
       _mutate(() => repository.resumeTask(id));
   Future<void> decide(WorkspaceApproval approval,
-      {required bool approve}) async {
-    await _mutate(() => repository.decideApproval(approval, approve: approve));
+      {required bool approve, String? reason}) async {
+    await _mutate(() =>
+        repository.decideApproval(approval, approve: approve, reason: reason));
   }
 
   Future<void> startAutomation(String id) async {
@@ -99,11 +110,21 @@ class WorkspaceController extends ChangeNotifier {
   Future<T?> _mutate<T>(Future<T> Function() operation) async {
     mutating = true;
     message = null;
+    budgetMessage = null;
     notifyListeners();
     try {
       final result = await operation();
       await load();
       return result;
+    } on ApiException catch (error) {
+      if (error.isBudgetExceeded) {
+        budgetMessage = error.message;
+        // The task was created before its run was refused: show it.
+        await load();
+      } else {
+        message = error.toString();
+        phase = LoadPhase.error;
+      }
     } on WorkspaceOfflineException catch (error) {
       phase = LoadPhase.offline;
       message = error.message;

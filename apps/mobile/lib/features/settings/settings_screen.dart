@@ -5,6 +5,7 @@ import '../../src/theme/anum_theme.dart';
 import 'settings_controller.dart';
 import '../../src/widgets/depth.dart';
 import '../auth/account_screens.dart';
+import '../admin/admin.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({required this.controller, super.key});
@@ -104,6 +105,12 @@ class _Content extends StatelessWidget {
                                 currentWorkspaceId: session.context.workspaceId,
                                 role: session.context.roles.join(', '),
                                 onSwitched: controller.load))))),
+            if (controller.admin != null) ...[
+              _Heading('Workspace administration'),
+              _AdminCard(
+                  repository: controller.admin!,
+                  workspaceId: session.context.workspaceId),
+            ],
             _Heading('Model connection'),
             Card(
                 child: controller.model == null
@@ -462,4 +469,48 @@ class _ModelSheetState extends State<_ModelSheet> {
                         : const Icon(Icons.cable),
                     label: Text(saving ? 'Testing...' : 'Save and test')),
               ])));
+}
+
+/// Members, invitations and model budgets. Shown to everyone: the screens
+/// show the API's 403 answer to non-owners instead of guessing roles.
+class _AdminCard extends StatelessWidget {
+  const _AdminCard({required this.repository, required this.workspaceId});
+  final AdminRepository repository;
+  final String workspaceId;
+
+  void _push(BuildContext context, Widget screen) =>
+      Navigator.push(context, MaterialPageRoute<void>(builder: (_) => screen));
+
+  @override
+  Widget build(BuildContext context) => Card(
+          child: Column(children: [
+        ListTile(
+            leading: const Icon(Icons.group_outlined),
+            title: const Text('Members and invitations'),
+            subtitle: const Text('Roles, deactivation and single-use invites.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _push(
+                context,
+                MembersScreen(
+                    controller: MembersController(repository),
+                    repository: repository,
+                    currentWorkspaceId: workspaceId))),
+        ListTile(
+            leading: const Icon(Icons.speed_outlined),
+            title: const Text('Model budgets'),
+            subtitle: const Text('Monthly cost and token limits with usage.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _push(context,
+                BudgetsScreen(controller: BudgetsController(repository)))),
+        ListTile(
+            leading: const Icon(Icons.how_to_reg_outlined),
+            title: const Text('Accept an invitation'),
+            subtitle: const Text('Paste a token or link you received.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _push(
+                context,
+                AcceptInvitationScreen(
+                    controller: AcceptInvitationController(repository,
+                        currentWorkspaceId: workspaceId)))),
+      ]));
 }

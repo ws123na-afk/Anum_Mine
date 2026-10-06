@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from anum_api import main
-from anum_api.agent_tools import ToolCall
+from anum_api.agent_tools import ToolCall, ToolPolicyDecision, ToolPolicyOutcome
 from anum_api.approval_integrity import (
     REDACTED,
     as_viewed,
@@ -29,7 +29,7 @@ from anum_api.approval_integrity import (
 from anum_api.durable_runs import state_of
 from anum_api.repository import AnumRepository
 from anum_api.runtime import AgentRuntime
-from anum_api.schemas import ApprovalStatus, RunPhase, TaskStatus, TenantContext, utc_now
+from anum_api.schemas import ApprovalStatus, RiskLevel, RunPhase, TaskStatus, TenantContext, utc_now
 from anum_api.settings import Settings
 from anum_api.store import store
 
@@ -136,7 +136,10 @@ def test_secret_arguments_are_redacted_on_the_approval_but_bound_by_the_hash() -
     call = ToolCall(name="external.action", arguments={"action": "send", "api_token": "s3cret"})
     run.checkpoint.tool_call = call.model_dump(mode="json")
     run.checkpoint.last_step_id = "step_proposal"
-    _, approval = runtime._pause_for_approval(task, run, CONTEXT, call, "Needs approval.")
+    decision = ToolPolicyDecision(
+        outcome=ToolPolicyOutcome.REQUIRE_APPROVAL, reason="Needs approval.", risk_level=RiskLevel.HIGH
+    )
+    _, approval = runtime._pause_for_approval(task, run, CONTEXT, call, decision)
 
     assert approval.arguments == {"action": "send", "api_token": REDACTED}
     assert approval.payload_hash == payload_hash(call, task_id=task.id, run_id=run.id, step_id="step_proposal")

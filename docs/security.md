@@ -19,6 +19,8 @@ ANUM authorization should combine application-level policy with PostgreSQL row-l
 
 Secrets must be stored outside source control. Provider keys, integration tokens, signing keys, and storage credentials should be delivered through environment-specific secret stores. Local development may use `.env` files, but sample files must contain placeholders only.
 
+On Kubernetes the Helm chart never renders a Secret and holds no credential in its values: it references Secrets created by the secret store (for example External Secrets) by name, each pod gets a ServiceAccount without an API token, and default-deny NetworkPolicies limit traffic ([Deployment](deployment.md)). The database logins are split: the migration login owns the schema, the application login is subject to RLS, the relay and maintenance roles are narrow, and only the backup login bypasses RLS. The chart also refuses to render the configurations the startup policy below refuses.
+
 ## HTTP Hardening
 
 `services/api/anum_api/hardening.py` adds pure ASGI middlewares (they never buffer SSE streams). For a request the order is CORS, security headers, rate limit, body size limit, then the application.

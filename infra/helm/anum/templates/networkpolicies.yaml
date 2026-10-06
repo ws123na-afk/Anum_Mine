@@ -1,0 +1,159 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- $fullname := include "anum.fullname" . }}
+{{- /* Default deny: every pod of this release, both directions. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-default-deny
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "network") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/part-of: anum
+  policyTypes: ["Ingress", "Egress"]
+{{- if .Values.api.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-api
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "network") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" "api") | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        {{- with $np.ingressFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        # `helm test` pods of this release.
+        - podSelector:
+            matchLabels:
+              {{- include "anum.selectorLabels" (dict "root" $ "component" "test") | nindent 14 }}
+      ports:
+        - port: 8000
+          protocol: TCP
+  egress:
+    - to:
+        {{- toYaml $np.dnsTo | nindent 8 }}
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    {{- with $np.appEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- if .Values.worker.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-worker
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "network") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" "worker") | nindent 6 }}
+  # No ingress: the worker serves nothing.
+  policyTypes: ["Ingress", "Egress"]
+  egress:
+    - to:
+        {{- toYaml $np.dnsTo | nindent 8 }}
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    {{- with $np.appEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- if .Values.web.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-web
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "network") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" "web") | nindent 6 }}
+  # nginx only serves the bundle: no egress at all.
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        {{- with $np.ingressFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - podSelector:
+            matchLabels:
+              {{- include "anum.selectorLabels" (dict "root" $ "component" "test") | nindent 14 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-jobs
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "network") | nindent 4 }}
+spec:
+  # Migration, voice retention and backup jobs: DNS and the database only.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["migrate", "voice-retention", "backup"]
+  policyTypes: ["Ingress", "Egress"]
+  egress:
+    - to:
+        {{- toYaml $np.dnsTo | nindent 8 }}
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    {{- with $np.jobEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- if .Values.tests.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-test
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "network") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" "test") | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  egress:
+    - to:
+        {{- toYaml $np.dnsTo | nindent 8 }}
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: ["api", "web"]
+      ports:
+        - { port: 8000, protocol: TCP }
+        - { port: 8080, protocol: TCP }
+{{- end }}
+{{- end }}
