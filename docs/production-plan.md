@@ -4,7 +4,7 @@ This is the ordered path from the current `main` to a first production release. 
 
 ## Where Things Stand (October 2026)
 
-Status on `main` after PR #13 (Stages 2 to 6, code side). Every CI job is green with no tolerated failures.
+Status on `main` after PR #14 (Stages 2 to 6 code side, plus the threat-model fixes G1, G4 and A1 to A3). Every CI job is green with no tolerated failures.
 
 | Area | State |
 |---|---|
@@ -14,8 +14,9 @@ Status on `main` after PR #13 (Stages 2 to 6, code side). Every CI job is green 
 | Events and runtime | NATS JetStream with a restart-durable PostgreSQL outbox and narrow relay role; tenant-filtered SSE. Valkey run locks and shared rate limits; S3-compatible file storage (SeaweedFS locally); Temporal worker for durable runs. All adapters are off by default and exercised in CI. |
 | Clients | Flutter (real data, depth design, wake-by-name voice) is the shipping Android and iOS app; web/desktop (voice, WebGL orb); the Kotlin Android client is frozen. None signed or device-verified yet. |
 | Deployment | API and web images, compose `app` profile with a worker, `deploy-staging.yml` pushing to GHCR. No cloud, OpenTofu or staging environment yet: waits on the owner's cloud choice. |
+| Security | Workspace model endpoints are SSRF-guarded with pinned resolution; per-tenant monthly model budgets; approvals show the exact tool call, are bound to a payload hash, expire and record the decider; `rotate_secrets` re-encrypts provider keys. Open threat-model items: response size caps and untrusted-output marking (T7, G3), decision reasons (A4), optional two-person rule (A6), retrieval provenance (G5), external pen test (G7). |
 | Operations | OpenTelemetry in API and worker with a local Prometheus/Tempo/Loki/Grafana profile, dashboards and tested alert rules; backup and restore drill tooling; threat model and runbooks. Production telemetry backend, paging and scheduled encrypted backups wait on the cloud choice. |
-| Still in memory | Control-plane stores (migration `0008_control_plane_stores`), voice sessions and transcripts, and the automation engine (migration `0011_voice_automation`) are in PostgreSQL with RLS when `ANUM_REPOSITORY_BACKEND=postgresql`. Still process-local: only local-only auth state (local sessions, OTP and password-reset challenges), which is refused outside `local`/`test`. |
+| Still in memory | Only local-only auth state (local sessions, OTP and password-reset challenges), which is refused outside `local`/`test`. Voice sessions, automation, budgets and every control-plane store are in PostgreSQL with RLS. |
 
 ## Stage 1: Green and Honest CI
 

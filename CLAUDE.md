@@ -28,3 +28,6 @@ Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `
 - The Temporal worker exits with `os._exit(0)` after a clean shutdown: interpreter finalization can hang collecting the SDK's native objects. CI asserts exit code 0.
 - Run database tests the way CI does: from the repository root (`python -m pytest services/api -m database`) against a PostgreSQL that requires a password for 127.0.0.1. A local `trust` cluster run from `services/api` hid a CI-only hang.
 - Background tasks that hold a database transaction (the outbox relay) must finish their pass on shutdown, not be cancelled mid-commit; run session calls through `outbox_relay._in_thread` so cancellation never races a commit.
+- Parallel branches that each add a migration will collide on the number: renumber at merge into one chain (and fix every reference). Alembic revision ids must fit in 32 characters.
+- Cross-tenant jobs (retention purge, scheduler, key rotation, outbox) find work through a narrow NOLOGIN role (`anum_maintenance`, `anum_outbox_relay`) and then act as the app role inside each tenant's context. Never BYPASSRLS, never SECURITY DEFINER over forced-RLS tables.
+- Approvals require the payload hash the client displayed (`POST /approve {"payload_hash": ...}`); tests and scripts that approve must send it.
