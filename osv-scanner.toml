@@ -1,0 +1,7 @@
+# OSV-Scanner exceptions. CI passes this file with --config to every scan.
+# Each entry needs a row in the "Reviewed exceptions" table in docs/security.md.
+
+[[IgnoredVulns]]
+id = "GHSA-hp3w-g68c-fv3c"
+ignoreUntil = 2027-04-06T00:00:00Z
+reason = "sprintf-js via kokoro-js -> @huggingface/transformers -> onnxruntime-node -> global-agent: Node.js runtime only, not in the browser bundle, and no patched release exists. Re-check by the date above."

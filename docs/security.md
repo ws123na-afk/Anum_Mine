@@ -52,8 +52,18 @@ The **Security scans** job in `.github/workflows/ci.yml` fails the build on:
 - `pnpm audit --prod --audit-level high`: high or critical advisories in production Node dependencies.
 - `bandit -r services/api/anum_api services/api/migrations`: Python SAST.
 - `gitleaks` (pinned release, checksum verified) over the full history of the commit under test, with `.gitleaks.toml`.
+- OSV-Scanner (`v2.6.0`, built with `go install`, so the Go checksum database verifies the source) over `pnpm-lock.yaml` and the exact dependency set pip resolves for `services/api` (written to a requirements file and scanned with `--no-resolve`). Any severity fails; exceptions live in `osv-scanner.toml`.
+- `cargo audit` (`cargo-audit 0.22.2`, installed with `--locked`) over `apps/desktop/src-tauri/Cargo.lock`. RustSec vulnerabilities fail the job; unmaintained and unsound notices are printed as warnings (see the table below).
 
-`codeql.yml` runs CodeQL `security-extended` queries for Python and JavaScript/TypeScript. Dart and Rust SAST, and container image scanning, are not yet in CI.
+Other jobs:
+
+- **Docker images**: Trivy (`aquasec/trivy:0.75.0`, pinned by digest) scans the built `anum-api` and `anum-web` images with `--scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed`, so any high or critical vulnerability that has a fixed version, and any secret in a layer, fails the job. Fix findings in the Dockerfile (base image bump, `apt-get upgrade` / `apk upgrade`, removing unneeded packages); an unavoidable exception goes in a `.trivyignore` at the repository root with a row below. There is no `.trivyignore` today.
+- **Flutter mobile**: `flutter analyze --fatal-infos --fatal-warnings` (the `flutter_lints` set plus the rules in `apps/mobile/analysis_options.yaml`) is the Dart static analysis, and OSV-Scanner checks the `pubspec.lock` that `flutter pub get` resolves.
+- **Tauri desktop**: `cargo clippy --locked --all-targets -- -D warnings` is the Rust static analysis (on the Windows runner, which already builds the crate).
+
+`codeql.yml` runs CodeQL `security-extended` queries for Python and JavaScript/TypeScript.
+
+Third-party actions (anything outside `actions/*`) are pinned to full commit SHAs with the version in a comment, and `.github/dependabot.yml` proposes weekly updates for GitHub Actions, pip (`services/api`), npm (root workspace), pub (`apps/mobile`), Cargo (`apps/desktop/src-tauri`), the two Dockerfiles and the compose file, so the pins do not go stale.
 
 ### Reviewed exceptions
 
@@ -66,8 +76,12 @@ Each exception is scoped as narrowly as the tool allows. Add new ones only with 
 | gitleaks | `docs/infrastructure.md` prose where "Keycloak" is followed by the S3 storage name | The generic API-key rule reads the word "key" inside "Keycloak" as a key name. The text stays in history. |
 | gitleaks | `services/api/tests/test_postgres_model_configs.py` value `sk-live-PERSISTED-secret-4321` | A made-up provider key used to test encryption at rest. Only that exact value in that file is allowed; it stays in history. |
 | pnpm audit | Moderate `sprintf-js` advisory (GHSA-hp3w-g68c-fv3c) reached through `kokoro-js` → `@huggingface/transformers` → `onnxruntime-node` → `global-agent` | No patched release exists. The package belongs to the Node.js runtime and is not in the browser bundle. The job fails on high and critical only. |
+| OSV-Scanner | `GHSA-hp3w-g68c-fv3c` in `osv-scanner.toml`, with `ignoreUntil` 2027-04-06 | The same `sprintf-js` advisory as the pnpm audit row. OSV-Scanner fails on every severity, so it needs an explicit ignore; the expiry forces a re-check. |
+| cargo audit | Warnings only, not ignored: unmaintained `proc-macro-error` 1.0.4 (RUSTSEC-2024-0370, via `glib-macros`) and `unic-*` 0.9.0 (RUSTSEC-2025-0075, -0080, -0081, -0098, -0100, via `urlpattern` in `tauri-utils`); unsound `glib` 0.18.5 (RUSTSEC-2024-0429, via `gtk` 0.18 on Linux) | All come from Tauri 2's own dependency tree (the GTK 0.18 stack is Linux-only); no compatible release removes them. `cargo audit` reports them without failing, and Dependabot raises the Tauri update when one does. |
 
 Fixed findings when the scans were added: PyJWT 2.9.0 → 2.15.1 and Starlette 0.38.6 → 1.7.0 (via FastAPI 0.115.0 → 0.135.4), and `sharp` forced to `^0.35.4` through a pnpm override (it is pulled in by `@huggingface/transformers` but unused by the browser bundle).
+
+Fixed findings when image scanning was added: the web image moved from `nginx-unprivileged:1.28-alpine` (the February 2026 build on Alpine 3.23.3 that was scanned had 3 critical and 64 high fixable findings, counted per package, in nginx, OpenSSL, curl, expat, musl and others) to `1.30-alpine` (Alpine 3.24, none) plus `apk upgrade`. The API image no longer ships pip: the base image's pip vendors `urllib3` 2.7.0 (CVE-2026-97687, CVE-2026-97689), `msgpack` 1.1.2 (GHSA-6v7p-g79w-8964) and `setuptools` 70.3.0 (CVE-2025-47273), all high with fixes, and the runtime never installs packages.
 
 ## Agent Safety
 
@@ -83,8 +97,8 @@ Security-relevant events should be recorded: login, token refresh failures, tena
 
 ## Now
 
-OIDC validation with membership resolution is implemented (`ANUM_AUTH_MODE=oidc`). Keep tenant isolation, RLS, minimal roles, audit tables, secure defaults, and approval gates in place before real external actions. Multi-user workspaces use single-use, expiring, hash-stored invitations and owner-managed memberships with last-owner protection; self-service membership only bootstraps an empty workspace (see [Identity and sign-in](identity.md#invitations-and-membership-management)). Request size limits, rate limiting, security headers, startup configuration checks, and dependency, secret and static analysis scanning in CI are in place.
+OIDC validation with membership resolution is implemented (`ANUM_AUTH_MODE=oidc`). Keep tenant isolation, RLS, minimal roles, audit tables, secure defaults, and approval gates in place before real external actions. Multi-user workspaces use single-use, expiring, hash-stored invitations and owner-managed memberships with last-owner protection; self-service membership only bootstraps an empty workspace (see [Identity and sign-in](identity.md#invitations-and-membership-management)). Request size limits, rate limiting, security headers, startup configuration checks, and dependency, container image, secret and static analysis scanning (Python, TypeScript, Dart, Rust) in CI are in place.
 
 ## Later
 
-Add per-tenant quotas, container image scanning, Dart and Rust SAST, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.
+Add per-tenant quotas, scanning of the images pushed by `deploy-staging.yml` and of base images on a schedule, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.
