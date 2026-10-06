@@ -140,7 +140,7 @@ services:
 
   grafana:
     profiles: ["observability"]
-    image: grafana/grafana:12.4.12
+    image: grafana/grafana:13.2.3
     environment:
       # Local only: anonymous read-only access, no sign-up, no usage reporting.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
