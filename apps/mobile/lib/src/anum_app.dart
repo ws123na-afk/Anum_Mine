@@ -15,6 +15,7 @@ import '../features/voice/speech_service.dart';
 import '../features/voice/voice_controller.dart';
 import '../features/voice/voice_repository.dart';
 import '../features/settings/settings_controller.dart';
+import '../features/admin/admin_repository.dart';
 import '../features/governance/api_governance_repository.dart';
 import '../features/governance/governance_controller.dart';
 import 'infrastructure/appauth_authenticator.dart';
@@ -84,7 +85,8 @@ class _AnumAppState extends State<AnumApp> {
     ));
     voice = VoiceController(
         repository: VoiceRepository(api), speech: DeviceSpeechService());
-    settings = SettingsController(authRepository);
+    settings =
+        SettingsController(authRepository, admin: ApiAdminRepository(api));
     governance = GovernanceController(ApiGovernanceRepository(
       api,
       auditExporter: HttpAuditExporter(

@@ -25,6 +25,7 @@ import {
   type WakeListener,
 } from './lib/voice';
 import { Orb3D } from './Orb3D';
+import { budgetMessage, isBudgetExceeded } from './lib/errors';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -225,7 +226,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
     } catch (error) {
       setState('idle');
       wake.current?.resume();
-      setNotice(error instanceof Error ? error.message : 'I could not answer. Check the connection and try again.');
+      setNotice(isBudgetExceeded(error) ? `Monthly model budget reached. ${budgetMessage(error)}` : error instanceof Error ? error.message : 'I could not answer. Check the connection and try again.');
     }
   }
   askRef.current = ask;
@@ -273,7 +274,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
       setTurns((current) => current.map((item) => item.id === turn.id ? { ...item, resolved: 'created' } : item));
       setNotice(`Task created: ${created.task.title}`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'The task could not be created.');
+      setNotice(isBudgetExceeded(error) ? `Monthly model budget reached. ${budgetMessage(error)}` : error instanceof Error ? error.message : 'The task could not be created.');
     }
   }
 

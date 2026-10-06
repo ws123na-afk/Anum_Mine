@@ -18,6 +18,7 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 - Approval decisions, automation controls, workspace files, and durable memory.
 - Push-to-talk voice commands with English/Arabic locales, editable transcript review, explicit retention, governed execution, permission recovery, and spoken status confirmation.
 - A wake-by-name voice assistant with a 3D orb, and Home, Tasks, Approvals, Automations, Resources and Governance screens that show only live workspace data, with honest empty states instead of samples.
+- Owner screens under Settings › Workspace administration: members and invitations (roles, deactivation, a one-time invitation token with copy), accepting an invitation by token or link, and monthly model budgets with usage; non-owners see the API's `403` explanation ([Identity](identity.md#client-screens), [Model gateway](model-gateway.md#monthly-budgets)). A task run refused for a used-up budget (`402`) shows the budget message on Tasks.
 - Loading, empty, error, offline, permission-denied, expired-session, and responsive phone/tablet components.
 - Widget and architecture tests for compact layout, accessibility semantics, route coverage, and embedded-secret detection.
 

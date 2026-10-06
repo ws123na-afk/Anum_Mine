@@ -1,6 +1,7 @@
 import type { AgentRun, Approval, DomainEvent, TenantContext, Task } from '@anum/contracts';
 import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
+import { apiErrorFromResponse } from './errors';
 
 const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
@@ -248,17 +249,20 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    // Surface the API's error envelope message (e.g. "Could not reach Ollama ...") when present.
-    const detail = await response.json().then((body: { error?: { message?: unknown } }) => body?.error?.message, () => undefined);
-    throw new Error(typeof detail === 'string' && detail ? `ANUM API request failed: ${response.status}: ${detail}` : `ANUM API request failed: ${response.status}`);
+    // Surface the API's error envelope (e.g. "Could not reach Ollama ...", or 402 model_budget_exceeded)
+    // as an ApiError that keeps the status and code.
+    throw await apiErrorFromResponse(response);
   }
 
   return response.json() as Promise<T>;
 }
 
+/** The shared JSON request (auth headers, error envelope) for feature modules such as adminApi.ts. */
+export const apiRequest = request;
+
 async function requestVoid(path: string, init: RequestInit): Promise<void> {
   const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers: { ...(await authHeaders()), ...init.headers } });
-  if (!response.ok) throw new Error(`ANUM API request failed: ${response.status}`);
+  if (!response.ok) throw await apiErrorFromResponse(response);
 }
 
 const configuredWorkspaceId = import.meta.env.VITE_ANUM_WORKSPACE_ID as string | undefined;

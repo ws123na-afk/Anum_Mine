@@ -671,6 +671,11 @@ class VoiceController extends ChangeNotifier {
             ? 'ليست لديك صلاحية لذلك.'
             : "You don't have permission for that.";
       }
+      if (error.isBudgetExceeded) {
+        return isArabic
+            ? 'وصلت مساحة العمل إلى حد استخدام النموذج لهذا الشهر. يمكن للمالك رفع الحد من الإعدادات.'
+            : 'Monthly model budget reached. ${error.message}';
+      }
       if (error.statusCode == 429) {
         return isArabic
             ? 'وصلت إلى حد الأسئلة لهذه المحادثة. امسحها وابدأ من جديد.'

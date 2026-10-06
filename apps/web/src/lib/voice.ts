@@ -1,5 +1,6 @@
 import type { Task } from '@anum/contracts';
 import { authHeaders } from './api';
+import { apiErrorFromResponse } from './errors';
 
 const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
@@ -417,6 +418,7 @@ async function voiceRequest<T>(path: string, init: RequestInit): Promise<T> {
       ...init.headers,
     },
   });
-  if (!response.ok) throw new Error(`ANUM voice request failed: ${response.status}`);
+  // An ApiError keeps the status and code, so a 402 model budget refusal reads as a budget message.
+  if (!response.ok) throw await apiErrorFromResponse(response, 'ANUM voice request failed');
   return response.json() as Promise<T>;
 }

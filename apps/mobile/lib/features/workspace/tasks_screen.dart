@@ -121,6 +121,43 @@ class _TasksScreenState extends State<TasksScreen> {
                       ]),
                     ]),
               ),
+              if (widget.controller.budgetMessage != null)
+                AnumSurface(
+                  key: const Key('budget-exceeded'),
+                  accent: p.stop,
+                  semanticLabel:
+                      'Monthly model budget reached. ${widget.controller.budgetMessage}',
+                  child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const AnumIconChip(
+                            icon: Icons.speed_outlined, tone: AnumTone.stop),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Monthly model budget reached',
+                                    style: TextStyle(
+                                        color: p.text,
+                                        fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 4),
+                                Text(widget.controller.budgetMessage!,
+                                    style: TextStyle(
+                                        color: p.muted, fontSize: 13)),
+                                const SizedBox(height: 4),
+                                Text(
+                                    'Owners can raise it in Settings › Model budgets.',
+                                    style: TextStyle(
+                                        color: p.faint, fontSize: 12)),
+                              ]),
+                        ),
+                        IconButton(
+                            tooltip: 'Dismiss',
+                            onPressed: widget.controller.dismissBudget,
+                            icon: const Icon(Icons.close)),
+                      ]),
+                ),
               TextField(
                 controller: _search,
                 onChanged: (_) => setState(() {}),

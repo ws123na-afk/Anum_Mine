@@ -1,3 +1,4 @@
+import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/features/voice/speech_service.dart';
 import 'package:anum_mobile/features/voice/voice_models.dart';
 import 'package:anum_mobile/features/voice/voice_preferences.dart';
@@ -362,4 +363,33 @@ void main() {
     expect(controller.session, isNull);
     expect(transport.requests.last.method, 'DELETE');
   });
+
+  test('a 402 model budget refusal reads as a budget message, not an error',
+      () async {
+    final controller = await buildController(
+        speech: speech, transport: _BudgetVoiceTransport());
+    await controller.ask('What is the weather like?');
+    expect(controller.notice,
+        startsWith('Monthly model budget reached. This workspace has used'));
+    expect(controller.notice, contains('2026-11-01'));
+  });
+}
+
+class _BudgetVoiceTransport extends FakeVoiceTransport {
+  @override
+  Future<ApiResponse> send(ApiRequest request) async {
+    if (request.uri.path.endsWith('/ask')) {
+      requests
+          .add(RecordedRequest(request.method, request.uri.path, request.body));
+      return const ApiResponse(statusCode: 402, body: {
+        'error': {
+          'code': 'model_budget_exceeded',
+          'message':
+              'This workspace has used its monthly model budget (estimated cost). It resets on 2026-11-01 (UTC); an owner can raise it in Settings.',
+          'correlation_id': 'corr'
+        }
+      });
+    }
+    return super.send(request);
+  }
 }
