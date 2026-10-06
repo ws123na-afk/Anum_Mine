@@ -10,7 +10,10 @@ The realm is code (`infra/keycloak/anum-realm.json`): public clients use authori
 
 ## Authorization
 
-ANUM authorization should combine application-level policy with PostgreSQL row-level security. The backend decides whether a user, service, or agent may perform an action. The database enforces tenant and workspace isolation so accidental query mistakes do not leak data across boundaries. The only cross-tenant reader is the event outbox relay, which runs as the narrowly privileged `anum_outbox_relay` role: it can read unpublished `domain_events` rows and update their publication columns, nothing else, and is not `BYPASSRLS` ([Events](events.md#relay-role-and-rls)).
+ANUM authorization should combine application-level policy with PostgreSQL row-level security. The backend decides whether a user, service, or agent may perform an action. The database enforces tenant and workspace isolation so accidental query mistakes do not leak data across boundaries. Two narrowly privileged roles read across tenants, and neither is `BYPASSRLS`:
+
+- The event outbox relay runs as `anum_outbox_relay`. It can read unpublished `domain_events` rows and update their publication columns, nothing else ([Events](events.md#relay-role-and-rls)).
+- Maintenance jobs (automation scheduler, voice transcript purge, secrets rotation) discover work as `anum_maintenance`. It reads a few id and timestamp columns of rows that need work and cannot write. The work itself runs as the application role inside each tenant's RLS context ([Multi-tenancy](multi-tenancy.md#maintenance-role)).
 
 ## Secrets
 
@@ -71,7 +74,6 @@ Each exception is scoped as narrowly as the tool allows. Add new ones only with 
 
 | Tool | Exception | Reason |
 |---|---|---|
-| bandit | `# nosec B608` on the `select` in `LocalAutomationEngine._list` (`anum_api/automation.py`) | The interpolated table name must pass the `_TABLES` allow-list first; all values are bound parameters. |
 | gitleaks | `docs/figma-design-state.json` `fileKey` | A public Figma file identifier, not a credential. Only that exact key shape in that file is allowed. |
 | gitleaks | `docs/infrastructure.md` prose where "Keycloak" is followed by the S3 storage name | The generic API-key rule reads the word "key" inside "Keycloak" as a key name. The text stays in history. |
 | gitleaks | `services/api/tests/test_postgres_model_configs.py` value `sk-live-PERSISTED-secret-4321` | A made-up provider key used to test encryption at rest. Only that exact value in that file is allowed; it stays in history. |

@@ -97,8 +97,15 @@ class Settings(BaseSettings):
     s3_create_bucket: bool = False
     external_webhook_url: str | None = None
     external_webhook_api_key: str | None = None
+    # Automation (docs/automation.md): workflows, schedules and runs live in this SQLite
+    # file with ANUM_REPOSITORY_BACKEND=memory and in PostgreSQL with postgresql.
     automation_database_path: str = ".anum/automation.db"
-    automation_backend: str = "local"
+    # Background loop in each API process that fires due schedules. Safe on every replica
+    # with PostgreSQL (FOR UPDATE SKIP LOCKED plus one idempotency key per fire time); the
+    # API login must be granted the anum_maintenance role to discover due schedules.
+    automation_scheduler_enabled: bool = False
+    automation_scheduler_poll_seconds: float = Field(default=30.0, gt=0)
+    automation_scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
     # HTTP hardening (anum_api/hardening.py, docs/security.md). Uploads to
     # /api/v1/files get max_upload_body_bytes; every other request gets the general limit.
     max_request_body_bytes: int = 1_048_576

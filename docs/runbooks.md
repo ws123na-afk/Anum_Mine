@@ -4,7 +4,7 @@ Operational procedures for ANUM. Each alert in `infra/observability/prometheus/a
 
 Ground rules for every procedure:
 
-- Tenant context stays explicit. Never disable RLS, connect the API as a superuser, or grant `BYPASSRLS` to fix an incident. Read tenant data only through the API or as `anum_app` with `anum.tenant_id`/`anum.workspace_id` set. The only roles that see across tenants are the outbox relay (unpublished events only) and the backup role.
+- Tenant context stays explicit. Never disable RLS, connect the API as a superuser, or grant `BYPASSRLS` to fix an incident. Read tenant data only through the API or as `anum_app` with `anum.tenant_id`/`anum.workspace_id` set. The only roles that see across tenants are the outbox relay (unpublished events only), `anum_maintenance` (ids of rows that need maintenance, no content, no writes; [Multi-tenancy](multi-tenancy.md#maintenance-role)) and the backup role.
 - Never paste prompts, model replies, memory or file contents, tokens or keys into tickets, chat or incident notes. Use ids: correlation id, trace id, tenant id, task id, run id, event id.
 - Change configuration through the deployment's secret store and redeploy; do not edit running containers.
 
@@ -134,11 +134,47 @@ Measured locally (PostgreSQL 16.15 with pgvector, synthetic data: 3 tenants, 60,
 
 `ANUM_SECRETS_KEY` holds comma-separated Fernet keys: the first encrypts, all decrypt (`anum_api/secret_box.py`). It protects workspace model provider keys (`workspace_model_configs.api_key_ciphertext`).
 
-1. Generate a key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Store it only in the secret store.
-2. Deploy `ANUM_SECRETS_KEY=<new>,<old>` to API and workers together. New and updated configs are encrypted with the new key; old ciphertexts still decrypt.
-3. Re-encrypt existing rows. There is no re-encryption command yet (gap): until there is, have each workspace owner re-save the model key (`PUT /api/v1/model-config`), or run a reviewed one-off that, per workspace and as `anum_app` with that tenant's context, decrypts with the old list and encrypts with the new key. Count `api_key_ciphertext is not null` rows before and after.
-4. When no ciphertext needs the old key, deploy `ANUM_SECRETS_KEY=<new>` alone. A row that still needs the old key fails with `SecretDecryptionError` (the workspace's model calls fail; nothing else does).
-5. Suspected key leak: rotate immediately and also ask workspace owners to rotate their provider keys, since the ciphertexts may have been copied.
+1. **Generate a key:** `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Store it only in the secret store.
+2. **Deploy both keys:** `ANUM_SECRETS_KEY=<new>,<old>` to API and workers together. New and updated configs are encrypted with the new key; old ciphertexts still decrypt.
+3. **Dry run.** From a host with the API image and the same `ANUM_*` configuration (`ANUM_REPOSITORY_BACKEND=postgresql`, `ANUM_DATABASE_URL`, the two-key `ANUM_SECRETS_KEY`), run:
+
+   ```bash
+   python -m anum_api.rotate_secrets --dry-run
+   ```
+
+   - Use an operator login with the application login's table grants, subject to RLS like it, and a member of `anum_maintenance`. Never use a superuser or a `BYPASSRLS` login.
+   - It prints a JSON report: `scanned`, `rotated` (would rotate), `already_current`, `failed`, `failures` (tenant and workspace ids only) and a `correlation_id`. It writes nothing.
+4. **Re-encrypt:** `python -m anum_api.rotate_secrets`.
+   - For each workspace it decrypts with any configured key, encrypts with the first key, and writes the ciphertext.
+   - It writes an `audit_records` row (`action` `secrets.rotated`, `actor` `system:rotate-secrets`, the report's `correlation_id`) in the same transaction, inside that tenant's RLS context ([Multi-tenancy](multi-tenancy.md#maintenance-role)).
+   - It leaves `updated_at` alone, because the owner's configuration did not change.
+   - It is idempotent: a re-run after an interruption only handles what is left, and a fully rotated database reports `already_current` for every row.
+   - A workspace whose owner re-saves the key at the same moment keeps the owner's value (`changed_concurrently`).
+   - Exit status: `0` when nothing failed, `1` when a ciphertext could not be decrypted with any configured key (each one is audited with outcome `failed`), `2` on a configuration error.
+5. **Check:** run it again. Expect `rotated: 0`, `failed: 0` and `already_current` equal to `scanned`.
+6. **Drop the old key:** deploy `ANUM_SECRETS_KEY=<new>` alone. Do this only after step 5 is clean. A row that still needs the old key fails with `SecretDecryptionError` (the workspace's model calls fail; nothing else does).
+7. **Failed rows:** the key that encrypted them is not in the list. Restore that key to the list and re-run, or ask the workspace owner to re-save the provider key (`PUT /api/v1/model-config`).
+8. **Suspected key leak:** rotate immediately and also ask workspace owners to rotate their provider keys, since the ciphertexts may have been copied.
+
+## Voice Transcript Retention
+
+`30_days` voice transcripts are unreadable from their `expires_at` on. `python -m anum_api.voice_retention` deletes the rows ([Voice](voice.md#storage-and-retention)).
+
+- **Schedule:** run it at least daily, from a cron job or a scheduled container with the API's configuration. The login must be a member of `anum_maintenance`.
+- **Dry run:** `--dry-run` prints how many sessions and segments would be deleted, as counts only.
+- **Safe to repeat:** an interrupted run is finished by the next one.
+- **Never** delete transcript rows by hand or as a superuser. If the job fails with a permission error, the login lost `anum_maintenance`.
+
+## Automation Scheduler
+
+The scheduler is described in [Automation](automation.md#scheduler).
+
+- **Schedules do not fire:**
+  - Check `ANUM_AUTOMATION_SCHEDULER_ENABLED=true` on at least one API replica.
+  - Check that the API login is a member of `anum_maintenance`. Without it, `Automation scheduler pass failed` with a permission error appears in the logs.
+  - A schedule's `next_run_at` (API or `automation_schedules`) shows when it will fire. It is null while the schedule is disabled.
+- **One schedule keeps failing:** `Automation schedule <id> could not be fired` is logged every pass and the schedule stays due. Fix the cause, or disable the schedule through the API.
+- **Two runs for one schedule** always have different `idempotency_key` values, that is, different fire times. Replicas racing cannot produce two runs for one fire time, because the key is unique per workspace.
 
 ## Rotating Keycloak Signing Keys (JWKS)
 

@@ -8,7 +8,14 @@ A tenant contains workspaces. A user may belong to more than one tenant with dif
 
 ## Isolation Strategy
 
-The default database pattern should be shared PostgreSQL tables with `tenant_id` columns and mandatory row-level security. Application code must set the tenant execution context for every request and worker job. Background workflows must carry tenant identity in their payloads and validate it when resumed. The one process that reads across tenants, the event outbox relay, does so through a dedicated role whose RLS policies and grants cover only unpublished event rows and their publication columns ([Events](events.md#relay-role-and-rls)); the application role never bypasses RLS.
+The default database pattern should be shared PostgreSQL tables with `tenant_id` columns and mandatory row-level security. Application code must set the tenant execution context for every request and worker job. Background workflows must carry tenant identity in their payloads and validate it when resumed.
+
+The application role never bypasses RLS. Two narrow roles cross tenants:
+
+- The event outbox relay reads unpublished event rows and updates their publication columns ([Events](events.md#relay-role-and-rls)).
+- Maintenance jobs only discover which tenants have work ([Maintenance role](#maintenance-role)).
+
+Their RLS policies and grants cover nothing else.
 
 ## Authorization Layers
 
@@ -27,9 +34,40 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` every control-plane store is a tenant 
 | Scope | Tables | RLS predicate |
 |---|---|---|
 | Tenant | `skill_versions`, `policy_packs`, `role_templates`, `approval_rules`, `memory_governance`, `marketplace_packages`, `routing_targets` | `tenant_id` |
-| Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `workspace_files`, `notification_preferences` (per user) | `tenant_id` and `workspace_id` |
+| Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `workspace_files`, `notification_preferences` (per user), `automation_workflows`, `automation_schedules`, `automation_runs` (migration `0009_voice_automation`) | `tenant_id` and `workspace_id` |
+| User | `voice_sessions`, `voice_transcript_segments` (migration `0009_voice_automation`) | `tenant_id`, `workspace_id` and `user_id` |
 
-Tenant-level settings are shared by all of a tenant's workspaces and invisible to other tenants. Governance changes write an `audit_records` row for the acting workspace in the same transaction. The marketplace catalog belongs to the tenant that published the package; an install in any of the tenant's workspaces blocks deleting the package through a foreign key, which PostgreSQL checks without RLS filtering.
+User-level rows need `anum.user_id` in the session context as well (`set_tenant_context(..., user_id=...)`, or `open_scoped_store(..., user_scoped=True)`). Without it they are invisible, even to other users of the same workspace. Tenant-level settings are shared by all of a tenant's workspaces and invisible to other tenants. Governance changes write an `audit_records` row for the acting workspace in the same transaction. The marketplace catalog belongs to the tenant that published the package; an install in any of the tenant's workspaces blocks deleting the package through a foreign key, which PostgreSQL checks without RLS filtering.
+
+## Maintenance Role
+
+Some jobs must find work in every tenant:
+
+- the automation scheduler (due schedules, [Automation](automation.md#scheduler));
+- the voice transcript purge (expired 30-day transcripts, [Voice](voice.md#storage-and-retention));
+- `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, [Runbooks](runbooks.md#rotating-anum_secrets_key)).
+
+They follow one pattern (`anum_api/maintenance.py`, migration `0009_voice_automation`):
+
+1. **Discover.** A read-only transaction starts with `SET LOCAL ROLE anum_maintenance`, runs one query and always rolls back. The role is `NOLOGIN` and has no write privilege on any table. It can read only the columns below, and only the rows its own policies admit:
+
+   | Table | Columns granted | Policy (`for select to anum_maintenance`) |
+   |---|---|---|
+   | `automation_schedules` | `id`, `tenant_id`, `workspace_id`, `next_run_at` | `enabled and next_run_at <= now()` |
+   | `voice_sessions` | `id`, `tenant_id`, `workspace_id`, `user_id`, `expires_at` | `expires_at <= now() and transcript_purged_at is null` |
+   | `workspace_model_configs` | `tenant_id`, `workspace_id` | `api_key_ciphertext is not null` |
+
+2. **Act.** Each discovered scope gets its own transaction as the application role, with that tenant, workspace (and user) set as RLS context. Every content read (transcript text, workflow steps, ciphertexts) and every write is checked by the normal tenant-isolation policies. Audit records are written there too.
+
+Why not a `SECURITY DEFINER` function: it runs as the table owner, and `FORCE ROW LEVEL SECURITY` applies to the owner as well. It would only work with an owner that bypasses RLS, which is what this design avoids.
+
+Deployment:
+
+- Grant `anum_maintenance` to the API login if the scheduler is enabled.
+- Grant it to the operator login that runs the purge and rotation commands.
+- Like `anum_outbox_relay`, the role is cluster-wide and survives a downgrade.
+
+`tests/test_postgres_automation.py`, `tests/test_postgres_voice.py` and `tests/test_postgres_rotate_secrets.py` check that the role sees only those rows and columns and cannot write.
 
 ## Cross-Tenant Data
 

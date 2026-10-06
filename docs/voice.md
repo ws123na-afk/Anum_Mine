@@ -29,6 +29,34 @@ Voice approval requires extra care. The system should confirm high-impact decisi
 - Optional text-to-speech confirmation of the created task status.
 - Seven approved Figma screens, a six-state Voice Capture component, and an eight-step voice safety workflow.
 
+## Storage and Retention
+
+Voice sessions and transcripts are private to the user who started them, inside one tenant and workspace.
+
+- **Where they live:**
+  - With `ANUM_REPOSITORY_BACKEND=postgresql`, sessions are rows in `voice_sessions` and segments in `voice_transcript_segments` (migration `0009_voice_automation`).
+  - Both tables have forced RLS. The policy checks `anum.tenant_id`, `anum.workspace_id` and `anum.user_id`, so another user of the same workspace sees no rows even if a query forgets a filter.
+  - Writes need an onboarded workspace (`409` otherwise).
+  - With `memory` (local and tests), the in-process `VoiceStore` keeps the same contract.
+
+Retention is chosen per session:
+
+| Retention | Transcript lifetime | How it is enforced |
+|---|---|---|
+| `session` (default) | Until the session is completed or cancelled | The segments are deleted in the same transaction that closes the session, and `transcript_purged_at` is set. A row lock orders this against concurrent appends and replies, so no segment is written after the erase. |
+| `30_days` | 30 days from session start (`expires_at`) | From `expires_at` on, every read (transcript, commands, ask) treats the transcript as gone, even before a purge runs. `python -m anum_api.voice_retention` deletes the rows; run it at least daily ([Runbooks](runbooks.md#voice-transcript-retention)). |
+| `permanent` | Until the workspace's data is deleted | No expiry. |
+
+The session row itself (locale, assistant name, status, timestamps, no transcript text) stays after its transcript is gone.
+
+- **Purge job:** `python -m anum_api.voice_retention [--dry-run]` crosses tenants without bypassing RLS.
+  - It discovers expired sessions as the `anum_maintenance` role. That role can read only `id`, `tenant_id`, `workspace_id`, `user_id` and `expires_at`, and only of sessions whose transcript expired and was not purged yet.
+  - It then deletes each user's segments as the application role, inside that tenant, workspace and user's RLS context ([Multi-tenancy](multi-tenancy.md#maintenance-role)).
+  - It prints counts only, never transcript text.
+- **Question limit across replicas:** the 60-question limit per session is the `ask_count` column, incremented with one `UPDATE ... RETURNING`. Every API replica shares it, with no Valkey dependency.
+- **One task per transcript:** a segment becomes a task at most once. The command sets `consumed_at` with an `UPDATE` that only matches while it is null, so the same segment submitted to two replicas creates one task.
+- **No transaction during model calls:** an ask commits its checks and counter first, calls the model, then stores the reply in a second short transaction. If the session was closed in between, the reply is not stored and the request answers `409`.
+
 ## Web Voice Assistant
 
 The web and desktop Voice view is a spoken conversation with a named assistant, "Anum" by default, renamed under Voice settings.
@@ -58,7 +86,7 @@ The web and desktop Voice view is a spoken conversation with a named assistant, 
   - **Visual only:** approve, reject, delete, pay, credentials and similar. The assistant declines and offers **Open Approvals**.
   - **Identity, greeting, thanks:** short, warm replies.
 - **Arabic:** `ar-*` sessions get Arabic replies.
-- **Rate limit:** 60 messages per session; then HTTP 429.
+- **Rate limit:** 60 messages per session, counted in the database and shared by every API replica; then HTTP 429.
 - **Prompt injection:** spoken text is passed to the model as untrusted content. The answer is text only and has no path to tools or approvals.
 
 ### Free voice stack
@@ -83,6 +111,7 @@ See [Voice research](voice-research.md) for the options compared, their drawback
 
 ## Remaining Release Gates
 
+- A `session`-retention session that is never completed or cancelled keeps its transcript until it is closed. An expiry for abandoned sessions (for example 24 hours after the last segment) needs a product decision.
 - Physical Android and iOS microphone, Bluetooth headset, interruption, and background lifecycle testing.
 - OIDC release authentication, notification deep links, and device-authenticated approval where policy requires it.
 - Provider-backed streaming audio only if short device speech recognition is insufficient; the current implementation is intentionally push-to-talk for concise commands.

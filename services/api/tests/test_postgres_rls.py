@@ -23,6 +23,11 @@ from conftest import (
 pytestmark = pytest.mark.database
 
 TENANT_TABLES = {
+    "voice_sessions",
+    "voice_transcript_segments",
+    "automation_workflows",
+    "automation_schedules",
+    "automation_runs",
     "skill_versions",
     "skill_installations",
     "policy_packs",

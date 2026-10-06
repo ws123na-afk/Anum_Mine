@@ -52,6 +52,32 @@ def test_cipher_supports_key_rotation() -> None:
     assert SecretCipher([new_key]).decrypt(rotated.encrypt("fresh")) == "fresh"
 
 
+def test_rotate_re_encrypts_with_the_first_key_and_reports_current_tokens() -> None:
+    old_key, new_key = Fernet.generate_key(), Fernet.generate_key()
+    token = SecretCipher([old_key]).encrypt("sk-rotate")
+    cipher = SecretCipher([new_key, old_key])
+
+    assert cipher.is_current(token) is False
+    rotated = cipher.rotate(token)
+    assert cipher.is_current(rotated) is True
+    assert SecretCipher([new_key]).decrypt(rotated) == "sk-rotate"
+    with pytest.raises(SecretDecryptionError):
+        SecretCipher([new_key]).rotate(SecretCipher([Fernet.generate_key()]).encrypt("lost"))
+
+
+def test_rotate_secrets_command_refuses_without_postgres_or_a_key(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from anum_api import rotate_secrets
+
+    monkeypatch.setattr(settings, "repository_backend", "memory")
+    assert rotate_secrets.main(["--dry-run"]) == 2
+    monkeypatch.setattr(settings, "repository_backend", "postgresql")
+    monkeypatch.setattr(settings, "secrets_key", None)
+    assert rotate_secrets.main(["--dry-run"]) == 2
+    assert "ANUM_SECRETS_KEY is not set" in capsys.readouterr().err
+
+
 def test_wrong_key_fails_without_leaking_the_token() -> None:
     token = SecretCipher([Fernet.generate_key()]).encrypt("sk-other")
 

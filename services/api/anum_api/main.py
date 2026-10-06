@@ -65,7 +65,7 @@ from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
-from .automation import router as automation_router
+from .automation import build_automation_scheduler, router as automation_router
 from .files import router as files_router
 from .skills_api import router as skills_router
 from .onboarding import router as onboarding_router, workspace_model_gateway
@@ -80,9 +80,16 @@ validate_auth_configuration(settings)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await event_runtime.start()
+    # Fires due automation schedules when ANUM_AUTOMATION_SCHEDULER_ENABLED=true; safe on
+    # every replica with PostgreSQL (docs/automation.md#scheduler).
+    scheduler = build_automation_scheduler(settings)
+    if scheduler is not None:
+        scheduler.start()
     try:
         yield
     finally:
+        if scheduler is not None:
+            await scheduler.stop()
         await event_runtime.stop()
         shutdown_telemetry()
 
