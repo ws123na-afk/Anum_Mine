@@ -28,9 +28,20 @@ apps/desktop/src-tauri/target/
 .DS_Store
 Thumbs.db
 apps/desktop/src-tauri/gen/
+# Generated per release from the environment by apps/desktop/scripts/release-config.mjs.
+apps/desktop/src-tauri/tauri.release.conf.json
 
 # Flutter
 apps/mobile/.dart_tool/
 apps/mobile/build/
 apps/mobile/pubspec.lock
+# Never commit signing material or Firebase configuration (docs/mobile.md, "Release Builds").
+apps/mobile/android/key.properties
+*.keystore
+*.jks
+*.p12
+*.p8
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
 apps/web/dist-oidc/

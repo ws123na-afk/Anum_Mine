@@ -1,0 +1,6 @@
+# Default overlay: keeps the base collector config (debug exporter only).
+# ANUM_OTELCOL_OVERLAY=observability selects observability.yaml instead.
+service:
+  telemetry:
+    logs:
+      level: info

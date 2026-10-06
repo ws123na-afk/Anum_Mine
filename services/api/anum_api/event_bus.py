@@ -31,7 +31,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
+from opentelemetry import propagate
+from opentelemetry.trace import SpanKind
+
 from .schemas import DomainEvent, utc_now
+from .telemetry import OutboxSnapshot, register_outbox_source, telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -302,13 +306,28 @@ class NatsJetStreamBus:
     async def publish(self, subject: str, data: bytes, *, msg_id: str) -> None:
         if self._js is None or not self.connected:
             raise BusUnavailableError("NATS is not connected")
-        await self._js.publish(
-            subject,
-            data,
-            timeout=self.publish_timeout,
-            stream=self.stream_name,
-            headers={MSG_ID_HEADER: msg_id},
-        )
+        # The subject embeds tenant and workspace tokens; the span names the stream only.
+        with telemetry.tracer.start_as_current_span(
+            f"publish {self.stream_name}",
+            kind=SpanKind.PRODUCER,
+            attributes={
+                "messaging.system": "nats",
+                "messaging.operation.type": "send",
+                "messaging.destination.name": self.stream_name,
+                "messaging.message.id": msg_id,
+                "messaging.message.body.size": len(data),
+            },
+            record_exception=False,
+        ):
+            headers = {MSG_ID_HEADER: msg_id}
+            propagate.inject(headers)  # traceparent, so consumers can continue the trace
+            await self._js.publish(
+                subject,
+                data,
+                timeout=self.publish_timeout,
+                stream=self.stream_name,
+                headers=headers,
+            )
 
     async def subscribe(self, subject: str, handler: MessageHandler) -> Unsubscribe:
         from nats.js.api import DeliverPolicy
@@ -350,6 +369,9 @@ class OutboxEntry:
     last_error: str | None = None
 
 
+_MEMORY_OUTBOX = {"anum.outbox": "memory"}
+
+
 class EventOutbox:
     """In-process outbox delivering committed events at least once.
 
@@ -383,6 +405,7 @@ class EventOutbox:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
+        self._unregister_metrics: Callable[[], None] | None = None
 
     @property
     def pending(self) -> tuple[OutboxEntry, ...]:
@@ -399,11 +422,23 @@ class EventOutbox:
             while len(self._entries) > self.max_pending:
                 dropped_id, _ = self._entries.popitem(last=False)
                 self.dropped_count += 1
+                telemetry.outbox_rejected.add(1, _MEMORY_OUTBOX)
                 logger.warning("Event outbox full; dropped event %s from publication", dropped_id)
         self._notify()
 
     def backoff_for(self, attempts: int) -> float:
         return min(self.max_backoff, self.base_backoff * (2 ** max(0, attempts - 1)))
+
+    def snapshot(self) -> OutboxSnapshot:
+        """Queue depth for the ``anum.outbox.*`` gauges (no I/O)."""
+        entries = self.pending
+        if not entries:
+            return OutboxSnapshot(backlog=0, oldest_age_seconds=0.0)
+        oldest = min(entry.event.created_at for entry in entries)
+        return OutboxSnapshot(
+            backlog=len(entries),
+            oldest_age_seconds=max(0.0, (self._clock() - oldest).total_seconds()),
+        )
 
     async def publish_due(self) -> int:
         """Publish every due entry once, in order. Returns how many were acknowledged."""
@@ -420,16 +455,19 @@ class EventOutbox:
                 with self._lock:
                     self._entries.pop(entry.event.id, None)
                 self.rejected_count += 1
+                telemetry.outbox_rejected.add(1, _MEMORY_OUTBOX)
                 logger.exception("Event %s cannot be published; dropped", entry.event.id)
                 continue
             try:
                 await self.bus.publish(subject, data, msg_id=entry.event.id)
             except Exception as exc:  # publication must never escape to callers
+                telemetry.outbox_publish_failures.add(1, _MEMORY_OUTBOX)
                 self._reschedule(entry, exc)
                 break
             with self._lock:
                 self._entries.pop(entry.event.id, None)
             self.published_count += 1
+            telemetry.outbox_published.add(1, _MEMORY_OUTBOX)
             published += 1
         return published
 
@@ -486,6 +524,7 @@ class EventOutbox:
         self._wake = asyncio.Event()
         self._stopping = False
         self._task = asyncio.create_task(self._run(), name="anum-event-outbox")
+        self._unregister_metrics = register_outbox_source("memory", self.snapshot)
         if self.pending:
             self._wake.set()
 
@@ -505,6 +544,9 @@ class EventOutbox:
                 logger.warning("Final outbox flush failed", exc_info=True)
         if self.pending:
             logger.warning("Event outbox stopped with %s unpublished events", len(self.pending))
+        if self._unregister_metrics is not None:
+            self._unregister_metrics()
+            self._unregister_metrics = None
         self._loop = None
         self._wake = None
 

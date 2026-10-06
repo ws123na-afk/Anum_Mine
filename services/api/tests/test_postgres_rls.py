@@ -23,6 +23,18 @@ from conftest import (
 pytestmark = pytest.mark.database
 
 TENANT_TABLES = {
+    "skill_versions",
+    "skill_installations",
+    "policy_packs",
+    "role_templates",
+    "approval_rules",
+    "memory_governance",
+    "marketplace_packages",
+    "marketplace_installs",
+    "routing_targets",
+    "integration_configurations",
+    "workspace_files",
+    "notification_preferences",
     "audit_records",
     "workspace_invitations",
     "workspace_memberships",

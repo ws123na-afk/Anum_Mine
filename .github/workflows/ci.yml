@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 9.12.3
       - uses: actions/setup-node@v7
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 9.12.3
       - uses: actions/setup-node@v7
@@ -172,6 +172,10 @@ jobs:
     env:
       GITLEAKS_VERSION: 8.30.1
       GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      # Built from source: the Go module proxy and checksum database verify the module.
+      OSV_SCANNER_VERSION: v2.6.0
+      # Installed with --locked, so crates.io checksums in its Cargo.lock are enforced.
+      CARGO_AUDIT_VERSION: 0.22.2
     steps:
       - uses: actions/checkout@v7
         with:
@@ -179,7 +183,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 9.12.3
       - uses: actions/setup-node@v7
@@ -203,16 +207,60 @@ jobs:
           tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
           # Whole history of the commit under test; --log-opts keeps other branches out.
           "$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --log-opts="HEAD" --redact --no-banner --exit-code 1 .
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Install OSV-Scanner
+        run: go install "github.com/google/osv-scanner/v2/cmd/osv-scanner@${OSV_SCANNER_VERSION}"
+      - name: Dependency vulnerability scan (OSV-Scanner)
+        # Every severity fails the job; reviewed exceptions live in osv-scanner.toml
+        # and docs/security.md. The API has no lockfile, so the exact set pip resolves
+        # for services/api is written out and scanned without re-resolution.
+        run: |
+          python -m pip install --disable-pip-version-check --quiet --dry-run --ignore-installed \
+            --report "$RUNNER_TEMP/api-report.json" ./services/api
+          jq -r '.install[] | select(.metadata.name != "anum-api") | "\(.metadata.name)==\(.metadata.version)"' \
+            "$RUNNER_TEMP/api-report.json" | sort > "$RUNNER_TEMP/api-requirements.txt"
+          test -s "$RUNNER_TEMP/api-requirements.txt"
+          osv-scanner scan source --config osv-scanner.toml --no-resolve \
+            --lockfile pnpm-lock.yaml \
+            --lockfile "requirements.txt:$RUNNER_TEMP/api-requirements.txt"
+      - name: Rust dependency audit (cargo audit)
+        # Fails on RustSec vulnerabilities. Unmaintained and unsound notices for crates
+        # Tauri pulls in are printed as warnings; docs/security.md lists them.
+        run: |
+          cargo install cargo-audit --locked --version "${CARGO_AUDIT_VERSION}"
+          cargo audit --file apps/desktop/src-tauri/Cargo.lock
 
   images:
     name: Docker images
     runs-on: ubuntu-latest
+    env:
+      # Scanner and Temporal dev server images are pinned by digest (tag kept for reading).
+      TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+      TEMPORAL_IMAGE: temporalio/temporal:1.9.1@sha256:ad4c82c97bd12b417d1ea942610dbcd511afb250c4d5ed26c694009533df447e
     steps:
       - uses: actions/checkout@v7
       - name: Build API image
         run: docker build -t anum-api:ci services/api
       - name: Build web image
         run: docker build -f apps/web/Dockerfile -t anum-web:ci .
+      - name: Scan images (Trivy)
+        # Fails on high or critical vulnerabilities that have a fixed version, and on
+        # secrets baked into a layer. Fix by bumping the base image or upgrading packages
+        # in the Dockerfile; unavoidable exceptions go in .trivyignore and docs/security.md.
+        run: |
+          mkdir -p "$HOME/.cache/trivy"
+          # The checkout is mounted as the working directory so a .trivyignore is read.
+          for image in anum-api:ci anum-web:ci; do
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+              -v "$PWD:/work:ro" -w /work \
+              "$TRIVY_IMAGE" image --scanners vuln,secret --severity HIGH,CRITICAL \
+              --ignore-unfixed --exit-code 1 --no-progress "$image"
+          done
       - name: API image refuses development defaults outside local
         run: |
           # Each startup guard is checked on its own: a missing secrets key, header
@@ -235,6 +283,83 @@ jobs:
           refuses "ANUM_SECRETS_KEY is required"
           refuses AuthConfigurationError -e ANUM_SECRETS_KEY="$key"
           refuses InsecureConfigurationError -e ANUM_SECRETS_KEY="$key" -e ANUM_AUTH_MODE=oidc
+      - name: Worker refuses development defaults and the in-memory repository outside local
+        run: |
+          # `python -m anum_api.worker` runs the API's startup checks, then refuses the
+          # per-process in-memory repository outside local (anum_api/worker.py).
+          refuses() {
+            local expected="$1"; shift
+            set +e
+            timeout 60 docker run --rm --name worker-refuses "$@" anum-api:ci python -m anum_api.worker > refused.log 2>&1
+            local status=$?
+            set -e
+            cat refused.log
+            if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+              echo "::error::Worker did not refuse to start ($expected expected)"
+              docker rm -f worker-refuses || true
+              exit 1
+            fi
+            grep -q "$expected" refused.log
+          }
+          key="$(openssl rand -base64 32 | tr '+/' '-_')"
+          refuses "ANUM_SECRETS_KEY is required"
+          refuses AuthConfigurationError -e ANUM_SECRETS_KEY="$key"
+          refuses InsecureConfigurationError -e ANUM_SECRETS_KEY="$key" -e ANUM_AUTH_MODE=oidc
+          # Otherwise acceptable production settings (placeholders, nothing is contacted).
+          refuses "The worker needs ANUM_REPOSITORY_BACKEND=postgresql outside local" \
+            -e ANUM_SECRETS_KEY="$key" \
+            -e ANUM_AUTH_MODE=oidc \
+            -e ANUM_KEYCLOAK_ISSUER=https://id.example.test/realms/anum \
+            -e ANUM_DATABASE_URL=postgresql+psycopg://anum_worker:ci-placeholder@db.example.test:5432/anum \
+            -e 'ANUM_CORS_ORIGINS=["https://app.example.test"]'
+      - name: Worker polls Temporal in local mode and shuts down on SIGTERM
+        run: |
+          docker network create anum-worker-ci
+          # Unreachable Temporal: the worker exits non-zero with a clear connection error.
+          set +e
+          timeout 60 docker run --rm --network anum-worker-ci -e ANUM_ENVIRONMENT=local \
+            -e ANUM_TEMPORAL_TARGET=127.0.0.1:1 anum-api:ci python -m anum_api.worker > worker-noconn.log 2>&1
+          status=$?
+          set -e
+          cat worker-noconn.log
+          if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+            echo "::error::Worker did not fail when Temporal was unreachable"
+            exit 1
+          fi
+          grep -q "Failed client connect" worker-noconn.log
+          docker run -d --name temporal --network anum-worker-ci "$TEMPORAL_IMAGE" \
+            server start-dev --ip 0.0.0.0 --headless
+          for attempt in $(seq 1 60); do
+            if docker run --rm --network anum-worker-ci "$TEMPORAL_IMAGE" \
+              operator cluster health --address temporal:7233 > /dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker run -d --name worker --network anum-worker-ci -e ANUM_ENVIRONMENT=local \
+            -e ANUM_TEMPORAL_TARGET=temporal:7233 anum-api:ci python -m anum_api.worker
+          for attempt in $(seq 1 60); do
+            if docker logs worker 2>&1 | grep -q "ANUM worker polling anum-agent-runs"; then
+              break
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' worker)" != "true" ]; then
+              break
+            fi
+            sleep 1
+          done
+          if ! docker logs worker 2>&1 | grep -q "ANUM worker polling anum-agent-runs"; then
+            echo "::error::Worker did not start polling Temporal"
+            exit 1
+          fi
+          test "$(docker exec worker id -u)" != "0"
+          # SIGTERM stops polling, shuts the Temporal worker down and exits 0 well
+          # within the grace period (a hang would end in SIGKILL, exit code 137).
+          docker stop --timeout 20 worker
+          worker_exit="$(docker inspect -f '{{.State.ExitCode}}' worker)"
+          echo "worker exit code: $worker_exit"
+          test "$worker_exit" = "0"
+          docker logs worker 2>&1 | grep -q "Shutting down"
+          docker logs worker 2>&1 | grep -q "Beginning worker shutdown"
       - name: Smoke test images
         run: |
           docker run -d --name api -e ANUM_ENVIRONMENT=local -p 8000:8000 anum-api:ci
@@ -255,22 +380,30 @@ jobs:
         run: |
           docker logs api || true
           docker logs web || true
+          docker logs worker || true
+          docker logs temporal --tail 100 || true
 
   desktop:
     name: Tauri desktop
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 9.12.3
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          # Pinned by commit, so the toolchain is named here instead of in the ref.
+          toolchain: stable
+          components: clippy
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm build
       - run: pnpm check:desktop
+      - name: Rust lint (clippy, warnings are errors)
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
       - name: Build Windows installer
         run: pnpm build:desktop
       - name: Upload Windows installer
@@ -291,10 +424,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v4
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
         with:
           gradle-version: "8.10.2"
       - run: gradle -p apps/android testDebugUnitTest assembleDebug
@@ -307,17 +440,27 @@ jobs:
         working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
-      - name: Generate native platform wrappers
-        run: flutter create --platforms=android,ios .
-      - name: Configure voice permissions
-        run: dart run tool/configure_native.dart
+      # android/ and ios/ are committed; test/configure_native_test.dart fails if they drift.
       - run: flutter pub get
-      - name: Run Flutter analyzer
-        run: flutter analyze
+      - name: Run Flutter analyzer (infos and warnings are errors)
+        run: flutter analyze --fatal-infos --fatal-warnings
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Dart dependency vulnerability scan (OSV-Scanner)
+        # Scans the pubspec.lock that `flutter pub get` resolved; same pinned
+        # OSV-Scanner and exception file as the Security scans job.
+        env:
+          OSV_SCANNER_VERSION: v2.6.0
+        run: |
+          go install "github.com/google/osv-scanner/v2/cmd/osv-scanner@${OSV_SCANNER_VERSION}"
+          test -s pubspec.lock
+          osv-scanner scan source --config ../../osv-scanner.toml --lockfile pubspec.lock
       - name: Run Flutter tests
         run: flutter test
       - name: Build USB-device debug APK
@@ -338,3 +481,9 @@ jobs:
           name: anum-mobile-debug
           path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
+      # No keystore in CI: the bundle is debug-signed (with a Gradle warning) and never uploaded to Play.
+      - name: Build release app bundle
+        run: >-
+          flutter build appbundle --release
+          --dart-define=ANUM_API_URL=https://api.anum.invalid/
+          --dart-define=ANUM_OIDC_ISSUER=https://id.anum.invalid/realms/anum

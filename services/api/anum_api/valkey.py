@@ -25,6 +25,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from .hardening import InMemoryTokenBucket, RateLimitDecision
+from .telemetry import telemetry
 from .schemas import TenantContext
 
 logger = logging.getLogger(__name__)
@@ -217,10 +218,13 @@ class RunLockManager:
         *,
         ttl_seconds: float = 300,
         wait_seconds: float = 0,
+        metric_source: str = "api",
     ) -> None:
         self.client = client
         self.ttl_seconds = ttl_seconds
         self.wait_seconds = wait_seconds
+        # "api" or "worker": which process type lost the race (anum.run_lock.contention).
+        self.metric_source = metric_source
 
     @property
     def enabled(self) -> bool:
@@ -235,9 +239,11 @@ class RunLockManager:
             acquired = await lock.acquire(wait_seconds=self.wait_seconds)
         except Exception as exc:
             if _is_unavailable(exc):
+                telemetry.record_lock_contention("unavailable", source=self.metric_source)
                 raise CoordinationUnavailable(str(exc)) from exc
             raise
         if not acquired:
+            telemetry.record_lock_contention("busy", source=self.metric_source)
             raise LockNotAcquired(lock.key)
         return lock
 
@@ -259,12 +265,13 @@ class RunLockManager:
             await self.release(lock)
 
 
-def build_run_lock_manager(config: Any) -> RunLockManager:
+def build_run_lock_manager(config: Any, *, metric_source: str = "api") -> RunLockManager:
     if config.run_lock_backend == "valkey":
         return RunLockManager(
             create_async_client(config.valkey_url, timeout_seconds=config.valkey_timeout_seconds),
             ttl_seconds=config.run_lock_ttl_seconds,
             wait_seconds=config.run_lock_wait_seconds,
+            metric_source=metric_source,
         )
     if config.run_lock_backend != "none":
         raise RuntimeError(f"Unsupported run lock backend: {config.run_lock_backend}")
@@ -280,6 +287,7 @@ class ValkeyTokenBucket:
     """
 
     blocking = True
+    metric_name = "valkey"
 
     def __init__(
         self,

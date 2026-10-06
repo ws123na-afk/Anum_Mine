@@ -27,6 +27,7 @@ import anyio.to_thread
 
 from .errors import ErrorCode
 from .request_context import CORRELATION_ID_HEADER, is_valid_correlation_id, new_correlation_id
+from .telemetry import telemetry
 
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
@@ -296,6 +297,9 @@ class RateLimitMiddleware:
         else:
             decision = self.backend.acquire(key)
         if not decision.allowed:
+            telemetry.rate_limit_rejections.add(
+                1, {"anum.rate_limit.backend": getattr(self.backend, "metric_name", "memory")}
+            )
             await _send_error(
                 scope,
                 send,

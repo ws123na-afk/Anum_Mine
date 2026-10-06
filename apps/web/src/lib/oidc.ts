@@ -53,6 +53,8 @@ export interface PendingSignIn {
   nonce: string;
   returnTo: string;
   createdAt: number;
+  /** Redirect URI of this request when it differs from the configured one (desktop loopback). */
+  redirectUri?: string;
 }
 
 export class OidcError extends Error {
@@ -93,6 +95,17 @@ export function randomToken(crypto: OidcDependencies['crypto'], byteLength = 32)
 export async function pkceChallenge(verifier: string, crypto: OidcDependencies['crypto']): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
   return base64UrlEncode(new Uint8Array(digest));
+}
+
+/** True for an RFC 8252 section 7.3 loopback redirect: plain HTTP to a loopback IP literal, never `localhost`. */
+export function isLoopbackRedirect(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === '[::1]') && url.port !== '' && !url.username && !url.password && !url.hash;
 }
 
 /** Reads a JWT payload without verifying it. The API verifies tokens; clients only read claims. */
@@ -152,8 +165,15 @@ export class OidcClient {
     return this.metadata;
   }
 
-  /** Starts a sign-in and returns the authorization URL to navigate to. */
-  async beginSignIn(returnTo = ''): Promise<string> {
+  /**
+   * Starts a sign-in and returns the authorization URL to navigate to. `redirectUri` overrides the
+   * configured redirect for this one request; the desktop shell passes its RFC 8252 loopback URI
+   * (`http://127.0.0.1:<port>/callback`), which must be a loopback IP literal.
+   */
+  async beginSignIn(returnTo = '', redirectUri?: string): Promise<string> {
+    if (redirectUri !== undefined && !isLoopbackRedirect(redirectUri)) {
+      throw new OidcError('A redirect override must be an http://127.0.0.1 or http://[::1] loopback URI', 'invalid_redirect');
+    }
     const metadata = await this.discover();
     const pending: PendingSignIn = {
       state: randomToken(this.deps.crypto),
@@ -161,13 +181,14 @@ export class OidcClient {
       nonce: randomToken(this.deps.crypto),
       returnTo,
       createdAt: this.now(),
+      ...(redirectUri ? { redirectUri } : {}),
     };
     this.deps.storage.setItem(PENDING_KEY, JSON.stringify(pending));
     const url = new URL(metadata.authorization_endpoint);
     url.search = new URLSearchParams({
       response_type: 'code',
       client_id: this.config.clientId,
-      redirect_uri: this.config.redirectUri,
+      redirect_uri: redirectUri ?? this.config.redirectUri,
       scope: this.config.scope,
       state: pending.state,
       nonce: pending.nonce,
@@ -207,7 +228,8 @@ export class OidcClient {
     const tokens = await this.tokenRequest({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: this.config.redirectUri,
+      // The token request must repeat the redirect URI of this request (RFC 6749 section 4.1.3).
+      redirect_uri: pending.redirectUri ?? this.config.redirectUri,
       client_id: this.config.clientId,
       code_verifier: pending.codeVerifier,
     });
@@ -236,15 +258,19 @@ export class OidcClient {
     }
   }
 
-  /** Forgets local tokens and returns the provider logout URL (RP-initiated logout), if any. */
-  async signOutUrl(idToken?: string): Promise<string | null> {
+  /**
+   * Forgets local tokens and returns the provider logout URL (RP-initiated logout), if any.
+   * `postLogoutRedirect: false` leaves out the post-logout redirect: the desktop shell opens the
+   * URL in the system browser, which has no app page to return to.
+   */
+  async signOutUrl(idToken?: string, options: { postLogoutRedirect?: boolean } = {}): Promise<string | null> {
     this.forget();
     const metadata = await this.discover().catch(() => null);
     if (!metadata?.end_session_endpoint) return null;
     const url = new URL(metadata.end_session_endpoint);
     url.search = new URLSearchParams({
       client_id: this.config.clientId,
-      post_logout_redirect_uri: this.config.postLogoutRedirectUri,
+      ...(options.postLogoutRedirect === false ? {} : { post_logout_redirect_uri: this.config.postLogoutRedirectUri }),
       ...(idToken ? { id_token_hint: idToken } : {}),
     }).toString();
     return url.toString();

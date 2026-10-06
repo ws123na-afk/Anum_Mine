@@ -20,6 +20,17 @@ The default database pattern should be shared PostgreSQL tables with `tenant_id`
 
 Workspace owners add people with invitations and manage roles and deactivation; the last active owner is protected ([Identity](identity.md#invitations-and-membership-management)). In `ANUM_AUTH_MODE=oidc` the tenant comes from the token's IdP-managed `tenant_id` claim, the workspace from `x-workspace-id` (or the token's default `workspace_id`), and the persisted membership supplies the role. See [Identity and sign-in](identity.md#tenant-and-workspace-resolution).
 
+## Control-Plane Stores
+
+With `ANUM_REPOSITORY_BACKEND=postgresql` every control-plane store is a tenant table under forced RLS (migration `0008_control_plane_stores`); with `memory` each keeps an in-process implementation for local runs and tests. A store is opened per unit of work with the tenant and workspace session context set (`anum_api.scoped_store.open_scoped_store`), and writes for a tenant or workspace that has not been onboarded answer `409`.
+
+| Scope | Tables | RLS predicate |
+|---|---|---|
+| Tenant | `skill_versions`, `policy_packs`, `role_templates`, `approval_rules`, `memory_governance`, `marketplace_packages`, `routing_targets` | `tenant_id` |
+| Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `workspace_files`, `notification_preferences` (per user) | `tenant_id` and `workspace_id` |
+
+Tenant-level settings are shared by all of a tenant's workspaces and invisible to other tenants. Governance changes write an `audit_records` row for the acting workspace in the same transaction. The marketplace catalog belongs to the tenant that published the package; an install in any of the tenant's workspaces blocks deleting the package through a foreign key, which PostgreSQL checks without RLS filtering.
+
 ## Cross-Tenant Data
 
 Cross-tenant analytics should use aggregated, non-sensitive data only. Product telemetry must avoid raw prompts, retrieved memory, tool payloads, secrets, and file contents unless explicitly configured for debugging in a controlled environment.

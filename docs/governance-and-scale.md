@@ -22,6 +22,10 @@ Model routing policies constrain provider, model, region, data classification, l
 
 Enterprise operations include tenant/workspace budgets, throttling, service-level objectives, regional health, incident records, queue age and dead-letter visibility, controlled replay, and break-glass actions with expiry and mandatory audit review.
 
+## Persistence
+
+With `ANUM_REPOSITORY_BACKEND=postgresql` policy packs, role templates, approval rules and memory governance are tenant-level tables, the marketplace catalog (`marketplace_packages`) and routing targets are per tenant, and marketplace installs are per workspace, all under RLS ([Multi-tenancy](multi-tenancy.md#control-plane-stores)). Every governance write records an `audit_records` row (append-only: RLS allows select and insert only) in the same transaction, so a rejected write leaves no audit record; `GET /audit/export` returns the acting workspace's audit trail, which also includes membership changes. Packages published with `PUT /marketplace/packages/{id}` are visible only to the publishing tenant.
+
 ## Acceptance Matrix
 
 | Capability | Source acceptance | Production acceptance |

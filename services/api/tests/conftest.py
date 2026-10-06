@@ -30,6 +30,18 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "notification_preferences",
+    "workspace_files",
+    "integration_configurations",
+    "routing_targets",
+    "marketplace_installs",
+    "marketplace_packages",
+    "memory_governance",
+    "approval_rules",
+    "role_templates",
+    "policy_packs",
+    "skill_installations",
+    "skill_versions",
     "audit_records",
     "workspace_invitations",
     "workspace_model_configs",

@@ -2,6 +2,8 @@
 
 Native Kotlin client for mobile task capture, agent-run review, voice entry, and guarded approvals. Agent execution remains on the ANUM API.
 
+Frozen: the shipping Android app is the Flutter client in `apps/mobile`. This client keeps building in CI and takes security fixes only; see [docs/android.md](../../docs/android.md#status-frozen).
+
 ## Run
 
 1. Open `apps/android` in Android Studio (JDK 17, Android SDK 35).

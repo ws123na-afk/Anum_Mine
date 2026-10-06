@@ -22,8 +22,10 @@ The monorepo should eventually include a `skills/` workspace for first-party ski
 
 The Phase 2 API provides immutable semantic versions, tenant-owned publishing, workspace installations, declared and administrator-approved tool grants, and execution-time resolution. Resolution intersects the installed grants with runtime tool availability and rejects skills above the caller's risk ceiling. Skill instructions never grant tools by themselves.
 
-Endpoints are under `/api/v1/skills`: `POST /versions`, `GET /versions`, `POST /installations`, `GET /installations`, and `POST /resolve`.
+Endpoints are under `/api/v1/skills`: `POST /versions`, `GET /versions`, `POST /installations`, `GET /installations`, `PATCH|DELETE /installations/{skill_id}`, and `POST /resolve`.
+
+With `ANUM_REPOSITORY_BACKEND=postgresql` versions live in `skill_versions` (tenant-level, unique per tenant, skill and version) and installations in `skill_installations` (one per workspace and skill, referencing the installed version), both under RLS ([Multi-tenancy](multi-tenancy.md#control-plane-stores)).
 
 ## Remaining Distribution Work
 
-Marketplace signing, organization-wide promotion workflows, quality scoring, and durable PostgreSQL persistence remain part of the distribution and production-hardening work.
+Marketplace signing, organization-wide promotion workflows, and quality scoring remain part of the distribution and production-hardening work.

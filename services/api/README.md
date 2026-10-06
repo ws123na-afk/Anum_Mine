@@ -32,7 +32,8 @@ the last four characters. With `ANUM_REPOSITORY_BACKEND=postgresql` model
 configurations persist in the RLS-protected `workspace_model_configs` table with
 the API key encrypted by `ANUM_SECRETS_KEY` (see `docs/model-gateway.md`). User
 notification settings are available at `GET|PUT /api/v1/notification-preferences`
-and are scoped by tenant, workspace, and user; that store is still process-local.
+and are scoped by tenant, workspace, and user; with PostgreSQL they persist in the
+RLS-protected `notification_preferences` table.
 
 Local authentication also supports the Figma recovery and workspace-switching
 flows. These endpoints return `404` outside local header/session mode:
@@ -83,7 +84,7 @@ Enable request-scoped PostgreSQL persistence after creating the tenant and works
 ANUM_REPOSITORY_BACKEND=postgresql
 ```
 
-The Alembic chain executes `migrations/0001_foundation.sql`, which creates the core tables, enables pgvector, and applies tenant RLS policies. Revision `0002_memory_retention` adds expiry metadata for durable task memory. Revision `0005_workspace_model_configs` adds per-workspace model configurations with encrypted provider keys and RLS. Revision `0006_workspace_invitations` adds hash-only workspace invitations and the append-only `audit_records` table, both with RLS. Revision `0007_event_outbox` turns `domain_events` into a durable outbox and creates the narrowly privileged `anum_outbox_relay` role (the migration user needs `CREATEROLE`, or a DBA creates the role first).
+The Alembic chain executes `migrations/0001_foundation.sql`, which creates the core tables, enables pgvector, and applies tenant RLS policies. Revision `0002_memory_retention` adds expiry metadata for durable task memory. Revision `0005_workspace_model_configs` adds per-workspace model configurations with encrypted provider keys and RLS. Revision `0006_workspace_invitations` adds hash-only workspace invitations and the append-only `audit_records` table, both with RLS. Revision `0007_event_outbox` turns `domain_events` into a durable outbox and creates the narrowly privileged `anum_outbox_relay` role (the migration user needs `CREATEROLE`, or a DBA creates the role first). Revision `0008_control_plane_stores` moves the skills, governance, marketplace, routing, integration configuration, file metadata and notification preference stores to RLS-forced tables (see `docs/multi-tenancy.md`).
 
 ## Included Slice
 

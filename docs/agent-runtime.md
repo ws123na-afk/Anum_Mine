@@ -49,6 +49,10 @@ Because a step always starts from what the repository holds, a run survives a wo
 
 `tests/test_durable_runs.py` drives the activity without a server, including a simulated worker crash mid-tool and the high-risk never-repeat rule. `tests/test_temporal_worker.py` (marker `temporal`) runs the workflow on a real server (`ANUM_TEST_TEMPORAL_TARGET`, or a dev server the SDK starts with `WorkflowEnvironment.start_local`, downloading the Temporal CLI or using `ANUM_TEST_TEMPORAL_CLI`) and stops a worker while its tool call is in flight, then asserts a second worker completes the run without re-planning. `tests/test_valkey_integration.py` (marker `valkey`, `ANUM_TEST_VALKEY_URL`) includes a lock contention test across threads and connections.
 
+### Observability
+
+With OpenTelemetry export on ([Observability](observability.md)), the API's Temporal client and the worker share a tracing interceptor, so a run's trace continues from `POST /tasks/{id}/run` through `StartWorkflow` into each `RunActivity:anum.advance_run` span (tagged with the tenant and workspace ids); the worker's workflow sandbox passes `opentelemetry` through (`anum_api.worker.sandbox_runner`). Every activity call records `anum.temporal.activity.outcomes` and its duration by outcome (`advanced`, `locked`, `not_visible_yet`, `not_found`, `coordination_unavailable`, `cancelled`, `error`), and failed lock acquisitions record `anum.run_lock.contention` (`busy` or `unavailable`, from the API or a worker). Stuck and failing runs: [Runbooks](runbooks.md#temporal-stuck-or-failing-runs).
+
 ## Guardrails
 
 The runtime must mediate every tool call. It should reject tools outside scope, redact sensitive context where possible, cap costs, time out long operations, and keep a clear audit trail. Prompt injection should be handled by isolating untrusted content from instructions and by enforcing tool policy outside the model.

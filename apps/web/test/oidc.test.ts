@@ -11,12 +11,14 @@ import {
   REFRESH_KEY,
   base64UrlEncode,
   decodeJwtClaims,
+  isLoopbackRedirect,
   oidcConfigFromEnv,
   pkceChallenge,
   randomToken,
   type KeyValueStore,
   type OidcConfig,
 } from '../src/lib/oidc.ts';
+import { desktopShell } from '../src/lib/desktop.ts';
 
 const issuer = 'https://id.example.test/realms/anum';
 const config: OidcConfig = {
@@ -245,5 +247,60 @@ describe('refresh and sign-out', () => {
     const client = new OidcClient(config, { fetch: async () => Response.json({ ...metadata, issuer: 'https://evil.test' }), storage: store, crypto: webcrypto as unknown as Crypto });
     await assert.rejects(client.beginSignIn(), (error: unknown) => error instanceof OidcError && error.code === 'issuer_mismatch');
     assert.equal(store.getItem(PENDING_KEY), null);
+  });
+});
+
+describe('desktop loopback sign-in (RFC 8252)', () => {
+  const loopback = 'http://127.0.0.1:49152/callback';
+
+  test('only loopback IP literals with a port are accepted as overrides', () => {
+    assert.equal(isLoopbackRedirect(loopback), true);
+    assert.equal(isLoopbackRedirect('http://[::1]:49152/callback'), true);
+    assert.equal(isLoopbackRedirect('http://localhost:49152/callback'), false);
+    assert.equal(isLoopbackRedirect('https://127.0.0.1:49152/callback'), false);
+    assert.equal(isLoopbackRedirect('http://127.0.0.1/callback'), false);
+    assert.equal(isLoopbackRedirect('http://evil.test:49152/callback'), false);
+    assert.equal(isLoopbackRedirect('not a url'), false);
+  });
+
+  test('a non-loopback override is refused before anything is stored', async () => {
+    const h = harness(() => ({ status: 500, body: {} }));
+    await assert.rejects(h.client.beginSignIn('', 'https://evil.test/callback'), (error: unknown) => error instanceof OidcError && error.code === 'invalid_redirect');
+    assert.equal(h.store.getItem(PENDING_KEY), null);
+  });
+
+  test('the override is used for the authorization and token requests', async () => {
+    const h = harness((body) => {
+      assert.equal(body.get('redirect_uri'), loopback);
+      return { status: 200, body: { access_token: jwt({ tenant_id: 't' }), expires_in: 300 } };
+    });
+    const authorizeUrl = new URL(await h.client.beginSignIn('#tasks', loopback));
+    assert.equal(authorizeUrl.searchParams.get('redirect_uri'), loopback);
+    const pending = JSON.parse(h.store.getItem(PENDING_KEY)!) as { state: string };
+    const result = await h.client.completeSignIn(new URL(`${loopback}?code=abc&state=${pending.state}`));
+    assert.equal(result.returnTo, '#tasks');
+    assert.deepEqual(result.tokens.claims, { tenant_id: 't' });
+  });
+
+  test('desktop sign-out can leave out the post-logout redirect', async () => {
+    const h = harness(() => ({ status: 500, body: {} }));
+    const url = new URL((await h.client.signOutUrl('id-token', { postLogoutRedirect: false }))!);
+    assert.equal(url.searchParams.get('post_logout_redirect_uri'), null);
+    assert.equal(url.searchParams.get('id_token_hint'), 'id-token');
+  });
+
+  test('the shell bridge exists only inside Tauri and calls the shell commands', async () => {
+    assert.equal(desktopShell({}), null);
+    const calls: Array<[string, unknown]> = [];
+    const shell = desktopShell({ __TAURI_INTERNALS__: { invoke: async (command: string, args?: unknown) => { calls.push([command, args]); return command === 'oidc_loopback_listen' ? 49152 : loopback; } } });
+    assert.ok(shell);
+    assert.equal(await shell.listenForSignIn(), 49152);
+    assert.equal(await shell.authorizeInBrowser('https://id.example.test/auth'), loopback);
+    await shell.openInBrowser('https://id.example.test/logout');
+    assert.deepEqual(calls, [
+      ['oidc_loopback_listen', undefined],
+      ['oidc_loopback_authorize', { authorizationUrl: 'https://id.example.test/auth' }],
+      ['oidc_open_browser', { url: 'https://id.example.test/logout' }],
+    ]);
   });
 });

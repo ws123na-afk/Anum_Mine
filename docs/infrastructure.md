@@ -16,6 +16,8 @@ This serves the API on `http://localhost:8000` and the built web bundle on `http
 
 Valkey (`valkey-cli ping`) and S3 storage (`/healthz`) have compose health checks.
 
+The compose `api` and `worker` export OpenTelemetry to the `otel-collector` (`ANUM_OTEL_EXPORTER_OTLP_ENDPOINT`). The `observability` profile adds Prometheus, Tempo, Loki and Grafana with provisioned dashboards and alert rules from `infra/observability`; start it with `ANUM_OTELCOL_OVERLAY=observability` so the collector forwards to them ([Observability](observability.md#local-stack)). Backups and the restore drill use `infra/backup/anum_backup.py` ([Runbooks](runbooks.md#backup-and-restore)).
+
 ## Container Images
 
 | Image | Dockerfile | Build context | Port | Runs as |
@@ -26,7 +28,7 @@ Valkey (`valkey-cli ping`) and S3 storage (`/healthz`) have compose health check
 
 API image:
 
-- Multi-stage on `python:3.13-slim`. Dependencies come from the exact pins in `services/api/pyproject.toml` into a virtualenv copied into the runtime stage; no compiler or pip cache ships.
+- Multi-stage on `python:3.13-slim`. Dependencies come from the exact pins in `services/api/pyproject.toml` into a virtualenv copied into the runtime stage; no compiler, pip cache or pip ships (pip is removed from the virtualenv and the base image, and pending Debian updates are applied, so image scanning stays clean).
 - Runs `uvicorn anum_api.main:app --proxy-headers --no-server-header`. uvicorn reads `FORWARDED_ALLOW_IPS` (image default `127.0.0.1`); set it to the load balancer's address range so client IPs (used for rate limiting) come from `X-Forwarded-For` only when a trusted proxy sent it.
 - Defaults to `ANUM_ENVIRONMENT=production`, so a container started without real configuration fails fast instead of running with development defaults.
 - `HEALTHCHECK` polls `GET /health`.
@@ -35,7 +37,7 @@ API image:
 
 Web image:
 
-- Builds the Vite bundle with pnpm (frozen lockfile, lifecycle scripts skipped) on Node 22, then serves `dist/` from `nginxinc/nginx-unprivileged`.
+- Builds the Vite bundle with pnpm (frozen lockfile, lifecycle scripts skipped) on Node 22, then serves `dist/` from `nginxinc/nginx-unprivileged:1.30-alpine` (the stable nginx line) after `apk upgrade`.
 - `VITE_ANUM_API_URL` and the sign-in settings `VITE_ANUM_OIDC_ISSUER`, `VITE_ANUM_OIDC_CLIENT_ID` (default `anum-web`) and `VITE_ANUM_WORKSPACE_ID` (build arguments) are compiled into the bundle. Every shared environment must set the issuer: without it the bundle uses local sessions, which the API refuses outside `local`. `ANUM_CSP_CONNECT_SRC` (runtime environment, space-separated origins) is substituted into the Content-Security-Policy when the container starts; it must include the API origin and the Keycloak issuer origin (discovery and token requests). The staging workflow passes `vars.STAGING_OIDC_ISSUER`.
 - nginx config (`apps/web/nginx/default.conf.template`) adds the security headers listed in [Security](security.md), serves hashed `/assets/` as immutable, falls back to `index.html` for client routes, and answers `/healthz`.
 - `apps/web/Dockerfile.dockerignore` limits the root build context to the workspace manifests, `apps/web` and `packages/contracts`.
@@ -60,7 +62,7 @@ OpenTofu should define networks, compute, managed databases where used, object s
 | `codeql.yml` | PRs, pushes to `main`, weekly | CodeQL `security-extended` for Python and JavaScript/TypeScript. |
 | `deploy-staging.yml` | Pushes to `main`, manual | Builds and pushes `ghcr.io/<owner>/anum-api:<sha>` and `anum-web:<sha>`, then deploys to the `staging` environment once configured. |
 
-The **Docker images** job builds both images without pushing, checks that the API image refuses development defaults in production mode, and smoke-tests both containers (health endpoint, non-root user, CSP header).
+The **Docker images** job builds both images without pushing, scans them with Trivy (fixable high and critical vulnerabilities and baked-in secrets fail the job; see [Security](security.md#scanning-in-ci)), checks that the API image and the worker command (`python -m anum_api.worker`) refuse development defaults in production mode and that the worker refuses the in-memory repository outside `local`, runs the worker against a Temporal dev server until it polls and then stops it with SIGTERM, and smoke-tests the API and web containers (health endpoint, non-root user, CSP header).
 
 ### Staging deploy: owner decision needed
 

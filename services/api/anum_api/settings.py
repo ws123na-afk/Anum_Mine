@@ -108,6 +108,17 @@ class Settings(BaseSettings):
     rate_limit_burst: int = 120
     # "memory" keeps limits per process; "valkey" shares them across API replicas.
     rate_limit_backend: str = Field(default="memory", pattern="^(memory|valkey)$")
+    # OpenTelemetry (anum_api/telemetry.py, docs/observability.md). Export is off unless
+    # an OTLP/HTTP endpoint is set here or in the standard OTEL_EXPORTER_OTLP_ENDPOINT
+    # (for example http://otel-collector:4318). OTEL_SDK_DISABLED=true always wins.
+    otel_exporter_otlp_endpoint: str | None = None
+    # Overrides the process default ("anum-api" for the API, "anum-worker" for the worker).
+    otel_service_name: str | None = None
+    otel_metric_export_interval_seconds: float = Field(default=15, gt=0)
+    # Ship Python log records over OTLP too (stdout logging is unchanged either way).
+    otel_logs_enabled: bool = True
+    # Head sampling ratio for new traces (parent-based, so a sampled caller stays sampled).
+    otel_traces_sampler_ratio: float = Field(default=1.0, ge=0, le=1)
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",

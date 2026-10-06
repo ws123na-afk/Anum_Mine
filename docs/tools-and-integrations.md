@@ -18,6 +18,10 @@ A tool should declare name, description, input schema, output schema, required p
 
 Integration credentials should be scoped to tenant, workspace, user, or agent. The system should show what access an integration has and allow revocation. Agents should never see raw secrets.
 
+## Workspace Configuration
+
+`GET|PUT /api/v1/integrations/{id}/configuration` lets a workspace owner disable an infrastructure integration or override its endpoint for health checks. With `ANUM_REPOSITORY_BACKEND=postgresql` the overrides live in the RLS-protected `integration_configurations` table, keyed by tenant, workspace and integration ([Multi-tenancy](multi-tenancy.md#control-plane-stores)); `GET /api/v1/integrations` reads them before probing, without holding a database session during the probes. Endpoints are stored and returned as given, so they must not carry credentials.
+
 ## MCP Strategy
 
 MCP should be supported as an integration protocol, not as the entire runtime. ANUM can call MCP servers through mediated adapters while still applying tenant policy, approvals, audit logging, and tool schemas.

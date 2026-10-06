@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable
+from contextlib import AbstractContextManager
 from enum import StrEnum
+from threading import RLock
 from time import perf_counter
+from typing import Protocol
 
 import httpx
 from pydantic import BaseModel, Field
 
-from .settings import Settings
 from .schemas import TenantContext
+from .scoped_store import open_scoped_store
+from .settings import Settings
 
 
 class IntegrationStatus(StrEnum):
@@ -72,34 +76,106 @@ class IntegrationConfigurationView(IntegrationConfiguration):
     workspace_id: str
 
 
+class IntegrationConfigurationStore(Protocol):
+    """Per-workspace integration overrides (enabled flag and endpoint).
+
+    The PostgreSQL store (``anum_api.db.workspace_settings_repository``) keeps them in
+    the RLS-protected ``integration_configurations`` table.
+    """
+
+    def list_configurations(self, context: TenantContext) -> dict[str, IntegrationConfiguration]: ...
+    def get(self, context: TenantContext, integration_id: str) -> IntegrationConfiguration | None: ...
+    def save(
+        self, context: TenantContext, integration_id: str, configuration: IntegrationConfiguration
+    ) -> IntegrationConfiguration: ...
+
+
+class InMemoryIntegrationConfigurationStore:
+    """``ANUM_REPOSITORY_BACKEND=memory`` (local and tests): lost on restart."""
+
+    def __init__(self) -> None:
+        self._items: dict[tuple[str, str, str], IntegrationConfiguration] = {}
+        self._lock = RLock()
+
+    def list_configurations(self, context: TenantContext) -> dict[str, IntegrationConfiguration]:
+        with self._lock:
+            return {
+                integration_id: value
+                for (tenant_id, workspace_id, integration_id), value in self._items.items()
+                if tenant_id == context.tenant_id and workspace_id == context.workspace_id
+            }
+
+    def get(self, context: TenantContext, integration_id: str) -> IntegrationConfiguration | None:
+        with self._lock:
+            return self._items.get((context.tenant_id, context.workspace_id, integration_id))
+
+    def save(
+        self, context: TenantContext, integration_id: str, configuration: IntegrationConfiguration
+    ) -> IntegrationConfiguration:
+        with self._lock:
+            self._items[(context.tenant_id, context.workspace_id, integration_id)] = configuration
+        return configuration
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items.clear()
+
+
+ConfigurationStoreOpener = Callable[[TenantContext], AbstractContextManager[IntegrationConfigurationStore]]
+
+
 class IntegrationRegistry:
-    def __init__(self, definitions: Iterable[IntegrationDefinition]) -> None:
+    def __init__(
+        self,
+        definitions: Iterable[IntegrationDefinition],
+        configuration_store: ConfigurationStoreOpener | None = None,
+    ) -> None:
         items = list(definitions)
         self._definitions = {item.id: item for item in items}
-        self._configurations: dict[tuple[str, str, str], IntegrationConfiguration] = {}
         if len(items) != len(self._definitions):
             raise ValueError("integration ids must be unique")
+        self.memory_configurations = InMemoryIntegrationConfigurationStore()
+        self._open_store = configuration_store or self._open_default_store
+
+    def _open_default_store(self, context: TenantContext) -> AbstractContextManager[IntegrationConfigurationStore]:
+        """Chosen by ``ANUM_REPOSITORY_BACKEND`` like the other control-plane stores."""
+
+        def sql_store(session):  # type: ignore[no-untyped-def]
+            from .db.workspace_settings_repository import SqlAlchemyIntegrationConfigurationStore
+
+            return SqlAlchemyIntegrationConfigurationStore(session)
+
+        return open_scoped_store(context, self.memory_configurations, sql_store)
 
     async def health(self, context: TenantContext | None = None) -> list[IntegrationHealth]:
-        return list(await asyncio.gather(*(self._check(self._effective(item, context)) for item in self._definitions.values())))
+        configurations: dict[str, IntegrationConfiguration] = {}
+        if context is not None:
+            # Read the overrides first; the probes run without holding a database session.
+            with self._open_store(context) as store:
+                configurations = store.list_configurations(context)
+        return list(await asyncio.gather(*(
+            self._check(self._effective(item, configurations.get(item.id)))
+            for item in self._definitions.values()
+        )))
 
     def configure(self, integration_id: str, context: TenantContext, configuration: IntegrationConfiguration) -> IntegrationConfigurationView:
         if integration_id not in self._definitions:
             raise KeyError(integration_id)
-        self._configurations[(context.tenant_id, context.workspace_id, integration_id)] = configuration
+        with self._open_store(context) as store:
+            store.save(context, integration_id, configuration)
         return IntegrationConfigurationView(id=integration_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, **configuration.model_dump())
 
     def configuration(self, integration_id: str, context: TenantContext) -> IntegrationConfigurationView:
         definition = self._definitions.get(integration_id)
         if definition is None:
             raise KeyError(integration_id)
-        value = self._configurations.get((context.tenant_id, context.workspace_id, integration_id), IntegrationConfiguration(enabled=definition.configured, endpoint=definition.endpoint))
+        with self._open_store(context) as store:
+            stored = store.get(context, integration_id)
+        value = stored or IntegrationConfiguration(enabled=definition.configured, endpoint=definition.endpoint)
         return IntegrationConfigurationView(id=integration_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, **value.model_dump())
 
-    def _effective(self, definition: IntegrationDefinition, context: TenantContext | None) -> IntegrationDefinition:
-        if context is None:
-            return definition
-        value = self._configurations.get((context.tenant_id, context.workspace_id, definition.id))
+    @staticmethod
+    def _effective(definition: IntegrationDefinition, value: IntegrationConfiguration | None) -> IntegrationDefinition:
         return definition if value is None else definition.model_copy(update={"configured": value.enabled, "endpoint": value.endpoint or definition.endpoint})
 
     async def _check(self, definition: IntegrationDefinition) -> IntegrationHealth:
