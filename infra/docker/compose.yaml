@@ -46,12 +46,20 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
-    command: ["start-dev"]
+    # Imports the `anum` realm from infra/keycloak on first start (existing realms are skipped).
+    # Admin credentials and the realm's `dev` user password are DEV-ONLY placeholders.
+    command: ["start-dev", "--import-realm"]
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      # Pin the token issuer to http://localhost:8080/realms/anum even when other containers
+      # reach Keycloak as http://keycloak:8080 (they should set ANUM_OIDC_JWKS_URL instead).
+      KC_HOSTNAME: http://localhost:8080
+      KC_HEALTH_ENABLED: "true"
     ports:
       - "8080:8080"
+    volumes:
+      - ../keycloak/anum-realm.json:/opt/keycloak/data/import/anum-realm.json:ro
 
   minio:
     image: minio/minio:RELEASE.2024-09-13T20-26-02Z

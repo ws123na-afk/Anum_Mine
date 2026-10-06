@@ -24,6 +24,7 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
     RATE_LIMITED = "rate_limited"
+    SERVICE_UNAVAILABLE = "service_unavailable"
     INTERNAL_ERROR = "internal_error"
 
 
@@ -68,6 +69,7 @@ _STATUS_CODES: dict[int, ErrorCode] = {
     409: ErrorCode.CONFLICT,
     422: ErrorCode.VALIDATION_ERROR,
     429: ErrorCode.RATE_LIMITED,
+    503: ErrorCode.SERVICE_UNAVAILABLE,
 }
 
 

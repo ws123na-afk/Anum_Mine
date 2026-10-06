@@ -10,7 +10,11 @@ python -m pip install -e .[test]
 uvicorn anum_api.main:app --reload --port 8000
 ```
 
-Phase 1 uses stub tenant headers instead of full Keycloak/OIDC validation:
+Set `ANUM_AUTH_MODE=oidc` to require Keycloak access tokens; the token contract,
+workspace selection (`x-workspace-id`), and error statuses are specified in
+[docs/identity.md](../../docs/identity.md). The default local mode
+(`ANUM_AUTH_MODE=headers`) uses stub tenant headers and is refused at startup
+unless `ANUM_ENVIRONMENT` is `local` or `test`:
 
 ```text
 x-tenant-id: tenant_local
@@ -19,7 +23,7 @@ x-workspace-id: workspace_foundation
 For the local web journey, create an expiring process-local session with
 `POST /api/v1/auth/local/session`, then send the returned opaque token as a
 Bearer token. The server stores only its SHA-256 hash and rejects this flow
-outside `ANUM_ENVIRONMENT=local`. Complete organization, workspace, and owner
+unless `ANUM_ENVIRONMENT` is `local` or `test` and `ANUM_AUTH_MODE=headers`. Complete organization, workspace, and owner
 membership setup idempotently with `PUT /api/v1/onboarding`.
 
 Workspace model setup is available at `GET|PUT /api/v1/model-config`. Provider
@@ -97,4 +101,4 @@ The Alembic chain executes `migrations/0001_foundation.sql`, which creates the c
 
 The API routes and runtime depend on ANUM repository boundaries instead of reaching directly into storage dictionaries. In-memory storage remains the local default; setting `ANUM_REPOSITORY_BACKEND=postgresql` selects SQLAlchemy adapters, applies tenant and workspace context to each request transaction, and durably stores task, run, approval, event, and memory changes.
 
-Keycloak token validation and persisted workspace membership remain required before the development header roles are production-safe. SQL-backed audit/idempotency records, a transactional event outbox, Temporal, NATS, and durable object storage remain subsequent implementation boundaries.
+Development header roles are never production-safe; shared environments must run `ANUM_AUTH_MODE=oidc`, where the persisted workspace membership role is authoritative. SQL-backed audit/idempotency records, a transactional event outbox, Temporal, NATS, and durable object storage remain subsequent implementation boundaries.

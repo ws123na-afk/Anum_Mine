@@ -12,8 +12,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from .authorization import Permission
-from .dependencies import provisioning_repository_context, require_permission, tenant_context
-from .identity import local_sessions
+from .dependencies import (
+    provisioning_repository_context,
+    provisioning_tenant_context,
+    require_permission,
+    tenant_context,
+)
+from .identity import local_sessions, local_sessions_allowed
 from .model_gateway import ModelGateway, build_model_gateway, normalize_provider
 from .repository import AnumRepository
 from .schemas import Tenant, TenantContext, Workspace, WorkspaceMembership, utc_now
@@ -213,7 +218,7 @@ _local_auth = _LocalAuthStore()
 
 
 def _local_enabled() -> None:
-    if settings.environment != "local" or settings.auth_mode not in {"headers", "local"}:
+    if not local_sessions_allowed(settings.environment, settings.auth_mode):
         raise HTTPException(status_code=404, detail="Local authentication is unavailable")
 
 
@@ -336,7 +341,7 @@ async def reset_local_password(payload: PasswordReset) -> LocalSessionResponse:
 async def switch_local_workspace(
     payload: WorkspaceSwitch,
     authorization: str | None = Header(default=None),
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> LocalSessionResponse:
     _local_enabled()
@@ -362,7 +367,7 @@ async def revoke_local_session(authorization: str | None = Header(default=None))
 @router.put("/onboarding", response_model=OnboardingStatus)
 async def complete_onboarding(
     payload: OnboardingCreate,
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> OnboardingStatus:
     require_permission(context, Permission.TENANT_CREATE)
@@ -389,7 +394,7 @@ async def complete_onboarding(
 
 @router.get("/onboarding", response_model=OnboardingStatus)
 async def get_onboarding_status(
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> OnboardingStatus:
     tenant = repository.get_tenant(context.tenant_id)
