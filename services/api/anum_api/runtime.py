@@ -16,6 +16,7 @@ from .audit import AuditRecord
 from .events import CanonicalEventName, create_event
 from .model_gateway import ModelGateway
 from .repository import AnumRepository
+from .retrieval import RetrievalResult, Retriever
 from .schemas import (
     AgentRun,
     AgentRunStep,
@@ -41,6 +42,7 @@ class AgentRuntime:
         tools: ToolRegistry | None = None,
         tool_policy: ToolPolicy | None = None,
         approval_ttl_seconds: float | None = None,
+        retriever: Retriever | None = None,
     ) -> None:
         if approval_ttl_seconds is None:
             from .settings import settings
@@ -52,6 +54,8 @@ class AgentRuntime:
         self.skills = skills or default_skill_registry()
         self.tool_policy = tool_policy or ToolPolicy(self.tools.names)
         self.planner = AgentPlanner(model_gateway, self.skills, self.tools)
+        # Workspace memory and file retrieval (threat model G5); None plans without it.
+        self.retriever = retriever
 
     def new_run(self, task: Task, *, status: TaskStatus = TaskStatus.RUNNING) -> AgentRun:
         """A fresh run for ``task`` at the planning checkpoint (not yet saved)."""
@@ -105,7 +109,8 @@ class AgentRuntime:
         task.status = run.status = TaskStatus.RUNNING
         task.updated_at = run.updated_at = utc_now()
 
-        planned = await self.planner.plan(task)
+        retrieved = await self._retrieve(task, run, context)
+        planned = await self.planner.plan(task, context_blocks=retrieved.blocks if retrieved else ())
         model_step = AgentRunStep(
                 id=new_id("step"),
                 type="model_call",
@@ -148,6 +153,27 @@ class AgentRuntime:
             _, approval = self._pause_for_approval(task, run, context, call, decision)
             return approval
         return None
+
+    async def _retrieve(self, task: Task, run: AgentRun, context: TenantContext) -> RetrievalResult | None:
+        """Retrieve labeled workspace context and record which chunks were used.
+
+        The step's metadata holds chunk ids, sources and scores, never the text. The
+        retrieved blocks only ever reach the model prompt; they are not stored on the
+        run, cannot select tools and are not part of any approval payload.
+        """
+        if self.retriever is None:
+            return None
+        result = await self.retriever.retrieve(context, task.prompt)
+        run.steps.append(
+            AgentRunStep(
+                id=new_id("step"),
+                type="retrieval",
+                summary=result.step_summary(),
+                created_at=utc_now(),
+                metadata=result.step_metadata(),
+            )
+        )
+        return result
 
     async def execute_checkpoint(self, task: Task, run: AgentRun, context: TenantContext) -> AgentRun:
         """Execute the planned tool call of a ``tool_ready`` run that policy allows."""

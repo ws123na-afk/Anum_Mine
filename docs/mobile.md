@@ -149,10 +149,12 @@ The pipeline has not run yet: it needs the accounts and secrets above, and no si
 cd apps/mobile
 flutter pub get
 dart format --output=none --set-exit-if-changed lib test tool
-flutter analyze
+flutter analyze --fatal-infos --fatal-warnings
 flutter test
 flutter build apk --debug
 ```
+
+`analysis_options.yaml` turns on the analyzer's `strict-casts`, `strict-inference` and `strict-raw-types` modes, so `flutter analyze` rejects implicit downcasts from `dynamic` (decoded JSON is read as `JsonMap` = `Map<String, Object?>` with explicit casts), generic calls whose type arguments cannot be inferred (page routes are `MaterialPageRoute<void>`, empty literals carry their element types) and raw generic types. Keep them on; do not silence a finding with `as dynamic` or an `// ignore:`.
 
 `test/oidc_session_test.dart` covers token-to-session mapping, refresh (including rotation, rejection and offline failures), workspace headers, sign-out and the controller flow with a fake authenticator; `test/configure_native_test.dart` covers the native configuration and checks that the committed projects match it. CI runs format, analyze and the tests, builds a debug APK and a (debug-signed) release app bundle, and compiles the iOS app (debug, unsigned) on macOS. A real browser round trip against Keycloak, secure storage, notifications, microphone handling and file transfer still need the device checklist below before release.
 

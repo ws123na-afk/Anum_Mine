@@ -1,0 +1,17 @@
+# Staging cluster: helm upgrade --install anum-admission infra/helm/anum-admission \
+#   -f infra/helm/anum-admission/values-staging.yaml --set github.repository=<owner>/<repo>
+# then: kubectl label namespace anum-staging policy.sigstore.dev/include=true
+# deploy-staging.yml builds, signs and attests all three images. Placeholders only.
+
+mode: enforce
+
+images:
+  api:
+    repository: ghcr.io/owner/anum-api
+    signers: [deploy-staging.yml]
+  web:
+    repository: ghcr.io/owner/anum-web
+    signers: [deploy-staging.yml]
+  backup:
+    repository: ghcr.io/owner/anum-backup
+    signers: [deploy-staging.yml]

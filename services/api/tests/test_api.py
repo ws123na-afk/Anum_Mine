@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from anum_api.dependencies import memory_note_repository
 from anum_api.main import app, store
+from anum_api.retrieval import memory_retrieval_store
 
 client = TestClient(app)
 headers = {
@@ -21,6 +22,7 @@ def setup_function() -> None:
     store.workspaces.clear()
     store.memberships.clear()
     memory_note_repository._notes.clear()
+    memory_retrieval_store.clear()
 
 
 def test_health() -> None:
@@ -57,12 +59,16 @@ def test_create_and_run_low_risk_task() -> None:
     assert payload["run"]["status"] == "completed"
     assert payload["approval"] is None
     assert [step["type"] for step in payload["run"]["steps"]] == [
+        "retrieval",
         "model_call",
         "tool_proposal",
         "tool_result",
         "final",
     ]
-    assert payload["run"]["steps"][0]["metadata"]["selected_skills"] == [
+    # Nothing is indexed in this workspace yet: the retrieval step says so (G5 audit).
+    assert payload["run"]["steps"][0]["metadata"]["status"] == "no_results"
+    assert payload["run"]["steps"][0]["metadata"]["sources"] == []
+    assert payload["run"]["steps"][1]["metadata"]["selected_skills"] == [
         "anum.task-planning",
         "anum.document-drafting",
     ]
@@ -137,7 +143,7 @@ def test_high_risk_task_waits_for_approval_then_completes() -> None:
     assert payload["task"]["status"] == "waiting_approval"
     approval_id = payload["approval"]["id"]
     assert payload["approval"]["action"] == "external.action"
-    assert payload["run"]["steps"][1]["metadata"]["policy_outcome"] == "require_approval"
+    assert payload["run"]["steps"][2]["metadata"]["policy_outcome"] == "require_approval"
 
     approved = client.post(
         f"/api/v1/approvals/{approval_id}/approve",

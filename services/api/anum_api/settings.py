@@ -17,6 +17,8 @@ DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
     "gpt-4.1-nano": ModelPrice(input_per_million=0.10, output_per_million=0.40),
     "gpt-4o": ModelPrice(input_per_million=2.50, output_per_million=10.00),
     "gpt-4o-mini": ModelPrice(input_per_million=0.15, output_per_million=0.60),
+    "text-embedding-3-small": ModelPrice(input_per_million=0.02, output_per_million=0.0),
+    "text-embedding-3-large": ModelPrice(input_per_million=0.13, output_per_million=0.0),
 }
 
 
@@ -96,6 +98,18 @@ class Settings(BaseSettings):
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "default"
     temporal_task_queue: str = "anum-agent-runs"
+    # Retrieval into agent prompts (anum_api/retrieval.py, docs/memory.md#retrieval).
+    # "gateway" embeds through the workspace's model gateway (budgets and the SSRF guard
+    # apply; the mock provider uses the deterministic local embedder); "local" always
+    # uses the deterministic hashing embedder, so no text leaves the API process.
+    embedding_backend: str = Field(default="gateway", pattern="^(gateway|local)$")
+    # Embedding model for "gateway"; empty picks a per-provider default
+    # (nomic-embed-text for Ollama, text-embedding-3-small otherwise).
+    embedding_model: str = ""
+    retrieval_top_k: int = Field(default=5, ge=0, le=20)
+    # Upper bounds on retrieved text placed into one prompt and into one labeled block.
+    retrieval_max_chars: int = Field(default=6000, ge=0, le=100_000)
+    retrieval_block_max_chars: int = Field(default=1500, ge=100, le=20_000)
     # Pending approvals lapse after this many seconds (docs/approvals-and-risk.md); an
     # expired approval can no longer be approved and its run fails.
     approval_ttl_seconds: int = Field(default=86_400, ge=1, le=30 * 86_400)

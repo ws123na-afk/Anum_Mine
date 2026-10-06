@@ -99,7 +99,7 @@ class _Content extends StatelessWidget {
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.push(
                         context,
-                        MaterialPageRoute(
+                        MaterialPageRoute<void>(
                             builder: (_) => WorkspaceSwitcherScreen(
                                 repository: controller.repository,
                                 currentWorkspaceId: session.context.workspaceId,

@@ -34,7 +34,7 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` every control-plane store is a tenant 
 | Scope | Tables | RLS predicate |
 |---|---|---|
 | Tenant | `skill_versions`, `policy_packs`, `role_templates`, `approval_rules`, `memory_governance`, `marketplace_packages`, `routing_targets` | `tenant_id` |
-| Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `workspace_files`, `notification_preferences` (per user), `automation_workflows`, `automation_schedules`, `automation_runs` (migration `0011_voice_automation`) | `tenant_id` and `workspace_id` |
+| Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `workspace_files`, `notification_preferences` (per user), `automation_workflows`, `automation_schedules`, `automation_runs` (migration `0011_voice_automation`), `retrieval_sources`, `retrieval_chunks` (migration `0014_retrieval_index`, [Memory](memory.md#retrieval)) | `tenant_id` and `workspace_id` |
 | User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`) | `tenant_id`, `workspace_id` and `user_id` |
 
 User-level rows need `anum.user_id` in the session context as well (`set_tenant_context(..., user_id=...)`, or `open_scoped_store(..., user_scoped=True)`). Without it they are invisible, even to other users of the same workspace. Tenant-level settings are shared by all of a tenant's workspaces and invisible to other tenants. Governance changes write an `audit_records` row for the acting workspace in the same transaction. The marketplace catalog belongs to the tenant that published the package; an install in any of the tenant's workspaces blocks deleting the package through a foreign key, which PostgreSQL checks without RLS filtering.

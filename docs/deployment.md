@@ -117,7 +117,7 @@ The chart is checked with Helm 4 (`v4.3.0`); Helm 3 renders it too, with `--atom
 | `STAGING_API_URL`, `STAGING_OIDC_ISSUER`, `PRODUCTION_API_URL`, `PRODUCTION_OIDC_ISSUER` | repository variables | Compiled into the web bundle; the API URL is also smoke-tested after the deploy. |
 | `STAGING_WEB_URL`, `PRODUCTION_WEB_URL` | repository variables | Environment URL shown on the run. |
 
-The deploy identity needs, in the release namespace only: create, update, patch and delete on Deployments, Services, ConfigMaps, ServiceAccounts, Jobs, CronJobs, PodDisruptionBudgets, HorizontalPodAutoscalers, Ingresses, NetworkPolicies and Pods (for `helm test`), get and list on Pods, Events and Secrets of type `helm.sh/release.v1` (Helm stores release state in Secrets), and read on ReplicaSets for `--wait`. It does not need to read the application's Secrets' values.
+The deploy identity needs, in the release namespace only: create, update, patch and delete on Deployments, Services, ConfigMaps, ServiceAccounts, Jobs, CronJobs, PodDisruptionBudgets, HorizontalPodAutoscalers, Ingresses, NetworkPolicies and Pods (for `helm test`), get and list on Pods, Events and Secrets of type `helm.sh/release.v1` (Helm stores release state in Secrets), and read on ReplicaSets for `--wait`. It does not need to read the application's Secrets' values, and it needs no cluster-scoped rights: the [admission policy](#admission-policy) is installed by a cluster admin, so the deploy identity cannot change or escape it.
 
 ### Image supply chain
 
@@ -149,7 +149,56 @@ cosign verify-attestation --type cyclonedx ghcr.io/<owner>/anum-api@sha256:<dige
 
 Tools: Trivy `v0.75.0` (the version the CI Docker images job runs) and cosign `v2.6.5` are built with `go install` at those versions, so the Go module proxy and checksum database (`sum.golang.org`) verify their source, as for Helm, kind and kubeconform; no third-party action is added. Keyless signatures are written to the public Rekor transparency log, which records the repository and workflow names, so the staging workflow signs only once `STAGING_DEPLOY_TARGET` is set (scanning and SBOMs run on every push). Images pushed before that are unsigned and cannot be deployed or promoted; rebuild them by re-running the workflow.
 
-Open: an admission policy in the cluster (for example Sigstore policy-controller or Kyverno `verifyImages`) so that only images signed by these identities can run, whoever deploys them.
+The deploy workflows' check protects the workflows' own deploys. The [admission policy](#admission-policy) enforces the same rule in the cluster for anyone who creates a pod.
+
+### Admission policy
+
+In the staging and production clusters, the release namespace admits ANUM images only when they carry a keyless signature and a signed CycloneDX SBOM attestation made by this repository's deploy workflows on `main`. This holds whoever creates the pod: a person with break-glass `kubectl`, a leaked deploy credential, or a `helm rollback` to an unsigned revision.
+
+**Controller: Sigstore policy-controller.** It is the Sigstore project's own admission controller and uses the same verification code as cosign: the same Fulcio certificate identities, the Rekor transparency log and the TUF trust root. So the cluster checks exactly what `images.sh verify` checks before `helm upgrade`. It is cloud-neutral (Apache-2.0, any conformant cluster). It does one job, with one CRD (`ClusterImagePolicy`) and a namespace opt-in label, so it adds less to the cluster than a general policy engine. Kyverno `verifyImages` would work too, and is the better choice in a cluster that already runs Kyverno for other policies. Translate the policies in `infra/helm/anum-admission` one to one if so.
+
+**Where it lives.** The policies are a separate chart, `infra/helm/anum-admission`, not part of `infra/helm/anum`. ClusterImagePolicies are cluster-scoped, and the deploy identity is limited to the release namespace ([Cluster access](#cluster-access)). Keeping the policy out of the release means a cluster admin installs and changes it, and the deploy identity can neither remove the policy nor relabel its namespace to escape it.
+
+| What | Enforced by | Refused |
+|---|---|---|
+| `anum-api-signature`, `anum-web-signature`, `anum-backup-signature` | One keyless authority each. The issuer is `https://token.actions.githubusercontent.com` and the subject is `https://github.com/<owner>/<repo>/.github/workflows/<signer>@refs/heads/main`. Signers come from the values: staging uses `deploy-staging.yml` for all three images; production uses `deploy-staging.yml` for the API and backup images it promotes and `deploy-production.yml` for its web image. | A pod, Deployment, ReplicaSet, StatefulSet, Job or CronJob whose image is in `ghcr.io/<owner>/anum-{api,web,backup}` without such a signature in Rekor. The API image also runs the worker, migration Job, CronJobs and `helm test` pod, so those are covered too. |
+| `anum-api-sbom`, `anum-web-sbom`, `anum-backup-sbom` | Same identities, with an attestation of predicate type `cyclonedx` (`cosign attest --type cyclonedx`). | Images without the signed SBOM attestation. policy-controller requires every matching policy (AND) and at least one authority inside a policy (OR), so signature and SBOM are separate policies. |
+| `no-match-policy: deny` (controller install) | policy-controller | Any image in a labelled namespace that no policy matches. Run NATS, Temporal, Valkey and other third-party services in their own unlabelled namespaces. The production overlay's placeholder NATS in the `anum` namespace must move before the label is set. |
+| Namespace label `policy.sigstore.dev/include=true` | The controller's `namespaceSelector` (`controller/policy-controller-values.yaml`) | Enforcement applies in labelled namespaces only. Label the release namespace (`anum-staging`, `anum`) and nothing else ANUM-specific. |
+| `failurePolicy: Fail` | Kubernetes API server | While the webhook is down, nothing new starts in a labelled namespace ([Runbooks](runbooks.md#a-pod-was-refused-by-admission)). |
+
+The chart refuses (fails to render) a signer other than `deploy-staging.yml` or `deploy-production.yml`, an empty signer list, a repository with a tag, digest or glob, a malformed `github.repository`, non-https Fulcio, Rekor or GitHub URLs, and a `mode` other than `enforce` or `warn`. The branch is fixed to `refs/heads/main`; there is no value to change it.
+
+Install, once per cluster, as a cluster admin (Helm `v4.3.0`):
+
+```bash
+# 1. The controller: chart 0.10.8 (policy-controller v0.13.1) pulled from ghcr.io by
+#    manifest digest; the controller image is pinned by digest in its values.
+bash infra/helm/anum-admission/controller/install.sh
+# 2. The policies (replace owner/repo; image repositories use the lowercase owner).
+helm upgrade --install anum-admission infra/helm/anum-admission \
+  -f infra/helm/anum-admission/values-staging.yaml \
+  --set github.repository=<owner>/<repo> \
+  --set images.api.repository=ghcr.io/<owner>/anum-api \
+  --set images.web.repository=ghcr.io/<owner>/anum-web \
+  --set images.backup.repository=ghcr.io/<owner>/anum-backup
+kubectl get clusterimagepolicies
+# 3. Opt the release namespace in, once the running digests are signed (check them with
+#    cosign verify first). Running pods are not evicted; new ones are checked.
+kubectl label namespace anum-staging policy.sigstore.dev/include=true
+```
+
+For production, use `values-production.yaml` and the `anum` namespace. If staging and production share a cluster, the policies are cluster-wide: list both workflows as web signers. To roll out gradually, install with `--set mode=warn` (non-compliant pods are admitted with a warning) and switch to `enforce` after a clean deploy. The chart accepts `warn`; `infra/helm/ci/lint.sh` fails if a committed overlay renders it.
+
+Consequences for operators:
+
+- A Deployment that fails the policy is refused when it is applied, so `helm upgrade` fails at once and `--rollback-on-failure` keeps the previous release running.
+- `helm rollback` to a revision whose images predate signing (pushed before `STAGING_DEPLOY_TARGET` was set) is refused. Redeploy a signed commit instead.
+- The `commit=<sha>` annotation is checked by the deploy job only. Admission checks the signer identity and the SBOM, not which commit a digest belongs to.
+- policy-controller v0.13 verifies image signatures in cosign's classic format only (attestations in either format). `images.sh` uses cosign `v2.6.5`, which signs in that format. Before moving to cosign v3, whose default is the new bundle format, pass `--new-bundle-format=false` to `cosign sign` or upgrade the controller to a version that reads bundles, and let the kind job prove it.
+- The controller fetches signatures from GHCR, so a cluster that pulls private images needs the pull secret given to the controller (`webhook.env`/`imagePullSecrets` of its chart, or a public package).
+
+Pinned versions: the policy-controller chart `0.10.8` at manifest digest `sha256:9ff3ca6ae4a0155de4dd667f8b760e56e1bd5c8233a0321ad870a654ce022f2f`, and the controller image `v0.13.1` at `sha256:0bcd60beb93f4427c29cf3a669743caf58490e98ded4380c33c09f092734a6ab`. One image in that chart is not pinned: the chart's `post-delete` lease cleanup hook uses `cgr.dev/chainguard/kubectl:latest-dev`, which runs only on `helm uninstall`. Uninstall with `--no-hooks` and delete the leftover leases by hand, or pin `leasescleanup.image.version` to a digest. kubeconform validates the policies against `infra/helm/ci/schemas/policy.sigstore.dev/clusterimagepolicy_v1beta1.json`, generated from the pinned chart's CRD by `infra/helm/ci/crd-schema.py`. The kind job regenerates that schema from the CRD it installs and fails if they differ. To upgrade the controller, change the chart version and digest in `controller/install.sh` and the image digest in `controller/policy-controller-values.yaml`, regenerate the schema, and let the kind job run.
 
 ## Migrations
 
@@ -189,15 +238,15 @@ A default-deny policy selects every pod of the release. Then:
 
 The CI job **Helm deploy (kind)** (`.github/workflows/ci.yml`) runs on every PR and push to `main`:
 
-1. `infra/helm/ci/lint.sh`: `helm lint --strict` for the staging, production and CI values; `helm template` piped into `kubeconform -strict` against Kubernetes 1.37.0 schemas pinned to a commit; no rendered Secret, no writable root filesystem, no mounted token; and fourteen refusals (local or test environment, header auth, http, local and wildcard CORS origins, the memory repository, mock model in production, local storage with replicas, a non-https issuer, a Keycloak admin credential in `config` or `extraEnv`, the worker disabled with Temporal, backup without a volume).
+1. `infra/helm/ci/lint.sh`: `helm lint --strict` for the staging, production and CI values; `helm template` piped into `kubeconform -strict` against Kubernetes 1.37.0 schemas pinned to a commit; no rendered Secret, no writable root filesystem, no mounted token; and fourteen refusals (local or test environment, header auth, http, local and wildcard CORS origins, the memory repository, mock model in production, local storage with replicas, a non-https issuer, a Keycloak admin credential in `config` or `extraEnv`, the worker disabled with Temporal, backup without a volume). The admission chart (`infra/helm/anum-admission`) gets `helm lint --strict` and kubeconform for its staging, production and kind values. kubeconform validates the ClusterImagePolicies against the committed CRD schema, with no skipped kinds. The script also checks each overlay's signer identities, issuer, SBOM predicate type and `mode: enforce`, plus eight refusals (another workflow as signer, no signer, `mode=off`, a tag or a glob in a repository, a malformed repository name, http GitHub or Rekor URLs).
 2. Builds the API, web and backup images.
-3. `infra/helm/ci/kind-smoke.sh`: creates a kind cluster (kind `v0.33.0`, node image pinned by digest), loads the images and digest-pinned PostgreSQL (pgvector), NATS and Temporal dev server images, runs `bootstrap-database.sql`, creates the Secrets with generated passwords and a generated `ANUM_SECRETS_KEY`, installs the chart with `ci/kind-values.yaml` (`ANUM_ENVIRONMENT=staging`, OIDC, PostgreSQL, NATS, Temporal), and then checks: the migration Job succeeded and tables are owned by `anum_migrator`; pods are non-root, without a token and cannot write their root filesystem; the worker polls Temporal; the API created the `ANUM_EVENTS` stream; `/health`, `/healthz`, CSP headers and a 401 without a token through port-forward; `helm test`; one run each of the retention and backup CronJobs; a deleted worker pod logs a clean shutdown well inside its grace period; `helm upgrade` (migration hook again) and `helm rollback` to revision 1, then `helm test` again.
+3. `infra/helm/ci/kind-smoke.sh`: creates a kind cluster (kind `v0.33.0`, node image pinned by digest), loads the images and digest-pinned PostgreSQL (pgvector), NATS and Temporal dev server images, and installs Sigstore policy-controller from its digest-pinned chart. It checks that the committed ClusterImagePolicy schema equals the installed CRD's, then installs `anum-admission` with `ci/kind-values.yaml`. The kind images are unsigned local builds, so the ANUM image policies are off there, and one probe policy requires the staging identity (`deploy-staging.yml` on `main` of this repository) for the digest-pinned pgvector image, which this repository never signed. In a namespace labelled `policy.sigstore.dev/include=true`, a pod with that image must be refused by the probe policy, and a pod with an image no policy matches must be refused too. The release namespace is not labelled, so the rest of the job also proves that unlabelled namespaces are unaffected. The script then runs `bootstrap-database.sql`, creates the Secrets with generated passwords and a generated `ANUM_SECRETS_KEY`, installs the chart with `ci/kind-values.yaml` (`ANUM_ENVIRONMENT=staging`, OIDC, PostgreSQL, NATS, Temporal), and then checks: the migration Job succeeded and tables are owned by `anum_migrator`; pods are non-root, without a token and cannot write their root filesystem; the worker polls Temporal; the API created the `ANUM_EVENTS` stream; `/health`, `/healthz`, CSP headers and a 401 without a token through port-forward; `helm test`; one run each of the retention and backup CronJobs; a deleted worker pod logs a clean shutdown well inside its grace period; `helm upgrade` (migration hook again) and `helm rollback` to revision 1, then `helm test` again.
 
-Tools are pinned: Helm `v4.3.0`, kind `v0.33.0` and kubeconform `v0.8.0` are built with `go install` (the Go module proxy and checksum database verify them), and kubectl `v1.37.0` is downloaded from `dl.k8s.io` and checked against its SHA-256. To run locally, build the three images as the script header shows, put the tools on `PATH` and run `bash infra/helm/ci/lint.sh && bash infra/helm/ci/kind-smoke.sh` (`KIND_KEEP=1` keeps the cluster; `DEP_MIRROR=mirror.gcr.io` pulls the dependency images through Google's Docker Hub mirror; hosts with cgroup v1 need a `KIND_CONFIG` that sets the kubelet's `failCgroupV1: false`).
+Tools are pinned: Helm `v4.3.0`, kind `v0.33.0` and kubeconform `v0.8.0` are built with `go install` (the Go module proxy and checksum database verify them), and kubectl `v1.37.0` is downloaded from `dl.k8s.io` and checked against its SHA-256. The policy-controller chart and image are pinned by digest ([Admission policy](#admission-policy)); the kind job pulls them from `ghcr.io`. To run locally, build the three images as the script header shows, put the tools on `PATH` and run `bash infra/helm/ci/lint.sh && bash infra/helm/ci/kind-smoke.sh` (`KIND_KEEP=1` keeps the cluster; `DEP_MIRROR=mirror.gcr.io` pulls the dependency images through Google's Docker Hub mirror; hosts with cgroup v1 need a `KIND_CONFIG` that sets the kubelet's `failCgroupV1: false`).
 
 ## Not Done Yet
 
 - The cloud itself: cluster, managed PostgreSQL, NATS, Temporal, Valkey, object storage, DNS and certificates (OpenTofu, [Infrastructure](infrastructure.md#opentofu)).
 - A real staging run of the workflows: they stay skipped until the owner sets the variables and secrets above.
-- An admission policy so that only signed images run (signing, SBOMs, scanning and verification before deploy are done: [Image supply chain](#image-supply-chain)).
+- Installing the [admission policy](#admission-policy) in a real cluster, and proof that a signed image is admitted: kind can only show refusals, because no image of this repository has been signed yet.
 - Shipping backups off the volume to encrypted, versioned object storage in a second region.

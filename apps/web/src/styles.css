@@ -77,6 +77,12 @@ dd { color: #344950; font-size: 12px; font-weight: 650; margin: 2px 0 0; overflo
 .statusBadge.warning { background: #fff0c9; color: #765808; }
 .statusBadge.dangerTone, .riskBadge { background: #f8ddda; color: #8b2d26; }
 .timelineSurface { margin-top: 16px; }
+.sourcesSurface { margin-top: 16px; padding: 18px; }
+.sourcesList { list-style: none; padding: 0; }
+.sourceRow { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; }
+.sourceRow small { display: block; color: #788a91; font-size: 12px; margin-top: 2px; }
+.sourceRow code { font-size: 12px; overflow-wrap: anywhere; }
+.sourceIcon svg { width: 16px; height: 16px; }
 .timeline { margin-top: 18px; }
 .timelineRow { display: grid; grid-template-columns: 32px minmax(0, 1fr); }
 .timelineRail { align-items: center; display: flex; flex-direction: column; }

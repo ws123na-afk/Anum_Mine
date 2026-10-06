@@ -215,7 +215,7 @@ class _SignInState extends State<SignInScreen> {
     if (!mounted) return;
     await Navigator.push(
         context,
-        MaterialPageRoute(
+        MaterialPageRoute<void>(
             builder: (_) => OtpVerificationScreen(
                 controller: widget.controller, challengeId: challenge)));
   }
@@ -225,7 +225,7 @@ class _SignInState extends State<SignInScreen> {
     if (!mounted) return;
     await Navigator.push(
         context,
-        MaterialPageRoute(
+        MaterialPageRoute<void>(
             builder: (_) => PasswordRecoveryScreen(
                 controller: widget.controller,
                 tenantId: tenant.text.trim(),

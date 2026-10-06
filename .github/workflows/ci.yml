@@ -420,9 +420,11 @@ jobs:
           kind version
           kubeconform -v
           kubectl version --client
-      - name: Lint and validate the chart (staging, production, CI values)
-        # helm lint --strict, kubeconform -strict against pinned Kubernetes schemas, and
-        # the chart's refusals of configurations the API refuses at startup.
+      - name: Lint and validate the charts (staging, production, CI values)
+        # helm lint --strict, kubeconform -strict against pinned Kubernetes schemas (and
+        # the committed ClusterImagePolicy schema for infra/helm/anum-admission), the
+        # chart's refusals of configurations the API refuses at startup, and the
+        # admission chart's signer identities and refusals.
         run: bash infra/helm/ci/lint.sh
       - name: Build API, web and backup images
         run: |
@@ -433,6 +435,8 @@ jobs:
         # PostgreSQL, NATS and Temporal in-cluster; migration hook, rollout under
         # default-deny NetworkPolicies, /health and /healthz through port-forward,
         # helm test, retention and backup CronJobs, worker SIGTERM, upgrade and rollback.
+        # First: Sigstore policy-controller (digest-pinned chart) refuses an image without
+        # the deploy workflows' signature in a namespace labelled for enforcement.
         run: bash infra/helm/ci/kind-smoke.sh
 
   desktop:

@@ -21,13 +21,15 @@ Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A
 6. Real-device checklist in `docs/mobile.md` filled in for the build numbers above, and the desktop sign-in round trip on a packaged build.
 7. Staging smoke test: OIDC login (`ANUM_AUTH_MODE=oidc`), create task, approval round-trip, memory write/read, file round-trip through object storage, event published and consumed, workflow resumed after worker restart.
 8. Environment where each check ran (local / CI / staging).
-9. Deployment: the green "Helm deploy (kind)" job on the release commit (chart lint, kubeconform, install, `helm test`, CronJobs, upgrade and rollback); the staging `deploy-staging.yml` run with `helm test` output; the production `deploy-production.yml` run with its approval, the Helm revision before and after (`helm history anum`), `helm test` output, and the revision to roll back to (`docs/deployment.md`).
+9. Deployment: the green "Helm deploy (kind)" job on the release commit (chart and admission-policy lint, kubeconform, policy-controller install and refusals, install, `helm test`, CronJobs, upgrade and rollback); the staging `deploy-staging.yml` run with `helm test` output; the production `deploy-production.yml` run with its approval, the Helm revision before and after (`helm history anum`), `helm test` output, and the revision to roll back to (`docs/deployment.md`).
 10. Image digests deployed (API, web, backup) and the values used (`values-production.yaml` plus `PRODUCTION_HELM_VALUES`).
 11. Image supply chain for each deployed digest (`docs/deployment.md#image-supply-chain`):
     - the deploy run's "Verify image signatures and SBOM attestations" step green, and the same check repeated by hand: `cosign verify <repo>@<digest> --certificate-identity https://github.com/<owner>/<repo>/.github/workflows/<deploy-staging.yml|deploy-production.yml>@refs/heads/main --certificate-oidc-issuer https://token.actions.githubusercontent.com -a commit=<sha>`, plus `cosign verify-attestation --type cyclonedx` with the same identity;
     - the Trivy steps green (no fixable HIGH/CRITICAL, no secrets) in the build job and, for production, the re-scan at promotion; any `.trivyignore` entry listed with its reason and expiry;
     - the SBOM component count per image (from the attestation) and the Rekor log index of each signature;
-    - the deployed pods' images are `repository@sha256:` references equal to the verified digests (`kubectl -n <ns> get pods -o jsonpath='{..image}'`).
+    - the deployed pods' images are `repository@sha256:` references equal to the verified digests (`kubectl -n <ns> get pods -o jsonpath='{..image}'`);
+    - admission policy (`docs/deployment.md#admission-policy`): `kubectl get clusterimagepolicies` lists `anum-{api,web,backup}-{signature,sbom}` with `mode: enforce` and the expected signer per image (production web: `deploy-production.yml`), the `anum-admission` release values used, the policy-controller release at chart `0.10.8` (`helm -n cosign-system list`), the release namespace labelled `policy.sigstore.dev/include=true` (`kubectl get ns <ns> --show-labels`), and a refusal recorded in that environment by a server-side dry run that names an ANUM policy, not just `no matching policies`: in production, `kubectl -n anum run admission-probe --image=ghcr.io/<owner>/anum-web@<staging web digest> --restart=Never --dry-run=server` (signed by `deploy-staging.yml`, not the production signer) must fail with `failed policy: anum-web-signature`; in staging, use an `anum-api` digest pushed before signing was turned on;
+    - the kind job's admission step green on the release commit (unsigned probe refused, unmatched image refused).
 12. Keycloak: the bootstrap admin of every shared Keycloak is not `admin/admin` (log in with it fails), and no `KEYCLOAK_ADMIN*`/`KC_BOOTSTRAP_ADMIN_*` variable is in the API's Secrets or env (the API refuses the default at startup; the chart refuses any in its values).
 
 ## Hard blockers
@@ -38,6 +40,7 @@ Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A
 - A store or release artifact that is debug-signed, unsigned, or built without `ANUM_PRODUCTION_API_URL` and `ANUM_PRODUCTION_OIDC_ISSUER`.
 - A Secret rendered by the chart, or a credential in a values file or repository variable (Secrets are referenced by name only).
 - A deployed image that is unsigned, signed by another identity than the deploy workflow on `main`, missing its SBOM attestation, deployed by tag instead of digest, or with a fixable HIGH/CRITICAL finding at deploy time.
+- A staging or production release namespace without the admission policy enforcing (namespace not labelled `policy.sigstore.dev/include=true`, any `anum-*` ClusterImagePolicy in `mode: warn`, or policy-controller not running), unless a recorded break-glass window is open.
 - A migration in the release that the previous release cannot run against: `helm rollback` does not reverse migrations, so they must be expand/contract.
 - `ANUM_OBJECT_STORAGE_BACKEND` other than `s3` in production.
 

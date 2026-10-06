@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deploy the ANUM chart into a throwaway kind cluster and smoke-test it
 # (docs/deployment.md#checks). Used by the "Helm deploy (kind)" CI job and runnable
-# locally. Needs docker, kind, helm, kubectl and openssl on PATH, and the images
+# locally. Needs docker, kind, helm, kubectl, openssl and python3 on PATH, network access
+# to ghcr.io (the pinned policy-controller chart and image), and the images
 # built beforehand:
 #
 #   docker build -t anum-api:ci services/api
@@ -22,6 +23,13 @@
 #   5. SIGTERM: a deleted worker pod logs a clean shutdown well inside its grace period.
 #   6. `helm upgrade` (migration hook again, idempotent) then `helm rollback` to
 #      revision 1, and the release is healthy again.
+#   Before step 1, the admission policy (docs/deployment.md#admission-policy):
+#      Sigstore policy-controller from its digest-pinned chart, the committed
+#      ClusterImagePolicy schema equals the installed CRD's, and in a namespace labelled
+#      policy.sigstore.dev/include=true an image without this repository's deploy-workflow
+#      signature and an image no policy matches are both refused. The release namespace
+#      is not labelled (the kind images are unsigned local builds), so steps 1 to 6 also
+#      prove the webhooks leave unlabelled namespaces alone.
 #
 # Environment:
 #   KIND_CLUSTER      cluster name (default anum-ci)
@@ -58,6 +66,8 @@ diagnostics() {
     kubectl -n "$NS" logs "$pod" --all-containers --tail 120 || true
   done
   kubectl -n "$DEPS" logs statefulset/postgres --tail 60 || true
+  kubectl get clusterimagepolicies.policy.sigstore.dev -o yaml || true
+  kubectl -n cosign-system logs deployment/policy-controller-webhook --tail 120 || true
   kubectl get events -A --sort-by=.lastTimestamp | tail -n 60 || true
 }
 
@@ -111,6 +121,59 @@ log "loading images into kind"
 for image in "$API_IMAGE" "$WEB_IMAGE" "$BACKUP_IMAGE" pgvector/pgvector:pg16 nats:2.10-alpine temporalio/temporal:1.9.1; do
   load_image "$image"
 done
+
+# Admission policy (docs/deployment.md#admission-policy). The controller is installed
+# before anything else, so the whole release lifecycle below (install, CronJobs,
+# upgrade, rollback) runs with its webhooks in the cluster. The release namespace is
+# not labelled policy.sigstore.dev/include=true: the kind images are unsigned local
+# builds, and enforcement is scoped by that label exactly as in staging and production.
+log "installing Sigstore policy-controller (chart and image pinned by digest)"
+bash "$ROOT/infra/helm/anum-admission/controller/install.sh" --set webhook.replicaCount=1
+
+log "committed ClusterImagePolicy schema matches the installed CRD"
+kubectl get crd clusterimagepolicies.policy.sigstore.dev -o json > "$WORK/cip-crd.json"
+python3 "$ROOT/infra/helm/ci/crd-schema.py" "$WORK/cip-crd.json" v1beta1 > "$WORK/cip-schema.json"
+diff -u "$ROOT/infra/helm/ci/schemas/policy.sigstore.dev/clusterimagepolicy_v1beta1.json" "$WORK/cip-schema.json" \
+  || fail "infra/helm/ci/schemas is stale for the pinned policy-controller chart; regenerate it with infra/helm/ci/crd-schema.py"
+
+# The probe policy requires the staging identity (deploy-staging.yml on main of this
+# repository) for a public image this repository never signed: the digest-pinned
+# pgvector dependency image, referenced through DEP_MIRROR like the pulls above.
+if [ "$DEP_MIRROR" = "docker.io" ]; then PROBE_REPOSITORY=index.docker.io/pgvector/pgvector; else PROBE_REPOSITORY="$DEP_MIRROR/pgvector/pgvector"; fi
+PROBE_IMAGE="$DEP_MIRROR/pgvector/pgvector@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a"
+UNMATCHED_IMAGE="$DEP_MIRROR/library/nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927"
+log "anum-admission chart with the kind probe policy"
+helm upgrade --install anum-admission "$ROOT/infra/helm/anum-admission" \
+  -f "$ROOT/infra/helm/anum-admission/ci/kind-values.yaml" \
+  --set "github.repository=${GITHUB_REPOSITORY:-ws123na-afk/Anum_Mine}" \
+  --set "images.probe.repository=$PROBE_REPOSITORY" --wait --timeout 2m
+kubectl get clusterimagepolicies.policy.sigstore.dev
+
+# Refused: expects a denial that names the probe policy (or, for the second image, no
+# matching policy). An admitted pod fails the check at once. Retries cover the seconds
+# the webhook takes to load a new policy (until then it answers "no matching policies").
+expect_refused() {
+  local name="$1" image="$2" pattern="$3" output
+  for attempt in $(seq 1 30); do
+    if output="$(kubectl -n "$ADMISSION_NS" run "$name" --image="$image" --restart=Never 2>&1)"; then
+      fail "admission: $image was admitted in $ADMISSION_NS ($output)"
+    fi
+    if grep -qiE "$pattern" <<<"$output"; then
+      log "refused as expected: $output"
+      return 0
+    fi
+    sleep 4
+  done
+  fail "admission: $image was refused, but not for the expected reason ($pattern): $output"
+}
+ADMISSION_NS=anum-admission-test
+kubectl create namespace "$ADMISSION_NS"
+kubectl label namespace "$ADMISSION_NS" policy.sigstore.dev/include=true
+log "admission: an image without this repository's signature is refused in a labelled namespace"
+expect_refused unsigned "$PROBE_IMAGE" 'anum-probe-signature'
+log "admission: an image no policy matches is refused in a labelled namespace (no-match-policy: deny)"
+expect_refused unmatched "$UNMATCHED_IMAGE" 'no matching polic'
+test -z "$(kubectl -n "$ADMISSION_NS" get pods -o name)" || fail "admission: a pod exists in $ADMISSION_NS"
 
 # Throwaway credentials, generated per run (hex: no quoting issues anywhere).
 ADMIN_PASSWORD="$(openssl rand -hex 24)"

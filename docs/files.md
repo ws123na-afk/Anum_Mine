@@ -29,3 +29,7 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` file metadata lives in the `workspace_
 Tests: `tests/test_object_storage.py` round-trips through the S3 adapter and the files API against moto's in-process S3, and its `s3`-marked test round-trips against a real endpoint at `ANUM_TEST_S3_ENDPOINT` (default `http://127.0.0.1:9000`, credentials `ANUM_TEST_S3_ACCESS_KEY`/`ANUM_TEST_S3_SECRET_KEY`), for example `docker compose -f infra/docker/compose.yaml up s3`.
 
 Uploads are limited to 25 MiB, reject path traversal, and verify an optional client checksum. Downloads include an ETag containing the SHA-256 digest. API authorization uses the existing memory read/create/delete permissions until dedicated file permissions are introduced.
+
+## Retrieval
+
+Text files (`text/*`, JSON, YAML, XML, CSV, or a `.txt`/`.md`/`.csv`/`.json`/`.yaml`/`.xml`/`.log`/`.rst` name) up to 2 MiB of UTF-8 are indexed for retrieval into task prompts right after their metadata is committed; other files get a `skipped` index row (`not_text`, `not_utf8`, `too_large`). Indexing is best effort: a failed embedding is recorded on the index row and never fails the upload, and `POST /api/v1/retrieval/index` retries it. Deleting a file removes its chunks, and search ignores chunks of a file without metadata in any case. See [Memory](memory.md#retrieval).

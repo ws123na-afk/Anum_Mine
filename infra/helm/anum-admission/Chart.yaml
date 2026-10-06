@@ -1,0 +1,23 @@
+apiVersion: v2
+name: anum-admission
+description: >-
+  Cluster admission policy for ANUM (docs/deployment.md#admission-policy): Sigstore
+  policy-controller ClusterImagePolicies that admit the API (also the worker, the
+  migration Job, the CronJobs and the helm test pod), web and backup images only with a
+  keyless cosign signature and a CycloneDX SBOM attestation made by this repository's
+  deploy workflows on main. Cluster-scoped: installed by a cluster admin, not by the
+  namespace-scoped deploy identity.
+type: application
+# Chart version: bump on every change to templates or values.
+version: 0.1.0
+# The policy-controller release these policies are written and tested against
+# (controller/install.sh pins its chart by digest).
+appVersion: "0.13.1"
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/ws123na-afk/Anum_Mine
+sources:
+  - https://github.com/ws123na-afk/Anum_Mine/tree/main/infra/helm/anum-admission
+keywords:
+  - anum
+  - sigstore
+  - admission

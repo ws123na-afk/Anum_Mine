@@ -32,9 +32,21 @@ export interface Task {
 
 export interface AgentRunStep {
   id: string;
-  type: 'model_call' | 'tool_proposal' | 'approval_wait' | 'tool_result' | 'final';
+  type: 'queued' | 'retrieval' | 'model_call' | 'tool_proposal' | 'approval_wait' | 'tool_result' | 'final';
   summary: string;
   createdAt: string;
+  /** Step details from the API (ids, sources, policy outcome); never retrieved text. */
+  metadata?: Record<string, unknown>;
+}
+
+/** One retrieved passage a run's prompt used, as recorded on its `retrieval` step. */
+export interface RetrievedSourceUsed {
+  chunkId: string;
+  sourceType: 'memory' | 'file';
+  sourceId: string;
+  chunkIndex: number;
+  score: number;
+  truncated: boolean;
 }
 
 export interface AgentRun {

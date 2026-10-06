@@ -77,6 +77,7 @@ from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
 from .files import router as files_router
+from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
 from .skills_api import router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
@@ -155,6 +156,7 @@ app.include_router(phase5_router)
 app.include_router(governance_router)
 app.include_router(automation_router)
 app.include_router(files_router)
+app.include_router(retrieval_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
@@ -409,7 +411,12 @@ async def run_task(
         if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
-        runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        runtime = AgentRuntime(
+            budgeted_model_gateway(context, model_gateway),
+            repository,
+            tools=tool_registry,
+            retriever=retriever_for(context, model_gateway),
+        )
         if run_dispatcher is not None:
             return await _queue_durable_run(task, context, repository, runtime)
         run, approval = await runtime.run_task(task, context)
@@ -668,12 +675,15 @@ async def create_memory(
     if repository.get_task(payload.task_id, context) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     try:
-        return MemoryService(memories).create(context, payload)
+        note = MemoryService(memories).create(context, payload)
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
             detail=str(exc),
         ) from exc
+    # Same transaction, best effort: a failed embedding is recorded on the index row.
+    await index_memory_note(context, note, memories)
+    return note
 
 
 @app.get("/api/v1/memories", response_model=list[MemoryNote])
@@ -715,6 +725,7 @@ async def delete_memory(
     )
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+    forget_memory(context, memory_id, memories)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

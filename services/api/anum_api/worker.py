@@ -60,7 +60,14 @@ def build_activities(
     registry = tools or default_tool_registry(configured_external_handler(config))
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
-        return AgentRuntime(budgeted_model_gateway(context, gateway), repository, tools=registry)
+        from .retrieval_api import retriever_for
+
+        return AgentRuntime(
+            budgeted_model_gateway(context, gateway),
+            repository,
+            tools=registry,
+            retriever=retriever_for(context, gateway),
+        )
 
     return AgentRunActivities(
         runtime_factory, locks=build_run_lock_manager(config, metric_source="worker")

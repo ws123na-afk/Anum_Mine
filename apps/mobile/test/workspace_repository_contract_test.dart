@@ -57,7 +57,7 @@ class ContractTransport implements ApiTransport {
         'id': 'execute',
         'name': 'Execute work',
         'action': 'task.execute',
-        'input': {},
+        'input': <String, Object?>{},
         'max_attempts': 3
       }
     ],
@@ -71,7 +71,7 @@ class ContractTransport implements ApiTransport {
     'workspace_id': 'workspace_test',
     'status': 'running',
     'current_step': 0,
-    'steps': [],
+    'steps': <Object?>[],
     'created_at': _time,
     'updated_at': _time
   };

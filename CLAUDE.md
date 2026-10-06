@@ -39,3 +39,4 @@ Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `
 - FastAPI 0.142+ keeps included routers nested in `app.routes` (`_IncludedRouter` has no `.path`). Read routes from `app.openapi()["paths"]` (no route is excluded from the schema) or from the router itself.
 - A Playwright bump needs a browser this sandbox cannot download (`playwright install` is off-limits here): run unit tests and the build locally and let CI's "Browser end-to-end" run the new version.
 - If the shared branch is rewritten while agents work from it, bring their work over with `git cherry-pick <agent commit>`, not a merge, so the rewritten commit does not come back.
+- Flutter plugins that rely on AGP 9 built-in Kotlin (for example `file_picker` 11) compile nothing while `android.builtInKotlin=false`; the analyzer and tests still pass and only CI's APK build fails (`cannot find symbol <Plugin>`). Check a plugin's `android/build.gradle` before a major bump.
