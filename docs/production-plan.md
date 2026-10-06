@@ -4,7 +4,7 @@ This is the ordered path from the current `main` to a first production release. 
 
 ## Where Things Stand (October 2026)
 
-Status on `main` after PR #30 (Stages 2 to 6 code side; the threat-model fixes G1 to G5 and A1 to A6; client release pipelines; owner screens for members, invitations and budgets; the Helm chart with kind CI and the staging and production deploy workflows). All 17 CI jobs are green with no tolerated failures. What remains is either owner setup (accounts, keys, a cluster) or the code-side items listed as open in each stage below.
+Status on `main` after PR #32 (Stages 2 to 6 code side; the threat-model fixes G1 to G6 and A1 to A6, including organization approval rules and policy packs enforced by `ToolPolicy`; client release pipelines; owner screens for members, invitations, budgets and the approval policy; a web workspace switcher; the Helm chart with kind CI; staging and production deploy workflows that scan, SBOM, sign and verify images). All 17 CI jobs are green with no tolerated failures. What remains is either owner setup (accounts, keys, a cluster) or the code-side items listed as open in each stage below.
 
 | Area | State |
 |---|---|

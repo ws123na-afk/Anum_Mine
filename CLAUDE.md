@@ -35,3 +35,6 @@ Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `
 - The Helm chart mirrors the API's startup refusals (`infra/helm/ci/lint.sh`). A new refusal in `config.py` needs a matching chart check, and a chart value the API would refuse must fail `helm lint`, not the pod.
 - `helm rollback` never reverses migrations: every migration must be expand/contract, so the previous release still runs against the new schema.
 - Parallel branches all edit the status table in `docs/production-plan.md`. Resolve that conflict row by row, keeping both sides' facts, and recount the CI checks.
+- FastAPI 0.142+ keeps included routers nested in `app.routes` (`_IncludedRouter` has no `.path`). Read routes from `app.openapi()["paths"]` (no route is excluded from the schema) or from the router itself.
+- A Playwright bump needs a browser this sandbox cannot download (`playwright install` is off-limits here): run unit tests and the build locally and let CI's "Browser end-to-end" run the new version.
+- If the shared branch is rewritten while agents work from it, bring their work over with `git cherry-pick <agent commit>`, not a merge, so the rewritten commit does not come back.
