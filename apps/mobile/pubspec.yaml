@@ -17,7 +17,7 @@ dependencies:
   # Held at 10.x: 11 relies on AGP 9 built-in Kotlin, which this app turns off
   # (android.builtInKotlin=false) while flutter_tts still applies the Kotlin plugin.
   # See docs/mobile.md, Dependencies.
-  file_picker: 10.3.10
+  file_picker: 13.1.0
   speech_to_text: ^7.4.0
   flutter_tts: ^4.2.5
   permission_handler: ^13.0.1
