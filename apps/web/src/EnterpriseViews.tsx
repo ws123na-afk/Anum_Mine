@@ -1,18 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Download, PackageCheck, RefreshCw, Route, ShieldCheck } from 'lucide-react';
-import { defaultTenantContext } from './lib/api';
+import { authHeaders } from './lib/api';
 
 const base = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
-const headers = {
-  'content-type': 'application/json',
-  'x-tenant-id': defaultTenantContext.tenantId,
-  'x-workspace-id': defaultTenantContext.workspaceId,
-  'x-user-id': defaultTenantContext.userId,
-  'x-user-roles': defaultTenantContext.roles.join(','),
-};
+const headers = async (): Promise<Record<string, string>> => ({ ...(await authHeaders()), 'content-type': 'application/json' });
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${base}${path}`, { ...init, headers: { ...headers, ...init.headers } });
+  const response = await fetch(`${base}${path}`, { ...init, headers: { ...(await headers()), ...init.headers } });
   if (!response.ok) throw new Error(`Request failed (${response.status})`);
   return response.json() as Promise<T>;
 }
@@ -36,7 +30,7 @@ export function GovernanceView() {
     await load();
   };
   const exportAudit = async () => {
-    const response = await fetch(`${base}/api/v1/audit/export?format=json`, { headers });
+    const response = await fetch(`${base}/api/v1/audit/export?format=json`, { headers: await headers() });
     if (!response.ok) throw new Error(`Audit export failed (${response.status})`);
     const url = URL.createObjectURL(await response.blob());
     const link = document.createElement('a');

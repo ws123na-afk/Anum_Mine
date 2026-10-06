@@ -1,4 +1,5 @@
 import type { AgentRun, Approval, DomainEvent, TenantContext, Task } from '@anum/contracts';
+import { accessToken, currentClaims, oidcEnabled } from './auth';
 
 const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
@@ -105,7 +106,9 @@ export interface OnboardingStatus { complete: boolean; tenant: { id: string; nam
 export interface ModelConfig { provider: string; model: string; base_url: string; credential_configured: boolean; credential_hint: string | null; updated_at: string; }
 export interface NotificationPreferences { task_completed: boolean; approval_required: boolean; run_failed: boolean; automation_failed: boolean; email_enabled: boolean; desktop_enabled: boolean; }
 
+/** Local development session; a no-op when the app signs in through OIDC. */
 export async function ensureLocalSession(): Promise<void> {
+  if (oidcEnabled) return;
   if (sessionStorage.getItem('anum_access_token')) return;
   const response = await fetch(`${apiBaseUrl}/api/v1/auth/local/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant_id: defaultTenantContext.tenantId, workspace_id: defaultTenantContext.workspaceId, user_id: defaultTenantContext.userId }) });
   if (!response.ok) return;
@@ -136,7 +139,7 @@ export async function uploadFile(file: File): Promise<FileRecord> {
 }
 export async function deleteFile(id: string): Promise<void> { await requestVoid(`/api/v1/files/${id}`, { method: 'DELETE' }); }
 export async function downloadFile(id: string, name: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/api/v1/files/${id}/content`, { headers: tenantHeaders() });
+  const response = await fetch(`${apiBaseUrl}/api/v1/files/${id}/content`, { headers: await authHeaders() });
   if (!response.ok) throw new Error(`ANUM API request failed: ${response.status}`);
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement('a'); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
@@ -185,11 +188,7 @@ export async function streamEvents(
 ): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/api/v1/events/stream`, {
     headers: {
-      ...tenantHeaders(),
-      'x-tenant-id': defaultTenantContext.tenantId,
-      'x-workspace-id': defaultTenantContext.workspaceId,
-      'x-user-id': defaultTenantContext.userId,
-      'x-user-roles': defaultTenantContext.roles.join(','),
+      ...(await authHeaders()),
       ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {}),
     },
     signal,
@@ -231,12 +230,8 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: {
-      ...tenantHeaders(),
+      ...(await authHeaders()),
       'content-type': 'application/json',
-      'x-tenant-id': defaultTenantContext.tenantId,
-      'x-workspace-id': defaultTenantContext.workspaceId,
-      'x-user-id': defaultTenantContext.userId,
-      'x-user-roles': defaultTenantContext.roles.join(','),
       ...init.headers,
     },
   });
@@ -251,11 +246,32 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 async function requestVoid(path: string, init: RequestInit): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers: { ...tenantHeaders(), ...init.headers } });
+  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers: { ...(await authHeaders()), ...init.headers } });
   if (!response.ok) throw new Error(`ANUM API request failed: ${response.status}`);
 }
 
-function tenantHeaders(): Record<string, string> {
+const configuredWorkspaceId = import.meta.env.VITE_ANUM_WORKSPACE_ID as string | undefined;
+
+/** The tenant and workspace the app is acting in: token claims with OIDC, defaults locally. */
+export function currentScope(): { tenantId: string; workspaceId: string } {
+  if (!oidcEnabled) return { tenantId: defaultTenantContext.tenantId, workspaceId: defaultTenantContext.workspaceId };
+  const claims = currentClaims() ?? {};
+  return {
+    tenantId: typeof claims.tenant_id === 'string' ? claims.tenant_id : '',
+    workspaceId: typeof claims.workspace_id === 'string' && claims.workspace_id ? claims.workspace_id : configuredWorkspaceId || defaultTenantContext.workspaceId,
+  };
+}
+
+/**
+ * Identity headers for every API call. With OIDC: the Keycloak access token and the selected
+ * workspace (the API takes the tenant from the token). Locally: the development session token
+ * plus the header-asserted context ANUM_AUTH_MODE=headers accepts.
+ */
+export async function authHeaders(): Promise<Record<string, string>> {
+  if (oidcEnabled) {
+    const token = await accessToken();
+    return { ...(token ? { authorization: `Bearer ${token}` } : {}), 'x-workspace-id': currentScope().workspaceId };
+  }
   const token = sessionStorage.getItem('anum_access_token');
   return { 'x-tenant-id': defaultTenantContext.tenantId, 'x-workspace-id': defaultTenantContext.workspaceId, 'x-user-id': defaultTenantContext.userId, 'x-user-roles': defaultTenantContext.roles.join(','), ...(token ? { authorization: `Bearer ${token}` } : {}) };
 }

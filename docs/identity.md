@@ -75,6 +75,48 @@ Tenant, workspace, membership, and onboarding routes (`POST /api/v1/tenants`, `P
 | `403 forbidden` | `x-tenant-id` mismatch, missing or inactive membership, or a permission the membership role does not grant. |
 | `503 service_unavailable` | Keycloak's JWKS cannot be fetched and no keys are cached. |
 
+## Client Sign-In
+
+Every client uses authorization code + PKCE (S256) with its own public Keycloak client from the table above, sends `Authorization: Bearer <access_token>` and `x-workspace-id` on every API call, refreshes before the access token expires, and signs out with RP-initiated logout (`end_session_endpoint` with `id_token_hint` and the client's post-logout redirect). When a client has no issuer configured it keeps the local development sign-in (`/api/v1/auth/local/*`), which only works against an API in `headers` mode.
+
+The workspace a client sends is the one the user selected, else the token's `workspace_id` claim, else the client's configured default. Clients read claims from the access token without verifying it; the API is the verifier. Clients never send `x-user-id` or `x-user-roles` with an OIDC token, and do not send `x-tenant-id` at all, so the token's `tenant_id` always decides the tenant.
+
+### Web and Desktop
+
+`apps/web` (also packaged by the Tauri shell) implements the flow itself without a library: `src/lib/oidc.ts` holds PKCE, state, nonce, discovery, code exchange, refresh and the logout URL; `src/lib/auth.ts` wires it to the page; `src/lib/api.ts` adds the headers. Build-time configuration:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_ANUM_OIDC_ISSUER` | Issuer URL, for example `http://localhost:8080/realms/anum`. Unset or empty keeps the local session. |
+| `VITE_ANUM_OIDC_CLIENT_ID` | `anum-web` (default) in the browser, `anum-desktop` for the Tauri build. |
+| `VITE_ANUM_WORKSPACE_ID` | Optional workspace sent when the token has no `workspace_id` claim. |
+
+- The redirect URI and post-logout redirect are the app's own origin and path (`http://localhost:5173/` in development, `tauri://localhost/` or `http://tauri.localhost/` in the desktop build), which the realm already allows.
+- Discovery must return the configured issuer exactly. The callback must carry the `state` of the one pending request, which is single-use and expires after 10 minutes; the ID token's `nonce` must match. Code and state are removed from the address bar after the callback.
+- Storage: access and ID tokens live in memory only. The refresh token and the pending request (state, verifier, nonce) live in `sessionStorage` for the current tab, so a reload restores the session and closing the tab ends it. Nothing goes to `localStorage`.
+- Refresh runs a minute before expiry (halfway through lifetimes shorter than two minutes) and again before any API call that finds the token due. A rejected refresh token (`invalid_grant`) signs the user out; a network failure keeps the current token until it expires.
+- The desktop shell loads Keycloak inside its webview and returns to the shell origin; its CSP allows the local Keycloak (`http://localhost:8080`). A production desktop build must add its issuer origin to `connect-src` in `apps/desktop/src-tauri/tauri.conf.json`.
+- Tests: `apps/web/test/oidc.test.ts` (Node's test runner, part of `pnpm check`) covers PKCE, state, nonce, expiry, refresh and logout; `apps/web/e2e/oidc-sign-in.spec.ts` runs the full browser flow against a build with OIDC enabled and a provider mocked by route interception.
+
+### Flutter
+
+`apps/mobile` uses `flutter_appauth` (pinned `12.1.0`), which runs the login in the system browser and applies PKCE, state and nonce. Configuration is by `--dart-define`:
+
+| Define | Value |
+| --- | --- |
+| `ANUM_OIDC_ISSUER` | Issuer URL. Unset keeps the local development sign-in. |
+| `ANUM_OIDC_CLIENT_ID` | `anum-flutter` (default). |
+| `ANUM_OIDC_REDIRECT_URL` | `com.anum.app:/oauth2redirect` (default). |
+| `ANUM_WORKSPACE_ID` | Optional workspace sent when the token has no `workspace_id` claim. |
+
+- Tokens (access, refresh, ID) are stored with the session in `flutter_secure_storage`. `OidcSessionStore` refreshes a session read within 60 seconds of expiry, so API calls, file transfer and audit export always send a fresh token; concurrent reads share one refresh. `invalid_grant` clears the session; network failures keep it for the next attempt.
+- Workspace switching with an OIDC session changes the stored workspace (and so `x-workspace-id`) without calling the local session API.
+- Sign-out ends the Keycloak session in the browser, then clears secure storage even if the browser step is cancelled or fails.
+- Plain-HTTP issuers are accepted only in debug and profile builds. The issuer the app uses must equal the API's `ANUM_KEYCLOAK_ISSUER`; from the Android emulator use `adb reverse tcp:8080 tcp:8080` and `ANUM_OIDC_ISSUER=http://localhost:8080/realms/anum` rather than `10.0.2.2`, which would mint tokens with a different `iss`.
+- The redirect scheme `com.anum.app` is registered by `tool/configure_native.dart` after `flutter create`: the `appAuthRedirectScheme` manifest placeholder in `android/app/build.gradle.kts` (used by AppAuth's redirect activity intent filter) and `CFBundleURLTypes` in `ios/Runner/Info.plist`.
+
+The Kotlin Android app (`anum-android`) does not sign in through Keycloak yet.
+
 ## Local Use
 
 ```bash
@@ -82,12 +124,18 @@ docker compose -f infra/docker/compose.yaml up keycloak
 ANUM_AUTH_MODE=oidc uvicorn anum_api.main:app --reload --port 8000
 ```
 
-Sign in through a client with authorization code + PKCE against `http://localhost:8080/realms/anum` as `dev`, then call the API with `Authorization: Bearer <access_token>`. The first `PUT /api/v1/onboarding` creates `tenant_local`/`workspace_foundation` and the owner membership.
+Sign in through a client with authorization code + PKCE against `http://localhost:8080/realms/anum` as `dev`, then call the API with `Authorization: Bearer <access_token>`. The first `PUT /api/v1/onboarding` creates `tenant_local`/`workspace_foundation` and the owner membership. For the web app:
+
+```bash
+VITE_ANUM_OIDC_ISSUER=http://localhost:8080/realms/anum pnpm dev:web
+```
+
+The API must allow the web origin (`ANUM_CORS_ORIGINS`) and run in `oidc` mode; the web app then shows a Sign in button that opens Keycloak.
 
 ## Now
 
-Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, and fail-fast refusal of development authentication outside local/test.
+Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
 
 ## Later
 
-Client sign-in flows in web, desktop, Android, and Flutter; invitations and membership management that replace the bootstrap self-service path; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.
+Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitations and membership management that replace the bootstrap self-service path; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.

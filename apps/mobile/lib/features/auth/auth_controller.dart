@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_models.dart';
 import 'auth_repository.dart';
+import 'oidc.dart';
 
 enum AuthPhase {
   restoring,
@@ -71,6 +72,25 @@ class AuthController extends ChangeNotifier {
         userId: user.trim(),
         password: password?.trim(),
       );
+      final status = onboarding = await repository.onboardingStatus();
+      phase = status.complete
+          ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
+          : AuthPhase.onboarding;
+    });
+  }
+
+  /// True when the build names an OIDC issuer (`--dart-define=ANUM_OIDC_ISSUER`).
+  bool get oidcEnabled => repository.usesOidc;
+
+  /// Signs in through Keycloak in the system browser (authorization code + PKCE).
+  Future<void> signInWithOidc() async {
+    await _run(AuthPhase.signedOut, () async {
+      try {
+        await repository.signInWithOidc();
+      } on OidcCancelled {
+        phase = AuthPhase.signedOut;
+        return;
+      }
       final status = onboarding = await repository.onboardingStatus();
       phase = status.complete
           ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
