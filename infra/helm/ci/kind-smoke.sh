@@ -142,11 +142,27 @@ diff -u "$ROOT/infra/helm/ci/schemas/policy.sigstore.dev/clusterimagepolicy_v1be
 if [ "$DEP_MIRROR" = "docker.io" ]; then PROBE_REPOSITORY=index.docker.io/pgvector/pgvector; else PROBE_REPOSITORY="$DEP_MIRROR/pgvector/pgvector"; fi
 PROBE_IMAGE="$DEP_MIRROR/pgvector/pgvector@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a"
 UNMATCHED_IMAGE="$DEP_MIRROR/library/nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927"
+# The controller pod is Ready before its webhook serves: its certificates are created
+# and the webhook configurations patched a few seconds later, and until then creating a
+# ClusterImagePolicy fails with "connection refused". Wait until a server-side dry run
+# of the policies passes the webhook.
+log "waiting until the policy-controller webhook answers"
+admission_args=(-f "$ROOT/infra/helm/anum-admission/ci/kind-values.yaml"
+  --set "github.repository=${GITHUB_REPOSITORY:-ws123na-afk/Anum_Mine}"
+  --set "images.probe.repository=$PROBE_REPOSITORY")
+webhook_ready=0
+for attempt in $(seq 1 45); do
+  if helm template anum-admission "$ROOT/infra/helm/anum-admission" "${admission_args[@]}" \
+      | kubectl apply --dry-run=server -f - >"$WORK/admission-dry-run.log" 2>&1; then
+    webhook_ready=1
+    break
+  fi
+  sleep 4
+done
+[ "$webhook_ready" = 1 ] || fail "policy-controller webhook did not answer: $(tail -n 5 "$WORK/admission-dry-run.log")"
 log "anum-admission chart with the kind probe policy"
 helm upgrade --install anum-admission "$ROOT/infra/helm/anum-admission" \
-  -f "$ROOT/infra/helm/anum-admission/ci/kind-values.yaml" \
-  --set "github.repository=${GITHUB_REPOSITORY:-ws123na-afk/Anum_Mine}" \
-  --set "images.probe.repository=$PROBE_REPOSITORY" --wait --timeout 2m
+  "${admission_args[@]}" --wait --timeout 2m
 kubectl get clusterimagepolicies.policy.sigstore.dev
 
 # Refused: expects a denial that names the probe policy (or, for the second image, no
