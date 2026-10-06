@@ -11,7 +11,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:9-alpine
     ports:
       - "6379:6379"
     healthcheck:
