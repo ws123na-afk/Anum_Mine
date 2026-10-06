@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from .authorization import Permission
 from .dependencies import (
+    event_runtime,
     memory_repository,
     memory_repository_context,
     repository_context,
@@ -27,6 +29,7 @@ from .memory import (
     MemoryService,
 )
 from .repository import AnumRepository
+from .realtime import live_event_source
 from .runtime import AgentRuntime
 from .agent_tools import default_tool_registry
 from .schemas import (
@@ -60,7 +63,17 @@ from .files import router as files_router
 from .skills_api import router as skills_router
 from .onboarding import router as onboarding_router
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await event_runtime.start()
+    try:
+        yield
+    finally:
+        await event_runtime.stop()
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -408,6 +421,25 @@ async def stream_events(
     repository: AnumRepository = Depends(repository_context),
 ) -> StreamingResponse:
     require_permission(context, Permission.EVENT_READ)
+    sse_headers = {
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    if event_runtime.live:
+        return StreamingResponse(
+            live_event_source(
+                hub=event_runtime.hub,
+                context=context,
+                list_events=lambda: repository.list_events(context),
+                is_disconnected=request.is_disconnected,
+                task_id=task_id,
+                follow=follow,
+                last_event_id=last_event_id,
+            ),
+            media_type="text/event-stream",
+            headers=sse_headers,
+        )
 
     async def event_source():
         cursor = last_event_id
@@ -450,11 +482,7 @@ async def stream_events(
     return StreamingResponse(
         event_source(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=sse_headers,
     )
 
 

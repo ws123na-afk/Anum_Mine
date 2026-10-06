@@ -18,6 +18,15 @@ Clients should show clear task state: queued, running, waiting for approval, wai
 
 Realtime subscriptions must be authorized by tenant, workspace, and resource. Stream payloads should use the same redaction rules as REST responses.
 
+## Implementation
+
+`GET /api/v1/events/stream` is an SSE endpoint scoped to the caller's tenant and workspace, optionally filtered by `task_id`, resumable with `Last-Event-ID`, with `follow=false` for a one-shot replay.
+
+- `ANUM_EVENT_BUS=memory` (default): the stream polls the repository once a second.
+- `ANUM_EVENT_BUS=nats`: each API process runs one ordered JetStream consumer on `anum.>` (deliver new) that feeds an in-process realtime hub (`services/api/anum_api/realtime.py`). A stream registers a listener for its tenant and workspace before replaying history from the repository after the `Last-Event-ID` cursor, then forwards live events; duplicates from replay overlap or at-least-once redelivery are suppressed by event id. If NATS is unavailable, or a slow listener overflows its 1,000-event queue, the stream falls back to catching up from the repository, so no event is lost to a client.
+
+Isolation: the hub routes a message only to listeners whose escaped tenant and workspace tokens equal the subject's, and only after checking that the decoded event's tenant, workspace, type and `Nats-Msg-Id` agree with the subject; mismatched messages are dropped and counted. Each listener re-checks the event against its own tenant context. Tenant-wide events (no workspace) reach every workspace of that tenant only. Tests in `services/api/tests/test_event_bus.py` cover cross-tenant and cross-workspace isolation, forged subjects and hostile identifiers.
+
 ## Now
 
 Support task-level SSE streams, reconnect behavior, event cursors, approval notifications, and basic status fanout.
