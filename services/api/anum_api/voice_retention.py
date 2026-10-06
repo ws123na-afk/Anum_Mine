@@ -11,6 +11,10 @@ completes or cancels the session.
 Expired sessions are discovered as ``anum_maintenance`` (ids and scope only) and each
 user's transcripts are deleted as the application role inside that tenant, workspace and
 user's RLS context (``anum_api.maintenance``). The output is counts only, never text.
+
+The same run then purges the retrieval index rows of expired or deleted memories and of
+deleted files (``anum_api.retrieval_retention``), reported under ``retrieval_index``, so
+the daily retention CronJob covers both.
 """
 
 from __future__ import annotations
@@ -46,7 +50,10 @@ def purge(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m anum_api.voice_retention",
-        description="Delete voice transcripts past their 30-day retention.",
+        description=(
+            "Delete voice transcripts past their 30-day retention and retrieval index rows "
+            "of expired or deleted memories and files."
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="count what would be deleted")
     parser.add_argument("--batch-size", type=int, default=500, help="sessions discovered per query")
@@ -59,7 +66,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    print(json.dumps(purge(dry_run=args.dry_run, batch_size=args.batch_size), indent=2))
+    from .retrieval_retention import purge as purge_retrieval_index
+
+    report = purge(dry_run=args.dry_run, batch_size=args.batch_size)
+    report["retrieval_index"] = purge_retrieval_index(dry_run=args.dry_run, batch_size=args.batch_size)
+    print(json.dumps(report, indent=2))
     return 0
 
 

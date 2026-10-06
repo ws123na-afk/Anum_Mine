@@ -273,6 +273,57 @@ def test_an_approval_chain_signals_the_workflow_only_when_complete(dispatcher: R
         governance_store.clear()
 
 
+def test_a_partial_approval_with_a_moved_target_fails_the_waiting_workflow_run(
+    dispatcher: RecordingDispatcher, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Temporal path: the target check on a partial approval fails the run and signals."""
+    import httpx
+
+    from anum_api.governance import governance_store
+    from anum_api.integration_tools import RestToolAdapter
+
+    def webhook(host: str) -> ToolRegistry:
+        return default_tool_registry(
+            RestToolAdapter(
+                endpoint=f"https://{host}/send",
+                allowed_hosts={host},
+                client=httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={}))),
+            )
+        )
+
+    governance_store.clear()
+    monkeypatch.setattr(main, "tool_registry", webhook("hooks.example"))
+    rule = client.post(
+        "/api/v1/organization/approval-rules",
+        headers=HEADERS,
+        json={"name": "Three approvers", "action_pattern": "external.*", "minimum_approvers": 3},
+    )
+    assert rule.status_code == 201, rule.text
+    try:
+        request = _queue("Publish the final update", dispatcher)
+        activities = activities_with(CountingGateway(), webhook("hooks.example"))
+        waiting = _advance(activities, request)
+        assert waiting.phase == "waiting_approval" and waiting.approval_id
+        body = _shown(waiting.approval_id)
+        first = client.post(
+            f"/api/v1/approvals/{waiting.approval_id}/approve", headers={**HEADERS, "x-user-id": "approver_b"}, json=body
+        )
+        assert first.json()["approval"]["status"] == "pending"
+
+        monkeypatch.setattr(main, "tool_registry", webhook("elsewhere.example"))
+        refused = client.post(
+            f"/api/v1/approvals/{waiting.approval_id}/approve", headers={**HEADERS, "x-user-id": "approver_c"}, json=body
+        )
+        assert refused.status_code == 200, refused.text
+        assert refused.json()["approval"]["status"] == "expired"
+        assert refused.json()["run"]["status"] == "failed"
+        assert dispatcher.signals == [(request.task_id, "approval_decided", (waiting.approval_id,))]
+        settled = _advance(activities, request)
+        assert (settled.phase, settled.status) == ("failed", "failed")
+    finally:
+        governance_store.clear()
+
+
 def test_crash_during_an_approved_high_risk_action_is_never_repeated(dispatcher: RecordingDispatcher) -> None:
     request = _queue("Publish the final update", dispatcher)
     crashes: list[str] = []

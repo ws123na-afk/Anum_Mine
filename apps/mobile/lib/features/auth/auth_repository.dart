@@ -61,7 +61,7 @@ class AuthRepository {
           'workspace_id': workspaceId,
           'user_id': userId
         });
-    return value['challenge_id']! as String;
+    return JsonReader(value).string('challenge_id');
   }
 
   Future<LocalSession> verifyOtp(
@@ -82,7 +82,7 @@ class AuthRepository {
           'workspace_id': workspaceId,
           'user_id': userId
         });
-    return value['challenge_id']! as String;
+    return JsonReader(value).string('challenge_id');
   }
 
   Future<LocalSession> resetPassword(
@@ -102,10 +102,8 @@ class AuthRepository {
   /// in the chosen workspace before switching.
   Future<List<CallerMembership>> myWorkspaces() async {
     final value = await api.request('GET', '/api/v1/me/workspace-memberships');
-    return ((value['data'] as List<Object?>?) ?? const [])
-        .cast<JsonMap>()
-        .map(CallerMembership.fromJson)
-        .toList();
+    return JsonReader(value).optObjects(
+        'data', (item) => CallerMembership.fromJson(item.json, item.path));
   }
 
   Future<LocalSession> switchWorkspace(String workspaceId) async {

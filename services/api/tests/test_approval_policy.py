@@ -23,6 +23,7 @@ from anum_api.agent_tools import (
     ToolResult,
     default_tool_registry,
 )
+from anum_api.governance import governance_store
 from anum_api.integration_tools import RestToolAdapter
 from anum_api.model_gateway import MockModelGateway
 from anum_api.repository import InMemoryRepository
@@ -283,6 +284,78 @@ def test_a_changed_target_is_never_executed(
     (mismatch,) = _audits("approval.target_mismatch")
     assert mismatch.metadata["approved_target"] == "hooks.example"
     assert mismatch.metadata["current_target"] == "elsewhere.example"
+    assert webhook_registry == []
+
+
+@pytest.fixture
+def three_approver_chain() -> Iterator[None]:
+    governance_store.clear()
+    store.approval_approvers.clear()
+    rule = client.post(
+        "/api/v1/organization/approval-rules",
+        headers=OWNER_A,
+        json={"name": "Three approvers", "action_pattern": "external.*", "minimum_approvers": 3},
+    )
+    assert rule.status_code == 201, rule.text
+    yield
+    governance_store.clear()
+    store.approval_approvers.clear()
+
+
+def _move_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    moved = RestToolAdapter(
+        endpoint="https://elsewhere.example/send",
+        allowed_hosts={"elsewhere.example"},
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={}))),
+    )
+    monkeypatch.setattr(main, "tool_registry", default_tool_registry(moved))
+
+
+def test_every_approval_in_a_chain_checks_the_target(
+    webhook_registry: list[httpx.Request], three_approver_chain: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approval = _waiting()["approval"]
+    assert approval["target"] == "hooks.example"
+    first = _decide(approval, "approve", OWNER_B)
+    assert first.status_code == 200, first.text
+    assert first.json()["approval"]["status"] == "pending"
+
+    _move_target(monkeypatch)
+    owner_c = headers("owner_c")
+    second = _decide(approval, "approve", owner_c)
+    assert second.status_code == 200, second.text
+    body = second.json()
+    # Refused like at execution: the run fails with the same message and audit record,
+    # and the approval can no longer be approved by anyone.
+    assert body["approval"]["status"] == "expired"
+    assert [item["user_id"] for item in body["approval"]["approvers"]] == ["owner_b"]
+    assert body["task"]["status"] == "failed" and body["run"]["status"] == "failed"
+    assert "integration target changed" in body["run"]["steps"][-1]["summary"]
+    (mismatch,) = _audits("approval.target_mismatch")
+    assert mismatch.actor == "owner_c"
+    assert (mismatch.metadata["approved_target"], mismatch.metadata["current_target"]) == (
+        "hooks.example",
+        "elsewhere.example",
+    )
+    assert [record.actor for record in _audits("approval.partially_approved")] == ["owner_b"]
+    assert _audits("approval.approved") == []
+    assert _decide(approval, "approve", headers("owner_d")).status_code == 410
+    assert webhook_registry == []
+
+
+def test_a_first_partial_approval_is_refused_when_the_target_moved(
+    webhook_registry: list[httpx.Request], three_approver_chain: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approval = _waiting()["approval"]
+    _move_target(monkeypatch)
+    refused = _decide(approval, "approve", OWNER_B)
+    assert refused.status_code == 200, refused.text
+    assert refused.json()["approval"]["status"] == "expired"
+    assert refused.json()["approval"]["approvers"] == []
+    assert refused.json()["run"]["status"] == "failed"
+    assert store.approval_approvers.get(approval["id"]) in (None, [])
+    assert _audits("approval.partially_approved") == []
+    assert len(_audits("approval.target_mismatch")) == 1
     assert webhook_registry == []
 
 

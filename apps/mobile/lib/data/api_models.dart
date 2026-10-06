@@ -1,3 +1,7 @@
+import 'json_read.dart';
+
+export 'json_read.dart';
+
 typedef JsonMap = Map<String, Object?>;
 
 class TenantContext {
@@ -8,12 +12,15 @@ class TenantContext {
     required this.roles,
   });
 
-  factory TenantContext.fromJson(JsonMap json) => TenantContext(
-        tenantId: json['tenant_id']! as String,
-        workspaceId: json['workspace_id']! as String,
-        userId: json['user_id']! as String,
-        roles: (json['roles']! as List<Object?>).cast<String>(),
-      );
+  factory TenantContext.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    return TenantContext(
+      tenantId: r.string('tenant_id'),
+      workspaceId: r.string('workspace_id'),
+      userId: r.string('user_id'),
+      roles: r.strings('roles'),
+    );
+  }
 
   final String tenantId;
   final String workspaceId;
@@ -43,17 +50,21 @@ class LocalSession {
     this.idToken,
   });
 
-  factory LocalSession.fromJson(JsonMap json) => LocalSession(
-        accessToken: json['access_token']! as String,
-        tokenType: json['token_type']! as String,
-        expiresAt: DateTime.parse(json['expires_at']! as String).toUtc(),
-        context: TenantContext.fromJson(json['context']! as JsonMap),
-        source: json['source'] == SessionSource.oidc.name
-            ? SessionSource.oidc
-            : SessionSource.local,
-        refreshToken: json['refresh_token'] as String?,
-        idToken: json['id_token'] as String?,
-      );
+  factory LocalSession.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    final context = r.object('context');
+    return LocalSession(
+      accessToken: r.string('access_token'),
+      tokenType: r.string('token_type'),
+      expiresAt: r.date('expires_at').toUtc(),
+      context: TenantContext.fromJson(context.json, context.path),
+      source: json['source'] == SessionSource.oidc.name
+          ? SessionSource.oidc
+          : SessionSource.local,
+      refreshToken: r.optString('refresh_token'),
+      idToken: r.optString('id_token'),
+    );
+  }
 
   final String accessToken;
   final String tokenType;
@@ -102,10 +113,10 @@ class LocalSession {
 class TenantSummary {
   const TenantSummary({required this.id, required this.name});
 
-  factory TenantSummary.fromJson(JsonMap json) => TenantSummary(
-        id: json['id']! as String,
-        name: json['name']! as String,
-      );
+  factory TenantSummary.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    return TenantSummary(id: r.string('id'), name: r.string('name'));
+  }
 
   final String id;
   final String name;
@@ -118,11 +129,14 @@ class WorkspaceSummary {
     required this.name,
   });
 
-  factory WorkspaceSummary.fromJson(JsonMap json) => WorkspaceSummary(
-        id: json['id']! as String,
-        tenantId: json['tenant_id']! as String,
-        name: json['name']! as String,
-      );
+  factory WorkspaceSummary.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    return WorkspaceSummary(
+      id: r.string('id'),
+      tenantId: r.string('tenant_id'),
+      name: r.string('name'),
+    );
+  }
 
   final String id;
   final String tenantId;
@@ -138,13 +152,16 @@ class MembershipSummary {
     required this.active,
   });
 
-  factory MembershipSummary.fromJson(JsonMap json) => MembershipSummary(
-        tenantId: json['tenant_id']! as String,
-        workspaceId: json['workspace_id']! as String,
-        userId: json['user_id']! as String,
-        role: json['role']! as String,
-        active: json['active']! as bool,
-      );
+  factory MembershipSummary.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    return MembershipSummary(
+      tenantId: r.string('tenant_id'),
+      workspaceId: r.string('workspace_id'),
+      userId: r.string('user_id'),
+      role: r.string('role'),
+      active: r.boolean('active'),
+    );
+  }
 
   final String tenantId;
   final String workspaceId;
@@ -163,15 +180,16 @@ class CallerMembership {
     this.workspaceName,
   });
 
-  factory CallerMembership.fromJson(JsonMap json) => CallerMembership(
-        tenantId: json['tenant_id']! as String,
-        workspaceId: json['workspace_id']! as String,
-        role: json['role']! as String,
-        workspaceName:
-            (json['workspace_name'] as String?)?.trim().isEmpty ?? true
-                ? null
-                : (json['workspace_name']! as String).trim(),
-      );
+  factory CallerMembership.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    final name = r.optString('workspace_name')?.trim();
+    return CallerMembership(
+      tenantId: r.string('tenant_id'),
+      workspaceId: r.string('workspace_id'),
+      role: r.string('role'),
+      workspaceName: name == null || name.isEmpty ? null : name,
+    );
+  }
 
   final String tenantId;
   final String workspaceId;
@@ -190,19 +208,25 @@ class OnboardingStatus {
     this.membership,
   });
 
-  factory OnboardingStatus.fromJson(JsonMap json) => OnboardingStatus(
-        complete: json['complete']! as bool,
-        modelConfigured: json['model_configured']! as bool,
-        tenant: json['tenant'] == null
-            ? null
-            : TenantSummary.fromJson(json['tenant']! as JsonMap),
-        workspace: json['workspace'] == null
-            ? null
-            : WorkspaceSummary.fromJson(json['workspace']! as JsonMap),
-        membership: json['membership'] == null
-            ? null
-            : MembershipSummary.fromJson(json['membership']! as JsonMap),
-      );
+  factory OnboardingStatus.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    final tenant = r.optObject('tenant');
+    final workspace = r.optObject('workspace');
+    final membership = r.optObject('membership');
+    return OnboardingStatus(
+      complete: r.boolean('complete'),
+      modelConfigured: r.boolean('model_configured'),
+      tenant: tenant == null
+          ? null
+          : TenantSummary.fromJson(tenant.json, tenant.path),
+      workspace: workspace == null
+          ? null
+          : WorkspaceSummary.fromJson(workspace.json, workspace.path),
+      membership: membership == null
+          ? null
+          : MembershipSummary.fromJson(membership.json, membership.path),
+    );
+  }
 
   final bool complete;
   final bool modelConfigured;
@@ -221,14 +245,17 @@ class ModelConfiguration {
     this.credentialHint,
   });
 
-  factory ModelConfiguration.fromJson(JsonMap json) => ModelConfiguration(
-        provider: json['provider']! as String,
-        model: json['model']! as String,
-        baseUrl: json['base_url']! as String,
-        credentialConfigured: json['credential_configured']! as bool,
-        credentialHint: json['credential_hint'] as String?,
-        updatedAt: DateTime.parse(json['updated_at']! as String).toUtc(),
-      );
+  factory ModelConfiguration.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    return ModelConfiguration(
+      provider: r.string('provider'),
+      model: r.string('model'),
+      baseUrl: r.string('base_url'),
+      credentialConfigured: r.boolean('credential_configured'),
+      credentialHint: r.optString('credential_hint'),
+      updatedAt: r.date('updated_at').toUtc(),
+    );
+  }
 
   final String provider;
   final String model;
@@ -248,15 +275,17 @@ class NotificationPreferences {
     this.desktopEnabled = true,
   });
 
-  factory NotificationPreferences.fromJson(JsonMap json) =>
-      NotificationPreferences(
-        taskCompleted: json['task_completed']! as bool,
-        approvalRequired: json['approval_required']! as bool,
-        runFailed: json['run_failed']! as bool,
-        automationFailed: json['automation_failed']! as bool,
-        emailEnabled: json['email_enabled']! as bool,
-        desktopEnabled: json['desktop_enabled']! as bool,
-      );
+  factory NotificationPreferences.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    return NotificationPreferences(
+      taskCompleted: r.boolean('task_completed'),
+      approvalRequired: r.boolean('approval_required'),
+      runFailed: r.boolean('run_failed'),
+      automationFailed: r.boolean('automation_failed'),
+      emailEnabled: r.boolean('email_enabled'),
+      desktopEnabled: r.boolean('desktop_enabled'),
+    );
+  }
 
   final bool taskCompleted;
   final bool approvalRequired;

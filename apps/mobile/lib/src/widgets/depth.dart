@@ -301,9 +301,12 @@ class AnumPill extends StatelessWidget {
             Icon(icon, size: 13, color: color),
             const SizedBox(width: 4),
           ],
-          Text(label,
-              style: TextStyle(
-                  color: color, fontSize: 11.5, fontWeight: FontWeight.w700)),
+          // Wraps inside a narrow parent at large text sizes.
+          Flexible(
+            child: Text(label,
+                style: TextStyle(
+                    color: color, fontSize: 11.5, fontWeight: FontWeight.w700)),
+          ),
         ]),
       ),
     );

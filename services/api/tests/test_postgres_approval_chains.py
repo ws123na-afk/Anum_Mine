@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
+from anum_api import main
+from anum_api.agent_tools import default_tool_registry
+from anum_api.integration_tools import RestToolAdapter
 from anum_api.main import app
 
 from conftest import TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B, tenant_context
@@ -66,6 +70,8 @@ def test_a_chain_records_each_approver_and_resumes_on_the_last(
     client: TestClient, database_engine: Engine
 ) -> None:
     approval = _waiting_approval(client)
+    # The run's own response already shows the chain ("0 of 3"), not the default 1.
+    assert (approval["required_approvals"], approval["approvers"]) == (3, [])
     assert _approve(client, approval, "user_test").status_code == 403  # the requester never counts
 
     first = _approve(client, approval, "owner_b")
@@ -97,6 +103,43 @@ def test_a_chain_records_each_approver_and_resumes_on_the_last(
     assert actions.count("approval.approved") == 1
     events = [row.type for row in _rows(database_engine, "select type from domain_events order by created_at")]
     assert events.count("approval.partially_approved") == 2
+
+
+def _webhook_registry(host: str) -> object:
+    adapter = RestToolAdapter(
+        endpoint=f"https://{host}/send",
+        allowed_hosts={host},
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={}))),
+    )
+    return default_tool_registry(adapter)
+
+
+def test_a_partial_approval_checks_the_integration_target(
+    client: TestClient, database_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main, "tool_registry", _webhook_registry("hooks.example"))
+    approval = _waiting_approval(client)
+    assert approval["target"] == "hooks.example"
+    assert _approve(client, approval, "owner_b").json()["approval"]["status"] == "pending"
+
+    monkeypatch.setattr(main, "tool_registry", _webhook_registry("elsewhere.example"))
+    refused = _approve(client, approval, "owner_c")
+    assert refused.status_code == 200, refused.text
+    assert refused.json()["approval"]["status"] == "expired"
+    assert refused.json()["run"]["status"] == "failed"
+    assert "integration target changed" in refused.json()["run"]["steps"][-1]["summary"]
+
+    # Committed: only owner_b's approval was counted, the audit record names owner_c.
+    assert [row.user_id for row in _rows(database_engine, "select user_id from approval_approvers")] == ["owner_b"]
+    status = _rows(database_engine, "select status from approvals")
+    assert [row.status for row in status] == ["expired"]
+    mismatch = _rows(
+        database_engine,
+        "select actor, metadata from audit_records where action = 'approval.target_mismatch'",
+    )
+    assert [(row.actor, row.metadata["current_target"]) for row in mismatch] == [("owner_c", "elsewhere.example")]
+    assert client.get(f"/api/v1/tasks/{approval['task_id']}", headers=REQUESTER).json()["status"] == "failed"
+    assert _approve(client, approval, "owner_d").status_code == 410
 
 
 def test_a_reject_ends_the_chain(client: TestClient) -> None:

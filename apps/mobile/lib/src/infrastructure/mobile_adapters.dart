@@ -48,7 +48,7 @@ class SecureSessionStore implements SessionStore {
     final value = await _storage.read(key: _key);
     if (value == null) return null;
     try {
-      return LocalSession.fromJson(jsonDecode(value) as JsonMap);
+      return LocalSession.fromJson(jsonObject(jsonDecode(value), 'session'));
     } on Object {
       await clear();
       return null;
@@ -95,7 +95,7 @@ class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, _detail(response.body));
     }
-    return jsonDecode(response.body) as JsonMap;
+    return jsonObject(jsonDecode(response.body));
   }
 
   @override
@@ -116,8 +116,8 @@ class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {
 
   String _detail(String body) {
     try {
-      final value = jsonDecode(body) as JsonMap;
-      return value['detail'] as String? ?? 'File transfer failed';
+      return JsonReader.of(jsonDecode(body)).optString('detail') ??
+          'File transfer failed';
     } on Object {
       return 'File transfer failed';
     }

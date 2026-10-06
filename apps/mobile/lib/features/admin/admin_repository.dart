@@ -30,16 +30,14 @@ class ApiAdminRepository implements AdminRepository {
 
   static String _id(String value) => Uri.encodeComponent(value);
 
-  Future<List<JsonMap>> _list(String path) async {
-    final value = await api.request('GET', path);
-    return ((value['data'] as List<Object?>?) ?? const []).cast<JsonMap>();
-  }
+  Future<List<T>> _list<T>(
+          String path, T Function(JsonMap json, String path) read) async =>
+      JsonReader(await api.request('GET', path))
+          .optObjects('data', (x) => read(x.json, x.path));
 
   @override
-  Future<List<WorkspaceMember>> members() async =>
-      (await _list('/api/v1/workspace-members'))
-          .map(WorkspaceMember.fromJson)
-          .toList();
+  Future<List<WorkspaceMember>> members() =>
+      _list('/api/v1/workspace-members', WorkspaceMember.fromJson);
 
   @override
   Future<WorkspaceMember> changeRole(String userId, String role) async =>
@@ -54,18 +52,19 @@ class ApiAdminRepository implements AdminRepository {
           '/api/v1/workspace-members/${_id(userId)}/${active ? 'reactivate' : 'deactivate'}'));
 
   @override
-  Future<List<WorkspaceInvitation>> invitations() async =>
-      (await _list('/api/v1/workspace-invitations'))
-          .map(WorkspaceInvitation.fromJson)
-          .toList();
+  Future<List<WorkspaceInvitation>> invitations() =>
+      _list('/api/v1/workspace-invitations', WorkspaceInvitation.fromJson);
 
   @override
   Future<CreatedInvitation> createInvitation(InvitationDraft draft) async {
-    final value = await api.request('POST', '/api/v1/workspace-invitations',
-        body: draft.toJson());
+    final value = JsonReader(await api.request(
+        'POST', '/api/v1/workspace-invitations',
+        body: draft.toJson()));
+    final invitation = value.object('invitation');
     return CreatedInvitation(
-      invitation: WorkspaceInvitation.fromJson(value['invitation']! as JsonMap),
-      token: value['token']! as String,
+      invitation:
+          WorkspaceInvitation.fromJson(invitation.json, invitation.path),
+      token: value.string('token'),
     );
   }
 
@@ -79,7 +78,7 @@ class ApiAdminRepository implements AdminRepository {
   @override
   Future<AcceptedInvitation> acceptInvitation(String token,
       {String? workspaceId}) async {
-    final value = await api.request(
+    final value = JsonReader(await api.request(
       'POST',
       '/api/v1/workspace-invitations/accept',
       body: {'token': token},
@@ -87,10 +86,13 @@ class ApiAdminRepository implements AdminRepository {
         if (workspaceId != null && workspaceId.isNotEmpty)
           'x-workspace-id': workspaceId
       },
-    );
+    ));
+    final invitation = value.object('invitation');
+    final membership = value.object('membership');
     return AcceptedInvitation(
-      invitation: WorkspaceInvitation.fromJson(value['invitation']! as JsonMap),
-      member: WorkspaceMember.fromJson(value['membership']! as JsonMap),
+      invitation:
+          WorkspaceInvitation.fromJson(invitation.json, invitation.path),
+      member: WorkspaceMember.fromJson(membership.json, membership.path),
     );
   }
 
@@ -117,8 +119,8 @@ class ApiAdminRepository implements AdminRepository {
 
   @override
   Future<String?> currentRole() async {
-    final value =
-        await api.request('GET', '/api/v1/workspace-memberships/current');
-    return value['active'] == false ? null : value['role'] as String?;
+    final value = JsonReader(
+        await api.request('GET', '/api/v1/workspace-memberships/current'));
+    return value['active'] == false ? null : value.optString('role');
   }
 }

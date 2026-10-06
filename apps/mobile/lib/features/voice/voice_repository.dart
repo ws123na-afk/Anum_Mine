@@ -33,8 +33,8 @@ class VoiceRepository {
         'client_sequence': sequence,
       },
     );
-    return VoiceSegment(
-        id: value['id']! as String, text: value['text']! as String);
+    final segment = JsonReader(value);
+    return VoiceSegment(id: segment.string('id'), text: segment.string('text'));
   }
 
   /// Ask the assistant about a final user segment. Never changes state.
@@ -60,11 +60,11 @@ class VoiceRepository {
         if (title != null) 'title': title,
       },
     );
-    final task = command['task']! as JsonMap;
+    final task = JsonReader(command).object('task');
     return VoiceCommand(
-      taskId: task['id']! as String,
-      title: task['title']! as String,
-      status: task['status']! as String,
+      taskId: task.string('id'),
+      title: task.string('title'),
+      status: task.string('status'),
     );
   }
 

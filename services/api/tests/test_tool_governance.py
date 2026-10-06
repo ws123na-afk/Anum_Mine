@@ -25,7 +25,17 @@ from anum_api.governance import governance_store
 from anum_api.model_gateway import MockModelGateway
 from anum_api.repository import InMemoryRepository
 from anum_api.runtime import AgentRuntime
-from anum_api.schemas import RiskLevel, RunPhase, Task, TaskStatus, TenantContext, new_id, utc_now
+from anum_api.schemas import (
+    AgentRun,
+    RiskLevel,
+    RunCheckpoint,
+    RunPhase,
+    Task,
+    TaskStatus,
+    TenantContext,
+    new_id,
+    utc_now,
+)
 from anum_api.store import InMemoryStore, store
 from anum_api.tool_governance import (
     GovernanceApprovalRule,
@@ -433,6 +443,39 @@ def test_three_approvers_are_collected_before_the_run_resumes() -> None:
 
     listed = client.get("/api/v1/approvals", headers=OWNER_B).json()
     assert [len(item["approvers"]) for item in listed] == [3]
+
+
+def test_run_and_resume_responses_show_chain_progress_for_the_approval_they_create() -> None:
+    _approval_rule("external.*", minimum_approvers=3)
+    started = _run("Publish the final update")
+    assert started["run"]["status"] == "waiting_approval"
+    assert (started["approval"]["required_approvals"], started["approval"]["approvers"]) == (3, [])
+
+    # A checkpointed call that a rule now guards pauses on resume; that response too.
+    _approval_rule("anum.respond", minimum_approvers=4)
+    task = client.post("/api/v1/tasks", headers=OWNER_A, json={"title": "t", "prompt": "Summarize notes"}).json()
+    stored = store.tasks[task["id"]]
+    stored.status = TaskStatus.RUNNING
+    now = utc_now()
+    run = AgentRun(
+        id=new_id("run"),
+        task_id=stored.id,
+        status=TaskStatus.RUNNING,
+        checkpoint=RunCheckpoint(
+            phase=RunPhase.TOOL_READY,
+            version=2,
+            selected_skills=["anum.task-planning"],
+            tool_call={"name": "anum.respond", "arguments": {"content": "Recovered"}},
+        ),
+        created_at=now,
+        updated_at=now,
+    )
+    store.runs[run.id] = run
+    resumed = client.post(f"/api/v1/agent-runs/{run.id}/resume", headers=OWNER_A)
+    assert resumed.status_code == 200, resumed.text
+    body = resumed.json()
+    assert body["run"]["status"] == "waiting_approval"
+    assert (body["approval"]["required_approvals"], body["approval"]["approvers"]) == (4, [])
 
 
 def test_any_reject_ends_an_approval_chain() -> None:

@@ -253,8 +253,7 @@ class AgentRuntime:
                 return None
             call = ToolCall.model_validate(run.checkpoint.tool_call)
             # The approver was shown this integration target; refuse if it has changed.
-            definition = self.tools.definition(call.name)
-            current_target = definition.target if definition is not None else None
+            current_target = self.current_target(call.name)
             if approval.target is not None and approval.target != current_target:
                 self._reject_target_mismatch(task, run, context, approval, current_target)
                 return None
@@ -354,6 +353,60 @@ class AgentRuntime:
             return None
         call = ToolCall.model_validate(run.checkpoint.tool_call)
         return payload_hash(call, task_id=task.id, run_id=run.id, step_id=run.checkpoint.last_step_id)
+
+    def current_target(self, tool_name: str) -> str | None:
+        """The integration target configured for ``tool_name`` now (host only, or None)."""
+        definition = self.tools.definition(tool_name)
+        return definition.target if definition is not None else None
+
+    def refuse_changed_target(
+        self,
+        task: Task,
+        run: AgentRun | None,
+        approval: Approval,
+        context: TenantContext,
+        now: datetime | None = None,
+    ) -> bool:
+        """At an approve decision: refuse if the target changed since the approval was requested.
+
+        The same check as execution (:meth:`begin_execution`), made on *every* approve,
+        including the partial approvals of a chain, so nobody approves a target other than
+        the one shown. On a mismatch the pending approval is marked ``expired`` (it can no
+        longer be approved), and the waiting run fails with the ``approval.target_mismatch``
+        audit record and message. Returns True when it refused.
+        """
+        current = self.current_target(approval.action)
+        if approval.target is None or approval.target == current:
+            return False
+        now = now or utc_now()
+        approval.status = ApprovalStatus.EXPIRED
+        approval.decided_at = now
+        self.repository.save_approval(approval)
+        self._record_event(
+            CanonicalEventName.APPROVAL_EXPIRED.value, context, approval.id, {"task_id": task.id}, task.id
+        )
+        if (
+            run is not None
+            and run.checkpoint.approval_id == approval.id
+            and run.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+        ):
+            self._reject_target_mismatch(task, run, context, approval, current)
+        else:
+            self._audit(
+                context,
+                "approval.target_mismatch",
+                approval.id,
+                "denied",
+                task.id,
+                {
+                    "task_id": task.id,
+                    "tool": approval.action,
+                    "approved_target": approval.target,
+                    "current_target": current,
+                    "decided_by": approval.decided_by,
+                },
+            )
+        return True
 
     def expire_if_due(
         self, task: Task, approval: Approval, context: TenantContext, now: datetime | None = None

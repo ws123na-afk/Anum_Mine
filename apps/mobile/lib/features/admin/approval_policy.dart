@@ -15,10 +15,11 @@ class ApprovalPolicy {
         twoPersonRule: json['two_person_rule'] == true,
         mediumRiskRequiresApproval:
             json['medium_risk_requires_approval'] == true,
-        updatedBy: json['updated_by'] as String?,
-        updatedAt: json['updated_at'] is String
-            ? DateTime.parse(json['updated_at']! as String)
-            : null,
+        updatedBy: JsonReader(json).optString('updated_by'),
+        updatedAt: switch (json['updated_at']) {
+          final String value => DateTime.parse(value),
+          _ => null,
+        },
       );
 
   final bool twoPersonRule, mediumRiskRequiresApproval;

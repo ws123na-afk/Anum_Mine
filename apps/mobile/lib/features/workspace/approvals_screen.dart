@@ -353,9 +353,11 @@ class ApprovalProgress extends StatelessWidget {
         Row(children: [
           Icon(Icons.groups_outlined, size: 16, color: p.sky),
           const SizedBox(width: 6),
-          Text(label,
-              style: TextStyle(
-                  color: p.text, fontSize: 13, fontWeight: FontWeight.w700)),
+          Flexible(
+            child: Text(label,
+                style: TextStyle(
+                    color: p.text, fontSize: 13, fontWeight: FontWeight.w700)),
+          ),
         ]),
         const SizedBox(height: 4),
         ClipRRect(
