@@ -9,8 +9,27 @@ from pydantic import BaseModel, Field
 
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
+from .model_gateway import ModelGateway, build_model_gateway
+from .onboarding import workspace_model_gateway
 from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
+from .settings import settings
+from .voice_assistant import (
+    SMALL_TALK,
+    VoiceIntent,
+    VoiceRiskTier,
+    WorkspaceSnapshot,
+    answer_question,
+    classify,
+    confirm_reply,
+    snapshot,
+    status_reply,
+    small_talk_reply,
+    strip_wake_word,
+    visual_only_reply,
+)
+
+MAX_ASKS_PER_SESSION = 60
 
 
 class VoiceSessionStatus(StrEnum):
@@ -33,6 +52,7 @@ class TranscriptRole(StrEnum):
 class VoiceSessionCreate(BaseModel):
     locale: str = Field(default="en-US", min_length=2, max_length=35)
     retention: TranscriptRetention = TranscriptRetention.SESSION
+    assistant_name: str = Field(default="Anum", min_length=1, max_length=40, pattern=r"^[\w .'-]+$")
 
 
 class TranscriptSegmentCreate(BaseModel):
@@ -64,6 +84,7 @@ class VoiceSession(BaseModel):
     user_id: str
     locale: str
     retention: TranscriptRetention
+    assistant_name: str = "Anum"
     status: VoiceSessionStatus
     created_at: datetime
     updated_at: datetime
@@ -76,6 +97,19 @@ class VoiceCommandResult(BaseModel):
     transcript_segment_id: str
 
 
+class VoiceAskCreate(BaseModel):
+    transcript_segment_id: str
+
+
+class VoiceAskResult(BaseModel):
+    intent: VoiceIntent
+    risk_tier: VoiceRiskTier
+    reply: str
+    proposed_task: str | None = None
+    workspace: WorkspaceSnapshot
+    assistant_segment: TranscriptSegment
+
+
 class VoiceStore:
     """Thread-safe ephemeral store; production adapters can preserve the same contract."""
 
@@ -83,6 +117,7 @@ class VoiceStore:
         self.sessions: dict[str, VoiceSession] = {}
         self.segments: dict[str, list[TranscriptSegment]] = {}
         self.consumed_segments: set[str] = set()
+        self.ask_counts: dict[str, int] = {}
         self._lock = RLock()
 
     def clear(self) -> None:
@@ -90,6 +125,27 @@ class VoiceStore:
             self.sessions.clear()
             self.segments.clear()
             self.consumed_segments.clear()
+            self.ask_counts.clear()
+
+    def count_ask(self, session_id: str) -> int:
+        with self._lock:
+            self.ask_counts[session_id] = self.ask_counts.get(session_id, 0) + 1
+            return self.ask_counts[session_id]
+
+    def add_assistant_reply(self, session: VoiceSession, text: str, sequence: int) -> TranscriptSegment:
+        with self._lock:
+            segment = TranscriptSegment(
+                id=new_id("transcript"),
+                session_id=session.id,
+                role=TranscriptRole.ASSISTANT,
+                text=text,
+                is_final=True,
+                client_sequence=sequence,
+                created_at=utc_now(),
+            )
+            self.segments[session.id].append(segment)
+            session.updated_at = segment.created_at
+            return segment
 
     def create_session(self, payload: VoiceSessionCreate, context: TenantContext) -> VoiceSession:
         now = utc_now()
@@ -100,6 +156,7 @@ class VoiceStore:
             workspace_id=context.workspace_id,
             user_id=context.user_id,
             locale=payload.locale,
+            assistant_name=payload.assistant_name.strip(),
             retention=payload.retention,
             status=VoiceSessionStatus.ACTIVE,
             created_at=now,
@@ -163,6 +220,24 @@ class VoiceStore:
 
 voice_store = VoiceStore()
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
+_gateway: ModelGateway | None = None
+
+
+def _default_voice_gateway() -> ModelGateway:
+    global _gateway
+    if _gateway is None:
+        _gateway = build_model_gateway(
+            settings.model_provider,
+            api_key=settings.model_api_key,
+            model=settings.model_name,
+            base_url=settings.model_base_url,
+        )
+    return _gateway
+
+
+def voice_model_gateway(context: TenantContext = Depends(tenant_context)) -> ModelGateway:
+    """Answer with the model this workspace chose in Settings, else the server default."""
+    return workspace_model_gateway(context, _default_voice_gateway())
 
 
 def _session_or_404(session_id: str, context: TenantContext) -> VoiceSession:
@@ -255,6 +330,58 @@ async def submit_voice_command(
     )
     repository.create_task(task)
     return VoiceCommandResult(session=session, task=task, transcript_segment_id=segment.id)
+
+
+@router.post("/sessions/{session_id}/ask", response_model=VoiceAskResult)
+async def ask_voice_assistant(
+    session_id: str,
+    payload: VoiceAskCreate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+    gateway: ModelGateway = Depends(voice_model_gateway),
+) -> VoiceAskResult:
+    """Answer a spoken question. Read-only: it never changes tasks or approvals."""
+    require_permission(context, Permission.TASK_READ)
+    session = _session_or_404(session_id, context)
+    if session.status != VoiceSessionStatus.ACTIVE:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
+    segment = voice_store.get_segment(session.id, payload.transcript_segment_id)
+    if not segment or segment.role != TranscriptRole.USER or not segment.is_final:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A final user transcript segment is required",
+        )
+    if voice_store.count_ask(session.id) > MAX_ASKS_PER_SESSION:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Voice question limit reached")
+
+    arabic = session.locale.lower().startswith("ar")
+    name = session.assistant_name
+    facts = snapshot(
+        repository.list_tasks(context),
+        [approval.status for approval in repository.list_approvals(context)],
+    )
+    text = strip_wake_word(segment.text, name)
+    intent, proposal = classify(text, name)
+    if intent == VoiceIntent.VISUAL_ONLY:
+        tier, reply = VoiceRiskTier.VISUAL_ONLY, visual_only_reply(arabic)
+    elif intent == VoiceIntent.CREATE_TASK:
+        tier, reply = VoiceRiskTier.CONFIRM, confirm_reply(proposal, arabic)
+    elif intent == VoiceIntent.STATUS:
+        tier, reply = VoiceRiskTier.READ, status_reply(facts, arabic)
+    elif intent in SMALL_TALK:
+        tier, reply = VoiceRiskTier.READ, small_talk_reply(intent, name, facts, arabic)
+    else:
+        tier, reply = VoiceRiskTier.READ, await answer_question(gateway, text, facts, name, arabic)
+
+    assistant_segment = voice_store.add_assistant_reply(session, reply, segment.client_sequence)
+    return VoiceAskResult(
+        intent=intent,
+        risk_tier=tier,
+        reply=reply,
+        proposed_task=proposal,
+        workspace=facts,
+        assistant_segment=assistant_segment,
+    )
 
 
 @router.post("/sessions/{session_id}/complete", response_model=VoiceSession)

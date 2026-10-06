@@ -15,8 +15,7 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
 
   Future<List<JsonMap>> _list(String path) async {
     final value = await api.request('GET', path);
-    return ((value['data'] as List<Object?>?) ?? const [])
-        .cast<JsonMap>();
+    return ((value['data'] as List<Object?>?) ?? const []).cast<JsonMap>();
   }
 
   @override
@@ -37,7 +36,8 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
       return WorkspaceSnapshot(
         tasks: values[0].map(_task).toList(),
         approvals: values[1].map(_approval).toList(),
-        automations: values[2].map((run) => _automation(run, values[5])).toList(),
+        automations:
+            values[2].map((run) => _automation(run, values[5])).toList(),
         files: values[3].map(_file).toList(),
         memories: values[4].map(_memory).toList(),
         workflowDefinitions: values[5].map(_workflow).toList(),
@@ -59,7 +59,8 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
       'title': prompt.length > 80 ? '${prompt.substring(0, 77)}...' : prompt,
       'prompt': prompt,
     });
-    final result = await api.request('POST', '/api/v1/tasks/${created['id']}/run');
+    final result =
+        await api.request('POST', '/api/v1/tasks/${created['id']}/run');
     return _task((result['task'] as JsonMap?) ?? created,
         run: result['run'] as JsonMap?);
   }
@@ -83,8 +84,8 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
   @override
   Future<WorkspaceTask> resumeTask(String taskId) async {
     final run = await api.request('GET', '/api/v1/tasks/$taskId/latest-run');
-    final value = await api.request(
-        'POST', '/api/v1/agent-runs/${run['id']}/resume');
+    final value =
+        await api.request('POST', '/api/v1/agent-runs/${run['id']}/resume');
     return _task(value['task']! as JsonMap, run: value['run'] as JsonMap?);
   }
 
@@ -102,16 +103,45 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
           'POST', '/api/v1/automation/workflows/$automationId/runs'));
 
   @override
-  Future<AutomationDefinition> createAutomation({required String name, required String description, required String action}) async => _workflow(await api.request('POST', '/api/v1/automation/workflows', body: {'name': name, 'description': description, 'steps': [{'id': 'execute', 'name': 'Execute work', 'action': action, 'input': <String, Object?>{}, 'max_attempts': 3}]}));
+  Future<AutomationDefinition> createAutomation(
+          {required String name,
+          required String description,
+          required String action}) async =>
+      _workflow(
+          await api.request('POST', '/api/v1/automation/workflows', body: {
+        'name': name,
+        'description': description,
+        'steps': [
+          {
+            'id': 'execute',
+            'name': 'Execute work',
+            'action': action,
+            'input': <String, Object?>{},
+            'max_attempts': 3
+          }
+        ]
+      }));
 
   @override
-  Future<AutomationSchedule> createSchedule({required String workflowId, required String name, required String cron, required String timezone}) async => _schedule(await api.request('POST', '/api/v1/automation/schedules', body: {'workflow_id': workflowId, 'name': name, 'cron': cron, 'timezone': timezone, 'enabled': true}));
+  Future<AutomationSchedule> createSchedule(
+          {required String workflowId,
+          required String name,
+          required String cron,
+          required String timezone}) async =>
+      _schedule(
+          await api.request('POST', '/api/v1/automation/schedules', body: {
+        'workflow_id': workflowId,
+        'name': name,
+        'cron': cron,
+        'timezone': timezone,
+        'enabled': true
+      }));
 
   @override
   Future<WorkspaceAutomation> transitionAutomation(
           String runId, String action) async =>
-      _automation(await api.request(
-          'POST', '/api/v1/automation/runs/$runId/$action'));
+      _automation(
+          await api.request('POST', '/api/v1/automation/runs/$runId/$action'));
 
   @override
   Future<WorkspaceFile> uploadFile(String path) async =>
@@ -140,7 +170,13 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
   }
 
   @override
-  Future<void> installSkill(WorkspaceSkill skill) async { await api.request('POST', '/api/v1/skills/installations', body: {'skill_id': skill.skillId, 'version': skill.version, 'approved_tools': skill.tools}); }
+  Future<void> installSkill(WorkspaceSkill skill) async {
+    await api.request('POST', '/api/v1/skills/installations', body: {
+      'skill_id': skill.skillId,
+      'version': skill.version,
+      'approved_tools': skill.tools
+    });
+  }
 
   WorkspaceTask _task(JsonMap json, {JsonMap? run}) => WorkspaceTask(
         id: json['id']! as String,
@@ -153,18 +189,97 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
       );
   WorkspaceRun _run(JsonMap json) => WorkspaceRun(
         id: json['id']! as String,
-        status: _status(json['status'] as String? ?? json['phase'] as String? ?? 'running'),
-        steps: ((json['steps'] as List<Object?>?) ?? const []).cast<JsonMap>().map((x) => RunStep(id: x['id']! as String, type: x['type']! as String, summary: x['summary']! as String, createdAt: _date(x['created_at']))).toList(),
+        status: _status(
+            json['status'] as String? ?? json['phase'] as String? ?? 'running'),
+        steps: ((json['steps'] as List<Object?>?) ?? const [])
+            .cast<JsonMap>()
+            .map((x) => RunStep(
+                id: x['id']! as String,
+                type: x['type']! as String,
+                summary: x['summary']! as String,
+                createdAt: _date(x['created_at'])))
+            .toList(),
         result: json['result'] as String?,
       );
-  WorkspaceApproval _approval(JsonMap j) => WorkspaceApproval(id: j['id']! as String, taskId: j['task_id']! as String, action: j['action']! as String, reason: j['reason']! as String, risk: j['risk_level']! as String, status: j['status']! as String, createdAt: _date(j['created_at']));
-  WorkspaceAutomation _automation(JsonMap j, [List<JsonMap> workflows = const []]) { final workflowId = j['workflow_id']! as String; final matches = workflows.where((x) => x['id'] == workflowId).toList(); return WorkspaceAutomation(id: j['id']! as String, workflowId: workflowId, name: matches.isEmpty ? workflowId : matches.first['name']! as String, status: j['status']! as String, updatedAt: _date(j['updated_at'] ?? j['created_at']), currentStep: (j['current_step'] as num?)?.toInt() ?? 0, stepCount: ((j['steps'] as List<Object?>?) ?? const []).length); }
-  WorkspaceFile _file(JsonMap j) => WorkspaceFile(id: j['id']! as String, name: j['name']! as String, contentType: j['content_type']! as String, sizeBytes: (j['size_bytes']! as num).toInt(), createdAt: _date(j['created_at']));
-  WorkspaceMemory _memory(JsonMap j) => WorkspaceMemory(id: j['id']! as String, taskId: j['task_id']! as String, content: j['content']! as String, sourceType: ((j['provenance'] as JsonMap?)?['source_type'] ?? 'unknown') as String, createdAt: _date(j['created_at']));
-  AutomationDefinition _workflow(JsonMap j) => AutomationDefinition(id: j['id']! as String, name: j['name']! as String, description: j['description'] as String? ?? '', status: j['status'] as String? ?? 'active', steps: ((j['steps'] as List<Object?>?) ?? const []).cast<JsonMap>().map((x) => (x['name'] ?? x['action'])! as String).toList(), updatedAt: _date(j['updated_at'] ?? j['created_at']));
-  AutomationSchedule _schedule(JsonMap j) => AutomationSchedule(id: j['id']! as String, workflowId: j['workflow_id']! as String, name: j['name']! as String, cron: j['cron']! as String, timezone: j['timezone']! as String, enabled: j['enabled']! as bool);
-  WorkspaceSkill _skill(JsonMap j, List<JsonMap> installs) => WorkspaceSkill(id: j['id']! as String, skillId: j['skill_id']! as String, name: j['name']! as String, version: j['version']! as String, description: j['description']! as String, risk: j['risk_level']! as String, tools: ((j['required_tools'] as List<Object?>?) ?? const []).cast<String>(), installed: installs.any((x) => x['skill_id'] == j['skill_id'] && x['version'] == j['version']));
-  WorkspaceIntegration _integration(JsonMap j) => WorkspaceIntegration(id: j['id']! as String, name: j['name']! as String, kind: j['kind']! as String, status: j['status']! as String, endpoint: j['endpoint']! as String, detail: j['detail']! as String, latencyMs: (j['latency_ms'] as num?)?.toInt());
+  WorkspaceApproval _approval(JsonMap j) => WorkspaceApproval(
+      id: j['id']! as String,
+      taskId: j['task_id']! as String,
+      action: j['action']! as String,
+      reason: j['reason']! as String,
+      risk: j['risk_level']! as String,
+      status: j['status']! as String,
+      createdAt: _date(j['created_at']));
+  WorkspaceAutomation _automation(JsonMap j,
+      [List<JsonMap> workflows = const []]) {
+    final workflowId = j['workflow_id']! as String;
+    final matches = workflows.where((x) => x['id'] == workflowId).toList();
+    return WorkspaceAutomation(
+        id: j['id']! as String,
+        workflowId: workflowId,
+        name: matches.isEmpty ? workflowId : matches.first['name']! as String,
+        status: j['status']! as String,
+        updatedAt: _date(j['updated_at'] ?? j['created_at']),
+        currentStep: (j['current_step'] as num?)?.toInt() ?? 0,
+        stepCount: ((j['steps'] as List<Object?>?) ?? const []).length);
+  }
+
+  WorkspaceFile _file(JsonMap j) => WorkspaceFile(
+      id: j['id']! as String,
+      name: j['name']! as String,
+      contentType: j['content_type']! as String,
+      sizeBytes: (j['size_bytes']! as num).toInt(),
+      createdAt: _date(j['created_at']));
+  WorkspaceMemory _memory(JsonMap j) => WorkspaceMemory(
+      id: j['id']! as String,
+      taskId: j['task_id']! as String,
+      content: j['content']! as String,
+      sourceType: ((j['provenance'] as JsonMap?)?['source_type'] ?? 'unknown')
+          as String,
+      createdAt: _date(j['created_at']));
+  AutomationDefinition _workflow(JsonMap j) => AutomationDefinition(
+      id: j['id']! as String,
+      name: j['name']! as String,
+      description: j['description'] as String? ?? '',
+      status: j['status'] as String? ?? 'active',
+      steps: ((j['steps'] as List<Object?>?) ?? const [])
+          .cast<JsonMap>()
+          .map((x) => (x['name'] ?? x['action'])! as String)
+          .toList(),
+      updatedAt: _date(j['updated_at'] ?? j['created_at']));
+  AutomationSchedule _schedule(JsonMap j) => AutomationSchedule(
+      id: j['id']! as String,
+      workflowId: j['workflow_id']! as String,
+      name: j['name']! as String,
+      cron: j['cron']! as String,
+      timezone: j['timezone']! as String,
+      enabled: j['enabled']! as bool);
+  WorkspaceSkill _skill(JsonMap j, List<JsonMap> installs) => WorkspaceSkill(
+      id: j['id']! as String,
+      skillId: j['skill_id']! as String,
+      name: j['name']! as String,
+      version: j['version']! as String,
+      description: j['description']! as String,
+      risk: j['risk_level']! as String,
+      tools:
+          ((j['required_tools'] as List<Object?>?) ?? const []).cast<String>(),
+      installed: installs.any((x) =>
+          x['skill_id'] == j['skill_id'] && x['version'] == j['version']));
+  WorkspaceIntegration _integration(JsonMap j) => WorkspaceIntegration(
+      id: j['id']! as String,
+      name: j['name']! as String,
+      kind: j['kind']! as String,
+      status: j['status']! as String,
+      endpoint: j['endpoint']! as String,
+      detail: j['detail']! as String,
+      latencyMs: (j['latency_ms'] as num?)?.toInt());
   DateTime _date(Object? value) => DateTime.parse(value! as String).toLocal();
-  WorkStatus _status(String value) => switch (value) { 'queued' => WorkStatus.queued, 'running' || 'planning' || 'executing' => WorkStatus.running, 'waiting_approval' => WorkStatus.waitingApproval, 'completed' => WorkStatus.completed, 'failed' => WorkStatus.failed, 'cancelled' => WorkStatus.cancelled, _ => WorkStatus.created };
+  WorkStatus _status(String value) => switch (value) {
+        'queued' => WorkStatus.queued,
+        'running' || 'planning' || 'executing' => WorkStatus.running,
+        'waiting_approval' => WorkStatus.waitingApproval,
+        'completed' => WorkStatus.completed,
+        'failed' => WorkStatus.failed,
+        'cancelled' => WorkStatus.cancelled,
+        _ => WorkStatus.created
+      };
 }

@@ -3,8 +3,24 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_models.dart';
 import 'auth_repository.dart';
 
-enum AuthPhase { restoring, signedOut, onboarding, modelSetup, ready, busy, error }
-enum AuthIssue { none, offline, permission, invalidSession, validation, unknown }
+enum AuthPhase {
+  restoring,
+  signedOut,
+  onboarding,
+  modelSetup,
+  ready,
+  busy,
+  error
+}
+
+enum AuthIssue {
+  none,
+  offline,
+  permission,
+  invalidSession,
+  validation,
+  unknown
+}
 
 class AuthController extends ChangeNotifier {
   AuthController(this.repository);
@@ -15,13 +31,18 @@ class AuthController extends ChangeNotifier {
   AuthIssue issue = AuthIssue.none;
   AuthPhase _retryPhase = AuthPhase.signedOut;
 
+  /// The organization and workspace the user is signed in to, as reported by the API.
+  OnboardingStatus? onboarding;
+  String? get workspaceName => onboarding?.workspace?.name;
+  String? get organizationName => onboarding?.tenant?.name;
+
   Future<void> restore() async {
     try {
       final session = await repository.restoreSession();
       if (session == null) {
         phase = AuthPhase.signedOut;
       } else {
-        final status = await repository.onboardingStatus();
+        final status = onboarding = await repository.onboardingStatus();
         phase = status.complete
             ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
             : AuthPhase.onboarding;
@@ -33,7 +54,8 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> signIn(String tenant, String workspace, String user, {String? password}) async {
+  Future<void> signIn(String tenant, String workspace, String user,
+      {String? password}) async {
     if ([tenant, workspace, user].any((value) => value.trim().length < 3)) {
       phase = AuthPhase.error;
       issue = AuthIssue.validation;
@@ -49,7 +71,7 @@ class AuthController extends ChangeNotifier {
         userId: user.trim(),
         password: password?.trim(),
       );
-      final status = await repository.onboardingStatus();
+      final status = onboarding = await repository.onboardingStatus();
       phase = status.complete
           ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
           : AuthPhase.onboarding;
@@ -59,7 +81,7 @@ class AuthController extends ChangeNotifier {
   Future<void> completeExternalSignIn(Future<Object?> Function() action) async {
     await _run(AuthPhase.signedOut, () async {
       await action();
-      final status = await repository.onboardingStatus();
+      final status = onboarding = await repository.onboardingStatus();
       phase = status.complete
           ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
           : AuthPhase.onboarding;
@@ -104,6 +126,7 @@ class AuthController extends ChangeNotifier {
 
   Future<void> signOut() async {
     await repository.signOut();
+    onboarding = null;
     phase = AuthPhase.signedOut;
     notifyListeners();
   }
@@ -115,7 +138,8 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _run(AuthPhase retryPhase, Future<void> Function() action) async {
+  Future<void> _run(
+      AuthPhase retryPhase, Future<void> Function() action) async {
     _retryPhase = retryPhase;
     phase = AuthPhase.busy;
     message = null;
@@ -132,12 +156,15 @@ class AuthController extends ChangeNotifier {
 
   void _setError(Object error) {
     final text = error.toString();
-    message = text.replaceFirst(RegExp(r'^ApiException\(\d+,\s*'), '').replaceFirst(RegExp(r'\)$'), '');
+    message = text
+        .replaceFirst(RegExp(r'^ApiException\(\d+,\s*'), '')
+        .replaceFirst(RegExp(r'\)$'), '');
     issue = text.contains('(401,')
         ? AuthIssue.invalidSession
         : text.contains('(403,')
             ? AuthIssue.permission
-            : text.toLowerCase().contains('socket') || text.toLowerCase().contains('network')
+            : text.toLowerCase().contains('socket') ||
+                    text.toLowerCase().contains('network')
                 ? AuthIssue.offline
                 : AuthIssue.unknown;
   }

@@ -116,10 +116,12 @@ class ToolPolicy:
 
 
 async def _respond(call: ToolCall, _: TenantContext) -> ToolResult:
+    text = str(call.arguments.get("text", "")).strip()
     return ToolResult(
         status="succeeded",
-        summary="Prepared an internal ANUM response.",
-        output={"text": str(call.arguments.get("text", ""))},
+        # The model's answer is the task result; only fall back to a generic line when empty.
+        summary=text or "Prepared an internal ANUM response.",
+        output={"text": text},
     )
 
 

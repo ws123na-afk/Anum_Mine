@@ -11,7 +11,7 @@
   },
   "app": {
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 ws://127.0.0.1:8000 ws://localhost:8000; img-src 'self' asset: data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 ws://127.0.0.1:8000 ws://localhost:8000; img-src 'self' asset: data: https:; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; script-src 'self'"
     },
     "windows": [
       {
@@ -33,6 +33,13 @@
     "shortDescription": "Agent operations workspace",
     "longDescription": "ANUM desktop client for governed agent tasks, approvals, and local context.",
     "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "windows": {
       "wix": {
         "language": "en-US"

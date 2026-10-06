@@ -58,7 +58,7 @@ from .governance import router as governance_router
 from .automation import router as automation_router
 from .files import router as files_router
 from .skills_api import router as skills_router
-from .onboarding import router as onboarding_router
+from .onboarding import router as onboarding_router, workspace_model_gateway
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.add_middleware(CorrelationIdMiddleware)
@@ -289,7 +289,7 @@ async def run_task(
     if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
-    runtime = AgentRuntime(model_gateway, repository, tools=tool_registry)
+    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
     run, approval = await runtime.run_task(task, context)
     repository.save_task(task)
     repository.save_run(run)
@@ -374,7 +374,7 @@ async def resume_agent_run(
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
     task = _get_task_for_context(run.task_id, context, repository, for_update=True)
-    runtime = AgentRuntime(model_gateway, repository, tools=tool_registry)
+    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
     try:
         resumed = await runtime.resume_run(task, run, context)
     except ValueError as exc:
@@ -613,7 +613,7 @@ async def _decide_approval(
             created_at=approval.decided_at,
         ).event
     )
-    runtime = AgentRuntime(model_gateway, repository, tools=tool_registry)
+    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)
     if resumed_run:

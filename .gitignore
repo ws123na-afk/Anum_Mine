@@ -27,3 +27,9 @@ apps/desktop/src-tauri/target/
 # OS
 .DS_Store
 Thumbs.db
+apps/desktop/src-tauri/gen/
+
+# Flutter
+apps/mobile/.dart_tool/
+apps/mobile/build/
+apps/mobile/pubspec.lock

@@ -115,6 +115,8 @@ export async function getOnboarding(): Promise<OnboardingStatus> { return reques
 export async function completeOnboarding(organizationName: string, workspaceName: string): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'PUT', body: JSON.stringify({ organization_name: organizationName, workspace_name: workspaceName }) }); }
 export async function getModelConfig(): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'GET' }); }
 export async function saveModelConfig(provider: string, model: string, baseUrl: string, apiKey?: string): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify({ provider, model, base_url: baseUrl, api_key: apiKey || null }) }); }
+export interface ModelConnectionTest { provider: string; model: string; latency_ms: number; status: string }
+export async function testModelConfig(): Promise<ModelConnectionTest> { return request('/api/v1/model-config/test', { method: 'POST' }); }
 export async function getNotificationPreferences(): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'GET' }); }
 export async function saveNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'PUT', body: JSON.stringify(value) }); }
 
@@ -240,7 +242,9 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`ANUM API request failed: ${response.status}`);
+    // Surface the API's error envelope message (e.g. "Could not reach Ollama ...") when present.
+    const detail = await response.json().then((body: { error?: { message?: unknown } }) => body?.error?.message, () => undefined);
+    throw new Error(typeof detail === 'string' && detail ? `ANUM API request failed: ${response.status}: ${detail}` : `ANUM API request failed: ${response.status}`);
   }
 
   return response.json() as Promise<T>;

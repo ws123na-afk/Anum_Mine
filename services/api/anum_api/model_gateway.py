@@ -85,15 +85,20 @@ class OpenAICompatibleGateway:
     def __init__(
         self,
         *,
-        api_key: str,
+        api_key: str | None,
         model: str,
         base_url: str = "https://api.openai.com/v1",
         timeout_seconds: float = 60,
         client: httpx.AsyncClient | None = None,
+        require_api_key: bool = True,
+        provider: str | None = None,
     ) -> None:
-        if not api_key.strip():
+        key = (api_key or "").strip()
+        if require_api_key and not key:
             raise ValueError("model provider API key is required")
-        self.api_key = api_key
+        self.api_key = key or None
+        if provider:
+            self.provider = provider
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
@@ -191,7 +196,10 @@ class OpenAICompatibleGateway:
 
     @property
     def _headers(self) -> dict[str, str]:
-        return {"authorization": f"Bearer {self.api_key}", "content-type": "application/json"}
+        headers = {"content-type": "application/json"}
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        return headers
 
     async def _post(self, payload: dict[str, object]) -> httpx.Response:
         client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds)
@@ -209,15 +217,47 @@ class OpenAICompatibleGateway:
                 await client.aclose()
 
 
+OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
+OLLAMA_DEFAULT_MODEL = "llama3.2"
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+OPENAI_DEFAULT_MODEL = "gpt-4.1-mini"
+
+
+def normalize_provider(provider: str) -> str:
+    """Accept both spellings used across clients (``openai_compatible`` / ``openai-compatible``)."""
+    value = provider.strip().lower()
+    return "openai-compatible" if value == "openai_compatible" else value
+
+
 def build_model_gateway(
     provider: str,
     *,
     api_key: str | None = None,
-    model: str = "gpt-4.1-mini",
-    base_url: str = "https://api.openai.com/v1",
+    model: str = OPENAI_DEFAULT_MODEL,
+    base_url: str = OPENAI_DEFAULT_BASE_URL,
+    client: httpx.AsyncClient | None = None,
 ) -> ModelGateway:
+    provider = normalize_provider(provider)
     if provider == "mock":
         return MockModelGateway()
     if provider == "openai-compatible":
-        return OpenAICompatibleGateway(api_key=api_key or "", model=model, base_url=base_url)
+        return OpenAICompatibleGateway(
+            api_key=api_key or "", model=model, base_url=base_url, client=client
+        )
+    if provider == "ollama":
+        # Ollama serves an OpenAI-compatible API locally and needs no key. Fall back
+        # to Ollama defaults when the caller passed the OpenAI ones (e.g. env defaults).
+        return OpenAICompatibleGateway(
+            api_key=api_key,
+            model=OLLAMA_DEFAULT_MODEL if not model or model == OPENAI_DEFAULT_MODEL else model,
+            base_url=(
+                OLLAMA_DEFAULT_BASE_URL
+                if not base_url or base_url.rstrip("/") == OPENAI_DEFAULT_BASE_URL
+                else base_url
+            ),
+            timeout_seconds=120,
+            client=client,
+            require_api_key=False,
+            provider="ollama",
+        )
     raise ValueError(f"Unsupported model provider: {provider}")

@@ -7,13 +7,14 @@ import secrets
 from threading import RLock
 from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from .authorization import Permission
 from .dependencies import provisioning_repository_context, require_permission, tenant_context
 from .identity import local_sessions
-from .model_gateway import build_model_gateway
+from .model_gateway import ModelGateway, build_model_gateway, normalize_provider
 from .repository import AnumRepository
 from .schemas import Tenant, TenantContext, Workspace, WorkspaceMembership, utc_now
 from .settings import settings
@@ -85,7 +86,7 @@ class OnboardingStatus(BaseModel):
 
 
 class ModelConfigWrite(BaseModel):
-    provider: str = Field(pattern=r"^(mock|openai_compatible)$")
+    provider: str = Field(pattern=r"^(mock|openai_compatible|ollama)$")
     model: str = Field(min_length=1, max_length=160)
     base_url: str = Field(min_length=1, max_length=500)
     api_key: SecretStr | None = None
@@ -228,9 +229,57 @@ def _delivery_hint(user_id: str) -> str:
     return f"{user_id[:2]}***"
 
 
+_KEYLESS_PROVIDERS = frozenset({"mock", "ollama"})
+
+
 def _model_is_configured(context: TenantContext) -> bool:
     config = _model_configs.get((context.tenant_id, context.workspace_id))
-    return bool(config and (config.provider == "mock" or config.api_key))
+    return bool(config and (config.provider in _KEYLESS_PROVIDERS or config.api_key))
+
+
+_workspace_gateways: dict[tuple[str, str], tuple[_StoredModelConfig, ModelGateway]] = {}
+
+
+def workspace_model_gateway(context: TenantContext, fallback: ModelGateway) -> ModelGateway:
+    """The model a workspace saved in Settings, or the server default when it has none.
+
+    Task runs and voice answers both go through this, so choosing Ollama (or any
+    OpenAI-compatible endpoint) in the app is what actually answers the user.
+    """
+    key = (context.tenant_id, context.workspace_id)
+    with _lock:
+        config = _model_configs.get(key)
+        if config is None or not (config.provider in _KEYLESS_PROVIDERS or config.api_key):
+            return fallback
+        cached = _workspace_gateways.get(key)
+        if cached is not None and cached[0] is config:
+            return cached[1]
+        gateway = build_model_gateway(
+            normalize_provider(config.provider),
+            api_key=config.api_key.get_secret_value() if config.api_key else None,
+            model=config.model,
+            base_url=config.base_url,
+            client=_test_client_factory(),
+        )
+        _workspace_gateways[key] = (config, gateway)
+        return gateway
+
+
+def _connection_failure_detail(provider: str, model: str, base_url: str, exc: Exception) -> str:
+    label = "Ollama" if provider == "ollama" else "the model provider"
+    if isinstance(exc, httpx.TransportError):
+        detail = f"Could not reach {label} at {base_url}."
+        if provider == "ollama":
+            detail += " Is it running? Try: ollama serve"
+        return detail
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in {401, 403}:
+            return f"{label.capitalize()} at {base_url} rejected the credentials (HTTP {code})."
+        if code == 404 and provider == "ollama":
+            return f"Ollama at {base_url} does not have model '{model}'. Try: ollama pull {model}"
+        return f"{label.capitalize()} at {base_url} returned HTTP {code}."
+    return f"Model provider connection failed: {type(exc).__name__}"
 
 
 @router.post("/auth/local/session", response_model=LocalSessionResponse, status_code=201)
@@ -323,7 +372,15 @@ async def complete_onboarding(
         tenant = repository.create_tenant(Tenant(id=context.tenant_id, name=payload.organization_name, created_at=now, updated_at=now))
     workspace = repository.get_workspace(context.workspace_id, context)
     if workspace is None:
-        workspace = repository.create_workspace(Workspace(id=context.workspace_id, tenant_id=context.tenant_id, name=payload.workspace_name, created_at=now, updated_at=now))
+        try:
+            workspace = repository.create_workspace(Workspace(id=context.workspace_id, tenant_id=context.tenant_id, name=payload.workspace_name, created_at=now, updated_at=now))
+        except ValueError as exc:
+            # Workspace IDs are globally unique. Say so plainly instead of failing with a 500,
+            # without revealing which organization holds the ID.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"The workspace ID '{context.workspace_id}' is already in use. Sign in with a different workspace ID.",
+            ) from exc
     membership = repository.get_membership(context)
     if membership is None:
         membership = repository.save_membership(WorkspaceMembership(tenant_id=context.tenant_id, workspace_id=context.workspace_id, user_id=context.user_id, role="owner", created_at=now, updated_at=now))
@@ -344,7 +401,7 @@ async def get_onboarding_status(
 @router.put("/model-config", response_model=ModelConfigView)
 async def set_model_config(payload: ModelConfigWrite, context: TenantContext = Depends(tenant_context)) -> ModelConfigView:
     require_permission(context, Permission.ORGANIZATION_MANAGE)
-    if payload.provider != "mock" and payload.api_key is None:
+    if payload.provider not in _KEYLESS_PROVIDERS and payload.api_key is None:
         raise HTTPException(status_code=422, detail="api_key is required for external providers")
     config = _StoredModelConfig(**payload.model_dump(), updated_at=utc_now())
     with _lock:
@@ -361,6 +418,11 @@ async def get_model_config(context: TenantContext = Depends(tenant_context)) -> 
     return config.view()
 
 
+def _test_client_factory() -> httpx.AsyncClient | None:
+    """Hook for tests to inject an httpx transport; production uses the gateway default."""
+    return None
+
+
 @router.post("/model-config/test", response_model=ModelConnectionTest)
 async def test_model_config(
     context: TenantContext = Depends(tenant_context),
@@ -370,17 +432,18 @@ async def test_model_config(
     if config is None:
         raise HTTPException(status_code=404, detail="Model configuration not found")
     secret = config.api_key.get_secret_value() if config.api_key else None
-    provider = "openai-compatible" if config.provider == "openai_compatible" else config.provider
     try:
         gateway = build_model_gateway(
-            provider,
+            normalize_provider(config.provider),
             api_key=secret,
             model=config.model,
             base_url=config.base_url,
+            client=_test_client_factory(),
         )
         response = await gateway.generate_text("Reply with ANUM_OK only.")
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Model provider connection failed") from exc
+        detail = _connection_failure_detail(config.provider, config.model, config.base_url, exc)
+        raise HTTPException(status_code=502, detail=detail) from exc
     return ModelConnectionTest(
         provider=config.provider,
         model=config.model,

@@ -19,9 +19,10 @@ class HttpApiTransport implements ApiTransport {
 
   @override
   Future<ApiResponse> send(ApiRequest request) async {
-    final response = await _client.send(http.Request(request.method, request.uri)
-      ..headers.addAll(request.headers)
-      ..body = request.body == null ? '' : jsonEncode(request.body));
+    final response =
+        await _client.send(http.Request(request.method, request.uri)
+          ..headers.addAll(request.headers)
+          ..body = request.body == null ? '' : jsonEncode(request.body));
     final bodyText = await response.stream.bytesToString();
     JsonMap? body;
     if (bodyText.isNotEmpty) {
@@ -124,7 +125,8 @@ class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {
 }
 
 class HttpAuditExporter implements AuditExporter {
-  HttpAuditExporter({required this.baseUri, required this.sessions, http.Client? client})
+  HttpAuditExporter(
+      {required this.baseUri, required this.sessions, http.Client? client})
       : _client = client ?? http.Client();
   final Uri baseUri;
   final SessionStore sessions;

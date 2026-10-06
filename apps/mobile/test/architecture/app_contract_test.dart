@@ -35,16 +35,27 @@ void main() {
   });
 
   test('workbench exposes every implemented supervision destination', () {
-    final source = File('lib/features/workspace/workspace_home.dart').readAsStringSync();
-    for (final label in <String>['tasks', 'voice', 'approvals', 'automation', 'resources']) {
-      expect(source, contains("label: l.t('$label')"), reason: 'Missing navigation destination $label');
+    final source =
+        File('lib/features/workspace/workspace_home.dart').readAsStringSync();
+    for (final label in <String>[
+      'tasks',
+      'voice',
+      'approvals',
+      'automation',
+      'resources'
+    ]) {
+      expect(source, contains("label: l.t('$label')"),
+          reason: 'Missing navigation destination $label');
     }
-    expect(source, contains('pendingApprovals'), reason: 'Approvals must expose a visible pending count');
-    expect(source, contains("tooltip: l.t('refresh')"), reason: 'Icon-only refresh requires an accessible name');
+    expect(source, contains('pendingApprovals'),
+        reason: 'Approvals must expose a visible pending count');
+    expect(source, contains("tooltip: l.t('refresh')"),
+        reason: 'Icon-only refresh requires an accessible name');
   });
 
   test('voice flow keeps visual review and permission recovery explicit', () {
-    final source = File('lib/features/voice/voice_screen.dart').readAsStringSync();
+    final source =
+        File('lib/features/voice/voice_screen.dart').readAsStringSync();
     expect(source, contains('Review command'));
     expect(source, contains('visual approval'));
     expect(source, contains('Open app settings'));
@@ -52,14 +63,16 @@ void main() {
     expect(source, contains('Arabic (Saudi Arabia)'));
   });
 
-  test('mobile API configuration is build-time and secure sessions are used', () {
+  test('mobile API configuration is build-time and secure sessions are used',
+      () {
     final app = File('lib/src/anum_app.dart').readAsStringSync();
     expect(app, contains("String.fromEnvironment(\n      'ANUM_API_URL'"));
     expect(app, contains('SecureSessionStore()'));
     expect(app, isNot(contains('apiKey: \'sk-')));
   });
 
-  test('declared routes are wired to navigation and guarded by authentication', () {
+  test('declared routes are wired to navigation and guarded by authentication',
+      () {
     final source = File('lib/src/anum_app.dart').readAsStringSync();
     expect(source, contains('onGenerateRoute: _onGenerateRoute'));
     expect(source, contains('_AuthenticatedDestination'));
@@ -67,9 +80,11 @@ void main() {
     expect(source, contains('Uri.decodeComponent'));
   });
 
-  test('app restores navigation and supports English and Arabic directionality', () {
+  test('app restores navigation and supports English and Arabic directionality',
+      () {
     final app = File('lib/src/anum_app.dart').readAsStringSync();
-    final workspace = File('lib/features/workspace/workspace_home.dart').readAsStringSync();
+    final workspace =
+        File('lib/features/workspace/workspace_home.dart').readAsStringSync();
     expect(app, contains("restorationScopeId: 'anum_mobile'"));
     expect(app, contains("Locale('ar')"));
     expect(app, contains('GlobalMaterialLocalizations.delegates'));

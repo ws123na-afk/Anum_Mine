@@ -20,7 +20,9 @@ class AnumStatusBadge extends StatelessWidget {
       AnumStatus.paused => ('Paused', Theme.of(context).colorScheme.outline),
     };
     return Semantics(
+      container: true,
       label: 'Status: $label',
+      excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
@@ -28,7 +30,8 @@ class AnumStatusBadge extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+          child: Text(label,
+              style: TextStyle(color: color, fontWeight: FontWeight.w600)),
         ),
       ),
     );
@@ -61,23 +64,33 @@ class AnumOperationalCard extends StatelessWidget {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final details = Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(title, style: Theme.of(context).textTheme.titleSmall),
-                        const SizedBox(height: AnumSpacing.xs),
-                        Text(metadata, style: Theme.of(context).textTheme.bodySmall),
-                      ],
-                    );
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: AnumSpacing.xs),
+                      Text(metadata,
+                          style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  );
                   if (status == null) return details;
                   if (constraints.maxWidth < 380) {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [details, const SizedBox(height: AnumSpacing.sm), AnumStatusBadge(status: status!)],
+                      children: [
+                        details,
+                        const SizedBox(height: AnumSpacing.sm),
+                        AnumStatusBadge(status: status!)
+                      ],
                     );
                   }
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [Expanded(child: details), const SizedBox(width: AnumSpacing.sm), AnumStatusBadge(status: status!)],
+                    children: [
+                      Expanded(child: details),
+                      const SizedBox(width: AnumSpacing.sm),
+                      AnumStatusBadge(status: status!)
+                    ],
                   );
                 },
               ),
@@ -90,7 +103,8 @@ class AnumOperationalCard extends StatelessWidget {
 enum AnumFeedbackKind { loading, empty, error, offline, permission }
 
 class AnumFeedback extends StatelessWidget {
-  const AnumFeedback({required this.kind, required this.message, this.onRetry, super.key});
+  const AnumFeedback(
+      {required this.kind, required this.message, this.onRetry, super.key});
 
   final AnumFeedbackKind kind;
   final String message;

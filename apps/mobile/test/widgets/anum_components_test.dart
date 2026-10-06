@@ -17,7 +17,8 @@ Future<void> pumpAt(
   await tester.pumpWidget(MaterialApp(
     theme: AnumTheme.light(),
     builder: (context, content) => MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+      data: MediaQuery.of(context)
+          .copyWith(textScaler: TextScaler.linear(textScale)),
       child: Directionality(textDirection: direction, child: content!),
     ),
     home: Scaffold(body: child),
@@ -33,7 +34,8 @@ void main() {
     const Size(768, 1024),
     const Size(1024, 768),
   ]) {
-    testWidgets('operational card fits ${size.width.toInt()}px viewport', (tester) async {
+    testWidgets('operational card fits ${size.width.toInt()}px viewport',
+        (tester) async {
       await pumpAt(
         tester,
         const Padding(
@@ -47,13 +49,16 @@ void main() {
         size: size,
       );
 
-      expect(find.text('Prepare a governed quarterly operations review'), findsOneWidget);
-      expect(find.bySemanticsLabel('Status: Approval required'), findsOneWidget);
+      expect(find.text('Prepare a governed quarterly operations review'),
+          findsOneWidget);
+      expect(
+          find.bySemanticsLabel('Status: Approval required'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
 
-  testWidgets('Arabic RTL content survives compact layout at 200 percent text', (tester) async {
+  testWidgets('Arabic RTL content survives compact layout at 200 percent text',
+      (tester) async {
     await pumpAt(
       tester,
       const Padding(
@@ -69,12 +74,15 @@ void main() {
       textScale: 2,
     );
 
-    expect(find.text('مراجعة تشغيل الوكيل والموافقة على الإجراء'), findsOneWidget);
-    expect(Directionality.of(tester.element(find.byType(AnumOperationalCard))), TextDirection.rtl);
+    expect(
+        find.text('مراجعة تشغيل الوكيل والموافقة على الإجراء'), findsOneWidget);
+    expect(Directionality.of(tester.element(find.byType(AnumOperationalCard))),
+        TextDirection.rtl);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('feedback exposes its message and usable retry action', (tester) async {
+  testWidgets('feedback exposes its message and usable retry action',
+      (tester) async {
     var retries = 0;
     await pumpAt(
       tester,
@@ -98,7 +106,10 @@ void main() {
   testWidgets('every status has a spoken label', (tester) async {
     await pumpAt(
       tester,
-      Wrap(children: AnumStatus.values.map((status) => AnumStatusBadge(status: status)).toList()),
+      Wrap(
+          children: AnumStatus.values
+              .map((status) => AnumStatusBadge(status: status))
+              .toList()),
       size: const Size(1024, 768),
     );
 

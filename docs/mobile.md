@@ -12,6 +12,7 @@
 - API-backed tasks, task execution, cancellation, and resumption.
 - Approval decisions, automation controls, workspace files, and durable memory.
 - Push-to-talk voice commands with English/Arabic locales, editable transcript review, explicit retention, governed execution, permission recovery, and spoken status confirmation.
+- A wake-by-name voice assistant with a 3D orb, and Home, Tasks, Approvals, Automations, Resources and Governance screens that show only live workspace data, with honest empty states instead of samples.
 - Loading, empty, error, offline, permission-denied, expired-session, and responsive phone/tablet components.
 - Widget and architecture tests for compact layout, accessibility semantics, route coverage, and embedded-secret detection.
 
