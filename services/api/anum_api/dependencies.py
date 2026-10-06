@@ -155,6 +155,30 @@ def lookup_membership(context: TenantContext) -> WorkspaceMembershipRecord | Non
         session.close()
 
 
+def list_events_for_stream(context: TenantContext) -> list:
+    """Read the caller's events in a fresh, tenant-scoped session.
+
+    Streaming responses outlive their request dependencies (the repository
+    session is closed before the body is sent), so every poll opens its own
+    session with the tenant and workspace set for RLS.
+    """
+    if settings.repository_backend == "memory":
+        return memory_repository.list_events(context)
+    if settings.repository_backend != "postgresql":
+        raise RuntimeError(f"Unsupported repository backend: {settings.repository_backend}")
+
+    from .db.repository import SqlAlchemyRepository
+    from .db.session import SessionLocal, set_tenant_context
+
+    session = SessionLocal()
+    try:
+        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        return SqlAlchemyRepository(session, created_by_user_id=context.user_id).list_events(context)
+    finally:
+        session.rollback()
+        session.close()
+
+
 def _membership_context(identity: TenantContext, membership: WorkspaceMembershipRecord) -> TenantContext:
     """The persisted membership role is authoritative for workspace authorization."""
     return identity.model_copy(update={"roles": [membership.role.lower()]})

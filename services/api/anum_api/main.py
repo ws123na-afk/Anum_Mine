@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from .authorization import Permission
 from .dependencies import (
     event_runtime,
+    list_events_for_stream,
     memory_repository,
     memory_repository_context,
     repository_context,
@@ -443,7 +444,7 @@ async def stream_events(
             live_event_source(
                 hub=event_runtime.hub,
                 context=context,
-                list_events=lambda: repository.list_events(context),
+                list_events=lambda: list_events_for_stream(context),
                 is_disconnected=request.is_disconnected,
                 task_id=task_id,
                 follow=follow,
@@ -457,7 +458,7 @@ async def stream_events(
         cursor = last_event_id
         idle_cycles = 0
         while not await request.is_disconnected():
-            events = repository.list_events(context)
+            events = list_events_for_stream(context)
             if task_id:
                 events = [
                     event

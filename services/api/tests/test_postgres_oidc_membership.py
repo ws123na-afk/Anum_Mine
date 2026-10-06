@@ -69,3 +69,35 @@ def test_workspace_has_members_sees_only_its_own_workspace(seed_scopes: None, re
         assert repository.workspace_has_members(context(TENANT_A, WORKSPACE_A)) is True
     with repository_factory(context(TENANT_A, WORKSPACE_A2)) as repository:
         assert repository.workspace_has_members(context(TENANT_A, WORKSPACE_A2)) is False
+
+
+def test_event_stream_reads_use_their_own_tenant_scoped_session(
+    database_engine: Engine,
+    seed_scopes: None,
+    repository_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SSE body runs after the request session closes; reads must still see RLS-scoped rows."""
+    from anum_api.events import CanonicalEventName, create_event
+
+    scope = context(TENANT_A, WORKSPACE_A)
+    with repository_factory(scope, commit=True) as repository:
+        repository.record_event(
+            create_event(CanonicalEventName("task.created"), scope, "task_stream", {}, created_at=FIXED_NOW).event
+        )
+
+    def app_role_session() -> Session:
+        session = Session(bind=database_engine)
+        session.execute(text(f"set local role {APP_ROLE}"))
+        return session
+
+    import anum_api.db.session as db_session
+
+    monkeypatch.setattr(db_session, "SessionLocal", app_role_session)
+    monkeypatch.setattr(settings, "repository_backend", "postgresql")
+
+    mine = dependencies.list_events_for_stream(scope)
+    other_tenant = dependencies.list_events_for_stream(context(TENANT_B, WORKSPACE_A))
+
+    assert [event.subject for event in mine] == ["task_stream"]
+    assert other_tenant == []
