@@ -113,3 +113,22 @@ def test_control_plane_migration_puts_every_new_table_under_forced_rls() -> None
     # File bytes stay in object storage; only the key and digest are columns.
     assert '"storage_key"' in revision_text and '"content"' not in revision_text
     assert "bypassrls" not in revision_text.lower()
+
+
+def test_approval_integrity_migration_adds_binding_columns_without_touching_rls() -> None:
+    api_root = Path(__file__).parents[1]
+    revision_text = (api_root / "migrations" / "versions" / "0009_approval_integrity.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'revision = "0009_approval_integrity"' in revision_text
+    assert 'down_revision = "0008_control_plane_stores"' in revision_text
+    for column in ("run_id", "step_id", "arguments", "payload_hash", "expires_at", "decided_by"):
+        assert f'"{column}"' in revision_text
+        assert f'op.drop_column("approvals", "{column}")' in revision_text
+    assert "payload_hash ~ '^[0-9a-f]{64}$'" in revision_text
+    # The approvals table keeps its existing forced RLS policy unchanged.
+    lowered = revision_text.lower()
+    assert "create policy" not in lowered and "drop policy" not in lowered
+    assert "disable row level security" not in lowered and "no force row level security" not in lowered
+    assert "bypassrls" not in revision_text.lower()

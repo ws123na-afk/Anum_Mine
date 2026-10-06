@@ -12,7 +12,7 @@ interface AnumApi {
     @POST("api/v1/tasks/{id}/cancel") suspend fun cancelTask(@Path("id") id: String): Task
     @GET("api/v1/agent-runs/{id}") suspend fun getRun(@Path("id") id: String): AgentRun
     @GET("api/v1/approvals") suspend fun approvals(): List<Approval>
-    @POST("api/v1/approvals/{id}/approve") suspend fun approve(@Path("id") id: String): ApprovalDecisionResponse
+    @POST("api/v1/approvals/{id}/approve") suspend fun approve(@Path("id") id: String, @Body request: ApprovalDecisionRequest): ApprovalDecisionResponse
     @POST("api/v1/approvals/{id}/reject") suspend fun reject(@Path("id") id: String): ApprovalDecisionResponse
 }
 

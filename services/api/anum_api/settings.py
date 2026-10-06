@@ -83,6 +83,9 @@ class Settings(BaseSettings):
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "default"
     temporal_task_queue: str = "anum-agent-runs"
+    # Pending approvals lapse after this many seconds (docs/approvals-and-risk.md); an
+    # expired approval can no longer be approved and its run fails.
+    approval_ttl_seconds: int = Field(default=86_400, ge=1, le=30 * 86_400)
     # Workspace file bytes (docs/files.md): "local" filesystem, "memory", or "s3"
     # (any S3-compatible endpoint, SeaweedFS locally).
     object_storage_backend: str = Field(default="local", pattern="^(local|memory|s3)$")

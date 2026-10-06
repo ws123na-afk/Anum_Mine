@@ -176,6 +176,15 @@ class ApprovalRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Approval integrity (0009_approval_integrity, docs/approvals-and-risk.md).
+    run_id: Mapped[str | None] = mapped_column(String(80))
+    step_id: Mapped[str | None] = mapped_column(String(80))
+    arguments: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    payload_hash: Mapped[str | None] = mapped_column(String(64))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[str | None] = mapped_column(String(160))
 
     task: Mapped[TaskRecord] = relationship(back_populates="approvals")
 
@@ -184,6 +193,10 @@ class ApprovalRecord(Base, TimestampMixin, WorkspaceScopedMixin):
             ["tenant_id", "workspace_id", "task_id"],
             ["tasks.tenant_id", "tasks.workspace_id", "tasks.id"],
             name="fk_approvals_task",
+        ),
+        CheckConstraint(
+            "payload_hash is null or payload_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_approvals_payload_hash",
         ),
         Index("ix_approvals_tenant_workspace_status", "tenant_id", "workspace_id", "status"),
     )

@@ -30,11 +30,13 @@ class ApprovalsScreen extends StatelessWidget {
               return byRisk != 0 ? byRisk : a.createdAt.compareTo(b.createdAt);
             });
           final decided = controller.approvals
-              .where((a) => a.status != 'pending')
+              .where((a) => a.effectiveStatus() != 'pending')
               .toList()
             ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          final approved = decided.where((a) => a.status == 'approved').length;
-          final rejected = decided.where((a) => a.status == 'rejected').length;
+          final approved =
+              decided.where((a) => a.effectiveStatus() == 'approved').length;
+          final rejected =
+              decided.where((a) => a.effectiveStatus() == 'rejected').length;
 
           return AnumPage(
             onRefresh: controller.load,
@@ -87,17 +89,15 @@ class ApprovalsScreen extends StatelessWidget {
                         const SizedBox(height: 6),
                         for (final approval in decided.take(20))
                           AnumRow(
-                            icon: approval.status == 'approved'
+                            icon: approval.effectiveStatus() == 'approved'
                                 ? Icons.check
                                 : Icons.block,
-                            tone: approval.status == 'approved'
+                            tone: approval.effectiveStatus() == 'approved'
                                 ? AnumTone.ok
                                 : AnumTone.stop,
                             title: approvalTitle(approval, controller.tasks),
-                            subtitle: approvalReason(approval,
-                                approvalTitle(approval, controller.tasks)),
-                            detail:
-                                '${approval.status[0].toUpperCase()}${approval.status.substring(1)} · ${exactTime(approval.createdAt)}',
+                            subtitle: 'Tool: ${approval.action}',
+                            detail: decisionSummary(approval),
                             trailing: AnumPill(
                                 label: approval.risk,
                                 tone: riskTone(approval.risk)),
@@ -141,6 +141,23 @@ class _PendingCard extends StatelessWidget {
         const SizedBox(height: 2),
         Text('Tool: ${approval.action}',
             style: TextStyle(color: p.faint, fontSize: 12)),
+        const SizedBox(height: 8),
+        Text('Exactly what it will send',
+            style: TextStyle(color: p.faint, fontSize: 12)),
+        const SizedBox(height: 4),
+        ApprovalArgumentsTable(approval: approval),
+        const SizedBox(height: 6),
+        Text(
+            'Payload hash ${shortHash(approval.payloadHash)}'
+            '${expiryLabel(approval).isEmpty ? '' : ' · ${expiryLabel(approval)}'}',
+            style: TextStyle(color: p.faint, fontSize: 12)),
+        if (approval.payloadHash == null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+                'Not bound to a payload hash; it cannot be approved. Run the task again.',
+                style: TextStyle(color: p.stop, fontSize: 12)),
+          ),
         const SizedBox(height: 6),
         Text('Why it stopped', style: TextStyle(color: p.faint, fontSize: 12)),
         const SizedBox(height: 2),
@@ -175,7 +192,7 @@ class _PendingCard extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: controller.mutating
                   ? null
-                  : () => controller.decide(approval.id, approve: false),
+                  : () => controller.decide(approval, approve: false),
               icon: const Icon(Icons.close),
               label: const Text('Reject'),
             ),
@@ -183,8 +200,9 @@ class _PendingCard extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: FilledButton.icon(
-              onPressed:
-                  controller.mutating ? null : () => _confirmApprove(context),
+              onPressed: controller.mutating || !approval.canApprove()
+                  ? null
+                  : () => _confirmApprove(context),
               icon: const Icon(Icons.check),
               label: const Text('Approve'),
             ),
@@ -200,7 +218,10 @@ class _PendingCard extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: const Text('Approve this action?'),
         content: Text(
-            'The agent will now: ${approvalTitle(approval, controller.tasks)}\n\nRisk: ${approval.risk}. This is recorded in the audit log.'),
+            'The agent will now call ${approval.action} with the arguments shown '
+            '(payload hash ${shortHash(approval.payloadHash)}).\n\n'
+            'Risk: ${approval.risk}. If the call changes before it runs, it is '
+            'not executed. This is recorded in the audit log.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -211,6 +232,86 @@ class _PendingCard extends StatelessWidget {
         ],
       ),
     );
-    if (ok == true) await controller.decide(approval.id, approve: true);
+    if (ok == true) await controller.decide(approval, approve: true);
   }
+}
+
+/// The exact tool arguments as key/value rows; redacted values are marked.
+class ApprovalArgumentsTable extends StatelessWidget {
+  const ApprovalArgumentsTable({required this.approval, super.key});
+  final WorkspaceApproval approval;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final rows = approvalArguments(approval.arguments);
+    if (rows.isEmpty) {
+      return Text('No arguments.',
+          style: TextStyle(color: p.muted, fontSize: 13));
+    }
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: p.line),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(children: [
+        for (final (index, row) in rows.indexed)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: index == 0
+                ? null
+                : BoxDecoration(border: Border(top: BorderSide(color: p.line))),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(row.key,
+                  style: TextStyle(
+                      color: p.faint, fontSize: 11, fontFamily: 'monospace')),
+              const SizedBox(height: 2),
+              SelectableText(row.value,
+                  style: TextStyle(
+                      color: row.redacted ? p.warn : p.text,
+                      fontSize: 13,
+                      fontFamily: 'monospace')),
+            ]),
+          ),
+      ]),
+    );
+  }
+}
+
+/// Short form of the payload hash for display.
+String shortHash(String? hash) => hash == null || hash.length < 18
+    ? (hash ?? 'not bound')
+    : '${hash.substring(0, 12)}…${hash.substring(hash.length - 6)}';
+
+/// "Expires in 3 h" for a pending approval, "Expired" once it lapsed.
+String expiryLabel(WorkspaceApproval approval, {DateTime? now}) {
+  final expiresAt = approval.expiresAt;
+  if (approval.status != 'pending' || expiresAt == null) return '';
+  final remaining = expiresAt.difference(now ?? DateTime.now());
+  if (remaining <= Duration.zero) return 'Expired';
+  if (remaining.inMinutes < 60) {
+    return 'Expires in ${remaining.inMinutes + 1} min';
+  }
+  return remaining.inHours < 48
+      ? 'Expires in ${remaining.inHours} h'
+      : 'Expires in ${remaining.inDays} d';
+}
+
+/// History line: who decided and when, or how it ended without a decision.
+String decisionSummary(WorkspaceApproval approval, {DateTime? now}) {
+  final status = approval.effectiveStatus(now);
+  final at = approval.decidedAt;
+  if (status == 'approved' || status == 'rejected') {
+    final verb = status == 'approved' ? 'Approved' : 'Rejected';
+    return '$verb by ${approval.decidedBy ?? 'unknown user'}'
+        '${at == null ? '' : ' · ${exactTime(at)}'}';
+  }
+  if (status == 'expired') {
+    final when = at ?? approval.expiresAt;
+    return 'Expired without a decision'
+        '${when == null ? '' : ' · ${exactTime(when)}'}';
+  }
+  return '';
 }

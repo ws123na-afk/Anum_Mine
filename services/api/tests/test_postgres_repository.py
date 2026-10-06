@@ -154,6 +154,46 @@ def test_updates_are_persisted_without_duplicate_rows(
         assert reloaded.list_approvals(context) == [approval]
 
 
+def test_approval_integrity_fields_round_trip_and_are_constrained(
+    seed_scopes: None,
+    repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],
+) -> None:
+    """Arguments, payload hash, expiry and decider persist (0009_approval_integrity)."""
+    from sqlalchemy.exc import IntegrityError
+
+    context = tenant_context()
+    task = make_task()
+    approval = make_approval().model_copy(
+        update={
+            "run_id": "run_repo_a",
+            "step_id": "step_repo_a",
+            "arguments": {"action": "Publish", "api_key": "[REDACTED]", "nested": {"n": 1}},
+            "payload_hash": "a" * 64,
+            "expires_at": FIXED_NOW + timedelta(hours=24),
+        }
+    )
+    with repository_factory(context, commit=True) as repository:
+        repository.create_task(task)
+        repository.save_approval(approval)
+
+    approval.status = ApprovalStatus.APPROVED
+    approval.decided_at = FIXED_NOW + timedelta(minutes=5)
+    approval.decided_by = "user_owner"
+    with repository_factory(context, commit=True) as repository:
+        repository.save_approval(approval)
+
+    with repository_factory(context) as reloaded:
+        assert reloaded.get_approval(approval.id, context) == approval
+        assert reloaded.list_approvals(context)[0].decided_by == "user_owner"
+    with repository_factory(tenant_context(TENANT_B, WORKSPACE_B)) as other:
+        assert other.get_approval(approval.id, tenant_context(TENANT_B, WORKSPACE_B)) is None
+
+    malformed = approval.model_copy(update={"id": "approval_bad_hash", "payload_hash": "not-a-hash"})
+    with pytest.raises(IntegrityError):
+        with repository_factory(context, commit=True) as repository:
+            repository.save_approval(malformed)
+
+
 def test_reads_are_isolated_by_tenant_and_workspace(
     seed_scopes: None,
     repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],

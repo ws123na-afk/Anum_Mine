@@ -6,7 +6,7 @@ abstract interface class WorkspaceRepository {
   Future<WorkspaceTask> loadTask(String taskId);
   Future<WorkspaceTask> cancelTask(String taskId);
   Future<WorkspaceTask> resumeTask(String taskId);
-  Future<WorkspaceApproval> decideApproval(String approvalId,
+  Future<WorkspaceApproval> decideApproval(WorkspaceApproval approval,
       {required bool approve});
   Future<WorkspaceAutomation> startAutomation(String automationId);
   Future<AutomationDefinition> createAutomation(

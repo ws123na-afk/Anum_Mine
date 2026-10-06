@@ -18,7 +18,8 @@ POST /v1/tasks
 GET /v1/tasks/{task_id}
 GET /v1/tasks/{task_id}/latest-run
 POST /v1/tasks/{task_id}/cancel
-POST /v1/approvals/{approval_id}/decide
+POST /v1/approvals/{approval_id}/approve   (body: {"payload_hash": "..."}, see approvals-and-risk.md)
+POST /v1/approvals/{approval_id}/reject
 GET /v1/agent-runs/{run_id}/events
 ```
 

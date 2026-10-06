@@ -245,3 +245,27 @@ def test_run_survives_a_worker_restart_mid_execution(monkeypatch: pytest.MonkeyP
     assert first_gateway.calls == 1 and second_gateway.calls == 0
     assert started == ["anum.respond", "anum.respond"]
     assert store.runs[request.run_id].result == "anum.respond finished"
+
+
+def test_workflow_observes_approval_expiry_without_a_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No decision ever arrives: the workflow's wait is capped at the approval's expiry,
+    so it re-reads the approval on time (well before the 30 s poll) and fails the run."""
+    request = _queued_run("Publish the final update", monkeypatch)
+
+    def factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
+        return AgentRuntime(CountingGateway(), repository, approval_ttl_seconds=2)
+
+    async def scenario() -> AgentRunState:
+        async with temporal_client() as temporal:
+            queue = f"anum-test-{uuid4().hex}"
+            async with _worker(temporal, queue, AgentRunActivities(factory)):
+                dispatcher = RunDispatcher(target="", namespace="default", task_queue=queue, client=temporal)
+                workflow_id = await dispatcher.start(request)
+                handle = temporal.get_workflow_handle(workflow_id, result_type=AgentRunState)
+                return await asyncio.wait_for(handle.result(), timeout=20)
+
+    result = asyncio.run(scenario())
+    assert (result.phase, result.status) == ("failed", "failed")
+    run = store.runs[request.run_id]
+    assert store.approvals[run.checkpoint.approval_id].status == ApprovalStatus.EXPIRED
+    assert "expired" in run.steps[-1].summary

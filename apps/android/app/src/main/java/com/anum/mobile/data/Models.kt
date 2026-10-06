@@ -65,7 +65,12 @@ data class Approval(
     val reason: String,
     @SerialName("created_at") val createdAt: String,
     @SerialName("decided_at") val decidedAt: String? = null,
+    /** SHA-256 of the canonical tool call; approving sends it back (docs/approvals-and-risk.md). */
+    @SerialName("payload_hash") val payloadHash: String? = null,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("decided_by") val decidedBy: String? = null,
 )
 
 @Serializable data class RunTaskResponse(val task: Task, val run: AgentRun, val approval: Approval? = null)
+@Serializable data class ApprovalDecisionRequest(@SerialName("payload_hash") val payloadHash: String)
 @Serializable data class ApprovalDecisionResponse(val approval: Approval, val task: Task, val run: AgentRun? = null)

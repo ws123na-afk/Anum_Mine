@@ -9,7 +9,8 @@ and the run is persisted. It drives a running API the way the web client would:
 2. Onboarding bootstrap (tenant, workspace, owner membership) when it is not done yet.
 3. An SSE subscription to /api/v1/events/stream opened before the task exists.
 4. Create a task whose prompt triggers the high-risk `external.action` tool, run it,
-   see it pause for approval, approve it, and see it complete.
+   see it pause for approval with its exact arguments and payload hash, check a stale
+   hash is refused, approve it with the hash it showed, and see it complete.
 5. Check the task's events arrived on the SSE stream and on the NATS JetStream stream,
    and that the task, run, steps, approval and events are rows in PostgreSQL that the
    non-superuser application role can only see inside the tenant's RLS scope.
@@ -321,7 +322,16 @@ async def nats_events_for_task(nats_url: str, stream: str, tenant_id: str, works
 # --------------------------------------------------------------------------- PostgreSQL
 
 
-def verify_persistence(database_url: str, tenant_id: str, workspace_id: str, task_id: str, run_id: str, approval_id: str) -> dict[str, Any]:
+def verify_persistence(
+    database_url: str,
+    tenant_id: str,
+    workspace_id: str,
+    task_id: str,
+    run_id: str,
+    approval_id: str,
+    decided_by: str,
+    payload_hash: str,
+) -> dict[str, Any]:
     url = database_url.replace("postgresql+psycopg://", "postgresql://")
     with psycopg.connect(url) as connection:
         role = connection.execute(
@@ -354,7 +364,8 @@ def verify_persistence(database_url: str, tenant_id: str, workspace_id: str, tas
                 )
             ]
             approval = connection.execute(
-                "select status, action, risk_level, decided_at is not null from approvals where id = %s and task_id = %s",
+                "select status, action, risk_level, decided_at is not null, decided_by, payload_hash, "
+                "expires_at > created_at from approvals where id = %s and task_id = %s",
                 (approval_id, task_id),
             ).fetchone()
             events = [
@@ -376,8 +387,9 @@ def verify_persistence(database_url: str, tenant_id: str, workspace_id: str, tas
         expect(kind in steps, f"Persisted run steps {steps} lack {kind!r}")
     expect(approval is not None, f"Approval {approval_id} is not in PostgreSQL")
     expect(
-        approval == ("approved", "external.action", "high", True),
-        f"Persisted approval is {approval}, expected approved high-risk external.action with a decision time",
+        approval == ("approved", "external.action", "high", True, decided_by, payload_hash, True),
+        f"Persisted approval is {approval}, expected approved high-risk external.action with a decision "
+        f"time, decided by {decided_by!r}, bound to hash {payload_hash!r}, with an expiry",
     )
     for kind in EXPECTED_STREAM_EVENTS:
         expect(kind in events, f"Persisted events {events} lack {kind!r}")
@@ -479,18 +491,29 @@ async def journey(args: argparse.Namespace) -> None:
             status_now = expect_status(await api.get(f"/api/v1/tasks/{task_id}"), 200, "Read the task")
             expect(status_now["status"] == "waiting_approval", f"Task status is {status_now['status']!r}")
             pending = expect_status(await api.get("/api/v1/approvals"), 200, "List approvals")
-            expect(any(item["id"] == approval["id"] and item["status"] == "pending" for item in pending), "Approval is not listed as pending")
+            listed = next((item for item in pending if item["id"] == approval["id"]), None)
+            expect(listed is not None and listed["status"] == "pending", "Approval is not listed as pending")
+            # What a client shows: the exact tool arguments and the hash it will send back.
+            expect(listed["arguments"].get("action") == RISKY_PROMPT, f"Approval arguments are {listed['arguments']}")
+            expect(len(listed["payload_hash"] or "") == 64, f"Approval payload hash is {listed['payload_hash']!r}")
+            expect(bool(listed["expires_at"]), "Approval has no expiry")
+            shown = {"payload_hash": listed["payload_hash"]}
+            stale = await api.post(f"/api/v1/approvals/{approval['id']}/approve", json={"payload_hash": "0" * 64})
+            expect(stale.status_code == 409, f"Approving with a stale hash returned {stale.status_code}, expected 409")
 
             decided = expect_status(
-                await api.post(f"/api/v1/approvals/{approval['id']}/approve"), 200, "Approve the risky action"
+                await api.post(f"/api/v1/approvals/{approval['id']}/approve", json=shown),
+                200,
+                "Approve the risky action",
             )
+            expect(decided["approval"]["decided_by"], f"Approval has no decider: {decided['approval']}")
             expect(decided["approval"]["status"] == "approved", f"Approval after approve is {decided['approval']}")
             expect(decided["task"]["status"] == "completed", f"Task after approval is {decided['task']['status']!r}")
             expect(decided["run"] and decided["run"]["status"] == "completed", f"Run after approval is {decided['run']}")
             approved_at = time.monotonic()
             delivered = await stream.wait_for_types(task_id, EXPECTED_STREAM_EVENTS, args.event_timeout)
             step(f"Approved; SSE delivered approval.approved and agent_run.completed in {time.monotonic() - approved_at:.2f}s")
-            again = await api.post(f"/api/v1/approvals/{approval['id']}/approve")
+            again = await api.post(f"/api/v1/approvals/{approval['id']}/approve", json=shown)
             expect(again.status_code == 409, f"Approving twice returned {again.status_code}, expected 409")
         finally:
             reader.cancel()
@@ -522,7 +545,15 @@ async def journey(args: argparse.Namespace) -> None:
     step(f"NATS JetStream carries the task's events: {[event['nats_subject'] for event in nats_events]}")
 
     persisted = await asyncio.to_thread(
-        verify_persistence, args.database_url, tenant_id, workspace_id, task_id, run_id, approval["id"]
+        verify_persistence,
+        args.database_url,
+        tenant_id,
+        workspace_id,
+        task_id,
+        run_id,
+        approval["id"],
+        decided["approval"]["decided_by"],
+        shown["payload_hash"],
     )
     step(
         f"PostgreSQL (as {persisted['db_role']}, RLS enforced): task={persisted['task']} run={persisted['run']} "

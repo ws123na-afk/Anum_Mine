@@ -34,7 +34,7 @@ class AnumViewModel(private val repository: TaskRepository) : ViewModel() {
     }
     fun refreshApprovals() = execute { mutableState.value.copy(approvals = repository.pendingApprovals()) }
     fun decide(approval: Approval, approve: Boolean) = execute {
-        val result = repository.decide(approval.id, approve)
+        val result = repository.decide(approval, approve)
         val active = state.value.activeRun?.takeIf { it.task.id != result.task.id }
             ?: result.run?.let { RunTaskResponse(result.task, it, result.approval) }
         mutableState.value.copy(

@@ -12,8 +12,9 @@ class WorkspaceController extends ChangeNotifier {
 
   List<WorkspaceTask> get tasks => snapshot?.tasks ?? const [];
   List<WorkspaceApproval> get approvals => snapshot?.approvals ?? const [];
-  List<WorkspaceApproval> get pendingApprovals =>
-      approvals.where((x) => x.status == 'pending').toList(growable: false);
+  List<WorkspaceApproval> get pendingApprovals => approvals
+      .where((x) => x.effectiveStatus() == 'pending')
+      .toList(growable: false);
   List<WorkspaceAutomation> get automations =>
       snapshot?.automations ?? const [];
   List<WorkspaceFile> get files => snapshot?.files ?? const [];
@@ -49,8 +50,9 @@ class WorkspaceController extends ChangeNotifier {
       _mutate(() => repository.cancelTask(id));
   Future<WorkspaceTask?> resumeTask(String id) =>
       _mutate(() => repository.resumeTask(id));
-  Future<void> decide(String id, {required bool approve}) async {
-    await _mutate(() => repository.decideApproval(id, approve: approve));
+  Future<void> decide(WorkspaceApproval approval,
+      {required bool approve}) async {
+    await _mutate(() => repository.decideApproval(approval, approve: approve));
   }
 
   Future<void> startAutomation(String id) async {
