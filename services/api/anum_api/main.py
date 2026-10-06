@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -33,9 +34,12 @@ from .memory import (
 from .repository import AnumRepository
 from .realtime import live_event_source
 from .runtime import AgentRuntime
+from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
+from .valkey import CoordinationUnavailable, LockNotAcquired, build_run_lock_manager
 from .agent_tools import default_tool_registry
 from .schemas import (
     AgentRun,
+    AgentRunStep,
     Approval,
     ApprovalDecisionResponse,
     ApprovalStatus,
@@ -124,6 +128,43 @@ model_gateway = build_model_gateway(
 )
 integration_registry = default_integration_registry(settings)
 tool_registry = default_tool_registry(configured_external_handler(settings))
+# Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
+# with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
+run_locks = build_run_lock_manager(settings)
+run_dispatcher = build_run_dispatcher(settings)
+
+
+@asynccontextmanager
+async def _task_lock(context: TenantContext, task_id: str) -> AsyncIterator[None]:
+    """Hold the task's distributed run lock (a no-op unless ANUM_RUN_LOCK_BACKEND=valkey)."""
+    try:
+        lock = await run_locks.acquire(context, task_id)
+    except LockNotAcquired as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Task is being processed by another request",
+        ) from exc
+    except CoordinationUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Run coordination is unavailable",
+        ) from exc
+    try:
+        yield
+    finally:
+        await run_locks.release(lock)
+
+
+async def _dispatch(context: TenantContext, task_id: str, run_id: str) -> None:
+    if run_dispatcher is None:
+        raise RuntimeError("ANUM_RUNTIME_BACKEND is not temporal")
+    try:
+        await run_dispatcher.start(run_input_for(context, task_id, run_id))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The durable runtime is unavailable",
+        ) from exc
 
 
 @app.get("/health")
@@ -319,15 +360,43 @@ async def run_task(
     repository: AnumRepository = Depends(repository_context),
 ) -> RunTaskResponse:
     require_permission(context, Permission.TASK_RUN)
-    task = _get_task_for_context(task_id, context, repository, for_update=True)
-    if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
+    async with _task_lock(context, task_id):
+        task = _get_task_for_context(task_id, context, repository, for_update=True)
+        if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
-    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
-    run, approval = await runtime.run_task(task, context)
+        runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        if run_dispatcher is not None:
+            return await _queue_durable_run(task, context, repository, runtime)
+        run, approval = await runtime.run_task(task, context)
+        repository.save_task(task)
+        repository.save_run(run)
+        return RunTaskResponse(task=task, run=run, approval=approval)
+
+
+async def _queue_durable_run(
+    task: Task, context: TenantContext, repository: AnumRepository, runtime: AgentRuntime
+) -> RunTaskResponse:
+    """Persist a queued run and start its Temporal workflow (ANUM_RUNTIME_BACKEND=temporal)."""
+    if repository.find_run_for_task(task.id, context) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task already has a run")
+    run = runtime.new_run(task, status=TaskStatus.QUEUED)
+    workflow_id = workflow_id_for(context.tenant_id, context.workspace_id, task.id)
+    run.steps.append(
+        AgentRunStep(
+            id=new_id("step"),
+            type="queued",
+            summary="Queued for a durable worker.",
+            created_at=utc_now(),
+            metadata={"workflow_id": workflow_id},
+        )
+    )
+    task.status = TaskStatus.QUEUED
+    task.updated_at = run.updated_at
     repository.save_task(task)
     repository.save_run(run)
-    return RunTaskResponse(task=task, run=run, approval=approval)
+    await _dispatch(context, task.id, run.id)
+    return RunTaskResponse(task=task, run=run, approval=None)
 
 
 @app.post("/api/v1/tasks/{task_id}/cancel", response_model=Task)
@@ -367,6 +436,8 @@ async def cancel_task(
             correlation_id=task.id,
         ).event
     )
+    if run_dispatcher is not None and run is not None:
+        await run_dispatcher.cancelled(context, task.id)
     return task
 
 
@@ -407,12 +478,19 @@ async def resume_agent_run(
     run = repository.get_run(run_id, context)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
-    task = _get_task_for_context(run.task_id, context, repository, for_update=True)
-    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
-    try:
-        resumed = await runtime.resume_run(task, run, context)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    async with _task_lock(context, run.task_id):
+        task = _get_task_for_context(run.task_id, context, repository, for_update=True)
+        run = repository.get_run(run_id, context) or run
+        runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        try:
+            if run_dispatcher is not None:
+                # The worker resumes from the same checkpoint; this only (re)starts its workflow.
+                runtime.check_resumable(task, run)
+                await _dispatch(context, task.id, run.id)
+                return RunTaskResponse(task=task, run=run, approval=None)
+            resumed = await runtime.resume_run(task, run, context)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     repository.save_task(task)
     repository.save_run(resumed)
     approval = (
@@ -636,6 +714,19 @@ async def _decide_approval(
     approval = repository.get_approval(approval_id, context)
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
+    async with _task_lock(context, approval.task_id):
+        return await _decide_approval_locked(approval_id, decision, context, repository)
+
+
+async def _decide_approval_locked(
+    approval_id: str,
+    decision: ApprovalStatus,
+    context: TenantContext,
+    repository: AnumRepository,
+) -> ApprovalDecisionResponse:
+    approval = repository.get_approval(approval_id, context)
+    if not approval:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
     task = _get_task_for_context(
         approval.task_id,
         context,
@@ -662,6 +753,11 @@ async def _decide_approval(
             created_at=approval.decided_at,
         ).event
     )
+    if run_dispatcher is not None:
+        # The workflow applies the decision; a lost signal is caught by its next poll.
+        if run:
+            await run_dispatcher.approval_decided(context, task.id, approval.id)
+        return ApprovalDecisionResponse(approval=approval, task=task, run=run)
     runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)

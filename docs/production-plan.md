@@ -13,7 +13,7 @@ Status after the `claude/festive-ride-ghttk0` branch merges. Before that, `main`
 | Web and desktop | Voice assistant with wake by name, free voices and a WebGL orb; depth redesign. Desktop builds an unsigned Windows installer in CI. |
 | API | Unit and PostgreSQL/RLS suites pass. Auth still defaults to development headers (`ANUM_AUTH_MODE=headers`); an OIDC validator exists but is not exercised end to end. Request size limits, per-client rate limiting, security headers and fail-fast startup checks are in (`anum_api/hardening.py`). |
 | Model gateway | Mock, OpenAI-compatible and Ollama (free, local, keyless). A model saved per workspace runs that workspace's tasks and voice answers. Per-workspace configs are in memory only. No retries or cost accounting yet. |
-| Infra adapters | Valkey, NATS, Temporal and object storage appear only as settings and health probes. No client code, workers, or durable event consumers. |
+| Infra adapters | NATS JetStream publisher and consumer (Stage 2). Stage 3 adapters are in, all off by default: Valkey run locks and shared rate limits, an S3-compatible file store, and a Temporal worker for durable runs (`python -m anum_api.worker`). Not yet exercised against real Temporal and MinIO in CI. |
 | Deployment | API and web Dockerfiles, a compose `app` profile, and `deploy-staging.yml` pushing images to GHCR. No OpenTofu, no cloud, no staging environment yet; the deploy step waits on the cloud choice. |
 | Clients | Web, desktop, Android and Flutter sources exist; none are signed or device-verified. |
 
@@ -46,10 +46,10 @@ Exit: a user signs in through Keycloak, creates a task, sees live status, approv
 
 Goal: agents are resumable, cancellable and auditable across restarts ([Agent runtime](agent-runtime.md), [Automation](automation.md)).
 
-- Temporal worker for long-running runs; a test kills the worker mid-run and asserts resume.
-- Valkey for locks, rate limits and ephemeral coordination, with a distributed-lock test.
-- S3-compatible object storage for workspace files with a round-trip test against MinIO ([Workspace files](files.md)).
-- Move remaining in-memory control-plane stores (skills, governance, integrations) to PostgreSQL with RLS and migrations.
+- Temporal worker for long-running runs; a test kills the worker mid-run and asserts resume. Done in code: `ANUM_RUNTIME_BACKEND=temporal`, `AgentRunWorkflow` with one checkpoint-driven activity, the worker entrypoint and a compose `worker` service ([Agent runtime](agent-runtime.md#durable-execution)). The worker-restart test (`tests/test_temporal_worker.py`, marker `temporal`) needs a Temporal server: set `ANUM_TEST_TEMPORAL_TARGET`, or let the SDK download its test server; it passes locally against a Temporal 1.29 dev server, and `tests/test_postgres_durable_runs.py` covers the same crash/resume path on PostgreSQL with RLS. Open: a CI job that provides a Temporal server, and a worker image smoke test.
+- Valkey for locks, rate limits and ephemeral coordination, with a distributed-lock test. Done: `ANUM_RUN_LOCK_BACKEND=valkey` and `ANUM_RATE_LIMIT_BACKEND=valkey`; `tests/test_valkey_integration.py` (marker `valkey`) includes a contention test. Open: a CI job with a Valkey service.
+- S3-compatible object storage for workspace files with a round-trip test against MinIO ([Workspace files](files.md)). Done in code: `ANUM_OBJECT_STORAGE_BACKEND=s3`, tenant/workspace key prefixes, moto-backed tests, and an `s3`-marked round trip that passes locally against MinIO. Open: running it in CI against a MinIO service.
+- Move remaining in-memory control-plane stores (skills, governance, integrations) to PostgreSQL with RLS and migrations. File metadata belongs here too.
 
 Exit: the infrastructure gates in [Production readiness gates](production-readiness.md) pass in CI.
 
@@ -57,7 +57,7 @@ Exit: the infrastructure gates in [Production readiness gates](production-readin
 
 Goal: the system can be deployed reproducibly ([Infrastructure](infrastructure.md)).
 
-- Dockerfiles for the API and Temporal worker; static web bundle served from a CDN or container. API and web images done (non-root, health checks, built and smoke-tested in CI); the Temporal worker image waits on the Stage 3 worker.
+- Dockerfiles for the API and Temporal worker; static web bundle served from a CDN or container. API and web images done (non-root, health checks, built and smoke-tested in CI); the worker runs from the API image with `python -m anum_api.worker` (no separate Dockerfile) and still needs a CI smoke test.
 - OpenTofu for network, compute, managed PostgreSQL with pgvector, object storage, secrets, DNS and TLS, with remote locked state.
 - Environments: preview (per PR, optional), staging, production, each with separate secrets, databases, buckets and Keycloak realm.
 - Deploy workflow: build, migrate, deploy to staging automatically; production behind GitHub environment approval. Partly done: `deploy-staging.yml` builds and pushes images to GHCR on every push to `main`; the migrate and deploy steps are placeholders gated on the `staging` environment and `STAGING_DEPLOY_TARGET` until the cloud is chosen. No production workflow yet.
