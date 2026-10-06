@@ -14,7 +14,9 @@ description: Repo-specific rules for driving an ANUM pull request or main branch
 - **Web and contracts**: `pnpm docs:check`, `pnpm check`, `pnpm build`.
 - **API unit tests** / **API PostgreSQL persistence tests**: pytest, split by the `database` marker. Migrations run via Alembic first.
 - **Browser end-to-end**: Playwright against the built web app.
-- **Docker Compose config**: `docker compose config` only.
+- **Docker Compose config**: `docker compose config`, with and without `--profile app`.
+- **Security scans**: pip-audit, `pnpm audit --prod --audit-level high`, bandit, gitleaks (`.gitleaks.toml`). Fix the finding; any exception needs a narrowly scoped ignore and a row in `docs/security.md`.
+- **Docker images**: builds the API and web images, checks the API refuses dev defaults in production mode, smoke-tests both containers.
 - **Tauri desktop** (Windows): fails if `apps/desktop/src-tauri/icons/` is missing. Regenerate with `pnpm --filter @anum/desktop exec tauri icon <1024px png>`.
 - **Android client**: Gradle unit tests + debug APK.
 - **Flutter mobile**: generates native wrappers with `flutter create`, then analyze, test, build APK.

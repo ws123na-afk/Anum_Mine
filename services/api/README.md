@@ -51,6 +51,18 @@ x-user-id: user_local
 x-user-roles: owner,member
 ```
 
+## Container
+
+```bash
+docker build -t anum-api services/api            # from the repository root
+docker run --rm -e ANUM_ENVIRONMENT=local -p 8000:8000 anum-api
+```
+
+The image defaults to `ANUM_ENVIRONMENT=production` and refuses to start with
+development defaults (localhost CORS origins, the compose database credentials).
+Request size limits, rate limiting and security headers live in
+`anum_api/hardening.py`. See `docs/infrastructure.md` and `docs/security.md`.
+
 ## Database Migrations
 
 Run PostgreSQL locally first:

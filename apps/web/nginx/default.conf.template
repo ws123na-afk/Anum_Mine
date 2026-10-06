@@ -1,0 +1,61 @@
+# Rendered by the nginx image's envsubst step at container start
+# (/etc/nginx/templates -> /etc/nginx/conf.d). Only ${ANUM_CSP_CONNECT_SRC} is substituted;
+# nginx's own $variables are left alone because they are not set in the environment.
+#
+# CSP notes (docs/security.md):
+# - 'wasm-unsafe-eval' and cdn.jsdelivr.net let the in-browser Kokoro voice load the
+#   ONNX runtime; huggingface.co hosts its model weights.
+# - style-src allows inline styles because React components set style attributes.
+
+server {
+    listen 8080;
+    server_name _;
+    server_tokens off;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 1k;
+
+    set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ${ANUM_CSP_CONNECT_SRC} https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+    add_header Content-Security-Policy $csp always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Permissions-Policy "camera=(), geolocation=(), microphone=(self)" always;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Hashed, immutable build output. add_header here replaces the server-level set,
+    # so the security headers are repeated.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header Content-Security-Policy $csp always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Permissions-Policy "camera=(), geolocation=(), microphone=(self)" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        try_files $uri =404;
+    }
+
+    # Single-page app: unknown paths serve index.html, which must never be cached.
+    location / {
+        add_header Cache-Control "no-cache" always;
+        add_header Content-Security-Policy $csp always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Permissions-Policy "camera=(), geolocation=(), microphone=(self)" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

@@ -17,7 +17,9 @@ Pick the rows that match the changed paths (`git diff --name-only origin/main...
 | `apps/desktop/**` | `pnpm build && pnpm check:desktop` (needs Rust; Windows also needs `src-tauri/icons/icon.ico`) |
 | `apps/android/**` | `pnpm check:android && pnpm build:android` (needs JDK 17 + Android SDK) |
 | `apps/mobile/**` | `cd apps/mobile && flutter pub get && flutter analyze && flutter test` |
-| `infra/**` | `docker compose -f infra/docker/compose.yaml config` |
+| `infra/**` | `docker compose -f infra/docker/compose.yaml config` and `docker compose -f infra/docker/compose.yaml --profile app config` |
+| `services/api/Dockerfile`, `apps/web/Dockerfile`, `apps/web/nginx/**` | `docker build -t anum-api services/api` and `docker build -f apps/web/Dockerfile -t anum-web .` |
+| `services/api/**`, `package.json`, `pnpm-lock.yaml` (security) | `pip-audit --strict services/api`, `bandit -r services/api/anum_api services/api/migrations`, `pnpm audit --prod --audit-level high` |
 | `.github/workflows/**` | Re-read the job end to end; CI is the only place some jobs run |
 
 ## Rules

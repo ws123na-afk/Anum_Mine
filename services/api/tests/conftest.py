@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -40,6 +41,21 @@ TABLES_IN_DELETE_ORDER = (
     "workspaces",
     "tenants",
 )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limit_budget() -> Iterator[None]:
+    """Give each test its own rate-limit budget.
+
+    The API app is a module-level singleton shared by the whole suite, which sends far
+    more requests per minute than one real client may. The limiter stays enabled; it is
+    only emptied between tests so tests do not consume each other's budget.
+    """
+    main = sys.modules.get("anum_api.main")
+    limiter = getattr(main.app.state, "rate_limiter", None) if main is not None else None
+    if limiter is not None:
+        limiter.reset()
+    yield
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

@@ -1,0 +1,22 @@
+# gitleaks configuration for CI secret scanning (docs/security.md).
+# Uses the default ruleset. Each allowlist below is a reviewed false positive, scoped
+# to the exact file and text so a real secret in the same file is still reported.
+
+title = "ANUM gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Figma file key: a public design-file identifier, not a credential"
+condition = "AND"
+paths = ['''^docs/figma-design-state\.json$''']
+regexTarget = "match"
+regexes = ['''^fileKey":\s*"[A-Za-z0-9]{22}"$''']
+
+[[allowlists]]
+description = "Prose 'Keycloak, S3-compatible' trips generic-api-key on the word 'key'"
+condition = "AND"
+paths = ['''^docs/infrastructure\.md$''']
+regexTarget = "match"
+regexes = ['''^Keycloak, S3-compatible\s*$''']

@@ -1,0 +1,17 @@
+# Keep the API build context to what the image needs. Never send local secrets.
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+build
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.venv
+.anum
+.anum-data
+.env
+.env.*
+tests
+Dockerfile
+.dockerignore
+README.md

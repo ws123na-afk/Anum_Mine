@@ -84,6 +84,40 @@ services:
       - "4317:4317"
       - "4318:4318"
 
+  # Application containers. Opt in with `--profile app`; the default
+  # `docker compose up` still starts infrastructure only (docs/infrastructure.md).
+  api:
+    profiles: ["app"]
+    build:
+      context: ../../services/api
+    environment:
+      ANUM_ENVIRONMENT: local
+      ANUM_DATABASE_URL: postgresql+psycopg://anum:anum@postgres:5432/anum
+      ANUM_REPOSITORY_BACKEND: memory
+      ANUM_CORS_ORIGINS: '["http://localhost:4173","http://127.0.0.1:4173"]'
+      ANUM_VALKEY_URL: redis://valkey:6379/0
+      ANUM_NATS_URL: nats://nats:4222
+      ANUM_TEMPORAL_TARGET: temporal:7233
+      ANUM_S3_ENDPOINT: http://minio:9000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+  web:
+    profiles: ["app"]
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_ANUM_API_URL: http://localhost:8000
+    environment:
+      ANUM_CSP_CONNECT_SRC: http://localhost:8000
+    ports:
+      - "4173:8080"
+    depends_on:
+      - api
+
 volumes:
   postgres-data:
   minio-data:
