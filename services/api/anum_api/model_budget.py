@@ -292,19 +292,25 @@ def check_model_budget(context: TenantContext, *, now: datetime | None = None) -
                 "model_budget_exceeded scope=%s kind=%s tenant_id=%s workspace_id=%s",
                 scope.value,
                 kind.value,
-                context.tenant_id,
-                context.workspace_id,
+                _log_safe(context.tenant_id),
+                _log_safe(context.workspace_id),
                 extra={
                     "anum_model_budget": {
                         "event": "exceeded",
                         "scope": scope.value,
                         "kind": kind.value,
-                        "tenant_id": context.tenant_id,
-                        "workspace_id": context.workspace_id,
+                        "tenant_id": _log_safe(context.tenant_id),
+                        "workspace_id": _log_safe(context.workspace_id),
                     }
                 },
             )
             raise ModelBudgetExceededError(scope, kind, next_month_start(month))
+
+
+
+def _log_safe(value: str) -> str:
+    """Identifiers can come from request headers in local mode: no forged log lines."""
+    return value.replace("\r", "").replace("\n", "")
 
 
 def record_model_usage(
@@ -350,16 +356,16 @@ def _emit_threshold(
         scope.value,
         kind.value,
         percent,
-        context.tenant_id,
-        context.workspace_id,
+        _log_safe(context.tenant_id),
+        _log_safe(context.workspace_id),
         extra={
             "anum_model_budget": {
                 "event": "threshold",
                 "scope": scope.value,
                 "kind": kind.value,
                 "percent": percent,
-                "tenant_id": context.tenant_id,
-                "workspace_id": context.workspace_id,
+                "tenant_id": _log_safe(context.tenant_id),
+                "workspace_id": _log_safe(context.workspace_id),
             }
         },
     )
