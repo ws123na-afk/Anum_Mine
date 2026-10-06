@@ -24,9 +24,9 @@ const pending = {
   decided_by: null,
 };
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, overrides: Record<string, unknown> = {}) {
   const decisions: unknown[] = [];
-  let approval: Record<string, unknown> = { ...pending };
+  let approval: Record<string, unknown> = { ...pending, ...overrides };
   await page.route('http://localhost:8000/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     const json = (body: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
@@ -36,8 +36,9 @@ async function mockApi(page: Page) {
     if (path === '/api/v1/tasks') return json([task]);
     if (path === '/api/v1/approvals') return json([approval]);
     if (path === '/api/v1/approvals/approval_e2e/approve') {
-      decisions.push(route.request().postDataJSON());
-      approval = { ...approval, status: 'approved', decided_by: 'user_local', decided_at: new Date().toISOString() };
+      const sent = route.request().postDataJSON() as { reason?: string };
+      decisions.push(sent);
+      approval = { ...approval, status: 'approved', decided_by: 'user_local', decided_at: new Date().toISOString(), decision_reason: sent.reason ?? null };
       return json({ approval, task: { ...task, status: 'completed' }, run: { id: 'run_risky', task_id: 'task_risky', status: 'completed', steps: [] } });
     }
     return route.abort();
@@ -63,4 +64,19 @@ test('approval card shows the exact call and approving sends the displayed hash'
   const history = page.getByRole('region', { name: 'Approval history' });
   await expect(history.getByText(/Approved by user_local/)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Queue clear' })).toBeVisible();
+});
+
+test('approval card shows the integration target and sends the typed reason', async ({ page }) => {
+  const decisions = await mockApi(page, { target: 'hooks.example' });
+  await page.goto('/#approvals');
+
+  const card = page.getByRole('article', { name: 'Approval for external.action' });
+  await expect(card.getByText('hooks.example')).toBeVisible();
+  await card.getByLabel('Reason (optional)').fill('  Checked the channel with comms  ');
+  await card.getByRole('button', { name: 'Approve' }).click();
+
+  await expect.poll(() => decisions).toEqual([{ payload_hash: hash, reason: 'Checked the channel with comms' }]);
+  const history = page.getByRole('region', { name: 'Approval history' });
+  await history.getByText(/Approved by user_local/).click();
+  await expect(history.getByText('Checked the channel with comms')).toBeVisible();
 });

@@ -26,6 +26,8 @@ export interface Task {
   workspaceId: string;
   createdAt: string;
   updatedAt: string;
+  /** User id of whoever created the task. */
+  createdBy?: string | null;
 }
 
 export interface AgentRunStep {
@@ -63,6 +65,20 @@ export interface Approval {
   decidedAt?: string | null;
   /** User id of whoever approved or rejected. */
   decidedBy?: string | null;
+  /** Optional reason the decider gave (at most 500 characters). */
+  decisionReason?: string | null;
+  /** User whose run proposed the call; under the two-person rule they cannot approve it. */
+  requestedBy?: string | null;
+  /** Configured integration host the tool will contact (host only), null for internal tools. */
+  target?: string | null;
+}
+
+/** Per-workspace approval policy; only owners change it (docs/approvals-and-risk.md). */
+export interface WorkspaceApprovalPolicy {
+  twoPersonRule: boolean;
+  mediumRiskRequiresApproval: boolean;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface DomainEvent<TPayload = Record<string, unknown>> {

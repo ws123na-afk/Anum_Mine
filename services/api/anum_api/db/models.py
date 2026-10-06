@@ -185,6 +185,10 @@ class ApprovalRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     payload_hash: Mapped[str | None] = mapped_column(String(64))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decided_by: Mapped[str | None] = mapped_column(String(160))
+    # Decision reason, requester and integration target (0012_approval_policy).
+    decision_reason: Mapped[str | None] = mapped_column(String(500))
+    requested_by: Mapped[str | None] = mapped_column(String(160))
+    target: Mapped[str | None] = mapped_column(String(255))
 
     task: Mapped[TaskRecord] = relationship(back_populates="approvals")
 
@@ -199,6 +203,32 @@ class ApprovalRecord(Base, TimestampMixin, WorkspaceScopedMixin):
             name="ck_approvals_payload_hash",
         ),
         Index("ix_approvals_tenant_workspace_status", "tenant_id", "workspace_id", "status"),
+    )
+
+
+class WorkspaceApprovalPolicyRecord(Base):
+    """Per-workspace approval policy (0012_approval_policy, docs/approvals-and-risk.md)."""
+
+    __tablename__ = "workspace_approval_policies"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    two_person_rule: Mapped[bool] = mapped_column(nullable=False, server_default="false")
+    medium_risk_requires_approval: Mapped[bool] = mapped_column(nullable=False, server_default="false")
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id"],
+            ["workspaces.tenant_id", "workspaces.id"],
+            name="fk_workspace_approval_policies_workspace",
+        ),
     )
 
 

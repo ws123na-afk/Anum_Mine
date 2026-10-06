@@ -179,3 +179,22 @@ def test_voice_and_automation_migration_uses_forced_rls_and_a_discovery_only_rol
     assert "create function" not in revision_text.lower()  # no SECURITY DEFINER escape hatch
     # Scheduler double-run guard: one run per idempotency key.
     assert "uq_automation_runs_idempotency" in revision_text
+
+
+def test_approval_policy_migration_extends_the_chain_with_forced_rls() -> None:
+    api_root = Path(__file__).parents[1]
+    revision_text = (api_root / "migrations" / "versions" / "0012_approval_policy.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'revision = "0012_approval_policy"' in revision_text
+    assert 'down_revision = "0011_voice_automation"' in revision_text
+    assert len("0012_approval_policy") <= 32
+    for column in ("decision_reason", "requested_by", "target"):
+        assert f'op.drop_column("approvals", "{column}")' in revision_text
+    assert '"workspace_approval_policies"' in revision_text
+    assert "alter table workspace_approval_policies force row level security" in revision_text
+    assert "tenant_isolation_workspace_approval_policies" in revision_text
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    assert "bypassrls" not in revision_text.lower()
+    assert "create function" not in revision_text.lower()

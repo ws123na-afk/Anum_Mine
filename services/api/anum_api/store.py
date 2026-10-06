@@ -7,6 +7,7 @@ from .schemas import (
     Tenant,
     Workspace,
     WorkspaceInvitation,
+    WorkspaceApprovalPolicy,
     WorkspaceMembership,
 )
 
@@ -22,6 +23,7 @@ class InMemoryStore:
         self.memberships: dict[tuple[str, str, str], WorkspaceMembership] = {}
         self.invitations: dict[str, WorkspaceInvitation] = {}
         self.audit_records: list[AuditRecord] = []
+        self.approval_policies: dict[tuple[str, str], WorkspaceApprovalPolicy] = {}
 
 
 store = InMemoryStore()
