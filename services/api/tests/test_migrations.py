@@ -269,3 +269,23 @@ def test_retrieval_retention_migration_adds_a_discovery_only_policy_and_invoker_
     assert "security definer" not in upgrade and "bypassrls" not in upgrade
     # Expand only.
     assert "drop " not in upgrade and "alter_column" not in upgrade and "alter table" not in upgrade
+
+
+def test_hnsw_migration_indexes_exactly_the_dimensions_search_uses() -> None:
+    from anum_api.db.retrieval_repository import ANN_DIMENSIONS
+
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0016_retrieval_hnsw.py").read_text(encoding="utf-8")
+    assert 'revision = "0016_retrieval_hnsw"' in revision_text
+    assert 'down_revision = "0015_retrieval_retention"' in revision_text
+    assert len("0016_retrieval_hnsw") <= 32
+    others = [path for path in versions.glob("*.py") if path.name != "0016_retrieval_hnsw.py"]
+    assert not [path for path in others if 'down_revision = "0015_retrieval_retention"' in path.read_text(encoding="utf-8")]
+    declared = revision_text.split("ANN_DIMENSIONS = (", 1)[1].split(")", 1)[0]
+    assert tuple(int(value) for value in declared.split(",")) == tuple(sorted(ANN_DIMENSIONS))
+    # HNSW on pgvector's `vector` type supports at most 2,000 dimensions.
+    assert max(ANN_DIMENSIONS) <= 2000
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    assert "create index concurrently if not exists" in upgrade and "using hnsw" in upgrade
+    assert "where dimensions = {dims}" in upgrade and "vector_cosine_ops" in upgrade
+    assert "drop " not in upgrade and "alter " not in upgrade

@@ -22,7 +22,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from anum_api.db import session as db_session
 from anum_api.db.memory_repository import SqlAlchemyMemoryRepository
 from anum_api.db.repository import SqlAlchemyRepository
-from anum_api.db.retrieval_repository import SqlAlchemyRetrievalStore, vector_literal
+from anum_api.db.retrieval_repository import (
+    ANN_DIMENSIONS,
+    SqlAlchemyRetrievalStore,
+    pgvector_version,
+    search_sql,
+    vector_literal,
+)
 from anum_api.db.workspace_settings_repository import SqlAlchemyFileMetadataStore
 from anum_api.files import FileRecord
 from anum_api.memory import MemoryCreate, MemoryService, RetentionKind, RetentionPolicy
@@ -284,6 +290,113 @@ def test_search_only_compares_chunks_of_the_query_model_and_dimension(
         assert store.search(context, local_embedding("release checklist"), LOCAL_EMBEDDING_MODEL, 5, FIXED_NOW) == []
         assert not store.has_indexed(context, LOCAL_EMBEDDING_MODEL)
         assert [c.source_id for c in store.search(context, [1.0, 0.0, 0.0], "other-model", 5, FIXED_NOW)] == [note.id]
+
+
+# Approximate search (migration 0016_retrieval_hnsw) ------------------------------------
+
+_WORDS = (
+    "release checklist launch tag budget invoice roadmap meeting customer contract "
+    "design review backlog incident deploy rollback onboarding hiring travel audit"
+).split()
+
+
+def _sentence(index: int) -> str:
+    # A distinct marker word per note keeps distances distinct (no ties at the limit).
+    words = [_WORDS[(index * step + step) % len(_WORDS)] for step in (1, 3, 7)]
+    return " ".join([*words, f"note{index}"])
+
+
+def test_every_ann_dimension_has_a_partial_hnsw_expression_index(database_engine: Engine) -> None:
+    with database_engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "select indexname, indexdef from pg_indexes "
+                "where tablename = 'retrieval_chunks' and indexname like 'ix_retrieval_chunks_hnsw_%'"
+            )
+        ).all()
+        invalid = connection.execute(
+            text(
+                "select count(*) from pg_index i join pg_class c on c.oid = i.indexrelid "
+                "where c.relname like 'ix_retrieval_chunks_hnsw_%' and not i.indisvalid"
+            )
+        ).scalar_one()
+    definitions = {row.indexname: row.indexdef for row in rows}
+    assert set(definitions) == {f"ix_retrieval_chunks_hnsw_{dims}" for dims in ANN_DIMENSIONS}
+    for dims in ANN_DIMENSIONS:
+        definition = definitions[f"ix_retrieval_chunks_hnsw_{dims}"]
+        assert "USING hnsw" in definition and "vector_cosine_ops" in definition
+        assert f"vector({dims})" in definition and f"(dimensions = {dims})" in definition
+    assert invalid == 0
+
+
+def test_ann_search_uses_the_hnsw_index_and_matches_exact_results_within_one_workspace(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    context, other = tenant_context(), tenant_context(TENANT_B, WORKSPACE_B)
+    with app_session(context, commit=True) as session:
+        for index in range(30):
+            _index_memory(session, context, f"task_ann_a{index}", _sentence(index))
+    with app_session(other, commit=True) as session:
+        for index in range(10):
+            _index_memory(session, other, f"task_ann_b{index}", _sentence(index))
+
+    queries = ["release checklist", "customer contract review", "incident rollback deploy", "travel budget"]
+    with app_session(context) as session:
+        # Make any other plan look expensive, so the planner takes the HNSW index scan.
+        session.execute(text("set local enable_seqscan = off"))
+        session.execute(text("set local enable_sort = off"))
+        exact_store = SqlAlchemyRetrievalStore(session, ann=False)
+        ann_store = SqlAlchemyRetrievalStore(session, ann=True)
+        assert ann_store.uses_ann(256) and not exact_store.uses_ann(256)
+        plan = "\n".join(
+            session.execute(
+                text("explain " + search_sql(256, ann=True)),
+                {
+                    "tenant_id": context.tenant_id,
+                    "workspace_id": context.workspace_id,
+                    "query": vector_literal(local_embedding("release checklist")),
+                    "model": LOCAL_EMBEDDING_MODEL,
+                    "now": FIXED_NOW,
+                    "limit": 5,
+                },
+            ).scalars()
+        )
+        assert "ix_retrieval_chunks_hnsw_256" in plan, plan
+        for query in queries:
+            vector = local_embedding(query)
+            exact = exact_store.search(context, vector, LOCAL_EMBEDDING_MODEL, 5, FIXED_NOW)
+            approximate = ann_store.search(context, vector, LOCAL_EMBEDDING_MODEL, 5, FIXED_NOW)
+            # The index holds far fewer vectors than ef_search, so HNSW finds the exact
+            # top-k here: the same distances, and the same chunks above the last one
+            # (chunks tied at the cut-off may be either of the tied ones).
+            scores = [round(chunk.score, 5) for chunk in exact]
+            assert len(exact) == 5 and [round(chunk.score, 5) for chunk in approximate] == scores
+            above = lambda chunks: [chunk.chunk_id for chunk in chunks if round(chunk.score, 5) > scores[-1]]  # noqa: E731
+            assert above(approximate) == above(exact)
+            tied = {
+                chunk.chunk_id
+                for chunk in exact_store.search(context, vector, LOCAL_EMBEDDING_MODEL, 100, FIXED_NOW)
+                if round(chunk.score, 5) == scores[-1]
+            }
+            assert {chunk.chunk_id for chunk in approximate if round(chunk.score, 5) == scores[-1]} <= tied
+            assert {(chunk.tenant_id, chunk.workspace_id) for chunk in approximate} == {
+                (context.tenant_id, context.workspace_id)
+            }
+
+
+def test_dimensions_without_an_index_stay_exact(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    context = tenant_context()
+    with app_session(context) as session:
+        store = SqlAlchemyRetrievalStore(session, ann=True)
+        assert not store.uses_ann(3) and not store.uses_ann(3072)
+        # Auto mode follows the installed pgvector: ANN only with iterative scans (0.8+).
+        auto = SqlAlchemyRetrievalStore(session)
+        version = session.execute(text("select extversion from pg_extension where extname = 'vector'")).scalar_one()
+        assert auto.uses_ann(256) == (pgvector_version(version) >= (0, 8))
 
 
 class RecordingGateway(MockModelGateway):

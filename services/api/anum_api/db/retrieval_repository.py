@@ -34,9 +34,109 @@ def vector_literal(values: Sequence[float]) -> str:
     return "[" + ",".join(repr(float(value)) for value in values) + "]"
 
 
+# Dimensions with a partial HNSW expression index (migration 0016_retrieval_hnsw).
+ANN_DIMENSIONS = frozenset({256, 384, 768, 1024, 1536})
+ITERATIVE_SCAN_VERSION = (0, 8)
+HNSW_EF_SEARCH = 100
+
+
+def pgvector_version(value: str | None) -> tuple[int, ...]:
+    """``"0.8.0"`` -> ``(0, 8, 0)``; anything unparsable -> ``()``."""
+    parts: list[int] = []
+    for piece in (value or "").split("."):
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+_LIVE_CHUNKS = """
+    from retrieval_chunks c
+    join retrieval_sources s
+      on s.tenant_id = c.tenant_id and s.workspace_id = c.workspace_id
+     and s.source_type = c.source_type and s.source_id = c.source_id
+    where c.tenant_id = :tenant_id and c.workspace_id = :workspace_id
+      and c.embedding_model = :model and c.dimensions = {dimensions}
+      and s.status = 'indexed'
+      and (s.source_expires_at is null or s.source_expires_at > :now)
+      and (
+        (c.source_type = 'memory' and exists (
+          select 1 from memories m
+          where m.tenant_id = c.tenant_id and m.workspace_id = c.workspace_id
+            and m.id = c.source_id
+            and (m.retention_expires_at is null or m.retention_expires_at > :now)))
+        or (c.source_type = 'file' and exists (
+          select 1 from workspace_files f
+          where f.tenant_id = c.tenant_id and f.workspace_id = c.workspace_id
+            and f.id = c.source_id))
+      )
+"""
+_COLUMNS = "c.id, c.tenant_id, c.workspace_id, c.source_type, c.source_id, c.chunk_index, c.content"
+
+
+def search_sql(dimensions: int, *, ann: bool) -> str:
+    """The search statement for one query dimension.
+
+    Exact: ``embedding <=> query`` on the untyped column, ``dimensions`` bound as a
+    parameter, ties broken by chunk id. ANN: the same filters, but the distance is taken
+    on ``embedding::vector(N)`` and the predicate is ``dimensions = N`` written as a
+    literal, which is what lets PostgreSQL match the partial HNSW index
+    ``ix_retrieval_chunks_hnsw_N``; the nearest ``limit`` come from the index scan and are
+    then ordered by distance and chunk id. ``N`` is an int from :data:`ANN_DIMENSIONS`,
+    never caller text.
+    """
+    if not ann:
+        return (
+            f"select {_COLUMNS}, 1 - (c.embedding <=> cast(:query as vector)) as score "
+            + _LIVE_CHUNKS.format(dimensions=":dimensions")
+            + " order by c.embedding <=> cast(:query as vector), c.id limit :limit"
+        )
+    if dimensions not in ANN_DIMENSIONS:
+        raise ValueError("no HNSW index for this dimension")
+    dims = int(dimensions)
+    distance = f"(c.embedding::vector({dims}) <=> cast(:query as vector({dims})))"
+    # Only constants and an int from the ANN_DIMENSIONS allow-list are interpolated;
+    # every value (tenant, workspace, model, query vector, limit) is a bound parameter.
+    return (
+        "select * from ("  # nosec B608
+        f"select {_COLUMNS}, {distance} as distance, 1 - {distance} as score "
+        + _LIVE_CHUNKS.format(dimensions=dims)
+        + f" order by {distance} limit :limit"
+        ") ranked order by distance, id"
+    )
+
+
 class SqlAlchemyRetrievalStore:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, ann: bool | None = None) -> None:
+        """``ann``: use the HNSW indexes (True), never (False), or when pgvector >= 0.8 (None)."""
         self.session = session
+        self.ann = ann
+        self._iterative_scan: bool | None = None
+
+    def _supports_iterative_scan(self) -> bool:
+        if self._iterative_scan is None:
+            version = self.session.execute(
+                text("select extversion from pg_extension where extname = 'vector'")
+            ).scalar_one_or_none()
+            self._iterative_scan = pgvector_version(version) >= ITERATIVE_SCAN_VERSION
+        return self._iterative_scan
+
+    def uses_ann(self, dimensions: int) -> bool:
+        if dimensions not in ANN_DIMENSIONS or self.ann is False:
+            return False
+        return True if self.ann else self._supports_iterative_scan()
+
+    def _tune_hnsw(self, limit: int) -> None:
+        # Transaction-local. ef_search bounds the candidates one HNSW scan returns; with
+        # pgvector 0.8+ an iterative scan keeps going (in distance order) while the
+        # tenant, workspace and liveness filters drop candidates.
+        self.session.execute(
+            text("select set_config('hnsw.ef_search', :ef, true)"),
+            {"ef": str(max(HNSW_EF_SEARCH, min(1000, limit)))},
+        )
+        if self._supports_iterative_scan():
+            self.session.execute(text("select set_config('hnsw.iterative_scan', 'strict_order', true)"))
 
     @staticmethod
     def _scope(context: TenantContext) -> dict[str, str]:
@@ -178,42 +278,23 @@ class SqlAlchemyRetrievalStore:
         """Nearest chunks by cosine distance, live sources of this workspace only.
 
         A memory chunk counts only while its memory exists and has not expired; a file
-        chunk only while its file metadata exists. Exact search: the scan is limited to
-        one workspace and one embedding model by ``ix_retrieval_chunks_scope_model``.
+        chunk only while its file metadata exists. For a dimension in
+        :data:`ANN_DIMENSIONS` (and pgvector 0.8 or later, unless ``ann`` was given) the
+        query is written so PostgreSQL may use that dimension's HNSW index (approximate);
+        otherwise the search is exact, bounded to one workspace and model by
+        ``ix_retrieval_chunks_scope_model``.
         """
+        dimensions = len(embedding)
+        ann = self.uses_ann(dimensions)
+        if ann:
+            self._tune_hnsw(limit)
         rows = self.session.execute(
-            text(
-                """
-                select c.id, c.tenant_id, c.workspace_id, c.source_type, c.source_id, c.chunk_index,
-                       c.content, 1 - (c.embedding <=> cast(:query as vector)) as score
-                from retrieval_chunks c
-                join retrieval_sources s
-                  on s.tenant_id = c.tenant_id and s.workspace_id = c.workspace_id
-                 and s.source_type = c.source_type and s.source_id = c.source_id
-                where c.tenant_id = :tenant_id and c.workspace_id = :workspace_id
-                  and c.embedding_model = :model and c.dimensions = :dimensions
-                  and s.status = 'indexed'
-                  and (s.source_expires_at is null or s.source_expires_at > :now)
-                  and (
-                    (c.source_type = 'memory' and exists (
-                      select 1 from memories m
-                      where m.tenant_id = c.tenant_id and m.workspace_id = c.workspace_id
-                        and m.id = c.source_id
-                        and (m.retention_expires_at is null or m.retention_expires_at > :now)))
-                    or (c.source_type = 'file' and exists (
-                      select 1 from workspace_files f
-                      where f.tenant_id = c.tenant_id and f.workspace_id = c.workspace_id
-                        and f.id = c.source_id))
-                  )
-                order by c.embedding <=> cast(:query as vector), c.id
-                limit :limit
-                """
-            ),
+            text(search_sql(dimensions, ann=ann)),
             {
                 **self._scope(context),
                 "query": vector_literal(embedding),
                 "model": embedding_model,
-                "dimensions": len(embedding),
+                "dimensions": dimensions,
                 "now": now,
                 "limit": limit,
             },

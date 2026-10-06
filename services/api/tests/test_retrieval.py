@@ -574,3 +574,25 @@ def test_memory_creation_survives_an_exhausted_budget_and_records_the_failure() 
     assert created.status_code == 201
     status = client.get("/api/v1/retrieval/status", headers=headers).json()
     assert status["failed"] == 1 and status["sources"][0]["error"] == "budget_exceeded"
+
+
+def test_search_sql_matches_the_partial_hnsw_index_only_for_indexed_dimensions() -> None:
+    from anum_api.db.retrieval_repository import ANN_DIMENSIONS, pgvector_version, search_sql
+
+    exact = search_sql(256, ann=False)
+    assert "c.dimensions = :dimensions" in exact and "vector(" not in exact
+    assert "order by c.embedding <=> cast(:query as vector), c.id limit :limit" in exact
+    for dims in ANN_DIMENSIONS:
+        ann = search_sql(dims, ann=True)
+        # The predicate and the expression must be literally the index's to match it.
+        assert f"c.dimensions = {dims}" in ann
+        assert f"order by (c.embedding::vector({dims}) <=> cast(:query as vector({dims}))) limit :limit" in ann
+        assert ann.endswith("ranked order by distance, id")
+        # Same tenant, workspace, model and liveness filters as the exact search.
+        assert "c.tenant_id = :tenant_id and c.workspace_id = :workspace_id" in ann
+        assert "m.retention_expires_at > :now" in ann and "from workspace_files f" in ann
+    with pytest.raises(ValueError):
+        search_sql(3072, ann=True)
+    assert pgvector_version("0.8.1") == (0, 8, 1) >= (0, 8)
+    assert pgvector_version("0.6.0") < (0, 8)
+    assert pgvector_version(None) == () < (0, 8)
