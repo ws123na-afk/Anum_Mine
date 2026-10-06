@@ -64,6 +64,7 @@ Each exception is scoped as narrowly as the tool allows. Add new ones only with 
 | bandit | `# nosec B608` on the `select` in `LocalAutomationEngine._list` (`anum_api/automation.py`) | The interpolated table name must pass the `_TABLES` allow-list first; all values are bound parameters. |
 | gitleaks | `docs/figma-design-state.json` `fileKey` | A public Figma file identifier, not a credential. Only that exact key shape in that file is allowed. |
 | gitleaks | `docs/infrastructure.md` prose where "Keycloak" is followed by the S3 storage name | The generic API-key rule reads the word "key" inside "Keycloak" as a key name. The text stays in history. |
+| gitleaks | `services/api/tests/test_postgres_model_configs.py` value `sk-live-PERSISTED-secret-4321` | A made-up provider key used to test encryption at rest. Only that exact value in that file is allowed; it stays in history. |
 | pnpm audit | Moderate `sprintf-js` advisory (GHSA-hp3w-g68c-fv3c) reached through `kokoro-js` → `@huggingface/transformers` → `onnxruntime-node` → `global-agent` | No patched release exists. The package belongs to the Node.js runtime and is not in the browser bundle. The job fails on high and critical only. |
 
 Fixed findings when the scans were added: PyJWT 2.9.0 → 2.15.1 and Starlette 0.38.6 → 1.7.0 (via FastAPI 0.115.0 → 0.135.4), and `sharp` forced to `^0.35.4` through a pnpm override (it is pulled in by `@huggingface/transformers` but unused by the browser bundle).

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from anum_api import dependencies, main
 from anum_api.event_bus import (
-    TENANT_WIDE_TOKEN,
+    TENANT_WIDE_SEGMENT,
     BusMessage,
     EventBusRuntime,
     EventCollectingRepository,
@@ -72,7 +72,7 @@ def test_subject_tokens_escape_nats_syntax_and_stay_distinct() -> None:
     for raw in ["a.b", "a*", "a>", "a b", "~", "a~2eb", "tenant/é"]:
         token = encode_subject_token(raw)
         assert not set(token) & {".", "*", ">", " "}
-        assert token != TENANT_WIDE_TOKEN
+        assert token != TENANT_WIDE_SEGMENT
     assert encode_subject_token("tenant_a-1") == "tenant_a-1"
     # Injective: an id that looks like an escape sequence does not collide.
     assert encode_subject_token("a.b") != encode_subject_token("a~2eb")

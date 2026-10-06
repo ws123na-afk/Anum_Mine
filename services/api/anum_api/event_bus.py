@@ -33,7 +33,7 @@ from .schemas import DomainEvent, utc_now
 logger = logging.getLogger(__name__)
 
 SUBJECT_ROOT = "anum"
-TENANT_WIDE_TOKEN = "~"
+TENANT_WIDE_SEGMENT = "~"
 DEFAULT_STREAM_NAME = "ANUM_EVENTS"
 MSG_ID_HEADER = "Nats-Msg-Id"
 
@@ -67,7 +67,7 @@ def encode_subject_token(value: str) -> str:
 def scope_tokens(tenant_id: str, workspace_id: str | None) -> tuple[str, str]:
     tenant_token = encode_subject_token(tenant_id)
     workspace_token = (
-        encode_subject_token(workspace_id) if workspace_id is not None else TENANT_WIDE_TOKEN
+        encode_subject_token(workspace_id) if workspace_id is not None else TENANT_WIDE_SEGMENT
     )
     return tenant_token, workspace_token
 
@@ -85,7 +85,7 @@ def scope_filter_subjects(tenant_id: str, workspace_id: str) -> tuple[str, str]:
     tenant_token, workspace_token = scope_tokens(tenant_id, workspace_id)
     return (
         f"{SUBJECT_ROOT}.{tenant_token}.{workspace_token}.>",
-        f"{SUBJECT_ROOT}.{tenant_token}.{TENANT_WIDE_TOKEN}.>",
+        f"{SUBJECT_ROOT}.{tenant_token}.{TENANT_WIDE_SEGMENT}.>",
     )
 
 
@@ -106,16 +106,16 @@ def parse_subject(subject: str) -> SubjectScope | None:
 def subject_matches(pattern: str, subject: str) -> bool:
     """NATS wildcard matching (``*`` one token, ``>`` one or more trailing tokens)."""
 
-    pattern_tokens = pattern.split(".")
-    subject_tokens = subject.split(".")
-    for index, token in enumerate(pattern_tokens):
-        if token == ">":
-            return len(subject_tokens) > index
-        if index >= len(subject_tokens):
+    pattern_parts = pattern.split(".")
+    subject_parts = subject.split(".")
+    for index, part in enumerate(pattern_parts):
+        if part == ">":
+            return len(subject_parts) > index
+        if index >= len(subject_parts):
             return False
-        if token != "*" and token != subject_tokens[index]:
+        if part != "*" and part != subject_parts[index]:
             return False
-    return len(pattern_tokens) == len(subject_tokens)
+    return len(pattern_parts) == len(subject_parts)
 
 
 def encode_event(event: DomainEvent) -> bytes:
@@ -506,7 +506,8 @@ class EventOutbox:
         self._wake = None
 
     async def _run(self) -> None:
-        assert self._wake is not None
+        if self._wake is None:
+            raise RuntimeError("Outbox worker started without a wake event")
         while not self._stopping:
             delay = self.next_due_in()
             if delay is None or delay > 0:
@@ -608,7 +609,8 @@ class EventBusRuntime:
             await self.bus.close()
 
     async def _connect_loop(self) -> None:
-        assert self.bus is not None and self.outbox is not None
+        if self.bus is None or self.outbox is None:
+            raise RuntimeError("Event runtime connect loop started without a bus and outbox")
         delay = self.reconnect_backoff
         while True:
             try:

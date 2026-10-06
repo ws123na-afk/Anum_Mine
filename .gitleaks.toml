@@ -20,3 +20,10 @@ condition = "AND"
 paths = ['''^docs/infrastructure\.md$''']
 regexTarget = "match"
 regexes = ['''^Keycloak, S3-compatible\s*$''']
+
+[[allowlists]]
+description = "Fake provider key used as a test fixture for at-rest encryption, never a real credential"
+condition = "AND"
+paths = ['''^services/api/tests/test_postgres_model_configs\.py$''']
+regexTarget = "secret"
+regexes = ['''^sk-live-PERSISTED-secret-4321$''']

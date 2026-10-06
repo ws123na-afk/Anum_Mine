@@ -14,7 +14,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 
-from .event_bus import TENANT_WIDE_TOKEN, BusMessage, decode_event, parse_subject, scope_tokens
+from .event_bus import TENANT_WIDE_SEGMENT, BusMessage, decode_event, parse_subject, scope_tokens
 from .schemas import DomainEvent, TenantContext
 
 logger = logging.getLogger(__name__)
@@ -106,7 +106,7 @@ class RealtimeHub:
             self._drop(message, "subject does not match event scope")
             return
 
-        if workspace_token == TENANT_WIDE_TOKEN:
+        if workspace_token == TENANT_WIDE_SEGMENT:
             targets: Iterable[RealtimeListener] = [
                 listener
                 for (tenant, _), listeners in self._listeners.items()
