@@ -87,6 +87,50 @@ jobs:
       - name: Run database tests
         run: python -m pytest services/api -m database
 
+  integration:
+    name: API integration (Valkey, S3, Temporal, NATS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/pyproject.toml
+      - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
+      - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      - name: Start Valkey, MinIO and NATS
+        run: |
+          docker compose -f infra/docker/compose.yaml up -d valkey minio nats
+          for attempt in $(seq 1 60); do
+            if docker compose -f infra/docker/compose.yaml exec -T valkey valkey-cli ping | grep -q PONG \
+              && curl -fsS http://127.0.0.1:9000/minio/health/live \
+              && curl -fsS "http://127.0.0.1:8222/healthz?js-enabled-only=true"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Valkey, MinIO or NATS did not become ready"
+          exit 1
+      - name: Run integration-marked tests (none may be skipped)
+        working-directory: services/api
+        env:
+          ANUM_TEST_VALKEY_URL: redis://127.0.0.1:6379/15
+          ANUM_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          ANUM_TEST_NATS_URL: nats://127.0.0.1:4222
+          # Temporal tests use the SDK's time-skipping test server (downloaded on first use).
+        run: |
+          set -o pipefail
+          python -m pytest -m "(valkey or s3 or temporal or nats) and not database" -rs | tee integration.log
+          if grep -q "SKIPPED" integration.log; then
+            echo "::error::Integration tests were skipped; every adapter must be exercised in CI"
+            exit 1
+          fi
+      - name: Service logs
+        if: failure()
+        run: docker compose -f infra/docker/compose.yaml logs --no-color
+
   journey:
     name: Authenticated journey
     runs-on: ubuntu-latest
