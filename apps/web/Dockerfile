@@ -4,7 +4,7 @@
 # Runtime configuration is described in docs/infrastructure.md.
 
 ARG NODE_IMAGE=node:22-bookworm-slim
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.28-alpine
+ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine
 
 FROM ${NODE_IMAGE} AS build
 ENV PNPM_HOME=/pnpm \
@@ -39,6 +39,10 @@ ENV VITE_ANUM_API_URL=$VITE_ANUM_API_URL \
 RUN pnpm --filter @anum/contracts build && pnpm --filter @anum/web build
 
 FROM ${NGINX_IMAGE} AS runtime
+# Apply Alpine security updates published after the base image was built (image
+# scanning fails CI on fixable high and critical findings), then drop back to nginx.
+USER root
+RUN apk upgrade --no-cache
 # Origins the page may call besides itself (API, Keycloak issuer, optional voice server). Space-separated,
 # substituted into the Content-Security-Policy when the container starts.
 ENV ANUM_CSP_CONNECT_SRC="http://localhost:8000"

@@ -14,8 +14,11 @@ WORKDIR /src
 # Direct dependencies are pinned to exact versions in pyproject.toml.
 COPY pyproject.toml ./
 COPY anum_api ./anum_api
+# pip is only needed to build the venv, so it is removed before the venv is copied
+# into the runtime image (image scanning reports the libraries pip vendors).
 RUN python -m pip install "pip==24.3.1" \
-    && python -m pip install --no-compile .
+    && python -m pip install --no-compile . \
+    && python -m pip uninstall --yes pip
 
 FROM ${PYTHON_IMAGE} AS runtime
 # The image defaults to production so it refuses development defaults (see
@@ -26,7 +29,13 @@ ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     ANUM_ENVIRONMENT=production \
     FORWARDED_ALLOW_IPS=127.0.0.1
-RUN groupadd --system --gid 10001 anum \
+# The runtime never installs packages: drop the base image's pip (and the libraries it
+# vendors, which image scanning reports) and apply pending Debian security updates.
+RUN /usr/local/bin/python -m pip uninstall --yes --root-user-action=ignore pip \
+    && apt-get update \
+    && apt-get upgrade --yes --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 anum \
     && useradd --system --uid 10001 --gid anum --home-dir /app --shell /usr/sbin/nologin anum
 WORKDIR /app
 COPY --from=build /opt/venv /opt/venv
