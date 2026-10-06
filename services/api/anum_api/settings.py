@@ -1,4 +1,23 @@
+from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ModelPrice(BaseModel):
+    """USD price per million tokens for one model, used for estimated cost accounting."""
+
+    input_per_million: float = Field(ge=0)
+    output_per_million: float = Field(ge=0)
+
+
+# Published list prices (USD per 1M tokens) for the default hosted models. They are
+# estimates for accounting only; override with ANUM_MODEL_PRICES as a JSON object.
+DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
+    "gpt-4.1": ModelPrice(input_per_million=2.00, output_per_million=8.00),
+    "gpt-4.1-mini": ModelPrice(input_per_million=0.40, output_per_million=1.60),
+    "gpt-4.1-nano": ModelPrice(input_per_million=0.10, output_per_million=0.40),
+    "gpt-4o": ModelPrice(input_per_million=2.50, output_per_million=10.00),
+    "gpt-4o-mini": ModelPrice(input_per_million=0.15, output_per_million=0.60),
+}
 
 
 class Settings(BaseSettings):
@@ -26,6 +45,20 @@ class Settings(BaseSettings):
     model_api_key: str | None = None
     model_name: str = "gpt-4.1-mini"
     model_base_url: str = "https://api.openai.com/v1"
+    # Gateway hardening: per-attempt timeout, bounded retries with exponential backoff
+    # and full jitter (timeouts, connection errors, 429 and 5xx only), and the cap on
+    # how long a provider's Retry-After header may ask us to wait before we give up.
+    model_timeout_seconds: float = Field(default=60, gt=0)
+    model_max_attempts: int = Field(default=3, ge=1, le=10)
+    model_retry_base_seconds: float = Field(default=0.5, ge=0)
+    model_retry_max_seconds: float = Field(default=8.0, ge=0)
+    model_retry_after_max_seconds: float = Field(default=30.0, ge=0)
+    # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
+    # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
+    model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))
+    # Fernet key(s) that encrypt stored provider credentials (comma-separated: the first
+    # encrypts, all decrypt, for rotation). Required outside ANUM_ENVIRONMENT=local.
+    secrets_key: SecretStr | None = Field(default=None, validate_default=True)
     valkey_url: str = "redis://localhost:6379/0"
     nats_url: str = "nats://localhost:4222"
     event_bus: str = "memory"
@@ -45,7 +78,32 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
         protected_namespaces=("settings_",),
+        # Startup validation errors must never echo secrets (keys, passwords) into logs.
+        hide_input_in_errors=True,
     )
+
+    @field_validator("secrets_key")
+    @classmethod
+    def _require_secrets_key_outside_local(
+        cls, value: SecretStr | None, info: ValidationInfo
+    ) -> SecretStr | None:
+        # A field validator (not a model validator) so a startup error never echoes
+        # other settings, such as provider API keys, back into the logs.
+        if str(info.data.get("environment", "local")).strip().lower() not in {"local", "test"} and not (
+            value and value.get_secret_value().strip()
+        ):
+            raise ValueError("ANUM_SECRETS_KEY is required outside ANUM_ENVIRONMENT=local or test")
+        if value is not None and value.get_secret_value().strip():
+            from cryptography.fernet import Fernet
+
+            for key in value.get_secret_value().split(","):
+                try:
+                    Fernet(key.strip())
+                except (ValueError, TypeError):
+                    raise ValueError(
+                        "ANUM_SECRETS_KEY must be comma-separated url-safe base64 Fernet keys"
+                    ) from None
+        return value
 
 
 settings = Settings()

@@ -29,7 +29,11 @@ from anum_api.identity import (
     validate_auth_configuration,
 )
 from anum_api.main import app, store
+from cryptography.fernet import Fernet
+
 from anum_api.schemas import Workspace, WorkspaceMembership, utc_now
+
+TEST_SECRETS_KEY = Fernet.generate_key().decode()
 from anum_api.settings import Settings, settings
 
 
@@ -414,27 +418,27 @@ def test_local_session_endpoints_are_unavailable_in_oidc_mode(oidc_api) -> None:
 
 @pytest.mark.parametrize("environment", ["local", "test", "LOCAL"])
 def test_header_mode_is_allowed_in_local_and_test(environment: str) -> None:
-    validate_auth_configuration(Settings(environment=environment, auth_mode="headers"))
+    validate_auth_configuration(Settings(environment=environment, auth_mode="headers", secrets_key=TEST_SECRETS_KEY))
 
 
 @pytest.mark.parametrize("environment", ["staging", "production", "dev"])
 def test_header_mode_is_refused_outside_local(environment: str) -> None:
     with pytest.raises(AuthConfigurationError, match="ANUM_AUTH_MODE=oidc"):
-        validate_auth_configuration(Settings(environment=environment, auth_mode="headers"))
+        validate_auth_configuration(Settings(environment=environment, auth_mode="headers", secrets_key=TEST_SECRETS_KEY))
 
 
 def test_oidc_mode_is_accepted_in_production_and_unknown_modes_refused() -> None:
-    validate_auth_configuration(Settings(environment="production", auth_mode="oidc"))
+    validate_auth_configuration(Settings(environment="production", auth_mode="oidc", secrets_key=TEST_SECRETS_KEY))
     with pytest.raises(AuthConfigurationError, match="Unsupported"):
         validate_auth_configuration(Settings(environment="local", auth_mode="local"))
     with pytest.raises(AuthConfigurationError, match="ANUM_OIDC_AUDIENCE"):
         validate_auth_configuration(
-            Settings(environment="production", auth_mode="oidc", oidc_audience="")
+            Settings(environment="production", auth_mode="oidc", oidc_audience="", secrets_key=TEST_SECRETS_KEY)
         )
 
 
 def test_api_process_refuses_to_start_with_header_mode_in_production() -> None:
-    env = {**os.environ, "ANUM_ENVIRONMENT": "production", "ANUM_AUTH_MODE": "headers"}
+    env = {**os.environ, "ANUM_ENVIRONMENT": "production", "ANUM_AUTH_MODE": "headers", "ANUM_SECRETS_KEY": TEST_SECRETS_KEY}
     result = subprocess.run(
         [sys.executable, "-c", "import anum_api.main"],
         cwd=API_ROOT,

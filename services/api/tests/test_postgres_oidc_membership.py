@@ -53,3 +53,19 @@ def test_oidc_membership_lookup_is_rls_scoped(
     assert found is not None and found.role == "member"
     assert other_workspace is None
     assert other_tenant is None
+
+
+def test_workspace_has_members_sees_only_its_own_workspace(seed_scopes: None, repository_factory) -> None:
+    with repository_factory(context(TENANT_A, WORKSPACE_A), commit=True) as repository:
+        assert repository.workspace_has_members(context(TENANT_A, WORKSPACE_A)) is False
+        repository.save_membership(
+            WorkspaceMembership(
+                tenant_id=TENANT_A, workspace_id=WORKSPACE_A, user_id="someone-else", role="owner",
+                created_at=FIXED_NOW, updated_at=FIXED_NOW,
+            )
+        )
+
+    with repository_factory(context(TENANT_A, WORKSPACE_A)) as repository:
+        assert repository.workspace_has_members(context(TENANT_A, WORKSPACE_A)) is True
+    with repository_factory(context(TENANT_A, WORKSPACE_A2)) as repository:
+        assert repository.workspace_has_members(context(TENANT_A, WORKSPACE_A2)) is False

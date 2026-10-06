@@ -7,6 +7,7 @@ def test_tenant_scoped_tables_include_tenant_id() -> None:
     tenant_scoped_tables = {
         "workspaces",
         "workspace_memberships",
+        "workspace_model_configs",
         "tasks",
         "agent_runs",
         "agent_run_steps",
