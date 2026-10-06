@@ -94,6 +94,20 @@ _MARK_REJECTED = text(
 )
 
 
+
+async def _in_thread(function: Callable[..., Any], *args: Any) -> Any:
+    """Run a blocking session call in a thread that cancellation cannot abandon.
+
+    If the awaiting task is cancelled, wait for the thread to finish before
+    re-raising, so the caller's rollback and close never race the same session.
+    """
+    future = asyncio.ensure_future(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(future)
+    except asyncio.CancelledError:
+        await asyncio.wait({future})
+        raise
+
 @dataclass(frozen=True)
 class ClaimedEvent:
     event: DomainEvent
@@ -233,7 +247,7 @@ class PostgresOutboxRelay:
         result = RelayPass()
         session = self.session_factory()
         try:
-            claimed = await asyncio.to_thread(self._claim, session)
+            claimed = await _in_thread(self._claim, session)
             result.claimed = len(claimed)
             published: list[str] = []
             failed: tuple[ClaimedEvent, str] | None = None
@@ -260,7 +274,7 @@ class PostgresOutboxRelay:
                     )
                     break
                 published.append(entry.event.id)
-            await asyncio.to_thread(self._finish, session, published, failed, rejected)
+            await _in_thread(self._finish, session, published, failed, rejected)
             result.published = len(published)
             result.failed = 1 if failed else 0
             result.rejected = len(rejected)
@@ -270,15 +284,17 @@ class PostgresOutboxRelay:
             self.rejected_count += result.rejected
             return result
         except BaseException:
-            await asyncio.to_thread(session.rollback)
+            await _in_thread(session.rollback)
             raise
         finally:
-            await asyncio.to_thread(session.close)
+            await _in_thread(session.close)
 
     async def drain(self, *, max_passes: int = 1000) -> int:
         """Relay until nothing due is left (or a publish fails). Returns events published."""
         total = 0
         for _ in range(max_passes):
+            if self._stopping:
+                break
             outcome = await self.relay_once()
             total += outcome.published
             if outcome.claimed < self.batch_size or outcome.failed:
@@ -307,15 +323,25 @@ class PostgresOutboxRelay:
         self._unregister_metrics = register_outbox_source("postgresql", self.backlog_snapshot)
         self._wake.set()  # relay whatever a previous process left behind
 
-    async def stop(self) -> None:
+    async def stop(self, *, timeout: float = 5.0) -> None:
+        """Let the current pass commit, then stop; cancel only if it overruns."""
         task, self._task = self._task, None
         self._stopping = True
+        if self._wake is not None:
+            self._wake.set()
         if task is not None:
-            task.cancel()
             try:
-                await task
+                await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+            except TimeoutError:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                logger.exception("Outbox relay stopped with an error")
         # Nothing is lost: unpublished rows stay in PostgreSQL for the next relay.
         if self._unregister_metrics is not None:
             self._unregister_metrics()
