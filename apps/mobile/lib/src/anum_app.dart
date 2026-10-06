@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../data/api_client.dart';
+import '../data/session_store.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/auth/auth_repository.dart';
 import '../features/auth/auth_screens.dart';
+import '../features/auth/oidc.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/workspace/workspace_controller.dart';
 import '../features/workspace/workspace_home.dart';
@@ -15,6 +17,7 @@ import '../features/voice/voice_repository.dart';
 import '../features/settings/settings_controller.dart';
 import '../features/governance/api_governance_repository.dart';
 import '../features/governance/governance_controller.dart';
+import 'infrastructure/appauth_authenticator.dart';
 import 'infrastructure/mobile_adapters.dart';
 import 'theme/anum_theme.dart';
 import 'localization/anum_localizations.dart';
@@ -55,13 +58,22 @@ class _AnumAppState extends State<AnumApp> {
       'ANUM_API_URL',
       defaultValue: 'http://10.0.2.2:8000/',
     );
-    final sessions = SecureSessionStore();
+    // With --dart-define=ANUM_OIDC_ISSUER the app signs in through Keycloak;
+    // without it, the local development sign-in stays in place.
+    final oidcConfig = OidcConfig.fromEnvironment();
+    final oidc =
+        oidcConfig == null ? null : AppAuthOidcAuthenticator(oidcConfig);
+    final secureSessions = SecureSessionStore();
+    final SessionStore sessions = oidc == null
+        ? secureSessions
+        : OidcSessionStore(inner: secureSessions, authenticator: oidc);
     final api = AnumApiClient(
       baseUri: Uri.parse(configuredUrl),
       transport: HttpApiTransport(),
       sessions: sessions,
     );
-    final authRepository = AuthRepository(api: api, sessions: sessions);
+    final authRepository =
+        AuthRepository(api: api, sessions: sessions, oidc: oidc);
     auth = AuthController(authRepository);
     workspace = WorkspaceController(ApiWorkspaceRepository(
       api,

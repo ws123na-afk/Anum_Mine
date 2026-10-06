@@ -371,3 +371,6 @@ option { background: #141a2e; color: var(--d-text); }
   .metric:hover, .agentRow:hover, .integration:hover { transform: none; }
 }
 @media (max-width: 720px) { .sidebar { position: static; height: auto; } body { background-attachment: scroll; } }
+.signInShell { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.signInCard { width: min(420px, 100%); display: grid; gap: 12px; }
+.signInCard h1 { margin: 0; font-size: 24px; }

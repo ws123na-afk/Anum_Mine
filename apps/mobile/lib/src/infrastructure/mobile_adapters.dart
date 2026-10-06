@@ -76,7 +76,7 @@ class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {
     if (session == null || session.isExpired) {
       throw const ApiException(401, 'Authentication required');
     }
-    return {'authorization': 'Bearer ${session.accessToken}'};
+    return sessionHeaders(session);
   }
 
   @override
@@ -140,7 +140,7 @@ class HttpAuditExporter implements AuditExporter {
     }
     final response = await _client.get(
       baseUri.resolve('api/v1/audit/export?format=$format'),
-      headers: {'authorization': 'Bearer ${session.accessToken}'},
+      headers: sessionHeaders(session),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, 'Audit export failed');

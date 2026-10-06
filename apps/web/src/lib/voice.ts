@@ -1,5 +1,5 @@
 import type { Task } from '@anum/contracts';
-import { defaultTenantContext } from './api';
+import { authHeaders } from './api';
 
 const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
@@ -412,11 +412,8 @@ async function voiceRequest<T>(path: string, init: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: {
+      ...(await authHeaders()),
       'content-type': 'application/json',
-      'x-tenant-id': defaultTenantContext.tenantId,
-      'x-workspace-id': defaultTenantContext.workspaceId,
-      'x-user-id': defaultTenantContext.userId,
-      'x-user-roles': defaultTenantContext.roles.join(','),
       ...init.headers,
     },
   });

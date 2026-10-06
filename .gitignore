@@ -33,3 +33,4 @@ apps/desktop/src-tauri/gen/
 apps/mobile/.dart_tool/
 apps/mobile/build/
 apps/mobile/pubspec.lock
+apps/web/dist-oidc/

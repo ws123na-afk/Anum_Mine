@@ -12,6 +12,10 @@ pnpm --filter @anum/desktop dev
 
 The desktop package starts the existing web Vite server and loads it at `http://localhost:5173`. Production builds compile `@anum/web` first and bundle `apps/web/dist`.
 
+## Sign-in
+
+Build the web client with `VITE_ANUM_OIDC_ISSUER=<issuer>` and `VITE_ANUM_OIDC_CLIENT_ID=anum-desktop` to sign in through Keycloak; without them the shell uses the local development session. Add the issuer origin to `connect-src` in `src-tauri/tauri.conf.json` for anything other than the local Keycloak on port 8080. See [docs/identity.md](../../docs/identity.md#web-and-desktop).
+
 ## Native boundary
 
 The default capability grants only window controls, notifications, user-driven open/save dialogs, opening external links, and one registered global shortcut. Arbitrary filesystem and shell access are intentionally absent. Files selected through a dialog are sent to the web client as paths; backend upload and policy enforcement remain application responsibilities.

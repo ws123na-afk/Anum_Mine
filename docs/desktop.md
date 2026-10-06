@@ -18,6 +18,10 @@ The desktop app is a client, not a separate agent brain. It can provide local si
 
 The Tauri v2 shell reuses the production web build and includes a scoped capability manifest, tray controls, notifications, dialogs, external-link opening, and a global task-launcher shortcut. CI performs a Rust compile check on Windows.
 
+## Sign-In
+
+The shell signs in through Keycloak with the shared web code when the web build is made with `VITE_ANUM_OIDC_ISSUER` and `VITE_ANUM_OIDC_CLIENT_ID=anum-desktop` (authorization code + PKCE, tokens in memory, refresh token in the webview's `sessionStorage`). The login page loads inside the webview and redirects back to the shell origin. The CSP's `connect-src` allows the local Keycloak; a release build must add its own issuer origin. Moving the login to the system browser with a loopback redirect (RFC 8252) is a follow-up. See [Identity and sign-in](identity.md#web-and-desktop).
+
 ## Release Gate
 
 A signed installer still requires the MSVC C++ linker toolchain and a Windows code-signing identity. Local file context, screen-aware assistance with explicit consent, local-only tools, offline drafts, and encrypted local cache remain future capabilities.
