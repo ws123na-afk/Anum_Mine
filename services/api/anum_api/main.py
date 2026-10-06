@@ -162,6 +162,13 @@ async def create_current_membership(
     require_permission(context, Permission.MEMBERSHIP_MANAGE)
     if repository.get_workspace(context.workspace_id, context) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+    if repository.get_membership(context) is None and repository.workspace_has_members(context):
+        # Self-service membership only bootstraps an empty workspace. Joining a
+        # workspace that already has members needs an existing owner to add you.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This workspace already has members. Ask a workspace owner to add you.",
+        )
     role = next((role for role in ("owner", "member", "viewer") if role in context.roles), "viewer")
     now = utc_now()
     return repository.save_membership(

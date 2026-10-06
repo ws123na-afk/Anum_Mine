@@ -64,7 +64,7 @@ Roles are read from `realm_access.roles` and a top-level `roles` array, lowercas
 
 Tenant, workspace, membership, and onboarding routes (`POST /api/v1/tenants`, `POST /api/v1/workspaces`, `POST /api/v1/workspace-memberships/current`, `GET`/`PUT /api/v1/onboarding`) use `provisioning_tenant_context`. When the caller has no membership yet, it authorizes with the token's ANUM realm roles, so a realm `owner` can create the tenant and workspace named by its claims and become their first owner. Once a membership exists, its role governs these routes too.
 
-Known gap: a realm `owner` without a membership can claim ownership of any existing workspace in its own tenant through `POST /api/v1/workspace-memberships/current`. Invitations and membership management must replace this self-service path before multi-user tenants go to production.
+`POST /api/v1/workspace-memberships/current` only bootstraps an empty workspace: a realm `owner` without a membership gets 403 when the workspace already has members, so it cannot take over someone else's workspace. Adding people to a workspace that has members needs invitations and membership management, which are not built yet.
 
 ## Errors
 

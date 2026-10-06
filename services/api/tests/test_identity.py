@@ -29,7 +29,7 @@ from anum_api.identity import (
     validate_auth_configuration,
 )
 from anum_api.main import app, store
-from anum_api.schemas import WorkspaceMembership, utc_now
+from anum_api.schemas import Workspace, WorkspaceMembership, utc_now
 from anum_api.settings import Settings, settings
 
 
@@ -526,3 +526,28 @@ def test_realm_dev_user_is_marked_dev_only() -> None:
         for credential in user.get("credentials", []):
             assert "dev-only" in credential["value"].lower()
             assert "DEV-ONLY" in credential["userLabel"]
+
+
+def test_oidc_bootstrap_cannot_claim_a_workspace_that_already_has_members(oidc_api) -> None:
+    client, key, _ = oidc_api
+    now = utc_now()
+    store.workspaces[WORKSPACE] = Workspace(id=WORKSPACE, tenant_id=TENANT, name="Taken", created_at=utc_now(), updated_at=utc_now())
+    store.memberships[(TENANT, WORKSPACE, "someone_else")] = WorkspaceMembership(
+        tenant_id=TENANT, workspace_id=WORKSPACE, user_id="someone_else", role="owner",
+        active=True, created_at=now, updated_at=now,
+    )
+
+    response = client.post("/api/v1/workspace-memberships/current", headers=bearer(key.sign()))
+
+    assert response.status_code == 403
+    assert (TENANT, WORKSPACE, SUBJECT) not in store.memberships
+
+
+def test_oidc_bootstrap_can_join_an_empty_workspace(oidc_api) -> None:
+    client, key, _ = oidc_api
+    store.workspaces[WORKSPACE] = Workspace(id=WORKSPACE, tenant_id=TENANT, name="Fresh", created_at=utc_now(), updated_at=utc_now())
+
+    response = client.post("/api/v1/workspace-memberships/current", headers=bearer(key.sign()))
+
+    assert response.status_code == 201
+    assert response.json()["role"] == "owner"

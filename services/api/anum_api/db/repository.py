@@ -105,6 +105,20 @@ class SqlAlchemyRepository(AnumRepository):
         )
         return self._membership_from_record(record) if record else None
 
+    def workspace_has_members(self, context: TenantContext) -> bool:
+        # RLS already scopes this table to the context's tenant and workspace.
+        return (
+            self.session.scalars(
+                select(WorkspaceMembershipRecord.user_id)
+                .where(
+                    WorkspaceMembershipRecord.tenant_id == context.tenant_id,
+                    WorkspaceMembershipRecord.workspace_id == context.workspace_id,
+                )
+                .limit(1)
+            ).first()
+            is not None
+        )
+
     def create_task(self, task: Task) -> Task:
         record = self.session.get(TaskRecord, task.id)
         if record is None:
