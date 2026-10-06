@@ -27,6 +27,8 @@ Approval prompts should be concrete. Users need to see what will happen, which a
 
 Support basic approval records, task pausing, approve/reject decisions, audit logging, and one high-risk sample action.
 
+The October 2026 policy review is in the [Threat model](threat-model.md#approval-and-risk-policy-review). Before real external integrations: show the exact tool arguments and target on the approval (today it shows the tool name and the start of the prompt, not the model-generated payload), bind the approval to a hash of those arguments, expire pending approvals, and record who decided.
+
 ## Later
 
 Add delegated approvals, organization approval chains, policy-driven auto-approval, approval templates, mobile push approvals, emergency revocation, and simulations that explain why a policy allowed or blocked an action.

@@ -1,0 +1,149 @@
+# ANUM alert rules (docs/observability.md#alerts). Thresholds are proposals until
+# real traffic exists; each alert links its runbook section in docs/runbooks.md.
+# Severity: `page` wakes someone, `ticket` is handled in working hours.
+# Validate with: promtool check rules alerts.yaml && promtool test rules alerts.test.yaml
+groups:
+  - name: anum-api
+    rules:
+      - record: anum:http_requests:rate5m
+        expr: sum by (service_name) (rate(anum_http_server_request_duration_seconds_count[5m]))
+      - record: anum:http_server_errors:rate5m
+        expr: >
+          sum by (service_name) (
+            rate(anum_http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m])
+          )
+      - alert: AnumApiHighErrorRate
+        # More than 5% of requests answered 5xx, ignoring near-idle periods.
+        expr: >
+          (anum:http_server_errors:rate5m / anum:http_requests:rate5m) > 0.05
+          and anum:http_requests:rate5m > 0.1
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.service_name }} 5xx ratio is {{ $value | humanizePercentage }}"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#api-error-rate-or-latency
+      - alert: AnumApiHighLatencyP95
+        # Streaming routes (SSE) live for minutes by design and are excluded.
+        expr: >
+          histogram_quantile(0.95,
+            sum by (le, service_name) (
+              rate(anum_http_server_request_duration_seconds_bucket{http_route!~".*/stream",http_route!="unmatched"}[5m])
+            )
+          ) > 1
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.service_name }} p95 latency is {{ $value | humanizeDuration }}"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#api-error-rate-or-latency
+      - alert: AnumRateLimitRejectionsHigh
+        expr: sum(rate(anum_rate_limit_rejections_total[5m])) > 1
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The API rejects {{ $value | humanize }} requests/s with 429"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#api-error-rate-or-latency
+
+  - name: anum-events
+    rules:
+      - alert: AnumOutboxBacklogStale
+        # Every API replica and worker reports the same PostgreSQL backlog: use max.
+        expr: max by (anum_outbox) (anum_outbox_oldest_unpublished_age_seconds) > 300
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Oldest unpublished {{ $labels.anum_outbox }} event is {{ $value | humanizeDuration }} old"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#outbox-backlog
+      - alert: AnumOutboxBacklogLarge
+        expr: max by (anum_outbox) (anum_outbox_backlog) > 1000
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} {{ $labels.anum_outbox }} events are waiting to be published"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#outbox-backlog
+      - alert: AnumOutboxParkedEvents
+        expr: max by (anum_outbox) (anum_outbox_parked) > 0
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} events are parked as unpublishable"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#outbox-backlog
+
+  - name: anum-runtime
+    rules:
+      - alert: AnumTemporalActivityFailures
+        expr: >
+          (
+            sum(rate(anum_temporal_activity_outcomes_total{anum_activity_outcome=~"error|not_found|coordination_unavailable"}[10m]))
+            / sum(rate(anum_temporal_activity_outcomes_total[10m]))
+          ) > 0.1
+          and sum(rate(anum_temporal_activity_outcomes_total[10m])) > 0
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of agent run activities fail"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#temporal-stuck-or-failing-runs
+      - alert: AnumRunCoordinationUnavailable
+        expr: sum(rate(anum_run_lock_contention_total{anum_lock_outcome="unavailable"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: Run locks cannot reach Valkey; runs answer 503 and workers retry
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#temporal-stuck-or-failing-runs
+
+  - name: anum-model
+    rules:
+      - record: anum:model_cost_usd:increase1h
+        expr: sum(increase(anum_model_estimated_cost_usd_total[1h]))
+      - alert: AnumModelCostSpike
+        # The last hour costs three times the hourly average of the day before it,
+        # and at least one dollar (so tiny absolute changes do not page).
+        expr: >
+          anum:model_cost_usd:increase1h
+          > 3 * (sum(increase(anum_model_estimated_cost_usd_total[1d] offset 1h)) / 24)
+          and anum:model_cost_usd:increase1h > 1
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Estimated model spend is ${{ $value | printf \"%.2f\" }} in the last hour"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#model-cost-spike
+      - alert: AnumModelHourlySpendHigh
+        # Absolute ceiling (proposal): change once a budget is agreed.
+        expr: anum:model_cost_usd:increase1h > 10
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Estimated model spend is ${{ $value | printf \"%.2f\" }} in the last hour"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#model-cost-spike
+      - alert: AnumModelErrorRate
+        expr: >
+          (
+            sum by (gen_ai_provider_name) (rate(anum_model_call_duration_seconds_count{anum_model_status="error"}[10m]))
+            / sum by (gen_ai_provider_name) (rate(anum_model_call_duration_seconds_count[10m]))
+          ) > 0.2
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of {{ $labels.gen_ai_provider_name }} model calls fail"
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#model-cost-spike
+
+  - name: anum-telemetry
+    rules:
+      - alert: AnumTelemetryPipelineDown
+        expr: up{job="otel-collector"} == 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Prometheus cannot scrape the OpenTelemetry collector; every other alert is blind
+          runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#telemetry-pipeline

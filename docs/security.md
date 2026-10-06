@@ -71,11 +71,11 @@ Fixed findings when the scans were added: PyJWT 2.9.0 → 2.15.1 and Starlette 0
 
 ## Agent Safety
 
-Agents must not receive raw unrestricted access to user accounts, files, or integrations. Each tool call should be mediated by the runtime, checked against policy, logged, and paused for approval when risk requires it. Prompt injection must be treated as an expected attack class, especially when agents read external content.
+Agents must not receive raw unrestricted access to user accounts, files, or integrations. Each tool call should be mediated by the runtime, checked against policy, logged, and paused for approval when risk requires it. Prompt injection must be treated as an expected attack class, especially when agents read external content. The [Threat model](threat-model.md) maps the trust boundaries, what an injected instruction can and cannot do today, and the open gaps (SSRF through workspace model base URLs, approval content and binding, per-tenant budgets).
 
 ## Data Protection
 
-Tenant data should be encrypted in transit and at rest by infrastructure defaults. Sensitive fields should be minimized, redacted in logs, and excluded from analytics payloads. Memory records should carry provenance, scope, and retention metadata.
+Tenant data should be encrypted in transit and at rest by infrastructure defaults. Sensitive fields should be minimized, redacted in logs, and excluded from analytics payloads. Telemetry follows the redaction rules in [Observability](observability.md#redaction-rules): spans carry tenant and workspace ids only, never prompts, replies, query strings, credentials or client addresses. Backups contain every tenant and are handled as described in [Runbooks](runbooks.md#backup-and-restore). Memory records should carry provenance, scope, and retention metadata.
 
 ## Auditability
 

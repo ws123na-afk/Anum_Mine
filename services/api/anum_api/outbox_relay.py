@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -29,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from .event_bus import EventBus, encode_event, event_subject
 from .schemas import DomainEvent
+from .telemetry import OutboxSnapshot, register_outbox_source, telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,24 @@ _CLAIM = text(
     for update skip locked
     """
 )
+# Depth for the anum.outbox.* gauges, read as the relay role (unpublished rows only).
+# Parked rows (next attempt 'infinity') are counted apart so they do not hold the
+# oldest-age alert open forever; they need an operator, see docs/runbooks.md.
+_BACKLOG = text(
+    """
+    select
+      count(*) filter (where publish_next_attempt_at <> 'infinity') as backlog,
+      count(*) filter (where publish_next_attempt_at = 'infinity') as parked,
+      coalesce(
+        extract(epoch from now() - min(created_at)
+          filter (where publish_next_attempt_at <> 'infinity')),
+        0
+      ) as oldest_age_seconds
+    from domain_events
+    where published_at is null
+    """
+)
+_POSTGRES_OUTBOX = {"anum.outbox": "postgresql"}
 _MARK_PUBLISHED = text(
     """
     update domain_events
@@ -100,6 +120,7 @@ class PostgresOutboxRelay:
         poll_interval: float = 1.0,
         base_backoff: float = 0.5,
         max_backoff: float = 30.0,
+        metrics_interval: float = 15.0,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
@@ -111,6 +132,12 @@ class PostgresOutboxRelay:
         self.max_backoff = max_backoff
         self.published_count = 0
         self.rejected_count = 0
+        # Backlog gauges: refreshed from the relay loop at most every metrics_interval
+        # seconds (the metric export thread never queries the database).
+        self.metrics_interval = metrics_interval
+        self._snapshot: OutboxSnapshot | None = None
+        self._snapshot_at = 0.0
+        self._unregister_metrics: Callable[[], None] | None = None
         self._wake: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task[None] | None = None
@@ -118,6 +145,38 @@ class PostgresOutboxRelay:
 
     def backoff_for(self, attempts: int) -> float:
         return min(self.max_backoff, self.base_backoff * (2 ** max(0, attempts - 1)))
+
+    # -- backlog metrics ---------------------------------------------------------
+
+    def _read_backlog(self) -> OutboxSnapshot:
+        session = self.session_factory()
+        try:
+            session.execute(_SET_ROLE)
+            row = session.execute(_BACKLOG).mappings().one()
+            session.rollback()  # read-only; never hold the transaction open
+            return OutboxSnapshot(
+                backlog=int(row["backlog"] or 0),
+                oldest_age_seconds=float(row["oldest_age_seconds"] or 0),
+                parked=int(row["parked"] or 0),
+            )
+        finally:
+            session.close()
+
+    async def refresh_backlog(self) -> OutboxSnapshot | None:
+        """Re-read the backlog for the gauges. Failures leave the last value stale."""
+        try:
+            self._snapshot = await asyncio.to_thread(self._read_backlog)
+        except Exception:
+            logger.warning("Could not read the outbox backlog", exc_info=True)
+        self._snapshot_at = time.monotonic()
+        return self._snapshot
+
+    def backlog_snapshot(self) -> OutboxSnapshot | None:
+        return self._snapshot
+
+    async def _maybe_refresh_backlog(self) -> None:
+        if time.monotonic() - self._snapshot_at >= self.metrics_interval:
+            await self.refresh_backlog()
 
     # -- one pass ---------------------------------------------------------------
 
@@ -185,12 +244,14 @@ class PostgresOutboxRelay:
                 except ValueError as exc:
                     # Never publishable; park it instead of blocking the queue forever.
                     rejected.append((entry, (str(exc) or "unpublishable event")[:1000]))
+                    telemetry.outbox_rejected.add(1, _POSTGRES_OUTBOX)
                     logger.error("Event %s cannot be published; parked: %s", entry.event.id, exc)
                     continue
                 try:
                     await self.bus.publish(subject, data, msg_id=entry.event.id)
                 except Exception as exc:  # publication never escapes the relay
                     failed = (entry, (str(exc) or type(exc).__name__)[:1000])
+                    telemetry.outbox_publish_failures.add(1, _POSTGRES_OUTBOX)
                     logger.warning(
                         "Event %s publish failed (attempt %s): %s",
                         entry.event.id,
@@ -204,6 +265,8 @@ class PostgresOutboxRelay:
             result.failed = 1 if failed else 0
             result.rejected = len(rejected)
             self.published_count += result.published
+            if result.published:
+                telemetry.outbox_published.add(result.published, _POSTGRES_OUTBOX)
             self.rejected_count += result.rejected
             return result
         except BaseException:
@@ -241,6 +304,7 @@ class PostgresOutboxRelay:
         self._wake = asyncio.Event()
         self._stopping = False
         self._task = asyncio.create_task(self._run(), name="anum-outbox-relay")
+        self._unregister_metrics = register_outbox_source("postgresql", self.backlog_snapshot)
         self._wake.set()  # relay whatever a previous process left behind
 
     async def stop(self) -> None:
@@ -253,6 +317,9 @@ class PostgresOutboxRelay:
             except asyncio.CancelledError:
                 pass
         # Nothing is lost: unpublished rows stay in PostgreSQL for the next relay.
+        if self._unregister_metrics is not None:
+            self._unregister_metrics()
+            self._unregister_metrics = None
         self._loop = None
         self._wake = None
 
@@ -265,6 +332,8 @@ class PostgresOutboxRelay:
             except TimeoutError:
                 pass
             self._wake.clear()
+            # Measured even while the bus is down: that is when the backlog grows.
+            await self._maybe_refresh_backlog()
             if not self.bus.connected:
                 continue  # do not burn retry attempts while the bus is down
             try:

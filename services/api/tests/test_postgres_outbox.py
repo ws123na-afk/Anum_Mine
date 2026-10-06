@@ -395,3 +395,29 @@ def test_relay_publishes_to_jetstream_once_even_after_a_crash_before_marking(
     first, stored_first, resent, stored_again = asyncio.run(scenario())
     assert (first, stored_first) == (3, 3)
     assert (resent, stored_again) == (3, 0)  # Nats-Msg-Id dedupe drops the copies
+
+
+def test_backlog_metrics_count_due_and_parked_events_as_the_relay_role(
+    database_engine: Engine, repository_factory, scopes
+) -> None:
+    """The anum.outbox.* gauges (docs/observability.md) read through the narrow relay role."""
+    scope_a, scope_b = scopes
+    bad = record(repository_factory, scope_a, "task_bad", offset=1, event_type="Not A Subject!")
+    record(repository_factory, scope_a, "task_a", offset=2)
+    record(repository_factory, scope_b, "task_b", offset=3)
+    bus = InMemoryEventBus()  # not connected: the backlog builds up
+    relay = relay_for(database_engine, bus)
+
+    before = asyncio.run(relay.refresh_backlog())
+    assert before is not None
+    assert (before.backlog, before.parked) == (3, 0)
+    # FIXED_NOW is in the past, so the oldest event is (much) older than a minute.
+    assert before.oldest_age_seconds > 60
+
+    asyncio.run(bus.connect())
+    asyncio.run(relay.drain())
+    after = asyncio.run(relay.refresh_backlog())
+    assert after is not None
+    assert (after.backlog, after.parked, after.oldest_age_seconds) == (0, 1, 0)
+    assert relay.backlog_snapshot() == after
+    assert outbox_state(database_engine)[bad.id][0] is None  # parked, still unpublished

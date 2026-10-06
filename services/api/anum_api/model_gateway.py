@@ -12,9 +12,12 @@ from time import perf_counter
 from typing import Any, Protocol, TypeVar
 
 import httpx
+from opentelemetry import trace
+from opentelemetry.trace import Span, SpanKind
 from pydantic import BaseModel, Field
 
 from .settings import ModelPrice, settings
+from .telemetry import annotate_model_span, model_call_span, telemetry
 
 # Model calls are logged with metadata only (provider, model, latency, attempts, token
 # counts, cost, status, error class). Prompts, responses, URLs with credentials, API keys
@@ -72,7 +75,7 @@ class MockModelGateway:
     async def generate_text(self, prompt: str) -> ModelResponse:
         words = prompt.split()
         summary = " ".join(words[:18]) if words else "empty task"
-        return ModelResponse(
+        response = ModelResponse(
             text=f"Prepared ANUM plan for: {summary}",
             usage=ModelUsage(
                 input_tokens=max(1, len(words)),
@@ -83,6 +86,17 @@ class MockModelGateway:
             ),
             metadata=ModelCallMetadata(latency_ms=0, finish_reason="stop"),
         )
+        telemetry.record_model_call(
+            provider=self.provider,
+            model=self.model,
+            operation="generate_text",
+            status="ok",
+            duration_seconds=0.0,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            estimated_cost_usd=0.0,
+        )
+        return response
 
     async def generate_structured(
         self,
@@ -225,16 +239,17 @@ class OpenAICompatibleGateway:
         self._jitter = jitter
 
     async def generate_text(self, prompt: str) -> ModelResponse:
-        payload, response, state, started = await self._complete(
-            "generate_text",
-            {"model": self.model, "messages": [{"role": "user", "content": prompt}]},
-        )
-        choice = payload["choices"][0]
-        normalized = self._normalize(
-            choice["message"]["content"] or "", payload, response, state, started
-        )
-        self._log_call("generate_text", started, state, "ok", usage=normalized.usage)
-        return normalized
+        with model_call_span(self.provider, self.model, "generate_text"):
+            payload, response, state, started = await self._complete(
+                "generate_text",
+                {"model": self.model, "messages": [{"role": "user", "content": prompt}]},
+            )
+            choice = payload["choices"][0]
+            normalized = self._normalize(
+                choice["message"]["content"] or "", payload, response, state, started
+            )
+            self._log_call("generate_text", started, state, "ok", usage=normalized.usage)
+            return normalized
 
     async def generate_structured(
         self,
@@ -242,25 +257,26 @@ class OpenAICompatibleGateway:
         response_model: type[StructuredModel],
     ) -> tuple[StructuredModel, ModelResponse]:
         schema = response_model.model_json_schema()
-        payload, response, state, started = await self._complete(
-            "generate_structured",
-            {
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": response_model.__name__,
-                        "strict": True,
-                        "schema": schema,
+        with model_call_span(self.provider, self.model, "generate_structured"):
+            payload, response, state, started = await self._complete(
+                "generate_structured",
+                {
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": response_model.__name__,
+                            "strict": True,
+                            "schema": schema,
+                        },
                     },
                 },
-            },
-        )
-        choice = payload["choices"][0]
-        text = choice["message"]["content"] or "{}"
-        normalized = self._normalize(text, payload, response, state, started)
-        self._log_call("generate_structured", started, state, "ok", usage=normalized.usage)
+            )
+            choice = payload["choices"][0]
+            text = choice["message"]["content"] or "{}"
+            normalized = self._normalize(text, payload, response, state, started)
+            self._log_call("generate_structured", started, state, "ok", usage=normalized.usage)
         return response_model.model_validate_json(text), normalized
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
@@ -269,6 +285,19 @@ class OpenAICompatibleGateway:
         state = _CallState()
         started = perf_counter()
         yielded = False
+        # Not made current: an async generator resumes in its consumer's context, so a
+        # current span would leak into (or be detached from) unrelated code.
+        span = telemetry.tracer.start_span(
+            f"stream_text {self.model}",
+            kind=SpanKind.CLIENT,
+            attributes={
+                "gen_ai.provider.name": self.provider,
+                "gen_ai.request.model": self.model,
+                "gen_ai.operation.name": "stream_text",
+            },
+            record_exception=False,
+            set_status_on_exception=False,
+        )
         try:
             while True:
                 state.attempts += 1
@@ -301,7 +330,7 @@ class OpenAICompatibleGateway:
                                 if content:
                                     yielded = True
                                     yield content
-                            self._log_call("stream_text", started, state, "ok")
+                            self._log_call("stream_text", started, state, "ok", span=span)
                             return
                 except _RETRYABLE_EXCEPTIONS as exc:
                     # Once text reached the caller a retry would duplicate it.
@@ -311,17 +340,20 @@ class OpenAICompatibleGateway:
                         else self.retry_policy.delay_before_retry(state.attempts, None, self._jitter)
                     )
                     if delay is None:
-                        self._log_call("stream_text", started, state, "error", error=exc)
+                        self._log_call(
+                            "stream_text", started, state, "error", error=exc, span=span
+                        )
                         raise
                     self._log_retry("stream_text", state, type(exc).__name__, delay)
                     await self._sleep(delay)
                     continue
                 except Exception as exc:
-                    self._log_call("stream_text", started, state, "error", error=exc)
+                    self._log_call("stream_text", started, state, "error", error=exc, span=span)
                     raise
                 self._log_retry("stream_text", state, f"http_{state.http_status}", delay)
                 await self._sleep(delay)
         finally:
+            span.end()
             if owns_client:
                 await client.aclose()
 
@@ -447,9 +479,11 @@ class OpenAICompatibleGateway:
         *,
         usage: ModelUsage | None = None,
         error: BaseException | None = None,
+        span: Span | None = None,
     ) -> None:
         # Only metadata: the error is reduced to its class name because httpx and JSON
-        # error messages can embed URLs, headers or response text.
+        # error messages can embed URLs, headers or response text. The same fields feed
+        # the model metrics and the call's span (docs/observability.md).
         fields = {
             "provider": self.provider,
             "model": usage.model if usage else self.model,
@@ -468,6 +502,29 @@ class OpenAICompatibleGateway:
             "model_call " + " ".join(f"{name}=%s" for name in fields),
             *fields.values(),
             extra={"anum_model_call": fields},
+        )
+        error_type = type(error).__name__ if error else None
+        telemetry.record_model_call(
+            provider=self.provider,
+            model=self.model,
+            operation=operation,
+            status=status,
+            duration_seconds=perf_counter() - started,
+            input_tokens=usage.input_tokens if usage else None,
+            output_tokens=usage.output_tokens if usage else None,
+            estimated_cost_usd=usage.estimated_cost_usd if usage else None,
+            error_type=error_type,
+        )
+        annotate_model_span(
+            span if span is not None else trace.get_current_span(),
+            status=status,
+            attempts=state.attempts,
+            http_status=state.http_status,
+            response_model=usage.model if usage else None,
+            input_tokens=usage.input_tokens if usage else None,
+            output_tokens=usage.output_tokens if usage else None,
+            estimated_cost_usd=usage.estimated_cost_usd if usage else None,
+            error_type=error_type,
         )
 
 

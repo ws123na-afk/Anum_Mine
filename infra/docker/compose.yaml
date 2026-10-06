@@ -87,12 +87,78 @@ services:
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.110.0
-    command: ["--config=/etc/otelcol/config.yaml"]
+    # The base config only prints what it receives. With the observability profile set
+    # ANUM_OTELCOL_OVERLAY=observability so the overlay sends traces to Tempo, metrics
+    # to Prometheus and logs to Loki (docs/observability.md#local-stack).
+    command:
+      - "--config=/etc/otelcol/config.yaml"
+      - "--config=/etc/otelcol/overlays/${ANUM_OTELCOL_OVERLAY:-none}.yaml"
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - ../observability/otel-collector:/etc/otelcol/overlays:ro
     ports:
       - "4317:4317"
       - "4318:4318"
+
+  # Local observability backends. Opt in with
+  #   ANUM_OTELCOL_OVERLAY=observability docker compose -f infra/docker/compose.yaml --profile observability up
+  # Grafana: http://localhost:3000 (anonymous viewer; dashboards from infra/observability).
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.5.5
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yaml"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ../observability/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ../observability/prometheus/alerts.yaml:/etc/prometheus/rules/alerts.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
+  tempo:
+    profiles: ["observability"]
+    image: grafana/tempo:2.9.5
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ../observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  loki:
+    profiles: ["observability"]
+    image: grafana/loki:3.6.17
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ../observability/loki/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:12.4.12
+    environment:
+      # Local only: anonymous read-only access, no sign-up, no usage reporting.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
 
   # Application containers. Opt in with `--profile app`; the default
   # `docker compose up` still starts infrastructure only (docs/infrastructure.md).
@@ -113,6 +179,8 @@ services:
       # (after `python -m alembic upgrade head`) and ANUM_RUNTIME_BACKEND=temporal on
       # both api and worker; the in-memory repository is not shared between them.
       ANUM_RUNTIME_BACKEND: inline
+      # Telemetry goes to the collector (docs/observability.md); unset to turn it off.
+      ANUM_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     ports:
       - "8000:8000"
     depends_on:
@@ -133,6 +201,7 @@ services:
       ANUM_TEMPORAL_TARGET: temporal:7233
       ANUM_TEMPORAL_TASK_QUEUE: anum-agent-runs
       ANUM_S3_ENDPOINT: http://s3:9000
+      ANUM_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     # The image's HEALTHCHECK probes the API port, which the worker does not serve.
     healthcheck:
       disable: true
@@ -159,3 +228,7 @@ volumes:
   postgres-data:
   s3-data:
   nats-data:
+  prometheus-data:
+  tempo-data:
+  loki-data:
+  grafana-data:

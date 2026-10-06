@@ -1,0 +1,121 @@
+# promtool test rules alerts.test.yaml (run from this directory).
+rule_files:
+  - alerts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: 5xx ratio above 5% pages; a quiet healthy API does not
+    interval: 1m
+    input_series:
+      - series: 'anum_http_server_request_duration_seconds_count{service_name="anum-api",http_route="/api/v1/tasks",http_response_status_code="200"}'
+        values: "0+54x30"
+      - series: 'anum_http_server_request_duration_seconds_count{service_name="anum-api",http_route="/api/v1/tasks",http_response_status_code="500"}'
+        values: "0+6x30"
+      - series: 'anum_http_server_request_duration_seconds_count{service_name="anum-worker",http_route="/health",http_response_status_code="200"}'
+        values: "0+60x30"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: AnumApiHighErrorRate
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: AnumApiHighErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service_name: anum-api
+            exp_annotations:
+              summary: "anum-api 5xx ratio is 10%"
+              runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#api-error-rate-or-latency
+
+  - name: p95 latency above one second ignores streaming routes
+    interval: 1m
+    input_series:
+      - series: 'anum_http_server_request_duration_seconds_bucket{service_name="anum-api",http_route="/api/v1/tasks",le="0.5"}'
+        values: "0x30"
+      - series: 'anum_http_server_request_duration_seconds_bucket{service_name="anum-api",http_route="/api/v1/tasks",le="1"}'
+        values: "0x30"
+      - series: 'anum_http_server_request_duration_seconds_bucket{service_name="anum-api",http_route="/api/v1/tasks",le="2.5"}'
+        values: "0+60x30"
+      - series: 'anum_http_server_request_duration_seconds_bucket{service_name="anum-api",http_route="/api/v1/tasks",le="+Inf"}'
+        values: "0+60x30"
+      - series: 'anum_http_server_request_duration_seconds_bucket{service_name="anum-web",http_route="/api/v1/events/stream",le="1"}'
+        values: "0x30"
+      - series: 'anum_http_server_request_duration_seconds_bucket{service_name="anum-web",http_route="/api/v1/events/stream",le="+Inf"}'
+        values: "0+60x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AnumApiHighLatencyP95
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service_name: anum-api
+            exp_annotations:
+              summary: "anum-api p95 latency is 2.425s"
+              runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#api-error-rate-or-latency
+
+  - name: an outbox event older than five minutes pages once per outbox
+    interval: 1m
+    input_series:
+      # Two API replicas report the same PostgreSQL backlog.
+      - series: 'anum_outbox_oldest_unpublished_age_seconds{anum_outbox="postgresql",service_instance_id="a"}'
+        values: "0 60 120 180 240 300 360 420 480 540 600 660 720"
+      - series: 'anum_outbox_oldest_unpublished_age_seconds{anum_outbox="postgresql",service_instance_id="b"}'
+        values: "0 60 120 180 240 300 360 420 480 540 600 660 720"
+      - series: 'anum_outbox_parked{anum_outbox="postgresql",service_instance_id="a"}'
+        values: "0x12"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AnumOutboxBacklogStale
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: AnumOutboxBacklogStale
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              anum_outbox: postgresql
+            exp_annotations:
+              summary: "Oldest unpublished postgresql event is 12m 0s old"
+              runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#outbox-backlog
+      - eval_time: 12m
+        alertname: AnumOutboxParkedEvents
+        exp_alerts: []
+
+  - name: model spend tripling against the previous day raises a cost spike
+    interval: 1m
+    input_series:
+      # A day at 6 cents an hour, then 6 dollars an hour.
+      - series: 'anum_model_estimated_cost_usd_total{gen_ai_provider_name="openai-compatible",gen_ai_request_model="gpt-4.1-mini"}'
+        values: "0+0.001x1440 1.44+0.1x120"
+    alert_rule_test:
+      - eval_time: 1400m
+        alertname: AnumModelCostSpike
+        exp_alerts: []
+      - eval_time: 1530m
+        alertname: AnumModelCostSpike
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: "Estimated model spend is $6.00 in the last hour"
+              runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#model-cost-spike
+      - eval_time: 1530m
+        alertname: AnumModelHourlySpendHigh
+        exp_alerts: []
+
+  - name: Valkey outages for run locks page
+    interval: 1m
+    input_series:
+      - series: 'anum_run_lock_contention_total{anum_lock_outcome="unavailable",anum_lock_source="worker"}'
+        values: "0+5x20"
+      - series: 'anum_run_lock_contention_total{anum_lock_outcome="busy",anum_lock_source="api"}'
+        values: "0+5x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: AnumRunCoordinationUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: Run locks cannot reach Valkey; runs answer 503 and workers retry
+              runbook_url: https://github.com/ws123na-afk/Anum_Mine/blob/main/docs/runbooks.md#temporal-stuck-or-failing-runs

@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, status
+from opentelemetry import trace
 
 from .repository import AnumRepository, InMemoryRepository
 from .event_bus import EventCollectingRepository, build_event_runtime
@@ -12,6 +13,7 @@ from .schemas import TenantContext
 from .schemas import WorkspaceMembership as WorkspaceMembershipRecord
 from .settings import settings
 from .store import store
+from .telemetry import set_tenant_attributes
 from .identity import (
     JwksUnavailableError,
     OidcClaims,
@@ -211,8 +213,14 @@ async def tenant_context(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Active workspace membership required",
             )
-        return _membership_context(identity, membership)
-    return _header_context(authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles)
+        return _traced(_membership_context(identity, membership))
+    return _traced(_header_context(authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles))
+
+
+def _traced(context: TenantContext) -> TenantContext:
+    """Tag the request span with the resolved tenant and workspace ids (ids only)."""
+    set_tenant_attributes(trace.get_current_span(), context.tenant_id, context.workspace_id)
+    return context
 
 
 async def provisioning_tenant_context(

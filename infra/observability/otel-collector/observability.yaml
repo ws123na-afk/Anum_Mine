@@ -1,0 +1,25 @@
+# Merged over infra/docker/otel-collector.yaml when the `observability` compose
+# profile runs with ANUM_OTELCOL_OVERLAY=observability (docs/observability.md).
+# Receivers and processors come from the base file; only exporters change.
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  # Scraped by Prometheus (infra/observability/prometheus/prometheus.yaml). Resource
+  # attributes (service.name, deployment.environment.name) become labels.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    traces:
+      exporters: [otlp/tempo]
+    metrics:
+      exporters: [prometheus]
+    logs:
+      exporters: [otlphttp/loki]

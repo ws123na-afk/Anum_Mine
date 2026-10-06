@@ -14,6 +14,7 @@ Status on `main` after PR #12 (Stages 2 to 5, code side). Every CI job is green 
 | Events and runtime | NATS JetStream with a restart-durable PostgreSQL outbox and narrow relay role; tenant-filtered SSE. Valkey run locks and shared rate limits; S3-compatible file storage (SeaweedFS locally); Temporal worker for durable runs. All adapters are off by default and exercised in CI. |
 | Clients | Flutter (real data, depth design, wake-by-name voice), web/desktop (voice, WebGL orb), Kotlin Android. None signed or device-verified yet. |
 | Deployment | API and web images, compose `app` profile with a worker, `deploy-staging.yml` pushing to GHCR. No cloud, OpenTofu or staging environment yet: waits on the owner's cloud choice. |
+| Operations | OpenTelemetry in API and worker with a local Prometheus/Tempo/Loki/Grafana profile, dashboards and tested alert rules; backup and restore drill tooling; threat model and runbooks. Production telemetry backend, paging and scheduled encrypted backups wait on the cloud choice. |
 | Still in memory | Skills, governance, integrations, file metadata and notification preferences stores (Stage 3 remainder). |
 
 ## Stage 1: Green and Honest CI
@@ -71,10 +72,10 @@ Exit: a push to `main` deploys to staging and passes a smoke test (login, task, 
 
 Goal: safe to hold real user data ([Security](security.md), [Observability](observability.md)).
 
-- Threat model for agent tool use and prompt injection; review approval and risk policies ([Approvals and risk](approvals-and-risk.md)).
+- Threat model for agent tool use and prompt injection; review approval and risk policies ([Approvals and risk](approvals-and-risk.md)). Done: [Threat model](threat-model.md) with assets, trust boundaries, STRIDE threats with code references, and the approval policy review. Open from it: SSRF guard on workspace model `base_url` (G1), approvals that show and bind the exact tool arguments and expire (A1 to A3), per-tenant model budgets (G4).
 - Dependency, container and secret scanning in CI; SAST for Python, TypeScript, Dart and Rust. Partly done: pip-audit, `pnpm audit --prod` (high and above), gitleaks, bandit and CodeQL (Python, JavaScript/TypeScript). Open: container image scanning, Dart and Rust SAST.
-- OpenTelemetry traces, metrics and logs exported from the collector to a real backend, with dashboards and alerts for errors, latency, queue depth and model cost.
-- Backups with a restore drill; documented incident and on-call runbooks.
+- OpenTelemetry traces, metrics and logs exported from the collector to a real backend, with dashboards and alerts for errors, latency, queue depth and model cost. Done in code ([Observability](observability.md#implementation)): API and worker export OTLP when `ANUM_OTEL_EXPORTER_OTLP_ENDPOINT` is set (traces across requests, model calls, outbound HTTP, SQL, NATS publish and Temporal; request, model cost/tokens, outbox backlog, rate-limit, run-lock and activity metrics; logs with trace and correlation ids; redaction at export, tested); the compose `observability` profile runs Prometheus, Tempo, Loki and Grafana with three provisioned dashboards and twelve `promtool`-tested alert rules. Open: a production backend and Alertmanager routing to on-call, which wait on the cloud choice.
+- Backups with a restore drill; documented incident and on-call runbooks. Done in code: `infra/backup/anum_backup.py` (consistent `pg_dump` with a manifest, restore into a fresh `anum_restore_*` database, verification of counts per tenant and of RLS isolation), run in the PostgreSQL CI job by `tests/test_backup_restore.py` and drilled locally on PostgreSQL 16; [Runbooks](runbooks.md) for incidents, on-call, each alert, restore, and `ANUM_SECRETS_KEY` and Keycloak key rotation; RPO/RTO proposals. Open: scheduled backups to encrypted storage, point-in-time recovery and a drill on production-sized data, which need the cloud account; a re-encryption command for `ANUM_SECRETS_KEY` rotation.
 - Rate limiting, request size limits, CORS and CSP locked to production origins. Done in code: limits and headers in the API, CSP and security headers in the web container, startup checks that reject wildcard, localhost and non-https CORS origins outside `local`. Open: Valkey-backed rate limits shared across replicas, and setting the real origins once domains exist.
 - External penetration test before general availability.
 
@@ -108,6 +109,9 @@ These cannot be produced from the repository and block the stages noted.
 | Domain names and DNS access | Stage 4 |
 | Model provider account and API key | Stage 2 |
 | Production Keycloak hosting decision (self-hosted or managed) | Stage 2 |
+| Telemetry backend (managed or self-hosted) and a paging/on-call tool | Stage 5 |
+| Confirmed RPO/RTO targets, backup retention and backup storage location ([Runbooks](runbooks.md#recovery-objectives)) | Stage 5 |
+| Model spend budget (replaces the placeholder `AnumModelHourlySpendHigh` threshold) | Stage 5 |
 | Apple Developer and Google Play accounts | Stage 6 |
 | Code-signing certificates for Windows and macOS | Stage 6 |
 | Notification provider credentials (FCM, APNs) | Stage 6 |

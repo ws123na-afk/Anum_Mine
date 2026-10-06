@@ -1,0 +1,13 @@
+# Loads the dashboards-as-code in infra/observability/grafana/dashboards. Edits made
+# in the UI are not saved back: change the JSON in the repository instead.
+apiVersion: 1
+
+providers:
+  - name: anum
+    folder: ANUM
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

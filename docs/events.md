@@ -67,6 +67,10 @@ Deployment: give the relay its own login that is a member of `anum_outbox_relay`
 
 The in-memory repository has no durable storage, so after the request finishes the recorded events are handed to an in-process outbox. It publishes in order, waits for the JetStream acknowledgement, and retries a failed publish with exponential backoff (0.5 s doubling to 30 s); the API reconnects to NATS in the background with its own backoff. The queue is bounded (10,000 events; overflow drops the oldest from publication with a warning) and events still queued when the process exits are not republished. This mode is for local development.
 
+### Monitoring
+
+Both outboxes report `anum.outbox.backlog`, `anum.outbox.oldest_unpublished_age` and `anum.outbox.parked` gauges plus published, failed and rejected counters ([Observability](observability.md#metrics)). The PostgreSQL relay reads the backlog as `anum_outbox_relay` from its own loop, also while NATS is down. Each publish is a `publish ANUM_EVENTS` producer span, and the message carries a W3C `traceparent` header next to `Nats-Msg-Id` so consumers can continue the trace. Alerts and the procedure are in [Runbooks](runbooks.md#outbox-backlog).
+
 ## Membership Events
 
 Workspace invitations and membership management ([Identity](identity.md#invitations-and-membership-management)) emit `workspace_invitation.created`, `workspace_invitation.accepted`, `workspace_invitation.revoked`, `workspace_member.added`, `workspace_member.role_changed`, `workspace_member.deactivated` and `workspace_member.reactivated`. Payloads carry ids, roles, the expiry and whether an invitation is email-bound; never the invitation token or the invitee's email (the email is kept in the audit record only).

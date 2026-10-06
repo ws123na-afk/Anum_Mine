@@ -10,11 +10,14 @@ persisted checkpoint, advances it by one step, and commits. See
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
+from opentelemetry import trace
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -31,7 +34,8 @@ from .temporal_workflow import (
     AgentRunWorkflow,
     workflow_id_for,
 )
-from .valkey import LockNotAcquired, RunLockManager
+from .telemetry import set_tenant_attributes, telemetry, temporal_interceptors
+from .valkey import CoordinationUnavailable, LockNotAcquired, RunLockManager
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +126,10 @@ def _missing_run_error(request: "AgentRunInput") -> ApplicationError:
     return ApplicationError(message, type="RunNotFound", non_retryable=True)
 
 
+# anum.temporal.activity.outcomes values for the activity's own ApplicationErrors.
+ACTIVITY_ERROR_OUTCOMES = {"RunNotVisibleYet": "not_visible_yet", "RunNotFound": "not_found"}
+
+
 class AgentRunActivities:
     """The ``anum.advance_run`` activity. Each call moves a run forward one step.
 
@@ -152,12 +160,29 @@ class AgentRunActivities:
     @activity.defn(name=ADVANCE_ACTIVITY)
     async def advance_run(self, request: AgentRunInput) -> AgentRunState:
         context = context_for(request)
+        set_tenant_attributes(trace.get_current_span(), request.tenant_id, request.workspace_id)
+        started = time.perf_counter()
+        outcome = "error"
         try:
             async with self.locks.hold(context, request.task_id):
-                return await self.advance(context, request)
+                state = await self.advance(context, request)
+            outcome = "advanced"
+            return state
         except LockNotAcquired as exc:
             # Retryable: another worker or API replica is handling this task right now.
+            outcome = "locked"
             raise ApplicationError("Run is locked by another worker", type="RunLocked") from exc
+        except CoordinationUnavailable:
+            outcome = "coordination_unavailable"
+            raise
+        except ApplicationError as exc:
+            outcome = ACTIVITY_ERROR_OUTCOMES.get(exc.type or "", "application_error")
+            raise
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            telemetry.record_activity(ADVANCE_ACTIVITY, outcome, time.perf_counter() - started)
 
     def _load(self, repository: AnumRepository, context: TenantContext, request: AgentRunInput):
         task = repository.get_task_for_update(request.task_id, context)
@@ -237,7 +262,9 @@ class RunDispatcher:
         if self._client is None:
             from temporalio.client import Client
 
-            self._client = await Client.connect(self.target, namespace=self.namespace)
+            self._client = await Client.connect(
+                self.target, namespace=self.namespace, interceptors=temporal_interceptors()
+            )
         return self._client
 
     async def start(self, request: AgentRunInput) -> str:

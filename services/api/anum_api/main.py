@@ -71,6 +71,7 @@ from .skills_api import router as skills_router
 from .onboarding import router as onboarding_router, workspace_model_gateway
 from .workspace_members import router as workspace_members_router
 from .identity import validate_auth_configuration
+from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -83,6 +84,7 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         await event_runtime.stop()
+        shutdown_telemetry()
 
 
 enforce_startup_policy(settings)
@@ -112,6 +114,11 @@ app.add_middleware(
     ],
     expose_headers=[CORRELATION_ID_HEADER, "Retry-After"],
 )
+# Outermost ANUM middleware, so 413/429 answers and CORS preflights are counted too.
+app.add_middleware(HttpMetricsMiddleware)
+# OTLP export when ANUM_OTEL_EXPORTER_OTLP_ENDPOINT / OTEL_EXPORTER_OTLP_ENDPOINT is set;
+# otherwise only log correlation (docs/observability.md).
+setup_telemetry(settings, service_name="anum-api", app=app, engines=sqlalchemy_engines(event_runtime))
 register_exception_handlers(app)
 app.include_router(voice_router)
 app.include_router(phase5_router)
