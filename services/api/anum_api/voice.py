@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
 from .model_gateway import ModelGateway, build_model_gateway
+from .onboarding import workspace_model_gateway
 from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .settings import settings
@@ -222,7 +223,7 @@ router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
 _gateway: ModelGateway | None = None
 
 
-def voice_model_gateway() -> ModelGateway:
+def _default_voice_gateway() -> ModelGateway:
     global _gateway
     if _gateway is None:
         _gateway = build_model_gateway(
@@ -232,6 +233,11 @@ def voice_model_gateway() -> ModelGateway:
             base_url=settings.model_base_url,
         )
     return _gateway
+
+
+def voice_model_gateway(context: TenantContext = Depends(tenant_context)) -> ModelGateway:
+    """Answer with the model this workspace chose in Settings, else the server default."""
+    return workspace_model_gateway(context, _default_voice_gateway())
 
 
 def _session_or_404(session_id: str, context: TenantContext) -> VoiceSession:

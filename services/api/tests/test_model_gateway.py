@@ -67,3 +67,55 @@ def test_gateway_factory_rejects_unknown_provider() -> None:
         assert "Unsupported model provider" in str(exc)
     else:
         raise AssertionError("unknown provider should fail closed")
+
+
+def _chat_reply(content: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "model": "llama3.2",
+            "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+        },
+    )
+
+
+def test_ollama_gateway_needs_no_key_and_sends_no_auth_header() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        assert "authorization" not in request.headers
+        return _chat_reply("Hello from Ollama.")
+
+    gateway = build_model_gateway(
+        "ollama",
+        model="llama3.2",
+        base_url="http://localhost:11434/v1",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    response = asyncio.run(gateway.generate_text("Say hello"))
+
+    assert response.text == "Hello from Ollama."
+    assert response.usage.provider == "ollama"
+    assert str(seen[0].url) == "http://localhost:11434/v1/chat/completions"
+
+
+def test_ollama_gateway_uses_local_defaults_when_given_openai_defaults() -> None:
+    gateway = build_model_gateway("ollama")
+
+    assert isinstance(gateway, OpenAICompatibleGateway)
+    assert gateway.base_url == "http://localhost:11434/v1"
+    assert gateway.model == "llama3.2"
+    assert gateway.api_key is None
+
+
+def test_openai_compatible_still_requires_a_key() -> None:
+    for spelling in ("openai-compatible", "openai_compatible"):
+        try:
+            build_model_gateway(spelling)
+        except ValueError as exc:
+            assert "API key is required" in str(exc)
+        else:
+            raise AssertionError("hosted providers must fail closed without a key")

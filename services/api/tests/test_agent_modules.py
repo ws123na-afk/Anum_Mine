@@ -94,3 +94,32 @@ def test_tool_policy_blocks_external_action_without_required_role() -> None:
     )
 
     assert decision.outcome == ToolPolicyOutcome.BLOCK
+
+
+def test_runtime_uses_real_model_answer_as_task_result() -> None:
+    import httpx
+
+    from anum_api.model_gateway import build_model_gateway
+    from anum_api.repository import InMemoryRepository
+    from anum_api.runtime import AgentRuntime
+    from anum_api.store import InMemoryStore
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "llama3.2",
+                "choices": [{"message": {"content": "Paris is the capital of France."}, "finish_reason": "stop"}],
+            },
+        )
+
+    gateway = build_model_gateway(
+        "ollama", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    runtime = AgentRuntime(gateway, InMemoryRepository(InMemoryStore()))
+
+    run, approval = asyncio.run(runtime.run_task(make_task("What is the capital of France?"), make_context()))
+
+    assert approval is None
+    assert run.status == TaskStatus.COMPLETED
+    assert run.result == "Paris is the capital of France."

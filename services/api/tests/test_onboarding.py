@@ -1,4 +1,8 @@
+import httpx
+import pytest
 from fastapi.testclient import TestClient
+
+from anum_api import onboarding
 
 from anum_api.identity import local_sessions
 from anum_api.main import app, store
@@ -109,6 +113,82 @@ def test_model_connection_can_be_verified() -> None:
     }
 
 
+OLLAMA_CONFIG = {"provider": "ollama", "model": "llama3.2", "base_url": "http://localhost:11434/v1"}
+
+
+def _use_transport(monkeypatch: pytest.MonkeyPatch, handler) -> list[httpx.Request]:
+    seen: list[httpx.Request] = []
+
+    def recording(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return handler(request)
+
+    monkeypatch.setattr(
+        onboarding,
+        "_test_client_factory",
+        lambda: httpx.AsyncClient(transport=httpx.MockTransport(recording)),
+    )
+    return seen
+
+
+def test_ollama_is_accepted_without_api_key_and_counts_as_configured() -> None:
+    _, headers = create_session()
+
+    configured = client.put("/api/v1/model-config", headers=headers, json=OLLAMA_CONFIG)
+
+    assert configured.status_code == 200
+    assert configured.json()["provider"] == "ollama"
+    assert configured.json()["credential_configured"] is False
+    assert client.get("/api/v1/onboarding", headers=headers).json()["model_configured"] is True
+
+
+def test_ollama_connection_test_calls_the_endpoint_without_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, headers = create_session()
+    client.put("/api/v1/model-config", headers=headers, json=OLLAMA_CONFIG)
+    seen = _use_transport(
+        monkeypatch,
+        lambda _: httpx.Response(
+            200,
+            json={"model": "llama3.2", "choices": [{"message": {"content": "ANUM_OK"}, "finish_reason": "stop"}]},
+        ),
+    )
+
+    tested = client.post("/api/v1/model-config/test", headers=headers)
+
+    assert tested.status_code == 200
+    assert tested.json()["provider"] == "ollama"
+    assert str(seen[0].url) == "http://localhost:11434/v1/chat/completions"
+    assert "authorization" not in seen[0].headers
+
+
+def test_unreachable_ollama_returns_actionable_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, headers = create_session()
+    client.put("/api/v1/model-config", headers=headers, json=OLLAMA_CONFIG)
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    _use_transport(monkeypatch, refuse)
+
+    tested = client.post("/api/v1/model-config/test", headers=headers)
+
+    assert tested.status_code == 502
+    assert tested.json()["error"]["message"] == (
+        "Could not reach Ollama at http://localhost:11434/v1. Is it running? Try: ollama serve"
+    )
+
+
+def test_missing_ollama_model_suggests_pull(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, headers = create_session()
+    client.put("/api/v1/model-config", headers=headers, json=OLLAMA_CONFIG)
+    _use_transport(monkeypatch, lambda _: httpx.Response(404, json={"error": "model not found"}))
+
+    tested = client.post("/api/v1/model-config/test", headers=headers)
+
+    assert tested.status_code == 502
+    assert "ollama pull llama3.2" in tested.json()["error"]["message"]
+
+
 def test_notification_preferences_are_user_scoped() -> None:
     _, first_headers = create_session(user_id="first_user")
     _, second_headers = create_session(user_id="second_user")
@@ -209,3 +289,21 @@ def test_workspace_switch_rejects_missing_membership() -> None:
     _, headers = create_session("workspace_one")
     denied = client.post("/api/v1/auth/local/workspace/switch", headers=headers, json={"workspace_id": "workspace_other"})
     assert denied.status_code == 403
+
+
+def test_onboarding_reports_a_taken_workspace_id_instead_of_crashing() -> None:
+    from fastapi.testclient import TestClient
+
+    from anum_api.main import app
+
+    client = TestClient(app)
+    first = {"x-tenant-id": "tenant_first", "x-workspace-id": "workspace_shared_id", "x-user-id": "first_owner", "x-user-roles": "owner"}
+    second = {**first, "x-tenant-id": "tenant_second", "x-user-id": "second_owner"}
+    body = {"organization_name": "First", "workspace_name": "Shared"}
+    assert client.put("/api/v1/onboarding", headers=first, json=body).status_code == 200
+
+    response = client.put("/api/v1/onboarding", headers=second, json={**body, "organization_name": "Second"})
+
+    assert response.status_code == 409
+    assert "already in use" in response.text
+    assert "tenant_first" not in response.text

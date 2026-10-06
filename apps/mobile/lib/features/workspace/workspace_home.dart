@@ -63,7 +63,9 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                   openTaskDetail(context, widget.controller, task),
             ),
             TasksScreen(controller: widget.controller),
-            VoiceScreen(controller: widget.voiceController),
+            VoiceScreen(
+                controller: widget.voiceController,
+                onOpenApprovals: () => _select(3)),
             ApprovalsScreen(controller: widget.controller),
             AutomationsScreen(controller: widget.controller),
             ResourcesScreen(controller: widget.controller)

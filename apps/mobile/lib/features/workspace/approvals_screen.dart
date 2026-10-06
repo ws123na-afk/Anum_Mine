@@ -93,8 +93,9 @@ class ApprovalsScreen extends StatelessWidget {
                             tone: approval.status == 'approved'
                                 ? AnumTone.ok
                                 : AnumTone.stop,
-                            title: approval.action,
-                            subtitle: approval.reason,
+                            title: approvalTitle(approval, controller.tasks),
+                            subtitle: approvalReason(approval,
+                                approvalTitle(approval, controller.tasks)),
                             detail:
                                 '${approval.status[0].toUpperCase()}${approval.status.substring(1)} · ${exactTime(approval.createdAt)}',
                             trailing: AnumPill(
@@ -134,13 +135,18 @@ class _PendingCard extends StatelessWidget {
               style: TextStyle(color: p.faint, fontSize: 12)),
         ]),
         const SizedBox(height: 10),
-        Text(approval.action,
+        Text(approvalTitle(approval, controller.tasks),
             style: TextStyle(
                 color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 2),
+        Text('Tool: ${approval.action}',
+            style: TextStyle(color: p.faint, fontSize: 12)),
         const SizedBox(height: 6),
         Text('Why it stopped', style: TextStyle(color: p.faint, fontSize: 12)),
         const SizedBox(height: 2),
-        Text(approval.reason, style: TextStyle(color: p.muted, fontSize: 14)),
+        Text(
+            approvalReason(approval, approvalTitle(approval, controller.tasks)),
+            style: TextStyle(color: p.muted, fontSize: 14)),
         if (task != null) ...[
           const SizedBox(height: 10),
           InkWell(
@@ -194,7 +200,7 @@ class _PendingCard extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: const Text('Approve this action?'),
         content: Text(
-            'The agent will now: ${approval.action}\n\nRisk: ${approval.risk}. This is recorded in the audit log.'),
+            'The agent will now: ${approvalTitle(approval, controller.tasks)}\n\nRisk: ${approval.risk}. This is recorded in the audit log.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),

@@ -42,8 +42,12 @@ class _ResourcesScreenState extends State<ResourcesScreen>
                   child: AnumHeader(
                     eyebrow: 'Workspace',
                     title: 'Resources',
-                    subtitle:
-                        '${c.files.length} files · ${c.memories.length} memories · ${c.skills.length} skills · ${c.integrations.length} services',
+                    subtitle: [
+                      _plural(c.files.length, 'file'),
+                      _plural(c.memories.length, 'memory', 'memories'),
+                      _plural(c.skills.length, 'skill'),
+                      _plural(c.integrations.length, 'service'),
+                    ].join(', '),
                     large: true,
                   ),
                 ),
@@ -431,3 +435,6 @@ class _ServicesTab extends StatelessWidget {
         _ => Icons.hub_outlined,
       };
 }
+
+String _plural(int n, String one, [String? many]) =>
+    '$n ${n == 1 ? one : (many ?? '${one}s')}';

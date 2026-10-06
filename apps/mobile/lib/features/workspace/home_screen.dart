@@ -113,8 +113,9 @@ class HomeScreen extends StatelessWidget {
                 AnumRow(
                   icon: Icons.front_hand_outlined,
                   tone: riskTone(approval.risk),
-                  title: approval.action,
-                  subtitle: approval.reason,
+                  title: approvalTitle(approval, controller.tasks),
+                  subtitle: approvalReason(
+                      approval, approvalTitle(approval, controller.tasks)),
                   detail: 'Requested ${relativeTime(approval.createdAt)}',
                   trailing: AnumPill(
                       label: '${approval.risk} risk',

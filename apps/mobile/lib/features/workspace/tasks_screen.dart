@@ -214,9 +214,11 @@ class _TaskCard extends StatelessWidget {
           _Meta(
               icon: Icons.update,
               text: 'Updated ${relativeTime(task.updatedAt)}'),
-          _Meta(
-              icon: Icons.timeline,
-              text: steps == 0 ? 'No steps yet' : '$steps steps'),
+          // The list has no run details; only show a step count when we have one.
+          if (steps > 0)
+            _Meta(
+                icon: Icons.timeline,
+                text: steps == 1 ? '1 step' : '$steps steps'),
         ]),
       ]),
     );
@@ -260,6 +262,13 @@ class _TaskDetailState extends State<TaskDetailScreen> {
   late WorkspaceTask task = widget.task;
   bool _busy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // The list carries only task summaries; fetch the latest run for its steps and result.
+    _refresh();
+  }
+
   Future<void> _act(Future<WorkspaceTask?> Function() action) async {
     setState(() => _busy = true);
     final next = await action();
@@ -271,8 +280,12 @@ class _TaskDetailState extends State<TaskDetailScreen> {
   }
 
   Future<void> _refresh() async {
-    final next = await widget.controller.loadTask(task.id);
-    if (mounted) setState(() => task = next);
+    try {
+      final next = await widget.controller.loadTask(task.id);
+      if (mounted) setState(() => task = next);
+    } on Object {
+      // Keep showing the summary; pull to refresh can try again.
+    }
   }
 
   @override

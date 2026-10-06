@@ -73,6 +73,35 @@ class SettingsController extends ChangeNotifier {
     }
   }
 
+  /// Saves a new model for this workspace and checks it answers. Task runs and
+  /// voice answers use it from the next request.
+  Future<bool> changeModel({
+    required String provider,
+    required String model,
+    required String baseUrl,
+    String? apiKey,
+  }) async {
+    phase = SettingsPhase.saving;
+    message = null;
+    notifyListeners();
+    try {
+      this.model = await repository.configureModel(
+          provider: provider, model: model, baseUrl: baseUrl, apiKey: apiKey);
+      await repository.testModelConnection();
+      phase = SettingsPhase.ready;
+      message = 'Saved. $model is answering tasks and voice now.';
+      notifyListeners();
+      return true;
+    } on Object catch (error) {
+      _fail(error);
+      // A model that does not answer is something to fix in the form, not a
+      // reason to hide the rest of Settings.
+      if (phase == SettingsPhase.error) phase = SettingsPhase.ready;
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> signOut() => repository.signOut();
 
   void _fail(Object error) {

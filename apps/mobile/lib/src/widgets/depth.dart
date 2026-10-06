@@ -131,12 +131,19 @@ class _AnumSurfaceState extends State<AnumSurface> {
         ]),
       ),
     );
+    // When a summary label is given it replaces the children's text, so a
+    // screen reader announces the card once instead of twice.
+    final summarise = widget.semanticLabel != null;
     if (widget.onTap == null) {
-      return Semantics(label: widget.semanticLabel, child: card);
+      return Semantics(
+          label: widget.semanticLabel,
+          excludeSemantics: summarise,
+          child: card);
     }
     return Semantics(
       button: true,
       label: widget.semanticLabel,
+      excludeSemantics: summarise,
       child: GestureDetector(
         onTapDown: (_) => setState(() => _pressed = true),
         onTapUp: (_) => setState(() => _pressed = false),
@@ -176,12 +183,9 @@ class AnumHeader extends StatelessWidget {
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (eyebrow != null)
-            Text(eyebrow!.toUpperCase(),
+            Text(eyebrow!,
                 style: TextStyle(
-                    color: p.sky,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8)),
+                    color: p.sky, fontSize: 12.5, fontWeight: FontWeight.w600)),
           if (eyebrow != null) const SizedBox(height: 4),
           Text(title,
               style: TextStyle(

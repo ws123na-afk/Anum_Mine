@@ -289,6 +289,34 @@ class _ModelState extends State<ModelConnectionScreen> {
       key = TextEditingController();
   String provider = 'openai_compatible';
   bool reveal = false;
+
+  /// Defaults per provider. Ollama is free and runs on the user's computer.
+  /// The ANUM API server (not the phone) calls this URL, so it is the address
+  /// of Ollama as seen from the server: localhost when both run on one machine.
+  static const _presets = <String, (String, String)>{
+    'openai_compatible': ('gpt-4.1-mini', 'https://api.openai.com/v1'),
+    'ollama': ('llama3.2', 'http://localhost:11434/v1'),
+  };
+
+  bool get _needsKey => provider == 'openai_compatible';
+
+  void _selectProvider(String next) {
+    final previous = _presets[provider];
+    final preset = _presets[next];
+    setState(() {
+      // Only replace values the user has not edited away from the old preset.
+      if (preset != null) {
+        if (previous == null || model.text.trim() == previous.$1) {
+          model.text = preset.$1;
+        }
+        if (previous == null || url.text.trim() == previous.$2) {
+          url.text = preset.$2;
+        }
+      }
+      provider = next;
+    });
+  }
+
   @override
   void dispose() {
     model.dispose();
@@ -311,13 +339,19 @@ class _ModelState extends State<ModelConnectionScreen> {
                 decoration: const InputDecoration(
                     labelText: 'Provider',
                     prefixIcon: Icon(Icons.hub_outlined)),
+                isExpanded: true,
                 items: const [
+                  DropdownMenuItem(
+                      value: 'ollama',
+                      child: Text('Ollama (free, runs on your computer)')),
                   DropdownMenuItem(
                       value: 'openai_compatible',
                       child: Text('OpenAI compatible')),
                   DropdownMenuItem(value: 'mock', child: Text('Local mock'))
                 ],
-                onChanged: (v) => setState(() => provider = v!)),
+                onChanged: (v) {
+                  if (v != null) _selectProvider(v);
+                }),
             const SizedBox(height: AnumSpacing.md),
             TextFormField(
                 controller: model,
@@ -330,15 +364,22 @@ class _ModelState extends State<ModelConnectionScreen> {
                 controller: url,
                 textDirection: TextDirection.ltr,
                 keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                    labelText: 'Base URL', prefixIcon: Icon(Icons.link)),
+                decoration: InputDecoration(
+                    labelText: 'Base URL',
+                    prefixIcon: const Icon(Icons.link),
+                    helperMaxLines: 3,
+                    helperText: provider == 'ollama'
+                        ? 'The ANUM server calls this address, not your phone. '
+                            'Keep localhost when Ollama runs on the same '
+                            'computer as the ANUM server.'
+                        : null),
                 validator: (v) {
                   final u = Uri.tryParse(v ?? '');
                   return u != null && u.isAbsolute
                       ? null
                       : 'Enter an absolute URL';
                 }),
-            if (provider != 'mock') ...[
+            if (_needsKey) ...[
               const SizedBox(height: AnumSpacing.md),
               TextFormField(
                   controller: key,
@@ -363,7 +404,7 @@ class _ModelState extends State<ModelConnectionScreen> {
                         provider: provider,
                         model: model.text.trim(),
                         baseUrl: url.text.trim(),
-                        apiKey: key.text.trim());
+                        apiKey: _needsKey ? key.text.trim() : '');
                   }
                 },
                 icon: const Icon(Icons.cable),

@@ -73,3 +73,29 @@ String integrationLabel(String status) => switch (status) {
       'disabled' => 'Not enabled',
       _ => status,
     };
+
+/// What an approval is about, in words a person understands: the task's own
+/// title when we have it, otherwise the tool name made readable.
+String approvalTitle(WorkspaceApproval approval, List<WorkspaceTask> tasks) {
+  final task = tasks.where((t) => t.id == approval.taskId).firstOrNull;
+  if (task != null) return task.title;
+  final words = approval.action
+      .split(RegExp(r'[._-]'))
+      .where((w) => w.isNotEmpty)
+      .join(' ');
+  return words.isEmpty
+      ? approval.action
+      : '${words[0].toUpperCase()}${words.substring(1)}';
+}
+
+/// The approval's reason without a trailing "Proposed action: …" that only
+/// repeats the title shown above it.
+String approvalReason(WorkspaceApproval approval, String title) {
+  final marker = approval.reason.indexOf('Proposed action:');
+  if (marker < 0) return approval.reason;
+  final proposed =
+      approval.reason.substring(marker + 'Proposed action:'.length).trim();
+  return proposed == title
+      ? approval.reason.substring(0, marker).trim()
+      : approval.reason;
+}

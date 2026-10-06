@@ -22,6 +22,7 @@ Voice approval requires extra care. The system should confirm high-impact decisi
 
 - Tenant-scoped voice sessions and configurable session, 30-day, or permanent transcript retention.
 - Flutter push-to-talk with device speech recognition, English and Arabic locale selection, partial transcription, stop/cancel, and editable review.
+- Flutter Ask view: a named assistant ("Anum" by default, renamed in the app) that wakes when you say its name, with hands-free listening, a 3D orb that shows listening, thinking and speaking, spoken replies through the device voice, and a governance signal for answers that need confirmation or visual approval. Questions go to `POST /api/v1/voice/sessions/{id}/ask` and are answered by the workspace's saved model (for example Ollama).
 - Explicit command confirmation before task creation and governed execution.
 - Visual approval escalation for sensitive actions; spoken approval cannot bypass policy.
 - Permission-denied recovery and a keyboard fallback.
