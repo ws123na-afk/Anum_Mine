@@ -153,6 +153,34 @@ class MembershipSummary {
   final bool active;
 }
 
+/// One of the caller's own active memberships in their tenant, from
+/// `GET /api/v1/me/workspace-memberships` (docs/identity.md, My workspaces).
+class CallerMembership {
+  const CallerMembership({
+    required this.tenantId,
+    required this.workspaceId,
+    required this.role,
+    this.workspaceName,
+  });
+
+  factory CallerMembership.fromJson(JsonMap json) => CallerMembership(
+        tenantId: json['tenant_id']! as String,
+        workspaceId: json['workspace_id']! as String,
+        role: json['role']! as String,
+        workspaceName:
+            (json['workspace_name'] as String?)?.trim().isEmpty ?? true
+                ? null
+                : (json['workspace_name']! as String).trim(),
+      );
+
+  final String tenantId;
+  final String workspaceId;
+  final String role;
+
+  /// The workspace's display name, or null when the API could not read one.
+  final String? workspaceName;
+}
+
 class OnboardingStatus {
   const OnboardingStatus({
     required this.complete,

@@ -62,9 +62,14 @@ class WorkspaceController extends ChangeNotifier {
       _mutate(() => repository.resumeTask(id));
 
   /// The API's refusal of a decision, by approval id: a 403 such as the
-  /// two-person rule refusing to let you approve your own high-risk task.
+  /// two-person rule refusing to let you approve your own high-risk task, or a
+  /// 409 such as a second approval by the same person in an approval chain.
   /// Shown on that approval's card; the screen stays usable.
   final Map<String, String> decisionRefusals = {};
+
+  /// The signed-in user, so an approval chain they already approved offers no
+  /// second approval (set by the app once signed in; null until then).
+  String? currentUserId;
 
   Future<void> decide(WorkspaceApproval approval,
       {required bool approve, String? reason}) async {
@@ -127,7 +132,8 @@ class WorkspaceController extends ChangeNotifier {
       await load();
       return result;
     } on ApiException catch (error) {
-      if (onRefused != null && error.isPermissionDenied) {
+      if (onRefused != null &&
+          (error.isPermissionDenied || error.statusCode == 409)) {
         onRefused(error.message);
         await load();
       } else if (error.isBudgetExceeded) {

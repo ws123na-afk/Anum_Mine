@@ -55,6 +55,7 @@ TABLES_IN_DELETE_ORDER = (
     "workspace_model_configs",
     "memories",
     "domain_events",
+    "approval_approvers",
     "approvals",
     "agent_run_steps",
     "agent_runs",

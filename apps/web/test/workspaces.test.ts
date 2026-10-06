@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { WorkspaceMember } from '@anum/contracts';
 import { approvalPolicyBody, mapApprovalPolicy, policyChanged, policyDraft, policyUpdatedLabel, POLICY_SWITCHES, twoPersonWarning } from '../src/lib/policy.ts';
-import { EMPTY_MEMORY, forget, isWorkspaceId, memoryKey, readMemory, remember, resolveWorkspace, select, workspaceOptions, writeMemory, type KeyValueStorage } from '../src/lib/workspaces.ts';
+import { EMPTY_MEMORY, forget, isWorkspaceId, membershipEntries, membershipLabel, memoryKey, readMemory, remember, resolveWorkspace, select, workspaceOptions, writeMemory, type KeyValueStorage } from '../src/lib/workspaces.ts';
 
 const member = (userId: string, role: WorkspaceMember['role'], active = true): WorkspaceMember => ({
   tenantId: 't', workspaceId: 'w', userId, role, active, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
@@ -91,5 +91,37 @@ describe('workspace selection', () => {
       { id: 'workspace_foundation', current: false, source: 'default' },
     ]);
     assert.deepEqual(workspaceOptions('workspace_foundation', ['workspace_foundation'], EMPTY_MEMORY), [{ id: 'workspace_foundation', current: true, source: 'default' }]);
+  });
+
+  test('maps the caller membership list and drops malformed ids', () => {
+    assert.deepEqual(membershipEntries([
+      { workspace_id: 'workspace_sales', workspace_name: ' Sales ', role: 'member' },
+      { workspace_id: 'workspace_ops', workspace_name: null, role: 'owner' },
+      { workspace_id: 'bad id', workspace_name: 'Nope', role: 'owner' },
+    ]), [
+      { workspaceId: 'workspace_sales', workspaceName: 'Sales', role: 'member' },
+      { workspaceId: 'workspace_ops', workspaceName: null, role: 'owner' },
+    ]);
+  });
+
+  test('switcher options put the API memberships after the current workspace', () => {
+    const memory = remember(EMPTY_MEMORY, 'workspace_old');
+    const memberships = [
+      { workspaceId: 'workspace_foundation', workspaceName: 'Foundation', role: 'owner' },
+      { workspaceId: 'workspace_sales', workspaceName: 'Sales', role: 'viewer' },
+    ];
+    const options = workspaceOptions('workspace_foundation', ['workspace_foundation', 'workspace_claim'], memory, memberships);
+    assert.deepEqual(options, [
+      { id: 'workspace_foundation', current: true, source: 'member', name: 'Foundation', role: 'owner' },
+      { id: 'workspace_sales', current: false, source: 'member', name: 'Sales', role: 'viewer' },
+      { id: 'workspace_claim', current: false, source: 'default' },
+      { id: 'workspace_old', current: false, source: 'remembered' },
+    ]);
+    assert.equal(membershipLabel(options[1]), 'Sales · your role: viewer');
+    assert.equal(membershipLabel({ id: 'workspace_x', current: false, source: 'member', name: null }), 'Your membership');
+    assert.equal(membershipLabel({ id: 'workspace_x', current: false, source: 'member', name: 'workspace_x', role: 'owner' }), 'your role: owner');
+    assert.equal(membershipLabel(options[2]), null);
+    // Without the list (it could not be loaded) the options are what the client knows.
+    assert.deepEqual(workspaceOptions('workspace_foundation', ['workspace_foundation'], EMPTY_MEMORY, null), [{ id: 'workspace_foundation', current: true, source: 'default' }]);
   });
 });

@@ -63,7 +63,9 @@ class WorkspaceApproval {
       this.decidedBy,
       this.decisionReason,
       this.requestedBy,
-      this.target});
+      this.target,
+      this.requiredApprovals = 1,
+      this.approvers = const []});
 
   /// [action] is the exact tool the agent will call and [arguments] the exact
   /// arguments it will send (secret-looking values arrive as `[REDACTED]`).
@@ -87,6 +89,26 @@ class WorkspaceApproval {
   /// for internal tools.
   final String? target;
 
+  /// Distinct approvals the organization approval rules require (approval
+  /// chains, docs/approvals-and-risk.md); 1 without a chain.
+  final int requiredApprovals;
+
+  /// Who has approved so far, oldest first.
+  final List<ApprovalApprover> approvers;
+
+  /// "1 of 3 approvals" for an approval that needs several people, else null.
+  String? get progressLabel {
+    if (requiredApprovals <= 1 && approvers.length <= 1) return null;
+    final total = requiredApprovals > approvers.length
+        ? requiredApprovals
+        : approvers.length;
+    return '${approvers.length} of $total approvals';
+  }
+
+  /// Whether [userId] already approved; the API accepts one approval per person.
+  bool approvedBy(String? userId) =>
+      userId != null && approvers.any((a) => a.userId == userId);
+
   /// A pending approval past [expiresAt] reads as expired.
   String effectiveStatus([DateTime? now]) => status == 'pending' &&
           expiresAt != null &&
@@ -97,6 +119,21 @@ class WorkspaceApproval {
   /// Approve is offered only while pending, unexpired and bound to a hash.
   bool canApprove([DateTime? now]) =>
       effectiveStatus(now) == 'pending' && payloadHash != null;
+}
+
+/// One recorded approve decision of an approval.
+class ApprovalApprover {
+  const ApprovalApprover(
+      {required this.userId, required this.approvedAt, this.reason});
+  final String userId;
+  final DateTime approvedAt;
+  final String? reason;
+}
+
+/// Names joined for a sentence: "a", "a and b", "a, b and c".
+String joinNames(List<String> names) {
+  if (names.length <= 1) return names.isEmpty ? '' : names.first;
+  return '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
 }
 
 /// Longest decision reason the API accepts.

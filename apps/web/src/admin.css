@@ -77,6 +77,11 @@
 .approvalRefusal svg { color: var(--d-stop); flex: none; height: 18px; margin-top: 2px; width: 18px; }
 .approvalRefusal strong { color: var(--d-stop); display: block; font-size: 13px; }
 .approvalRefusal p { color: var(--d-text) !important; font-size: 13px; margin: 2px 0 0; }
+/* Approval chains (docs/approvals-and-risk.md, Approval chains): "1 of 3 approvals" and who approved. */
+.approvalProgress { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 6px; margin-top: 6px; }
+.approvalProgress strong { color: var(--d-text); font-size: 13px; }
+.approvalProgress meter { height: 8px; width: 96px; }
+.approvalProgressNote { color: var(--d-muted); font-size: 12px; margin: 4px 0 0; }
 /* Workspace switcher in the top bar */
 .workspaceSwitcher { position: relative; }
 .topActions .workspaceSwitch { align-items: center; cursor: pointer; display: inline-flex; gap: 6px; max-width: min(46vw, 360px); }

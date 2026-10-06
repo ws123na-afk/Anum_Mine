@@ -228,6 +228,51 @@ def test_rejected_approval_fails_the_run(dispatcher: RecordingDispatcher) -> Non
     assert (failed.phase, failed.status) == ("failed", "failed")
 
 
+def test_an_approval_chain_signals_the_workflow_only_when_complete(dispatcher: RecordingDispatcher) -> None:
+    """Temporal path: partial approvals leave the workflow waiting; the last one signals it."""
+    from anum_api.governance import governance_store
+
+    governance_store.clear()
+    rule = client.post(
+        "/api/v1/organization/approval-rules",
+        headers=HEADERS,
+        json={"name": "Three approvers", "action_pattern": "external.*", "minimum_approvers": 3},
+    )
+    assert rule.status_code == 201, rule.text
+    try:
+        request = _queue("Publish the final update", dispatcher)
+        activities = activities_with(CountingGateway())
+        waiting = _advance(activities, request)
+        assert waiting.phase == "waiting_approval" and waiting.approval_id
+        body = _shown(waiting.approval_id)
+
+        for number, approver in enumerate(("approver_b", "approver_c"), start=1):
+            partial = client.post(
+                f"/api/v1/approvals/{waiting.approval_id}/approve",
+                headers={**HEADERS, "x-user-id": approver},
+                json=body,
+            )
+            assert partial.status_code == 200, partial.text
+            assert partial.json()["approval"]["status"] == "pending"
+            assert len(partial.json()["approval"]["approvers"]) == number
+            assert dispatcher.signals == []
+            # The worker sees a still-pending approval and keeps waiting.
+            assert _advance(activities, request).phase == "waiting_approval"
+
+        final = client.post(
+            f"/api/v1/approvals/{waiting.approval_id}/approve",
+            headers={**HEADERS, "x-user-id": "approver_d"},
+            json=body,
+        )
+        assert final.status_code == 200, final.text
+        assert final.json()["approval"]["status"] == "approved"
+        assert dispatcher.signals == [(request.task_id, "approval_decided", (waiting.approval_id,))]
+        done = _advance(activities, request)
+        assert (done.phase, done.status) == ("completed", "completed")
+    finally:
+        governance_store.clear()
+
+
 def test_crash_during_an_approved_high_risk_action_is_never_repeated(dispatcher: RecordingDispatcher) -> None:
     request = _queue("Publish the final update", dispatcher)
     crashes: list[str] = []

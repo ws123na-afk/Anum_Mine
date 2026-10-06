@@ -20,6 +20,7 @@ GET /v1/tasks/{task_id}/latest-run
 POST /v1/tasks/{task_id}/cancel
 POST /v1/approvals/{approval_id}/approve   (body: {"payload_hash": "..."}, see approvals-and-risk.md)
 POST /v1/approvals/{approval_id}/reject
+GET /v1/me/workspace-memberships           (the caller's active memberships in their tenant, see identity.md)
 GET /v1/agent-runs/{run_id}/events
 ```
 
@@ -35,7 +36,7 @@ Every error uses one envelope, `{"error": {"code", "message", "correlation_id", 
 
 ## Shared Types
 
-`packages/contracts` holds the camelCase types the web and desktop clients use. `src/admin.ts` covers workspace members and invitations (`WorkspaceMember`, `WorkspaceInvitation`, `CreatedInvitation`, `AcceptedInvitation`), monthly model budgets (`ModelBudgetOverview`, `ModelBudgetScopeView`, `ModelBudgetLimits`) and `ApiErrorCode`; `apps/web/src/lib/admin.ts` maps the API's snake_case JSON to them.
+`packages/contracts` holds the camelCase types the web and desktop clients use. `src/admin.ts` covers workspace members and invitations (`WorkspaceMember`, `WorkspaceInvitation`, `CreatedInvitation`, `AcceptedInvitation`), monthly model budgets (`ModelBudgetOverview`, `ModelBudgetScopeView`, `ModelBudgetLimits`) and `ApiErrorCode`; `apps/web/src/lib/admin.ts` maps the API's snake_case JSON to them. `src/index.ts` also has `CallerMembership` (`GET /api/v1/me/workspace-memberships`) and, on `Approval`, `requiredApprovals` and `approvers` (`ApprovalApprover`) for approval chains; `apps/web/src/lib/api.ts` maps them.
 
 ## Now
 

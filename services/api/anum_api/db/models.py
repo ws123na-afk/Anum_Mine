@@ -203,6 +203,37 @@ class ApprovalRecord(Base, TimestampMixin, WorkspaceScopedMixin):
             name="ck_approvals_payload_hash",
         ),
         Index("ix_approvals_tenant_workspace_status", "tenant_id", "workspace_id", "status"),
+        # Target of the approval_approvers scope-bound foreign key (0013).
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_approvals_scope_id"),
+    )
+
+
+class ApprovalApproverRow(Base):
+    """One approve decision of an approval chain (0013_approvers_and_directory).
+
+    One row per distinct approver; the approval turns ``approved`` when the number of
+    rows reaches the requirement of the matching organization approval rules.
+    """
+
+    __tablename__ = "approval_approvers"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    approval_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500))
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "approval_id"],
+            ["approvals.tenant_id", "approvals.workspace_id", "approvals.id"],
+            name="fk_approval_approvers_approval",
+        ),
+        CheckConstraint(
+            "payload_hash ~ '^[0-9a-f]{64}$'", name="ck_approval_approvers_payload_hash"
+        ),
     )
 
 

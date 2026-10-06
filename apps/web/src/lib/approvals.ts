@@ -96,11 +96,47 @@ export function decisionSummary(approval: Approval, format: (iso: string) => str
   const when = approval.decidedAt ? ` ${format(approval.decidedAt)}` : '';
   if (status === 'approved' || status === 'rejected') {
     const verb = status === 'approved' ? 'Approved' : 'Rejected';
-    return `${verb} by ${approval.decidedBy ?? 'unknown user'}${when ? ` ·${when}` : ''}`;
+    const approvers = (approval.approvers ?? []).map((approver) => approver.userId);
+    const who = status === 'approved' && approvers.length > 1 ? joinNames(approvers) : approval.decidedBy ?? 'unknown user';
+    return `${verb} by ${who}${when ? ` ·${when}` : ''}`;
   }
   if (status === 'expired') {
     const at = approval.decidedAt ?? approval.expiresAt;
     return `Expired without a decision${at ? ` · ${format(at)}` : ''}`;
   }
   return '';
+}
+
+export interface ApprovalProgress {
+  /** Distinct approvals recorded so far. */
+  collected: number;
+  /** Distinct approvals the organization rules require. */
+  required: number;
+  /** "1 of 3 approvals". */
+  label: string;
+  /** Who approved so far, oldest first. */
+  approvers: string[];
+}
+
+/**
+ * Progress of an approval chain (docs/approvals-and-risk.md, Approval chains), or null when the
+ * approval needs a single decision.
+ */
+export function approvalProgress(approval: Approval): ApprovalProgress | null {
+  const required = approval.requiredApprovals ?? 1;
+  const approvers = (approval.approvers ?? []).map((approver) => approver.userId);
+  if (required <= 1 && approvers.length <= 1) return null;
+  const total = Math.max(required, approvers.length);
+  return { collected: approvers.length, required: total, label: `${approvers.length} of ${total} approvals`, approvers };
+}
+
+/** Whether this user already approved (the API refuses a second approval by the same person). */
+export function hasApproved(approval: Approval, userId: string | null | undefined): boolean {
+  return Boolean(userId) && (approval.approvers ?? []).some((approver) => approver.userId === userId);
+}
+
+/** Names joined for a sentence: "a", "a and b", "a, b and c". */
+export function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }

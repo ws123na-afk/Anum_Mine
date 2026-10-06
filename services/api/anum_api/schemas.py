@@ -90,6 +90,20 @@ class WorkspaceMembership(BaseModel):
     updated_at: datetime
 
 
+class CallerMembership(BaseModel):
+    """One of the caller's own active memberships in their tenant (``GET /me/workspace-memberships``).
+
+    ``workspace_name`` is the workspace's display name, or null if it cannot be read.
+    ``status`` is always ``active``: deactivated memberships are not listed.
+    """
+
+    tenant_id: str
+    workspace_id: str
+    workspace_name: str | None = None
+    role: str
+    status: str = "active"
+
+
 class InvitationStatus(StrEnum):
     PENDING = "pending"
     ACCEPTED = "accepted"
@@ -194,6 +208,37 @@ class Approval(BaseModel):
     decision_reason: str | None = None
     requested_by: str | None = None
     target: str | None = None
+    # Approval chains (0013_approvers_and_directory): how many distinct approvals the
+    # matching organization rules require (1 without a chain) and who has approved so far,
+    # oldest first. Filled by the approval routes; not stored on the approval row.
+    required_approvals: int = 1
+    approvers: list["ApprovalApprover"] = Field(default_factory=list)
+
+
+class ApprovalApprover(BaseModel):
+    """One recorded approve decision on an approval (one per distinct user)."""
+
+    user_id: str
+    approved_at: datetime
+    reason: str | None = None
+
+
+class ApprovalApproverRecord(BaseModel):
+    """Stored form of an approver row, scoped to its tenant and workspace."""
+
+    tenant_id: str
+    workspace_id: str
+    approval_id: str
+    user_id: str
+    payload_hash: str
+    reason: str | None = None
+    approved_at: datetime
+
+    def view(self) -> ApprovalApprover:
+        return ApprovalApprover(user_id=self.user_id, approved_at=self.approved_at, reason=self.reason)
+
+
+Approval.model_rebuild()
 
 
 DECISION_REASON_MAX_CHARS = 500

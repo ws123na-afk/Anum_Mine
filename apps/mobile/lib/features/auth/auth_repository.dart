@@ -97,9 +97,29 @@ class AuthRepository {
             'new_password': newPassword
           }));
 
+  /// The caller's active memberships in every workspace of their tenant,
+  /// sorted by the API (name, then id). The picker still checks the membership
+  /// in the chosen workspace before switching.
+  Future<List<CallerMembership>> myWorkspaces() async {
+    final value = await api.request('GET', '/api/v1/me/workspace-memberships');
+    return ((value['data'] as List<Object?>?) ?? const [])
+        .cast<JsonMap>()
+        .map(CallerMembership.fromJson)
+        .toList();
+  }
+
   Future<LocalSession> switchWorkspace(String workspaceId) async {
     final current = await sessions.read();
     if (current != null && current.isOidc) {
+      // Ask the API first: only an active membership in the target workspace
+      // switches. A refusal (403) throws and leaves the session unchanged.
+      final membership = MembershipSummary.fromJson(await api.request(
+          'GET', '/api/v1/workspace-memberships/current',
+          headers: {'x-workspace-id': workspaceId}));
+      if (!membership.active || membership.workspaceId != workspaceId) {
+        throw ApiException(
+            403, 'You do not have an active membership in $workspaceId.');
+      }
       // The token stays the same; the API resolves the membership for the
       // workspace named in x-workspace-id on each request.
       final next = current.copyWith(

@@ -10,6 +10,7 @@ from anum_api.schemas import (
     AgentRun,
     AgentRunStep,
     Approval,
+    ApprovalApproverRecord,
     ApprovalStatus,
     DomainEvent,
     RiskLevel,
@@ -29,6 +30,7 @@ from anum_api.tool_governance import ToolGovernance, tool_governance_from
 
 from .models import (
     AgentRunRecord,
+    ApprovalApproverRow,
     ApprovalRuleRecord,
     PolicyPackRecord,
     AuditRecordRow,
@@ -591,6 +593,58 @@ class SqlAlchemyRepository(AnumRepository):
         record.updated_at = policy.updated_at or utc_now()
         self.session.flush()
         return self.get_approval_policy(context)
+
+    def add_approval_approver(
+        self, approver: ApprovalApproverRecord, context: TenantContext
+    ) -> ApprovalApproverRecord:
+        """Record one approve decision (RLS and the scope-bound foreign key apply)."""
+        if (approver.tenant_id, approver.workspace_id) != (context.tenant_id, context.workspace_id):
+            raise ValueError("Approver must belong to the caller's tenant and workspace")
+        key = (approver.tenant_id, approver.workspace_id, approver.approval_id, approver.user_id)
+        if self.session.get(ApprovalApproverRow, key) is not None:
+            raise ValueError(f"User already approved {approver.approval_id!r}")
+        self.session.add(
+            ApprovalApproverRow(
+                tenant_id=approver.tenant_id,
+                workspace_id=approver.workspace_id,
+                approval_id=approver.approval_id,
+                user_id=approver.user_id,
+                payload_hash=approver.payload_hash,
+                reason=approver.reason,
+                approved_at=approver.approved_at,
+            )
+        )
+        self.session.flush()
+        return approver
+
+    def list_approval_approvers(
+        self, approval_ids: list[str], context: TenantContext
+    ) -> dict[str, list[ApprovalApproverRecord]]:
+        if not approval_ids:
+            return {}
+        rows = self.session.scalars(
+            select(ApprovalApproverRow)
+            .where(
+                ApprovalApproverRow.tenant_id == context.tenant_id,
+                ApprovalApproverRow.workspace_id == context.workspace_id,
+                ApprovalApproverRow.approval_id.in_(approval_ids),
+            )
+            .order_by(ApprovalApproverRow.approved_at, ApprovalApproverRow.user_id)
+        ).all()
+        result: dict[str, list[ApprovalApproverRecord]] = {}
+        for row in rows:
+            result.setdefault(row.approval_id, []).append(
+                ApprovalApproverRecord(
+                    tenant_id=row.tenant_id,
+                    workspace_id=row.workspace_id,
+                    approval_id=row.approval_id,
+                    user_id=row.user_id,
+                    payload_hash=row.payload_hash,
+                    reason=row.reason,
+                    approved_at=row.approved_at,
+                )
+            )
+        return result
 
     def get_tool_governance(self, context: TenantContext) -> ToolGovernance:
         """Enabled approval rules and active policy packs of the caller's tenant.

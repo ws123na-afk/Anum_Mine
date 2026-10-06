@@ -11,7 +11,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:9-alpine
     ports:
       - "6379:6379"
     healthcheck:
@@ -74,8 +74,10 @@ services:
   s3:
     # S3-compatible object storage (SeaweedFS). MinIO no longer publishes community
     # images. Credentials come from infra/seaweedfs/s3.json and are DEV-ONLY.
-    image: chrislusf/seaweedfs:3.97
+    image: chrislusf/seaweedfs:4.48
     # Small volumes keep the dev store light; SeaweedFS defaults to 30 GB volumes.
+    # 4.x runs as the `seaweed` user (the entrypoint chowns /data) and allocates no
+    # volumes, so uploads time out, when the disk has less than 1% free space.
     command: ["server", "-dir=/data", "-master.volumeSizeLimitMB=128", "-volume.max=20", "-s3", "-s3.port=9000", "-s3.config=/etc/seaweedfs/s3.json"]
     ports:
       - "9000:9000"
@@ -123,7 +125,7 @@ services:
 
   tempo:
     profiles: ["observability"]
-    image: grafana/tempo:2.9.5
+    image: grafana/tempo:3.1.0
     command: ["-config.file=/etc/tempo.yaml"]
     volumes:
       - ../observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
@@ -143,7 +145,7 @@ services:
 
   grafana:
     profiles: ["observability"]
-    image: grafana/grafana:12.4.12
+    image: grafana/grafana:13.2.3
     environment:
       # Local only: anonymous read-only access, no sign-up, no usage reporting.
       GF_AUTH_ANONYMOUS_ENABLED: "true"

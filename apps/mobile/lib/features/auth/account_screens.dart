@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../data/api_models.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 
@@ -214,9 +215,11 @@ Future<String?> _entry(BuildContext context, String label,
   return result == null || result.isEmpty ? null : result;
 }
 
-/// Shows the workspace you are really in and switches by workspace ID through
-/// the API. ANUM has no endpoint that lists every workspace you belong to, so
-/// this screen does not invent a list.
+/// Workspace picker (Settings › Switch workspace). Lists every workspace in
+/// the caller's tenant where they have an active membership, from
+/// `GET /api/v1/me/workspace-memberships`, and still switches only after the
+/// API confirms the membership in the chosen workspace. Any other workspace
+/// can be typed in; if the list cannot be loaded the typed ID still works.
 class WorkspaceSwitcherScreen extends StatefulWidget {
   const WorkspaceSwitcherScreen(
       {super.key,
@@ -236,6 +239,15 @@ class _WorkspaceSwitcherScreenState extends State<WorkspaceSwitcherScreen> {
   final _id = TextEditingController();
   bool _busy = false;
   String? _error;
+  String? _switching;
+  List<CallerMembership>? _memberships;
+  bool _listFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   @override
   void dispose() {
@@ -243,11 +255,21 @@ class _WorkspaceSwitcherScreenState extends State<WorkspaceSwitcherScreen> {
     super.dispose();
   }
 
-  Future<void> _switch() async {
-    final id = _id.text.trim();
-    if (id.isEmpty || id == widget.currentWorkspaceId) return;
+  Future<void> _load() async {
+    try {
+      final memberships = await widget.repository.myWorkspaces();
+      if (mounted) setState(() => _memberships = memberships);
+    } on Object {
+      if (mounted) setState(() => _listFailed = true);
+    }
+  }
+
+  Future<void> _switch([String? target]) async {
+    final id = (target ?? _id.text).trim();
+    if (id.isEmpty || id == widget.currentWorkspaceId || _busy) return;
     setState(() {
       _busy = true;
+      _switching = id;
       _error = null;
     });
     try {
@@ -260,33 +282,83 @@ class _WorkspaceSwitcherScreenState extends State<WorkspaceSwitcherScreen> {
             'You are not an active member of “$id”, or it does not exist.');
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _switching = null;
+        });
+      }
     }
   }
 
+  String _title(CallerMembership membership) =>
+      membership.workspaceName ?? membership.workspaceId;
+
+  String _subtitle(CallerMembership membership) {
+    final current = membership.workspaceId == widget.currentWorkspaceId;
+    final parts = <String>[
+      if (current) 'Current workspace',
+      if (membership.workspaceName != null) membership.workspaceId,
+      'Your role: ${membership.role}',
+      if (_switching == membership.workspaceId) 'Checking membership...',
+    ];
+    return parts.join(' · ');
+  }
+
   @override
-  Widget build(BuildContext context) => AccountPage(
-          eyebrow: 'Workspace',
-          title: 'Switch workspace',
-          subtitle:
-              'Your role and what agents may do change with the workspace.',
-          children: [
+  Widget build(BuildContext context) {
+    final memberships = _memberships;
+    final listed =
+        memberships?.any((m) => m.workspaceId == widget.currentWorkspaceId) ??
+            false;
+    return AccountPage(
+        eyebrow: 'Workspace',
+        title: 'Switch workspace',
+        subtitle: 'Your role and what agents may do change with the workspace.',
+        children: [
+          if (!listed)
             AccountPanel(
                 title: widget.currentWorkspaceId,
                 subtitle: 'Current workspace · ${widget.role}',
                 selected: true),
-            TextField(
-                controller: _id,
-                textDirection: TextDirection.ltr,
-                decoration: InputDecoration(
-                    labelText: 'Workspace ID to switch to', errorText: _error),
-                onSubmitted: (_) => _switch()),
-            FilledButton(
-                onPressed: _busy ? null : _switch,
-                child: Text(_busy ? 'Switching...' : 'Switch workspace')),
-            const AccountPanel(
-                title: 'Need a new workspace?',
-                subtitle:
-                    'Sign out and sign in with a new workspace ID. You become its owner during setup.'),
-          ]);
+          if (memberships == null && !_listFailed)
+            Center(
+                child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Semantics(
+                        label: 'Loading your workspaces',
+                        child: const CircularProgressIndicator()))),
+          if (memberships != null)
+            for (final membership in memberships)
+              AccountPanel(
+                  key: ValueKey('workspace-${membership.workspaceId}'),
+                  title: _title(membership),
+                  subtitle: _subtitle(membership),
+                  selected: membership.workspaceId == widget.currentWorkspaceId,
+                  onTap: _busy ||
+                          membership.workspaceId == widget.currentWorkspaceId
+                      ? null
+                      : () => _switch(membership.workspaceId)),
+          if (_error != null && _id.text.trim().isEmpty)
+            Text(_error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          TextField(
+              controller: _id,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                  labelText: 'Workspace ID to switch to',
+                  errorText: _id.text.trim().isEmpty ? null : _error),
+              onSubmitted: (_) => _switch()),
+          FilledButton(
+              onPressed: _busy ? null : _switch,
+              child: Text(_busy ? 'Switching...' : 'Switch workspace')),
+          AccountPanel(
+              title: _listFailed
+                  ? 'Your workspace list could not be loaded'
+                  : 'Not listed?',
+              subtitle: _listFailed
+                  ? 'Type the ID of a workspace you belong to; ANUM checks your membership before switching.'
+                  : 'The list shows every workspace in your organization where you are an active member. To create one, sign out and sign in with a new workspace ID; you become its owner during setup.'),
+        ]);
+  }
 }

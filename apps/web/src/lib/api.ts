@@ -59,6 +59,17 @@ export interface ApiApproval {
   decision_reason?: string | null;
   requested_by?: string | null;
   target?: string | null;
+  required_approvals?: number;
+  approvers?: { user_id: string; approved_at: string; reason?: string | null }[];
+}
+
+/** `GET /api/v1/me/workspace-memberships` row (docs/identity.md, My workspaces). */
+export interface ApiCallerMembership {
+  tenant_id: string;
+  workspace_id: string;
+  workspace_name?: string | null;
+  role: string;
+  status: 'active';
 }
 
 interface ApiRunTaskResponse {
@@ -311,9 +322,22 @@ export function currentScope(): { tenantId: string; workspaceId: string } {
   };
 }
 
-/** What the workspace switcher can offer (src/lib/workspaces.ts says why it is not a server list). */
-export function workspaceOptions(): workspaces.WorkspaceOption[] {
-  return workspaces.workspaceOptions(currentScope().workspaceId, defaultWorkspaces(), readWorkspaceMemory());
+/**
+ * What the workspace switcher can offer: the caller's memberships from the API when they were
+ * loaded (`listMyWorkspaces`), plus what this client knows by itself (src/lib/workspaces.ts).
+ */
+export function workspaceOptions(memberships: workspaces.MembershipEntry[] | null = null): workspaces.WorkspaceOption[] {
+  return workspaces.workspaceOptions(currentScope().workspaceId, defaultWorkspaces(), readWorkspaceMemory(), memberships);
+}
+
+/** The signed-in user's id: the token's subject with OIDC, the development user otherwise. */
+export function currentUserId(): string | null {
+  return oidcEnabled ? claimText('sub') : defaultTenantContext.userId;
+}
+
+/** The caller's active memberships in every workspace of their tenant. */
+export async function listMyWorkspaces(): Promise<workspaces.MembershipEntry[]> {
+  return workspaces.membershipEntries(await request<ApiCallerMembership[]>('/api/v1/me/workspace-memberships', { method: 'GET' }));
 }
 
 /** Remember a workspace the user joined (an accepted invitation) so the switcher lists it. */
@@ -415,5 +439,7 @@ function mapApproval(approval: ApiApproval): Approval {
     decisionReason: approval.decision_reason ?? null,
     requestedBy: approval.requested_by ?? null,
     target: approval.target ?? null,
+    requiredApprovals: approval.required_approvals ?? 1,
+    approvers: (approval.approvers ?? []).map((approver) => ({ userId: approver.user_id, approvedAt: approver.approved_at, reason: approver.reason ?? null })),
   };
 }

@@ -4,6 +4,8 @@ from .audit import AuditRecord, DuplicateAuditRecordError
 from .schemas import (
     AgentRun,
     Approval,
+    ApprovalApproverRecord,
+    CallerMembership,
     DomainEvent,
     Task,
     Tenant,
@@ -64,6 +66,12 @@ class AnumRepository(Protocol):
         self, policy: WorkspaceApprovalPolicy, context: TenantContext
     ) -> WorkspaceApprovalPolicy: ...
     def get_tool_governance(self, context: TenantContext) -> ToolGovernance: ...
+    def add_approval_approver(
+        self, approver: ApprovalApproverRecord, context: TenantContext
+    ) -> ApprovalApproverRecord: ...
+    def list_approval_approvers(
+        self, approval_ids: list[str], context: TenantContext
+    ) -> dict[str, list[ApprovalApproverRecord]]: ...
 
 
 class InMemoryRepository:
@@ -308,3 +316,49 @@ class InMemoryRepository:
         return tool_governance_from(
             governance_store.list_approval_rules(context), governance_store.list_policy_packs(context)
         )
+
+    def add_approval_approver(
+        self, approver: ApprovalApproverRecord, context: TenantContext
+    ) -> ApprovalApproverRecord:
+        """Record one approve decision; a user can approve an approval only once."""
+        if (approver.tenant_id, approver.workspace_id) != (context.tenant_id, context.workspace_id):
+            raise ValueError("Approver must belong to the caller's tenant and workspace")
+        if self.get_approval(approver.approval_id, context) is None:
+            raise ValueError(f"Approval not found: {approver.approval_id!r}")
+        recorded = self.store.approval_approvers.setdefault(approver.approval_id, [])
+        if any(existing.user_id == approver.user_id for existing in recorded):
+            raise ValueError(f"User already approved {approver.approval_id!r}")
+        recorded.append(approver.model_copy())
+        return approver
+
+    def list_approval_approvers(
+        self, approval_ids: list[str], context: TenantContext
+    ) -> dict[str, list[ApprovalApproverRecord]]:
+        result: dict[str, list[ApprovalApproverRecord]] = {}
+        for approval_id in approval_ids:
+            rows = [
+                row
+                for row in self.store.approval_approvers.get(approval_id, [])
+                if row.tenant_id == context.tenant_id and row.workspace_id == context.workspace_id
+            ]
+            if rows:
+                result[approval_id] = sorted(rows, key=lambda row: (row.approved_at, row.user_id))
+        return result
+
+    def list_caller_memberships(self, context: TenantContext) -> list[CallerMembership]:
+        """The caller's active memberships in every workspace of their tenant."""
+        found = []
+        for (tenant_id, workspace_id, user_id), membership in self.store.memberships.items():
+            if tenant_id != context.tenant_id or user_id != context.user_id or not membership.active:
+                continue
+            workspace = self.store.workspaces.get(workspace_id)
+            name = workspace.name if workspace is not None and workspace.tenant_id == tenant_id else None
+            found.append(
+                CallerMembership(
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    workspace_name=name,
+                    role=membership.role,
+                )
+            )
+        return sorted(found, key=lambda item: ((item.workspace_name or "").casefold(), item.workspace_id))

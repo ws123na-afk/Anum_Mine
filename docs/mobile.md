@@ -11,7 +11,7 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 - Semantic Light and Dark themes, 8 px spacing, 8 px cards, and 48 px minimum controls.
 - Session restore and encrypted local token persistence.
 - Keycloak sign-in (authorization code + PKCE through `flutter_appauth`) with token refresh and RP-initiated sign-out when `ANUM_OIDC_ISSUER` is defined; see [Identity and sign-in](identity.md#flutter).
-- Local development password/OTP sign-in, password recovery, workspace session switching, onboarding, and model-provider configuration.
+- Local development password/OTP sign-in, password recovery, a workspace picker that lists your memberships from the API and checks the membership before switching ([Identity](identity.md#flutter)), onboarding, and model-provider configuration.
 - Model-provider connection verification through the backend without returning provider credentials.
 - Profile/session security, confirmed sign-out, and user-scoped notification preferences.
 - API-backed tasks, task execution, cancellation, and resumption.
@@ -61,6 +61,10 @@ and `tool/configure_native.dart` applies everything ANUM changes, idempotently:
 - The release signing configuration (see [Release builds](#release-builds)) and `compileSdk = 37`.
 
 To regenerate (for example after a Flutter template change), delete the folders, run the two commands above, and commit the result. `test/configure_native_test.dart` fails when a committed file differs from what the tool would write, so hand edits to these files belong in the tool. Build outputs, `local.properties`, Gradle wrapper binaries, generated plugin registrants, keystores, `key.properties`, `google-services.json` and `GoogleService-Info.plist` are gitignored.
+
+## Dependencies
+
+`file_picker` is held at 10.3.10. Version 11 applies no Kotlin plugin under AGP 9 and relies on AGP's built-in Kotlin, but `android/gradle.properties` sets `android.builtInKotlin=false` because `flutter_tts` still applies the Kotlin Gradle Plugin itself; with both, 11's Kotlin sources are never compiled and the debug build fails with `cannot find symbol FilePickerPlugin`. Upgrade once every plugin builds with built-in Kotlin (then set `android.builtInKotlin=true`). 11.0.2 fixes an Android path traversal (CWE-22) when resolving paths from external content providers, so this is the first follow-up once `flutter_tts` supports built-in Kotlin.
 
 ## Release Builds
 
@@ -164,6 +168,7 @@ Install and identity
 - [ ] Kill the app after sign-in, reopen: the session restores without the browser. Leave it past the access-token lifetime: the next API call refreshes silently.
 - [ ] Disable the user or revoke the session in Keycloak: the next refresh signs the app out.
 - [ ] Sign-out ends the Keycloak session (a new sign-in asks for credentials) and clears secure storage even when the browser step is cancelled.
+- [ ] On Android, install the new build over one that stored a session with `flutter_secure_storage` 9 (any build before the 10.x upgrade): the session survives (the plugin migrates it to its new ciphers) or, if migration fails, the app shows the sign-in screen instead of crashing.
 - [ ] Airplane mode during refresh keeps the session and shows the offline state; reconnecting recovers.
 - [ ] A release build refuses a plain-HTTP API or issuer.
 

@@ -15,6 +15,8 @@ ANUM authorization should combine application-level policy with PostgreSQL row-l
 - The event outbox relay runs as `anum_outbox_relay`. It can read unpublished `domain_events` rows and update their publication columns, nothing else ([Events](events.md#relay-role-and-rls)).
 - Maintenance jobs (automation scheduler, voice transcript purge, secrets rotation) discover work as `anum_maintenance`. It reads a few id and timestamp columns of rows that need work and cannot write. The work itself runs as the application role inside each tenant's RLS context ([Multi-tenancy](multi-tenancy.md#maintenance-role)).
 
+Within one tenant, `anum_membership_reader` lists one user's own active memberships across the tenant's workspaces for `GET /api/v1/me/workspace-memberships`: a few columns, only rows of `anum.tenant_id` and `anum.user_id`, no writes, granted to the API login `WITH INHERIT FALSE` so its policies never widen the application role's own queries ([Multi-tenancy](multi-tenancy.md#membership-directory-role)).
+
 ## Secrets
 
 Secrets must be stored outside source control. Provider keys, integration tokens, signing keys, and storage credentials should be delivered through environment-specific secret stores. Local development may use `.env` files, but sample files must contain placeholders only.

@@ -17,11 +17,13 @@
 --   anum_migrator  owns the database and every table; the chart's migration Job
 --                  (secrets.migration). Never used by the API.
 --   anum_app       the API, worker and voice retention job (secrets.app
---                  ANUM_DATABASE_URL). Subject to RLS; member of anum_maintenance.
+--                  ANUM_DATABASE_URL). Subject to RLS; member of anum_maintenance and
+--                  (WITH INHERIT FALSE) of anum_membership_reader.
 --   anum_relay     the outbox relay (secrets.app ANUM_OUTBOX_DATABASE_URL); member of
 --                  anum_outbox_relay only.
 -- NOLOGIN roles the migrations grant column-level access to (pre-created so the
--- migration login needs no CREATEROLE): anum_outbox_relay, anum_maintenance.
+-- migration login needs no CREATEROLE): anum_outbox_relay, anum_maintenance,
+-- anum_membership_reader.
 -- The backup login (BYPASSRLS + pg_read_all_data) is created separately, only where
 -- the backup CronJob runs (docs/runbooks.md#backups).
 
@@ -35,6 +37,8 @@ select format('create role anum_outbox_relay nologin')
 where not exists (select 1 from pg_roles where rolname = 'anum_outbox_relay') \gexec
 select format('create role anum_maintenance nologin')
 where not exists (select 1 from pg_roles where rolname = 'anum_maintenance') \gexec
+select format('create role anum_membership_reader nologin')
+where not exists (select 1 from pg_roles where rolname = 'anum_membership_reader') \gexec
 
 select format('create role %I login password %L nosuperuser nobypassrls nocreatedb nocreaterole', 'anum_migrator', :'migrator_password')
 where not exists (select 1 from pg_roles where rolname = 'anum_migrator') \gexec
@@ -44,7 +48,14 @@ select format('create role %I login password %L nosuperuser nobypassrls nocreate
 where not exists (select 1 from pg_roles where rolname = 'anum_relay') \gexec
 
 grant anum_outbox_relay to anum_relay;
-grant anum_maintenance to anum_app;
+-- SET ROLE only: the API and jobs switch to it with SET LOCAL ROLE for discovery.
+-- Inherited, its cross-tenant discovery policies would also apply to anum_app's own
+-- queries (test_maintenance_grant_without_inherit_keeps_the_app_role_in_one_workspace).
+-- Re-running this on an existing database updates the grant's options.
+grant anum_maintenance to anum_app with inherit false, set true;
+-- The API switches to it with SET LOCAL ROLE for the "my workspaces" read only. Without
+-- INHERIT its row policies never apply to anum_app's own queries (docs/identity.md).
+grant anum_membership_reader to anum_app with inherit false, set true;
 
 -- The migration login owns the database, so it owns the public schema
 -- (pg_database_owner) and can grant schema usage to the relay and maintenance roles.

@@ -32,13 +32,14 @@ Run `infra/helm/bootstrap-database.sql` once per database as the cluster admin, 
 | Role | Login | Used by | Privileges |
 |---|---|---|---|
 | `anum_migrator` | yes | the migration Job (`secrets.migration`) | Owns the database, so it owns the public schema and every table the migrations create. Never used by the API. |
-| `anum_app` | yes | API, worker, voice retention (`ANUM_DATABASE_URL` in `secrets.app`) | `SELECT, INSERT, UPDATE, DELETE` on tables and usage on sequences through default privileges; subject to RLS (`FORCE ROW LEVEL SECURITY`); member of `anum_maintenance`. |
+| `anum_app` | yes | API, worker, voice retention (`ANUM_DATABASE_URL` in `secrets.app`) | `SELECT, INSERT, UPDATE, DELETE` on tables and usage on sequences through default privileges; subject to RLS (`FORCE ROW LEVEL SECURITY`); member of `anum_maintenance`, and of `anum_membership_reader` without inheritance. |
 | `anum_relay` | yes | the outbox relay (`ANUM_OUTBOX_DATABASE_URL` in `secrets.app`) | Member of `anum_outbox_relay` only ([Events](events.md)). |
 | `anum_outbox_relay` | no | granted to `anum_relay` | Column grants from migration `0007`. |
-| `anum_maintenance` | no | granted to `anum_app` | Discovery-only grants from migration `0011` ([Multi-tenancy](multi-tenancy.md#maintenance-role)). The scheduler and the retention job need it. |
+| `anum_maintenance` | no | granted to `anum_app` `WITH INHERIT FALSE, SET TRUE` | Discovery-only grants from migration `0011` ([Multi-tenancy](multi-tenancy.md#maintenance-role)). The scheduler and the retention job need it. Its policies admit rows across tenants, so an inheriting grant would widen the app role's own queries; re-run `bootstrap-database.sql` on existing databases to switch the grant to `INHERIT FALSE`. |
+| `anum_membership_reader` | no | granted to `anum_app` `WITH INHERIT FALSE, SET TRUE` | Read-only grants from migration `0013` for `GET /api/v1/me/workspace-memberships` ([Multi-tenancy](multi-tenancy.md#membership-directory-role)). Without the grant that route fails; with an inheriting grant its policies would widen the app role's own reads. |
 | `anum_backup` | yes | backup CronJob only (`secrets.backup`) | `BYPASSRLS` and `pg_read_all_data`; create it only where the backup job runs, and nowhere in the application's configuration. |
 
-The script also creates the `vector` extension, which is not a trusted extension and needs the admin. No login is a superuser or has `BYPASSRLS` except the backup login, and nothing is `SECURITY DEFINER`. The two NOLOGIN roles are pre-created so the migration login needs no `CREATEROLE`.
+The script also creates the `vector` extension, which is not a trusted extension and needs the admin. No login is a superuser or has `BYPASSRLS` except the backup login, and nothing is `SECURITY DEFINER`. The NOLOGIN roles are pre-created so the migration login needs no `CREATEROLE`.
 
 ## Secrets
 

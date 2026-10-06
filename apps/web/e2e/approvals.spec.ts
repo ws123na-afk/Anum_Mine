@@ -80,3 +80,41 @@ test('approval card shows the integration target and sends the typed reason', as
   await history.getByText(/Approved by user_local/).click();
   await expect(history.getByText('Checked the channel with comms')).toBeVisible();
 });
+
+test('an approval chain shows its progress and who approved, and stays pending until complete', async ({ page }) => {
+  // docs/approvals-and-risk.md, Approval chains: an organization rule asks for three approvers.
+  const decisions: unknown[] = [];
+  const approver = (userId: string) => ({ user_id: userId, approved_at: now, reason: null });
+  let approval: Record<string, unknown> = { ...pending, required_approvals: 3, approvers: [approver('owner_b')] };
+  await page.route('http://localhost:8000/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const json = (body: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/v1/events/stream') return route.fulfill({ status: 204 });
+    if (path === '/api/v1/auth/local/session') return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+    if (path === '/api/v1/tasks') return json([task]);
+    if (path === '/api/v1/approvals') return json([approval]);
+    if (path === '/api/v1/approvals/approval_e2e/approve') {
+      decisions.push(route.request().postDataJSON());
+      // Two of three: still pending, the run keeps waiting.
+      approval = { ...approval, approvers: [approver('owner_b'), approver('user_local')] };
+      return json({ approval, task, run: { id: 'run_risky', task_id: 'task_risky', status: 'waiting_approval', steps: [] } });
+    }
+    return route.abort();
+  });
+  await page.goto('/#approvals');
+
+  const card = page.getByRole('article', { name: 'Approval for external.action' });
+  await expect(card.getByText('1 of 3 approvals')).toBeVisible();
+  await expect(card.getByText('Approved by owner_b')).toBeVisible();
+
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect.poll(() => decisions).toEqual([{ payload_hash: hash }]);
+
+  await expect(card.getByText('2 of 3 approvals')).toBeVisible();
+  await expect(card.getByText('Approved by owner_b and user_local')).toBeVisible();
+  await expect(card.getByText('You approved this. It needs 1 more approval from other people before it runs.')).toBeVisible();
+  // One approval per person: Approve is no longer offered to this user, Reject still is.
+  await expect(card.getByRole('button', { name: 'Approve' })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Reject' })).toBeEnabled();
+  await expect(page.getByRole('region', { name: 'Approval history' })).toHaveCount(0);
+});

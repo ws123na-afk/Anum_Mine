@@ -63,11 +63,23 @@ Why not a `SECURITY DEFINER` function: it runs as the table owner, and `FORCE RO
 
 Deployment:
 
-- Grant `anum_maintenance` to the API login if the scheduler is enabled.
+- Grant `anum_maintenance` to the API login if the scheduler is enabled, `WITH INHERIT FALSE, SET TRUE` as `infra/helm/bootstrap-database.sql` does. Its policies admit rows from every tenant; an inheriting grant would apply them to the API login's own queries too, so the RLS backstop would no longer keep those reads to one tenant.
 - Grant it to the operator login that runs the purge and rotation commands.
 - Like `anum_outbox_relay`, the role is cluster-wide and survives a downgrade.
 
 `tests/test_postgres_automation.py`, `tests/test_postgres_voice.py` and `tests/test_postgres_rotate_secrets.py` check that the role sees only those rows and columns and cannot write.
+
+## Membership Directory Role
+
+`GET /api/v1/me/workspace-memberships` ([Identity](identity.md#my-workspaces)) lists the caller's own active memberships across the workspaces of their tenant. The tenant-isolation policies admit one workspace at a time, so the application role cannot do that read. Migration `0013_approvers_and_directory` creates `anum_membership_reader` for it, following the maintenance role's pattern:
+
+- `NOLOGIN`, no `BYPASSRLS`, no write privilege, no `SECURITY DEFINER` function. Column grants: `tenant_id, workspace_id, user_id, role, active` on `workspace_memberships` and `tenant_id, id, name` on `workspaces`.
+- Policies `for select to anum_membership_reader`: memberships with `tenant_id = anum.tenant_id`, `user_id = anum.user_id` and `active`; workspaces of that tenant in which that user has an active membership. Without either setting it sees nothing.
+- The API (`anum_api/membership_directory.py`) uses it in a separate transaction that starts with `SET LOCAL ROLE anum_membership_reader`, sets the tenant and user from the authenticated identity (no workspace), runs one query and always rolls back.
+- Grant it to the API login **`WITH INHERIT FALSE, SET TRUE`** (`infra/helm/bootstrap-database.sql`). PostgreSQL applies a policy `TO` a role to every member that inherits that role's privileges, so an inheriting grant would let the application role's ordinary queries see the caller's memberships in other workspaces too. The same applies to any future narrow role whose policies widen visibility.
+- Like the other NOLOGIN roles it is cluster-wide and survives a downgrade without privileges.
+
+`tests/test_postgres_membership_directory.py` checks the rows, columns, writes and the `INHERIT FALSE` behaviour.
 
 ## Cross-Tenant Data
 

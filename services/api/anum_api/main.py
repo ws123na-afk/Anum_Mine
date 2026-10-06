@@ -40,11 +40,12 @@ from .runtime import AgentRuntime
 from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
 from .valkey import CoordinationUnavailable, LockNotAcquired, build_run_lock_manager
 from .agent_tools import default_tool_registry
-from .tool_governance import decision_requirements, match_governance
+from .tool_governance import decision_requirements, match_governance, required_approvals
 from .schemas import (
     AgentRun,
     AgentRunStep,
     Approval,
+    ApprovalApproverRecord,
     ApprovalDecisionRequest,
     ApprovalDecisionResponse,
     ApprovalRejectRequest,
@@ -80,6 +81,7 @@ from .skills_api import router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
 from .workspace_members import router as workspace_members_router
+from .membership_directory import router as membership_directory_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 
@@ -156,6 +158,7 @@ app.include_router(files_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
+app.include_router(membership_directory_router)
 app.include_router(model_budget_router)
 repository = memory_repository
 model_gateway = build_model_gateway(
@@ -633,7 +636,11 @@ async def list_approvals(
 ) -> list[Approval]:
     require_permission(context, Permission.APPROVAL_READ)
     now = utc_now()
-    return [as_viewed(approval, now) for approval in repository.list_approvals(context)]
+    return _with_progress(
+        [as_viewed(approval, now) for approval in repository.list_approvals(context)],
+        context,
+        repository,
+    )
 
 
 @app.get("/api/v1/approvals/{approval_id}", response_model=Approval)
@@ -646,7 +653,8 @@ async def get_approval(
     approval = repository.get_approval(approval_id, context)
     if approval is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
-    return as_viewed(approval, utc_now())
+    (shown,) = _with_progress([as_viewed(approval, utc_now())], context, repository)
+    return shown
 
 
 @app.post("/api/v1/memories", response_model=MemoryNote, status_code=status.HTTP_201_CREATED)
@@ -857,6 +865,14 @@ async def _decide_approval(
 TWO_PERSON_RISK_LEVELS = frozenset({RiskLevel.HIGH})
 
 
+class _DecisionRequirements:
+    """What the matching organization approval rules demand of an approve decision."""
+
+    def __init__(self, required: int = 1, rules: list[str] | None = None) -> None:
+        self.required = required
+        self.rules = rules or []
+
+
 def _governance_decision_refusal(
     request: Request,
     context: TenantContext,
@@ -864,15 +880,15 @@ def _governance_decision_refusal(
     task: Task,
     approval: Approval,
     now: datetime,
-) -> JSONResponse | None:
+) -> tuple[JSONResponse | None, _DecisionRequirements]:
     """Enforce the matching organization approval rules on an approve (threat model A4).
 
     The rules are re-read now, in the caller's tenant scope, and matched against the
     approval's tool, integration target and risk level. A decider must hold a role every
-    matching rule requires; ``minimum_approvers`` 2 means another person than the task
-    creator or the requester must approve; more than 2 approvers cannot be collected yet,
-    so such an approval can only be rejected (fail closed). Each refusal is audited and
-    leaves the approval pending.
+    matching rule requires; with ``minimum_approvers`` 2 or more the task creator and
+    the requester cannot approve; above 2 the approval needs that many distinct
+    approvers (an approval chain, see ``required_approvals``). Each refusal is audited
+    and leaves the approval pending. Returns the refusal (or None) and the requirements.
     """
     match = match_governance(
         repository.get_tool_governance(context),
@@ -881,9 +897,10 @@ def _governance_decision_refusal(
         risk_level=approval.risk_level,
     )
     if not match.approval_rules:
-        return None
+        return None, _DecisionRequirements()
     minimum, allowed_roles = decision_requirements(match)
     rules = [rule.name for rule in match.approval_rules]
+    requirements = _DecisionRequirements(required_approvals(minimum), rules)
     roles = {role.lower() for role in context.roles}
     refusal: tuple[str, str] | None = None
     if allowed_roles is not None and not roles & allowed_roles:
@@ -892,11 +909,12 @@ def _governance_decision_refusal(
             "An organization approval rule requires a decider with one of these roles: "
             f"{', '.join(sorted(allowed_roles)) or 'none'}. You can still reject it.",
         )
-    elif minimum > 2:
+    elif minimum > 2 and context.user_id in {task.created_by, approval.requested_by}:
         refusal = (
-            "approval.approvers_unavailable",
-            f"An organization approval rule requires {minimum} approvers, and ANUM cannot "
-            "collect more than two yet; this action can only be rejected.",
+            "approval.self_approval_denied",
+            f"An organization approval rule requires {minimum} approvers other than the "
+            "person who created or started this task, so you cannot approve it. You can "
+            "still reject it.",
         )
     elif minimum == 2 and context.user_id in {task.created_by, approval.requested_by}:
         refusal = (
@@ -905,7 +923,7 @@ def _governance_decision_refusal(
             "task, so another owner must approve it. You can still reject it.",
         )
     if refusal is None:
-        return None
+        return None, requirements
     action, message = refusal
     repository.record_audit(
         AuditRecord(
@@ -926,9 +944,42 @@ def _governance_decision_refusal(
             },
         )
     )
-    return error_response(
-        request, status_code=status.HTTP_403_FORBIDDEN, code=ErrorCode.FORBIDDEN, message=message
+    return (
+        error_response(
+            request, status_code=status.HTTP_403_FORBIDDEN, code=ErrorCode.FORBIDDEN, message=message
+        ),
+        requirements,
     )
+
+
+def _with_progress(
+    approvals: list[Approval],
+    context: TenantContext,
+    repository: AnumRepository,
+) -> list[Approval]:
+    """Attach each approval's recorded approvers and the approvals it requires.
+
+    A pending (or rejected or expired) approval shows what the current organization
+    rules require; an approved one shows the approvals it actually collected.
+    """
+    if not approvals:
+        return approvals
+    recorded = repository.list_approval_approvers([approval.id for approval in approvals], context)
+    governance = None
+    result = []
+    for approval in approvals:
+        approvers = [row.view() for row in recorded.get(approval.id, [])]
+        if approval.status == ApprovalStatus.APPROVED:
+            required = max(1, len(approvers))
+        else:
+            if governance is None:
+                governance = repository.get_tool_governance(context)
+            match = match_governance(
+                governance, tool=approval.action, target=approval.target, risk_level=approval.risk_level
+            )
+            required = required_approvals(decision_requirements(match)[0])
+        result.append(approval.model_copy(update={"approvers": approvers, "required_approvals": required}))
+    return result
 
 
 async def _decide_approval_locked(
@@ -982,8 +1033,11 @@ async def _decide_approval_locked(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Approval payload does not match what was shown; reload and review it again",
             )
+    requirements = _DecisionRequirements()
     if decision == ApprovalStatus.APPROVED:
-        refusal = _governance_decision_refusal(request, context, repository, task, approval, now)
+        refusal, requirements = _governance_decision_refusal(
+            request, context, repository, task, approval, now
+        )
         if refusal is not None:
             return refusal
     if (
@@ -1018,14 +1072,51 @@ async def _decide_approval_locked(
             ),
         )
 
+    approvers = repository.list_approval_approvers([approval.id], context).get(approval.id, [])
+    if decision == ApprovalStatus.APPROVED:
+        if any(approver.user_id == context.user_id for approver in approvers):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "You already approved this action; "
+                    f"{max(1, requirements.required - len(approvers))} more approval(s) from "
+                    "other people are needed"
+                ),
+            )
+        approver = repository.add_approval_approver(
+            ApprovalApproverRecord(
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                approval_id=approval.id,
+                user_id=context.user_id,
+                payload_hash=approval.payload_hash or "",
+                reason=reason,
+                approved_at=now,
+            ),
+            context,
+        )
+        approvers = [*approvers, approver]
+        if len(approvers) < requirements.required:
+            return _record_partial_approval(
+                context, repository, task, run, approval, approvers, requirements, reason, now
+            )
+
     approval.status = decision
     approval.decided_at = now
     approval.decided_by = context.user_id
     approval.decision_reason = reason
     repository.save_approval(approval)
-    decided_payload = {"task_id": task.id}
+    decided_payload: dict[str, object] = {"task_id": task.id}
     if reason:
         decided_payload["reason"] = reason
+    chain_metadata: dict[str, object] = {}
+    if requirements.required > 1:
+        chain_metadata = {
+            "approvals": len(approvers),
+            "required_approvals": requirements.required,
+            "approvers": [approver.user_id for approver in approvers],
+        }
+        decided_payload.update(chain_metadata)
     repository.record_event(
         create_event(
             CanonicalEventName(f"approval.{decision.value}"),
@@ -1054,16 +1145,80 @@ async def _decide_approval_locked(
                 "risk_level": approval.risk_level.value,
                 "target": approval.target,
                 "reason": reason,
+                **chain_metadata,
             },
         )
     )
+    (shown,) = _with_progress([approval], context, repository)
     if run_dispatcher is not None:
         # The workflow applies the decision; a lost signal is caught by its next poll.
         if run:
             await run_dispatcher.approval_decided(context, task.id, approval.id)
-        return ApprovalDecisionResponse(approval=approval, task=task, run=run)
+        return ApprovalDecisionResponse(approval=shown, task=task, run=run)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)
     if resumed_run:
         repository.save_run(resumed_run)
-    return ApprovalDecisionResponse(approval=approval, task=task, run=resumed_run)
+    return ApprovalDecisionResponse(approval=shown, task=task, run=resumed_run)
+
+
+def _record_partial_approval(
+    context: TenantContext,
+    repository: AnumRepository,
+    task: Task,
+    run: AgentRun | None,
+    approval: Approval,
+    approvers: list[ApprovalApproverRecord],
+    requirements: _DecisionRequirements,
+    reason: str | None,
+    now: datetime,
+) -> ApprovalDecisionResponse:
+    """One approval of a chain that still needs more: audited, announced, still pending.
+
+    The approval row is unchanged (status ``pending``), so neither the inline runtime
+    nor the Temporal workflow resumes; the run keeps waiting for the last approval, a
+    rejection or the expiry.
+    """
+    progress: dict[str, object] = {
+        "task_id": task.id,
+        "approvals": len(approvers),
+        "required_approvals": requirements.required,
+        "approvers": [approver.user_id for approver in approvers],
+    }
+    event_payload = dict(progress)
+    if reason:
+        event_payload["reason"] = reason
+    repository.record_event(
+        create_event(
+            CanonicalEventName.APPROVAL_PARTIALLY_APPROVED,
+            context,
+            approval.id,
+            event_payload,
+            correlation_id=task.id,
+            created_at=now,
+        ).event
+    )
+    repository.record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            actor=context.user_id,
+            action="approval.partially_approved",
+            target=approval.id,
+            outcome="success",
+            correlation_id=task.id,
+            created_at=now,
+            metadata={
+                **progress,
+                "tool": approval.action,
+                "payload_hash": approval.payload_hash,
+                "risk_level": approval.risk_level.value,
+                "target": approval.target,
+                "reason": reason,
+                "approval_rules": requirements.rules,
+            },
+        )
+    )
+    (shown,) = _with_progress([approval], context, repository)
+    return ApprovalDecisionResponse(approval=shown, task=task, run=run)
