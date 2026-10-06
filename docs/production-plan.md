@@ -27,7 +27,7 @@ Goal: every CI job passes without tolerated failures.
 - Clear the Flutter analyzer issues (unused imports, deprecated `Radio`/form APIs, relative `lib` imports in tests). Done.
 - Remove `continue-on-error` from the Flutter analyze and test steps. Done.
 - Upgrade GitHub Actions that still target Node 20. Done.
-- Track plugin warnings for `file_picker`, `flutter_tts` and `speech_to_text` (Kotlin Gradle Plugin migration).
+- Track plugin warnings for `file_picker`, `flutter_tts` and `speech_to_text` (Kotlin Gradle Plugin migration). `file_picker` 11 (with an Android path traversal fix) is blocked on it: it needs `android.builtInKotlin=true`, which waits on `flutter_tts` ([Flutter mobile](mobile.md#dependencies)).
 
 Exit: a CI run on `main` with all jobs green and no tolerated failures. Branch protection requires CI on `main`.
 

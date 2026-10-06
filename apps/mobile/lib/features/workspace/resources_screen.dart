@@ -102,7 +102,7 @@ class _FilesTab extends StatelessWidget {
   final WorkspaceController controller;
 
   Future<void> _upload(BuildContext context) async {
-    final picked = await FilePicker.pickFiles(withData: false);
+    final picked = await FilePicker.platform.pickFiles(withData: false);
     final path = picked?.files.single.path;
     if (path == null) return;
     await controller.uploadFile(path);
