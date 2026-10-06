@@ -16,7 +16,6 @@ String roleLabel(String role) => switch (role) {
       _ => role,
     };
 
-DateTime _time(Object? value) => DateTime.parse(value! as String);
 DateTime? _maybeTime(Object? value) =>
     value is String ? DateTime.parse(value) : null;
 num _num(Object? value) => value is num ? value : 0;
@@ -31,14 +30,17 @@ class WorkspaceMember {
     required this.updatedAt,
   });
 
-  factory WorkspaceMember.fromJson(JsonMap json) => WorkspaceMember(
-        userId: json['user_id']! as String,
-        workspaceId: json['workspace_id']! as String,
-        role: json['role']! as String,
-        active: json['active'] as bool? ?? true,
-        createdAt: _time(json['created_at']),
-        updatedAt: _time(json['updated_at']),
-      );
+  factory WorkspaceMember.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    return WorkspaceMember(
+      userId: r.string('user_id'),
+      workspaceId: r.string('workspace_id'),
+      role: r.string('role'),
+      active: r.optBool('active') ?? true,
+      createdAt: r.date('created_at'),
+      updatedAt: r.date('updated_at'),
+    );
+  }
 
   final String userId, workspaceId, role;
   final bool active;
@@ -61,20 +63,23 @@ class WorkspaceInvitation {
     this.revokedAt,
   });
 
-  factory WorkspaceInvitation.fromJson(JsonMap json) => WorkspaceInvitation(
-        id: json['id']! as String,
-        workspaceId: json['workspace_id']! as String,
-        role: json['role']! as String,
-        status: json['status']! as String,
-        createdByUserId: json['created_by_user_id']! as String,
-        expiresAt: _time(json['expires_at']),
-        createdAt: _time(json['created_at']),
-        inviteeUserId: json['invitee_user_id'] as String?,
-        inviteeEmail: json['invitee_email'] as String?,
-        acceptedByUserId: json['accepted_by_user_id'] as String?,
-        acceptedAt: _maybeTime(json['accepted_at']),
-        revokedAt: _maybeTime(json['revoked_at']),
-      );
+  factory WorkspaceInvitation.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    return WorkspaceInvitation(
+      id: r.string('id'),
+      workspaceId: r.string('workspace_id'),
+      role: r.string('role'),
+      status: r.string('status'),
+      createdByUserId: r.string('created_by_user_id'),
+      expiresAt: r.date('expires_at'),
+      createdAt: r.date('created_at'),
+      inviteeUserId: r.optString('invitee_user_id'),
+      inviteeEmail: r.optString('invitee_email'),
+      acceptedByUserId: r.optString('accepted_by_user_id'),
+      acceptedAt: _maybeTime(json['accepted_at']),
+      revokedAt: _maybeTime(json['revoked_at']),
+    );
+  }
 
   final String id, workspaceId, role, status, createdByUserId;
   final String? inviteeUserId, inviteeEmail, acceptedByUserId;
@@ -262,14 +267,17 @@ class ModelBudget {
     required this.updatedAt,
     required this.updatedBy,
   });
-  factory ModelBudget.fromJson(JsonMap json) => ModelBudget(
-        limits: ModelBudgetLimits(
-          costUsd: (json['monthly_cost_limit_usd'] as num?)?.toDouble(),
-          tokens: (json['monthly_token_limit'] as num?)?.toInt(),
-        ),
-        updatedAt: _time(json['updated_at']),
-        updatedBy: json['updated_by'] as String? ?? '',
-      );
+  factory ModelBudget.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    return ModelBudget(
+      limits: ModelBudgetLimits(
+        costUsd: r.optNumber('monthly_cost_limit_usd'),
+        tokens: r.optInt('monthly_token_limit'),
+      ),
+      updatedAt: r.date('updated_at'),
+      updatedBy: r.optString('updated_by') ?? '',
+    );
+  }
   final ModelBudgetLimits limits;
   final DateTime updatedAt;
   final String updatedBy;
@@ -286,18 +294,21 @@ class BudgetScopeView {
     required this.totalTokens,
     required this.exceeded,
   });
-  factory BudgetScopeView.fromJson(JsonMap json) {
-    final usage = (json['usage'] as JsonMap?) ?? const {};
+  factory BudgetScopeView.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    final usage = r.optMap('usage') ?? const {};
     final budget = json['budget'];
     return BudgetScopeView(
-      budget: budget is JsonMap ? ModelBudget.fromJson(budget) : null,
+      budget: budget is JsonMap
+          ? ModelBudget.fromJson(budget, r.at('budget'))
+          : null,
       inputTokens: _num(usage['input_tokens']).toInt(),
       outputTokens: _num(usage['output_tokens']).toInt(),
       costUsd: _num(usage['estimated_cost_usd']).toDouble(),
       calls: _num(usage['calls']).toInt(),
       unpricedCalls: _num(usage['unpriced_calls']).toInt(),
       totalTokens: _num(json['total_tokens']).toInt(),
-      exceeded: json['exceeded'] as bool? ?? false,
+      exceeded: r.optBool('exceeded') ?? false,
     );
   }
   final ModelBudget? budget;
@@ -327,12 +338,17 @@ class BudgetOverview {
     required this.tenant,
     required this.workspace,
   });
-  factory BudgetOverview.fromJson(JsonMap json) => BudgetOverview(
-        periodStart: json['period_start']! as String,
-        resetsOn: json['resets_on']! as String,
-        tenant: BudgetScopeView.fromJson(json['tenant']! as JsonMap),
-        workspace: BudgetScopeView.fromJson(json['workspace']! as JsonMap),
-      );
+  factory BudgetOverview.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    final tenant = r.object('tenant');
+    final workspace = r.object('workspace');
+    return BudgetOverview(
+      periodStart: r.string('period_start'),
+      resetsOn: r.string('resets_on'),
+      tenant: BudgetScopeView.fromJson(tenant.json, tenant.path),
+      workspace: BudgetScopeView.fromJson(workspace.json, workspace.path),
+    );
+  }
   final String periodStart, resetsOn;
   final BudgetScopeView tenant, workspace;
 }

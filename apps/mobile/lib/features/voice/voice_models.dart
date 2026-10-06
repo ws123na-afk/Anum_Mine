@@ -36,12 +36,15 @@ class VoiceSession {
     this.assistantName = 'Anum',
   });
 
-  factory VoiceSession.fromJson(JsonMap value) => VoiceSession(
-        id: value['id']! as String,
-        locale: value['locale']! as String,
-        status: value['status']! as String,
-        assistantName: (value['assistant_name'] as String?) ?? 'Anum',
-      );
+  factory VoiceSession.fromJson(JsonMap value) {
+    final r = JsonReader(value);
+    return VoiceSession(
+      id: r.string('id'),
+      locale: r.string('locale'),
+      status: r.string('status'),
+      assistantName: r.optString('assistant_name') ?? 'Anum',
+    );
+  }
 
   final String id;
   final String locale;
@@ -71,12 +74,15 @@ class WorkspaceFacts {
     this.pendingApprovals = 0,
   });
 
-  factory WorkspaceFacts.fromJson(JsonMap? value) => WorkspaceFacts(
-        tasksTotal: (value?['tasks_total'] as num?)?.toInt() ?? 0,
-        running: (value?['running'] as num?)?.toInt() ?? 0,
-        waitingApproval: (value?['waiting_approval'] as num?)?.toInt() ?? 0,
-        pendingApprovals: (value?['pending_approvals'] as num?)?.toInt() ?? 0,
-      );
+  factory WorkspaceFacts.fromJson(JsonMap? value, [String path = '']) {
+    final r = JsonReader(value ?? const {}, path);
+    return WorkspaceFacts(
+      tasksTotal: r.optInt('tasks_total') ?? 0,
+      running: r.optInt('running') ?? 0,
+      waitingApproval: r.optInt('waiting_approval') ?? 0,
+      pendingApprovals: r.optInt('pending_approvals') ?? 0,
+    );
+  }
 
   final int tasksTotal, running, waitingApproval, pendingApprovals;
 }
@@ -94,15 +100,17 @@ class VoiceAskResult {
   });
 
   factory VoiceAskResult.fromJson(JsonMap value) {
-    final segment = value['assistant_segment'] as JsonMap?;
-    final proposal = (value['proposed_task'] as String?)?.trim();
+    final r = JsonReader(value);
+    final segment = r.optObject('assistant_segment');
+    final proposal = r.optString('proposed_task')?.trim();
+    final workspace = r.optObject('workspace');
     return VoiceAskResult(
-      intent: (value['intent'] as String?) ?? 'question',
+      intent: r.optString('intent') ?? 'question',
       riskTier: _tier(value['risk_tier']),
-      reply: (value['reply'] as String?) ?? '',
+      reply: r.optString('reply') ?? '',
       proposedTask: proposal == null || proposal.isEmpty ? null : proposal,
-      workspace: WorkspaceFacts.fromJson(value['workspace'] as JsonMap?),
-      assistantSegmentId: (segment?['id'] as String?) ??
+      workspace: WorkspaceFacts.fromJson(workspace?.json, r.at('workspace')),
+      assistantSegmentId: segment?.optString('id') ??
           'assistant_${DateTime.now().microsecondsSinceEpoch}',
     );
   }

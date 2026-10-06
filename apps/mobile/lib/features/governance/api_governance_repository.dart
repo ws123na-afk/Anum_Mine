@@ -11,30 +11,32 @@ class ApiGovernanceRepository implements GovernanceRepository {
   const ApiGovernanceRepository(this.api, {required this.auditExporter});
   final AnumApiClient api;
   final AuditExporter auditExporter;
-  Future<List<JsonMap>> _list(String p) async {
-    final v = await api.request('GET', p);
-    return ((v['data'] as List<Object?>?) ?? const []).cast<JsonMap>();
-  }
+  Future<List<JsonReader>> _one(String p) async =>
+      [JsonReader(await api.request('GET', p))];
+  Future<List<JsonReader>> _list(String p) async =>
+      JsonReader(await api.request('GET', p)).optObjects('data', (x) => x);
 
   @override
   Future<GovernanceSnapshot> load() async {
     try {
+      // Future.wait (not a record's `.wait`) so an ApiException reaches the
+      // offline mapping below unwrapped. Single objects come back as
+      // one-element lists, keeping every result the same type.
       final v = await Future.wait([
-        api.request('GET', '/api/v1/organization/governance'),
+        _one('/api/v1/organization/governance'),
         _list('/api/v1/policy-packs'),
         _list('/api/v1/marketplace/packages'),
         _list('/api/v1/marketplace/installs'),
         _list('/api/v1/routing/targets'),
-        api.request('GET', '/api/v1/enterprise/operations')
+        _one('/api/v1/enterprise/operations')
       ]);
-      final installs = v[3] as List<JsonMap>;
+      final installs = v[3];
       return GovernanceSnapshot(
-          summary: _summary(v[0] as JsonMap),
-          policies: (v[1] as List<JsonMap>).map(_policy).toList(),
-          marketplace:
-              (v[2] as List<JsonMap>).map((x) => _market(x, installs)).toList(),
-          targets: (v[4] as List<JsonMap>).map(_target).toList(),
-          operations: _ops(v[5] as JsonMap));
+          summary: _summary(v[0].single),
+          policies: v[1].map(_policy).toList(),
+          marketplace: v[2].map((x) => _market(x, installs)).toList(),
+          targets: v[4].map(_target).toList(),
+          operations: _ops(v[5].single));
     } on ApiException catch (e) {
       if (e.statusCode == 0 || e.statusCode >= 500) {
         throw GovernanceOfflineException(e.message);
@@ -44,8 +46,8 @@ class ApiGovernanceRepository implements GovernanceRepository {
   }
 
   @override
-  Future<PolicyPack> createBaselinePolicy(String name) async =>
-      _policy(await api.request('POST', '/api/v1/policy-packs', body: {
+  Future<PolicyPack> createBaselinePolicy(String name) async => _policy(
+          JsonReader(await api.request('POST', '/api/v1/policy-packs', body: {
         'name': name,
         'description': 'Mobile-managed organization baseline',
         'rules': [
@@ -55,11 +57,11 @@ class ApiGovernanceRepository implements GovernanceRepository {
             'conditions': {'risk': 'high'}
           }
         ]
-      }));
+      })));
   @override
   Future<PolicyPack> setPolicyActive(String id, {required bool active}) async =>
-      _policy(await api.request('POST',
-          '/api/v1/policy-packs/$id/${active ? 'activate' : 'archive'}'));
+      _policy(JsonReader(await api.request('POST',
+          '/api/v1/policy-packs/$id/${active ? 'activate' : 'archive'}')));
   @override
   Future<void> createRoleTemplate(String name, List<String> permissions) async {
     await api.request('POST', '/api/v1/role-templates',
@@ -123,7 +125,8 @@ class ApiGovernanceRepository implements GovernanceRepository {
   }
 
   @override
-  Future<RoutingTarget> updateTarget(RoutingTarget t) async => _target(
+  Future<RoutingTarget> updateTarget(RoutingTarget t) async =>
+      _target(JsonReader(
           await api.request('PUT', '/api/v1/routing/targets/${t.id}', body: {
         'id': t.id,
         'region': t.region,
@@ -134,51 +137,44 @@ class ApiGovernanceRepository implements GovernanceRepository {
         'sensitivity': t.sensitivity,
         'cost_per_1k_tokens': t.cost,
         'latency_ms': t.latencyMs
-      }));
+      })));
   @override
   Future<void> exportAudit(String format) => auditExporter.export(format);
-  GovernanceSummary _summary(JsonMap j) => GovernanceSummary(
-      policyPacks: (j['policy_packs'] as num).toInt(),
-      activePolicyPacks: (j['active_policy_packs'] as num).toInt(),
-      roleTemplates: (j['role_templates'] as num).toInt(),
-      approvalRules: (j['approval_rules'] as num).toInt());
-  PolicyPack _policy(JsonMap j) => PolicyPack(
-      id: j['id']! as String,
-      name: j['name']! as String,
-      version: (j['version'] as num).toInt(),
-      active: j['active']! as bool,
-      rules: ((j['rules'] as List<Object?>?) ?? const [])
-          .cast<JsonMap>()
-          .map((x) => '${x['action']}: ${x['effect']}')
-          .toList());
-  MarketplaceItem _market(JsonMap j, List<JsonMap> i) => MarketplaceItem(
-      id: j['id']! as String,
-      name: j['name']! as String,
-      kind: j['kind']! as String,
-      version: j['version']! as String,
-      publisher: j['publisher'] as String? ?? 'ANUM',
-      regions:
-          ((j['regions'] as List<Object?>?) ?? const ['global']).cast<String>(),
-      verified: j['verified']! as bool,
-      permissions:
-          ((j['permissions'] as List<Object?>?) ?? const []).cast<String>(),
+  GovernanceSummary _summary(JsonReader j) => GovernanceSummary(
+      policyPacks: j.integer('policy_packs'),
+      activePolicyPacks: j.integer('active_policy_packs'),
+      roleTemplates: j.integer('role_templates'),
+      approvalRules: j.integer('approval_rules'));
+  PolicyPack _policy(JsonReader j) => PolicyPack(
+      id: j.string('id'),
+      name: j.string('name'),
+      version: j.integer('version'),
+      active: j.boolean('active'),
+      rules: j.optObjects('rules', (x) => '${x['action']}: ${x['effect']}'));
+  MarketplaceItem _market(JsonReader j, List<JsonReader> i) => MarketplaceItem(
+      id: j.string('id'),
+      name: j.string('name'),
+      kind: j.string('kind'),
+      version: j.string('version'),
+      publisher: j.optString('publisher') ?? 'ANUM',
+      regions: j.optStrings('regions') ?? const ['global'],
+      verified: j.boolean('verified'),
+      permissions: j.optStrings('permissions') ?? const [],
       installed: i.any((x) => x['package_id'] == j['id']));
-  RoutingTarget _target(JsonMap j) => RoutingTarget(
-      id: j['id']! as String,
-      region: j['region']! as String,
-      provider: j['provider']! as String,
-      model: j['model']! as String,
-      status: j['status']! as String,
-      latencyMs: (j['latency_ms'] as num).toInt(),
-      cost: (j['cost_per_1k_tokens'] as num).toDouble(),
-      modalities: ((j['modalities'] as List<Object?>?) ?? const ['text'])
-          .cast<String>(),
-      sensitivity: ((j['sensitivity'] as List<Object?>?) ?? const ['standard'])
-          .cast<String>());
-  EnterpriseOperations _ops(JsonMap j) => EnterpriseOperations(
-      activeRegions: (j['active_regions'] as num).toInt(),
-      healthyTargets: (j['healthy_targets'] as num).toInt(),
-      degradedTargets: (j['degraded_targets'] as num).toInt(),
-      installedPackages: (j['installed_packages'] as num).toInt(),
-      failoverReady: j['failover_ready']! as bool);
+  RoutingTarget _target(JsonReader j) => RoutingTarget(
+      id: j.string('id'),
+      region: j.string('region'),
+      provider: j.string('provider'),
+      model: j.string('model'),
+      status: j.string('status'),
+      latencyMs: j.integer('latency_ms'),
+      cost: j.number('cost_per_1k_tokens'),
+      modalities: j.optStrings('modalities') ?? const ['text'],
+      sensitivity: j.optStrings('sensitivity') ?? const ['standard']);
+  EnterpriseOperations _ops(JsonReader j) => EnterpriseOperations(
+      activeRegions: j.integer('active_regions'),
+      healthyTargets: j.integer('healthy_targets'),
+      degradedTargets: j.integer('degraded_targets'),
+      installedPackages: j.integer('installed_packages'),
+      failoverReady: j.boolean('failover_ready'));
 }

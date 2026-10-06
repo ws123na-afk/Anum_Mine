@@ -35,14 +35,15 @@ class ApiException implements Exception {
     final body = response.body;
     final envelope = body?['error'];
     final detail = body?['detail'];
-    final message = envelope is Map && envelope['message'] is String
-        ? envelope['message'] as String
-        : detail is String
-            ? detail
-            : 'Request failed';
-    final code = envelope is Map && envelope['code'] is String
-        ? envelope['code'] as String
-        : null;
+    final message = switch ((envelope, detail)) {
+      ({'message': final String text}, _) => text,
+      (_, final String text) => text,
+      _ => 'Request failed',
+    };
+    final code = switch (envelope) {
+      {'code': final String value} => value,
+      _ => null,
+    };
     return ApiException(response.statusCode, message, code: code);
   }
 

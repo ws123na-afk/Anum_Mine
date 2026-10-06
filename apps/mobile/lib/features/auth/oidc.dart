@@ -119,7 +119,7 @@ LocalSession sessionFromOidcTokens(
   final roles = <String>{
     for (final role in [
       if (realmRoles is List) ...realmRoles,
-      if (claims['roles'] is List) ...claims['roles']! as List,
+      if (claims['roles'] case final List<Object?> claimed) ...claimed,
     ])
       if (role is String && _anumRoles.contains(role.toLowerCase()))
         role.toLowerCase(),
@@ -145,7 +145,7 @@ LocalSession sessionFromOidcTokens(
     context: TenantContext(
       tenantId: tenant,
       workspaceId: workspace,
-      userId: claims['sub'] is String ? claims['sub']! as String : '',
+      userId: switch (claims['sub']) { final String sub => sub, _ => '' },
       roles: roles,
     ),
   );
