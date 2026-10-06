@@ -117,11 +117,11 @@ The workspace a client sends is the one the user selected, else the token's `wor
 | `VITE_ANUM_OIDC_CLIENT_ID` | `anum-web` (default) in the browser, `anum-desktop` for the Tauri build. |
 | `VITE_ANUM_WORKSPACE_ID` | Optional workspace sent when the token has no `workspace_id` claim. |
 
-- The redirect URI and post-logout redirect are the app's own origin and path (`http://localhost:5173/` in development, `tauri://localhost/` or `http://tauri.localhost/` in the desktop build), which the realm already allows.
+- The redirect URI and post-logout redirect are the app's own origin and path (`http://localhost:5173/` in development), which the realm already allows. The desktop build uses a loopback redirect instead (below).
 - Discovery must return the configured issuer exactly. The callback must carry the `state` of the one pending request, which is single-use and expires after 10 minutes; the ID token's `nonce` must match. Code and state are removed from the address bar after the callback.
 - Storage: access and ID tokens live in memory only. The refresh token and the pending request (state, verifier, nonce) live in `sessionStorage` for the current tab, so a reload restores the session and closing the tab ends it. Nothing goes to `localStorage`.
 - Refresh runs a minute before expiry (halfway through lifetimes shorter than two minutes) and again before any API call that finds the token due. A rejected refresh token (`invalid_grant`) signs the user out; a network failure keeps the current token until it expires.
-- The desktop shell loads Keycloak inside its webview and returns to the shell origin; its CSP allows the local Keycloak (`http://localhost:8080`). A production desktop build must add its issuer origin to `connect-src` in `apps/desktop/src-tauri/tauri.conf.json`.
+- The desktop shell runs the login in the system browser with an RFC 8252 loopback redirect (`http://127.0.0.1:<ephemeral port>/callback`, served once by the shell): `beginSignIn` takes the loopback URI as a per-request redirect, accepts only `http://127.0.0.1` or `http://[::1]` with a port, and the code exchange repeats it. Sign-out opens the end-session URL in the system browser without a post-logout redirect. Details in [Desktop](desktop.md#sign-in). Its CSP allows the local Keycloak (`http://localhost:8080`); `pnpm --filter @anum/desktop build:release` adds the production issuer origin to `connect-src`.
 - Tests: `apps/web/test/oidc.test.ts` (Node's test runner, part of `pnpm check`) covers PKCE, state, nonce, expiry, refresh and logout; `apps/web/e2e/oidc-sign-in.spec.ts` runs the full browser flow against a build with OIDC enabled and a provider mocked by route interception.
 
 ### Flutter
@@ -139,9 +139,9 @@ The workspace a client sends is the one the user selected, else the token's `wor
 - Workspace switching with an OIDC session changes the stored workspace (and so `x-workspace-id`) without calling the local session API.
 - Sign-out ends the Keycloak session in the browser, then clears secure storage even if the browser step is cancelled or fails.
 - Plain-HTTP issuers are accepted only in debug and profile builds. The issuer the app uses must equal the API's `ANUM_KEYCLOAK_ISSUER`; from the Android emulator use `adb reverse tcp:8080 tcp:8080` and `ANUM_OIDC_ISSUER=http://localhost:8080/realms/anum` rather than `10.0.2.2`, which would mint tokens with a different `iss`.
-- The redirect scheme `com.anum.app` is registered by `tool/configure_native.dart` after `flutter create`: the `appAuthRedirectScheme` manifest placeholder in `android/app/build.gradle.kts` (used by AppAuth's redirect activity intent filter) and `CFBundleURLTypes` in `ios/Runner/Info.plist`.
+- The redirect scheme `com.anum.app`, which is also the app's applicationId and bundle identifier, is registered in the committed native projects by `tool/configure_native.dart`: the `appAuthRedirectScheme` manifest placeholder in `android/app/build.gradle.kts` (used by AppAuth's redirect activity intent filter) and `CFBundleURLTypes` in `ios/Runner/Info.plist`.
 
-The Kotlin Android app (`anum-android`) does not sign in through Keycloak yet.
+The Kotlin Android app (`anum-android`) does not sign in through Keycloak and is frozen ([Android](android.md#status-frozen)); Flutter is the shipping mobile app.
 
 ## Local Use
 

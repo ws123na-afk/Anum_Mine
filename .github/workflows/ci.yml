@@ -311,10 +311,7 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Generate native platform wrappers
-        run: flutter create --platforms=android,ios .
-      - name: Configure voice permissions
-        run: dart run tool/configure_native.dart
+      # android/ and ios/ are committed; test/configure_native_test.dart fails if they drift.
       - run: flutter pub get
       - name: Run Flutter analyzer
         run: flutter analyze
@@ -338,3 +335,9 @@ jobs:
           name: anum-mobile-debug
           path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
+      # No keystore in CI: the bundle is debug-signed (with a Gradle warning) and never uploaded to Play.
+      - name: Build release app bundle
+        run: >-
+          flutter build appbundle --release
+          --dart-define=ANUM_API_URL=https://api.anum.invalid/
+          --dart-define=ANUM_OIDC_ISSUER=https://id.anum.invalid/realms/anum

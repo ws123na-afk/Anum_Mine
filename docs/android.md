@@ -1,6 +1,26 @@
 # Android
 
-The ANUM Android app should be built in Kotlin as a native client for task creation, approvals, notifications, voice entry, and lightweight review. It should share backend contracts rather than duplicate runtime logic.
+The shipping ANUM Android app is the Flutter client in `apps/mobile` ([Flutter mobile](mobile.md)), applicationId `com.anum.app`. The Kotlin client in `apps/android` described below is frozen.
+
+## Status: Frozen
+
+Decision (Stage 6 of the [Production plan](production-plan.md)): Flutter is the shipping app on Android and iOS, because it already has what the Kotlin client lacks:
+
+- Keycloak sign-in (authorization code + PKCE, refresh, RP-initiated sign-out); the Kotlin client has no OIDC sign-in yet ([Identity and sign-in](identity.md#client-sign-in)).
+- The wake-by-name voice assistant with English and Arabic recognition, transcript review and spoken confirmation.
+- Real-data Home, Tasks, Approvals, Automations, Resources and Governance screens, Arabic RTL, 200 percent text scaling and tablet layouts, covered by widget tests.
+- One codebase for Android and iOS.
+
+What frozen means for `apps/android`:
+
+- It keeps building in CI (the "Android client" job: unit tests and a debug APK) so it does not rot, and security fixes are allowed.
+- No new features, no release signing and no Play listing. New Android work goes into `apps/mobile`.
+- Its applicationId `com.anum.mobile` and the `anum-android` Keycloak client stay reserved so the two apps never collide on a device or in the realm.
+- Native capabilities Flutter cannot reach (for example widgets or a share target) are added to `apps/mobile/android` as platform code, not to this client. Retiring it completely (deleting the module, the CI job and the realm client) is a separate decision once the Flutter app is on the Play internal track.
+
+## Original Design
+
+The Kotlin app was planned as a native client for task creation, approvals, notifications, voice entry, and lightweight review, sharing backend contracts rather than duplicating runtime logic. The sections below record that design; the same product role and rules now apply to the Flutter app.
 
 ## Product Role
 
@@ -24,4 +44,4 @@ The Kotlin and Compose client provides task capture and execution, task status, 
 
 ## Release Gate
 
-Local APK validation requires JDK 17, Gradle, the Android SDK, and ADB. A production release additionally requires OIDC configuration, push-notification credentials, an Android signing identity, and physical-device testing. Widgets, share-sheet ingestion, offline drafts, and optional local context tools remain future capabilities.
+The Kotlin client is not released (see [Status: Frozen](#status-frozen)). Local APK validation requires JDK 17, Gradle, the Android SDK, and ADB. The Android release gate for the shipping app (signing, Play App Signing, device testing) is in [Flutter mobile](mobile.md#release-builds).
