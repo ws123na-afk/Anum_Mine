@@ -61,3 +61,25 @@ Visual QA caught and fixed nested badge labels, timeline constraints, feedback g
 The Flutter implementation now exists under `apps/mobile` with semantic themes, secure session storage, authentication and onboarding, model setup with a backend connection test, task timelines and resumption, approvals, automations, files, memory, voice, organization operations, profile/session security, notification preferences, responsive components, and mobile tests. Authentication and settings distinguish loading, offline, permission-denied, expired-session, validation, and generic failures. Directional spacing and alignment are used on the new authentication and settings surfaces as an RTL layout foundation.
 
 This is a source-implementation statement, not a device-verification claim. Remaining gates are Flutter SDK analysis and widget-test execution, native wrapper generation, Android/iOS builds, OIDC release configuration, signing, complete Arabic localization, adaptive tablet navigation validation, physical-device permission and secure-storage tests, and production service verification. Exact Figma page, collection, component, approved-screen, voice, and handoff node IDs remain recorded in `docs/figma-design-state.json`; IDs not returned by Figma are not inferred.
+
+## Pending Frames: Web Voice Console
+
+The web "Ask ANUM" voice console (`apps/web/src/VoiceView.tsx`) was built in code because this environment's Figma connection cannot create frames. Add these frames to `05 Workflows` and `06 States` to bring Figma back in line:
+
+- **Layout:**
+  - Dark console card using the dark tokens: background `#11181D`, surface `#202B32`, teal `#087F73`, with accent `#19B3A2` for the orb.
+  - Expanded: orb left, conversation right.
+  - Compact (< 860 px): stacked, with a 160 px orb.
+- **Orb states:**
+  - Ready: slow breathing rings.
+  - Listening: fast rings, scaled by microphone level.
+  - Thinking: amber spinning arc.
+  - Speaking: pulsing core.
+  - Reduced motion disables all animation.
+- **Conversation turns:** You and ANUM, each with a risk chip:
+  - Answer only (teal).
+  - Needs your confirmation (amber) with **Create task** / **Not now**.
+  - On-screen only (red) with **Open Approvals**.
+- **Dock:** 64 px hold-to-talk button, transcript field, Ask button.
+- **Settings drawer:** language, reply voice, transcript retention, end session.
+- **Privacy badge:** On-device, Browser cloud, or Typing only.
