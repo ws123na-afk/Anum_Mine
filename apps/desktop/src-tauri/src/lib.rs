@@ -6,7 +6,9 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-const LAUNCHER_SHORTCUT: Shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+fn launcher_shortcut() -> Shortcut {
+    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,7 +64,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    if shortcut == &LAUNCHER_SHORTCUT && event.state() == ShortcutState::Pressed {
+                    if shortcut == &launcher_shortcut() && event.state() == ShortcutState::Pressed {
                         if let Some(window) = app.get_webview_window("main") {
                             show_launcher(&window);
                         }
@@ -73,7 +75,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![desktop_context])
         .setup(|app| {
             install_tray(app.handle())?;
-            app.global_shortcut().register(LAUNCHER_SHORTCUT)?;
+            app.global_shortcut().register(launcher_shortcut())?;
             Ok(())
         })
         .run(tauri::generate_context!())

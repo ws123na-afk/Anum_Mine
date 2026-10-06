@@ -32,7 +32,7 @@ class DeviceSpeechService implements SpeechService {
   @override
   Future<void> listen({required String locale, required void Function(String text, bool finalResult) onResult}) =>
       _speech.listen(
-        localeId: locale,
+        listenOptions: SpeechListenOptions(localeId: locale),
         onResult: (SpeechRecognitionResult result) =>
             onResult(result.recognizedWords, result.finalResult),
       );

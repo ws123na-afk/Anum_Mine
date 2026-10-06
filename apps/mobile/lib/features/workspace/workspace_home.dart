@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
-import 'workspace_screens.dart';
 import '../voice/voice_controller.dart';
 import '../voice/voice_screen.dart';
 import '../settings/settings_controller.dart';
@@ -51,7 +50,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         return Scaffold(
         appBar: expanded?AppBar(title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(l.t('workspace')), Text(l.t('subtitle'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal))]), actions: [PopupMenuButton<String>(tooltip:l.t('language'),onSelected:widget.localeController.select,itemBuilder:(_)=>[PopupMenuItem(value:'en',child:Text(l.t('english'))),PopupMenuItem(value:'ar',child:Text(l.t('arabic')))],icon:const Icon(Icons.language)),IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GovernanceScreen(controller: widget.governanceController))), tooltip: l.t('organization'), icon: const Icon(Icons.admin_panel_settings_outlined)), IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(controller: widget.settingsController))), tooltip: l.t('settings'), icon: const Icon(Icons.settings_outlined)), IconButton(onPressed: widget.controller.mutating ? null : widget.controller.load, tooltip: l.t('refresh'), icon: const Icon(Icons.refresh))]):null,
         body: expanded ? Row(children: [NavigationRail(selectedIndex: index, onDestinationSelected: _select, labelType: NavigationRailLabelType.all, destinations: destinations.map((item) => NavigationRailDestination(icon: item.icon, selectedIcon: item.selectedIcon, label: Text(item.label))).toList()), const VerticalDivider(width: 1), Expanded(child: content)]) : content,
-        bottomNavigationBar: expanded ? null : NavigationBar(selectedIndex:index==0?0:index==1?1:index==5?2:3,onDestinationSelected:(value){if(value==0)_select(0);else if(value==1)_select(1);else if(value==2)_select(5);else _showMore(context);},destinations:compactDestinations),
+        bottomNavigationBar: expanded ? null : NavigationBar(selectedIndex:index==0?0:index==1?1:index==5?2:3,onDestinationSelected:(value){if(value==0){_select(0);}else if(value==1){_select(1);}else if(value==2){_select(5);}else{_showMore(context);}},destinations:compactDestinations),
       );});
     },
   );

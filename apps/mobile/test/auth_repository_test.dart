@@ -1,7 +1,6 @@
-import '../lib/data/api_client.dart';
-import '../lib/data/api_models.dart';
-import '../lib/data/session_store.dart';
-import '../lib/features/auth/auth_repository.dart';
+import 'package:anum_mobile/data/api_client.dart';
+import 'package:anum_mobile/data/session_store.dart';
+import 'package:anum_mobile/features/auth/auth_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class FakeTransport implements ApiTransport {

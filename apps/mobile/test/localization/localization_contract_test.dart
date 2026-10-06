@@ -1,5 +1,6 @@
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -15,13 +16,13 @@ void main() {
   });
 
   testWidgets('Arabic locale establishes RTL direction', (tester) async {
-    await tester.pumpWidget(WidgetsApp(
-      color: Color(0xFFFFFFFF),
+    await tester.pumpWidget(const MaterialApp(
       locale: Locale('ar'),
       supportedLocales: [Locale('en'), Locale('ar')],
-      localizationsDelegates: [AnumLocalizations.delegate],
-      home: Directionality(textDirection: TextDirection.rtl, child: Text('المهام')),
+      localizationsDelegates: [AnumLocalizations.delegate, ...GlobalMaterialLocalizations.delegates],
+      home: Text('المهام'),
     ));
+    await tester.pumpAndSettle();
     expect(Directionality.of(tester.element(find.text('المهام'))), TextDirection.rtl);
   });
 }

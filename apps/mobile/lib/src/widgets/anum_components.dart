@@ -20,7 +20,9 @@ class AnumStatusBadge extends StatelessWidget {
       AnumStatus.paused => ('Paused', Theme.of(context).colorScheme.outline),
     };
     return Semantics(
+      container: true,
       label: 'Status: $label',
+      excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),

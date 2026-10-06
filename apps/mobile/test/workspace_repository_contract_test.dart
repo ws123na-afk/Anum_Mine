@@ -1,8 +1,8 @@
-import '../lib/data/api_client.dart';
-import '../lib/data/api_models.dart';
-import '../lib/data/session_store.dart';
-import '../lib/features/workspace/api_workspace_repository.dart';
-import '../lib/features/workspace/workspace_models.dart';
+import 'package:anum_mobile/data/api_client.dart';
+import 'package:anum_mobile/data/api_models.dart';
+import 'package:anum_mobile/data/session_store.dart';
+import 'package:anum_mobile/features/workspace/api_workspace_repository.dart';
+import 'package:anum_mobile/features/workspace/workspace_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class ContractTransport implements ApiTransport {

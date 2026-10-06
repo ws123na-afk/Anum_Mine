@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../../data/api_models.dart';
 import 'auth_repository.dart';
 
 enum AuthPhase { restoring, signedOut, onboarding, modelSetup, ready, busy, error }
