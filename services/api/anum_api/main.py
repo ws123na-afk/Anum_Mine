@@ -52,6 +52,7 @@ from .schemas import (
 from .settings import settings
 from .store import store
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
+from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
@@ -60,8 +61,15 @@ from .files import router as files_router
 from .skills_api import router as skills_router
 from .onboarding import router as onboarding_router, workspace_model_gateway
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+enforce_startup_policy(settings)
+app = FastAPI(title=settings.app_name, version="0.1.0", **docs_routes(settings))
 app.add_middleware(CorrelationIdMiddleware)
+install_hardening(
+    app,
+    settings,
+    upload_path_prefix=files_router.prefix,
+    upload_max_bytes=settings.max_upload_body_bytes,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -78,7 +86,7 @@ app.add_middleware(
         "idempotency-key",
         CORRELATION_ID_HEADER,
     ],
-    expose_headers=[CORRELATION_ID_HEADER],
+    expose_headers=[CORRELATION_ID_HEADER, "Retry-After"],
 )
 register_exception_handlers(app)
 app.include_router(voice_router)

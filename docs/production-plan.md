@@ -8,13 +8,13 @@ Status after the `claude/festive-ride-ghttk0` branch merges. Before that, `main`
 
 | Area | State |
 |---|---|
-| CI | All 8 jobs green with no tolerated failures. Actions upgraded to Node 24 releases. Branch protection is not yet required on `main`. |
+| CI | All 8 original jobs green with no tolerated failures. Actions upgraded to Node 24 releases. New: Security scans (pip-audit, pnpm audit, bandit, gitleaks), Docker images (build and smoke test), and a CodeQL workflow. Branch protection is not yet required on `main`. |
 | Flutter | Analyzer clean, 61 tests pass. Screens show live workspace data only, with a depth design system and a wake-by-name voice assistant. |
 | Web and desktop | Voice assistant with wake by name, free voices and a WebGL orb; depth redesign. Desktop builds an unsigned Windows installer in CI. |
-| API | Unit and PostgreSQL/RLS suites pass. Auth still defaults to development headers (`ANUM_AUTH_MODE=headers`); an OIDC validator exists but is not exercised end to end. |
+| API | Unit and PostgreSQL/RLS suites pass. Auth still defaults to development headers (`ANUM_AUTH_MODE=headers`); an OIDC validator exists but is not exercised end to end. Request size limits, per-client rate limiting, security headers and fail-fast startup checks are in (`anum_api/hardening.py`). |
 | Model gateway | Mock, OpenAI-compatible and Ollama (free, local, keyless). A model saved per workspace runs that workspace's tasks and voice answers. Per-workspace configs are in memory only. No retries or cost accounting yet. |
 | Infra adapters | Valkey, NATS, Temporal and object storage appear only as settings and health probes. No client code, workers, or durable event consumers. |
-| Deployment | No Dockerfiles, no OpenTofu, no deploy workflow, no staging environment. |
+| Deployment | API and web Dockerfiles, a compose `app` profile, and `deploy-staging.yml` pushing images to GHCR. No OpenTofu, no cloud, no staging environment yet; the deploy step waits on the cloud choice. |
 | Clients | Web, desktop, Android and Flutter sources exist; none are signed or device-verified. |
 
 ## Stage 1: Green and Honest CI
@@ -57,11 +57,11 @@ Exit: the infrastructure gates in [Production readiness gates](production-readin
 
 Goal: the system can be deployed reproducibly ([Infrastructure](infrastructure.md)).
 
-- Dockerfiles for the API and Temporal worker; static web bundle served from a CDN or container.
+- Dockerfiles for the API and Temporal worker; static web bundle served from a CDN or container. API and web images done (non-root, health checks, built and smoke-tested in CI); the Temporal worker image waits on the Stage 3 worker.
 - OpenTofu for network, compute, managed PostgreSQL with pgvector, object storage, secrets, DNS and TLS, with remote locked state.
 - Environments: preview (per PR, optional), staging, production, each with separate secrets, databases, buckets and Keycloak realm.
-- Deploy workflow: build, migrate, deploy to staging automatically; production behind GitHub environment approval.
-- Secrets only from the deployment secret store. Rotate every default credential from `infra/docker/compose.yaml`.
+- Deploy workflow: build, migrate, deploy to staging automatically; production behind GitHub environment approval. Partly done: `deploy-staging.yml` builds and pushes images to GHCR on every push to `main`; the migrate and deploy steps are placeholders gated on the `staging` environment and `STAGING_DEPLOY_TARGET` until the cloud is chosen. No production workflow yet.
+- Secrets only from the deployment secret store. Rotate every default credential from `infra/docker/compose.yaml`. The API now refuses to start outside `local` with the compose database credentials, the MinIO default secret, or localhost/wildcard CORS origins; Keycloak's `admin/admin` is not yet checked.
 
 Exit: a push to `main` deploys to staging and passes a smoke test (login, task, approval, memory, file, event, workflow resume).
 
@@ -70,10 +70,10 @@ Exit: a push to `main` deploys to staging and passes a smoke test (login, task, 
 Goal: safe to hold real user data ([Security](security.md), [Observability](observability.md)).
 
 - Threat model for agent tool use and prompt injection; review approval and risk policies ([Approvals and risk](approvals-and-risk.md)).
-- Dependency, container and secret scanning in CI; SAST for Python, TypeScript, Dart and Rust.
+- Dependency, container and secret scanning in CI; SAST for Python, TypeScript, Dart and Rust. Partly done: pip-audit, `pnpm audit --prod` (high and above), gitleaks, bandit and CodeQL (Python, JavaScript/TypeScript). Open: container image scanning, Dart and Rust SAST.
 - OpenTelemetry traces, metrics and logs exported from the collector to a real backend, with dashboards and alerts for errors, latency, queue depth and model cost.
 - Backups with a restore drill; documented incident and on-call runbooks.
-- Rate limiting, request size limits, CORS and CSP locked to production origins.
+- Rate limiting, request size limits, CORS and CSP locked to production origins. Done in code: limits and headers in the API, CSP and security headers in the web container, startup checks that reject wildcard, localhost and non-https CORS origins outside `local`. Open: Valkey-backed rate limits shared across replicas, and setting the real origins once domains exist.
 - External penetration test before general availability.
 
 Exit: restore drill and pen-test findings closed or accepted in writing.

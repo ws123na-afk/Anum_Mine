@@ -177,7 +177,16 @@ class LocalAutomationEngine:
     def _scope(context: TenantContext) -> tuple[str, str]:
         return context.tenant_id, context.workspace_id
 
+    # Table names are interpolated into SQL below, so only these internal names are accepted.
+    _TABLES = frozenset({"automation_workflows", "automation_schedules", "automation_runs"})
+
+    def _table(self, table: str) -> str:
+        if table not in self._TABLES:
+            raise ValueError(f"Unknown automation table: {table}")
+        return table
+
     def _save(self, table: str, value: BaseModel, context: TenantContext, **columns: str | None) -> None:
+        table = self._table(table)
         body = value.model_dump_json()
         with self._connect() as connection:
             if table == "automation_runs":
@@ -192,9 +201,11 @@ class LocalAutomationEngine:
                 )
 
     def _list(self, table: str, model: type[BaseModel], context: TenantContext) -> list[Any]:
+        table = self._table(table)
         with self._connect() as connection:
             rows = connection.execute(
-                f"select body from {table} where tenant_id = ? and workspace_id = ? order by created_at desc",
+                # Table name comes from the _TABLES allow-list; values are bound parameters.
+                f"select body from {table} where tenant_id = ? and workspace_id = ? order by created_at desc",  # nosec B608
                 self._scope(context),
             ).fetchall()
         return [model.model_validate_json(row["body"]) for row in rows]

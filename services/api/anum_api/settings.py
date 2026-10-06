@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     external_webhook_api_key: str | None = None
     automation_database_path: str = ".anum/automation.db"
     automation_backend: str = "local"
+    # HTTP hardening (anum_api/hardening.py, docs/security.md). Uploads to
+    # /api/v1/files get max_upload_body_bytes; every other request gets the general limit.
+    max_request_body_bytes: int = 1_048_576
+    max_upload_body_bytes: int = 25 * 1024 * 1024
+    rate_limit_enabled: bool = True
+    rate_limit_requests_per_minute: int = 600
+    rate_limit_burst: int = 120
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",
