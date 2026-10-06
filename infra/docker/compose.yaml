@@ -130,7 +130,7 @@ services:
 
   loki:
     profiles: ["observability"]
-    image: grafana/loki:3.6.17
+    image: grafana/loki:3.7.8
     command: ["-config.file=/etc/loki/config.yaml"]
     volumes:
       - ../observability/loki/loki.yaml:/etc/loki/config.yaml:ro
