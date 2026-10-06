@@ -30,6 +30,11 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "voice_transcript_segments",
+    "voice_sessions",
+    "automation_runs",
+    "automation_schedules",
+    "automation_workflows",
     "model_usage_monthly",
     "model_budgets",
     "notification_preferences",

@@ -1,8 +1,25 @@
+"""Voice sessions, transcripts and the spoken assistant.
+
+Sessions and transcript segments are private to the user who started them. With
+``ANUM_REPOSITORY_BACKEND=memory`` they live in process memory (``VoiceStore``); with
+``postgresql`` they live in the ``voice_sessions`` and ``voice_transcript_segments``
+tables under tenant, workspace and user RLS (migration 0009,
+``anum_api.db.voice_repository``). Transcript retention (docs/voice.md):
+
+- ``session``: the transcript is deleted when the session is completed or cancelled.
+- ``30_days``: hidden from every read once ``expires_at`` passes and deleted by
+  ``python -m anum_api.voice_retention`` (run it at least daily).
+- ``permanent``: kept until the session's workspace data is deleted.
+"""
+
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from enum import StrEnum
 from threading import RLock
+from typing import Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -14,6 +31,7 @@ from .model_budget import ModelBudgetExceededError
 from .onboarding import budgeted_model_gateway
 from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
+from .scoped_store import open_scoped_store
 from .settings import settings
 from .voice_assistant import (
     SMALL_TALK,
@@ -31,6 +49,7 @@ from .voice_assistant import (
 )
 
 MAX_ASKS_PER_SESSION = 60
+TRANSCRIPT_RETENTION_DAYS = 30
 
 
 class VoiceSessionStatus(StrEnum):
@@ -111,8 +130,31 @@ class VoiceAskResult(BaseModel):
     assistant_segment: TranscriptSegment
 
 
+def transcript_expiry(retention: TranscriptRetention, created_at: datetime) -> datetime | None:
+    if retention == TranscriptRetention.THIRTY_DAYS:
+        return created_at + timedelta(days=TRANSCRIPT_RETENTION_DAYS)
+    return None
+
+
+def transcript_expired(session: VoiceSession, now: datetime | None = None) -> bool:
+    """A 30-day transcript is unreadable from ``expires_at`` on, purged or not."""
+    return session.expires_at is not None and session.expires_at <= (now or utc_now())
+
+
+class VoiceSessionStore(Protocol):
+    def create_session(self, payload: VoiceSessionCreate, context: TenantContext) -> VoiceSession: ...
+    def get_session(self, session_id: str, context: TenantContext, *, lock: bool = False) -> VoiceSession | None: ...
+    def list_transcript(self, session: VoiceSession) -> list[TranscriptSegment]: ...
+    def add_segment(self, session: VoiceSession, payload: TranscriptSegmentCreate) -> TranscriptSegment: ...
+    def add_assistant_reply(self, session: VoiceSession, text: str, sequence: int) -> TranscriptSegment: ...
+    def get_segment(self, session_id: str, segment_id: str) -> TranscriptSegment | None: ...
+    def consume_segment(self, segment_id: str) -> None: ...
+    def count_ask(self, session_id: str) -> int: ...
+    def close(self, session: VoiceSession, final_status: VoiceSessionStatus) -> VoiceSession: ...
+
+
 class VoiceStore:
-    """Thread-safe ephemeral store; production adapters can preserve the same contract."""
+    """Thread-safe in-process store for ``ANUM_REPOSITORY_BACKEND=memory``."""
 
     def __init__(self) -> None:
         self.sessions: dict[str, VoiceSession] = {}
@@ -150,7 +192,6 @@ class VoiceStore:
 
     def create_session(self, payload: VoiceSessionCreate, context: TenantContext) -> VoiceSession:
         now = utc_now()
-        expires_at = now + timedelta(days=30) if payload.retention == TranscriptRetention.THIRTY_DAYS else None
         session = VoiceSession(
             id=new_id("voice"),
             tenant_id=context.tenant_id,
@@ -162,14 +203,15 @@ class VoiceStore:
             status=VoiceSessionStatus.ACTIVE,
             created_at=now,
             updated_at=now,
-            expires_at=expires_at,
+            expires_at=transcript_expiry(payload.retention, now),
         )
         with self._lock:
             self.sessions[session.id] = session
             self.segments[session.id] = []
         return session
 
-    def get_session(self, session_id: str, context: TenantContext) -> VoiceSession | None:
+    def get_session(self, session_id: str, context: TenantContext, *, lock: bool = False) -> VoiceSession | None:
+        # ``lock`` matters to the PostgreSQL store only; this store serialises with _lock.
         session = self.sessions.get(session_id)
         if not session or (
             session.tenant_id,
@@ -178,6 +220,12 @@ class VoiceStore:
         ) != (context.tenant_id, context.workspace_id, context.user_id):
             return None
         return session
+
+    def list_transcript(self, session: VoiceSession) -> list[TranscriptSegment]:
+        if transcript_expired(session):
+            return []
+        with self._lock:
+            return sorted(self.segments.get(session.id, []), key=lambda item: item.client_sequence)
 
     def add_segment(
         self,
@@ -202,6 +250,9 @@ class VoiceStore:
             return segment
 
     def get_segment(self, session_id: str, segment_id: str) -> TranscriptSegment | None:
+        session = self.sessions.get(session_id)
+        if session is None or transcript_expired(session):
+            return None
         return next((item for item in self.segments.get(session_id, []) if item.id == segment_id), None)
 
     def consume_segment(self, segment_id: str) -> None:
@@ -218,8 +269,33 @@ class VoiceStore:
                 self.segments[session.id] = []
             return session
 
+    def purge_expired(self, now: datetime | None = None) -> int:
+        """Delete expired 30-day transcripts; returns the number of segments removed."""
+        removed = 0
+        with self._lock:
+            for session in self.sessions.values():
+                if transcript_expired(session, now) and self.segments.get(session.id):
+                    removed += len(self.segments[session.id])
+                    self.segments[session.id] = []
+        return removed
+
 
 voice_store = VoiceStore()
+
+
+@contextmanager
+def open_voice_store(context: TenantContext) -> Iterator[VoiceSessionStore]:
+    """One unit of work in the caller's tenant, workspace and user scope."""
+
+    def sql_store(session):  # type: ignore[no-untyped-def]
+        from .db.voice_repository import SqlAlchemyVoiceStore
+
+        return SqlAlchemyVoiceStore(session, context)
+
+    with open_scoped_store(context, voice_store, sql_store, user_scoped=True) as store:
+        yield store
+
+
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
 _gateway: ModelGateway | None = None
 
@@ -241,11 +317,30 @@ def voice_model_gateway(context: TenantContext = Depends(tenant_context)) -> Mod
     return budgeted_model_gateway(context, _default_voice_gateway())
 
 
-def _session_or_404(session_id: str, context: TenantContext) -> VoiceSession:
-    session = voice_store.get_session(session_id, context)
+def _session_or_404(
+    store: VoiceSessionStore,
+    session_id: str,
+    context: TenantContext,
+    *,
+    active: bool = False,
+    lock: bool = False,
+) -> VoiceSession:
+    session = store.get_session(session_id, context, lock=lock)
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice session not found")
+    if active and session.status != VoiceSessionStatus.ACTIVE:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
     return session
+
+
+def _final_user_segment(store: VoiceSessionStore, session: VoiceSession, segment_id: str) -> TranscriptSegment:
+    segment = store.get_segment(session.id, segment_id)
+    if not segment or segment.role != TranscriptRole.USER or not segment.is_final:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A final user transcript segment is required",
+        )
+    return segment
 
 
 @router.post("/sessions", response_model=VoiceSession, status_code=status.HTTP_201_CREATED)
@@ -254,7 +349,8 @@ async def create_voice_session(
     context: TenantContext = Depends(tenant_context),
 ) -> VoiceSession:
     require_permission(context, Permission.TASK_CREATE)
-    return voice_store.create_session(payload, context)
+    with open_voice_store(context) as store:
+        return store.create_session(payload, context)
 
 
 @router.get("/sessions/{session_id}", response_model=VoiceSession)
@@ -263,7 +359,8 @@ async def get_voice_session(
     context: TenantContext = Depends(tenant_context),
 ) -> VoiceSession:
     require_permission(context, Permission.TASK_READ)
-    return _session_or_404(session_id, context)
+    with open_voice_store(context) as store:
+        return _session_or_404(store, session_id, context)
 
 
 @router.get("/sessions/{session_id}/transcript", response_model=list[TranscriptSegment])
@@ -272,8 +369,8 @@ async def get_voice_transcript(
     context: TenantContext = Depends(tenant_context),
 ) -> list[TranscriptSegment]:
     require_permission(context, Permission.TASK_READ)
-    session = _session_or_404(session_id, context)
-    return sorted(voice_store.segments[session.id], key=lambda item: item.client_sequence)
+    with open_voice_store(context) as store:
+        return store.list_transcript(_session_or_404(store, session_id, context))
 
 
 @router.post(
@@ -287,13 +384,14 @@ async def append_voice_transcript(
     context: TenantContext = Depends(tenant_context),
 ) -> TranscriptSegment:
     require_permission(context, Permission.TASK_CREATE)
-    session = _session_or_404(session_id, context)
-    if session.status != VoiceSessionStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
-    try:
-        return voice_store.add_segment(session, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    with open_voice_store(context) as store:
+        # The row lock orders this append against a concurrent complete/cancel, so a
+        # session-only transcript cannot gain a segment after it was erased.
+        session = _session_or_404(store, session_id, context, active=True, lock=True)
+        try:
+            return store.add_segment(session, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/sessions/{session_id}/commands", response_model=VoiceCommandResult)
@@ -304,19 +402,13 @@ async def submit_voice_command(
     repository: AnumRepository = Depends(repository_context),
 ) -> VoiceCommandResult:
     require_permission(context, Permission.TASK_CREATE)
-    session = _session_or_404(session_id, context)
-    if session.status != VoiceSessionStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
-    segment = voice_store.get_segment(session.id, payload.transcript_segment_id)
-    if not segment or segment.role != TranscriptRole.USER or not segment.is_final:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="A final user transcript segment is required",
-        )
-    try:
-        voice_store.consume_segment(segment.id)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    with open_voice_store(context) as store:
+        session = _session_or_404(store, session_id, context, active=True, lock=True)
+        segment = _final_user_segment(store, session, payload.transcript_segment_id)
+        try:
+            store.consume_segment(segment.id)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     now = utc_now()
     task = Task(
@@ -343,16 +435,14 @@ async def ask_voice_assistant(
 ) -> VoiceAskResult:
     """Answer a spoken question. Read-only: it never changes tasks or approvals."""
     require_permission(context, Permission.TASK_READ)
-    session = _session_or_404(session_id, context)
-    if session.status != VoiceSessionStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
-    segment = voice_store.get_segment(session.id, payload.transcript_segment_id)
-    if not segment or segment.role != TranscriptRole.USER or not segment.is_final:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="A final user transcript segment is required",
-        )
-    if voice_store.count_ask(session.id) > MAX_ASKS_PER_SESSION:
+    # No transaction stays open while the model answers: the checks and the counter
+    # commit first, the reply is stored in a second unit of work.
+    with open_voice_store(context) as store:
+        session = _session_or_404(store, session_id, context, active=True)
+        segment = _final_user_segment(store, session, payload.transcript_segment_id)
+        # Atomic per-session counter (a single UPDATE in PostgreSQL), shared by replicas.
+        asked = store.count_ask(session.id)
+    if asked > MAX_ASKS_PER_SESSION:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Voice question limit reached")
 
     arabic = session.locale.lower().startswith("ar")
@@ -379,7 +469,11 @@ async def ask_voice_assistant(
             reply = exc.spoken(arabic)
         tier = VoiceRiskTier.READ
 
-    assistant_segment = voice_store.add_assistant_reply(session, reply, segment.client_sequence)
+    with open_voice_store(context) as store:
+        # Closed while the model was answering: a session-only transcript is already
+        # erased, so the reply must not be written back into it.
+        session = _session_or_404(store, session_id, context, active=True, lock=True)
+        assistant_segment = store.add_assistant_reply(session, reply, segment.client_sequence)
     return VoiceAskResult(
         intent=intent,
         risk_tier=tier,
@@ -396,10 +490,9 @@ async def complete_voice_session(
     context: TenantContext = Depends(tenant_context),
 ) -> VoiceSession:
     require_permission(context, Permission.TASK_CREATE)
-    session = _session_or_404(session_id, context)
-    if session.status != VoiceSessionStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
-    return voice_store.close(session, VoiceSessionStatus.COMPLETED)
+    with open_voice_store(context) as store:
+        session = _session_or_404(store, session_id, context, active=True, lock=True)
+        return store.close(session, VoiceSessionStatus.COMPLETED)
 
 
 @router.delete("/sessions/{session_id}", response_model=VoiceSession)
@@ -408,7 +501,6 @@ async def cancel_voice_session(
     context: TenantContext = Depends(tenant_context),
 ) -> VoiceSession:
     require_permission(context, Permission.TASK_CREATE)
-    session = _session_or_404(session_id, context)
-    if session.status != VoiceSessionStatus.ACTIVE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
-    return voice_store.close(session, VoiceSessionStatus.CANCELLED)
+    with open_voice_store(context) as store:
+        session = _session_or_404(store, session_id, context, active=True, lock=True)
+        return store.close(session, VoiceSessionStatus.CANCELLED)

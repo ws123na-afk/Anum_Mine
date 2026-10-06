@@ -146,3 +146,36 @@ def test_approval_integrity_migration_adds_binding_columns_without_touching_rls(
     assert "create policy" not in lowered and "drop policy" not in lowered
     assert "disable row level security" not in lowered and "no force row level security" not in lowered
     assert "bypassrls" not in revision_text.lower()
+
+
+def test_voice_and_automation_migration_uses_forced_rls_and_a_discovery_only_role() -> None:
+    api_root = Path(__file__).parents[1]
+    revision_text = (api_root / "migrations" / "versions" / "0011_voice_automation.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'revision = "0011_voice_automation"' in revision_text
+    assert 'down_revision = "0010_approval_integrity"' in revision_text
+    for table in (
+        "voice_sessions",
+        "voice_transcript_segments",
+        "automation_workflows",
+        "automation_schedules",
+        "automation_runs",
+    ):
+        assert f'"{table}"' in revision_text
+    assert "force row level security" in revision_text
+    # Voice rows are private to their user, not only to the workspace.
+    assert "current_setting('anum.user_id', true)" in revision_text
+    # The maintenance role discovers work through column grants and its own policies;
+    # it is never given write access or BYPASSRLS.
+    assert "create role anum_maintenance nologin" in revision_text
+    assert "for select to anum_maintenance" in revision_text
+    assert "to anum_maintenance" in revision_text
+    for verb in ("insert", "update", "delete"):
+        assert f"grant {verb}" not in revision_text.lower()
+        assert f"for {verb} to anum_maintenance" not in revision_text
+    assert "bypassrls" not in revision_text.lower()
+    assert "create function" not in revision_text.lower()  # no SECURITY DEFINER escape hatch
+    # Scheduler double-run guard: one run per idempotency key.
+    assert "uq_automation_runs_idempotency" in revision_text
