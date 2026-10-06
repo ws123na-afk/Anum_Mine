@@ -102,6 +102,7 @@ x-user-roles: owner,member
 - [Observability](docs/observability.md)
 - [Development standards](docs/development-standards.md)
 - [Production readiness gates](docs/production-readiness.md)
+- [Production plan](docs/production-plan.md)
 - [Figma mobile design system](docs/figma-mobile-design.md)
 - [Repository structure](docs/repository-structure.md)
 - [Scaling](docs/scaling.md)
