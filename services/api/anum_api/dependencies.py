@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from fastapi import Depends, Header, HTTPException, status
 
 from .repository import AnumRepository, InMemoryRepository
+from .event_bus import EventCollectingRepository, build_event_runtime
 from .authorization import AuthorizationError, Permission, Role, WorkspaceMembership, policy
 from .memory import InMemoryMemoryRepository, MemoryRepository
 from .schemas import TenantContext
@@ -24,6 +25,7 @@ from .identity import (
 memory_repository = InMemoryRepository(store)
 memory_note_repository = InMemoryMemoryRepository()
 _oidc_validator: OidcValidator | None = None
+event_runtime = build_event_runtime(settings)
 
 
 def require_permission(context: TenantContext, permission: Permission) -> None:
@@ -248,7 +250,12 @@ async def repository_context(
 ) -> AsyncIterator[AnumRepository]:
     if settings.repository_backend == "memory":
         _require_persisted_membership(memory_repository, context)
-        yield memory_repository
+        collecting = EventCollectingRepository(memory_repository)
+        try:
+            yield collecting
+        finally:
+            # The in-memory store has no rollback: whatever was recorded is visible.
+            event_runtime.after_commit(collecting.recorded_events)
         return
 
     if settings.repository_backend != "postgresql":
@@ -263,8 +270,11 @@ async def repository_context(
         session.info["user_id"] = context.user_id
         repository = SqlAlchemyRepository(session, created_by_user_id=context.user_id)
         _require_persisted_membership(repository, context)
-        yield repository
+        collecting = EventCollectingRepository(repository)
+        yield collecting
         session.commit()
+        # Publish only what the database actually committed (outbox semantics).
+        event_runtime.after_commit(collecting.recorded_events)
     except Exception:
         session.rollback()
         raise

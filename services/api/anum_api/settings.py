@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     model_base_url: str = "https://api.openai.com/v1"
     valkey_url: str = "redis://localhost:6379/0"
     nats_url: str = "nats://localhost:4222"
+    event_bus: str = "memory"
+    nats_stream: str = "ANUM_EVENTS"
     temporal_target: str = "localhost:7233"
     s3_endpoint: str = "http://localhost:9000"
     s3_bucket: str = "anum-local"

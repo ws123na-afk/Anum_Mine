@@ -14,6 +14,7 @@ dependencies = [
   "alembic==1.13.3",
   "fastapi==0.115.0",
   "httpx==0.27.2",
+  "nats-py==2.16.0",
   "psycopg[binary]==3.2.3",
   "pydantic-settings==2.5.2",
   "PyJWT[crypto]==2.9.0",
@@ -36,7 +37,8 @@ addopts = "--strict-markers"
 pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
-  "database: tests that require a migrated PostgreSQL database"
+  "database: tests that require a migrated PostgreSQL database",
+  "nats: tests that require a reachable NATS JetStream server (ANUM_TEST_NATS_URL)"
 ]
 
 [tool.ruff]

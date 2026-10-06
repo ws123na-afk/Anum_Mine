@@ -101,4 +101,14 @@ The Alembic chain executes `migrations/0001_foundation.sql`, which creates the c
 
 The API routes and runtime depend on ANUM repository boundaries instead of reaching directly into storage dictionaries. In-memory storage remains the local default; setting `ANUM_REPOSITORY_BACKEND=postgresql` selects SQLAlchemy adapters, applies tenant and workspace context to each request transaction, and durably stores task, run, approval, event, and memory changes.
 
-Development header roles are never production-safe; shared environments must run `ANUM_AUTH_MODE=oidc`, where the persisted workspace membership role is authoritative. SQL-backed audit/idempotency records, a transactional event outbox, Temporal, NATS, and durable object storage remain subsequent implementation boundaries.
+Development header roles are never production-safe; shared environments must run `ANUM_AUTH_MODE=oidc`, where the persisted workspace membership role is authoritative. SQL-backed audit/idempotency records, a restart-durable (PostgreSQL) event outbox relay, Temporal, and durable object storage remain subsequent implementation boundaries.
+## Event Bus
+
+`ANUM_EVENT_BUS=nats` publishes committed canonical events to NATS JetStream (`ANUM_NATS_URL`, stream `ANUM_NATS_STREAM`, default `ANUM_EVENTS`) on `anum.<tenant>.<workspace>.<event type>` subjects and feeds `GET /api/v1/events/stream` from a JetStream consumer. The default, `memory`, keeps events in the repository only. Publishing never fails a request; while NATS is down events are queued and retried. See [Events](../../docs/events.md) and [Realtime](../../docs/realtime.md).
+
+Integration tests marked `nats` run against a JetStream server and are skipped when it is unreachable:
+
+```bash
+docker compose -f ../../infra/docker/compose.yaml up -d nats
+ANUM_TEST_NATS_URL=nats://127.0.0.1:4222 python -m pytest -m nats
+```
