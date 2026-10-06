@@ -24,3 +24,5 @@ Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `
 - MinIO no longer publishes community images; the compose `s3` service is SeaweedFS.
 - New CI scanners: bandit flags variables named `token`/`password` compared to literals and bare `assert`; gitleaks scans the full history, so a fake key committed once needs a narrowly scoped `.gitleaks.toml` entry.
 - Integration-marked tests (`valkey`, `s3`, `temporal`, `nats`) must not skip in CI; the "API integration" job fails on any skip.
+- A log-record attribute with the same name as an `extra=` key makes the logging call raise `KeyError`; telemetry fields are prefixed `anum_` for that reason.
+- The Temporal worker exits with `os._exit(0)` after a clean shutdown: interpreter finalization can hang collecting the SDK's native objects. CI asserts exit code 0.

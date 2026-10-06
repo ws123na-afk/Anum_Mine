@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
+import sys
 from typing import Any
 
 from temporalio.client import Client
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from .agent_tools import ToolRegistry, default_tool_registry
 from .durable_runs import AgentRunActivities
@@ -26,6 +29,14 @@ from .repository import AnumRepository
 from .runtime import AgentRuntime
 from .schemas import TenantContext
 from .settings import Settings, settings
+from .telemetry import (
+    LOG_FORMAT,
+    install_log_correlation,
+    setup_telemetry,
+    shutdown_telemetry,
+    sqlalchemy_engines,
+    temporal_interceptors,
+)
 from .temporal_workflow import AgentRunWorkflow
 from .valkey import build_run_lock_manager
 
@@ -51,10 +62,25 @@ def build_activities(
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
         return AgentRuntime(workspace_model_gateway(context, gateway), repository, tools=registry)
 
-    return AgentRunActivities(runtime_factory, locks=build_run_lock_manager(config))
+    return AgentRunActivities(
+        runtime_factory, locks=build_run_lock_manager(config, metric_source="worker")
+    )
+
+
+def sandbox_runner() -> SandboxedWorkflowRunner:
+    """The default workflow sandbox, with OpenTelemetry passed through.
+
+    The tracing interceptor (anum_api.telemetry.temporal_interceptors) creates spans
+    inside workflow code; re-importing OpenTelemetry per workflow run would be slow
+    and would break its global state.
+    """
+    return SandboxedWorkflowRunner(
+        restrictions=SandboxRestrictions.default.with_passthrough_modules("opentelemetry")
+    )
 
 
 def build_worker(client: Client, config: Settings, activities: AgentRunActivities, **options: Any) -> Worker:
+    options.setdefault("workflow_runner", sandbox_runner())
     return Worker(
         client,
         task_queue=config.temporal_task_queue,
@@ -75,7 +101,12 @@ async def run_worker(config: Settings = settings) -> None:
     if config.repository_backend == "memory" and config.environment not in {"local", "test"}:
         raise RuntimeError("The worker needs ANUM_REPOSITORY_BACKEND=postgresql outside local")
 
-    client = await Client.connect(config.temporal_target, namespace=config.temporal_namespace)
+    setup_telemetry(config, service_name="anum-worker", engines=sqlalchemy_engines(event_runtime))
+    client = await Client.connect(
+        config.temporal_target,
+        namespace=config.temporal_namespace,
+        interceptors=temporal_interceptors(),
+    )
     worker = build_worker(client, config, build_activities(config))
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -98,11 +129,22 @@ async def run_worker(config: Settings = settings) -> None:
             logger.info("Shutting down; in-flight activities are retried by Temporal")
     finally:
         await event_runtime.stop()
+        shutdown_telemetry()
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # Log lines carry trace_id, span_id and correlation_id (anum_api.telemetry).
+    install_log_correlation()
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     asyncio.run(run_worker())
+    # Clean shutdown is complete (polling stopped, activities handed back, telemetry
+    # flushed). Skip interpreter finalization: garbage-collecting the Temporal SDK's
+    # native objects at exit can hang until the orchestrator kills the process.
+    # Errors still raise above and exit non-zero.
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":

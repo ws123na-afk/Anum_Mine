@@ -31,6 +31,7 @@ from anum_api.runtime import AgentRuntime
 from anum_api.schemas import ApprovalStatus, RunPhase, TenantContext
 from anum_api.store import store
 from anum_api.temporal_workflow import AgentRunInput, AgentRunState, AgentRunWorkflow, workflow_id_for
+from anum_api.worker import sandbox_runner
 
 from test_durable_runs import HEADERS, CONTEXT, CountingGateway, RecordingDispatcher
 
@@ -73,7 +74,13 @@ def _activities(gateway: CountingGateway, tools: ToolRegistry | None = None) -> 
 
 
 def _worker(temporal: Client, queue: str, activities: AgentRunActivities) -> Worker:
-    return Worker(temporal, task_queue=queue, workflows=[AgentRunWorkflow], activities=[activities.advance_run])
+    return Worker(
+        temporal,
+        task_queue=queue,
+        workflows=[AgentRunWorkflow],
+        activities=[activities.advance_run],
+        workflow_runner=sandbox_runner(),
+    )
 
 
 def _queued_run(prompt: str, monkeypatch: pytest.MonkeyPatch) -> AgentRunInput:
@@ -118,6 +125,58 @@ def test_workflow_runs_a_task_to_completion(monkeypatch: pytest.MonkeyPatch) -> 
     result = asyncio.run(scenario())
     assert (result.phase, result.status) == ("completed", "completed")
     assert store.runs[request.run_id].result
+
+
+def test_trace_continues_from_dispatch_into_the_activity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With telemetry on, API and worker share the Temporal tracing interceptor
+    (docs/observability.md): the activity span joins the dispatching request's trace."""
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    from temporalio.contrib.opentelemetry import TracingInterceptor
+
+    from anum_api.telemetry import RedactingSpanExporter, telemetry
+
+    request = _queued_run("Summarize the traced notes", monkeypatch)
+    spans = InMemorySpanExporter()
+    tracer_provider = TracerProvider()
+    tracer_provider.add_span_processor(SimpleSpanProcessor(RedactingSpanExporter(spans)))
+    reader = InMemoryMetricReader()
+    telemetry.bind(tracer_provider, MeterProvider(metric_readers=[reader]))
+
+    async def scenario() -> int:
+        async with temporal_client() as temporal:
+            traced = Client(**{**temporal.config(), "interceptors": [TracingInterceptor(telemetry.tracer)]})
+            queue = f"anum-test-{uuid4().hex}"
+            async with _worker(traced, queue, _activities(CountingGateway())):
+                dispatcher = RunDispatcher(target="", namespace="default", task_queue=queue, client=traced)
+                with telemetry.tracer.start_as_current_span("POST /api/v1/tasks/{task_id}/run") as root:
+                    workflow_id = await dispatcher.start(request)
+                await traced.get_workflow_handle(workflow_id, result_type=AgentRunState).result()
+            return root.get_span_context().trace_id
+
+    try:
+        trace_id = asyncio.run(scenario())
+    finally:
+        telemetry.bind()
+        tracer_provider.shutdown()
+
+    finished = spans.get_finished_spans()
+    activities = [span for span in finished if span.name == "RunActivity:anum.advance_run"]
+    assert activities, [span.name for span in finished]
+    assert all(span.context.trace_id == trace_id for span in activities)
+    assert activities[0].attributes["anum.tenant_id"] == request.tenant_id
+    assert activities[0].attributes["anum.workspace_id"] == request.workspace_id
+    assert any(span.name.startswith("StartWorkflow:") for span in finished)
+    outcomes = [
+        point.attributes["anum.activity.outcome"]
+        for metric in reader.get_metrics_data().resource_metrics[0].scope_metrics[0].metrics
+        if metric.name == "anum.temporal.activity.outcomes"
+        for point in metric.data.data_points
+    ]
+    assert outcomes == ["advanced"]
 
 
 def test_workflow_waits_for_the_approval_signal(monkeypatch: pytest.MonkeyPatch) -> None:

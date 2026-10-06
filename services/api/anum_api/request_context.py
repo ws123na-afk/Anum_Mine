@@ -28,6 +28,11 @@ def correlation_id_from_request(request: Request) -> str:
     return incoming if is_valid_correlation_id(incoming) else new_correlation_id()
 
 
+def current_correlation_id() -> str | None:
+    """The active request's correlation ID, or ``None`` outside a request (no error)."""
+    return _correlation_id.get()
+
+
 def get_correlation_id(request: Request | None = None) -> str:
     """Get the correlation ID for the active request without shared mutable state."""
     if request is not None:

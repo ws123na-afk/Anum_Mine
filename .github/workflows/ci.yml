@@ -352,11 +352,12 @@ jobs:
             exit 1
           fi
           test "$(docker exec worker id -u)" != "0"
-          # SIGTERM stops polling and shuts the Temporal worker down. The exit code is
-          # printed but not asserted: the process sometimes hangs in interpreter
-          # finalization after run_worker returns (docs/production-plan.md, Stage 4).
+          # SIGTERM stops polling, shuts the Temporal worker down and exits 0 well
+          # within the grace period (a hang would end in SIGKILL, exit code 137).
           docker stop --timeout 20 worker
-          echo "worker exit code: $(docker inspect -f '{{.State.ExitCode}}' worker)"
+          worker_exit="$(docker inspect -f '{{.State.ExitCode}}' worker)"
+          echo "worker exit code: $worker_exit"
+          test "$worker_exit" = "0"
           docker logs worker 2>&1 | grep -q "Shutting down"
           docker logs worker 2>&1 | grep -q "Beginning worker shutdown"
       - name: Smoke test images

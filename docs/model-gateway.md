@@ -55,6 +55,8 @@ Every call emits one `model_call` record on the `anum.model_gateway` logger. Suc
 
 Prompts, response text, API keys, request headers, base URLs and exception messages are never logged. Errors are reduced to their class name because provider error bodies can echo the prompt. Tests capture all log records for successful, failed and streaming calls and assert that neither the prompt, the response, nor the key appears.
 
+The same fields feed OpenTelemetry ([Observability](observability.md#metrics)): a client span per call (`generate_text <model>` and so on, with token counts, cost and attempts, never text), the `anum.model.call.duration` histogram, and `anum.model.tokens` and `anum.model.estimated_cost_usd` counters by provider and model. The mock provider reports its token counts at zero cost. Failed calls mark the span as an error with the exception class only; `tests/test_telemetry.py` asserts no prompt, reply or key reaches any exported span or metric.
+
 ## Per-workspace model configuration
 
 `PUT /api/v1/model-config` saves a workspace's provider, model, base URL and (for hosted providers) API key. `GET` returns the configuration with `credential_configured` and a `credential_hint` (last four characters) only. The key is never returned. Every read and write is scoped by the request's explicit tenant and workspace context.
