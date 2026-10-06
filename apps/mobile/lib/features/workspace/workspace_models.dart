@@ -42,9 +42,14 @@ class RunStep {
       {required this.id,
       required this.type,
       required this.summary,
-      required this.createdAt});
+      required this.createdAt,
+      this.metadata = const {}});
   final String id, type, summary;
   final DateTime createdAt;
+
+  /// Step details from the API (ids, sources, policy outcome); never
+  /// retrieved text. Empty when the API sent none.
+  final Map<String, Object?> metadata;
 }
 
 class WorkspaceApproval {

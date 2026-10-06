@@ -204,7 +204,9 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
                 id: x['id']! as String,
                 type: x['type']! as String,
                 summary: x['summary']! as String,
-                createdAt: _date(x['created_at'])))
+                createdAt: _date(x['created_at']),
+                metadata: ((x['metadata'] as Map?) ?? const {})
+                    .cast<String, Object?>()))
             .toList(),
         result: json['result'] as String?,
       );

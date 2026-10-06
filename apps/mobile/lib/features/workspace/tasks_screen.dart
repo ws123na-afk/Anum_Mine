@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import 'retrieval_sources.dart';
+import 'sources_used.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
@@ -414,6 +416,9 @@ class _TaskDetailState extends State<TaskDetailScreen> {
                             color: p.text, fontSize: 14.5, height: 1.5)),
                   ]),
             ),
+          // Only a run with a retrieval step has sources to show.
+          if (runSources(run) != null)
+            SourcesUsed(run: run, controller: widget.controller),
           AnumSurface(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -535,17 +540,20 @@ class _Step extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 16),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(
-                  child: Text(step.type.replaceAll('_', ' '),
-                      style: TextStyle(
-                          color: p.text,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13.5)),
-                ),
-                Text(exactTime(step.createdAt),
-                    style: TextStyle(color: p.faint, fontSize: 11.5)),
-              ]),
+              // Wraps instead of overflowing at large text sizes.
+              Wrap(
+                  spacing: 10,
+                  runSpacing: 2,
+                  alignment: WrapAlignment.spaceBetween,
+                  children: [
+                    Text(step.type.replaceAll('_', ' '),
+                        style: TextStyle(
+                            color: p.text,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5)),
+                    Text(exactTime(step.createdAt),
+                        style: TextStyle(color: p.faint, fontSize: 11.5)),
+                  ]),
               const SizedBox(height: 3),
               Text(step.summary,
                   style:

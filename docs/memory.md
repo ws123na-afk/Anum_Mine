@@ -52,7 +52,7 @@ Before planning, the runtime (inline and the Temporal worker) asks the retriever
 
 A failed query embedding (provider down) lets the run continue without context (`unavailable`); an exhausted budget fails the run like any other model call (`402`).
 
-The run's `retrieval` step is the audit record. Its metadata: `status` (`ok`, `no_results`, `skipped`, `unavailable`), `reason`, `embedding_model`, `truncated`, `max_chars` and `sources`, a list of `{chunk_id, source_type, source_id, chunk_index, score, truncated}`. The web Tasks view shows it as "Sources used".
+The run's `retrieval` step is the audit record. Its metadata: `status` (`ok`, `no_results`, `skipped`, `unavailable`), `reason`, `embedding_model`, `truncated`, `max_chars` and `sources`, a list of `{chunk_id, source_type, source_id, chunk_index, score, truncated}`. The web Tasks view and the Flutter task detail show it as "Sources used" ([Flutter mobile](mobile.md#implemented)).
 
 ### API
 
