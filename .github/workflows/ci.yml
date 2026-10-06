@@ -144,17 +144,26 @@ jobs:
         run: docker build -f apps/web/Dockerfile -t anum-web:ci .
       - name: API image refuses development defaults outside local
         run: |
-          set +e
-          timeout 60 docker run --rm --name api-defaults anum-api:ci > refused.log 2>&1
-          status=$?
-          set -e
-          cat refused.log
-          if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
-            echo "::error::API image did not refuse development defaults in production mode"
-            docker rm -f api-defaults || true
-            exit 1
-          fi
-          grep -q InsecureConfigurationError refused.log
+          # Each startup guard is checked on its own: a missing secrets key, header
+          # auth outside local, then the compose development defaults.
+          refuses() {
+            local expected="$1"; shift
+            set +e
+            timeout 60 docker run --rm --name api-defaults "$@" anum-api:ci > refused.log 2>&1
+            local status=$?
+            set -e
+            cat refused.log
+            if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+              echo "::error::API image did not refuse to start ($expected expected)"
+              docker rm -f api-defaults || true
+              exit 1
+            fi
+            grep -q "$expected" refused.log
+          }
+          key="$(openssl rand -base64 32 | tr '+/' '-_')"
+          refuses "ANUM_SECRETS_KEY is required"
+          refuses AuthConfigurationError -e ANUM_SECRETS_KEY="$key"
+          refuses InsecureConfigurationError -e ANUM_SECRETS_KEY="$key" -e ANUM_AUTH_MODE=oidc
       - name: Smoke test images
         run: |
           docker run -d --name api -e ANUM_ENVIRONMENT=local -p 8000:8000 anum-api:ci
