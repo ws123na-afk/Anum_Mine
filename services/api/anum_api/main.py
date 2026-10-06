@@ -10,6 +10,7 @@ from .dependencies import (
     memory_repository_context,
     repository_context,
     provisioning_repository_context,
+    provisioning_tenant_context,
     require_permission,
     tenant_context,
 )
@@ -59,6 +60,10 @@ from .automation import router as automation_router
 from .files import router as files_router
 from .skills_api import router as skills_router
 from .onboarding import router as onboarding_router
+from .identity import validate_auth_configuration
+
+# Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
+validate_auth_configuration(settings)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.add_middleware(CorrelationIdMiddleware)
@@ -107,7 +112,7 @@ async def health() -> dict[str, str]:
 @app.post("/api/v1/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED)
 async def create_tenant(
     payload: TenantCreate,
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> Tenant:
     require_permission(context, Permission.TENANT_CREATE)
@@ -127,7 +132,7 @@ async def create_tenant(
 @app.post("/api/v1/workspaces", response_model=Workspace, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     payload: WorkspaceCreate,
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> Workspace:
     require_permission(context, Permission.WORKSPACE_CREATE)
@@ -151,7 +156,7 @@ async def create_workspace(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_current_membership(
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> WorkspaceMembership:
     require_permission(context, Permission.MEMBERSHIP_MANAGE)

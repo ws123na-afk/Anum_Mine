@@ -18,6 +18,8 @@ The default database pattern should be shared PostgreSQL tables with `tenant_id`
 - RLS prevents data access outside the active tenant context.
 - Tool policy limits what agents can do even after a user starts a task.
 
+In `ANUM_AUTH_MODE=oidc` the tenant comes from the token's IdP-managed `tenant_id` claim, the workspace from `x-workspace-id` (or the token's default `workspace_id`), and the persisted membership supplies the role. See [Identity and sign-in](identity.md#tenant-and-workspace-resolution).
+
 ## Cross-Tenant Data
 
 Cross-tenant analytics should use aggregated, non-sensitive data only. Product telemetry must avoid raw prompts, retrieved memory, tool payloads, secrets, and file contents unless explicitly configured for debugging in a controlled environment.

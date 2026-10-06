@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     keycloak_issuer: str = "http://localhost:8080/realms/anum"
     auth_mode: str = "headers"
     oidc_audience: str = "anum-api"
+    # Optional override when the API reaches Keycloak on a different host than the issuer URL
+    # (for example `http://keycloak:8080/...` inside Docker while tokens say `localhost`).
+    oidc_jwks_url: str | None = None
+    oidc_jwks_cache_seconds: int = 300
+    oidc_jwks_min_refresh_seconds: int = 30
+    oidc_leeway_seconds: int = 30
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     model_provider: str = "mock"
     model_api_key: str | None = None
