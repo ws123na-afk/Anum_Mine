@@ -21,6 +21,7 @@ COMPOSE=(docker compose -f "$ROOT/infra/docker/compose.yaml")
 
 ADMIN_DATABASE_URL="postgresql+psycopg://anum:anum@localhost:5432/anum"
 APP_DATABASE_URL="postgresql+psycopg://anum_app:anum_app@localhost:5432/anum"
+RELAY_DATABASE_URL="postgresql+psycopg://anum_relay:anum_relay@localhost:5432/anum"
 ISSUER="http://localhost:8080/realms/anum"
 API_URL="http://127.0.0.1:8000"
 
@@ -83,6 +84,20 @@ grant select, insert, update, delete on all tables in schema public to anum_app;
 grant usage, select on all sequences in schema public to anum_app;
 SQL
 
+# The outbox relay publishes committed events through its own login that holds only
+# the narrow anum_outbox_relay role from migration 0007 (docs/events.md).
+log "Creating the outbox relay login anum_relay"
+"${COMPOSE[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U anum -d anum >/dev/null <<'SQL'
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'anum_relay') then
+    create role anum_relay login password 'anum_relay' nosuperuser nobypassrls nocreaterole nocreatedb;
+  end if;
+end
+$$;
+grant anum_outbox_relay to anum_relay;
+SQL
+
 log "Starting the API (oidc, postgresql, nats); log: $API_LOG"
 (
   cd "$API_DIR"
@@ -94,6 +109,7 @@ log "Starting the API (oidc, postgresql, nats); log: $API_LOG"
     ANUM_DATABASE_URL="$APP_DATABASE_URL" \
     ANUM_EVENT_BUS=nats \
     ANUM_NATS_URL=nats://localhost:4222 \
+    ANUM_OUTBOX_DATABASE_URL="$RELAY_DATABASE_URL" \
     ANUM_MODEL_PROVIDER=mock \
     "$PYTHON" -m uvicorn anum_api.main:app --host 127.0.0.1 --port 8000
 ) >"$API_LOG" 2>&1 &
