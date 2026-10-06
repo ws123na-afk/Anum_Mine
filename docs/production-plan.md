@@ -2,14 +2,17 @@
 
 This is the ordered path from the current `main` to a first production release. It turns the open items in the [Roadmap](roadmap.md) and the gates in [Production readiness gates](production-readiness.md) into stages with exit criteria. Each stage ends with working software and green CI; do not start a later stage's production work while an earlier stage's exit criteria are open.
 
-## Where `main` Stands (October 2026)
+## Where Things Stand (October 2026)
+
+Status after the `claude/festive-ride-ghttk0` branch merges. Before that, `main` is still red on the Tauri job.
 
 | Area | State |
 |---|---|
-| CI | Red since late August. 7 of 8 jobs pass. Tauri desktop fails on Windows because `apps/desktop/src-tauri/icons/icon.ico` is missing. |
-| Flutter | APK builds, but 7 of 27 tests fail and the analyzer reports 29 issues. Both steps run with `continue-on-error`, so CI hides it. |
+| CI | All 8 jobs green with no tolerated failures. Actions upgraded to Node 24 releases. Branch protection is not yet required on `main`. |
+| Flutter | Analyzer clean, 61 tests pass. Screens show live workspace data only, with a depth design system and a wake-by-name voice assistant. |
+| Web and desktop | Voice assistant with wake by name, free voices and a WebGL orb; depth redesign. Desktop builds an unsigned Windows installer in CI. |
 | API | Unit and PostgreSQL/RLS suites pass. Auth still defaults to development headers (`ANUM_AUTH_MODE=headers`); an OIDC validator exists but is not exercised end to end. |
-| Model gateway | Mock and OpenAI-compatible adapters. Default provider is `mock`. |
+| Model gateway | Mock, OpenAI-compatible and Ollama (free, local, keyless). A model saved per workspace runs that workspace's tasks and voice answers. Per-workspace configs are in memory only. No retries or cost accounting yet. |
 | Infra adapters | Valkey, NATS, Temporal and object storage appear only as settings and health probes. No client code, workers, or durable event consumers. |
 | Deployment | No Dockerfiles, no OpenTofu, no deploy workflow, no staging environment. |
 | Clients | Web, desktop, Android and Flutter sources exist; none are signed or device-verified. |
@@ -18,11 +21,11 @@ This is the ordered path from the current `main` to a first production release. 
 
 Goal: every CI job passes without tolerated failures.
 
-- Add the Tauri icon set (`tauri icon` from a 1024px source) so the Windows desktop job compiles.
-- Fix the six `AnumOperationalCard` status semantics failures and the Arabic RTL localization test in `apps/mobile/test`.
-- Clear the Flutter analyzer issues (unused imports, deprecated `Radio`/form APIs, relative `lib` imports in tests).
-- Remove `continue-on-error` from the Flutter analyze and test steps.
-- Upgrade GitHub Actions that still target Node 20.
+- Add the Tauri icon set (`tauri icon` from a 1024px source) so the Windows desktop job compiles. Done.
+- Fix the six `AnumOperationalCard` status semantics failures and the Arabic RTL localization test in `apps/mobile/test`. Done.
+- Clear the Flutter analyzer issues (unused imports, deprecated `Radio`/form APIs, relative `lib` imports in tests). Done.
+- Remove `continue-on-error` from the Flutter analyze and test steps. Done.
+- Upgrade GitHub Actions that still target Node 20. Done.
 - Track plugin warnings for `file_picker`, `flutter_tts` and `speech_to_text` (Kotlin Gradle Plugin migration).
 
 Exit: a CI run on `main` with all jobs green and no tolerated failures. Branch protection requires CI on `main`.
@@ -34,7 +37,7 @@ Goal: the documented thin slice works against real services, not stubs.
 - Keycloak realm, clients (web, desktop, Android, Flutter) and roles as code, imported by the local compose stack.
 - `ANUM_AUTH_MODE=oidc` end to end: token validation, membership lookup, tenant and workspace resolution. Header mode is rejected outside `local`.
 - NATS JetStream publisher for canonical events plus a consumer that drives the web realtime status stream ([Events](events.md), [Realtime](realtime.md)).
-- One real model provider behind the gateway with timeouts, retries, cost accounting and redacted logging ([Model gateway](model-gateway.md)).
+- One real model provider behind the gateway with timeouts, retries, cost accounting and redacted logging ([Model gateway](model-gateway.md)). Ollama and OpenAI-compatible adapters with timeouts are in; retries, cost accounting, redacted logging and persisting per-workspace model configs in PostgreSQL remain.
 - CI job that starts Keycloak, Postgres and NATS and runs an authenticated task journey.
 
 Exit: a user signs in through Keycloak, creates a task, sees live status, approves the risky sample action, and the run is persisted, all in CI.
