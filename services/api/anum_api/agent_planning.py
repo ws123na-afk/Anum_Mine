@@ -1,8 +1,11 @@
+from collections.abc import Sequence
+
 from pydantic import BaseModel, Field
 
 from .agent_skills import SkillManifest, SkillRegistry
 from .agent_tools import ToolCall, ToolRegistry
 from .model_gateway import ModelGateway, ModelResponse
+from .retrieval import build_task_prompt
 from .schemas import Task
 
 
@@ -28,9 +31,15 @@ class AgentPlanner:
         self.skills = skills
         self.tools = tools
 
-    async def plan(self, task: Task) -> PlanResult:
+    async def plan(self, task: Task, *, context_blocks: Sequence[str] = ()) -> PlanResult:
+        """Plan ``task``; ``context_blocks`` are provenance-labeled retrieved data.
+
+        Skills and the tool are chosen from the user's own prompt only. Retrieved
+        blocks reach the model as labeled data and can never select a skill or tool
+        (threat model G5); tool policy is evaluated by the runtime afterwards.
+        """
         selected = self.skills.select(task.prompt, self.tools.names)
-        response = await self.model_gateway.generate_text(task.prompt)
+        response = await self.model_gateway.generate_text(build_task_prompt(task.prompt, context_blocks))
         call = self._select_tool(task.prompt, selected, response)
         return PlanResult(
             plan=AgentPlan(

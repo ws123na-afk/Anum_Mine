@@ -31,6 +31,7 @@ interface ApiAgentRunStep {
   type: AgentRun['steps'][number]['type'];
   summary: string;
   created_at: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ApiAgentRun {
@@ -416,6 +417,7 @@ function mapRun(run: ApiAgentRun): AgentRun {
       type: step.type,
       summary: step.summary,
       createdAt: step.created_at,
+      metadata: step.metadata ?? {},
     })),
   };
 }

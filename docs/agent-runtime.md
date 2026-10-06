@@ -15,6 +15,10 @@ The ANUM agent runtime is a custom orchestration layer responsible for turning u
 
 A run should load tenant policy, user context, task history, relevant memory, available skills, and tool definitions. The model gateway produces reasoning artifacts or structured actions. The runtime validates actions, executes safe tools, pauses for approvals when needed, writes durable state, emits events, and streams progress.
 
+## Retrieval
+
+Before planning, a run retrieves the nearest chunks of the workspace's indexed memories and text files for the task prompt and gives them to the model only as provenance-labeled untrusted blocks, after the untrusted-data rules ([Memory](memory.md#at-run-time), threat model G5). The first step of every run that plans (inline or on the worker) is `retrieval`, recording which chunks were used (ids, source, score; never the text) or why none were. Skills and tools are selected from the user's prompt only, and the runtime evaluates tool policy and approvals afterwards, so retrieved text cannot change what runs or who must approve it.
+
 ## State and Recovery
 
 Agent state should be durable enough to resume after worker restarts. Temporal should manage long-running execution, retries, timers, and waits. PostgreSQL should store canonical run state and audit records. Valkey can hold ephemeral locks, short-lived caches, and live coordination data.

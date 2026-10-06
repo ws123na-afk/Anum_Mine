@@ -221,3 +221,29 @@ def test_approval_chain_and_directory_migration_uses_forced_rls_and_a_read_only_
     assert "bypassrls" not in revision_text.lower()
     assert "security definer" not in revision_text.lower()
     assert 'op.drop_table("approval_approvers")' in revision_text
+
+
+def test_retrieval_index_migration_extends_the_chain_with_forced_rls_and_pgvector() -> None:
+    api_root = Path(__file__).parents[1]
+    versions = api_root / "migrations" / "versions"
+    revision_text = (versions / "0014_retrieval_index.py").read_text(encoding="utf-8")
+
+    assert 'revision = "0014_retrieval_index"' in revision_text
+    assert 'down_revision = "0013_approvers_and_directory"' in revision_text
+    assert len("0014_retrieval_index") <= 32
+    # The chain stays linear: no other revision builds on 0013.
+    others = [path for path in versions.glob("*.py") if path.name != "0014_retrieval_index.py"]
+    assert not [path for path in others if 'down_revision = "0013_approvers_and_directory"' in path.read_text(encoding="utf-8")]
+    for table in ("retrieval_sources", "retrieval_chunks"):
+        assert f'"{table}"' in revision_text
+    assert "alter table {table} force row level security" in revision_text
+    assert "create policy tenant_isolation_{table}" in revision_text
+    assert "add column embedding vector not null" in revision_text
+    assert "vector_dims(embedding) = dimensions" in revision_text
+    assert 'ondelete="CASCADE"' in revision_text
+    assert "bypassrls" not in revision_text.lower()
+    assert "security definer" not in revision_text.lower()
+    # Expand only: nothing existing is altered or dropped on upgrade.
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    assert "drop_" not in upgrade and "alter_column" not in upgrade
+    assert 'op.drop_table("retrieval_chunks")' in revision_text

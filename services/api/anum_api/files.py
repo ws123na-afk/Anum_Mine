@@ -305,6 +305,11 @@ async def upload_file(request: Request, context: TenantContext = Depends(tenant_
         # No metadata, no object: never leave unreachable bytes behind.
         file_store.storage.delete(key)
         raise
+    # Text files become retrievable context (docs/memory.md#retrieval); best effort,
+    # a failure is recorded on the index row and retried by POST /retrieval/index.
+    from .retrieval_api import index_uploaded_file
+
+    await index_uploaded_file(context, record, content)
     return record
 
 
@@ -344,4 +349,8 @@ def delete_file(file_id: str, context: TenantContext = Depends(tenant_context)) 
         store.delete(context, file_id)
     # Bytes go only after the metadata delete committed, so a file is never listed without content.
     file_store.storage.delete(record.storage_key)
+    # Retrieval already ignores chunks of a file without metadata; this drops them.
+    from .retrieval_api import forget_file
+
+    forget_file(context, file_id)
     return Response(status_code=204)

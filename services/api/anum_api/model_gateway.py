@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import math
+import re
 import logging
 import random
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -54,7 +57,54 @@ class ModelResponse(BaseModel):
     metadata: ModelCallMetadata | None = None
 
 
+class EmbeddingResponse(BaseModel):
+    """Vectors for a batch of texts, in input order, plus the call's usage."""
+
+    vectors: list[list[float]]
+    model: str
+    usage: ModelUsage
+
+
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
+
+# Deterministic local embedder (docs/memory.md#embeddings). Feature hashing of word
+# tokens into a fixed number of signed buckets, L2-normalised: no model server, no
+# network, same vector for the same text in every process. It finds lexical overlap,
+# not meaning, which is what tests and the `local` environment need.
+LOCAL_EMBEDDING_MODEL = "anum-local-hash-v1"
+LOCAL_EMBEDDING_DIMENSIONS = 256
+_TOKEN = re.compile(r"\w+", re.UNICODE)
+
+
+def local_embedding(text: str, dimensions: int = LOCAL_EMBEDDING_DIMENSIONS) -> list[float]:
+    """A unit vector for ``text`` (all zeros when it has no word tokens)."""
+    vector = [0.0] * dimensions
+    for token in _TOKEN.findall(text.casefold()):
+        digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+        value = int.from_bytes(digest, "big")
+        vector[value % dimensions] += 1.0 if (value >> 63) & 1 else -1.0
+    norm = math.sqrt(sum(component * component for component in vector))
+    return [component / norm for component in vector] if norm else vector
+
+
+def local_embedding_response(texts: list[str]) -> EmbeddingResponse:
+    tokens = sum(len(_TOKEN.findall(text)) for text in texts)
+    return EmbeddingResponse(
+        vectors=[local_embedding(text) for text in texts],
+        model=LOCAL_EMBEDDING_MODEL,
+        usage=ModelUsage(
+            input_tokens=tokens,
+            output_tokens=0,
+            provider="local",
+            model=LOCAL_EMBEDDING_MODEL,
+            estimated_cost_usd=0,
+        ),
+    )
+
+
+OLLAMA_DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
+OPENAI_DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+MAX_EMBEDDING_BATCH = 64
 
 
 class ModelGateway(Protocol):
@@ -111,6 +161,10 @@ class MockModelGateway:
         response = await self.generate_text(prompt)
         for word in response.text.split():
             yield f"{word} "
+
+    async def embed(self, texts: list[str], *, model: str | None = None) -> EmbeddingResponse:
+        """The mock provider embeds with the deterministic local embedder."""
+        return local_embedding_response(list(texts))
 
 
 @dataclass(frozen=True)
@@ -368,6 +422,59 @@ class OpenAICompatibleGateway:
                 await client.aclose()
 
     @property
+    def default_embedding_model(self) -> str:
+        if self.provider == "ollama":
+            return OLLAMA_DEFAULT_EMBEDDING_MODEL
+        return OPENAI_DEFAULT_EMBEDDING_MODEL
+
+    async def embed(self, texts: list[str], *, model: str | None = None) -> EmbeddingResponse:
+        """``POST /embeddings`` (OpenAI-compatible; Ollama serves it under ``/v1``).
+
+        Same client, retries, SSRF guard, logging and metrics as text generation. The
+        caller decides which texts go in one call; every text must belong to the one
+        tenant and workspace this gateway was built for.
+        """
+        texts = list(texts)
+        if not texts:
+            raise ValueError("embed needs at least one text")
+        if len(texts) > MAX_EMBEDDING_BATCH:
+            raise ValueError(f"embed takes at most {MAX_EMBEDDING_BATCH} texts per call")
+        embedding_model = model or self.default_embedding_model
+        state = _CallState()
+        started = perf_counter()
+        with model_call_span(self.provider, embedding_model, "embed"):
+            try:
+                response = await self._post(
+                    {"model": embedding_model, "input": texts}, state, "embed", "/embeddings"
+                )
+                payload = response.json()
+                items = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(items, list) or len(items) != len(texts):
+                    raise ValueError("model provider returned the wrong number of embeddings")
+                ordered = sorted(items, key=lambda item: int(item.get("index", 0)))
+                vectors = [[float(value) for value in item["embedding"]] for item in ordered]
+                if not vectors[0] or any(len(vector) != len(vectors[0]) for vector in vectors):
+                    raise ValueError("model provider returned inconsistent embeddings")
+            except Exception as exc:
+                self._log_call("embed", started, state, "error", error=exc)
+                raise
+            usage_payload = payload.get("usage") or {}
+            input_tokens = int(usage_payload.get("prompt_tokens") or usage_payload.get("total_tokens") or 0)
+            reported_model = payload.get("model") or embedding_model
+            usage = ModelUsage(
+                input_tokens=input_tokens,
+                output_tokens=0,
+                provider=self.provider,
+                model=reported_model,
+                estimated_cost_usd=estimate_cost_usd(
+                    self.provider, reported_model, input_tokens, 0, self.prices
+                ),
+            )
+            self._log_call("embed", started, state, "ok", usage=usage)
+        # The requested name, not the reported one: stored chunks are matched on it.
+        return EmbeddingResponse(vectors=vectors, model=embedding_model, usage=usage)
+
+    @property
     def _headers(self) -> dict[str, str]:
         headers = {"content-type": "application/json"}
         if self.api_key:
@@ -390,7 +497,11 @@ class OpenAICompatibleGateway:
         return payload, response, state, started
 
     async def _post(
-        self, payload: dict[str, object], state: _CallState, operation: str
+        self,
+        payload: dict[str, object],
+        state: _CallState,
+        operation: str,
+        path: str = "/chat/completions",
     ) -> httpx.Response:
         client = self._client or self._new_client()
         owns_client = self._client is None
@@ -399,7 +510,7 @@ class OpenAICompatibleGateway:
                 state.attempts += 1
                 try:
                     response = await client.post(
-                        f"{self.base_url}/chat/completions",
+                        f"{self.base_url}{path}",
                         headers=self._headers,
                         json=payload,
                     )

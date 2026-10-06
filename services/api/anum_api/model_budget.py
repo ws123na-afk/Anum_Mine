@@ -5,7 +5,7 @@ estimated-cost limit in USD and an optional token limit per UTC calendar month. 
 model call made for a workspace (task planning and voice answers) goes through
 :class:`BudgetedModelGateway`, which:
 
-1. refuses the call before it reaches the provider when the tenant or the workspace has
+1. refuses the call (text generation and retrieval embeddings alike) before it reaches the provider when the tenant or the workspace has
    already used its budget for the current month (:class:`ModelBudgetExceededError`,
    answered as HTTP 402 by the API and as a spoken sentence by voice);
 2. after a successful call adds the gateway's usage metadata (input/output tokens and
@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field
 from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
-from .model_gateway import ModelGateway, ModelResponse, ModelUsage, StructuredModel
+from .model_gateway import EmbeddingResponse, ModelGateway, ModelResponse, ModelUsage, StructuredModel
 from .repository import AnumRepository
 from .schemas import TenantContext, new_id
 from .scoped_store import open_scoped_store
@@ -412,6 +412,23 @@ class BudgetedModelGateway:
         parsed, response = await self.inner.generate_structured(prompt, response_model)
         self._record(response)
         return parsed, response
+
+    async def embed(self, texts: list[str], *, model: str | None = None) -> EmbeddingResponse:
+        """Embeddings for retrieval count against the same monthly budget."""
+        embed = getattr(self.inner, "embed", None)
+        if embed is None:
+            raise NotImplementedError("this model gateway cannot embed text")
+        check_model_budget(self.context, now=self._clock())
+        response: EmbeddingResponse = await embed(texts, model=model)
+        try:
+            record_model_usage(self.context, response.usage, now=self._clock())
+        except Exception as exc:  # the call already happened
+            logger.warning(
+                "model_budget_record_failed error_class=%s",
+                type(exc).__name__,
+                extra={"anum_model_budget": {"event": "record_failed", "error_class": type(exc).__name__}},
+            )
+        return response
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
         # Checked, but not metered: the gateway does not report usage for streams yet.
