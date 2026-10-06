@@ -71,6 +71,33 @@ export interface Approval {
   requestedBy?: string | null;
   /** Configured integration host the tool will contact (host only), null for internal tools. */
   target?: string | null;
+  /**
+   * Distinct approvals the matching organization approval rules require (approval chains,
+   * docs/approvals-and-risk.md). 1 without a chain; the approval stays pending until reached.
+   */
+  requiredApprovals?: number;
+  /** Who has approved so far, oldest first. */
+  approvers?: ApprovalApprover[];
+}
+
+/** One recorded approve decision of an approval (one per distinct user). */
+export interface ApprovalApprover {
+  userId: string;
+  approvedAt: string;
+  reason?: string | null;
+}
+
+/**
+ * One of the caller's own active workspace memberships in their tenant
+ * (`GET /api/v1/me/workspace-memberships`, docs/identity.md#my-workspaces).
+ */
+export interface CallerMembership {
+  tenantId: string;
+  workspaceId: string;
+  /** The workspace's display name, or null when it cannot be read. */
+  workspaceName: string | null;
+  role: string;
+  status: 'active';
 }
 
 /** Per-workspace approval policy; only owners change it (docs/approvals-and-risk.md). */

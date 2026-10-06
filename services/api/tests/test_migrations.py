@@ -198,3 +198,26 @@ def test_approval_policy_migration_extends_the_chain_with_forced_rls() -> None:
     assert "current_setting('anum.workspace_id', true)" in revision_text
     assert "bypassrls" not in revision_text.lower()
     assert "create function" not in revision_text.lower()
+
+
+def test_approval_chain_and_directory_migration_uses_forced_rls_and_a_read_only_role() -> None:
+    api_root = Path(__file__).parents[1]
+    revision_text = (
+        api_root / "migrations" / "versions" / "0013_approvers_and_directory.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'revision = "0013_approvers_and_directory"' in revision_text
+    assert 'down_revision = "0012_approval_policy"' in revision_text
+    assert len("0013_approvers_and_directory") <= 32
+    assert '"approval_approvers"' in revision_text
+    assert "alter table approval_approvers force row level security" in revision_text
+    assert "tenant_isolation_approval_approvers" in revision_text
+    assert "create role anum_membership_reader nologin" in revision_text
+    assert "for select to anum_membership_reader" in revision_text
+    assert "current_setting('anum.user_id', true)" in revision_text
+    for verb in ("insert", "update", "delete", "all"):
+        assert f"for {verb} to anum_membership_reader" not in revision_text
+    assert "grant insert" not in revision_text.lower() and "grant update" not in revision_text.lower()
+    assert "bypassrls" not in revision_text.lower()
+    assert "security definer" not in revision_text.lower()
+    assert 'op.drop_table("approval_approvers")' in revision_text

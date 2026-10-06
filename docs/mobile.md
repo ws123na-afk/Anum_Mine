@@ -11,7 +11,7 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 - Semantic Light and Dark themes, 8 px spacing, 8 px cards, and 48 px minimum controls.
 - Session restore and encrypted local token persistence.
 - Keycloak sign-in (authorization code + PKCE through `flutter_appauth`) with token refresh and RP-initiated sign-out when `ANUM_OIDC_ISSUER` is defined; see [Identity and sign-in](identity.md#flutter).
-- Local development password/OTP sign-in, password recovery, workspace session switching, onboarding, and model-provider configuration.
+- Local development password/OTP sign-in, password recovery, a workspace picker that lists your memberships from the API and checks the membership before switching ([Identity](identity.md#flutter)), onboarding, and model-provider configuration.
 - Model-provider connection verification through the backend without returning provider credentials.
 - Profile/session security, confirmed sign-out, and user-scoped notification preferences.
 - API-backed tasks, task execution, cancellation, and resumption.

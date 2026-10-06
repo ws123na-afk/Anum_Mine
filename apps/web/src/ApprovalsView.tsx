@@ -1,9 +1,9 @@
 // Approvals: the exact tool call, where it goes, why it stopped, when it lapses, and who decided
 // and why. See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
 import { useId, useState, type ReactNode } from 'react';
-import { CheckCircle2, Clock, Fingerprint, Globe, ShieldCheck, UserX, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Fingerprint, Globe, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
-import { REASON_MAX_CHARS, argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, normalizeReason, shortHash } from './lib/approvals';
+import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, normalizeReason, shortHash } from './lib/approvals';
 
 /**
  * Resolves with the API's refusal when the decision is not allowed (403, for example the
@@ -14,12 +14,14 @@ type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: stri
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 
-export function ApprovalsView({ items, busy, decide, metric, empty }: {
+export function ApprovalsView({ items, busy, decide, metric, empty, userId }: {
   items: Approval[];
   busy: boolean;
   decide: Decide;
   metric(icon: ReactNode, label: string, value: string, detail: string): ReactNode;
   empty: ReactNode;
+  /** The signed-in user, so a chain they already approved offers no second approval. */
+  userId?: string | null;
 }) {
   const now = new Date();
   const status = (a: Approval) => effectiveStatus(a, now);
@@ -35,7 +37,7 @@ export function ApprovalsView({ items, busy, decide, metric, empty }: {
         {metric(<XCircle />, 'Rejected', String(items.filter((a) => status(a) === 'rejected').length), 'Workspace total')}
       </section>
       <section className="surface approvalTable">
-        {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decide} now={now} />)}
+        {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decide} now={now} userId={userId} />)}
         {!pending.length && empty}
       </section>
       {history.length > 0 && (
@@ -50,6 +52,7 @@ export function ApprovalsView({ items, busy, decide, metric, empty }: {
                 <small>{decisionSummary(a, formatDate, now)}</small>
               </summary>
               {a.decisionReason && <p className="approvalReason"><span>Reason</span> {a.decisionReason}</p>}
+              <ProgressLine approval={a} />
               <TargetLine approval={a} />
               <ArgumentList approval={a} />
               <HashLine approval={a} />
@@ -61,8 +64,10 @@ export function ApprovalsView({ items, busy, decide, metric, empty }: {
   );
 }
 
-function PendingApproval({ approval, busy, decide, now }: { approval: Approval; busy: boolean; decide: Decide; now: Date }) {
-  const approvable = canApprove(approval, now);
+function PendingApproval({ approval, busy, decide, now, userId }: { approval: Approval; busy: boolean; decide: Decide; now: Date; userId?: string | null }) {
+  const alreadyApproved = hasApproved(approval, userId);
+  const approvable = canApprove(approval, now) && !alreadyApproved;
+  const progress = approvalProgress(approval);
   const expiry = expiryLabel(approval, now);
   const [reason, setReason] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -78,6 +83,10 @@ function PendingApproval({ approval, busy, decide, now }: { approval: Approval; 
       <div className="approvalBody">
         <h3>The agent wants to call <code>{approval.action}</code></h3>
         <p>{approval.reason}</p>
+        <ProgressLine approval={approval} />
+        {progress && alreadyApproved && (
+          <p className="approvalProgressNote">You approved this. It needs {progress.required - progress.collected} more approval{progress.required - progress.collected === 1 ? '' : 's'} from other people before it runs.</p>
+        )}
         <TargetLine approval={approval} />
         <p className="approvalSubhead">Exactly what it will send</p>
         <ArgumentList approval={approval} />
@@ -128,6 +137,20 @@ function ArgumentList({ approval }: { approval: Approval }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/** "1 of 3 approvals" and who approved, for approvals that need several people. */
+function ProgressLine({ approval }: { approval: Approval }) {
+  const progress = approvalProgress(approval);
+  if (!progress) return null;
+  return (
+    <div className="approvalProgress" aria-label={`Approval progress: ${progress.label}`}>
+      <Users aria-hidden size={14} />
+      <strong>{progress.label}</strong>
+      <meter min={0} max={progress.required} value={progress.collected} aria-hidden />
+      <small>{progress.approvers.length ? `Approved by ${joinNames(progress.approvers)}` : 'No approvals yet'}</small>
+    </div>
   );
 }
 

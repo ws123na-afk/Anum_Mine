@@ -2,6 +2,7 @@ from .audit import AuditRecord
 from .schemas import (
     AgentRun,
     Approval,
+    ApprovalApproverRecord,
     DomainEvent,
     Task,
     Tenant,
@@ -24,6 +25,8 @@ class InMemoryStore:
         self.invitations: dict[str, WorkspaceInvitation] = {}
         self.audit_records: list[AuditRecord] = []
         self.approval_policies: dict[tuple[str, str], WorkspaceApprovalPolicy] = {}
+        # approval id -> recorded approvers, oldest first (approval chains).
+        self.approval_approvers: dict[str, list[ApprovalApproverRecord]] = {}
 
 
 store = InMemoryStore()

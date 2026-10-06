@@ -48,6 +48,7 @@ TENANT_TABLES = {
     "tasks",
     "agent_runs",
     "agent_run_steps",
+    "approval_approvers",
     "approvals",
     "domain_events",
     "memories",

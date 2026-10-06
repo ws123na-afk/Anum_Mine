@@ -141,11 +141,11 @@ The workspace a client sends is the one the user selected, else the token's `wor
 
 The workspace in the top bar (`tenant / workspace`) opens the switcher (`apps/web/src/WorkspaceSwitcher.tsx`, logic in `src/lib/workspaces.ts`). Every API call sends the selected workspace as `x-workspace-id` (the local development session also carries it in its body), so the tenant context stays explicit after a switch.
 
-- **What it lists.** The API has no route that lists a caller's memberships across workspaces (`GET /api/v1/workspace-memberships/current` answers for one workspace only), so the switcher does not invent one. It lists what the client really knows: the current workspace, the token's `workspace_id` claim and `VITE_ANUM_WORKSPACE_ID` (or the development default in local mode), and workspaces this browser joined through an invitation or switched to. Any other workspace can be typed in; a remembered one can be forgotten.
+- **What it lists.** Opening the switcher calls [`GET /api/v1/me/workspace-memberships`](#my-workspaces) and lists every workspace of the tenant where the caller has an active membership, with its name and the caller's role ("Finance · your role: viewer"), current workspace first. It also keeps what the client knows by itself: the token's `workspace_id` claim and `VITE_ANUM_WORKSPACE_ID` (or the development default in local mode), and workspaces this browser joined through an invitation or switched to. If the list cannot be loaded the switcher says so and shows only those. Any other workspace can be typed in; a remembered one can be forgotten.
 - **Switching asks the API first.** With OIDC or header sessions the client calls `GET /api/v1/workspace-memberships/current` with the target as `x-workspace-id` and switches only on an active membership in that workspace; a `403` is shown in the switcher and the current workspace stays selected. A local development session is re-issued by `POST /api/v1/auth/local/workspace/switch`, which checks the membership itself.
 - **After a switch** the app remounts under the new workspace: no task, approval or event stream state from the previous workspace survives, and the next requests name the new one. The choice resolves before the token claim and the configured default, and survives a reload.
 - **Storage.** `localStorage` key `anum.workspaces.<tenant>.<user>` holds `{selected, known}` workspace ids (at most 20, each matching the API's id pattern) and nothing else, so two people sharing a browser do not see each other's list. Unreadable or blocked storage reads as empty and the switcher still works for the page.
-- Tests: `apps/web/test/workspaces.test.ts` (resolution order, storage, options) and `apps/web/e2e/policy.spec.ts` / `admin.spec.ts` (membership check, refusal, every later request naming the new workspace, switching after accepting an invitation).
+- Tests: `apps/web/test/workspaces.test.ts` (resolution order, storage, options, the membership list and its labels) and `apps/web/e2e/policy.spec.ts` / `admin.spec.ts` (membership check, refusal of a listed workspace whose membership lapsed, the list from the API and the fallback when it fails, every later request naming the new workspace, switching after accepting an invitation).
 
 ### Flutter
 
@@ -160,12 +160,34 @@ The workspace in the top bar (`tenant / workspace`) opens the switcher (`apps/we
 | `ANUM_WEB_APP_URL` | Optional web app address; when set, a new invitation also shows the web invitation link ([Client screens](#client-screens)). |
 
 - Tokens (access, refresh, ID) are stored with the session in `flutter_secure_storage`. `OidcSessionStore` refreshes a session read within 60 seconds of expiry, so API calls, file transfer and audit export always send a fresh token; concurrent reads share one refresh. `invalid_grant` clears the session; network failures keep it for the next attempt.
-- Workspace switching with an OIDC session changes the stored workspace (and so `x-workspace-id`) without calling the local session API.
+- Workspace switching with an OIDC session first calls `GET /api/v1/workspace-memberships/current` with the target as `x-workspace-id` and switches only on an active membership there; then it changes the stored workspace (and so `x-workspace-id`) without calling the local session API. A local session is re-issued by `POST /api/v1/auth/local/workspace/switch`, which checks the membership itself.
+- Settings › Switch workspace (`WorkspaceSwitcherScreen` in `lib/features/auth/account_screens.dart`) is the workspace picker: it lists the caller's memberships from [`GET /api/v1/me/workspace-memberships`](#my-workspaces) (name, id and role, the current one marked) and switches on a tap, after the check above; a refusal stays on the screen with the reason. A workspace ID can still be typed, and if the list cannot be loaded the screen says so. Tests: `apps/mobile/test/workspace_picker_test.dart` and `test/oidc_session_test.dart`.
 - Sign-out ends the Keycloak session in the browser, then clears secure storage even if the browser step is cancelled or fails.
 - Plain-HTTP issuers are accepted only in debug and profile builds. The issuer the app uses must equal the API's `ANUM_KEYCLOAK_ISSUER`; from the Android emulator use `adb reverse tcp:8080 tcp:8080` and `ANUM_OIDC_ISSUER=http://localhost:8080/realms/anum` rather than `10.0.2.2`, which would mint tokens with a different `iss`.
 - The redirect scheme `com.anum.app`, which is also the app's applicationId and bundle identifier, is registered in the committed native projects by `tool/configure_native.dart`: the `appAuthRedirectScheme` manifest placeholder in `android/app/build.gradle.kts` (used by AppAuth's redirect activity intent filter) and `CFBundleURLTypes` in `ios/Runner/Info.plist`.
 
 The Kotlin Android app (`anum-android`) does not sign in through Keycloak and is frozen ([Android](android.md#status-frozen)); Flutter is the shipping mobile app.
+
+## My Workspaces
+
+`GET /api/v1/me/workspace-memberships` returns the caller's **active** memberships in every workspace of the caller's tenant, sorted by workspace name, then id:
+
+```json
+[{"tenant_id": "tenant_local", "workspace_id": "workspace_finance", "workspace_name": "Finance", "role": "viewer", "status": "active"}]
+```
+
+- **Who may call it.** Any authenticated caller. The tenant comes from the token (`tenant_id` claim; an `x-tenant-id` header must agree) and the user from its subject; in local/test header mode from the development headers or the `anum_local_*` session. The request still needs a workspace (`x-workspace-id` or the token's claim) like every authenticated call, but no membership in it: someone deactivated in the selected workspace can still find where they may switch. It reveals only the caller's own memberships, never other users' or other tenants'. Deactivated memberships are not listed; `workspace_name` is null if the workspace row cannot be read.
+- **Switching still checks.** The list is a convenience. Clients switch only after `GET /api/v1/workspace-memberships/current` (or the local session switch) confirms an active membership in the target, so a membership deactivated after the list was loaded is refused.
+- **How it stays inside RLS.** `workspace_memberships` and `workspaces` are under forced RLS that admits one workspace at a time (`anum.tenant_id` and `anum.workspace_id`), so the application role cannot list a user's memberships across workspaces. The route reads them in its own short transaction that starts with `SET LOCAL ROLE anum_membership_reader`, sets `anum.tenant_id` and `anum.user_id` from the authenticated identity (and no workspace), runs one query and always rolls back (`anum_api/membership_directory.py`). The role comes from migration `0013_approvers_and_directory`:
+
+  | Table | Columns granted | Policy (`for select to anum_membership_reader`) |
+  | --- | --- | --- |
+  | `workspace_memberships` | `tenant_id`, `workspace_id`, `user_id`, `role`, `active` | `tenant_id = anum.tenant_id and user_id = anum.user_id and active` |
+  | `workspaces` | `tenant_id`, `id`, `name` | same tenant, and an active membership of `anum.user_id` in that workspace exists |
+
+  The role is `NOLOGIN`, has no write privilege and no `BYPASSRLS`, and nothing is `SECURITY DEFINER`. Without `anum.user_id` or `anum.tenant_id` it sees nothing. Deployments grant it to the API login **`WITH INHERIT FALSE, SET TRUE`** (`infra/helm/bootstrap-database.sql`): permissive policies `TO` a role also apply to every member that inherits its privileges, so an inheriting grant would widen what the application role's own queries see. With `INHERIT FALSE` the API can only switch to it with `SET ROLE`, and only this route does. See [Multi-tenancy](multi-tenancy.md#membership-directory-role).
+- **In-memory backend.** The repository filters the process store by tenant, user and `active`.
+- Tests: `services/api/tests/test_membership_directory.py` (in memory, headers and OIDC) and `test_postgres_membership_directory.py` (the route as the non-owner app role; the reader role sees only the caller's rows and the granted columns, cannot write, sees nothing without the settings, and its policies do not apply to the app role granted with `INHERIT FALSE`).
 
 ## Local Use
 
@@ -186,8 +208,8 @@ The API must allow the web origin (`ANUM_CORS_ORIGINS`) and run in `oidc` mode; 
 
 ## Now
 
-Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients, a web workspace switcher that checks the membership before switching, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
+Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients, the caller's own memberships across the tenant's workspaces (`GET /api/v1/me/workspace-memberships`) listed by the web workspace switcher and the Flutter workspace picker, both checking the membership before switching, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
 
 ## Later
 
-Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; an API route listing the caller's active memberships across workspaces, so the web [workspace switcher](#workspace-switcher) (and Flutter's switch screen) can list every workspace instead of the ones the client knows; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.
+Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.

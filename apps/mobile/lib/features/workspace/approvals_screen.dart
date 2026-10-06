@@ -142,6 +142,7 @@ class _PendingCardState extends State<_PendingCard> {
     final tone = riskTone(approval.risk);
     final task =
         controller.tasks.where((t) => t.id == approval.taskId).firstOrNull;
+    final alreadyApproved = approval.approvedBy(controller.currentUserId);
     return AnumSurface(
       accent: anumToneColor(context, tone),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -161,6 +162,19 @@ class _PendingCardState extends State<_PendingCard> {
         const SizedBox(height: 2),
         Text('Tool: ${approval.action}',
             style: TextStyle(color: p.faint, fontSize: 12)),
+        if (approval.progressLabel != null) ...[
+          const SizedBox(height: 8),
+          ApprovalProgress(approval: approval),
+          if (alreadyApproved)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                  'You approved this. It needs ${_remaining(approval)} more '
+                  'approval${_remaining(approval) == 1 ? '' : 's'} from other '
+                  'people before it runs.',
+                  style: TextStyle(color: p.muted, fontSize: 12)),
+            ),
+        ],
         if (approval.target != null) ...[
           const SizedBox(height: 2),
           Text('Sends to ${approval.target}',
@@ -270,7 +284,9 @@ class _PendingCardState extends State<_PendingCard> {
           const SizedBox(width: 10),
           Expanded(
             child: FilledButton.icon(
-              onPressed: controller.mutating || !approval.canApprove()
+              onPressed: controller.mutating ||
+                      !approval.canApprove() ||
+                      alreadyApproved
                   ? null
                   : () => _confirmApprove(context),
               icon: const Icon(Icons.check),
@@ -307,6 +323,54 @@ class _PendingCardState extends State<_PendingCard> {
       await controller.decide(approval,
           approve: true, reason: normalizeReason(_reason.text));
     }
+  }
+}
+
+int _remaining(WorkspaceApproval approval) {
+  final left = approval.requiredApprovals - approval.approvers.length;
+  return left < 1 ? 1 : left;
+}
+
+/// "1 of 3 approvals" with a bar and who approved, for approvals that need
+/// several people (approval chains, docs/approvals-and-risk.md).
+class ApprovalProgress extends StatelessWidget {
+  const ApprovalProgress({required this.approval, super.key});
+  final WorkspaceApproval approval;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final label = approval.progressLabel;
+    if (label == null) return const SizedBox.shrink();
+    final names = approval.approvers.map((a) => a.userId).toList();
+    final total = approval.requiredApprovals > names.length
+        ? approval.requiredApprovals
+        : names.length;
+    return Semantics(
+      key: Key('approval-progress-${approval.id}'),
+      label: 'Approval progress: $label',
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.groups_outlined, size: 16, color: p.sky),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(
+                  color: p.text, fontSize: 13, fontWeight: FontWeight.w700)),
+        ]),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+              value: total == 0 ? 0 : names.length / total, minHeight: 6),
+        ),
+        const SizedBox(height: 4),
+        Text(
+            names.isEmpty
+                ? 'No approvals yet'
+                : 'Approved by ${joinNames(names)}',
+            style: TextStyle(color: p.muted, fontSize: 12)),
+      ]),
+    );
   }
 }
 
@@ -379,7 +443,11 @@ String decisionSummary(WorkspaceApproval approval, {DateTime? now}) {
   final at = approval.decidedAt;
   if (status == 'approved' || status == 'rejected') {
     final verb = status == 'approved' ? 'Approved' : 'Rejected';
-    return '$verb by ${approval.decidedBy ?? 'unknown user'}'
+    final names = approval.approvers.map((a) => a.userId).toList();
+    final who = status == 'approved' && names.length > 1
+        ? joinNames(names)
+        : approval.decidedBy ?? 'unknown user';
+    return '$verb by $who'
         '${at == null ? '' : ' · ${exactTime(at)}'}';
   }
   if (status == 'expired') {

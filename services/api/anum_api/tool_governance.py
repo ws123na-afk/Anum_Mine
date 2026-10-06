@@ -224,3 +224,14 @@ def decision_requirements(match: GovernanceMatch) -> tuple[int, set[str] | None]
             continue
         allowed = roles if allowed is None else allowed & roles
     return minimum, allowed
+
+
+def required_approvals(minimum_approvers: int) -> int:
+    """How many distinct approve decisions an approval needs (approval chains).
+
+    ``minimum_approvers`` 1 or 2 needs one approval: 2 is the two-person rule, where the
+    person who created or started the task counts as the first person and someone else
+    approves. Above 2 every one of the ``minimum_approvers`` must approve separately,
+    and none of them may be the task creator or the requester.
+    """
+    return minimum_approvers if minimum_approvers > 2 else 1

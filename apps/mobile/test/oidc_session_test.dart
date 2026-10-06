@@ -70,9 +70,37 @@ class FakeAuthenticator implements OidcAuthenticator {
 class RecordingTransport implements ApiTransport {
   final List<ApiRequest> requests = [];
 
+  /// Workspaces where `/workspace-memberships/current` reports an active
+  /// membership; any other workspace answers 403.
+  Set<String> memberOf = {'workspace_foundation', 'workspace_two'};
+
+  /// Rows for `GET /api/v1/me/workspace-memberships`.
+  List<Map<String, Object?>> directory = const [];
+
   @override
   Future<ApiResponse> send(ApiRequest request) async {
     requests.add(request);
+    if (request.uri.path.endsWith('/me/workspace-memberships')) {
+      return ApiResponse(statusCode: 200, body: {'data': directory});
+    }
+    if (request.uri.path.endsWith('/workspace-memberships/current')) {
+      final workspace = request.headers['x-workspace-id'];
+      if (!memberOf.contains(workspace)) {
+        return const ApiResponse(statusCode: 403, body: {
+          'error': {
+            'code': 'forbidden',
+            'message': 'Active workspace membership required'
+          }
+        });
+      }
+      return ApiResponse(statusCode: 200, body: {
+        'tenant_id': 'tenant_local',
+        'workspace_id': workspace,
+        'user_id': 'user-dev',
+        'role': 'member',
+        'active': true,
+      });
+    }
     if (request.uri.path.endsWith('/onboarding')) {
       return const ApiResponse(statusCode: 200, body: {
         'complete': true,
@@ -278,14 +306,54 @@ void main() {
       expect(headers.containsKey('x-user-id'), isFalse);
     });
 
-    test('switching workspace changes x-workspace-id without the local API',
-        () async {
+    test(
+        'switching workspace checks the membership, then changes '
+        'x-workspace-id without the local API', () async {
       await repository.signInWithOidc();
       await repository.switchWorkspace('workspace_two');
-      expect(transport.requests, isEmpty);
+      final check = transport.requests.single;
+      expect(check.uri.path, '/api/v1/workspace-memberships/current');
+      expect(check.headers['x-workspace-id'], 'workspace_two');
+      expect(
+          transport.requests.where((r) => r.uri.path.contains('/auth/local/')),
+          isEmpty);
       await repository.onboardingStatus();
       expect(
-          transport.requests.single.headers['x-workspace-id'], 'workspace_two');
+          transport.requests.last.headers['x-workspace-id'], 'workspace_two');
+    });
+
+    test('a workspace without an active membership is refused', () async {
+      await repository.signInWithOidc();
+      await expectLater(repository.switchWorkspace('workspace_other'),
+          throwsA(isA<ApiException>()));
+      expect((await inner.read())!.context.workspaceId, 'workspace_foundation');
+    });
+
+    test('my workspaces lists the memberships the API reports', () async {
+      await repository.signInWithOidc();
+      transport.directory = [
+        {
+          'tenant_id': 'tenant_local',
+          'workspace_id': 'workspace_two',
+          'workspace_name': 'Finance',
+          'role': 'viewer',
+          'status': 'active'
+        },
+        {
+          'tenant_id': 'tenant_local',
+          'workspace_id': 'workspace_foundation',
+          'workspace_name': null,
+          'role': 'owner',
+          'status': 'active'
+        },
+      ];
+      final memberships = await repository.myWorkspaces();
+      expect(
+          transport.requests.last.uri.path, '/api/v1/me/workspace-memberships');
+      expect(memberships.map((m) => (m.workspaceId, m.workspaceName, m.role)), [
+        ('workspace_two', 'Finance', 'viewer'),
+        ('workspace_foundation', null, 'owner')
+      ]);
     });
 
     test('sign-out ends the provider session and forgets the tokens', () async {

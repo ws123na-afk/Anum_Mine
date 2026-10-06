@@ -223,7 +223,15 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
       decidedBy: j['decided_by'] as String?,
       decisionReason: j['decision_reason'] as String?,
       requestedBy: j['requested_by'] as String?,
-      target: j['target'] as String?);
+      target: j['target'] as String?,
+      requiredApprovals: (j['required_approvals'] as num?)?.toInt() ?? 1,
+      approvers: ((j['approvers'] as List<Object?>?) ?? const [])
+          .cast<JsonMap>()
+          .map((a) => ApprovalApprover(
+              userId: a['user_id']! as String,
+              approvedAt: _date(a['approved_at']),
+              reason: a['reason'] as String?))
+          .toList());
   WorkspaceAutomation _automation(JsonMap j,
       [List<JsonMap> workflows = const []]) {
     final workflowId = j['workflow_id']! as String;

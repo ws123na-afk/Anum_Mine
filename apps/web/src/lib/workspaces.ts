@@ -2,10 +2,11 @@
 // docs/identity.md (Client Sign-In, Workspace switcher). Pure apart from the injected storage,
 // so `pnpm --filter @anum/web test:unit` can exercise it without a browser.
 //
-// The API has no route that lists a caller's memberships across workspaces, so the list is
-// built from what the client really knows: the selected workspace, the token's default
-// workspace, the configured default, and workspaces this browser joined or switched to. Any
-// other workspace can be typed in; the API's membership check decides before the switch.
+// The list combines the caller's active memberships from `GET /api/v1/me/workspace-memberships`
+// (when it can be loaded) with what the client knows by itself: the selected workspace, the
+// token's default workspace, the configured default, and workspaces this browser joined or
+// switched to. Any other workspace can be typed in; the API's membership check in the target
+// workspace still decides before every switch.
 
 /** Same pattern the API enforces for `x-workspace-id` (`is_valid_scope_id`). */
 export const WORKSPACE_ID_PATTERN = /^[A-Za-z0-9_-]{3,80}$/;
@@ -86,21 +87,54 @@ export function resolveWorkspace(memory: WorkspaceMemory, claim: string | null |
 export interface WorkspaceOption {
   id: string;
   current: boolean;
-  /** Why the client lists it: the default from sign-in or configuration, or this browser's history. */
-  source: 'default' | 'remembered';
+  /**
+   * Why the client lists it: an active membership the API reported, the default from sign-in or
+   * configuration, or this browser's history.
+   */
+  source: 'member' | 'default' | 'remembered';
+  /** Workspace name and the caller's role, when the API's membership list provided them. */
+  name?: string | null;
+  role?: string;
 }
 
-/** Options for the switcher: current first, then defaults, then remembered ones; no duplicates. */
-export function workspaceOptions(current: string, defaults: (string | null | undefined)[], memory: WorkspaceMemory): WorkspaceOption[] {
+/** One of the caller's memberships as the switcher uses it (`GET /api/v1/me/workspace-memberships`). */
+export interface MembershipEntry {
+  workspaceId: string;
+  workspaceName: string | null;
+  role: string;
+}
+
+/** Map the API rows; rows with a malformed id are dropped rather than offered. */
+export function membershipEntries(rows: readonly { workspace_id: string; workspace_name?: string | null; role: string }[]): MembershipEntry[] {
+  return rows
+    .filter((row) => typeof row.workspace_id === 'string' && isWorkspaceId(row.workspace_id))
+    .map((row) => ({ workspaceId: row.workspace_id, workspaceName: row.workspace_name?.trim() || null, role: row.role }));
+}
+
+/**
+ * Options for the switcher: current first, then the caller's memberships from the API (when they
+ * could be loaded), then defaults, then remembered ones; no duplicates.
+ */
+export function workspaceOptions(current: string, defaults: (string | null | undefined)[], memory: WorkspaceMemory, memberships: readonly MembershipEntry[] | null = null): WorkspaceOption[] {
   const seen = new Set<string>();
   const options: WorkspaceOption[] = [];
+  const byId = new Map((memberships ?? []).map((entry) => [entry.workspaceId, entry]));
   const add = (id: string | null | undefined, source: WorkspaceOption['source']) => {
     if (!id || !isWorkspaceId(id) || seen.has(id)) return;
     seen.add(id);
-    options.push({ id, current: id === current, source });
+    const entry = byId.get(id);
+    options.push(entry ? { id, current: id === current, source: 'member', name: entry.workspaceName, role: entry.role } : { id, current: id === current, source });
   };
   add(current, defaults.includes(current) ? 'default' : 'remembered');
+  for (const entry of memberships ?? []) add(entry.workspaceId, 'member');
   for (const id of defaults) add(id, 'default');
   for (const id of memory.known) add(id, 'remembered');
   return options;
+}
+
+/** Second line of an option: its name (when different from the id) and the caller's role. */
+export function membershipLabel(option: WorkspaceOption): string | null {
+  if (option.source !== 'member') return null;
+  const parts = [option.name && option.name !== option.id ? option.name : null, option.role ? `your role: ${option.role}` : null].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'Your membership';
 }

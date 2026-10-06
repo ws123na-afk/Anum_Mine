@@ -14,6 +14,9 @@ import {
   normalizeReason,
   REASON_MAX_CHARS,
   shortHash,
+  approvalProgress,
+  hasApproved,
+  joinNames,
 } from '../src/lib/approvals.ts';
 
 const hash = 'a'.repeat(52) + 'b'.repeat(12);
@@ -141,5 +144,31 @@ describe('decision reason (A4)', () => {
     assert.equal(normalizeReason(undefined), undefined);
     assert.equal(normalizeReason(''), undefined);
     assert.equal(normalizeReason('x'.repeat(REASON_MAX_CHARS + 20))?.length, REASON_MAX_CHARS);
+  });
+});
+
+describe('approval chains', () => {
+  const approvers = (...ids: string[]) => ids.map((userId, index) => ({ userId, approvedAt: `2026-10-06T11:3${index}:00Z`, reason: null }));
+
+  test('a single-decision approval shows no progress', () => {
+    assert.equal(approvalProgress(approval()), null);
+    assert.equal(approvalProgress(approval({ requiredApprovals: 1, approvers: approvers('owner_b') })), null);
+  });
+
+  test('a chain shows how many approved and who', () => {
+    const partial = approval({ requiredApprovals: 3, approvers: approvers('owner_b') });
+    assert.deepEqual(approvalProgress(partial), { collected: 1, required: 3, label: '1 of 3 approvals', approvers: ['owner_b'] });
+    assert.equal(approvalProgress(approval({ requiredApprovals: 3 }))?.label, '0 of 3 approvals');
+    assert.equal(hasApproved(partial, 'owner_b'), true);
+    assert.equal(hasApproved(partial, 'owner_c'), false);
+    assert.equal(hasApproved(partial, null), false);
+  });
+
+  test('history names every approver of a completed chain', () => {
+    const done = approval({ status: 'approved', decidedBy: 'owner_d', decidedAt: '2026-10-06T11:40:00Z', requiredApprovals: 3, approvers: approvers('owner_b', 'owner_c', 'owner_d') });
+    assert.equal(decisionSummary(done, (iso) => iso, now), 'Approved by owner_b, owner_c and owner_d · 2026-10-06T11:40:00Z');
+    assert.equal(approvalProgress(done)?.label, '3 of 3 approvals');
+    assert.equal(joinNames(['a', 'b']), 'a and b');
+    assert.equal(joinNames([]), '');
   });
 });

@@ -372,6 +372,170 @@ void main() {
     expect(repository.decided.last, ('approval_pending', _hash, false));
     expect(controller.decisionRefusals, isEmpty);
   });
+
+  group('approval chains', () {
+    test('the progress and approvers are mapped from the API', () async {
+      final transport = _ChainTransport();
+      final repository = await _repository(transport);
+      final approval = (await repository.loadWorkspace()).approvals.single;
+      expect(approval.requiredApprovals, 3);
+      expect(approval.approvers.map((a) => a.userId), ['owner_b']);
+      expect(approval.progressLabel, '1 of 3 approvals');
+      expect(approval.approvedBy('owner_b'), isTrue);
+      expect(approval.approvedBy('owner_c'), isFalse);
+      expect(approval.approvedBy(null), isFalse);
+      // Without a chain there is no progress line.
+      expect(_approval().progressLabel, isNull);
+    });
+
+    test('history names every approver of a completed chain', () {
+      final done = _chain(
+          status: 'approved',
+          approvers: ['owner_b', 'owner_c', 'owner_d'],
+          decidedBy: 'owner_d',
+          decidedAt: DateTime.utc(2026, 10, 6, 12));
+      expect(decisionSummary(done),
+          startsWith('Approved by owner_b, owner_c and owner_d'));
+      expect(done.progressLabel, '3 of 3 approvals');
+      expect(joinNames(['a', 'b']), 'a and b');
+    });
+
+    testWidgets('the card shows "1 of 3 approvals" and who approved',
+        (tester) async {
+      final repository = _FakeRepository([
+        _chain(approvers: ['owner_b'])
+      ]);
+      final controller = WorkspaceController(repository)
+        ..currentUserId = 'owner_c';
+      await controller.load();
+      await _pumpApprovals(tester, controller);
+
+      expect(find.text('1 of 3 approvals'), findsOneWidget);
+      expect(find.text('Approved by owner_b'), findsOneWidget);
+      expect(
+          find.byKey(const Key('approval-progress-approval_chain')), findsOne);
+      final approve = tester.widget<FilledButton>(find.ancestor(
+          of: find.text('Approve'),
+          matching: find.byWidgetPredicate((w) => w is FilledButton)));
+      expect(approve.onPressed, isNotNull);
+    });
+
+    testWidgets('someone who already approved cannot approve again',
+        (tester) async {
+      final repository = _FakeRepository([
+        _chain(approvers: ['owner_b', 'owner_c'])
+      ]);
+      final controller = WorkspaceController(repository)
+        ..currentUserId = 'owner_c';
+      await controller.load();
+      await _pumpApprovals(tester, controller);
+
+      expect(find.text('2 of 3 approvals'), findsOneWidget);
+      expect(find.text('Approved by owner_b and owner_c'), findsOneWidget);
+      expect(
+          find.text('You approved this. It needs 1 more approval from other '
+              'people before it runs.'),
+          findsOneWidget);
+      final approve = tester.widget<FilledButton>(find.ancestor(
+          of: find.text('Approve'),
+          matching: find.byWidgetPredicate((w) => w is FilledButton)));
+      expect(approve.onPressed, isNull);
+      expect(find.text('Reject'), findsOneWidget);
+    });
+
+    testWidgets('a 409 from the API is shown on the card, not as an error',
+        (tester) async {
+      final repository = _ConflictRepository([
+        _chain(approvers: ['owner_b'])
+      ]);
+      final controller = WorkspaceController(repository);
+      await controller.load();
+      await _pumpApprovals(tester, controller);
+
+      await tester.tap(find.text('Approve'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Approve').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text(_alreadyApproved), findsOneWidget);
+      expect(controller.phase, isNot(LoadPhase.error));
+    });
+  });
+}
+
+const _alreadyApproved =
+    'You already approved this action; 2 more approval(s) from other people are needed';
+
+class _ChainTransport extends _Transport {
+  @override
+  Future<ApiResponse> send(ApiRequest request) async {
+    requests.add(request);
+    if (request.uri.path != '/api/v1/approvals') {
+      return const ApiResponse(statusCode: 200, body: {'data': []});
+    }
+    return ApiResponse(statusCode: 200, body: {
+      'data': [
+        {
+          ..._approvalJson(),
+          'required_approvals': 3,
+          'approvers': [
+            {
+              'user_id': 'owner_b',
+              'approved_at': '2026-10-06T10:30:00Z',
+              'reason': null
+            }
+          ],
+        }
+      ]
+    });
+  }
+}
+
+class _ConflictRepository extends _FakeRepository {
+  _ConflictRepository(super.approvals);
+
+  @override
+  Future<WorkspaceApproval> decideApproval(WorkspaceApproval approval,
+      {required bool approve, String? reason}) async {
+    throw const ApiException(409, _alreadyApproved);
+  }
+}
+
+WorkspaceApproval _chain(
+        {String status = 'pending',
+        List<String> approvers = const [],
+        String? decidedBy,
+        DateTime? decidedAt}) =>
+    WorkspaceApproval(
+      id: 'approval_chain',
+      taskId: 'task_1',
+      action: 'external.action',
+      reason: 'An organization approval rule requires approval.',
+      risk: 'high',
+      status: status,
+      createdAt: DateTime.utc(2026, 10, 6, 10),
+      payloadHash: _hash,
+      expiresAt: DateTime.now().add(const Duration(hours: 5)),
+      decidedBy: decidedBy,
+      decidedAt: decidedAt,
+      requiredApprovals: 3,
+      approvers: [
+        for (final (index, user) in approvers.indexed)
+          ApprovalApprover(
+              userId: user, approvedAt: DateTime.utc(2026, 10, 6, 10, index)),
+      ],
+    );
+
+Future<void> _pumpApprovals(
+    WidgetTester tester, WorkspaceController controller) async {
+  tester.view.physicalSize = const Size(1200, 4000);
+  tester.view.devicePixelRatio = 2;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(MaterialApp(
+    theme: AnumTheme.dark(),
+    home: Scaffold(body: ApprovalsScreen(controller: controller)),
+  ));
+  await tester.pumpAndSettle();
 }
 
 const _twoPersonMessage =

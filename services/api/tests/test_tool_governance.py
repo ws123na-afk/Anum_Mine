@@ -34,6 +34,7 @@ from anum_api.tool_governance import (
     decision_requirements,
     match_governance,
     pattern_matches,
+    required_approvals,
 )
 
 TENANT = "tenant_govern"
@@ -55,7 +56,9 @@ client = TestClient(main.app)
 @pytest.fixture(autouse=True)
 def _clean() -> Iterator[None]:
     governance_store.clear()
-    for collection in (store.tasks, store.runs, store.approvals, store.events, store.audit_records):
+    for collection in (
+        store.tasks, store.runs, store.approvals, store.events, store.audit_records, store.approval_approvers
+    ):
         collection.clear()
     yield
     governance_store.clear()
@@ -362,16 +365,129 @@ def test_two_approvers_rule_lets_another_owner_approve() -> None:
     assert approved.json()["approval"]["decided_by"] == "owner_b"
 
 
-def test_more_than_two_approvers_can_only_be_rejected() -> None:
+OWNER_C = headers("owner_c")
+OWNER_D = headers("owner_d")
+
+
+def _events(event_type: str) -> list:
+    return [event for event in store.events if event.type == event_type]
+
+
+def test_required_approvals_counts_distinct_approvers_only_above_two() -> None:
+    assert [required_approvals(minimum) for minimum in (1, 2, 3, 5)] == [1, 1, 3, 5]
+
+
+def test_three_approvers_are_collected_before_the_run_resumes() -> None:
+    _approval_rule("external.*", minimum_approvers=3)
+    started = _run("Publish the final update")
+    approval = started["approval"]
+    listed = client.get(f"/api/v1/approvals/{approval['id']}", headers=OWNER_A).json()
+    assert (listed["required_approvals"], listed["approvers"]) == (3, [])
+
+    # The requester never counts, whatever the chain length.
+    refused = _decide(approval, OWNER_A)
+    assert refused.status_code == 403
+    assert "3 approvers other than" in refused.json()["error"]["message"]
+    assert _audits("approval.self_approval_denied")
+
+    first = _decide(approval, OWNER_B)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["approval"]["status"] == "pending"
+    assert body["approval"]["required_approvals"] == 3
+    assert [item["user_id"] for item in body["approval"]["approvers"]] == ["owner_b"]
+    assert body["run"]["status"] == "waiting_approval"
+    assert body["task"]["status"] == "waiting_approval"
+
+    again = _decide(approval, OWNER_B)
+    assert again.status_code == 409
+    assert "already approved" in again.json()["error"]["message"]
+
+    second = _decide(approval, OWNER_C)
+    assert second.status_code == 200
+    assert second.json()["approval"]["status"] == "pending"
+    assert len(second.json()["approval"]["approvers"]) == 2
+
+    partial_audits = _audits("approval.partially_approved")
+    assert [(record.actor, record.metadata["approvals"], record.metadata["required_approvals"])
+            for record in partial_audits] == [("owner_b", 1, 3), ("owner_c", 2, 3)]
+    assert partial_audits[0].metadata["payload_hash"] == approval["payload_hash"]
+    assert list(partial_audits[0].metadata["approval_rules"]) == ["rule external.*"]
+    partial_events = _events("approval.partially_approved")
+    assert [event.payload["approvals"] for event in partial_events] == [1, 2]
+    assert all(event.subject == approval["id"] for event in partial_events)
+    assert _events("approval.approved") == []
+
+    last = _decide(approval, OWNER_D)
+    assert last.status_code == 200, last.text
+    final = last.json()
+    assert final["approval"]["status"] == "approved"
+    assert final["approval"]["decided_by"] == "owner_d"
+    assert [item["user_id"] for item in final["approval"]["approvers"]] == ["owner_b", "owner_c", "owner_d"]
+    assert final["approval"]["required_approvals"] == 3
+    assert final["run"]["status"] == "completed"
+    (approved_audit,) = _audits("approval.approved")
+    assert list(approved_audit.metadata["approvers"]) == ["owner_b", "owner_c", "owner_d"]
+    (approved_event,) = _events("approval.approved")
+    assert approved_event.payload["approvals"] == 3 and approved_event.payload["required_approvals"] == 3
+
+    listed = client.get("/api/v1/approvals", headers=OWNER_B).json()
+    assert [len(item["approvers"]) for item in listed] == [3]
+
+
+def test_any_reject_ends_an_approval_chain() -> None:
     _approval_rule("external.*", minimum_approvers=3)
     approval = _run("Publish the final update")["approval"]
-    refused = _decide(approval, OWNER_B)
-    assert refused.status_code == 403
-    assert "can only be rejected" in refused.json()["error"]["message"]
-    assert _audits("approval.approvers_unavailable")
-    rejected = _decide(approval, OWNER_B, "reject")
+    assert _decide(approval, OWNER_B).status_code == 200
+    rejected = client.post(
+        f"/api/v1/approvals/{approval['id']}/reject", headers=OWNER_C, json={"reason": "Not this week"}
+    )
     assert rejected.status_code == 200
     assert rejected.json()["approval"]["status"] == "rejected"
+    assert rejected.json()["run"]["status"] == "failed"
+    assert _decide(approval, OWNER_D).status_code == 409
+    shown = client.get(f"/api/v1/approvals/{approval['id']}", headers=OWNER_A).json()
+    assert [item["user_id"] for item in shown["approvers"]] == ["owner_b"]
+
+
+def test_each_approval_in_a_chain_checks_role_and_payload_hash() -> None:
+    _approval_rule("external.*", minimum_approvers=3, required_roles=["security"])
+    approval = _run("Publish the final update")["approval"]
+    refused = _decide(approval, OWNER_B)
+    assert refused.status_code == 403 and "security" in refused.json()["error"]["message"]
+
+    security_b = {**OWNER_B, "x-user-roles": "owner,security"}
+    stale = client.post(
+        f"/api/v1/approvals/{approval['id']}/approve", headers=security_b, json={"payload_hash": "0" * 64}
+    )
+    assert stale.status_code == 409
+    assert _audits("approval.partially_approved") == []
+    assert store.approval_approvers.get(approval["id"]) is None
+
+    assert _decide(approval, security_b).status_code == 200
+    assert len(store.approval_approvers[approval["id"]]) == 1
+
+
+def test_an_expired_chain_cannot_be_completed() -> None:
+    _approval_rule("external.*", minimum_approvers=3)
+    approval = _run("Publish the final update")["approval"]
+    assert _decide(approval, OWNER_B).status_code == 200
+    stored = store.approvals[approval["id"]]
+    stored.expires_at = utc_now().replace(year=2000)
+    expired = _decide(approval, OWNER_C)
+    assert expired.status_code == 410
+    assert store.approvals[approval["id"]].status.value == "expired"
+    assert len(store.approval_approvers[approval["id"]]) == 1
+
+
+def test_rules_are_reread_so_dropping_the_chain_rule_lets_the_next_approval_complete_it() -> None:
+    _approval_rule("external.*", minimum_approvers=3)
+    approval = _run("Publish the final update")["approval"]
+    assert _decide(approval, OWNER_B).json()["approval"]["status"] == "pending"
+    governance_store.clear()  # the organization drops the rule while the approval waits
+    done = _decide(approval, OWNER_C)
+    assert done.json()["approval"]["status"] == "approved"
+    assert [item["user_id"] for item in done.json()["approval"]["approvers"]] == ["owner_b", "owner_c"]
 
 
 def test_a_decider_must_hold_a_role_the_rule_requires() -> None:

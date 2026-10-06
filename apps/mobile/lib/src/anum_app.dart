@@ -101,6 +101,20 @@ class _AnumAppState extends State<AnumApp> {
     if (auth.phase == AuthPhase.ready && workspace.phase.name == 'initial') {
       workspace.load();
     }
+    if (auth.phase == AuthPhase.signedOut) workspace.currentUserId = null;
+    if (auth.phase == AuthPhase.ready && workspace.currentUserId == null) {
+      _rememberUser();
+    }
+  }
+
+  /// Who is signed in, for the approval cards (one approval per person).
+  Future<void> _rememberUser() async {
+    try {
+      final session = await auth.repository.restoreSession();
+      workspace.currentUserId = session?.context.userId;
+    } on Object {
+      // Unknown user: the API still refuses a second approval (409).
+    }
   }
 
   @override

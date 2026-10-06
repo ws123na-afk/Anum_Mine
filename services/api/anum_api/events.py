@@ -33,6 +33,7 @@ class CanonicalEventName(StrEnum):
     AGENT_RUN_RESUMED = "agent_run.resumed"
     AGENT_RUN_CHECKPOINTED = "agent_run.checkpointed"
     APPROVAL_REQUESTED = "approval.requested"
+    APPROVAL_PARTIALLY_APPROVED = "approval.partially_approved"
     APPROVAL_APPROVED = "approval.approved"
     APPROVAL_REJECTED = "approval.rejected"
     APPROVAL_EXPIRED = "approval.expired"
