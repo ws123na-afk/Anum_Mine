@@ -25,12 +25,21 @@ COPY apps/web apps/web
 # The API URL is compiled into the bundle. Pass the public API origin per environment.
 ARG VITE_ANUM_API_URL=http://localhost:8000
 ARG VITE_ANUM_TTS_URL=
+# Keycloak sign-in (docs/identity.md). Set the issuer for every shared environment: when
+# it is empty the bundle falls back to local sessions, which the API refuses outside local.
+# Also add the issuer origin to ANUM_CSP_CONNECT_SRC at runtime (discovery and token calls).
+ARG VITE_ANUM_OIDC_ISSUER=
+ARG VITE_ANUM_OIDC_CLIENT_ID=anum-web
+ARG VITE_ANUM_WORKSPACE_ID=
 ENV VITE_ANUM_API_URL=$VITE_ANUM_API_URL \
-    VITE_ANUM_TTS_URL=$VITE_ANUM_TTS_URL
+    VITE_ANUM_TTS_URL=$VITE_ANUM_TTS_URL \
+    VITE_ANUM_OIDC_ISSUER=$VITE_ANUM_OIDC_ISSUER \
+    VITE_ANUM_OIDC_CLIENT_ID=$VITE_ANUM_OIDC_CLIENT_ID \
+    VITE_ANUM_WORKSPACE_ID=$VITE_ANUM_WORKSPACE_ID
 RUN pnpm --filter @anum/contracts build && pnpm --filter @anum/web build
 
 FROM ${NGINX_IMAGE} AS runtime
-# Origins the page may call besides itself (API, optional voice server). Space-separated,
+# Origins the page may call besides itself (API, Keycloak issuer, optional voice server). Space-separated,
 # substituted into the Content-Security-Policy when the container starts.
 ENV ANUM_CSP_CONNECT_SRC="http://localhost:8000"
 COPY apps/web/nginx/default.conf.template /etc/nginx/templates/default.conf.template

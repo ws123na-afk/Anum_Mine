@@ -108,6 +108,20 @@ def tenant_unit_of_work(context: TenantContext) -> Iterator[AnumRepository]:
         session.close()
 
 
+# The API starts the workflow before its request transaction commits, so the first
+# attempts can run before the queued task and run are visible. Retry those (Temporal
+# backs off 1s, 2s, 4s, ...) and only give up once the run has clearly never existed.
+MISSING_RUN_RETRY_ATTEMPTS = 5
+
+
+def _missing_run_error(request: "AgentRunInput") -> ApplicationError:
+    message = f"Run {request.run_id} for task {request.task_id} not found in this workspace"
+    attempt = activity.info().attempt if activity.in_activity() else MISSING_RUN_RETRY_ATTEMPTS + 1
+    if attempt <= MISSING_RUN_RETRY_ATTEMPTS:
+        return ApplicationError(f"{message} yet; retrying", type="RunNotVisibleYet")
+    return ApplicationError(message, type="RunNotFound", non_retryable=True)
+
+
 class AgentRunActivities:
     """The ``anum.advance_run`` activity. Each call moves a run forward one step.
 
@@ -149,11 +163,7 @@ class AgentRunActivities:
         task = repository.get_task_for_update(request.task_id, context)
         run = repository.get_run(request.run_id, context)
         if task is None or run is None or run.task_id != task.id:
-            raise ApplicationError(
-                f"Run {request.run_id} for task {request.task_id} not found in this workspace",
-                type="RunNotFound",
-                non_retryable=True,
-            )
+            raise _missing_run_error(request)
         return task, run
 
     async def advance(self, context: TenantContext, request: AgentRunInput) -> AgentRunState:

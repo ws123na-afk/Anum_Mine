@@ -395,6 +395,13 @@ async def complete_onboarding(
             ) from exc
     membership = repository.get_membership(context)
     if membership is None:
+        # Onboarding only bootstraps an empty workspace. Joining one that already has
+        # members needs an invitation from its owners (docs/identity.md).
+        if repository.workspace_has_members(context):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This workspace already has members. Ask a workspace owner to invite you.",
+            )
         membership = repository.save_membership(WorkspaceMembership(tenant_id=context.tenant_id, workspace_id=context.workspace_id, user_id=context.user_id, role="owner", created_at=now, updated_at=now))
     return OnboardingStatus(complete=True, tenant=tenant, workspace=workspace, membership=membership, model_configured=_model_is_configured(context))
 

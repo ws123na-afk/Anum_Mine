@@ -36,7 +36,7 @@ API image:
 Web image:
 
 - Builds the Vite bundle with pnpm (frozen lockfile, lifecycle scripts skipped) on Node 22, then serves `dist/` from `nginxinc/nginx-unprivileged`.
-- `VITE_ANUM_API_URL` (build argument) is compiled into the bundle. `ANUM_CSP_CONNECT_SRC` (runtime environment, space-separated origins) is substituted into the Content-Security-Policy when the container starts; it must include the API origin.
+- `VITE_ANUM_API_URL` and the sign-in settings `VITE_ANUM_OIDC_ISSUER`, `VITE_ANUM_OIDC_CLIENT_ID` (default `anum-web`) and `VITE_ANUM_WORKSPACE_ID` (build arguments) are compiled into the bundle. Every shared environment must set the issuer: without it the bundle uses local sessions, which the API refuses outside `local`. `ANUM_CSP_CONNECT_SRC` (runtime environment, space-separated origins) is substituted into the Content-Security-Policy when the container starts; it must include the API origin and the Keycloak issuer origin (discovery and token requests). The staging workflow passes `vars.STAGING_OIDC_ISSUER`.
 - nginx config (`apps/web/nginx/default.conf.template`) adds the security headers listed in [Security](security.md), serves hashed `/assets/` as immutable, falls back to `index.html` for client routes, and answers `/healthz`.
 - `apps/web/Dockerfile.dockerignore` limits the root build context to the workspace manifests, `apps/web` and `packages/contracts`.
 

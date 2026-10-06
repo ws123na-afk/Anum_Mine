@@ -15,6 +15,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from anum_api import main
 from anum_api.agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult, default_tool_registry
@@ -304,3 +305,28 @@ def test_unknown_tool_definition_is_not_retried_after_a_crash() -> None:
     run.checkpoint.tool_call = {"name": "anum.respond", "arguments": {}}
     asyncio.run(runtime.recover_interrupted_execution(task, run, CONTEXT))
     assert run.status == TaskStatus.FAILED
+
+
+def test_a_run_not_yet_committed_is_retried_before_it_is_declared_missing(
+    dispatcher: RecordingDispatcher,
+) -> None:
+    """The workflow can start before the API's transaction commits the queued run."""
+    from dataclasses import replace
+
+    from anum_api.durable_runs import MISSING_RUN_RETRY_ATTEMPTS
+
+    request = _queue("Summarize the project notes", dispatcher)
+    unseen = replace(request, run_id="run_not_committed_yet")
+    activities = activities_with(CountingGateway())
+
+    def attempt(number: int) -> ApplicationError:
+        environment = ActivityEnvironment()
+        environment.info = replace(environment.info, attempt=number)
+        with pytest.raises(ApplicationError) as raised:
+            asyncio.run(environment.run(activities.advance_run, unseen))
+        return raised.value
+
+    early = attempt(1)
+    assert early.type == "RunNotVisibleYet" and not early.non_retryable
+    final = attempt(MISSING_RUN_RETRY_ATTEMPTS + 1)
+    assert final.type == "RunNotFound" and final.non_retryable

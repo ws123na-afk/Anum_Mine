@@ -555,3 +555,22 @@ def test_oidc_bootstrap_can_join_an_empty_workspace(oidc_api) -> None:
 
     assert response.status_code == 201
     assert response.json()["role"] == "owner"
+
+
+def test_oidc_onboarding_cannot_join_a_workspace_that_already_has_members(oidc_api) -> None:
+    client, key, _ = oidc_api
+    now = utc_now()
+    store.workspaces[WORKSPACE] = Workspace(id=WORKSPACE, tenant_id=TENANT, name="Taken", created_at=now, updated_at=now)
+    store.memberships[(TENANT, WORKSPACE, "someone_else")] = WorkspaceMembership(
+        tenant_id=TENANT, workspace_id=WORKSPACE, user_id="someone_else", role="owner",
+        active=True, created_at=now, updated_at=now,
+    )
+
+    response = client.put(
+        "/api/v1/onboarding",
+        headers=bearer(key.sign()),
+        json={"organization_name": "Org", "workspace_name": "Taken"},
+    )
+
+    assert response.status_code == 403
+    assert (TENANT, WORKSPACE, SUBJECT) not in store.memberships
