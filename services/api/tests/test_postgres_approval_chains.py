@@ -66,6 +66,8 @@ def test_a_chain_records_each_approver_and_resumes_on_the_last(
     client: TestClient, database_engine: Engine
 ) -> None:
     approval = _waiting_approval(client)
+    # The run's own response already shows the chain ("0 of 3"), not the default 1.
+    assert (approval["required_approvals"], approval["approvers"]) == (3, [])
     assert _approve(client, approval, "user_test").status_code == 403  # the requester never counts
 
     first = _approve(client, approval, "owner_b")

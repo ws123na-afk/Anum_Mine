@@ -422,7 +422,7 @@ async def run_task(
         run, approval = await runtime.run_task(task, context)
         repository.save_task(task)
         repository.save_run(run)
-        return RunTaskResponse(task=task, run=run, approval=approval)
+        return RunTaskResponse(task=task, run=run, approval=_approval_with_progress(approval, context, repository))
 
 
 async def _queue_durable_run(
@@ -549,7 +549,7 @@ async def resume_agent_run(
         if resumed.checkpoint.approval_id
         else None
     )
-    return RunTaskResponse(task=task, run=resumed, approval=approval)
+    return RunTaskResponse(task=task, run=resumed, approval=_approval_with_progress(approval, context, repository))
 
 
 @app.get("/api/v1/events", response_model=list[DomainEvent])
@@ -991,6 +991,16 @@ def _with_progress(
             required = required_approvals(decision_requirements(match)[0])
         result.append(approval.model_copy(update={"approvers": approvers, "required_approvals": required}))
     return result
+
+
+def _approval_with_progress(
+    approval: Approval | None, context: TenantContext, repository: AnumRepository
+) -> Approval | None:
+    """One approval with its chain progress (``required_approvals``, ``approvers``), or None."""
+    if approval is None:
+        return None
+    (shown,) = _with_progress([approval], context, repository)
+    return shown
 
 
 async def _decide_approval_locked(
