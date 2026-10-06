@@ -1,0 +1,21 @@
+# CI only: values for infra/helm/ci/kind-smoke.sh. The kind release runs unsigned local
+# builds (anum-api:ci, anum-web:ci, anum-backup:ci) in the unlabelled `anum` namespace,
+# so the ANUM image policies are off here (null removes them). Instead one probe policy,
+# with exactly the identity the staging policy requires, matches a public image that
+# this repository never signed (the digest-pinned pgvector dependency image); the
+# smoke test runs it in a namespace labelled policy.sigstore.dev/include=true and
+# expects policy-controller to refuse it for want of that signature.
+# The script sets github.repository and, with DEP_MIRROR, the probe repository.
+
+github:
+  repository: OWNER/REPO
+
+mode: enforce
+
+images:
+  api: null
+  web: null
+  backup: null
+  probe:
+    repository: index.docker.io/pgvector/pgvector
+    signers: [deploy-staging.yml]

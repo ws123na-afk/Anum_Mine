@@ -1,0 +1,45 @@
+# Admission policy for ANUM images (docs/deployment.md#admission-policy).
+#
+# Renders one pair of Sigstore policy-controller ClusterImagePolicies per entry under
+# `images`: `anum-<name>-signature` (a keyless cosign signature) and `anum-<name>-sbom`
+# (a signed CycloneDX SBOM attestation). Two policies, because policy-controller ANDs
+# the policies that match an image and ORs the authorities inside one policy.
+#
+# Both must come from https://token.actions.githubusercontent.com with the certificate
+# identity
+#   <github.server>/<github.repository>/.github/workflows/<signer>@refs/heads/main
+# which is exactly what infra/supply-chain/images.sh verifies before `helm upgrade`.
+# The branch is fixed to main and the signer must be deploy-staging.yml or
+# deploy-production.yml; the chart refuses anything else.
+#
+# Enforcement applies only in namespaces labelled policy.sigstore.dev/include=true
+# (the controller's namespaceSelector, controller/policy-controller-values.yaml). Label the release
+# namespace after installing this chart. Placeholders only: replace OWNER/REPO and owner
+# (lowercase, as GHCR stores it).
+
+github:
+  server: https://github.com
+  # owner/name exactly as GITHUB_REPOSITORY (case preserved): it is part of the
+  # certificate identity. Image repositories below use the lowercased owner (GHCR).
+  repository: OWNER/REPO
+
+# enforce: refuse non-compliant pods (and Deployments, Jobs, CronJobs...).
+# warn: admit them with a warning (a rollout aid only; staging and production enforce).
+mode: enforce
+
+# Sigstore public-good instance, as used by cosign keyless signing in the workflows.
+fulcioUrl: https://fulcio.sigstore.dev
+rekorUrl: https://rekor.sigstore.dev
+
+images:
+  # The API image also runs the worker, the migration Job, the maintenance CronJobs and
+  # the helm test pod.
+  api:
+    repository: ghcr.io/owner/anum-api
+    signers: [deploy-staging.yml]
+  web:
+    repository: ghcr.io/owner/anum-web
+    signers: [deploy-staging.yml]
+  backup:
+    repository: ghcr.io/owner/anum-backup
+    signers: [deploy-staging.yml]

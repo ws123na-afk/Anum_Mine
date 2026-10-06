@@ -1,0 +1,84 @@
+{{- /*
+One signature policy and one SBOM attestation policy per image (values.yaml). Every
+value is validated here: a policy that silently admits too much is worse than none.
+*/ -}}
+{{- $mode := toString .Values.mode -}}
+{{- if not (has $mode (list "enforce" "warn")) -}}
+{{- fail (printf "mode must be enforce or warn, got %q" $mode) -}}
+{{- end -}}
+{{- $server := toString .Values.github.server | trimSuffix "/" -}}
+{{- if not (hasPrefix "https://" $server) -}}
+{{- fail "github.server must be an https URL (https://github.com)" -}}
+{{- end -}}
+{{- $repo := toString .Values.github.repository -}}
+{{- if not (regexMatch "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" $repo) -}}
+{{- fail (printf "github.repository must be owner/name as in GITHUB_REPOSITORY, got %q" $repo) -}}
+{{- end -}}
+{{- range $url := list .Values.fulcioUrl .Values.rekorUrl -}}
+{{- if not (hasPrefix "https://" (toString $url)) -}}
+{{- fail (printf "fulcioUrl and rekorUrl must be https URLs, got %q" $url) -}}
+{{- end -}}
+{{- end -}}
+{{- if not .Values.images -}}
+{{- fail "images must list at least one image; an empty policy set enforces nothing" -}}
+{{- end -}}
+{{- range $name, $image := .Values.images }}
+{{- if $image }}
+{{- if not (regexMatch "^[a-z0-9-]+$" $name) -}}
+{{- fail (printf "images.%s: names are lowercase letters, digits and dashes" $name) -}}
+{{- end -}}
+{{- $repository := toString $image.repository -}}
+{{- /* A host and a path, no tag, digest or glob characters: the chart appends the glob itself. */ -}}
+{{- if not (regexMatch "^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$" $repository) -}}
+{{- fail (printf "images.%s.repository must be registry/path in lowercase without tag, digest or glob, got %q" $name $repository) -}}
+{{- end -}}
+{{- if not $image.signers -}}
+{{- fail (printf "images.%s.signers must name deploy-staging.yml and/or deploy-production.yml" $name) -}}
+{{- end -}}
+{{- range $signer := $image.signers -}}
+{{- if not (has $signer (list "deploy-staging.yml" "deploy-production.yml")) -}}
+{{- fail (printf "images.%s.signers: %q is not a deploy workflow (deploy-staging.yml, deploy-production.yml)" $name $signer) -}}
+{{- end -}}
+{{- end -}}
+{{- range $kind := list "signature" "sbom" }}
+---
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: anum-{{ $name }}-{{ $kind }}
+  labels:
+    app.kubernetes.io/name: anum-admission
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/part-of: anum
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    helm.sh/chart: {{ printf "%s-%s" $.Chart.Name $.Chart.Version }}
+  annotations:
+    anum.dev/requires: {{ ternary "keyless cosign signature" "signed CycloneDX SBOM attestation" (eq $kind "signature") | quote }}
+spec:
+  mode: {{ $mode }}
+  images:
+    # This repository only (not a longer name sharing its prefix), by digest (what the
+    # deploy workflows pass as image.*.digest) or by tag (policy-controller resolves
+    # tags to digests and verifies the digest).
+    - glob: {{ printf "%s@**" $repository | quote }}
+    - glob: {{ printf "%s:**" $repository | quote }}
+  authorities:
+    - name: {{ $kind }}
+      keyless:
+        url: {{ $.Values.fulcioUrl | quote }}
+        identities:
+          {{- range $signer := $image.signers }}
+          - issuer: https://token.actions.githubusercontent.com
+            subject: {{ printf "%s/%s/.github/workflows/%s@refs/heads/main" $server $repo $signer | quote }}
+          {{- end }}
+      ctlog:
+        url: {{ $.Values.rekorUrl | quote }}
+      {{- if eq $kind "sbom" }}
+      # cosign attest --type cyclonedx (infra/supply-chain/images.sh sign).
+      attestations:
+        - name: cyclonedx-sbom
+          predicateType: cyclonedx
+      {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

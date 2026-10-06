@@ -1,0 +1,30 @@
+# Values for the Sigstore policy-controller chart, installed by install.sh
+# (docs/deployment.md#admission-policy). Chart and controller image are pinned by
+# digest there and here.
+
+installCRDs: true
+
+webhook:
+  image:
+    repository: ghcr.io/sigstore/policy-controller/policy-controller
+    # v0.13.1, the digest chart 0.10.8 ships with (`version` takes a tag or a digest).
+    version: sha256:0bcd60beb93f4427c29cf3a669743caf58490e98ded4380c33c09f092734a6ab
+  # Enforce only in namespaces that opted in. The deploy identity is namespace-scoped
+  # and cannot change namespace labels, so it cannot opt its namespace out.
+  namespaceSelector:
+    matchExpressions:
+      - key: policy.sigstore.dev/include
+        operator: In
+        values: ["true"]
+  # Fail closed: when the webhook is unreachable, pods in labelled namespaces are not
+  # admitted (docs/runbooks.md#a-pod-was-refused-by-admission).
+  failurePolicy: Fail
+  configData:
+    # An image in a labelled namespace that no ClusterImagePolicy matches is refused
+    # (the controller's default, stated so it cannot change under us). Run third-party
+    # services (NATS, Temporal, Valkey) in their own, unlabelled namespaces.
+    no-match-policy: deny
+  replicaCount: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1

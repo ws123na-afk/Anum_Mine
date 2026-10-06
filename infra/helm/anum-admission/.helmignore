@@ -1,0 +1,5 @@
+# Not part of the packaged chart: CI values, and the controller's install script and values.
+ci/
+controller/
+*.md.bak
+.DS_Store
