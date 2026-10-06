@@ -1,5 +1,6 @@
 import type { AgentRun, Approval, DomainEvent, TenantContext, Task } from '@anum/contracts';
 import { accessToken, currentClaims, oidcEnabled } from './auth';
+import { decisionBody } from './approvals';
 
 const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
@@ -44,6 +45,13 @@ export interface ApiApproval {
   status: Approval['status'];
   reason: string;
   created_at: string;
+  run_id?: string | null;
+  step_id?: string | null;
+  arguments?: Record<string, unknown>;
+  payload_hash?: string | null;
+  expires_at?: string | null;
+  decided_at?: string | null;
+  decided_by?: string | null;
 }
 
 interface ApiRunTaskResponse {
@@ -93,8 +101,9 @@ export async function cancelTask(taskId: string): Promise<Task> {
   return mapTask(task);
 }
 
-export async function approveTask(approvalId: string): Promise<ApprovalDecisionResult> {
-  return decideApproval(approvalId, 'approve');
+/** Approve exactly what was displayed: the request carries the approval's payload hash. */
+export async function approveTask(approval: Approval): Promise<ApprovalDecisionResult> {
+  return decideApproval(approval, 'approve');
 }
 
 export interface MemoryNote { id: string; task_id: string; content: string; provenance: { source_type: string; source_id: string | null; created_by_user_id: string; created_at: string }; retention: { kind: string; expires_at: string | null }; created_at: string; }
@@ -160,8 +169,8 @@ export interface IntegrationHealth {
   credentials: { configured: boolean; source: string; scopes: string[]; expires_at: string | null };
 }
 
-export async function rejectTask(approvalId: string): Promise<ApprovalDecisionResult> {
-  return decideApproval(approvalId, 'reject');
+export async function rejectTask(approval: Approval): Promise<ApprovalDecisionResult> {
+  return decideApproval(approval, 'reject');
 }
 
 export async function getIntegrations(): Promise<IntegrationHealth[]> {
@@ -213,11 +222,13 @@ export async function streamEvents(
 }
 
 async function decideApproval(
-  approvalId: string,
+  approval: Approval,
   decision: 'approve' | 'reject',
 ): Promise<ApprovalDecisionResult> {
-  const result = await request<ApiApprovalDecisionResponse>(`/api/v1/approvals/${approvalId}/${decision}`, {
+  const body = decisionBody(approval);
+  const result = await request<ApiApprovalDecisionResponse>(`/api/v1/approvals/${encodeURIComponent(approval.id)}/${decision}`, {
     method: 'POST',
+    ...(body ? { body: JSON.stringify(body) } : {}),
   });
   return {
     task: mapTask(result.task),
@@ -313,5 +324,12 @@ function mapApproval(approval: ApiApproval): Approval {
     status: approval.status,
     reason: approval.reason,
     createdAt: approval.created_at,
+    runId: approval.run_id ?? null,
+    stepId: approval.step_id ?? null,
+    arguments: approval.arguments ?? {},
+    payloadHash: approval.payload_hash ?? null,
+    expiresAt: approval.expires_at ?? null,
+    decidedAt: approval.decided_at ?? null,
+    decidedBy: approval.decided_by ?? null,
   };
 }

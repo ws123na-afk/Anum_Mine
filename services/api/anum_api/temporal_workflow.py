@@ -49,6 +49,9 @@ class AgentRunState:
     phase: str
     status: str
     approval_id: str | None = None
+    # When the pending approval lapses (epoch seconds); the wait for a decision never
+    # outlasts it, so the next step observes the expiry and fails the run.
+    approval_expires_at: float | None = None
 
 
 def workflow_id_for(tenant_id: str, workspace_id: str, task_id: str) -> str:
@@ -96,14 +99,19 @@ class AgentRunWorkflow:
                     # moment, then advancing observes it and returns the terminal state.
                     await asyncio.sleep(5)
                     continue
+                wait_seconds = request.approval_poll_seconds
+                if state.approval_expires_at is not None:
+                    remaining = state.approval_expires_at - workflow.now().timestamp()
+                    wait_seconds = max(1.0, min(wait_seconds, remaining + 1.0))
                 try:
                     await workflow.wait_condition(
                         lambda: self._cancelled or approval_id in self._decided,
-                        timeout=timedelta(seconds=request.approval_poll_seconds),
+                        timeout=timedelta(seconds=wait_seconds),
                     )
                 except asyncio.TimeoutError:
                     # No signal (for example the API stopped right after committing
-                    # the decision): advancing re-reads the approval from the database.
+                    # the decision) or the approval lapsed: advancing re-reads the
+                    # approval from the database and settles an expired one.
                     pass
                 continue
             steps += 1

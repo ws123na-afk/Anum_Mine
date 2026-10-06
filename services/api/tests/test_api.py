@@ -139,7 +139,11 @@ def test_high_risk_task_waits_for_approval_then_completes() -> None:
     assert payload["approval"]["action"] == "external.action"
     assert payload["run"]["steps"][1]["metadata"]["policy_outcome"] == "require_approval"
 
-    approved = client.post(f"/api/v1/approvals/{approval_id}/approve", headers=headers)
+    approved = client.post(
+        f"/api/v1/approvals/{approval_id}/approve",
+        headers=headers,
+        json={"payload_hash": payload["approval"]["payload_hash"]},
+    )
 
     assert approved.status_code == 200
     approved_payload = approved.json()
@@ -184,7 +188,9 @@ def test_duplicate_approval_decision_returns_conflict_without_duplicate_events()
     approval_id = started["approval"]["id"]
 
     assert client.post(
-        f"/api/v1/approvals/{approval_id}/approve", headers=headers
+        f"/api/v1/approvals/{approval_id}/approve",
+        headers=headers,
+        json={"payload_hash": started["approval"]["payload_hash"]},
     ).status_code == 200
     duplicate = client.post(
         f"/api/v1/approvals/{approval_id}/reject", headers=headers
@@ -210,12 +216,14 @@ def test_cancel_waiting_task_expires_approval_and_blocks_late_decision() -> None
 
     cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel", headers=headers)
     late_decision = client.post(
-        f"/api/v1/approvals/{approval_id}/approve", headers=headers
+        f"/api/v1/approvals/{approval_id}/approve",
+        headers=headers,
+        json={"payload_hash": started["approval"]["payload_hash"]},
     )
 
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
-    assert late_decision.status_code == 409
+    assert late_decision.status_code == 410  # cancelling expired the approval
     assert client.get(f"/api/v1/agent-runs/{run_id}", headers=headers).json()["status"] == "cancelled"
     latest = client.get(f"/api/v1/tasks/{task_id}/latest-run", headers=headers)
     assert latest.status_code == 200

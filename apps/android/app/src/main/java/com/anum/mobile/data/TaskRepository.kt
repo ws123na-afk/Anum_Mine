@@ -6,6 +6,11 @@ class TaskRepository(private val api: AnumApi) {
         return api.runTask(api.createTask(TaskCreate(title, prompt)).id)
     }
     suspend fun pendingApprovals(): List<Approval> = api.approvals().filter { it.status == ApprovalStatus.PENDING }
-    suspend fun decide(id: String, approve: Boolean): ApprovalDecisionResponse =
-        if (approve) api.approve(id) else api.reject(id)
+
+    /** Approving sends back the payload hash that was displayed; an unbound approval cannot be approved. */
+    suspend fun decide(approval: Approval, approve: Boolean): ApprovalDecisionResponse {
+        if (!approve) return api.reject(approval.id)
+        val hash = requireNotNull(approval.payloadHash) { "This approval is not bound to a payload hash; run the task again." }
+        return api.approve(approval.id, ApprovalDecisionRequest(hash))
+    }
 }
