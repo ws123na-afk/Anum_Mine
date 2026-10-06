@@ -4,7 +4,7 @@ This is the ordered path from the current `main` to a first production release. 
 
 ## Where Things Stand (October 2026)
 
-Status on `main` after PR #32 (Stages 2 to 6 code side; the threat-model fixes G1 to G6 and A1 to A6, including organization approval rules and policy packs enforced by `ToolPolicy`; client release pipelines; owner screens for members, invitations, budgets and the approval policy; a web workspace switcher; the Helm chart with kind CI; staging and production deploy workflows that scan, SBOM, sign and verify images). All 17 CI jobs are green with no tolerated failures. What remains is either owner setup (accounts, keys, a cluster) or the code-side items listed as open in each stage below.
+Status on `main` after PR #34 (Stages 2 to 6 code side; the threat-model fixes G1 to G6 and A1 to A6, including organization approval rules, policy packs and approval chains of any size; client release pipelines; owner screens for members, invitations, budgets and the approval policy; a "my workspaces" directory behind the narrow `anum_membership_reader` role and a workspace switcher in web and Flutter; the Helm chart with kind CI; staging and production deploy workflows that scan, SBOM, sign and verify images; every narrow role granted to the app login without INHERIT; all Dependabot majors except `file_picker` 11, which waits on built-in Kotlin). All 17 CI jobs are green with no tolerated failures. What remains is either owner setup (accounts, keys, a cluster) or the code-side items listed as open in each stage below.
 
 | Area | State |
 |---|---|
