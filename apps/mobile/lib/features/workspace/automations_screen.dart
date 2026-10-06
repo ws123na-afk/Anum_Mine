@@ -173,7 +173,7 @@ class AutomationsScreen extends StatelessWidget {
                                 tone: automationTone(run.status)),
                             onTap: () => Navigator.push(
                               context,
-                              MaterialPageRoute(
+                              MaterialPageRoute<void>(
                                   builder: (_) => AutomationDetailScreen(
                                       controller: controller, run: run)),
                             ),

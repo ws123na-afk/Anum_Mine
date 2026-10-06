@@ -159,7 +159,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                           IconButton(
                               onPressed: () => Navigator.push(
                                   context,
-                                  MaterialPageRoute(
+                                  MaterialPageRoute<void>(
                                       builder: (_) => GovernanceScreen(
                                           controller:
                                               widget.governanceController))),
@@ -169,7 +169,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                           IconButton(
                               onPressed: () => Navigator.push(
                                   context,
-                                  MaterialPageRoute(
+                                  MaterialPageRoute<void>(
                                       builder: (_) => SettingsScreen(
                                           controller:
                                               widget.settingsController))),
@@ -253,7 +253,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     Navigator.pop(context);
                     Navigator.push(
                         context,
-                        MaterialPageRoute(
+                        MaterialPageRoute<void>(
                             builder: (_) => GovernanceScreen(
                                 controller: widget.governanceController,
                                 initialSection: GovernanceSection.policies)));
@@ -265,7 +265,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     Navigator.pop(context);
                     Navigator.push(
                         context,
-                        MaterialPageRoute(
+                        MaterialPageRoute<void>(
                             builder: (_) => GovernanceScreen(
                                 controller: widget.governanceController,
                                 initialSection:
@@ -278,7 +278,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     Navigator.pop(context);
                     Navigator.push(
                         context,
-                        MaterialPageRoute(
+                        MaterialPageRoute<void>(
                             builder: (_) => GovernanceScreen(
                                 controller: widget.governanceController,
                                 initialSection: GovernanceSection.routing)));
@@ -290,7 +290,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     Navigator.pop(context);
                     Navigator.push(
                         context,
-                        MaterialPageRoute(
+                        MaterialPageRoute<void>(
                             builder: (_) => SettingsScreen(
                                 controller: widget.settingsController)));
                   })

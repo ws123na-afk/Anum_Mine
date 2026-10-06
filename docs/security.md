@@ -72,7 +72,7 @@ The **Security scans** job in `.github/workflows/ci.yml` fails the build on:
 Other jobs:
 
 - **Docker images**: Trivy (`aquasec/trivy:0.75.0`, pinned by digest) scans the built `anum-api` and `anum-web` images with `--scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed`, so any high or critical vulnerability that has a fixed version, and any secret in a layer, fails the job. Fix findings in the Dockerfile (base image bump, `apt-get upgrade` / `apk upgrade`, removing unneeded packages); an unavoidable exception goes in a `.trivyignore` at the repository root with a row below. There is no `.trivyignore` today.
-- **Flutter mobile**: `flutter analyze --fatal-infos --fatal-warnings` (the `flutter_lints` set plus the rules in `apps/mobile/analysis_options.yaml`) is the Dart static analysis, and OSV-Scanner checks the `pubspec.lock` that `flutter pub get` resolves.
+- **Flutter mobile**: `flutter analyze --fatal-infos --fatal-warnings` (the `flutter_lints` set plus the rules and the `strict-casts`, `strict-inference` and `strict-raw-types` language modes in `apps/mobile/analysis_options.yaml`) is the Dart static analysis, and OSV-Scanner checks the `pubspec.lock` that `flutter pub get` resolves.
 - **Tauri desktop**: `cargo clippy --locked --all-targets -- -D warnings` is the Rust static analysis (on the Windows runner, which already builds the crate).
 
 `codeql.yml` runs CodeQL `security-extended` queries for Python and JavaScript/TypeScript.

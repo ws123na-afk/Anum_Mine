@@ -281,7 +281,7 @@ void openTaskDetail(BuildContext context, WorkspaceController controller,
         WorkspaceTask task) =>
     Navigator.push(
         context,
-        MaterialPageRoute(
+        MaterialPageRoute<void>(
             builder: (_) =>
                 TaskDetailScreen(controller: controller, task: task)));
 
