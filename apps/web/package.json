@@ -15,6 +15,7 @@
     "@vitejs/plugin-react": "latest",
     "kokoro-js": "1.2.1",
     "lucide-react": "latest",
+    "ogl": "^1.0.11",
     "react": "latest",
     "react-dom": "latest",
     "typescript": "^5.6.3",

@@ -96,6 +96,7 @@ x-user-roles: owner,member
 - [Realtime](docs/realtime.md)
 - [Voice](docs/voice.md)
 - [Voice research](docs/voice-research.md)
+- [UI research](docs/ui-research.md)
 - [Desktop](docs/desktop.md)
 - [Android](docs/android.md)
 - [Flutter mobile](docs/mobile.md)

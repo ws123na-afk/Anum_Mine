@@ -24,6 +24,7 @@ import {
   type VoiceSession,
   type WakeListener,
 } from './lib/voice';
+import { Orb3D } from './Orb3D';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -74,6 +75,8 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   const [muted, setMuted] = useState(false);
   const [notice, setNotice] = useState('');
   const [level, setLevel] = useState(0);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [orbSize] = useState(() => (window.innerWidth < 860 ? 170 : 220));
   const controller = useRef<PushToTalkController | null>(null);
   const wake = useRef<WakeListener | null>(null);
   const probedLocale = useRef<string | null>(null);
@@ -201,6 +204,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
       const segment = await appendTranscript(active.id, text, sequence.current++);
       const result = await askVoiceAssistant(active.id, segment.id);
       setTurns((current) => [...current, { id: result.assistant_segment.id, speaker: 'assistant', text: result.reply, result }]);
+      setPendingApprovals(result.workspace.pending_approvals);
       if (muted) { setState('idle'); wake.current?.resume(); return; }
       // finish() may run from a timer after state changes; read the latest wake setting via a ref.
       setState('speaking');
@@ -316,7 +320,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void ask(); }
   }
 
-  const orbScale = state === 'listening' ? 1 + level * 0.25 : 1;
+  const orbScale = state === 'listening' ? 1 + level * 0.12 : 1;
   const modeInfo = modeLabel[mode];
 
   return <section className="voiceConsole" data-state={state} aria-label={`${name} voice assistant`}>
@@ -341,16 +345,20 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
         <button
           type="button"
           className="voiceOrb voiceTalk"
-          style={{ transform: `scale(${orbScale})` }}
+          style={{ transform: `scale(${orbScale})`, width: orbSize, height: orbSize }}
           onClick={onOrbClick}
           disabled={state === 'thinking'}
           aria-label={state === 'listening' ? 'Stop listening' : state === 'speaking' ? 'Stop speaking' : 'Tap to talk'}
         >
-          <span className="voiceOrbGlow" /><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" />
+          <span className="voiceOrbGlow" />
+          <Orb3D state={state} alert={pendingApprovals > 0} level={level} size={orbSize} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />
           <span className="voiceOrbIcon">{state === 'listening' ? <Square size={24} /> : <Mic size={30} />}</span>
         </button>
         <p className="voiceStateLabel" role="status" aria-live="polite">{stateText[state]}</p>
         <p className="voiceNotice">{notice || (state === 'idle' ? idleHint : state === 'listening' ? (draft || '…') : '')}</p>
+        {pendingApprovals > 0 && <button type="button" className="voiceScope" onClick={onOpenApprovals}>
+          {pendingApprovals === 1 ? '1 approval waiting for you' : `${pendingApprovals} approvals waiting for you`}
+        </button>}
         {micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setMicBlocked(false); setNotice(''); setWakeOn(false); window.setTimeout(() => setWakeOn(true), 0); }}>Allow microphone</button>}
       </div>
 
