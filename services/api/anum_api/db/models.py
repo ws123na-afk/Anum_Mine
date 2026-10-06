@@ -2,8 +2,10 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
+    Double,
     ForeignKeyConstraint,
     Index,
     String,
@@ -366,3 +368,236 @@ class AuditRecordRow(Base, WorkspaceScopedMixin):
         ),
         Index("ix_audit_records_scope_created", "tenant_id", "workspace_id", "created_at"),
     )
+
+
+# Control-plane stores (migration 0008). Tenant-level settings carry ``tenant_id`` only and
+# their RLS policy checks the tenant; workspace-level rows check tenant and workspace.
+
+
+def _workspace_fk(table: str) -> ForeignKeyConstraint:
+    return ForeignKeyConstraint(
+        ["tenant_id", "workspace_id"],
+        ["workspaces.tenant_id", "workspaces.id"],
+        name=f"fk_{table}_workspace",
+    )
+
+
+def _tenant_fk(table: str) -> ForeignKeyConstraint:
+    return ForeignKeyConstraint(["tenant_id"], ["tenants.id"], name=f"fk_{table}_tenant")
+
+
+class SkillVersionRecord(Base, TenantScopedMixin):
+    """An immutable published skill version, owned by the publishing tenant."""
+
+    __tablename__ = "skill_versions"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    skill_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    instructions: Mapped[str] = mapped_column(Text, nullable=False)
+    required_tools: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    risk_level: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _tenant_fk("skill_versions"),
+        UniqueConstraint("tenant_id", "skill_id", "version", name="uq_skill_versions_tenant_skill_version"),
+        UniqueConstraint("tenant_id", "id", name="uq_skill_versions_tenant_id"),
+    )
+
+
+class SkillInstallationRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "skill_installations"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    skill_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    skill_version_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    approved_tools: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    installed_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("skill_installations"),
+        ForeignKeyConstraint(
+            ["tenant_id", "skill_version_id"],
+            ["skill_versions.tenant_id", "skill_versions.id"],
+            name="fk_skill_installations_version",
+        ),
+        UniqueConstraint("tenant_id", "workspace_id", "skill_id", name="uq_skill_installations_scope_skill"),
+    )
+
+
+class PolicyPackRecord(Base, TenantScopedMixin):
+    __tablename__ = "policy_packs"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(nullable=False)
+    active: Mapped[bool] = mapped_column(nullable=False)
+    rules: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _tenant_fk("policy_packs"),
+        Index("uq_policy_packs_tenant_name_version", "tenant_id", func.lower(text("name")), "version", unique=True),
+    )
+
+
+class RoleTemplateRecord(Base, TenantScopedMixin):
+    __tablename__ = "role_templates"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    permissions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _tenant_fk("role_templates"),
+        Index("uq_role_templates_tenant_name", "tenant_id", func.lower(text("name")), unique=True),
+    )
+
+
+class ApprovalRuleRecord(Base, TenantScopedMixin):
+    __tablename__ = "approval_rules"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    action_pattern: Mapped[str] = mapped_column(String(160), nullable=False)
+    minimum_approvers: Mapped[int] = mapped_column(nullable=False)
+    required_roles: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_tenant_fk("approval_rules"),)
+
+
+class MemoryGovernanceRecord(Base):
+    __tablename__ = "memory_governance"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    default_retention_days: Mapped[int] = mapped_column(nullable=False)
+    allow_permanent_retention: Mapped[bool] = mapped_column(nullable=False)
+    require_provenance: Mapped[bool] = mapped_column(nullable=False)
+    allowed_source_types: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_tenant_fk("memory_governance"),)
+
+
+class MarketplacePackageRecord(Base):
+    """A package in the tenant's marketplace catalog."""
+
+    __tablename__ = "marketplace_packages"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    publisher: Mapped[str] = mapped_column(String(160), nullable=False)
+    verified: Mapped[bool] = mapped_column(nullable=False)
+    permissions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    regions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_tenant_fk("marketplace_packages"),)
+
+
+class MarketplaceInstallRecord(Base):
+    __tablename__ = "marketplace_installs"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    package_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    installed_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("marketplace_installs"),
+        # RESTRICT: a package installed in any workspace cannot leave the catalog.
+        ForeignKeyConstraint(
+            ["tenant_id", "package_id"],
+            ["marketplace_packages.tenant_id", "marketplace_packages.id"],
+            name="fk_marketplace_installs_package",
+            ondelete="RESTRICT",
+        ),
+    )
+
+
+class RoutingTargetRecord(Base):
+    __tablename__ = "routing_targets"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    region: Mapped[str] = mapped_column(String(80), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    modalities: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    sensitivity: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    cost_per_1k_tokens: Mapped[float] = mapped_column(Double, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_tenant_fk("routing_targets"),)
+
+
+class IntegrationConfigurationRecord(Base):
+    __tablename__ = "integration_configurations"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    endpoint: Mapped[str | None] = mapped_column(String(500))
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("integration_configurations"),)
+
+
+class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
+    """File metadata. The bytes live in object storage under ``storage_key``."""
+
+    __tablename__ = "workspace_files"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("workspace_files"),
+        Index("ix_workspace_files_scope_created", "tenant_id", "workspace_id", "created_at"),
+    )
+
+
+class NotificationPreferenceRecord(Base):
+    __tablename__ = "notification_preferences"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    task_completed: Mapped[bool] = mapped_column(nullable=False)
+    approval_required: Mapped[bool] = mapped_column(nullable=False)
+    run_failed: Mapped[bool] = mapped_column(nullable=False)
+    automation_failed: Mapped[bool] = mapped_column(nullable=False)
+    email_enabled: Mapped[bool] = mapped_column(nullable=False)
+    desktop_enabled: Mapped[bool] = mapped_column(nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("notification_preferences"),)

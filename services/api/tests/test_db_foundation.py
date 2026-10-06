@@ -5,6 +5,18 @@ from anum_api.db.models import Base
 
 def test_tenant_scoped_tables_include_tenant_id() -> None:
     tenant_scoped_tables = {
+        "skill_versions",
+        "skill_installations",
+        "policy_packs",
+        "role_templates",
+        "approval_rules",
+        "memory_governance",
+        "marketplace_packages",
+        "marketplace_installs",
+        "routing_targets",
+        "integration_configurations",
+        "workspace_files",
+        "notification_preferences",
         "audit_records",
         "workspace_invitations",
         "workspaces",

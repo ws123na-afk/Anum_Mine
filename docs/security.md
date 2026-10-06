@@ -79,7 +79,7 @@ Tenant data should be encrypted in transit and at rest by infrastructure default
 
 ## Auditability
 
-Security-relevant events should be recorded: login, token refresh failures, tenant membership changes, role grants, integration consent, tool execution, approval decisions, memory deletion, policy changes, and administrative exports. Invitation and membership changes are recorded today in the append-only `audit_records` table (RLS allows select and insert only); governance changes still use the in-memory audit recorder.
+Security-relevant events should be recorded: login, token refresh failures, tenant membership changes, role grants, integration consent, tool execution, approval decisions, memory deletion, policy changes, and administrative exports. Invitation, membership and governance changes (policy packs, role templates, approval rules, memory governance) are recorded in the append-only `audit_records` table (RLS allows select and insert only) when `ANUM_REPOSITORY_BACKEND=postgresql`; the `memory` backend keeps an in-process recorder.
 
 ## Now
 

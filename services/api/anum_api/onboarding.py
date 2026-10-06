@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import secrets
 from threading import RLock
+from typing import Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -29,6 +32,7 @@ from .model_config_store import (
 from .model_gateway import ModelGateway, build_model_gateway, normalize_provider
 from .repository import AnumRepository
 from .schemas import Tenant, TenantContext, Workspace, WorkspaceMembership, utc_now
+from .scoped_store import open_scoped_store
 from .settings import settings
 
 router = APIRouter(prefix="/api/v1", tags=["onboarding"])
@@ -154,7 +158,54 @@ def _config_view(config: StoredModelConfig) -> ModelConfigView:
 _lock = RLock()
 # In-memory store (local and tests). PostgreSQL is selected by ANUM_REPOSITORY_BACKEND.
 _model_configs = memory_model_config_store
-_notifications: dict[tuple[str, str, str], NotificationPreferences] = {}
+
+
+class NotificationPreferenceStore(Protocol):
+    """Per-user notification preferences inside one workspace.
+
+    The PostgreSQL store (``anum_api.db.workspace_settings_repository``) keeps them in the
+    RLS-protected ``notification_preferences`` table.
+    """
+
+    def get(self, context: TenantContext) -> NotificationPreferences | None: ...
+    def save(self, context: TenantContext, preferences: NotificationPreferences) -> NotificationPreferences: ...
+
+
+class InMemoryNotificationPreferenceStore:
+    """``ANUM_REPOSITORY_BACKEND=memory`` (local and tests): lost on restart."""
+
+    def __init__(self) -> None:
+        self._items: dict[tuple[str, str, str], NotificationPreferences] = {}
+        self._lock = RLock()
+
+    def get(self, context: TenantContext) -> NotificationPreferences | None:
+        with self._lock:
+            return self._items.get((context.tenant_id, context.workspace_id, context.user_id))
+
+    def save(self, context: TenantContext, preferences: NotificationPreferences) -> NotificationPreferences:
+        with self._lock:
+            self._items[(context.tenant_id, context.workspace_id, context.user_id)] = preferences
+        return preferences
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items.clear()
+
+
+_notifications = InMemoryNotificationPreferenceStore()
+
+
+@contextmanager
+def open_notification_preference_store(context: TenantContext) -> Iterator[NotificationPreferenceStore]:
+    """Notification preferences for one unit of work, chosen by ``ANUM_REPOSITORY_BACKEND``."""
+
+    def sql_store(session):  # type: ignore[no-untyped-def]
+        from .db.workspace_settings_repository import SqlAlchemyNotificationPreferenceStore
+
+        return SqlAlchemyNotificationPreferenceStore(session)
+
+    with open_scoped_store(context, _notifications, sql_store) as store:
+        yield store
 
 
 class _Challenge:
@@ -486,11 +537,11 @@ async def test_model_config(
 
 @router.get("/notification-preferences", response_model=NotificationPreferences)
 async def get_notification_preferences(context: TenantContext = Depends(tenant_context)) -> NotificationPreferences:
-    return _notifications.get((context.tenant_id, context.workspace_id, context.user_id), NotificationPreferences())
+    with open_notification_preference_store(context) as store:
+        return store.get(context) or NotificationPreferences()
 
 
 @router.put("/notification-preferences", response_model=NotificationPreferences)
 async def set_notification_preferences(payload: NotificationPreferences, context: TenantContext = Depends(tenant_context)) -> NotificationPreferences:
-    with _lock:
-        _notifications[(context.tenant_id, context.workspace_id, context.user_id)] = payload
-    return payload
+    with open_notification_preference_store(context) as store:
+        return store.save(context, payload)

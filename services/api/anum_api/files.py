@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
@@ -13,6 +15,7 @@ from pydantic import BaseModel, Field
 from .authorization import Permission
 from .dependencies import require_permission, tenant_context
 from .schemas import TenantContext, new_id, utc_now
+from .scoped_store import open_scoped_store
 from .settings import settings
 
 
@@ -192,7 +195,22 @@ class FileRecord(BaseModel):
     created_at: datetime
 
 
+class FileMetadataStore(Protocol):
+    """Workspace file metadata. Bytes stay in :class:`ObjectStorage`.
+
+    The PostgreSQL store (``anum_api.db.workspace_settings_repository``) keeps metadata in
+    the RLS-protected ``workspace_files`` table.
+    """
+
+    def add(self, record: FileRecord) -> FileRecord: ...
+    def get(self, context: TenantContext, file_id: str) -> FileRecord | None: ...
+    def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]: ...
+    def delete(self, context: TenantContext, file_id: str) -> bool: ...
+
+
 class FileStore:
+    """Object storage for the bytes plus the in-memory metadata store (``memory`` backend)."""
+
     def __init__(self, storage: ObjectStorage) -> None:
         self.storage = storage
         self.records: dict[str, FileRecord] = {}
@@ -204,15 +222,54 @@ class FileStore:
                 self.storage.delete(record.storage_key)
             self.records.clear()
 
+    def add(self, record: FileRecord) -> FileRecord:
+        with self._lock:
+            self.records[record.id] = record
+        return record
+
+    def get(self, context: TenantContext, file_id: str) -> FileRecord | None:
+        record = self.records.get(file_id)
+        if record is None or record.tenant_id != context.tenant_id or record.workspace_id != context.workspace_id:
+            return None
+        return record
+
+    def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]:
+        with self._lock:
+            return [r for r in self.records.values() if r.tenant_id == context.tenant_id
+                    and r.workspace_id == context.workspace_id][:limit]
+
+    def delete(self, context: TenantContext, file_id: str) -> bool:
+        with self._lock:
+            if self.get(context, file_id) is None:
+                return False
+            self.records.pop(file_id, None)
+            return True
+
 
 file_store = FileStore(build_object_storage(settings))
+
+
+@contextmanager
+def open_file_metadata_store(context: TenantContext) -> Iterator[FileMetadataStore]:
+    """File metadata for one unit of work, chosen by ``ANUM_REPOSITORY_BACKEND``."""
+
+    def sql_store(session):  # type: ignore[no-untyped-def]
+        from .db.workspace_settings_repository import SqlAlchemyFileMetadataStore
+
+        return SqlAlchemyFileMetadataStore(session)
+
+    with open_scoped_store(context, file_store, sql_store) as store:
+        yield store
+
+
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 def _record(file_id: str, context: TenantContext) -> FileRecord:
-    record = file_store.records.get(file_id)
-    if record is None or record.tenant_id != context.tenant_id or record.workspace_id != context.workspace_id:
+    with open_file_metadata_store(context) as store:
+        record = store.get(context, file_id)
+    if record is None:
         raise HTTPException(404, "File not found")
     return record
 
@@ -237,20 +294,25 @@ async def upload_file(request: Request, context: TenantContext = Depends(tenant_
     except ValueError as exc:
         raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
     content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0]
-    file_store.storage.put(key, content, content_type)
     record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                         name=name, content_type=content_type, size_bytes=len(content), sha256=digest,
                         storage_key=key, created_by=context.user_id, created_at=utc_now())
-    with file_store._lock:
-        file_store.records[file_id] = record
+    file_store.storage.put(key, content, content_type)
+    try:
+        with open_file_metadata_store(context) as store:
+            store.add(record)
+    except BaseException:
+        # No metadata, no object: never leave unreachable bytes behind.
+        file_store.storage.delete(key)
+        raise
     return record
 
 
 @router.get("", response_model=list[FileRecord])
 def list_files(limit: int = Query(default=100, ge=1, le=500), context: TenantContext = Depends(tenant_context)) -> list[FileRecord]:
     require_permission(context, Permission.MEMORY_READ)
-    return [r for r in file_store.records.values() if r.tenant_id == context.tenant_id
-            and r.workspace_id == context.workspace_id][:limit]
+    with open_file_metadata_store(context) as store:
+        return store.list_files(context, limit)
 
 
 @router.get("/{file_id}", response_model=FileRecord)
@@ -275,8 +337,11 @@ def download_file(file_id: str, context: TenantContext = Depends(tenant_context)
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     require_permission(context, Permission.MEMORY_DELETE)
-    record = _record(file_id, context)
+    with open_file_metadata_store(context) as store:
+        record = store.get(context, file_id)
+        if record is None:
+            raise HTTPException(404, "File not found")
+        store.delete(context, file_id)
+    # Bytes go only after the metadata delete committed, so a file is never listed without content.
     file_store.storage.delete(record.storage_key)
-    with file_store._lock:
-        file_store.records.pop(file_id, None)
     return Response(status_code=204)

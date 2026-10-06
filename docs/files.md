@@ -20,7 +20,11 @@ Object keys always start with the tenant and workspace, so bucket policies, life
 tenants/<tenant>/workspaces/<workspace>/files/<file id>/<sha256>
 ```
 
-`workspace_object_key()` builds every key and rejects empty, `.`/`..`, slash-containing or over-long segments. A download whose bytes are missing answers `404`. File metadata is still held in process memory; moving it to PostgreSQL with RLS is part of Stage 3 in the [Production plan](production-plan.md).
+`workspace_object_key()` builds every key and rejects empty, `.`/`..`, slash-containing or over-long segments. A download whose bytes are missing answers `404`.
+
+## Metadata
+
+With `ANUM_REPOSITORY_BACKEND=postgresql` file metadata lives in the `workspace_files` table (migration `0008_control_plane_stores`) under the tenant and workspace RLS policy: id, name, content type, size, SHA-256, object key, creator and time. The bytes never enter the database. An upload writes the object, then the metadata row; if the row cannot be written (for example the workspace is not onboarded, `409`) the object is deleted again. A delete removes the row first and the object after the transaction commits, so a listed file always has content. With `memory` the metadata is per process.
 
 Tests: `tests/test_object_storage.py` round-trips through the S3 adapter and the files API against moto's in-process S3, and its `s3`-marked test round-trips against a real endpoint at `ANUM_TEST_S3_ENDPOINT` (default `http://127.0.0.1:9000`, credentials `ANUM_TEST_S3_ACCESS_KEY`/`ANUM_TEST_S3_SECRET_KEY`), for example `docker compose -f infra/docker/compose.yaml up s3`.
 

@@ -83,3 +83,33 @@ def test_event_outbox_migration_uses_a_narrow_relay_role() -> None:
     assert "for update to anum_outbox_relay" in revision_text
     assert "bypassrls" not in revision_text.lower()
     assert "grant update (" in revision_text  # column-level, never the whole row
+
+
+def test_control_plane_migration_puts_every_new_table_under_forced_rls() -> None:
+    api_root = Path(__file__).parents[1]
+    revision_text = (api_root / "migrations" / "versions" / "0008_control_plane_stores.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'revision = "0008_control_plane_stores"' in revision_text
+    assert 'down_revision = "0007_event_outbox"' in revision_text
+    assert "force row level security" in revision_text
+    assert "create policy tenant_isolation_{table}" in revision_text
+    for table in (
+        "skill_versions",
+        "skill_installations",
+        "policy_packs",
+        "role_templates",
+        "approval_rules",
+        "memory_governance",
+        "marketplace_packages",
+        "marketplace_installs",
+        "routing_targets",
+        "integration_configurations",
+        "workspace_files",
+        "notification_preferences",
+    ):
+        assert f'"{table}"' in revision_text
+    # File bytes stay in object storage; only the key and digest are columns.
+    assert '"storage_key"' in revision_text and '"content"' not in revision_text
+    assert "bypassrls" not in revision_text.lower()
