@@ -36,3 +36,17 @@ def test_workspace_membership_migration_extends_the_chain_with_rls() -> None:
     assert 'down_revision = "0002_memory_retention"' in revision_text
     assert '"workspace_memberships"' in revision_text
     assert "tenant_isolation_workspace_memberships" in revision_text
+
+
+def test_workspace_model_config_migration_extends_the_chain_with_rls() -> None:
+    api_root = Path(__file__).parents[1]
+    revision = api_root / "migrations" / "versions" / "0005_workspace_model_configs.py"
+    revision_text = revision.read_text(encoding="utf-8")
+
+    assert 'revision = "0005_workspace_model_configs"' in revision_text
+    assert 'down_revision = "0004_run_checkpoints"' in revision_text
+    assert '"api_key_ciphertext"' in revision_text
+    assert '"api_key"' not in revision_text  # only ciphertext is stored
+    assert "alter table workspace_model_configs force row level security" in revision_text
+    assert "tenant_isolation_workspace_model_configs" in revision_text
+    assert 'op.drop_table("workspace_model_configs")' in revision_text

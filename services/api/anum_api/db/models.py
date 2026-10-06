@@ -251,3 +251,39 @@ class MemoryRecord(Base, TimestampMixin, TenantScopedMixin):
         ),
         Index("ix_memories_tenant_workspace", "tenant_id", "workspace_id"),
     )
+
+
+class WorkspaceModelConfigRecord(Base, TimestampMixin, WorkspaceScopedMixin):
+    """The model a workspace chose in Settings.
+
+    The provider API key is stored only as Fernet ciphertext (``anum_api.secret_box``).
+    ``credential_hint`` holds the last four characters the API already shows, so reads
+    that only display the configuration never decrypt the key.
+    """
+
+    __tablename__ = "workspace_model_configs"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    api_key_ciphertext: Mapped[str | None] = mapped_column(Text)
+    credential_hint: Mapped[str | None] = mapped_column(String(16))
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(120))
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id"],
+            ["workspaces.tenant_id", "workspaces.id"],
+            name="fk_workspace_model_configs_workspace",
+        ),
+        CheckConstraint(
+            "provider in ('mock', 'openai_compatible', 'ollama')",
+            name="ck_workspace_model_configs_provider",
+        ),
+        CheckConstraint(
+            "provider <> 'openai_compatible' or api_key_ciphertext is not null",
+            name="ck_workspace_model_configs_credential",
+        ),
+    )

@@ -24,6 +24,7 @@ pytestmark = pytest.mark.database
 
 TENANT_TABLES = {
     "workspace_memberships",
+    "workspace_model_configs",
     "workspaces",
     "tasks",
     "agent_runs",

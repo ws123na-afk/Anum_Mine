@@ -37,7 +37,7 @@ Goal: the documented thin slice works against real services, not stubs.
 - Keycloak realm, clients (web, desktop, Android, Flutter) and roles as code, imported by the local compose stack.
 - `ANUM_AUTH_MODE=oidc` end to end: token validation, membership lookup, tenant and workspace resolution. Header mode is rejected outside `local`.
 - NATS JetStream publisher for canonical events plus a consumer that drives the web realtime status stream ([Events](events.md), [Realtime](realtime.md)).
-- One real model provider behind the gateway with timeouts, retries, cost accounting and redacted logging ([Model gateway](model-gateway.md)). Ollama and OpenAI-compatible adapters with timeouts are in; retries, cost accounting, redacted logging and persisting per-workspace model configs in PostgreSQL remain.
+- One real model provider behind the gateway with timeouts, retries, cost accounting and redacted logging ([Model gateway](model-gateway.md)). Ollama and OpenAI-compatible adapters with timeouts, bounded retries with backoff, token and estimated-cost accounting, redacted call logging, and per-workspace model configs persisted in PostgreSQL (RLS, Fernet-encrypted keys via `ANUM_SECRETS_KEY`) are in; a real hosted-provider run in CI remains.
 - CI job that starts Keycloak, Postgres and NATS and runs an authenticated task journey.
 
 Exit: a user signs in through Keycloak, creates a task, sees live status, approves the risky sample action, and the run is persisted, all in CI.
