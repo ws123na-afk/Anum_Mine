@@ -28,18 +28,36 @@ Voice approval requires extra care. The system should confirm high-impact decisi
 - Optional text-to-speech confirmation of the created task status.
 - Seven approved Figma screens, a six-state Voice Capture component, and an eight-step voice safety workflow.
 
-## Web Voice Assistant ("Ask ANUM")
+## Web Voice Assistant
 
-The web and desktop Voice view is a spoken question-and-answer console. Hold the button (or the space bar), speak, check the words, then press Ask. ANUM answers on screen and out loud.
+The web and desktop Voice view is a spoken conversation with a named assistant, "Anum" by default, renamed under Voice settings.
 
-- **Endpoint:** `POST /api/v1/voice/sessions/{id}/ask` with a final user transcript segment. It is read-only: it never creates, approves or deletes anything.
+- **Talking:**
+  - **Tap the orb and talk.** The browser ends the turn when you pause, and the message is sent automatically.
+  - Holding the space bar works as push-to-talk.
+  - Typing works everywhere.
+- **Wake by name (on by default):**
+  - While the Voice view is open, saying the name wakes the assistant with a soft chime. No tap is needed.
+  - "Layla, what's running?" answers straight away.
+  - "Layla" on its own starts listening.
+  - After an answer it listens once for a follow-up, so the conversation continues without repeating the name.
+  - Listening pauses while the assistant is speaking, and the pill in the header switches it off.
+  - With browser cloud recognition, the UI warns that the browser's speech service hears the room while it is on.
+  - If the browser blocks the microphone, an **Allow microphone** button retries.
+- **Name and small talk:**
+  - "What's your name?", greetings and thanks get friendly replies.
+  - A leading "Hey <name>," is stripped before the request is understood.
+- **Endpoint:** `POST /api/v1/voice/sessions/{id}/ask` with a final user transcript segment.
+  - Sessions carry `assistant_name`: letters, digits, spaces and `.'-`; at most 40 characters.
+  - The endpoint is read-only: it never creates, approves or deletes anything.
 - **Intents:**
   - **Question:** answered by the model gateway. With the default `mock` provider it reports workspace facts and suggests connecting a free local model.
-  - **Status:** answered from workspace counts.
-  - **Create task:** proposes a task. The user must click **Create task**, which then calls the existing `/commands` endpoint.
-  - **Visual only:** approve, reject, delete, pay, credentials and similar. ANUM refuses and offers **Open Approvals**.
-- **Arabic:** `ar-*` sessions get Arabic replies for status, confirmation and refusals.
-- **Rate limit:** 60 questions per session; then HTTP 429.
+  - **Status:** answered from workspace counts in plain sentences.
+  - **Create task:** proposed only. The user must tap **Create task**, which then calls the existing `/commands` endpoint.
+  - **Visual only:** approve, reject, delete, pay, credentials and similar. The assistant declines and offers **Open Approvals**.
+  - **Identity, greeting, thanks:** short, warm replies.
+- **Arabic:** `ar-*` sessions get Arabic replies.
+- **Rate limit:** 60 messages per session; then HTTP 429.
 - **Prompt injection:** spoken text is passed to the model as untrusted content. The answer is text only and has no path to tools or approvals.
 
 ### Free voice stack
@@ -47,11 +65,11 @@ The web and desktop Voice view is a spoken question-and-answer console. Hold the
 | Piece | Default (free) | How it is chosen |
 |---|---|---|
 | Speech recognition | Browser Web Speech API. On-device mode (Chrome 139+) is probed on the first press and used when the language pack is installed. | Badge shows **On-device**, **Browser cloud** or **Typing only**. |
-| Spoken replies | Browser/OS voices (`speechSynthesis`), including Arabic system voices. | "Reply voice" setting. |
+| Spoken replies | **Natural (default for English):** Kokoro-82M (Apache-2.0) runs in the browser. It downloads about 90 MB once and the browser caches it. **Arabic and fallback:** the least robotic system voice, ranked by "Natural/Neural/Online/Premium" names. | "Reply voice" setting. Any failure falls back to the system voice. |
 | Answers | Any OpenAI-compatible endpoint. For free, run [Ollama](https://ollama.com) locally and set `ANUM_MODEL_PROVIDER=openai-compatible`, `ANUM_MODEL_BASE_URL=http://localhost:11434/v1`, `ANUM_MODEL_NAME=<local model>`. | Backend settings. |
 | Cloned voice (optional) | Self-hosted TTS server, e.g. Chatterbox (MIT). Set `VITE_ANUM_TTS_URL`; the client POSTs `{text, language}` and plays the returned audio. | Appears as "Self-hosted voice (consented clone)". |
 
-Firefox and the Tauri desktop webviews (WebView2, WKWebView) have no usable speech recognition, so the console falls back to typing there; spoken replies still work. Native Whisper in the desktop shell is the planned upgrade.
+Firefox and the Tauri desktop webviews (WebView2, WKWebView) have no usable speech recognition, so the console falls back to typing there; spoken replies still work. The desktop CSP blocks the Kokoro model download, so desktop replies use system voices. Native Whisper and a bundled natural voice in the desktop shell are the planned upgrade.
 
 ### Cloning rules
 

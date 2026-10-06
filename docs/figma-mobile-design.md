@@ -64,22 +64,20 @@ This is a source-implementation statement, not a device-verification claim. Rema
 
 ## Pending Frames: Web Voice Console
 
-The web "Ask ANUM" voice console (`apps/web/src/VoiceView.tsx`) was built in code because this environment's Figma connection cannot create frames. Add these frames to `05 Workflows` and `06 States` to bring Figma back in line:
+The web voice console (`apps/web/src/VoiceView.tsx`) was built in code because this environment's Figma connection cannot create frames. Add these frames to `05 Workflows` and `06 States`:
 
-- **Layout:**
-  - Dark console card using the dark tokens: background `#11181D`, surface `#202B32`, teal `#087F73`, with accent `#19B3A2` for the orb.
-  - Expanded: orb left, conversation right.
-  - Compact (< 860 px): stacked, with a 160 px orb.
-- **Orb states:**
-  - Ready: slow breathing rings.
-  - Listening: fast rings, scaled by microphone level.
-  - Thinking: amber spinning arc.
-  - Speaking: pulsing core.
-  - Reduced motion disables all animation.
-- **Conversation turns:** You and ANUM, each with a risk chip:
-  - Answer only (teal).
-  - Needs your confirmation (amber) with **Create task** / **Not now**.
-  - On-screen only (red) with **Open Approvals**.
-- **Dock:** 64 px hold-to-talk button, transcript field, Ask button.
-- **Settings drawer:** language, reply voice, transcript retention, end session.
-- **Privacy badge:** On-device, Browser cloud, or Typing only.
+- **Palette (voice console only):**
+  - Midnight background `#0B1020`, with surfaces at 4.5% and 8% white and lines at 9% white.
+  - Text `#EEF1F8`, muted `#A3ABC2`.
+  - Aurora accents: sky `#7DD3FC`, violet `#A78BFA`, rose `#F9A8D4`.
+  - Status: OK `#86EFAC`, needs-your-OK `#FCD38D`, on-screen-only `#FDA4AF`.
+- **Header:** gradient avatar with the assistant's initial, name, "Your voice assistant", the privacy badge (On-device / Browser cloud / Typing only), the **Wake on "<name>"** pill, and mute.
+- **Orb:**
+  - A 210 px tappable aurora orb with three drifting colour blobs, a soft glow and a centred mic.
+  - States: Ready, "I'm listening" (faster drift, scaled by mic level), "One moment" (blurred), "<name> is speaking" (gentle pulse).
+  - Reduced motion stops all movement.
+- **Conversation:**
+  - Chat bubbles: yours right-aligned with a sky-to-violet tint; the assistant's left-aligned with a gradient name label.
+  - Chips appear only when an action needs you: **Needs your OK** with **Create task** / **Not now**, or **On screen only** with **Open Approvals**.
+- **Dock:** pill-shaped message field with a **Send** button.
+- **Settings:** assistant name, language, reply voice (Natural / best device voice / self-hosted / device voices), transcript retention, clear conversation.

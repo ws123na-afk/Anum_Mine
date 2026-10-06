@@ -13,11 +13,12 @@
   "dependencies": {
     "@anum/contracts": "workspace:*",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "^5.6.3",
+    "kokoro-js": "1.2.1",
+    "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest"
+    "typescript": "^5.6.3",
+    "vite": "latest"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

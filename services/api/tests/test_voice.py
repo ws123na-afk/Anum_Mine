@@ -113,10 +113,16 @@ def test_voice_api_exposes_no_approval_decision_route() -> None:
     assert all("approv" not in path for path in paths if path.startswith("/api/v1/voice"))
 
 
-def _ask(text: str, locale: str = "en-US", session_id: str | None = None, sequence: int = 0):
+def _ask(
+    text: str,
+    locale: str = "en-US",
+    session_id: str | None = None,
+    sequence: int = 0,
+    name: str = "Anum",
+):
     if session_id is None:
         session_id = client.post(
-            "/api/v1/voice/sessions", headers=headers, json={"locale": locale}
+            "/api/v1/voice/sessions", headers=headers, json={"locale": locale, "assistant_name": name}
         ).json()["id"]
     segment_id = client.post(
         f"/api/v1/voice/sessions/{session_id}/transcript",
@@ -148,7 +154,7 @@ def test_status_question_reports_workspace_counts() -> None:
 
     assert response.json()["intent"] == "status"
     assert response.json()["workspace"]["tasks_total"] == 0
-    assert "0 tasks" in response.json()["reply"]
+    assert "no tasks yet" in response.json()["reply"]
 
 
 def test_create_task_by_voice_only_proposes_and_needs_confirmation() -> None:
@@ -172,7 +178,7 @@ def test_arabic_session_gets_arabic_status_reply() -> None:
     _, response = _ask("ما الحالة؟", locale="ar-SA")
 
     assert response.json()["intent"] == "status"
-    assert "مهمة" in response.json()["reply"]
+    assert "مهام" in response.json()["reply"]
 
 
 def test_ask_rejects_another_users_session() -> None:
@@ -198,3 +204,38 @@ def test_ask_is_rate_limited_per_session(monkeypatch) -> None:
     assert first.status_code == 200
     assert second.status_code == 200
     assert third.status_code == 429
+
+
+def test_assistant_tells_its_name() -> None:
+    _, response = _ask("What's your name?", name="Layla")
+
+    assert response.json()["intent"] == "identity"
+    assert "I'm Layla" in response.json()["reply"]
+
+
+def test_calling_the_name_greets_and_wake_word_is_stripped() -> None:
+    _, greeting = _ask("Layla", name="Layla")
+    _, status = _ask("Hey Layla, what's the status of my workspace?", name="Layla")
+    _, task = _ask("Layla create a task: book the review", name="Layla")
+
+    assert greeting.json()["intent"] == "greeting"
+    assert status.json()["intent"] == "status"
+    assert task.json()["proposed_task"] == "book the review"
+
+
+def test_status_reply_reads_naturally() -> None:
+    from anum_api.voice_assistant import WorkspaceSnapshot, status_reply
+
+    one = status_reply(WorkspaceSnapshot(tasks_total=1, running=1, waiting_approval=0, pending_approvals=1), False)
+    many = status_reply(WorkspaceSnapshot(tasks_total=3, running=0, waiting_approval=1, pending_approvals=2), False)
+
+    assert one == "You've got one task, and one is running. One approval is waiting for you."
+    assert many == "You've got 3 tasks, and nothing is running right now. 2 approvals are waiting for you."
+
+
+def test_assistant_name_is_validated() -> None:
+    response = client.post(
+        "/api/v1/voice/sessions", headers=headers, json={"assistant_name": "<script>"}
+    )
+
+    assert response.status_code == 422

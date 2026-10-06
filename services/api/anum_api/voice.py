@@ -14,6 +14,7 @@ from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .settings import settings
 from .voice_assistant import (
+    SMALL_TALK,
     VoiceIntent,
     VoiceRiskTier,
     WorkspaceSnapshot,
@@ -22,6 +23,8 @@ from .voice_assistant import (
     confirm_reply,
     snapshot,
     status_reply,
+    small_talk_reply,
+    strip_wake_word,
     visual_only_reply,
 )
 
@@ -48,6 +51,7 @@ class TranscriptRole(StrEnum):
 class VoiceSessionCreate(BaseModel):
     locale: str = Field(default="en-US", min_length=2, max_length=35)
     retention: TranscriptRetention = TranscriptRetention.SESSION
+    assistant_name: str = Field(default="Anum", min_length=1, max_length=40, pattern=r"^[\w .'-]+$")
 
 
 class TranscriptSegmentCreate(BaseModel):
@@ -79,6 +83,7 @@ class VoiceSession(BaseModel):
     user_id: str
     locale: str
     retention: TranscriptRetention
+    assistant_name: str = "Anum"
     status: VoiceSessionStatus
     created_at: datetime
     updated_at: datetime
@@ -150,6 +155,7 @@ class VoiceStore:
             workspace_id=context.workspace_id,
             user_id=context.user_id,
             locale=payload.locale,
+            assistant_name=payload.assistant_name.strip(),
             retention=payload.retention,
             status=VoiceSessionStatus.ACTIVE,
             created_at=now,
@@ -343,19 +349,23 @@ async def ask_voice_assistant(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Voice question limit reached")
 
     arabic = session.locale.lower().startswith("ar")
+    name = session.assistant_name
     facts = snapshot(
         repository.list_tasks(context),
         [approval.status for approval in repository.list_approvals(context)],
     )
-    intent, proposal = classify(segment.text)
+    text = strip_wake_word(segment.text, name)
+    intent, proposal = classify(text, name)
     if intent == VoiceIntent.VISUAL_ONLY:
         tier, reply = VoiceRiskTier.VISUAL_ONLY, visual_only_reply(arabic)
     elif intent == VoiceIntent.CREATE_TASK:
         tier, reply = VoiceRiskTier.CONFIRM, confirm_reply(proposal, arabic)
     elif intent == VoiceIntent.STATUS:
         tier, reply = VoiceRiskTier.READ, status_reply(facts, arabic)
+    elif intent in SMALL_TALK:
+        tier, reply = VoiceRiskTier.READ, small_talk_reply(intent, name, facts, arabic)
     else:
-        tier, reply = VoiceRiskTier.READ, await answer_question(gateway, segment.text, facts, arabic)
+        tier, reply = VoiceRiskTier.READ, await answer_question(gateway, text, facts, name, arabic)
 
     assistant_segment = voice_store.add_assistant_reply(session, reply, segment.client_sequence)
     return VoiceAskResult(

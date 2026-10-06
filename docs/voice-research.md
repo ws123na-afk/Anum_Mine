@@ -34,11 +34,15 @@ Recommendation: **Chatterbox** for a consented cloned voice, behind `VITE_ANUM_T
 
 ## Wake Word
 
-There is no free, commercially usable pretrained wake word:
+There is no free, commercially usable pretrained wake-word model:
 - openWakeWord's pretrained models are non-commercial.
 - Porcupine's free tier is reported to end in June 2026 (*uncertain*).
 
-ANUM therefore uses **push-to-talk** (button or space bar). A custom "Hey ANUM" model can be trained later with openWakeWord on synthetic data.
+ANUM instead listens for the assistant's name with the browser's own recogniser, on by default but only while the Voice view is open, and with a one-click switch-off:
+- It uses on-device recognition when Chrome offers it.
+- Otherwise the UI warns that the browser's speech service hears the room.
+
+Tap-to-talk and typing are always available too. A custom "Hey Anum" openWakeWord model trained on synthetic data is a later option for fully offline wake-up.
 
 ## Security Threats Considered
 
@@ -59,7 +63,8 @@ ANUM therefore uses **push-to-talk** (button or space bar). A custom "Hey ANUM" 
 | Good cloning needs a GPU | Cloning is optional and server-side. Default voices are free and need nothing. |
 | Many cloning models forbid commercial use | Only MIT/Apache models (Chatterbox, OpenVoice, Kokoro) are recommended. |
 | Cloned voices enable impersonation | Consent rule, watermark kept on, and **voice is never accepted as approval or identity**. |
-| No free wake word | Push-to-talk avoids always-on listening, which is also safer and uses less battery. |
+| No free wake word | The assistant's name is detected by the browser recogniser while the Voice view is open, with a one-click switch-off and an explicit privacy warning in cloud mode. |
+| System voices sound robotic | Kokoro natural voice in the browser for English. Otherwise the most natural system voice is picked automatically. Replies are written as short spoken sentences, not reports. |
 | Voice could be used to trigger risky actions | Risk tiers: answers are read-only, task creation needs a click, and approvals/deletions/payments are refused by voice with a link to Approvals. All of this is enforced server-side. |
 | Spoken prompt injection | The transcript is passed to the model as untrusted text. The answer is text only, with no path to tools. There is a per-session rate limit. |
 | Paid model APIs | Answers work with a free local model through Ollama's OpenAI-compatible endpoint. |
