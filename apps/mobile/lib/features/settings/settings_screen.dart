@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../data/api_models.dart';
 import '../../src/theme/anum_theme.dart';
 import 'settings_controller.dart';
-import '../auth/account_mock_screens.dart';
+import '../../src/widgets/depth.dart';
+import '../auth/account_screens.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({required this.controller, super.key});
@@ -25,7 +26,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) => ListenableBuilder(
       listenable: widget.controller,
       builder: (_, __) => Scaffold(
-              body: switch (widget.controller.phase) {
+          appBar: AppBar(title: const Text('Settings')),
+          body: switch (widget.controller.phase) {
             SettingsPhase.initial || SettingsPhase.loading => const _State(
                 icon: Icons.settings_outlined,
                 title: 'Loading settings',
@@ -48,91 +50,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 action: widget.controller.load),
             SettingsPhase.ready ||
             SettingsPhase.saving =>
-              _Hub(controller: widget.controller),
+              AnumBackdrop(child: _Content(controller: widget.controller)),
           }));
-}
-
-class _Hub extends StatelessWidget {
-  const _Hub({required this.controller});
-  final SettingsController controller;
-  @override
-  Widget build(BuildContext context) => ColoredBox(
-      color: const Color(0xFFF3F5F6),
-      child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
-          children: [
-            const Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('9:41',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF667980))),
-                  Text('5G  100%',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF667980)))
-                ]),
-            const SizedBox(height: 12),
-            const Text('WORKSPACE CONTROLS',
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF087568))),
-            const SizedBox(height: 12),
-            const Text('Settings',
-                style: TextStyle(
-                    fontSize: 25,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF172026))),
-            const SizedBox(height: 12),
-            const Text(
-                'Account, agents, models, security, and organization controls.',
-                style: TextStyle(fontSize: 13, color: Color(0xFF667980))),
-            const SizedBox(height: 12),
-            _hub(context, 'Profile & security', 'Passkeys, sessions, sign-out'),
-            _hub(context, 'Notifications', 'Approvals, failures, quiet hours'),
-            _hub(context, 'Models & routing', 'Providers, fallback, budgets'),
-            _hub(
-                context, 'Agents & skills', 'Permissions and capability packs'),
-            _hub(context, 'Organization', 'Members, policy, audit, regions'),
-            OutlinedButton(
-                onPressed: () => Navigator.pop(context),
-                style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8))),
-                child: const Text('Open admin console'))
-          ]));
-  Widget _hub(BuildContext context, String title, String subtitle) => Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          child: InkWell(
-              onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => Scaffold(
-                          appBar: AppBar(title: Text(title)),
-                          body: _Content(controller: controller)))),
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                  constraints: const BoxConstraints(minHeight: 74),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFFD8E0E3)),
-                      borderRadius: BorderRadius.circular(8)),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(title,
-                            style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF172026))),
-                        const SizedBox(height: 6),
-                        Text(subtitle,
-                            style: const TextStyle(
-                                fontSize: 12, color: Color(0xFF667980)))
-                      ])))));
 }
 
 class _Content extends StatelessWidget {
@@ -174,7 +93,10 @@ class _Content extends StatelessWidget {
                         context,
                         MaterialPageRoute(
                             builder: (_) => WorkspaceSwitcherScreen(
-                                repository: controller.repository))))),
+                                repository: controller.repository,
+                                currentWorkspaceId: session.context.workspaceId,
+                                role: session.context.roles.join(', '),
+                                onSwitched: controller.load))))),
             _Heading('Model connection'),
             Card(
                 child: controller.model == null

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../src/theme/anum_theme.dart';
+import '../../src/widgets/depth.dart';
+
 import 'auth_controller.dart';
 import 'auth_repository.dart';
 
-class FigmaAccountPage extends StatelessWidget {
-  const FigmaAccountPage(
+/// Page shell for account flows: depth background, readable column, no fake chrome.
+class AccountPage extends StatelessWidget {
+  const AccountPage(
       {super.key,
       required this.eyebrow,
       required this.title,
@@ -14,57 +18,33 @@ class FigmaAccountPage extends StatelessWidget {
   final List<Widget> children;
   @override
   Widget build(BuildContext context) => Scaffold(
-      backgroundColor: const Color(0xFFF3F5F6),
-      body: SafeArea(
-          child: Center(
-              child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 393),
-                  child: ListView(
-                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
-                      children: [
-                        const Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('9:41',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF667980))),
-                              Text('5G  100%',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF667980)))
-                            ]),
-                        const SizedBox(height: 14),
-                        Text(eyebrow.toUpperCase(),
-                            style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF087568))),
-                        const SizedBox(height: 14),
-                        Text(title,
-                            style: const TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF172026))),
-                        const SizedBox(height: 14),
-                        Text(subtitle,
-                            style: const TextStyle(
-                                fontSize: 13, color: Color(0xFF667980))),
-                        const SizedBox(height: 14),
-                        ..._spaced(children),
-                      ])))));
-  static List<Widget> _spaced(List<Widget> values) => [
-        for (var i = 0; i < values.length; i++) ...[
-          values[i],
-          if (i < values.length - 1) const SizedBox(height: 14)
-        ]
-      ];
+      appBar: AppBar(),
+      extendBodyBehindAppBar: true,
+      body: AnumBackdrop(
+          child: SafeArea(
+              child: Center(
+                  child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 440),
+                      child: ListView(
+                          padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+                          children: [
+                            AnumHeader(
+                                eyebrow: eyebrow,
+                                title: title,
+                                subtitle: subtitle,
+                                large: true),
+                            const SizedBox(height: 20),
+                            for (var i = 0; i < children.length; i++) ...[
+                              children[i],
+                              if (i < children.length - 1)
+                                const SizedBox(height: 14)
+                            ]
+                          ]))))));
 }
 
-class FigmaPanel extends StatelessWidget {
-  const FigmaPanel(
+/// An informational or selectable panel.
+class AccountPanel extends StatelessWidget {
+  const AccountPanel(
       {super.key,
       required this.title,
       required this.subtitle,
@@ -74,46 +54,28 @@ class FigmaPanel extends StatelessWidget {
   final bool selected;
   final VoidCallback? onTap;
   @override
-  Widget build(BuildContext context) => Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-              constraints: const BoxConstraints(minHeight: 72),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                  border: Border.all(
-                      color: selected
-                          ? const Color(0xFF087568)
-                          : const Color(0xFFD8E0E3)),
-                  borderRadius: BorderRadius.circular(8)),
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return AnumSurface(
+        onTap: onTap,
+        accent: selected ? p.violet : null,
+        child: Row(children: [
+          Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(title,
-                        style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF172026))),
-                    const SizedBox(height: 6),
-                    Text(subtitle,
-                        style: const TextStyle(
-                            fontSize: 12, color: Color(0xFF667980)))
-                  ]))));
+                Text(title,
+                    style: TextStyle(
+                        color: p.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(subtitle, style: TextStyle(color: p.muted, fontSize: 13)),
+              ])),
+          if (selected) Icon(Icons.check_circle, color: p.violet),
+        ]));
+  }
 }
-
-ButtonStyle get figmaPrimary => FilledButton.styleFrom(
-    minimumSize: const Size.fromHeight(48),
-    backgroundColor: const Color(0xFF087568),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)));
-ButtonStyle get figmaSecondary => OutlinedButton.styleFrom(
-    minimumSize: const Size.fromHeight(48),
-    foregroundColor: const Color(0xFF172026),
-    side: const BorderSide(color: Color(0xFFD8E0E3)),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)));
 
 class OtpVerificationScreen extends StatefulWidget {
   const OtpVerificationScreen(
@@ -134,7 +96,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => FigmaAccountPage(
+  Widget build(BuildContext context) => AccountPage(
           eyebrow: 'Security check',
           title: 'Enter verification code',
           subtitle: 'We sent a six-digit code to your configured work account.',
@@ -150,18 +112,14 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     letterSpacing: 12),
                 decoration: const InputDecoration(
                     counterText: '',
-                    helperText: 'Code expires in 10:00',
-                    filled: true,
-                    fillColor: Colors.white)),
+                    helperText: 'Codes expire after 10 minutes')),
             FilledButton(
-                style: figmaPrimary,
                 onPressed: busy ? null : _verify,
                 child: Text(busy ? 'Verifying...' : 'Verify')),
             OutlinedButton(
-                style: figmaSecondary,
                 onPressed: busy ? null : () => Navigator.pop(context),
                 child: const Text('Send another code')),
-            const FigmaPanel(
+            const AccountPanel(
                 title: 'Use another method',
                 subtitle: 'Password · Recovery code')
           ]);
@@ -190,22 +148,20 @@ class PasswordRecoveryScreen extends StatefulWidget {
 class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   bool busy = false;
   @override
-  Widget build(BuildContext context) => FigmaAccountPage(
+  Widget build(BuildContext context) => AccountPage(
           eyebrow: 'Account recovery',
           title: 'Reset your password',
           subtitle:
               'Send a recovery challenge for the work account associated with ANUM.',
           children: [
-            FigmaPanel(title: 'Work account', subtitle: widget.userId),
+            AccountPanel(title: 'Work account', subtitle: widget.userId),
             FilledButton(
-                style: figmaPrimary,
                 onPressed: busy ? null : _send,
                 child: Text(busy ? 'Sending...' : 'Send recovery link')),
             OutlinedButton(
-                style: figmaSecondary,
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Back to sign in')),
-            const FigmaPanel(
+            const AccountPanel(
                 title: 'Enterprise account',
                 subtitle:
                     'Contact your organization administrator if sign-in is managed by SSO.')
@@ -251,7 +207,6 @@ Future<String?> _entry(BuildContext context, String label,
                     decoration: InputDecoration(labelText: label)),
                 const SizedBox(height: 16),
                 FilledButton(
-                    style: figmaPrimary,
                     onPressed: () => Navigator.pop(context, c.text.trim()),
                     child: const Text('Continue'))
               ])));
@@ -259,36 +214,79 @@ Future<String?> _entry(BuildContext context, String label,
   return result == null || result.isEmpty ? null : result;
 }
 
-class WorkspaceSwitcherScreen extends StatelessWidget {
-  const WorkspaceSwitcherScreen({super.key, required this.repository});
+/// Shows the workspace you are really in and switches by workspace ID through
+/// the API. ANUM has no endpoint that lists every workspace you belong to, so
+/// this screen does not invent a list.
+class WorkspaceSwitcherScreen extends StatefulWidget {
+  const WorkspaceSwitcherScreen(
+      {super.key,
+      required this.repository,
+      required this.currentWorkspaceId,
+      required this.role,
+      this.onSwitched});
   final AuthRepository repository;
+  final String currentWorkspaceId, role;
+  final Future<void> Function()? onSwitched;
   @override
-  Widget build(BuildContext context) => FigmaAccountPage(
+  State<WorkspaceSwitcherScreen> createState() =>
+      _WorkspaceSwitcherScreenState();
+}
+
+class _WorkspaceSwitcherScreenState extends State<WorkspaceSwitcherScreen> {
+  final _id = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _id.dispose();
+    super.dispose();
+  }
+
+  Future<void> _switch() async {
+    final id = _id.text.trim();
+    if (id.isEmpty || id == widget.currentWorkspaceId) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.repository.switchWorkspace(id);
+      await widget.onSwitched?.call();
+      if (mounted) Navigator.pop(context);
+    } on Object {
+      if (mounted) {
+        setState(() => _error =
+            'You are not an active member of “$id”, or it does not exist.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AccountPage(
           eyebrow: 'Workspace',
           title: 'Switch workspace',
           subtitle:
-              'Your roles and agent access change with the selected workspace.',
+              'Your role and what agents may do change with the workspace.',
           children: [
-            FigmaPanel(
-                title: 'Acme Operations',
-                subtitle: 'Owner · 3 agents active',
-                selected: true,
-                onTap: () => repository.switchWorkspace('default')),
-            FigmaPanel(
-                title: 'Acme Product',
-                subtitle: 'Member · 1 approval waiting',
-                onTap: () => repository.switchWorkspace('product')),
-            FigmaPanel(
-                title: 'Personal',
-                subtitle: 'Private · 2 scheduled tasks',
-                onTap: () => repository.switchWorkspace('personal')),
+            AccountPanel(
+                title: widget.currentWorkspaceId,
+                subtitle: 'Current workspace · ${widget.role}',
+                selected: true),
+            TextField(
+                controller: _id,
+                textDirection: TextDirection.ltr,
+                decoration: InputDecoration(
+                    labelText: 'Workspace ID to switch to', errorText: _error),
+                onSubmitted: (_) => _switch()),
             FilledButton(
-                style: figmaPrimary,
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Create workspace')),
-            OutlinedButton(
-                style: figmaSecondary,
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Manage memberships'))
+                onPressed: _busy ? null : _switch,
+                child: Text(_busy ? 'Switching...' : 'Switch workspace')),
+            const AccountPanel(
+                title: 'Need a new workspace?',
+                subtitle:
+                    'Sign out and sign in with a new workspace ID. You become its owner during setup.'),
           ]);
 }

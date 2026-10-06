@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../src/widgets/depth.dart';
+
 import '../../src/theme/anum_theme.dart';
 import 'auth_controller.dart';
-import 'account_mock_screens.dart';
+import 'account_screens.dart';
 
 class AuthFlow extends StatelessWidget {
   const AuthFlow({required this.controller, super.key});
@@ -34,48 +36,65 @@ class _Page extends StatelessWidget {
   final Widget body;
   @override
   Widget build(BuildContext context) => Scaffold(
-      body: SafeArea(
-          child: Center(
-              child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  child: ListView(
-                      padding: const EdgeInsetsDirectional.fromSTEB(
-                          AnumSpacing.lg,
-                          AnumSpacing.xl,
-                          AnumSpacing.lg,
-                          AnumSpacing.lg),
-                      children: [
-                        Row(children: [
-                          Icon(Icons.auto_awesome,
-                              color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 8),
-                          Text('ANUM',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.w700))
-                        ]),
-                        const SizedBox(height: AnumSpacing.xl),
-                        Text(eyebrow.toUpperCase(),
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelMedium
-                                ?.copyWith(
-                                    color:
-                                        Theme.of(context).colorScheme.primary)),
-                        const SizedBox(height: 4),
-                        Text(title,
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineMedium
-                                ?.copyWith(fontWeight: FontWeight.w700)),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 8),
-                          Text(subtitle!)
-                        ],
-                        const SizedBox(height: AnumSpacing.lg),
-                        body,
-                      ])))));
+      body: AnumBackdrop(
+          child: SafeArea(
+              child: Center(
+                  child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: ListView(
+                          padding: const EdgeInsetsDirectional.fromSTEB(
+                              AnumSpacing.lg,
+                              AnumSpacing.xl,
+                              AnumSpacing.lg,
+                              AnumSpacing.lg),
+                          children: [
+                            Row(children: [
+                              Container(
+                                width: 32,
+                                height: 32,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10),
+                                  gradient: LinearGradient(colors: [
+                                    context.palette.sky,
+                                    context.palette.violet,
+                                    context.palette.rose
+                                  ]),
+                                ),
+                                child: const Text('A',
+                                    style: TextStyle(
+                                        color: Color(0xFF0B1020),
+                                        fontWeight: FontWeight.w900)),
+                              ),
+                              const SizedBox(width: 8),
+                              Text('ANUM',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.w700))
+                            ]),
+                            const SizedBox(height: AnumSpacing.xl),
+                            Text(eyebrow.toUpperCase(),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary)),
+                            const SizedBox(height: 4),
+                            Text(title,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700)),
+                            if (subtitle != null) ...[
+                              const SizedBox(height: 8),
+                              Text(subtitle!)
+                            ],
+                            const SizedBox(height: AnumSpacing.lg),
+                            body,
+                          ]))))));
 }
 
 class SplashScreen extends StatelessWidget {

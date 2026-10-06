@@ -8,7 +8,7 @@ import '../features/auth/auth_screens.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/workspace/workspace_controller.dart';
 import '../features/workspace/workspace_home.dart';
-import '../features/workspace/workspace_screens.dart';
+import '../features/workspace/tasks_screen.dart';
 import '../features/voice/speech_service.dart';
 import '../features/voice/voice_controller.dart';
 import '../features/voice/voice_repository.dart';
@@ -109,7 +109,7 @@ class _AnumAppState extends State<AnumApp> {
             debugShowCheckedModeBanner: false,
             theme: AnumTheme.light(),
             darkTheme: AnumTheme.dark(),
-            themeMode: ThemeMode.system,
+            themeMode: ThemeMode.dark,
             locale: locale.locale,
             restorationScopeId: 'anum_mobile',
             supportedLocales: const [Locale('en'), Locale('ar')],
@@ -127,6 +127,7 @@ class _AnumAppState extends State<AnumApp> {
                       settingsController: settings,
                       governanceController: governance,
                       localeController: locale,
+                      workspaceName: auth.workspaceName,
                     )
                   : AuthFlow(controller: auth),
             ),
@@ -180,6 +181,7 @@ class _AnumAppState extends State<AnumApp> {
         settingsController: settings,
         governanceController: governance,
         localeController: locale,
+        workspaceName: auth.workspaceName,
         initialIndex: index,
       );
 }

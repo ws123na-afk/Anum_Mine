@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .authorization import Permission
 from .dependencies import require_permission, tenant_context
 from .schemas import TenantContext, utc_now
+from .settings import settings
 
 
 class MarketplaceKind(StrEnum):
@@ -46,6 +47,8 @@ class RegionStatus(StrEnum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     OFFLINE = "offline"
+    # Configured but never probed: ANUM does not claim health it has not measured.
+    UNVERIFIED = "unverified"
 
 
 class RoutingTarget(BaseModel):
@@ -84,33 +87,32 @@ class EnterpriseOperations(BaseModel):
     generated_at: datetime
 
 
-CATALOG = (
-    MarketplacePackage(
-        id="skill.research-core", name="Research Core", kind=MarketplaceKind.SKILL,
-        version="1.0.0", publisher="ANUM", verified=True,
-        permissions=["memory:read", "network:read"], regions=["us-east", "eu-west"],
-    ),
-    MarketplacePackage(
-        id="integration.crm-sync", name="CRM Sync", kind=MarketplaceKind.INTEGRATION,
-        version="1.2.0", publisher="ANUM", verified=True,
-        permissions=["contacts:read", "contacts:write"], regions=["us-east", "eu-west"],
-    ),
-)
+# The marketplace starts empty. Packages appear only when an owner publishes one
+# (PUT /marketplace/packages/{id}); ANUM never shows invented listings.
+CATALOG: tuple[MarketplacePackage, ...] = ()
 
-DEFAULT_TARGETS = (
-    RoutingTarget(
-        id="us-primary", region="us-east", provider="openai", model="primary",
-        cost_per_1k_tokens=0.01, latency_ms=180,
-    ),
-    RoutingTarget(
-        id="eu-primary", region="eu-west", provider="openai", model="primary",
-        cost_per_1k_tokens=0.012, latency_ms=210,
-    ),
-    RoutingTarget(
-        id="us-economy", region="us-east", provider="openai", model="economy",
-        cost_per_1k_tokens=0.003, latency_ms=280,
-    ),
-)
+
+def configured_targets() -> tuple[RoutingTarget, ...]:
+    """The one model this deployment is actually configured to use.
+
+    Cost and latency are not measured here, so they carry placeholder minimums
+    (0 cost, 1 ms) and the target is reported as ``unverified`` (except the
+    built-in mock, which always answers). Clients must show unverified targets
+    as "not measured", never as real numbers. Owners add real regional targets
+    with PUT /routing/targets/{id}.
+    """
+    provider = settings.model_provider
+    return (
+        RoutingTarget(
+            id="configured-model",
+            region="local",
+            provider=provider,
+            model=settings.model_name if provider != "mock" else "anum-mock-planner",
+            status=RegionStatus.HEALTHY if provider == "mock" else RegionStatus.UNVERIFIED,
+            cost_per_1k_tokens=0.0,
+            latency_ms=1,
+        ),
+    )
 
 
 class Phase5Store:
@@ -172,10 +174,11 @@ class Phase5Store:
                 for (tenant_id, target_id), target in self._targets.items()
                 if tenant_id == context.tenant_id
             }
-            return [overrides.get(target.id, target) for target in DEFAULT_TARGETS] + [
+            defaults = configured_targets()
+            return [overrides.get(target.id, target) for target in defaults] + [
                 target
                 for target_id, target in overrides.items()
-                if target_id not in {default.id for default in DEFAULT_TARGETS}
+                if target_id not in {default.id for default in defaults}
             ]
 
     def upsert_target(self, target: RoutingTarget, context: TenantContext) -> RoutingTarget:

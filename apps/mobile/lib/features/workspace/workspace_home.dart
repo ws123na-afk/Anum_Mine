@@ -7,11 +7,12 @@ import '../settings/settings_controller.dart';
 import '../settings/settings_screen.dart';
 import '../governance/governance_controller.dart';
 import '../governance/governance_screen.dart';
-import '../governance/figma_governance_screens.dart';
 import '../../src/localization/anum_localizations.dart';
-import 'figma_home_screen.dart';
-import 'figma_tasks_screen.dart';
-import 'figma_operations_screens.dart';
+import 'approvals_screen.dart';
+import 'automations_screen.dart';
+import 'home_screen.dart';
+import 'resources_screen.dart';
+import 'tasks_screen.dart';
 
 class WorkspaceHome extends StatefulWidget {
   const WorkspaceHome(
@@ -21,12 +22,14 @@ class WorkspaceHome extends StatefulWidget {
       required this.settingsController,
       required this.governanceController,
       required this.localeController,
+      this.workspaceName,
       this.initialIndex = 0});
   final WorkspaceController controller;
   final VoiceController voiceController;
   final SettingsController settingsController;
   final GovernanceController governanceController;
   final LocaleController localeController;
+  final String? workspaceName;
   final int initialIndex;
   @override
   State<WorkspaceHome> createState() => _WorkspaceHomeState();
@@ -52,12 +55,18 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         listenable: widget.controller,
         builder: (context, _) {
           final pages = [
-            FigmaHomeScreen(controller: widget.controller),
-            FigmaTasksScreen(controller: widget.controller),
+            HomeScreen(
+              controller: widget.controller,
+              workspaceName: widget.workspaceName,
+              onNavigate: _select,
+              onOpenTask: (task) =>
+                  openTaskDetail(context, widget.controller, task),
+            ),
+            TasksScreen(controller: widget.controller),
             VoiceScreen(controller: widget.voiceController),
-            FigmaApprovalsScreen(controller: widget.controller),
-            FigmaAutomationsScreen(controller: widget.controller),
-            FigmaFilesMemoryScreen(controller: widget.controller)
+            ApprovalsScreen(controller: widget.controller),
+            AutomationsScreen(controller: widget.controller),
+            ResourcesScreen(controller: widget.controller)
           ];
           final l = context.anum;
           final destinations = [
@@ -243,8 +252,9 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => FigmaPolicyPacksScreen(
-                                controller: widget.governanceController)));
+                            builder: (_) => GovernanceScreen(
+                                controller: widget.governanceController,
+                                initialSection: GovernanceSection.policies)));
                   }),
               ListTile(
                   leading: const Icon(Icons.storefront_outlined),
@@ -254,8 +264,10 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => FigmaMarketplaceScreen(
-                                controller: widget.governanceController)));
+                            builder: (_) => GovernanceScreen(
+                                controller: widget.governanceController,
+                                initialSection:
+                                    GovernanceSection.marketplace)));
                   }),
               ListTile(
                   leading: const Icon(Icons.route),
@@ -265,8 +277,9 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => FigmaRoutingScreen(
-                                controller: widget.governanceController)));
+                            builder: (_) => GovernanceScreen(
+                                controller: widget.governanceController,
+                                initialSection: GovernanceSection.routing)));
                   }),
               ListTile(
                   leading: const Icon(Icons.settings_outlined),

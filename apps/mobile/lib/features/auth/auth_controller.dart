@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../data/api_models.dart';
 import 'auth_repository.dart';
 
 enum AuthPhase {
@@ -30,13 +31,18 @@ class AuthController extends ChangeNotifier {
   AuthIssue issue = AuthIssue.none;
   AuthPhase _retryPhase = AuthPhase.signedOut;
 
+  /// The organization and workspace the user is signed in to, as reported by the API.
+  OnboardingStatus? onboarding;
+  String? get workspaceName => onboarding?.workspace?.name;
+  String? get organizationName => onboarding?.tenant?.name;
+
   Future<void> restore() async {
     try {
       final session = await repository.restoreSession();
       if (session == null) {
         phase = AuthPhase.signedOut;
       } else {
-        final status = await repository.onboardingStatus();
+        final status = onboarding = await repository.onboardingStatus();
         phase = status.complete
             ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
             : AuthPhase.onboarding;
@@ -65,7 +71,7 @@ class AuthController extends ChangeNotifier {
         userId: user.trim(),
         password: password?.trim(),
       );
-      final status = await repository.onboardingStatus();
+      final status = onboarding = await repository.onboardingStatus();
       phase = status.complete
           ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
           : AuthPhase.onboarding;
@@ -75,7 +81,7 @@ class AuthController extends ChangeNotifier {
   Future<void> completeExternalSignIn(Future<Object?> Function() action) async {
     await _run(AuthPhase.signedOut, () async {
       await action();
-      final status = await repository.onboardingStatus();
+      final status = onboarding = await repository.onboardingStatus();
       phase = status.complete
           ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
           : AuthPhase.onboarding;
@@ -120,6 +126,7 @@ class AuthController extends ChangeNotifier {
 
   Future<void> signOut() async {
     await repository.signOut();
+    onboarding = null;
     phase = AuthPhase.signedOut;
     notifyListeners();
   }
