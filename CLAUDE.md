@@ -15,4 +15,4 @@ ANUM is a monorepo: FastAPI API (`services/api`), React/Vite web (`apps/web`), T
 - `steward` — how to drive a red PR or `main` back to green.
 - `anum-release-gate` — the evidence a release needs before it ships.
 
-The Superpowers plugin is enabled in `.claude/settings.json`; prefer its planning, TDD, systematic-debugging and verification-before-completion skills for non-trivial work.
+Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `code-review`. Prefer Superpowers' planning, TDD, systematic-debugging and verification-before-completion skills for non-trivial work.
