@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
     temporal_task_queue: str = "anum-agent-runs"
     # Workspace file bytes (docs/files.md): "local" filesystem, "memory", or "s3"
-    # (any S3-compatible endpoint such as MinIO).
+    # (any S3-compatible endpoint, SeaweedFS locally).
     object_storage_backend: str = Field(default="local", pattern="^(local|memory|s3)$")
     object_storage_local_path: str = ".anum-data/objects"
     s3_endpoint: str = "http://localhost:9000"

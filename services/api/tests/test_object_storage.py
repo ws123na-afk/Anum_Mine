@@ -4,9 +4,9 @@ The S3 adapter is tested two ways:
 
 * always, against moto's in-process S3 (boto3 requests are SigV4-signed and
   serialised as for a real endpoint, then answered by moto);
-* tests marked ``s3`` run against a real S3-compatible endpoint such as MinIO when
+* tests marked ``s3`` run against a real S3-compatible endpoint (SeaweedFS in compose) when
   ``ANUM_TEST_S3_ENDPOINT`` is reachable (``docker compose -f infra/docker/compose.yaml
-  up minio``; credentials from ``ANUM_TEST_S3_ACCESS_KEY``/``ANUM_TEST_S3_SECRET_KEY``).
+  up s3``; credentials from ``ANUM_TEST_S3_ACCESS_KEY``/``ANUM_TEST_S3_SECRET_KEY``).
 """
 
 from __future__ import annotations

@@ -84,11 +84,11 @@ class InMemoryObjectStorage:
 
 
 class S3ObjectStorage:
-    """Adapter for any S3-compatible store (MinIO locally, S3 or equivalents in the cloud).
+    """Adapter for any S3-compatible store (SeaweedFS locally, S3 or equivalents in the cloud).
 
     ``client`` is a boto3 S3 client (see :func:`create_s3_client`). Missing objects
     raise ``FileNotFoundError`` like the local adapter. With ``create_bucket`` the
-    bucket is created on first write if it does not exist (local MinIO only; real
+    bucket is created on first write if it does not exist (local storage only; real
     environments provision buckets, encryption and lifecycle with OpenTofu).
     """
 

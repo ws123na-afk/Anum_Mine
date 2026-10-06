@@ -4,7 +4,7 @@ ANUM infrastructure should be reproducible, observable, and environment-aware fr
 
 ## Local Development
 
-`infra/docker/compose.yaml` provides PostgreSQL with pgvector, Valkey, NATS JetStream, Temporal, Keycloak, S3-compatible storage (MinIO) and an OpenTelemetry collector. `docker compose -f infra/docker/compose.yaml up` starts this infrastructure only; developers run the API with `uvicorn --reload` and the web app with Vite as before.
+`infra/docker/compose.yaml` provides PostgreSQL with pgvector, Valkey, NATS JetStream, Temporal, Keycloak, S3-compatible storage (SeaweedFS, `s3` service; MinIO no longer publishes community images) and an OpenTelemetry collector. `docker compose -f infra/docker/compose.yaml up` starts this infrastructure only; developers run the API with `uvicorn --reload` and the web app with Vite as before.
 
 The API and web containers sit behind the `app` profile, so they start only when asked:
 
@@ -14,7 +14,7 @@ docker compose -f infra/docker/compose.yaml --profile app up --build
 
 This serves the API on `http://localhost:8000` and the built web bundle on `http://localhost:4173`, and starts the Temporal `worker` (the API image running `python -m anum_api.worker`). The `api` and `worker` services run with `ANUM_ENVIRONMENT=local` and the compose development credentials; those credentials are refused by the API and worker in every other environment (see [Security](security.md)). The compose `api` keeps `ANUM_RUNTIME_BACKEND=inline` and the in-memory repository; to try durable runs, run the migrations and set `ANUM_REPOSITORY_BACKEND=postgresql` and `ANUM_RUNTIME_BACKEND=temporal` on both `api` and `worker` ([Agent runtime](agent-runtime.md#durable-execution)).
 
-Valkey (`valkey-cli ping`) and MinIO (`mc ready local`) have compose health checks.
+Valkey (`valkey-cli ping`) and S3 storage (`/healthz`) have compose health checks.
 
 ## Container Images
 

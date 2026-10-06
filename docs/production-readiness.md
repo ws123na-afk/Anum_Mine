@@ -13,7 +13,7 @@ ANUM keeps local product verification separate from infrastructure and credentia
 
 ## Infrastructure Gates
 
-The PostgreSQL, Keycloak, NATS, Temporal, Valkey, and MinIO adapters require their real services. CI must apply migrations, run database-marked tests, exercise authentication, publish and consume a durable event, resume a workflow after worker restart, verify distributed locking, and round-trip a file through object storage.
+The PostgreSQL, Keycloak, NATS, Temporal, Valkey, and S3 object storage adapters require their real services. CI must apply migrations, run database-marked tests, exercise authentication, publish and consume a durable event, resume a workflow after worker restart, verify distributed locking, and round-trip a file through object storage.
 
 ## Credential Gates
 

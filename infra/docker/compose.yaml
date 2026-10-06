@@ -68,22 +68,22 @@ services:
     volumes:
       - ../keycloak/anum-realm.json:/opt/keycloak/data/import/anum-realm.json:ro
 
-  minio:
-    image: quay.io/minio/minio:RELEASE.2024-09-13T20-26-02Z
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: anum
-      MINIO_ROOT_PASSWORD: anum-local-secret
+  s3:
+    # S3-compatible object storage (SeaweedFS). MinIO no longer publishes community
+    # images. Credentials come from infra/seaweedfs/s3.json and are DEV-ONLY.
+    image: chrislusf/seaweedfs:3.97
+    # Small volumes keep the dev store light; SeaweedFS defaults to 30 GB volumes.
+    command: ["server", "-dir=/data", "-master.volumeSizeLimitMB=128", "-volume.max=20", "-s3", "-s3.port=9000", "-s3.config=/etc/seaweedfs/s3.json"]
     ports:
       - "9000:9000"
-      - "9001:9001"
     volumes:
-      - minio-data:/data
+      - s3-data:/data
+      - ../seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9000/healthz"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.110.0
@@ -108,7 +108,7 @@ services:
       ANUM_VALKEY_URL: redis://valkey:6379/0
       ANUM_NATS_URL: nats://nats:4222
       ANUM_TEMPORAL_TARGET: temporal:7233
-      ANUM_S3_ENDPOINT: http://minio:9000
+      ANUM_S3_ENDPOINT: http://s3:9000
       # Durable runs (docs/agent-runtime.md): set ANUM_REPOSITORY_BACKEND=postgresql
       # (after `python -m alembic upgrade head`) and ANUM_RUNTIME_BACKEND=temporal on
       # both api and worker; the in-memory repository is not shared between them.
@@ -132,7 +132,7 @@ services:
       ANUM_NATS_URL: nats://nats:4222
       ANUM_TEMPORAL_TARGET: temporal:7233
       ANUM_TEMPORAL_TASK_QUEUE: anum-agent-runs
-      ANUM_S3_ENDPOINT: http://minio:9000
+      ANUM_S3_ENDPOINT: http://s3:9000
     # The image's HEALTHCHECK probes the API port, which the worker does not serve.
     healthcheck:
       disable: true
@@ -157,5 +157,5 @@ services:
 
 volumes:
   postgres-data:
-  minio-data:
+  s3-data:
   nats-data:

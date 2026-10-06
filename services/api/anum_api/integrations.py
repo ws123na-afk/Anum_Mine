@@ -209,11 +209,13 @@ def default_integration_registry(settings: Settings) -> IntegrationRegistry:
             ),
             IntegrationDefinition(
                 id="minio",
-                name="MinIO S3",
+                # The id stays "minio" so stored workspace configurations keep working.
+                name="S3 object storage",
                 kind=IntegrationKind.OBJECT_STORAGE,
                 endpoint=settings.s3_endpoint,
                 credentials=CredentialMetadata(configured=bool(settings.s3_access_key), scopes=["objects:read", "objects:write"]),
-                probe=lambda: http_probe(f"{settings.s3_endpoint.rstrip('/')}/minio/health/live"),
+                # Vendor-neutral: S3 has no standard health URL, so check the endpoint answers.
+                probe=lambda: tcp_probe(*_host_port(settings.s3_endpoint, 443 if settings.s3_endpoint.startswith("https") else 80)),
             ),
         ]
     )

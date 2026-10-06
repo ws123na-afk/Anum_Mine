@@ -51,7 +51,7 @@ Goal: agents are resumable, cancellable and auditable across restarts ([Agent ru
 
 - Temporal worker for long-running runs; a test kills the worker mid-run and asserts resume. Done in code: `ANUM_RUNTIME_BACKEND=temporal`, `AgentRunWorkflow` with one checkpoint-driven activity, the worker entrypoint and a compose `worker` service ([Agent runtime](agent-runtime.md#durable-execution)). The worker-restart test (`tests/test_temporal_worker.py`, marker `temporal`) needs a Temporal server: set `ANUM_TEST_TEMPORAL_TARGET`, or let the SDK download its test server; it passes locally against a Temporal 1.29 dev server, and `tests/test_postgres_durable_runs.py` covers the same crash/resume path on PostgreSQL with RLS. Open: a CI job that provides a Temporal server, and a worker image smoke test.
 - Valkey for locks, rate limits and ephemeral coordination, with a distributed-lock test. Done: `ANUM_RUN_LOCK_BACKEND=valkey` and `ANUM_RATE_LIMIT_BACKEND=valkey`; `tests/test_valkey_integration.py` (marker `valkey`) includes a contention test. Open: a CI job with a Valkey service.
-- S3-compatible object storage for workspace files with a round-trip test against MinIO ([Workspace files](files.md)). Done in code: `ANUM_OBJECT_STORAGE_BACKEND=s3`, tenant/workspace key prefixes, moto-backed tests, and an `s3`-marked round trip that passes locally against MinIO. Open: running it in CI against a MinIO service.
+- S3-compatible object storage for workspace files with a round-trip test against an S3-compatible server ([Workspace files](files.md)). Done in code: `ANUM_OBJECT_STORAGE_BACKEND=s3`, tenant/workspace key prefixes, moto-backed tests, and an `s3`-marked round trip that passes locally against MinIO. Open: running it in CI against a MinIO service.
 - Move remaining in-memory control-plane stores (skills, governance, integrations) to PostgreSQL with RLS and migrations. File metadata belongs here too.
 
 Exit: the infrastructure gates in [Production readiness gates](production-readiness.md) pass in CI.
@@ -64,7 +64,7 @@ Goal: the system can be deployed reproducibly ([Infrastructure](infrastructure.m
 - OpenTofu for network, compute, managed PostgreSQL with pgvector, object storage, secrets, DNS and TLS, with remote locked state.
 - Environments: preview (per PR, optional), staging, production, each with separate secrets, databases, buckets and Keycloak realm.
 - Deploy workflow: build, migrate, deploy to staging automatically; production behind GitHub environment approval. Partly done: `deploy-staging.yml` builds and pushes images to GHCR on every push to `main`; the migrate and deploy steps are placeholders gated on the `staging` environment and `STAGING_DEPLOY_TARGET` until the cloud is chosen. No production workflow yet.
-- Secrets only from the deployment secret store. Rotate every default credential from `infra/docker/compose.yaml`. The API now refuses to start outside `local` with the compose database credentials, the MinIO default secret, or localhost/wildcard CORS origins; Keycloak's `admin/admin` is not yet checked.
+- Secrets only from the deployment secret store. Rotate every default credential from `infra/docker/compose.yaml`. The API now refuses to start outside `local` with the compose database credentials, the compose S3 default secret, or localhost/wildcard CORS origins; Keycloak's `admin/admin` is not yet checked.
 
 Exit: a push to `main` deploys to staging and passes a smoke test (login, task, approval, memory, file, event, workflow resume).
 

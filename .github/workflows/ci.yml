@@ -100,18 +100,18 @@ jobs:
           cache-dependency-path: services/api/pyproject.toml
       - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
       - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
-      - name: Start Valkey, MinIO and NATS
+      - name: Start Valkey, S3 storage and NATS
         run: |
-          docker compose -f infra/docker/compose.yaml up -d valkey minio nats
+          docker compose -f infra/docker/compose.yaml up -d valkey s3 nats
           for attempt in $(seq 1 60); do
             if docker compose -f infra/docker/compose.yaml exec -T valkey valkey-cli ping | grep -q PONG \
-              && curl -fsS http://127.0.0.1:9000/minio/health/live \
+              && curl -fsS http://127.0.0.1:9000/healthz \
               && curl -fsS "http://127.0.0.1:8222/healthz?js-enabled-only=true"; then
               exit 0
             fi
             sleep 2
           done
-          echo "::error::Valkey, MinIO or NATS did not become ready"
+          echo "::error::Valkey, S3 storage or NATS did not become ready"
           exit 1
       - name: Run integration-marked tests (none may be skipped)
         working-directory: services/api

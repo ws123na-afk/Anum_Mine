@@ -46,7 +46,7 @@ markers = [
   "database: tests that require a migrated PostgreSQL database",
   "nats: tests that require a reachable NATS JetStream server (ANUM_TEST_NATS_URL)",
   "valkey: tests that require a reachable Valkey/Redis server (ANUM_TEST_VALKEY_URL)",
-  "s3: tests that require an S3-compatible endpoint such as MinIO (ANUM_TEST_S3_ENDPOINT)",
+  "s3: tests that require an S3-compatible endpoint such as SeaweedFS (ANUM_TEST_S3_ENDPOINT)",
   "temporal: tests that require a Temporal server (ANUM_TEST_TEMPORAL_TARGET or a downloadable test server)"
 ]
 

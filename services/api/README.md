@@ -95,7 +95,7 @@ The Alembic chain executes `migrations/0001_foundation.sql`, which creates the c
 - Declarative internal skill manifests for planning, drafting, and external actions.
 - Governed tool registry with allow, approval, and blocked policy outcomes.
 - Mediated internal response and mock external-action tool adapters.
-- Live integration registry for PostgreSQL, Keycloak, NATS, Temporal, Valkey, and MinIO.
+- Live integration registry for PostgreSQL, Keycloak, NATS, Temporal, Valkey, and S3-compatible object storage.
 - Governed external REST tool adapter with host allowlisting and credential references.
 - MCP-style tool adapter with tenant and actor context propagation.
 - Tenant-scoped SSE event stream with task filters, cursors, and reconnect support.
@@ -137,7 +137,7 @@ All three are off by default; see [Agent runtime](../../docs/agent-runtime.md#du
 Server-backed tests are skipped when their server is unreachable:
 
 ```bash
-docker compose -f ../../infra/docker/compose.yaml up -d valkey minio temporal
+docker compose -f ../../infra/docker/compose.yaml up -d valkey s3 temporal
 ANUM_TEST_VALKEY_URL=redis://127.0.0.1:6379/15 python -m pytest -m valkey
 ANUM_TEST_S3_ENDPOINT=http://127.0.0.1:9000 python -m pytest -m s3
 ANUM_TEST_TEMPORAL_TARGET=127.0.0.1:7233 python -m pytest -m temporal
