@@ -1,0 +1,483 @@
+name: Release clients
+
+# Builds the store and desktop release artifacts (docs/mobile.md and docs/desktop.md, "Release
+# pipeline"). A `v*` tag builds everything for that version, uploads to the Play internal track and
+# TestFlight, and attaches the desktop installers and the updater manifest to a draft GitHub
+# release. A manual run builds the committed version and uploads to the stores only when asked.
+#
+# Signing material comes only from repository secrets and is decoded into $RUNNER_TEMP. Every
+# signing or upload step is gated on its secrets: without them a job builds what it can (or skips
+# with a notice) and never fails for missing credentials. Nothing secret is written to the
+# repository, the build outputs or the logs.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload to the Play internal track and TestFlight (needs the store secrets)
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-clients-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+      upload: ${{ steps.version.outputs.upload }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version, build number and upload decision
+        id: version
+        env:
+          UPLOAD_INPUT: ${{ inputs.upload }}
+          # Added to the run number so store build numbers can continue above a manual upload.
+          BUILD_NUMBER_OFFSET: ${{ vars.ANUM_BUILD_NUMBER_OFFSET }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            # Plain X.Y.Z: MSI installers and the stores reject other version shapes.
+            if ! [[ "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              echo "::error::Release tags must look like v1.2.3 (got $GITHUB_REF_NAME)."
+              exit 1
+            fi
+            version="${BASH_REMATCH[1]}"
+            upload=true
+          else
+            version="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+            upload="${UPLOAD_INPUT:-false}"
+          fi
+          offset="${BUILD_NUMBER_OFFSET:-0}"
+          if ! [[ "$offset" =~ ^[0-9]+$ ]]; then
+            echo "::error::ANUM_BUILD_NUMBER_OFFSET must be a whole number (got $offset)."
+            exit 1
+          fi
+          build_number=$((GITHUB_RUN_NUMBER + offset))
+          {
+            echo "version=$version"
+            echo "build_number=$build_number"
+            echo "upload=$upload"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Release $version (build $build_number, store upload: $upload)" >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    name: Android app bundle
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
+      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+    steps:
+      - name: Check signing secrets and production configuration
+        id: config
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANUM_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANUM_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANUM_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          UPLOAD: ${{ needs.version.outputs.upload }}
+        run: |
+          missing=()
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            [ -n "${!name}" ] || missing+=("ANUM_ANDROID_${name} (secret)")
+          done
+          [[ "$PRODUCTION_API_URL" == https://* ]] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
+          [[ "$PRODUCTION_OIDC_ISSUER" == https://* ]] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::notice title=Android release skipped::Not configured: ${missing[*]}. See docs/mobile.md, Release pipeline."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$UPLOAD" = "true" ] && [ -n "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "play=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "play=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.config.outputs.build == 'true'
+      - uses: actions/setup-java@v6
+        if: steps.config.outputs.build == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        if: steps.config.outputs.build == 'true'
+        with:
+          channel: stable
+          cache: true
+      - name: Decode the upload keystore
+        if: steps.config.outputs.build == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANUM_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/anum-upload.jks"
+          test -s "$RUNNER_TEMP/anum-upload.jks"
+          echo "ANUM_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/anum-upload.jks" >> "$GITHUB_ENV"
+      - name: Build the signed app bundle
+        if: steps.config.outputs.build == 'true'
+        working-directory: apps/mobile
+        env:
+          ANUM_ANDROID_REQUIRE_RELEASE_SIGNING: "true"
+          ANUM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANUM_ANDROID_KEYSTORE_PASSWORD }}
+          ANUM_ANDROID_KEY_ALIAS: ${{ secrets.ANUM_ANDROID_KEY_ALIAS }}
+          ANUM_ANDROID_KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter pub get
+          jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" \
+            '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer}' > "$RUNNER_TEMP/production.json"
+          flutter build appbundle --release \
+            --build-name="$VERSION" --build-number="$BUILD_NUMBER" \
+            --dart-define-from-file="$RUNNER_TEMP/production.json"
+          aab=build/app/outputs/bundle/release/app-release.aab
+          mv "$aab" "build/app/outputs/bundle/release/anum-$VERSION-$BUILD_NUMBER.aab"
+          aab="build/app/outputs/bundle/release/anum-$VERSION-$BUILD_NUMBER.aab"
+          # Fails unless the bundle is signed with the upload key, not the debug key.
+          keytool -printcert -jarfile "$aab" | tee "$RUNNER_TEMP/aab-cert.txt"
+          if grep -q "CN=Android Debug" "$RUNNER_TEMP/aab-cert.txt"; then
+            echo "::error::The bundle is signed with the debug key."
+            exit 1
+          fi
+          (cd "$(dirname "$aab")" && sha256sum "$(basename "$aab")" | tee "$(basename "$aab").sha256")
+          echo "- Android: \`$(cat "$aab.sha256")\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove the decoded keystore
+        if: always() && steps.config.outputs.build == 'true'
+        run: rm -f "$RUNNER_TEMP/anum-upload.jks"
+      - name: Upload app bundle
+        if: steps.config.outputs.build == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: anum-android-release
+          path: |
+            apps/mobile/build/app/outputs/bundle/release/*.aab
+            apps/mobile/build/app/outputs/bundle/release/*.sha256
+          if-no-files-found: error
+      - name: Upload to the Play internal track
+        if: steps.config.outputs.build == 'true' && steps.config.outputs.play == 'true'
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.anum.app
+          releaseFiles: apps/mobile/build/app/outputs/bundle/release/*.aab
+          track: internal
+          # "draft" until the app's first release has been reviewed in Play Console.
+          status: ${{ vars.ANUM_PLAY_RELEASE_STATUS || 'completed' }}
+      - name: Play upload skipped
+        if: steps.config.outputs.build == 'true' && steps.config.outputs.play != 'true'
+        run: echo "::notice title=Play upload skipped::Needs a tag or the upload input, and the PLAY_SERVICE_ACCOUNT_JSON secret."
+
+  ios:
+    name: iOS app
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
+      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check signing secrets and production configuration
+        id: config
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          UPLOAD: ${{ needs.version.outputs.upload }}
+        run: |
+          missing=()
+          [ -n "$APPLE_TEAM_ID" ] || missing+=("APPLE_TEAM_ID (secret)")
+          [ -n "$API_KEY_ID" ] || missing+=("APP_STORE_CONNECT_API_KEY_ID (secret)")
+          [ -n "$API_ISSUER_ID" ] || missing+=("APP_STORE_CONNECT_API_ISSUER_ID (secret)")
+          [ -n "$API_KEY_P8" ] || missing+=("APP_STORE_CONNECT_API_KEY_P8 (secret)")
+          [[ "$PRODUCTION_API_URL" == https://* ]] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
+          [[ "$PRODUCTION_OIDC_ISSUER" == https://* ]] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::notice title=iOS signing skipped::Building without code signing as a compile check. Not configured: ${missing[*]}. See docs/mobile.md, Release pipeline."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Compile check (no code signing)
+        if: steps.config.outputs.signed != 'true'
+        run: >-
+          flutter build ios --release --no-codesign
+          --build-name="$VERSION" --build-number="$BUILD_NUMBER"
+          --dart-define=ANUM_API_URL=https://api.anum.invalid/
+          --dart-define=ANUM_OIDC_ISSUER=https://id.anum.invalid/realms/anum
+      - name: Write the App Store Connect API key
+        if: steps.config.outputs.signed == 'true'
+        env:
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          printf '%s\n' "$API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey_${API_KEY_ID}.p8"
+      - name: Archive and export the signed IPA
+        # flutter build ipa cannot hand xcodebuild an App Store Connect API key, so Flutter writes
+        # the configuration and xcodebuild archives with automatic, cloud-managed signing.
+        if: steps.config.outputs.signed == 'true'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" \
+            '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer}' > "$RUNNER_TEMP/production.json"
+          flutter build ios --release --config-only \
+            --build-name="$VERSION" --build-number="$BUILD_NUMBER" \
+            --dart-define-from-file="$RUNNER_TEMP/production.json"
+          auth=(
+            -allowProvisioningUpdates
+            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${API_KEY_ID}.p8"
+            -authenticationKeyID "$API_KEY_ID"
+            -authenticationKeyIssuerID "$API_ISSUER_ID"
+          )
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release \
+            -destination "generic/platform=iOS" -archivePath build/ios/archive/Runner.xcarchive \
+            "${auth[@]}" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic archive
+          /usr/libexec/PlistBuddy -c "Clear dict" \
+            -c "Add :method string app-store-connect" \
+            -c "Add :teamID string $APPLE_TEAM_ID" \
+            -c "Add :signingStyle string automatic" \
+            -c "Add :destination string export" \
+            -c "Add :uploadSymbols bool true" \
+            "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath build/ios/archive/Runner.xcarchive \
+            -exportPath build/ios/ipa -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" "${auth[@]}"
+          ipa="$(ls build/ios/ipa/*.ipa)"
+          mv "$ipa" "build/ios/ipa/anum-$VERSION-$BUILD_NUMBER.ipa"
+          cd build/ios/ipa
+          shasum -a 256 "anum-$VERSION-$BUILD_NUMBER.ipa" | tee "anum-$VERSION-$BUILD_NUMBER.ipa.sha256"
+          echo "- iOS: \`$(cat "anum-$VERSION-$BUILD_NUMBER.ipa.sha256")\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload IPA
+        if: steps.config.outputs.signed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: anum-ios-release
+          path: |
+            apps/mobile/build/ios/ipa/*.ipa
+            apps/mobile/build/ios/ipa/*.sha256
+          if-no-files-found: error
+      - name: Upload to TestFlight
+        if: steps.config.outputs.signed == 'true' && steps.config.outputs.upload == 'true'
+        env:
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          API_PRIVATE_KEYS_DIR: ${{ runner.temp }}/private_keys
+        run: |
+          xcrun altool --upload-app --type ios \
+            --file "build/ios/ipa/anum-$VERSION-$BUILD_NUMBER.ipa" \
+            --apiKey "$API_KEY_ID" --apiIssuer "$API_ISSUER_ID"
+      - name: TestFlight upload skipped
+        if: steps.config.outputs.signed == 'true' && steps.config.outputs.upload != 'true'
+        run: echo "::notice title=TestFlight upload skipped::Runs on release tags or with the upload input."
+      - name: Remove the API key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/private_keys"
+
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+          - os: macos-latest
+            platform: darwin-aarch64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      VITE_ANUM_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
+      VITE_ANUM_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+      VITE_ANUM_OIDC_CLIENT_ID: anum-desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          # Pinned by commit, so the toolchain is named here instead of in the ref.
+          toolchain: stable
+      - run: pnpm install --frozen-lockfile=false
+      - name: Import the Windows code-signing certificate
+        id: windows_cert
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.ANUM_WINDOWS_CERTIFICATE_PFX_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.ANUM_WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:CERTIFICATE_BASE64) {
+            "imported=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "anum-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
+          $password = ConvertTo-SecureString $env:CERTIFICATE_PASSWORD -AsPlainText -Force
+          Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password | Out-Null
+          Remove-Item $pfx
+          "imported=true" >> $env:GITHUB_OUTPUT
+      - name: Build release installers
+        env:
+          # Public values (repository variables).
+          ANUM_DESKTOP_VERSION: ${{ needs.version.outputs.version }}
+          ANUM_TAURI_UPDATER_PUBKEY: ${{ vars.ANUM_TAURI_UPDATER_PUBKEY }}
+          ANUM_TAURI_UPDATER_ENDPOINT: ${{ vars.ANUM_TAURI_UPDATER_ENDPOINT }}
+          ANUM_WINDOWS_CERTIFICATE_THUMBPRINT: ${{ vars.ANUM_WINDOWS_CERTIFICATE_THUMBPRINT }}
+          ANUM_WINDOWS_TIMESTAMP_URL: ${{ vars.ANUM_WINDOWS_TIMESTAMP_URL }}
+          WINDOWS_CERT_IMPORTED: ${{ steps.windows_cert.outputs.imported }}
+          # Secrets, read by the Tauri CLI. Empty ones are unset below.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID ANUM_TAURI_UPDATER_PUBKEY \
+            ANUM_TAURI_UPDATER_ENDPOINT ANUM_WINDOWS_CERTIFICATE_THUMBPRINT ANUM_WINDOWS_TIMESTAMP_URL \
+            VITE_ANUM_API_URL VITE_ANUM_OIDC_ISSUER; do
+            [ -n "${!name}" ] || unset "$name"
+          done
+          if [ -n "${ANUM_TAURI_UPDATER_PUBKEY:-}" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::notice title=Updater artifacts skipped::ANUM_TAURI_UPDATER_PUBKEY is set but the TAURI_SIGNING_PRIVATE_KEY secret is not."
+            unset ANUM_TAURI_UPDATER_PUBKEY
+          elif [ -z "${ANUM_TAURI_UPDATER_PUBKEY:-}" ]; then
+            echo "::notice title=Updater artifacts skipped::Set the ANUM_TAURI_UPDATER_PUBKEY and ANUM_TAURI_UPDATER_ENDPOINT variables and the TAURI_SIGNING_PRIVATE_KEY secret."
+          fi
+          if [ -n "${ANUM_WINDOWS_CERTIFICATE_THUMBPRINT:-}" ] && [ "$WINDOWS_CERT_IMPORTED" != "true" ]; then
+            echo "::notice title=Authenticode signing skipped::ANUM_WINDOWS_CERTIFICATE_THUMBPRINT is set but the ANUM_WINDOWS_CERTIFICATE_PFX_BASE64 secret is not."
+            unset ANUM_WINDOWS_CERTIFICATE_THUMBPRINT
+          fi
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            if [ -n "${APPLE_CERTIFICATE:-}" ] && [ -n "$API_KEY_ID" ] && [ -n "$API_ISSUER_ID" ] && [ -n "$API_KEY_P8" ]; then
+              # Notarization with the App Store Connect API key (read by the Tauri CLI).
+              mkdir -p "$RUNNER_TEMP/private_keys"
+              (umask 077 && printf '%s\n' "$API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey_${API_KEY_ID}.p8")
+              export APPLE_API_KEY="$API_KEY_ID" APPLE_API_ISSUER="$API_ISSUER_ID"
+              export APPLE_API_KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey_${API_KEY_ID}.p8"
+            else
+              echo "::notice title=macOS signing skipped::Needs the APPLE_CERTIFICATE secrets and the App Store Connect API key for notarization."
+              unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY
+            fi
+          fi
+          unset API_KEY_P8
+          pnpm build
+          pnpm --filter @anum/desktop build:release
+          rm -rf "$RUNNER_TEMP/private_keys"
+      - name: Collect installers and the updater manifest fragment
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARTIFACT_BASE_URL: ${{ vars.ANUM_TAURI_UPDATER_ARTIFACT_BASE_URL }}
+        run: |
+          base="${ARTIFACT_BASE_URL:-https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}}"
+          node apps/desktop/scripts/updater-manifest.mjs collect \
+            --bundle-dir apps/desktop/src-tauri/target/release/bundle \
+            --platform "$PLATFORM" --version "$VERSION" --base-url "$base" --out "$RUNNER_TEMP/release"
+          cd "$RUNNER_TEMP/release"
+          for file in *; do
+            case "$file" in *.sig|*.json) ;; *) sha256sum "$file" > "$file.sha256" ;; esac
+          done
+          cat ./*.sha256 >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: anum-desktop-${{ matrix.platform }}
+          path: ${{ runner.temp }}/release/*
+          if-no-files-found: error
+
+  publish:
+    name: Draft GitHub release
+    needs: [version, desktop]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
+      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check production configuration
+        id: config
+        run: |
+          if [[ "$PRODUCTION_API_URL" == https://* && "$PRODUCTION_OIDC_ISSUER" == https://* ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=GitHub release skipped::The installers were built without ANUM_PRODUCTION_API_URL and ANUM_PRODUCTION_OIDC_ISSUER, so they are kept as workflow artifacts only."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v8
+        if: steps.config.outputs.publish == 'true'
+        with:
+          pattern: anum-desktop-*
+          path: ${{ runner.temp }}/release
+          merge-multiple: true
+      - name: Write the updater manifest
+        if: steps.config.outputs.publish == 'true'
+        run: |
+          cd "$RUNNER_TEMP/release"
+          shopt -s nullglob
+          fragments=(latest-*.json)
+          if [ "${#fragments[@]}" -eq 0 ]; then
+            echo "::notice title=No updater manifest::No platform produced signed updater artifacts."
+            exit 0
+          fi
+          node "$GITHUB_WORKSPACE/apps/desktop/scripts/updater-manifest.mjs" merge \
+            --version "$VERSION" --notes "ANUM $VERSION" --out latest.json "${fragments[@]}"
+          rm "${fragments[@]}"
+      - name: Create or update the draft release
+        if: steps.config.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd "$RUNNER_TEMP/release"
+          # Drafts are invisible to the updater until the owner publishes them (docs/desktop.md).
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" ./* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" ./* --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "ANUM $VERSION" --generate-notes
+          fi

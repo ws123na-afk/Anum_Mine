@@ -487,3 +487,22 @@ jobs:
           flutter build appbundle --release
           --dart-define=ANUM_API_URL=https://api.anum.invalid/
           --dart-define=ANUM_OIDC_ISSUER=https://id.anum.invalid/realms/anum
+
+  flutter-ios:
+    name: Flutter iOS compile check
+    # Debug and unsigned: the cheapest build that compiles the Swift, the pods and the Dart for
+    # iOS. Signed builds and TestFlight uploads are in release-clients.yml.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build iOS (debug, no code signing)
+        run: flutter build ios --debug --no-codesign --dart-define=ANUM_API_URL=http://127.0.0.1:8000/

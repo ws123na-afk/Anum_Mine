@@ -12,13 +12,21 @@ Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A
 2. Alembic revision applied (`python -m alembic current` in `services/api`).
 3. Web build hash, Playwright report.
 4. Android APK/AAB SHA-256, Flutter APK/AAB and iOS build SHA-256, signed desktop installer SHA-256.
-5. Staging smoke test: OIDC login (`ANUM_AUTH_MODE=oidc`), create task, approval round-trip, memory write/read, file round-trip through object storage, event published and consumed, workflow resumed after worker restart.
-6. Environment where each check ran (local / CI / staging).
+5. Client release run: the `Release clients` workflow run URL for the `vX.Y.Z` tag on that commit, with:
+   - no "skipped" notices in its summary (each one means an unsigned or missing artifact; list it as open);
+   - the AAB and IPA SHA-256 from the summary, matching the `anum-android-release` and `anum-ios-release` artifacts, and `keytool -printcert -jarfile` showing the upload key, not `CN=Android Debug`;
+   - the Play internal-track version code and the TestFlight build number that this run uploaded;
+   - per desktop platform: installer SHA-256, Authenticode signature (`Get-AuthenticodeSignature` reports `Valid`) and macOS notarization (`spctl -a -vv` reports `Notarized Developer ID`);
+   - the draft GitHub release with `latest.json` listing every shipped platform, and an update installed from the previous published version on Windows and macOS through "Check for updates".
+6. Real-device checklist in `docs/mobile.md` filled in for the build numbers above, and the desktop sign-in round trip on a packaged build.
+7. Staging smoke test: OIDC login (`ANUM_AUTH_MODE=oidc`), create task, approval round-trip, memory write/read, file round-trip through object storage, event published and consumed, workflow resumed after worker restart.
+8. Environment where each check ran (local / CI / staging).
 
 ## Hard blockers
 - `ANUM_AUTH_MODE=headers` in any non-local environment.
 - `ANUM_MODEL_PROVIDER=mock` in production.
 - Default credentials from `infra/docker/compose.yaml` (anum/anum, admin/admin, `anum-local-secret`) anywhere outside local.
 - Any secret in git history or in a client bundle.
+- A store or release artifact that is debug-signed, unsigned, or built without `ANUM_PRODUCTION_API_URL` and `ANUM_PRODUCTION_OIDC_ISSUER`.
 
 Output a table: gate, evidence link or value, status (pass / open / fail).

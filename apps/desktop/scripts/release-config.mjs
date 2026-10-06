@@ -42,6 +42,13 @@ export function releaseConfig(env, base) {
   const config = {};
   const warnings = [];
 
+  // The release tag's version (v1.2.3 -> 1.2.3); the updater compares it with the manifest's.
+  const version = env.ANUM_DESKTOP_VERSION?.trim();
+  if (version) {
+    if (!/^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`ANUM_DESKTOP_VERSION is not a semantic version: ${version}`);
+    config.version = version;
+  }
+
   const connect = [];
   for (const name of ['VITE_ANUM_OIDC_ISSUER', 'VITE_ANUM_API_URL']) {
     if (env[name]) connect.push(origin(env[name], name));
