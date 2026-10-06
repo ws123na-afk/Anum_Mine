@@ -7,6 +7,7 @@ from anum_api import onboarding
 from anum_api.identity import local_sessions
 from anum_api.main import app, store
 from anum_api.onboarding import _local_auth, _model_configs, _notifications
+from anum_api.settings import settings
 
 
 client = TestClient(app)
@@ -168,11 +169,13 @@ def test_unreachable_ollama_returns_actionable_message(monkeypatch: pytest.Monke
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
-    _use_transport(monkeypatch, refuse)
+    seen = _use_transport(monkeypatch, refuse)
+    monkeypatch.setattr(settings, "model_retry_base_seconds", 0)
 
     tested = client.post("/api/v1/model-config/test", headers=headers)
 
     assert tested.status_code == 502
+    assert len(seen) == settings.model_max_attempts  # connection errors are retried, bounded
     assert tested.json()["error"]["message"] == (
         "Could not reach Ollama at http://localhost:11434/v1. Is it running? Try: ollama serve"
     )

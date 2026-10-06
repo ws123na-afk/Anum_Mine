@@ -8,7 +8,7 @@ A tenant contains workspaces. A user may belong to more than one tenant with dif
 
 ## Isolation Strategy
 
-The default database pattern should be shared PostgreSQL tables with `tenant_id` columns and mandatory row-level security. Application code must set the tenant execution context for every request and worker job. Background workflows must carry tenant identity in their payloads and validate it when resumed.
+The default database pattern should be shared PostgreSQL tables with `tenant_id` columns and mandatory row-level security. Application code must set the tenant execution context for every request and worker job. Background workflows must carry tenant identity in their payloads and validate it when resumed. The one process that reads across tenants, the event outbox relay, does so through a dedicated role whose RLS policies and grants cover only unpublished event rows and their publication columns ([Events](events.md#relay-role-and-rls)); the application role never bypasses RLS.
 
 ## Authorization Layers
 
@@ -17,6 +17,8 @@ The default database pattern should be shared PostgreSQL tables with `tenant_id`
 - Role and permission policy proves what action is allowed.
 - RLS prevents data access outside the active tenant context.
 - Tool policy limits what agents can do even after a user starts a task.
+
+Workspace owners add people with invitations and manage roles and deactivation; the last active owner is protected ([Identity](identity.md#invitations-and-membership-management)). In `ANUM_AUTH_MODE=oidc` the tenant comes from the token's IdP-managed `tenant_id` claim, the workspace from `x-workspace-id` (or the token's default `workspace_id`), and the persisted membership supplies the role. See [Identity and sign-in](identity.md#tenant-and-workspace-resolution).
 
 ## Cross-Tenant Data
 

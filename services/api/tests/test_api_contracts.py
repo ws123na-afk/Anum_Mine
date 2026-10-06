@@ -1,4 +1,7 @@
+import asyncio
+
 from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 
@@ -112,3 +115,63 @@ def test_missing_or_invalid_correlation_id_is_replaced() -> None:
         assert is_valid_correlation_id(generated)
         assert generated.startswith("corr_")
         assert response.json()["from_context"] == generated
+
+
+def test_streaming_handler_sees_client_disconnect_through_correlation_middleware() -> None:
+    """A long-lived stream (SSE) must notice its client left, or it runs forever.
+
+    The server may drop writes to a closed connection silently (uvicorn 0.30 does), so
+    the stream's only exit is `request.is_disconnected()`; the middleware must not hide it.
+    """
+
+    app = FastAPI()
+    app.add_middleware(CorrelationIdMiddleware)
+    observed: dict[str, object] = {}
+
+    @app.get("/stream")
+    async def stream(request: Request) -> StreamingResponse:
+        async def body():
+            observed["correlation_id"] = get_correlation_id()
+            yield ": open\n\n"
+            while not await request.is_disconnected():
+                await asyncio.sleep(0.01)
+            observed["disconnected"] = True
+
+        return StreamingResponse(body(), media_type="text/event-stream")
+
+    async def scenario() -> list[dict]:
+        sent: list[dict] = []
+        requested = False
+
+        async def receive() -> dict:
+            nonlocal requested
+            if not requested:
+                requested = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/stream",
+            "raw_path": b"/stream",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(CORRELATION_ID_HEADER.lower().encode(), b"stream-1")],
+            "client": ("127.0.0.1", 1234),
+            "server": ("127.0.0.1", 8000),
+        }
+        await asyncio.wait_for(app(scope, receive, send), timeout=5)
+        return sent
+
+    sent = asyncio.run(scenario())
+
+    assert observed == {"correlation_id": "stream-1", "disconnected": True}
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    assert (CORRELATION_ID_HEADER.lower().encode(), b"stream-1") in start["headers"]

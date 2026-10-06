@@ -1,8 +1,10 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from anum_api.audit import AuditRecord, DuplicateAuditRecordError
 from anum_api.repository import AnumRepository
 from anum_api.schemas import (
     AgentRun,
@@ -14,21 +16,36 @@ from anum_api.schemas import (
     Task,
     TaskStatus,
     Tenant,
+    InvitationStatus,
     TenantContext,
     Workspace,
+    WorkspaceInvitation,
     WorkspaceMembership,
 )
 
 from .models import (
     AgentRunRecord,
+    AuditRecordRow,
     AgentRunStepRecord,
     ApprovalRecord,
     DomainEventRecord,
     TaskRecord,
     Tenant as TenantRecord,
     Workspace as WorkspaceRecord,
+    WorkspaceInvitationRecord,
     WorkspaceMembershipRecord,
 )
+
+
+def _json_safe(value: Any) -> Any:
+    """Turn the audit module's immutable metadata into plain JSON values."""
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted((_json_safe(item) for item in value), key=repr)
+    return value
 
 
 class SqlAlchemyRepository(AnumRepository):
@@ -104,6 +121,180 @@ class SqlAlchemyRepository(AnumRepository):
             (context.user_id, context.tenant_id, context.workspace_id),
         )
         return self._membership_from_record(record) if record else None
+
+    def workspace_has_members(self, context: TenantContext) -> bool:
+        # RLS already scopes this table to the context's tenant and workspace.
+        return (
+            self.session.scalars(
+                select(WorkspaceMembershipRecord.user_id)
+                .where(
+                    WorkspaceMembershipRecord.tenant_id == context.tenant_id,
+                    WorkspaceMembershipRecord.workspace_id == context.workspace_id,
+                )
+                .limit(1)
+            ).first()
+            is not None
+        )
+
+    def list_memberships(self, context: TenantContext) -> list[WorkspaceMembership]:
+        records = self.session.scalars(
+            select(WorkspaceMembershipRecord)
+            .where(
+                WorkspaceMembershipRecord.tenant_id == context.tenant_id,
+                WorkspaceMembershipRecord.workspace_id == context.workspace_id,
+            )
+            .order_by(WorkspaceMembershipRecord.created_at, WorkspaceMembershipRecord.user_id)
+        ).all()
+        return [self._membership_from_record(record) for record in records]
+
+    def get_member_for_update(
+        self, user_id: str, context: TenantContext
+    ) -> WorkspaceMembership | None:
+        record = self.session.scalar(
+            select(WorkspaceMembershipRecord)
+            .where(
+                WorkspaceMembershipRecord.user_id == user_id,
+                WorkspaceMembershipRecord.tenant_id == context.tenant_id,
+                WorkspaceMembershipRecord.workspace_id == context.workspace_id,
+            )
+            .with_for_update()
+        )
+        return self._membership_from_record(record) if record else None
+
+    def list_active_owners_for_update(
+        self, context: TenantContext
+    ) -> list[WorkspaceMembership]:
+        # Locking every active owner row serializes concurrent demotions/deactivations,
+        # so two owners cannot remove each other and leave the workspace ownerless.
+        records = self.session.scalars(
+            select(WorkspaceMembershipRecord)
+            .where(
+                WorkspaceMembershipRecord.tenant_id == context.tenant_id,
+                WorkspaceMembershipRecord.workspace_id == context.workspace_id,
+                WorkspaceMembershipRecord.role == "owner",
+                WorkspaceMembershipRecord.active.is_(True),
+            )
+            .order_by(WorkspaceMembershipRecord.user_id)
+            .with_for_update()
+        ).all()
+        return [self._membership_from_record(record) for record in records]
+
+    def save_invitation(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
+        record = self.session.get(WorkspaceInvitationRecord, invitation.id)
+        if record is None:
+            record = WorkspaceInvitationRecord(
+                id=invitation.id,
+                tenant_id=invitation.tenant_id,
+                workspace_id=invitation.workspace_id,
+                token_hash=invitation.token_hash,
+                created_by_user_id=invitation.created_by_user_id,
+                created_at=invitation.created_at,
+            )
+            self.session.add(record)
+        elif (
+            record.tenant_id != invitation.tenant_id
+            or record.workspace_id != invitation.workspace_id
+        ):
+            raise ValueError(f"Invitation {invitation.id!r} cannot be moved between scopes")
+        record.role = invitation.role
+        record.invitee_user_id = invitation.invitee_user_id
+        record.invitee_email = invitation.invitee_email
+        record.status = invitation.status.value
+        record.expires_at = invitation.expires_at
+        record.accepted_by_user_id = invitation.accepted_by_user_id
+        record.accepted_at = invitation.accepted_at
+        record.revoked_at = invitation.revoked_at
+        record.updated_at = invitation.updated_at
+        self.session.flush()
+        return self._invitation_from_record(record)
+
+    def get_invitation_for_update(
+        self, invitation_id: str, context: TenantContext
+    ) -> WorkspaceInvitation | None:
+        record = self.session.scalar(
+            select(WorkspaceInvitationRecord)
+            .where(
+                WorkspaceInvitationRecord.id == invitation_id,
+                WorkspaceInvitationRecord.tenant_id == context.tenant_id,
+                WorkspaceInvitationRecord.workspace_id == context.workspace_id,
+            )
+            .with_for_update()
+        )
+        return self._invitation_from_record(record) if record else None
+
+    def find_invitation_by_token_hash_for_update(
+        self, token_hash: str, context: TenantContext
+    ) -> WorkspaceInvitation | None:
+        # RLS and the explicit scope both limit the lookup to the caller's workspace, so a
+        # token from another tenant or workspace is simply not found.
+        record = self.session.scalar(
+            select(WorkspaceInvitationRecord)
+            .where(
+                WorkspaceInvitationRecord.token_hash == token_hash,
+                WorkspaceInvitationRecord.tenant_id == context.tenant_id,
+                WorkspaceInvitationRecord.workspace_id == context.workspace_id,
+            )
+            .with_for_update()
+        )
+        return self._invitation_from_record(record) if record else None
+
+    def list_invitations(self, context: TenantContext) -> list[WorkspaceInvitation]:
+        records = self.session.scalars(
+            select(WorkspaceInvitationRecord)
+            .where(
+                WorkspaceInvitationRecord.tenant_id == context.tenant_id,
+                WorkspaceInvitationRecord.workspace_id == context.workspace_id,
+            )
+            .order_by(
+                WorkspaceInvitationRecord.created_at.desc(), WorkspaceInvitationRecord.id.desc()
+            )
+        ).all()
+        return [self._invitation_from_record(record) for record in records]
+
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        if self.session.get(AuditRecordRow, record.id) is not None:
+            raise DuplicateAuditRecordError(f"audit record already exists: {record.id}")
+        self.session.add(
+            AuditRecordRow(
+                id=record.id,
+                tenant_id=record.tenant_id,
+                workspace_id=record.workspace_id,
+                actor=record.actor,
+                action=record.action,
+                target=record.target,
+                outcome=record.outcome,
+                correlation_id=record.correlation_id,
+                record_metadata=_json_safe(record.metadata),
+                created_at=record.created_at,
+            )
+        )
+        self.session.flush()
+        return record
+
+    def list_audit_records(self, context: TenantContext) -> list[AuditRecord]:
+        rows = self.session.scalars(
+            select(AuditRecordRow)
+            .where(
+                AuditRecordRow.tenant_id == context.tenant_id,
+                AuditRecordRow.workspace_id == context.workspace_id,
+            )
+            .order_by(AuditRecordRow.created_at, AuditRecordRow.id)
+        ).all()
+        return [
+            AuditRecord(
+                id=row.id,
+                tenant_id=row.tenant_id,
+                workspace_id=row.workspace_id,
+                actor=row.actor,
+                action=row.action,
+                target=row.target,
+                outcome=row.outcome,
+                correlation_id=row.correlation_id,
+                created_at=row.created_at,
+                metadata=dict(row.record_metadata or {}),
+            )
+            for row in rows
+        ]
 
     def create_task(self, task: Task) -> Task:
         record = self.session.get(TaskRecord, task.id)
@@ -454,6 +645,26 @@ class SqlAlchemyRepository(AnumRepository):
             user_id=record.user_id,
             role=record.role,
             active=record.active,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    @staticmethod
+    def _invitation_from_record(record: WorkspaceInvitationRecord) -> WorkspaceInvitation:
+        return WorkspaceInvitation(
+            id=record.id,
+            tenant_id=record.tenant_id,
+            workspace_id=record.workspace_id,
+            role=record.role,
+            invitee_user_id=record.invitee_user_id,
+            invitee_email=record.invitee_email,
+            token_hash=record.token_hash,
+            status=InvitationStatus(record.status),
+            created_by_user_id=record.created_by_user_id,
+            expires_at=record.expires_at,
+            accepted_by_user_id=record.accepted_by_user_id,
+            accepted_at=record.accepted_at,
+            revoked_at=record.revoked_at,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )

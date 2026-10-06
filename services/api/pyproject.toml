@@ -12,17 +12,24 @@ description = "ANUM FastAPI backend foundation"
 requires-python = ">=3.11"
 dependencies = [
   "alembic==1.13.3",
-  "fastapi==0.115.0",
+  "boto3==1.43.108",
+  "cryptography==50.0.1",
+  "fastapi==0.135.4",
   "httpx==0.27.2",
+  "nats-py==2.16.0",
   "psycopg[binary]==3.2.3",
   "pydantic-settings==2.5.2",
-  "PyJWT[crypto]==2.9.0",
+  "PyJWT[crypto]==2.15.1",
+  "redis==8.1.0",
   "sqlalchemy==2.0.35",
+  "starlette==1.7.0",
+  "temporalio==1.34.0",
   "uvicorn[standard]==0.30.6"
 ]
 
 [project.optional-dependencies]
 test = [
+  "moto[s3]==5.2.3",
   "pytest==8.3.3"
 ]
 
@@ -36,7 +43,11 @@ addopts = "--strict-markers"
 pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
-  "database: tests that require a migrated PostgreSQL database"
+  "database: tests that require a migrated PostgreSQL database",
+  "nats: tests that require a reachable NATS JetStream server (ANUM_TEST_NATS_URL)",
+  "valkey: tests that require a reachable Valkey/Redis server (ANUM_TEST_VALKEY_URL)",
+  "s3: tests that require an S3-compatible endpoint such as SeaweedFS (ANUM_TEST_S3_ENDPOINT)",
+  "temporal: tests that require a Temporal server (ANUM_TEST_TEMPORAL_TARGET or a downloadable test server)"
 ]
 
 [tool.ruff]

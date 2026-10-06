@@ -14,13 +14,20 @@ services:
     image: valkey/valkey:8-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   nats:
     image: nats:2.10-alpine
-    command: ["-js", "-m", "8222"]
+    command: ["-js", "-sd", "/data", "-m", "8222"]
     ports:
       - "4222:4222"
       - "8222:8222"
+    volumes:
+      - nats-data:/data
 
   temporal:
     image: temporalio/auto-setup:1.25
@@ -46,24 +53,37 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
-    command: ["start-dev"]
+    # Imports the `anum` realm from infra/keycloak on first start (existing realms are skipped).
+    # Admin credentials and the realm's `dev` user password are DEV-ONLY placeholders.
+    command: ["start-dev", "--import-realm"]
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      # Pin the token issuer to http://localhost:8080/realms/anum even when other containers
+      # reach Keycloak as http://keycloak:8080 (they should set ANUM_OIDC_JWKS_URL instead).
+      KC_HOSTNAME: http://localhost:8080
+      KC_HEALTH_ENABLED: "true"
     ports:
       - "8080:8080"
+    volumes:
+      - ../keycloak/anum-realm.json:/opt/keycloak/data/import/anum-realm.json:ro
 
-  minio:
-    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: anum
-      MINIO_ROOT_PASSWORD: anum-local-secret
+  s3:
+    # S3-compatible object storage (SeaweedFS). MinIO no longer publishes community
+    # images. Credentials come from infra/seaweedfs/s3.json and are DEV-ONLY.
+    image: chrislusf/seaweedfs:3.97
+    # Small volumes keep the dev store light; SeaweedFS defaults to 30 GB volumes.
+    command: ["server", "-dir=/data", "-master.volumeSizeLimitMB=128", "-volume.max=20", "-s3", "-s3.port=9000", "-s3.config=/etc/seaweedfs/s3.json"]
     ports:
       - "9000:9000"
-      - "9001:9001"
     volumes:
-      - minio-data:/data
+      - s3-data:/data
+      - ../seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.110.0
@@ -74,6 +94,68 @@ services:
       - "4317:4317"
       - "4318:4318"
 
+  # Application containers. Opt in with `--profile app`; the default
+  # `docker compose up` still starts infrastructure only (docs/infrastructure.md).
+  api:
+    profiles: ["app"]
+    build:
+      context: ../../services/api
+    environment:
+      ANUM_ENVIRONMENT: local
+      ANUM_DATABASE_URL: postgresql+psycopg://anum:anum@postgres:5432/anum
+      ANUM_REPOSITORY_BACKEND: memory
+      ANUM_CORS_ORIGINS: '["http://localhost:4173","http://127.0.0.1:4173"]'
+      ANUM_VALKEY_URL: redis://valkey:6379/0
+      ANUM_NATS_URL: nats://nats:4222
+      ANUM_TEMPORAL_TARGET: temporal:7233
+      ANUM_S3_ENDPOINT: http://s3:9000
+      # Durable runs (docs/agent-runtime.md): set ANUM_REPOSITORY_BACKEND=postgresql
+      # (after `python -m alembic upgrade head`) and ANUM_RUNTIME_BACKEND=temporal on
+      # both api and worker; the in-memory repository is not shared between them.
+      ANUM_RUNTIME_BACKEND: inline
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+  # Temporal worker for durable agent runs: same image, different command.
+  worker:
+    profiles: ["app"]
+    build:
+      context: ../../services/api
+    command: ["python", "-m", "anum_api.worker"]
+    environment:
+      ANUM_ENVIRONMENT: local
+      ANUM_DATABASE_URL: postgresql+psycopg://anum:anum@postgres:5432/anum
+      ANUM_REPOSITORY_BACKEND: memory
+      ANUM_VALKEY_URL: redis://valkey:6379/0
+      ANUM_NATS_URL: nats://nats:4222
+      ANUM_TEMPORAL_TARGET: temporal:7233
+      ANUM_TEMPORAL_TASK_QUEUE: anum-agent-runs
+      ANUM_S3_ENDPOINT: http://s3:9000
+    # The image's HEALTHCHECK probes the API port, which the worker does not serve.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - temporal
+
+  web:
+    profiles: ["app"]
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_ANUM_API_URL: http://localhost:8000
+    environment:
+      ANUM_CSP_CONNECT_SRC: http://localhost:8000
+    ports:
+      - "4173:8080"
+    depends_on:
+      - api
+
 volumes:
   postgres-data:
-  minio-data:
+  s3-data:
+  nats-data:

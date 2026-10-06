@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "anum-local",
+      "credentials": [
+        {
+          "accessKey": "anum",
+          "secretKey": "anum-local-secret"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

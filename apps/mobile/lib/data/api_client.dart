@@ -68,7 +68,7 @@ class AnumApiClient {
         if (session?.isExpired ?? false) await sessions.clear();
         throw const ApiException(401, 'Authentication required');
       }
-      headers['authorization'] = 'Bearer ${session.accessToken}';
+      headers.addAll(sessionHeaders(session));
     }
     final response = await transport.send(ApiRequest(
       method: method,
@@ -84,3 +84,14 @@ class AnumApiClient {
     return response.body ?? const {};
   }
 }
+
+/// Identity headers for an authenticated call: the bearer token and, when the
+/// session names one, the workspace the API should resolve the membership in.
+/// In `oidc` mode the API takes the tenant from the token and the workspace
+/// from `x-workspace-id` (docs/identity.md); local sessions carry their own
+/// context and the header simply repeats it.
+Map<String, String> sessionHeaders(LocalSession session) => {
+      'authorization': 'Bearer ${session.accessToken}',
+      if (session.context.workspaceId.isNotEmpty)
+        'x-workspace-id': session.context.workspaceId,
+    };

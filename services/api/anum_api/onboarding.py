@@ -12,8 +12,20 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from .authorization import Permission
-from .dependencies import provisioning_repository_context, require_permission, tenant_context
-from .identity import local_sessions
+from .dependencies import (
+    provisioning_repository_context,
+    provisioning_tenant_context,
+    require_permission,
+    tenant_context,
+)
+from .identity import local_sessions, local_sessions_allowed
+from .model_config_store import (
+    KEYLESS_PROVIDERS,
+    StoredModelConfig,
+    WorkspaceNotProvisionedError,
+    memory_model_config_store,
+    open_model_config_store,
+)
 from .model_gateway import ModelGateway, build_model_gateway, normalize_provider
 from .repository import AnumRepository
 from .schemas import Tenant, TenantContext, Workspace, WorkspaceMembership, utc_now
@@ -127,27 +139,21 @@ class NotificationPreferences(BaseModel):
     desktop_enabled: bool = True
 
 
-class _StoredModelConfig(BaseModel):
-    provider: str
-    model: str
-    base_url: str
-    api_key: SecretStr | None
-    updated_at: datetime
-
-    def view(self) -> ModelConfigView:
-        secret = self.api_key.get_secret_value() if self.api_key else None
-        return ModelConfigView(
-            provider=self.provider,
-            model=self.model,
-            base_url=self.base_url,
-            credential_configured=bool(secret),
-            credential_hint=f"...{secret[-4:]}" if secret else None,
-            updated_at=self.updated_at,
-        )
+def _config_view(config: StoredModelConfig) -> ModelConfigView:
+    # Only the hint ever leaves the server; the key itself is never returned.
+    return ModelConfigView(
+        provider=config.provider,
+        model=config.model,
+        base_url=config.base_url,
+        credential_configured=config.credential_configured,
+        credential_hint=config.credential_hint,
+        updated_at=config.updated_at,
+    )
 
 
 _lock = RLock()
-_model_configs: dict[tuple[str, str], _StoredModelConfig] = {}
+# In-memory store (local and tests). PostgreSQL is selected by ANUM_REPOSITORY_BACKEND.
+_model_configs = memory_model_config_store
 _notifications: dict[tuple[str, str, str], NotificationPreferences] = {}
 
 
@@ -213,7 +219,7 @@ _local_auth = _LocalAuthStore()
 
 
 def _local_enabled() -> None:
-    if settings.environment != "local" or settings.auth_mode not in {"headers", "local"}:
+    if not local_sessions_allowed(settings.environment, settings.auth_mode):
         raise HTTPException(status_code=404, detail="Local authentication is unavailable")
 
 
@@ -229,15 +235,16 @@ def _delivery_hint(user_id: str) -> str:
     return f"{user_id[:2]}***"
 
 
-_KEYLESS_PROVIDERS = frozenset({"mock", "ollama"})
-
-
 def _model_is_configured(context: TenantContext) -> bool:
-    config = _model_configs.get((context.tenant_id, context.workspace_id))
-    return bool(config and (config.provider in _KEYLESS_PROVIDERS or config.api_key))
+    with open_model_config_store(context) as store:
+        config = store.get(context, include_secret=False)
+    return bool(config and config.usable)
 
 
-_workspace_gateways: dict[tuple[str, str], tuple[_StoredModelConfig, ModelGateway]] = {}
+# Cached gateways keyed by tenant/workspace, invalidated when the saved config changes
+# (compared by fingerprint, so this also works when configs come from PostgreSQL and
+# another API instance saved the change).
+_workspace_gateways: dict[tuple[str, str], tuple[tuple[object, ...], ModelGateway]] = {}
 
 
 def workspace_model_gateway(context: TenantContext, fallback: ModelGateway) -> ModelGateway:
@@ -247,22 +254,27 @@ def workspace_model_gateway(context: TenantContext, fallback: ModelGateway) -> M
     OpenAI-compatible endpoint) in the app is what actually answers the user.
     """
     key = (context.tenant_id, context.workspace_id)
-    with _lock:
-        config = _model_configs.get(key)
-        if config is None or not (config.provider in _KEYLESS_PROVIDERS or config.api_key):
+    with open_model_config_store(context) as store:
+        summary = store.get(context, include_secret=False)
+        if summary is None or not summary.usable:
             return fallback
-        cached = _workspace_gateways.get(key)
-        if cached is not None and cached[0] is config:
-            return cached[1]
-        gateway = build_model_gateway(
-            normalize_provider(config.provider),
-            api_key=config.api_key.get_secret_value() if config.api_key else None,
-            model=config.model,
-            base_url=config.base_url,
-            client=_test_client_factory(),
-        )
-        _workspace_gateways[key] = (config, gateway)
-        return gateway
+        with _lock:
+            cached = _workspace_gateways.get(key)
+            if cached is not None and cached[0] == summary.fingerprint:
+                return cached[1]
+        config = store.get(context) if summary.credential_configured else summary
+    if config is None or not config.usable:
+        return fallback
+    gateway = build_model_gateway(
+        normalize_provider(config.provider),
+        api_key=config.api_key.get_secret_value() if config.api_key else None,
+        model=config.model,
+        base_url=config.base_url,
+        client=_test_client_factory(),
+    )
+    with _lock:
+        _workspace_gateways[key] = (config.fingerprint, gateway)
+    return gateway
 
 
 def _connection_failure_detail(provider: str, model: str, base_url: str, exc: Exception) -> str:
@@ -336,7 +348,7 @@ async def reset_local_password(payload: PasswordReset) -> LocalSessionResponse:
 async def switch_local_workspace(
     payload: WorkspaceSwitch,
     authorization: str | None = Header(default=None),
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> LocalSessionResponse:
     _local_enabled()
@@ -362,7 +374,7 @@ async def revoke_local_session(authorization: str | None = Header(default=None))
 @router.put("/onboarding", response_model=OnboardingStatus)
 async def complete_onboarding(
     payload: OnboardingCreate,
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> OnboardingStatus:
     require_permission(context, Permission.TENANT_CREATE)
@@ -383,13 +395,20 @@ async def complete_onboarding(
             ) from exc
     membership = repository.get_membership(context)
     if membership is None:
+        # Onboarding only bootstraps an empty workspace. Joining one that already has
+        # members needs an invitation from its owners (docs/identity.md).
+        if repository.workspace_has_members(context):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This workspace already has members. Ask a workspace owner to invite you.",
+            )
         membership = repository.save_membership(WorkspaceMembership(tenant_id=context.tenant_id, workspace_id=context.workspace_id, user_id=context.user_id, role="owner", created_at=now, updated_at=now))
     return OnboardingStatus(complete=True, tenant=tenant, workspace=workspace, membership=membership, model_configured=_model_is_configured(context))
 
 
 @router.get("/onboarding", response_model=OnboardingStatus)
 async def get_onboarding_status(
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> OnboardingStatus:
     tenant = repository.get_tenant(context.tenant_id)
@@ -401,21 +420,34 @@ async def get_onboarding_status(
 @router.put("/model-config", response_model=ModelConfigView)
 async def set_model_config(payload: ModelConfigWrite, context: TenantContext = Depends(tenant_context)) -> ModelConfigView:
     require_permission(context, Permission.ORGANIZATION_MANAGE)
-    if payload.provider not in _KEYLESS_PROVIDERS and payload.api_key is None:
+    if payload.provider not in KEYLESS_PROVIDERS and payload.api_key is None:
         raise HTTPException(status_code=422, detail="api_key is required for external providers")
-    config = _StoredModelConfig(**payload.model_dump(), updated_at=utc_now())
-    with _lock:
-        _model_configs[(context.tenant_id, context.workspace_id)] = config
-    return config.view()
+    try:
+        with open_model_config_store(context) as store:
+            config = store.save(
+                context,
+                provider=payload.provider,
+                model=payload.model,
+                base_url=payload.base_url,
+                api_key=payload.api_key.get_secret_value() if payload.api_key else None,
+                updated_at=utc_now(),
+            )
+    except WorkspaceNotProvisionedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Complete onboarding for this workspace before configuring a model",
+        ) from exc
+    return _config_view(config)
 
 
 @router.get("/model-config", response_model=ModelConfigView)
 async def get_model_config(context: TenantContext = Depends(tenant_context)) -> ModelConfigView:
     require_permission(context, Permission.ORGANIZATION_READ)
-    config = _model_configs.get((context.tenant_id, context.workspace_id))
+    with open_model_config_store(context) as store:
+        config = store.get(context, include_secret=False)
     if config is None:
         raise HTTPException(status_code=404, detail="Model configuration not found")
-    return config.view()
+    return _config_view(config)
 
 
 def _test_client_factory() -> httpx.AsyncClient | None:
@@ -428,7 +460,8 @@ async def test_model_config(
     context: TenantContext = Depends(tenant_context),
 ) -> ModelConnectionTest:
     require_permission(context, Permission.ORGANIZATION_MANAGE)
-    config = _model_configs.get((context.tenant_id, context.workspace_id))
+    with open_model_config_store(context) as store:
+        config = store.get(context)
     if config is None:
         raise HTTPException(status_code=404, detail="Model configuration not found")
     secret = config.api_key.get_secret_value() if config.api_key else None

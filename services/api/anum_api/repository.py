@@ -1,5 +1,6 @@
 from typing import Protocol
 
+from .audit import AuditRecord, DuplicateAuditRecordError
 from .schemas import (
     AgentRun,
     Approval,
@@ -8,6 +9,7 @@ from .schemas import (
     Tenant,
     TenantContext,
     Workspace,
+    WorkspaceInvitation,
     WorkspaceMembership,
 )
 from .store import InMemoryStore
@@ -20,6 +22,24 @@ class AnumRepository(Protocol):
     def get_workspace(self, workspace_id: str, context: TenantContext) -> Workspace | None: ...
     def save_membership(self, membership: WorkspaceMembership) -> WorkspaceMembership: ...
     def get_membership(self, context: TenantContext) -> WorkspaceMembership | None: ...
+    def workspace_has_members(self, context: TenantContext) -> bool: ...
+    def list_memberships(self, context: TenantContext) -> list[WorkspaceMembership]: ...
+    def get_member_for_update(
+        self, user_id: str, context: TenantContext
+    ) -> WorkspaceMembership | None: ...
+    def list_active_owners_for_update(
+        self, context: TenantContext
+    ) -> list[WorkspaceMembership]: ...
+    def save_invitation(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation: ...
+    def get_invitation_for_update(
+        self, invitation_id: str, context: TenantContext
+    ) -> WorkspaceInvitation | None: ...
+    def find_invitation_by_token_hash_for_update(
+        self, token_hash: str, context: TenantContext
+    ) -> WorkspaceInvitation | None: ...
+    def list_invitations(self, context: TenantContext) -> list[WorkspaceInvitation]: ...
+    def record_audit(self, record: AuditRecord) -> AuditRecord: ...
+    def list_audit_records(self, context: TenantContext) -> list[AuditRecord]: ...
     def create_task(self, task: Task) -> Task: ...
     def list_tasks(self, context: TenantContext) -> list[Task]: ...
     def save_task(self, task: Task) -> Task: ...
@@ -72,6 +92,109 @@ class InMemoryRepository:
     def get_membership(self, context: TenantContext) -> WorkspaceMembership | None:
         return self.store.memberships.get(
             (context.tenant_id, context.workspace_id, context.user_id)
+        )
+
+    def workspace_has_members(self, context: TenantContext) -> bool:
+        return any(
+            tenant_id == context.tenant_id and workspace_id == context.workspace_id
+            for tenant_id, workspace_id, _ in self.store.memberships
+        )
+
+    def list_memberships(self, context: TenantContext) -> list[WorkspaceMembership]:
+        return sorted(
+            (
+                membership
+                for (tenant_id, workspace_id, _), membership in self.store.memberships.items()
+                if tenant_id == context.tenant_id and workspace_id == context.workspace_id
+            ),
+            key=lambda membership: (membership.created_at, membership.user_id),
+        )
+
+    def get_member_for_update(
+        self, user_id: str, context: TenantContext
+    ) -> WorkspaceMembership | None:
+        return self.store.memberships.get((context.tenant_id, context.workspace_id, user_id))
+
+    def list_active_owners_for_update(
+        self, context: TenantContext
+    ) -> list[WorkspaceMembership]:
+        return [
+            membership
+            for membership in self.list_memberships(context)
+            if membership.active and membership.role == "owner"
+        ]
+
+    def save_invitation(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
+        existing = self.store.invitations.get(invitation.id)
+        if existing is not None and (
+            existing.tenant_id != invitation.tenant_id
+            or existing.workspace_id != invitation.workspace_id
+        ):
+            raise ValueError(f"Invitation {invitation.id!r} cannot be moved between scopes")
+        if any(
+            other.token_hash == invitation.token_hash and other.id != invitation.id
+            for other in self.store.invitations.values()
+        ):
+            raise ValueError("Invitation token collision")
+        self.store.invitations[invitation.id] = invitation.model_copy(deep=True)
+        return invitation
+
+    def _scoped_invitation(
+        self, invitation: WorkspaceInvitation | None, context: TenantContext
+    ) -> WorkspaceInvitation | None:
+        if invitation is None:
+            return None
+        if (
+            invitation.tenant_id != context.tenant_id
+            or invitation.workspace_id != context.workspace_id
+        ):
+            return None
+        return invitation.model_copy(deep=True)
+
+    def get_invitation_for_update(
+        self, invitation_id: str, context: TenantContext
+    ) -> WorkspaceInvitation | None:
+        return self._scoped_invitation(self.store.invitations.get(invitation_id), context)
+
+    def find_invitation_by_token_hash_for_update(
+        self, token_hash: str, context: TenantContext
+    ) -> WorkspaceInvitation | None:
+        match = next(
+            (
+                invitation
+                for invitation in self.store.invitations.values()
+                if invitation.token_hash == token_hash
+            ),
+            None,
+        )
+        return self._scoped_invitation(match, context)
+
+    def list_invitations(self, context: TenantContext) -> list[WorkspaceInvitation]:
+        scoped = (
+            self._scoped_invitation(invitation, context)
+            for invitation in self.store.invitations.values()
+        )
+        return sorted(
+            (invitation for invitation in scoped if invitation is not None),
+            key=lambda invitation: (invitation.created_at, invitation.id),
+            reverse=True,
+        )
+
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        if any(existing.id == record.id for existing in self.store.audit_records):
+            raise DuplicateAuditRecordError(f"audit record already exists: {record.id}")
+        self.store.audit_records.append(record)
+        return record
+
+    def list_audit_records(self, context: TenantContext) -> list[AuditRecord]:
+        return sorted(
+            (
+                record
+                for record in self.store.audit_records
+                if record.tenant_id == context.tenant_id
+                and record.workspace_id == context.workspace_id
+            ),
+            key=lambda record: (record.created_at, record.id),
         )
 
     def create_task(self, task: Task) -> Task:

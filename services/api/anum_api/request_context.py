@@ -5,8 +5,8 @@ from contextvars import ContextVar, Token
 from uuid import uuid4
 
 from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
@@ -41,18 +41,34 @@ def get_correlation_id(request: Request | None = None) -> str:
     return correlation_id
 
 
-class CorrelationIdMiddleware(BaseHTTPMiddleware):
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        correlation_id = correlation_id_from_request(request)
-        request.state.correlation_id = correlation_id
+class CorrelationIdMiddleware:
+    """Attach a correlation ID to the request context and the response headers.
+
+    A plain ASGI middleware, not ``BaseHTTPMiddleware``: that wrapper hides client
+    disconnects from ``request.is_disconnected()``, so long-lived streams such as
+    ``/api/v1/events/stream`` would never notice their client left and would run
+    (and block server shutdown) forever.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        incoming = Headers(scope=scope).get(CORRELATION_ID_HEADER)
+        correlation_id = incoming if is_valid_correlation_id(incoming) else new_correlation_id()
+        scope.setdefault("state", {})["correlation_id"] = correlation_id
+
+        async def send_with_correlation_id(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)[CORRELATION_ID_HEADER] = correlation_id
+            await send(message)
+
         token: Token[str | None] = _correlation_id.set(correlation_id)
         try:
-            response = await call_next(request)
-            response.headers[CORRELATION_ID_HEADER] = correlation_id
-            return response
+            await self.app(scope, receive, send_with_correlation_id)
         finally:
             _correlation_id.reset(token)

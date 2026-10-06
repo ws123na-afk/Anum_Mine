@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,10 +8,13 @@ from fastapi.responses import StreamingResponse
 
 from .authorization import Permission
 from .dependencies import (
+    event_runtime,
+    list_events_for_stream,
     memory_repository,
     memory_repository_context,
     repository_context,
     provisioning_repository_context,
+    provisioning_tenant_context,
     require_permission,
     tenant_context,
 )
@@ -27,10 +32,14 @@ from .memory import (
     MemoryService,
 )
 from .repository import AnumRepository
+from .realtime import live_event_source
 from .runtime import AgentRuntime
+from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
+from .valkey import CoordinationUnavailable, LockNotAcquired, build_run_lock_manager
 from .agent_tools import default_tool_registry
 from .schemas import (
     AgentRun,
+    AgentRunStep,
     Approval,
     ApprovalDecisionResponse,
     ApprovalStatus,
@@ -52,6 +61,7 @@ from .schemas import (
 from .settings import settings
 from .store import store
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
+from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
@@ -59,9 +69,31 @@ from .automation import router as automation_router
 from .files import router as files_router
 from .skills_api import router as skills_router
 from .onboarding import router as onboarding_router, workspace_model_gateway
+from .workspace_members import router as workspace_members_router
+from .identity import validate_auth_configuration
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+# Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
+validate_auth_configuration(settings)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await event_runtime.start()
+    try:
+        yield
+    finally:
+        await event_runtime.stop()
+
+
+enforce_startup_policy(settings)
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan, **docs_routes(settings))
 app.add_middleware(CorrelationIdMiddleware)
+install_hardening(
+    app,
+    settings,
+    upload_path_prefix=files_router.prefix,
+    upload_max_bytes=settings.max_upload_body_bytes,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -78,7 +110,7 @@ app.add_middleware(
         "idempotency-key",
         CORRELATION_ID_HEADER,
     ],
-    expose_headers=[CORRELATION_ID_HEADER],
+    expose_headers=[CORRELATION_ID_HEADER, "Retry-After"],
 )
 register_exception_handlers(app)
 app.include_router(voice_router)
@@ -88,6 +120,7 @@ app.include_router(automation_router)
 app.include_router(files_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
+app.include_router(workspace_members_router)
 repository = memory_repository
 model_gateway = build_model_gateway(
     settings.model_provider,
@@ -97,6 +130,43 @@ model_gateway = build_model_gateway(
 )
 integration_registry = default_integration_registry(settings)
 tool_registry = default_tool_registry(configured_external_handler(settings))
+# Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
+# with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
+run_locks = build_run_lock_manager(settings)
+run_dispatcher = build_run_dispatcher(settings)
+
+
+@asynccontextmanager
+async def _task_lock(context: TenantContext, task_id: str) -> AsyncIterator[None]:
+    """Hold the task's distributed run lock (a no-op unless ANUM_RUN_LOCK_BACKEND=valkey)."""
+    try:
+        lock = await run_locks.acquire(context, task_id)
+    except LockNotAcquired as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Task is being processed by another request",
+        ) from exc
+    except CoordinationUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Run coordination is unavailable",
+        ) from exc
+    try:
+        yield
+    finally:
+        await run_locks.release(lock)
+
+
+async def _dispatch(context: TenantContext, task_id: str, run_id: str) -> None:
+    if run_dispatcher is None:
+        raise RuntimeError("ANUM_RUNTIME_BACKEND is not temporal")
+    try:
+        await run_dispatcher.start(run_input_for(context, task_id, run_id))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The durable runtime is unavailable",
+        ) from exc
 
 
 @app.get("/health")
@@ -107,7 +177,7 @@ async def health() -> dict[str, str]:
 @app.post("/api/v1/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED)
 async def create_tenant(
     payload: TenantCreate,
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> Tenant:
     require_permission(context, Permission.TENANT_CREATE)
@@ -127,7 +197,7 @@ async def create_tenant(
 @app.post("/api/v1/workspaces", response_model=Workspace, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     payload: WorkspaceCreate,
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> Workspace:
     require_permission(context, Permission.WORKSPACE_CREATE)
@@ -151,12 +221,19 @@ async def create_workspace(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_current_membership(
-    context: TenantContext = Depends(tenant_context),
+    context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> WorkspaceMembership:
     require_permission(context, Permission.MEMBERSHIP_MANAGE)
     if repository.get_workspace(context.workspace_id, context) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+    if repository.get_membership(context) is None and repository.workspace_has_members(context):
+        # Self-service membership only bootstraps an empty workspace. Joining a
+        # workspace that already has members needs an existing owner to add you.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This workspace already has members. Ask a workspace owner to add you.",
+        )
     role = next((role for role in ("owner", "member", "viewer") if role in context.roles), "viewer")
     now = utc_now()
     return repository.save_membership(
@@ -285,15 +362,43 @@ async def run_task(
     repository: AnumRepository = Depends(repository_context),
 ) -> RunTaskResponse:
     require_permission(context, Permission.TASK_RUN)
-    task = _get_task_for_context(task_id, context, repository, for_update=True)
-    if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
+    async with _task_lock(context, task_id):
+        task = _get_task_for_context(task_id, context, repository, for_update=True)
+        if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
-    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
-    run, approval = await runtime.run_task(task, context)
+        runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        if run_dispatcher is not None:
+            return await _queue_durable_run(task, context, repository, runtime)
+        run, approval = await runtime.run_task(task, context)
+        repository.save_task(task)
+        repository.save_run(run)
+        return RunTaskResponse(task=task, run=run, approval=approval)
+
+
+async def _queue_durable_run(
+    task: Task, context: TenantContext, repository: AnumRepository, runtime: AgentRuntime
+) -> RunTaskResponse:
+    """Persist a queued run and start its Temporal workflow (ANUM_RUNTIME_BACKEND=temporal)."""
+    if repository.find_run_for_task(task.id, context) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task already has a run")
+    run = runtime.new_run(task, status=TaskStatus.QUEUED)
+    workflow_id = workflow_id_for(context.tenant_id, context.workspace_id, task.id)
+    run.steps.append(
+        AgentRunStep(
+            id=new_id("step"),
+            type="queued",
+            summary="Queued for a durable worker.",
+            created_at=utc_now(),
+            metadata={"workflow_id": workflow_id},
+        )
+    )
+    task.status = TaskStatus.QUEUED
+    task.updated_at = run.updated_at
     repository.save_task(task)
     repository.save_run(run)
-    return RunTaskResponse(task=task, run=run, approval=approval)
+    await _dispatch(context, task.id, run.id)
+    return RunTaskResponse(task=task, run=run, approval=None)
 
 
 @app.post("/api/v1/tasks/{task_id}/cancel", response_model=Task)
@@ -333,6 +438,8 @@ async def cancel_task(
             correlation_id=task.id,
         ).event
     )
+    if run_dispatcher is not None and run is not None:
+        await run_dispatcher.cancelled(context, task.id)
     return task
 
 
@@ -373,12 +480,19 @@ async def resume_agent_run(
     run = repository.get_run(run_id, context)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
-    task = _get_task_for_context(run.task_id, context, repository, for_update=True)
-    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
-    try:
-        resumed = await runtime.resume_run(task, run, context)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    async with _task_lock(context, run.task_id):
+        task = _get_task_for_context(run.task_id, context, repository, for_update=True)
+        run = repository.get_run(run_id, context) or run
+        runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        try:
+            if run_dispatcher is not None:
+                # The worker resumes from the same checkpoint; this only (re)starts its workflow.
+                runtime.check_resumable(task, run)
+                await _dispatch(context, task.id, run.id)
+                return RunTaskResponse(task=task, run=run, approval=None)
+            resumed = await runtime.resume_run(task, run, context)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     repository.save_task(task)
     repository.save_run(resumed)
     approval = (
@@ -408,12 +522,31 @@ async def stream_events(
     repository: AnumRepository = Depends(repository_context),
 ) -> StreamingResponse:
     require_permission(context, Permission.EVENT_READ)
+    sse_headers = {
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    if event_runtime.live:
+        return StreamingResponse(
+            live_event_source(
+                hub=event_runtime.hub,
+                context=context,
+                list_events=lambda: list_events_for_stream(context),
+                is_disconnected=request.is_disconnected,
+                task_id=task_id,
+                follow=follow,
+                last_event_id=last_event_id,
+            ),
+            media_type="text/event-stream",
+            headers=sse_headers,
+        )
 
     async def event_source():
         cursor = last_event_id
         idle_cycles = 0
         while not await request.is_disconnected():
-            events = repository.list_events(context)
+            events = list_events_for_stream(context)
             if task_id:
                 events = [
                     event
@@ -450,11 +583,7 @@ async def stream_events(
     return StreamingResponse(
         event_source(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=sse_headers,
     )
 
 
@@ -587,6 +716,19 @@ async def _decide_approval(
     approval = repository.get_approval(approval_id, context)
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
+    async with _task_lock(context, approval.task_id):
+        return await _decide_approval_locked(approval_id, decision, context, repository)
+
+
+async def _decide_approval_locked(
+    approval_id: str,
+    decision: ApprovalStatus,
+    context: TenantContext,
+    repository: AnumRepository,
+) -> ApprovalDecisionResponse:
+    approval = repository.get_approval(approval_id, context)
+    if not approval:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
     task = _get_task_for_context(
         approval.task_id,
         context,
@@ -613,6 +755,11 @@ async def _decide_approval(
             created_at=approval.decided_at,
         ).event
     )
+    if run_dispatcher is not None:
+        # The workflow applies the decision; a lost signal is caught by its next poll.
+        if run:
+            await run_dispatcher.approval_decided(context, task.id, approval.id)
+        return ApprovalDecisionResponse(approval=approval, task=task, run=run)
     runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)

@@ -133,7 +133,22 @@ class _SignInState extends State<SignInScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => _Page(
+  Widget build(BuildContext context) => widget.controller.oidcEnabled
+      ? _Page(
+          eyebrow: 'Welcome back',
+          title: 'Sign in to ANUM',
+          subtitle:
+              'Continue with your organization account. Sign-in opens in your browser and returns here.',
+          body:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            FilledButton.icon(
+                onPressed: widget.controller.signInWithOidc,
+                icon: const Icon(Icons.login),
+                label: const Text('Continue with organization account')),
+          ]))
+      : _localSignIn(context);
+
+  Widget _localSignIn(BuildContext context) => _Page(
       eyebrow: 'Welcome back',
       title: 'Sign in to ANUM',
       subtitle:

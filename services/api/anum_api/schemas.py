@@ -89,6 +89,33 @@ class WorkspaceMembership(BaseModel):
     updated_at: datetime
 
 
+class InvitationStatus(StrEnum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REVOKED = "revoked"
+    EXPIRED = "expired"  # derived for views; never stored
+
+
+class WorkspaceInvitation(BaseModel):
+    """A single-use invitation into one workspace. Only the token's SHA-256 hash is kept."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    role: str
+    invitee_user_id: str | None = None
+    invitee_email: str | None = None
+    token_hash: str
+    status: InvitationStatus = InvitationStatus.PENDING
+    created_by_user_id: str
+    expires_at: datetime
+    accepted_by_user_id: str | None = None
+    accepted_at: datetime | None = None
+    revoked_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     prompt: str = Field(min_length=1, max_length=8000)

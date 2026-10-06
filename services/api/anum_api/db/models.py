@@ -199,12 +199,27 @@ class DomainEventRecord(Base, TimestampMixin, TenantScopedMixin):
     payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
+    # Durable outbox state (migration 0007). The application never writes these; the
+    # outbox relay (anum_api.outbox_relay) marks rows through the anum_outbox_relay role.
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    publish_attempts: Mapped[int] = mapped_column(nullable=False, server_default="0")
+    publish_next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    publish_last_error: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
         ForeignKeyConstraint(
             ["tenant_id", "workspace_id"],
             ["workspaces.tenant_id", "workspaces.id"],
             name="fk_domain_events_workspace",
+        ),
+        Index(
+            "ix_domain_events_outbox_pending",
+            "publish_next_attempt_at",
+            "created_at",
+            "id",
+            postgresql_where=text("published_at is null"),
         ),
         Index(
             "ix_events_tenant_workspace_type_created",
@@ -250,4 +265,104 @@ class MemoryRecord(Base, TimestampMixin, TenantScopedMixin):
             name="ck_memories_source_task_workspace",
         ),
         Index("ix_memories_tenant_workspace", "tenant_id", "workspace_id"),
+    )
+
+
+class WorkspaceModelConfigRecord(Base, TimestampMixin, WorkspaceScopedMixin):
+    """The model a workspace chose in Settings.
+
+    The provider API key is stored only as Fernet ciphertext (``anum_api.secret_box``).
+    ``credential_hint`` holds the last four characters the API already shows, so reads
+    that only display the configuration never decrypt the key.
+    """
+
+    __tablename__ = "workspace_model_configs"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    api_key_ciphertext: Mapped[str | None] = mapped_column(Text)
+    credential_hint: Mapped[str | None] = mapped_column(String(16))
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(120))
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id"],
+            ["workspaces.tenant_id", "workspaces.id"],
+            name="fk_workspace_model_configs_workspace",
+        ),
+        CheckConstraint(
+            "provider in ('mock', 'openai_compatible', 'ollama')",
+            name="ck_workspace_model_configs_provider",
+        ),
+        CheckConstraint(
+            "provider <> 'openai_compatible' or api_key_ciphertext is not null",
+            name="ck_workspace_model_configs_credential",
+        ),
+    )
+
+
+class WorkspaceInvitationRecord(Base, TimestampMixin, WorkspaceScopedMixin):
+    """Single-use workspace invitation. Only the SHA-256 hash of the token is stored."""
+
+    __tablename__ = "workspace_invitations"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    role: Mapped[str] = mapped_column(String(40), nullable=False)
+    invitee_user_id: Mapped[str | None] = mapped_column(String(120))
+    invitee_email: Mapped[str | None] = mapped_column(String(320))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
+    created_by_user_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_by_user_id: Mapped[str | None] = mapped_column(String(120))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id"],
+            ["workspaces.tenant_id", "workspaces.id"],
+            name="fk_workspace_invitations_workspace",
+        ),
+        CheckConstraint(
+            "role in ('owner', 'member', 'viewer')", name="ck_workspace_invitations_role"
+        ),
+        CheckConstraint(
+            "status in ('pending', 'accepted', 'revoked')",
+            name="ck_workspace_invitations_status",
+        ),
+        CheckConstraint(
+            "invitee_user_id is not null or invitee_email is not null",
+            name="ck_workspace_invitations_invitee",
+        ),
+        Index("ix_workspace_invitations_scope_status", "tenant_id", "workspace_id", "status"),
+    )
+
+
+class AuditRecordRow(Base, WorkspaceScopedMixin):
+    """Append-only audit history: RLS allows select and insert only."""
+
+    __tablename__ = "audit_records"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    actor: Mapped[str] = mapped_column(String(160), nullable=False)
+    action: Mapped[str] = mapped_column(String(160), nullable=False)
+    target: Mapped[str] = mapped_column(String(200), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(40), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    record_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id"],
+            ["workspaces.tenant_id", "workspaces.id"],
+            name="fk_audit_records_workspace",
+        ),
+        Index("ix_audit_records_scope_created", "tenant_id", "workspace_id", "created_at"),
     )

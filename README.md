@@ -16,7 +16,7 @@ Phase 0 documentation is complete. Phase 1 has started with an executable founda
 - Local infrastructure composition under `infra/docker`.
 - GitHub Actions CI for web/contracts, API tests, and Docker Compose validation.
 
-The backend supports in-memory development storage and request-scoped PostgreSQL persistence with row-level tenant isolation for task, runtime, approval, event, and memory flows. Stub tenant and role headers remain in place until Keycloak/OIDC membership validation is wired; Temporal and NATS are also still future boundaries.
+The backend supports in-memory development storage and request-scoped PostgreSQL persistence with row-level tenant isolation for task, runtime, approval, event, and memory flows. `ANUM_AUTH_MODE=oidc` validates Keycloak tokens against persisted workspace memberships; stub tenant and role headers remain only for local/test environments. Committed canonical events can be published to NATS JetStream (`ANUM_EVENT_BUS=nats`) to drive the realtime status stream; Temporal is still a future boundary.
 
 ## Target Stack
 
@@ -64,9 +64,9 @@ flutter pub get
 flutter run --dart-define=ANUM_API_URL=http://10.0.2.2:8000/
 ```
 
-## Tenant Headers for Phase 1
+## Authentication
 
-Until OIDC is implemented, API routes require explicit development headers:
+With `ANUM_AUTH_MODE=oidc` the API validates Keycloak access tokens (realm as code in `infra/keycloak/anum-realm.json`) and resolves the workspace membership; see [Identity and sign-in](docs/identity.md). The web and desktop clients sign in through Keycloak when built with `VITE_ANUM_OIDC_ISSUER` (see `apps/web/.env.example`), and the Flutter app with `--dart-define=ANUM_OIDC_ISSUER`; without them they keep the local development session. For local development only (`ANUM_ENVIRONMENT=local` or `test`), the default `ANUM_AUTH_MODE=headers` accepts explicit development headers or `anum_local_*` sessions; the API refuses to start in header mode anywhere else:
 
 ```text
 x-tenant-id: tenant_local
@@ -81,6 +81,7 @@ x-user-roles: owner,member
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Security](docs/security.md)
+- [Identity and sign-in](docs/identity.md)
 - [Multi-tenancy](docs/multi-tenancy.md)
 - [Agent runtime](docs/agent-runtime.md)
 - [Model gateway](docs/model-gateway.md)

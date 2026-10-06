@@ -87,12 +87,174 @@ jobs:
       - name: Run database tests
         run: python -m pytest services/api -m database
 
+  integration:
+    name: API integration (Valkey, S3, Temporal, NATS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/pyproject.toml
+      - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
+      - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      - name: Start Valkey, S3 storage and NATS
+        run: |
+          docker compose -f infra/docker/compose.yaml up -d valkey s3 nats
+          for attempt in $(seq 1 60); do
+            if docker compose -f infra/docker/compose.yaml exec -T valkey valkey-cli ping | grep -q PONG \
+              && curl -fsS http://127.0.0.1:9000/healthz \
+              && curl -fsS "http://127.0.0.1:8222/healthz?js-enabled-only=true"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Valkey, S3 storage or NATS did not become ready"
+          exit 1
+      - name: Run integration-marked tests (none may be skipped)
+        working-directory: services/api
+        env:
+          ANUM_TEST_VALKEY_URL: redis://127.0.0.1:6379/15
+          ANUM_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          ANUM_TEST_NATS_URL: nats://127.0.0.1:4222
+          # Temporal tests start a real dev server through the SDK (downloaded on first use).
+        run: |
+          set -o pipefail
+          python -m pytest -m "(valkey or s3 or temporal or nats) and not database" -rs | tee integration.log
+          if grep -q "SKIPPED" integration.log; then
+            echo "::error::Integration tests were skipped; every adapter must be exercised in CI"
+            exit 1
+          fi
+      - name: Service logs
+        if: failure()
+        run: docker compose -f infra/docker/compose.yaml logs --no-color
+
+  journey:
+    name: Authenticated journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      JOURNEY_API_LOG: ${{ github.workspace }}/anum-journey-api.log
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/pyproject.toml
+      - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
+      - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      - name: Sign in through Keycloak, run and approve a task, verify SSE, NATS and PostgreSQL
+        # Starts postgres, nats and keycloak from infra/docker/compose.yaml, migrates,
+        # runs the API with ANUM_AUTH_MODE=oidc, ANUM_REPOSITORY_BACKEND=postgresql and
+        # ANUM_EVENT_BUS=nats as a non-superuser role, then runs scripts/journey.py.
+        run: bash services/api/scripts/run_journey.sh
+      - name: Service logs
+        if: failure()
+        run: |
+          docker compose -f infra/docker/compose.yaml ps || true
+          docker compose -f infra/docker/compose.yaml logs --no-color --tail 200 postgres nats keycloak || true
+          cat "$JOURNEY_API_LOG" || true
+
   compose:
     name: Docker Compose config
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: docker compose -f infra/docker/compose.yaml config
+      - run: docker compose -f infra/docker/compose.yaml --profile app config
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install Python scanners
+        run: python -m pip install --disable-pip-version-check "pip-audit==2.10.1" "bandit==1.9.4"
+      - name: Python dependency audit (pip-audit)
+        run: pip-audit --strict services/api
+      - name: Node production dependency audit (pnpm audit)
+        # High and critical advisories fail the job. docs/security.md lists the one
+        # moderate advisory that has no patched release.
+        run: pnpm audit --prod --audit-level high
+      - name: Python SAST (bandit)
+        run: bandit -r services/api/anum_api services/api/migrations
+      - name: Secret scan (gitleaks)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          # Whole history of the commit under test; --log-opts keeps other branches out.
+          "$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --log-opts="HEAD" --redact --no-banner --exit-code 1 .
+
+  images:
+    name: Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build API image
+        run: docker build -t anum-api:ci services/api
+      - name: Build web image
+        run: docker build -f apps/web/Dockerfile -t anum-web:ci .
+      - name: API image refuses development defaults outside local
+        run: |
+          # Each startup guard is checked on its own: a missing secrets key, header
+          # auth outside local, then the compose development defaults.
+          refuses() {
+            local expected="$1"; shift
+            set +e
+            timeout 60 docker run --rm --name api-defaults "$@" anum-api:ci > refused.log 2>&1
+            local status=$?
+            set -e
+            cat refused.log
+            if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+              echo "::error::API image did not refuse to start ($expected expected)"
+              docker rm -f api-defaults || true
+              exit 1
+            fi
+            grep -q "$expected" refused.log
+          }
+          key="$(openssl rand -base64 32 | tr '+/' '-_')"
+          refuses "ANUM_SECRETS_KEY is required"
+          refuses AuthConfigurationError -e ANUM_SECRETS_KEY="$key"
+          refuses InsecureConfigurationError -e ANUM_SECRETS_KEY="$key" -e ANUM_AUTH_MODE=oidc
+      - name: Smoke test images
+        run: |
+          docker run -d --name api -e ANUM_ENVIRONMENT=local -p 8000:8000 anum-api:ci
+          docker run -d --name web -p 8080:8080 anum-web:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health && curl -fsS http://127.0.0.1:8080/healthz; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          test "$(docker exec api id -u)" != "0"
+          test "$(docker exec web id -u)" != "0"
+          curl -fsS -D - -o /dev/null http://127.0.0.1:8000/health | grep -i '^content-security-policy:'
+          curl -fsS -D - -o /dev/null http://127.0.0.1:8080/ | grep -i '^content-security-policy:'
+      - name: Container logs
+        if: always()
+        run: |
+          docker logs api || true
+          docker logs web || true
 
   desktop:
     name: Tauri desktop

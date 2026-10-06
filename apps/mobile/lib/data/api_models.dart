@@ -28,12 +28,19 @@ class TenantContext {
       };
 }
 
+/// How a session was established. `local` sessions come from the development
+/// `/api/v1/auth/local/*` endpoints; `oidc` sessions hold Keycloak tokens.
+enum SessionSource { local, oidc }
+
 class LocalSession {
   const LocalSession({
     required this.accessToken,
     required this.tokenType,
     required this.expiresAt,
     required this.context,
+    this.source = SessionSource.local,
+    this.refreshToken,
+    this.idToken,
   });
 
   factory LocalSession.fromJson(JsonMap json) => LocalSession(
@@ -41,20 +48,54 @@ class LocalSession {
         tokenType: json['token_type']! as String,
         expiresAt: DateTime.parse(json['expires_at']! as String).toUtc(),
         context: TenantContext.fromJson(json['context']! as JsonMap),
+        source: json['source'] == SessionSource.oidc.name
+            ? SessionSource.oidc
+            : SessionSource.local,
+        refreshToken: json['refresh_token'] as String?,
+        idToken: json['id_token'] as String?,
       );
 
   final String accessToken;
   final String tokenType;
   final DateTime expiresAt;
   final TenantContext context;
+  final SessionSource source;
+
+  /// OIDC only. Kept with the session in platform secure storage.
+  final String? refreshToken;
+
+  /// OIDC only. Sent as `id_token_hint` when ending the provider session.
+  final String? idToken;
+
+  bool get isOidc => source == SessionSource.oidc;
 
   bool get isExpired => !expiresAt.isAfter(DateTime.now().toUtc());
+
+  LocalSession copyWith({
+    String? accessToken,
+    DateTime? expiresAt,
+    TenantContext? context,
+    String? refreshToken,
+    String? idToken,
+  }) =>
+      LocalSession(
+        accessToken: accessToken ?? this.accessToken,
+        tokenType: tokenType,
+        expiresAt: expiresAt ?? this.expiresAt,
+        context: context ?? this.context,
+        source: source,
+        refreshToken: refreshToken ?? this.refreshToken,
+        idToken: idToken ?? this.idToken,
+      );
 
   JsonMap toJson() => {
         'access_token': accessToken,
         'token_type': tokenType,
         'expires_at': expiresAt.toIso8601String(),
         'context': context.toJson(),
+        'source': source.name,
+        if (refreshToken != null) 'refresh_token': refreshToken,
+        if (idToken != null) 'id_token': idToken,
       };
 }
 
