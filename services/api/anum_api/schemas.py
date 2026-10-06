@@ -1,9 +1,10 @@
+import re
 from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TaskStatus(StrEnum):
@@ -130,6 +131,8 @@ class Task(BaseModel):
     workspace_id: str
     created_at: datetime
     updated_at: datetime
+    # User id of whoever created the task (the two-person rule refuses their approval).
+    created_by: str | None = None
 
 
 class AgentRunStep(BaseModel):
@@ -168,7 +171,10 @@ class Approval(BaseModel):
     the SHA-256 of the canonical, unredacted tool call bound to its task, run and
     proposal step; approving requires sending it back, and the runtime executes only
     if the checkpointed call still hashes to it. Pending approvals lapse at
-    ``expires_at``. ``decided_by`` is the user id of whoever approved or rejected.
+    ``expires_at``. ``decided_by`` is the user id of whoever approved or rejected and
+    ``decision_reason`` the optional reason they gave. ``requested_by`` is the user whose
+    run proposed the call; ``target`` is the configured integration host the tool will
+    contact (host only), or null for internal tools.
     """
 
     id: str
@@ -185,12 +191,70 @@ class Approval(BaseModel):
     payload_hash: str | None = None
     expires_at: datetime | None = None
     decided_by: str | None = None
+    decision_reason: str | None = None
+    requested_by: str | None = None
+    target: str | None = None
+
+
+DECISION_REASON_MAX_CHARS = 500
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u2028\u2029]")
+
+
+def _normalize_reason(value: str | None) -> str | None:
+    """Trim the optional decision reason; blank is no reason. Control characters
+    (other than tab and newline) are refused so a reason cannot forge log lines."""
+    if value is None:
+        return None
+    value = value.replace("\r\n", "\n")
+    if _CONTROL_CHARACTERS.search(value):
+        raise ValueError("reason must not contain control characters")
+    value = value.strip()
+    return value or None
 
 
 class ApprovalDecisionRequest(BaseModel):
-    """The approval's ``payload_hash`` exactly as the client displayed it."""
+    """The approval's ``payload_hash`` exactly as the client displayed it, and an
+    optional reason for the decision (docs/approvals-and-risk.md, A4)."""
 
     payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: str | None = Field(default=None, max_length=DECISION_REASON_MAX_CHARS)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str | None) -> str | None:
+        return _normalize_reason(value)
+
+
+class ApprovalRejectRequest(BaseModel):
+    """Rejecting may send the displayed hash (it must then match) and a reason."""
+
+    payload_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    reason: str | None = Field(default=None, max_length=DECISION_REASON_MAX_CHARS)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str | None) -> str | None:
+        return _normalize_reason(value)
+
+
+class WorkspaceApprovalPolicy(BaseModel):
+    """Per-workspace approval policy (docs/approvals-and-risk.md, A5 and A6).
+
+    ``two_person_rule``: a high-risk approval cannot be approved by the user who
+    created the task or started the run; another owner must approve it.
+    ``medium_risk_requires_approval``: medium-risk tools pause for approval too.
+    Both default to off. Only owners may change them; every change is audited.
+    """
+
+    two_person_rule: bool = False
+    medium_risk_requires_approval: bool = False
+    updated_by: str | None = None
+    updated_at: datetime | None = None
+
+
+class WorkspaceApprovalPolicyUpdate(BaseModel):
+    two_person_rule: bool
+    medium_risk_requires_approval: bool
 
 
 class DomainEvent(BaseModel):

@@ -60,7 +60,10 @@ class WorkspaceApproval {
       this.payloadHash,
       this.expiresAt,
       this.decidedAt,
-      this.decidedBy});
+      this.decidedBy,
+      this.decisionReason,
+      this.requestedBy,
+      this.target});
 
   /// [action] is the exact tool the agent will call and [arguments] the exact
   /// arguments it will send (secret-looking values arrive as `[REDACTED]`).
@@ -73,8 +76,16 @@ class WorkspaceApproval {
   final String? payloadHash;
   final DateTime? expiresAt, decidedAt;
 
-  /// User id of whoever approved or rejected.
-  final String? decidedBy;
+  /// User id of whoever approved or rejected, and the optional reason given.
+  final String? decidedBy, decisionReason;
+
+  /// User whose run proposed the call; under the workspace two-person rule
+  /// they cannot approve it themselves.
+  final String? requestedBy;
+
+  /// Configured integration host the tool will contact (host only), or null
+  /// for internal tools.
+  final String? target;
 
   /// A pending approval past [expiresAt] reads as expired.
   String effectiveStatus([DateTime? now]) => status == 'pending' &&
@@ -86,6 +97,27 @@ class WorkspaceApproval {
   /// Approve is offered only while pending, unexpired and bound to a hash.
   bool canApprove([DateTime? now]) =>
       effectiveStatus(now) == 'pending' && payloadHash != null;
+}
+
+/// Longest decision reason the API accepts.
+const approvalReasonMaxChars = 500;
+
+/// A typed reason as sent: trimmed, blank means none.
+String? normalizeReason(String? reason) {
+  final trimmed = (reason ?? '').replaceAll('\r\n', '\n').trim();
+  if (trimmed.isEmpty) return null;
+  return trimmed.length > approvalReasonMaxChars
+      ? trimmed.substring(0, approvalReasonMaxChars)
+      : trimmed;
+}
+
+/// The decision body: the displayed payload hash and the optional reason.
+Map<String, Object?> decisionBody(WorkspaceApproval approval, String? reason) {
+  final normalized = normalizeReason(reason);
+  return {
+    if (approval.payloadHash != null) 'payload_hash': approval.payloadHash,
+    if (normalized != null) 'reason': normalized,
+  };
 }
 
 /// One readable line of an approval's arguments: a dotted key and its value.

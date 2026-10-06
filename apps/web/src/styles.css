@@ -390,6 +390,14 @@ option { background: #141a2e; color: var(--d-text); }
 .approvalHash, .approvalMeta { align-items: center; color: var(--d-faint); display: flex; flex-wrap: wrap; font-size: 12px; gap: 4px; margin-top: 4px; }
 .approvalHash code { color: var(--d-muted); }
 .approvalWarning { color: var(--d-stop); font-size: 12px; margin-top: 6px; }
+.approvalTarget { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 4px; margin-top: 2px; }
+.approvalTarget code { color: var(--d-text); }
+.approvalReasonField { display: grid; gap: 4px; margin-top: 10px; }
+.approvalReasonField span { color: var(--d-faint); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.approvalReasonField textarea { background: transparent; border: 1px solid var(--d-line); border-radius: 8px; color: var(--d-text); font: inherit; font-size: 13px; padding: 7px 10px; resize: vertical; width: 100%; }
+.approvalReasonField small { color: var(--d-faint); font-size: 11px; justify-self: end; }
+.approvalReason { color: var(--d-text); font-size: 13px; margin: 8px 0 0; white-space: pre-wrap; }
+.approvalReason span { color: var(--d-faint); font-size: 11px; font-weight: 700; letter-spacing: .06em; margin-right: 6px; text-transform: uppercase; }
 .approvalHistory { margin-top: 18px; }
 .approvalHistoryRow { border-top: 1px solid var(--d-line); margin-top: 10px; padding-top: 10px; }
 .approvalHistoryRow summary { align-items: center; cursor: pointer; display: flex; flex-wrap: wrap; gap: 10px; }

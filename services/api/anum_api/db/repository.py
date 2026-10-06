@@ -19,8 +19,10 @@ from anum_api.schemas import (
     InvitationStatus,
     TenantContext,
     Workspace,
+    WorkspaceApprovalPolicy,
     WorkspaceInvitation,
     WorkspaceMembership,
+    utc_now,
 )
 
 from .models import (
@@ -31,6 +33,7 @@ from .models import (
     DomainEventRecord,
     TaskRecord,
     Tenant as TenantRecord,
+    WorkspaceApprovalPolicyRecord,
     Workspace as WorkspaceRecord,
     WorkspaceInvitationRecord,
     WorkspaceMembershipRecord,
@@ -303,11 +306,14 @@ class SqlAlchemyRepository(AnumRepository):
                 id=task.id,
                 tenant_id=task.tenant_id,
                 workspace_id=task.workspace_id,
-                created_by_user_id=self.created_by_user_id,
+                created_by_user_id=task.created_by or self.created_by_user_id,
             )
             self.session.add(record)
         elif record.tenant_id != task.tenant_id or record.workspace_id != task.workspace_id:
             raise ValueError(f"Task {task.id!r} cannot be moved between tenant scopes")
+        # The creator is fixed at insert; tell the caller who it is (two-person rule).
+        if task.created_by is None:
+            task.created_by = record.created_by_user_id
 
         record.title = task.title
         record.prompt = task.prompt
@@ -446,6 +452,9 @@ class SqlAlchemyRepository(AnumRepository):
         record.payload_hash = approval.payload_hash
         record.expires_at = approval.expires_at
         record.decided_by = approval.decided_by
+        record.decision_reason = approval.decision_reason
+        record.requested_by = approval.requested_by
+        record.target = approval.target
         self.session.flush()
         return self._approval_from_record(record)
 
@@ -540,6 +549,45 @@ class SqlAlchemyRepository(AnumRepository):
         self.session.flush()
         return self._event_from_record(record)
 
+    def get_approval_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy:
+        record = self.session.scalar(
+            select(WorkspaceApprovalPolicyRecord).where(
+                WorkspaceApprovalPolicyRecord.tenant_id == context.tenant_id,
+                WorkspaceApprovalPolicyRecord.workspace_id == context.workspace_id,
+            )
+        )
+        if record is None:
+            return WorkspaceApprovalPolicy()
+        return WorkspaceApprovalPolicy(
+            two_person_rule=record.two_person_rule,
+            medium_risk_requires_approval=record.medium_risk_requires_approval,
+            updated_by=record.updated_by,
+            updated_at=record.updated_at,
+        )
+
+    def save_approval_policy(
+        self, policy: WorkspaceApprovalPolicy, context: TenantContext
+    ) -> WorkspaceApprovalPolicy:
+        record = self.session.scalar(
+            select(WorkspaceApprovalPolicyRecord)
+            .where(
+                WorkspaceApprovalPolicyRecord.tenant_id == context.tenant_id,
+                WorkspaceApprovalPolicyRecord.workspace_id == context.workspace_id,
+            )
+            .with_for_update()
+        )
+        if record is None:
+            record = WorkspaceApprovalPolicyRecord(
+                tenant_id=context.tenant_id, workspace_id=context.workspace_id
+            )
+            self.session.add(record)
+        record.two_person_rule = policy.two_person_rule
+        record.medium_risk_requires_approval = policy.medium_risk_requires_approval
+        record.updated_by = policy.updated_by or context.user_id
+        record.updated_at = policy.updated_at or utc_now()
+        self.session.flush()
+        return self.get_approval_policy(context)
+
     def _sync_steps(
         self,
         run_record: AgentRunRecord,
@@ -621,6 +669,7 @@ class SqlAlchemyRepository(AnumRepository):
             workspace_id=record.workspace_id,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            created_by=record.created_by_user_id,
         )
 
     @staticmethod
@@ -702,6 +751,9 @@ class SqlAlchemyRepository(AnumRepository):
             payload_hash=record.payload_hash,
             expires_at=record.expires_at,
             decided_by=record.decided_by,
+            decision_reason=record.decision_reason,
+            requested_by=record.requested_by,
+            target=record.target,
         )
 
     @staticmethod

@@ -51,8 +51,9 @@ class WorkspaceController extends ChangeNotifier {
   Future<WorkspaceTask?> resumeTask(String id) =>
       _mutate(() => repository.resumeTask(id));
   Future<void> decide(WorkspaceApproval approval,
-      {required bool approve}) async {
-    await _mutate(() => repository.decideApproval(approval, approve: approve));
+      {required bool approve, String? reason}) async {
+    await _mutate(() =>
+        repository.decideApproval(approval, approve: approve, reason: reason));
   }
 
   Future<void> startAutomation(String id) async {

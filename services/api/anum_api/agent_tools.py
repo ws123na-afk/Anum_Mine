@@ -1,10 +1,12 @@
+import json
 from collections.abc import Awaitable, Callable, Iterable
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .schemas import RiskLevel, TenantContext
+from .prompt_provenance import Provenance, label_untrusted
+from .schemas import RiskLevel, TenantContext, WorkspaceApprovalPolicy
 
 
 class ToolDefinition(BaseModel):
@@ -14,6 +16,9 @@ class ToolDefinition(BaseModel):
     required_roles: frozenset[str] = Field(default_factory=frozenset)
     timeout_seconds: int = Field(default=30, ge=1, le=300)
     idempotent: bool = False
+    # The configured integration target (host only: no scheme, credentials, port,
+    # path or query), shown on approvals (threat model G2). None for internal tools.
+    target: str | None = None
 
 
 class ToolCall(BaseModel):
@@ -22,9 +27,16 @@ class ToolCall(BaseModel):
 
 
 class ToolResult(BaseModel):
+    """What a tool returned. ``output`` is untrusted data (threat model G3).
+
+    ``truncated`` is true when the integration's response body exceeded
+    ``ANUM_TOOL_RESPONSE_MAX_BYTES`` and only its first bytes were kept.
+    """
+
     status: str
     summary: str
     output: dict[str, Any] = Field(default_factory=dict)
+    truncated: bool = False
 
 
 class ToolPolicyOutcome(StrEnum):
@@ -76,6 +88,7 @@ class ToolPolicy:
         call: ToolCall,
         definition: ToolDefinition | None,
         context: TenantContext,
+        workspace_policy: WorkspaceApprovalPolicy | None = None,
     ) -> ToolPolicyDecision:
         if definition is None:
             return ToolPolicyDecision(
@@ -108,6 +121,16 @@ class ToolPolicy:
                 reason="External or high-impact actions require explicit approval.",
                 risk_level=definition.risk_level,
             )
+        if (
+            definition.risk_level == RiskLevel.MEDIUM
+            and workspace_policy is not None
+            and workspace_policy.medium_risk_requires_approval
+        ):
+            return ToolPolicyDecision(
+                outcome=ToolPolicyOutcome.REQUIRE_APPROVAL,
+                reason="This workspace requires approval for medium-risk actions.",
+                risk_level=definition.risk_level,
+            )
         return ToolPolicyDecision(
             outcome=ToolPolicyOutcome.ALLOW,
             reason="The tool is low risk and within the actor's scope.",
@@ -133,6 +156,39 @@ async def _external_action(call: ToolCall, _: TenantContext) -> ToolResult:
     )
 
 
+# Characters of tool output placed into a prompt; the stored body is already capped in bytes.
+TOOL_OUTPUT_PROMPT_MAX_CHARS = 16_000
+
+
+def tool_output_prompt_block(
+    call: ToolCall,
+    result: ToolResult,
+    *,
+    target: str | None = None,
+    max_chars: int = TOOL_OUTPUT_PROMPT_MAX_CHARS,
+) -> str:
+    """The tool's output as an untrusted, provenance-labeled prompt block.
+
+    Every place that feeds tool output back into a model prompt (multi-step runs)
+    must go through this, together with ``prompt_provenance.UNTRUSTED_DATA_RULES``.
+    The output is serialized as JSON so nothing in it is mistaken for prompt text.
+    """
+    serialized = json.dumps(
+        {"status": result.status, "summary": result.summary, "output": result.output},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    origin = f"{call.name}@{target}" if target else call.name
+    return label_untrusted(
+        serialized,
+        source=Provenance.TOOL_OUTPUT,
+        origin=origin,
+        truncated=result.truncated,
+        max_chars=max_chars,
+    )
+
+
 def default_tool_registry(external_handler: ToolHandler | None = None) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(
@@ -150,6 +206,7 @@ def default_tool_registry(external_handler: ToolHandler | None = None) -> ToolRe
             description="Perform a mock external action after explicit approval.",
             risk_level=RiskLevel.HIGH,
             required_roles=frozenset({"owner", "member"}),
+            target=getattr(external_handler, "target_host", None),
         ),
         external_handler or _external_action,
     )

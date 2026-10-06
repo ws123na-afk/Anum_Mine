@@ -1,11 +1,11 @@
-// Approvals: the exact tool call, why it stopped, when it lapses, and who decided.
-// See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
-import type { ReactNode } from 'react';
-import { CheckCircle2, Clock, Fingerprint, ShieldCheck, XCircle } from 'lucide-react';
+// Approvals: the exact tool call, where it goes, why it stopped, when it lapses, and who decided
+// and why. See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
+import { useId, useState, type ReactNode } from 'react';
+import { CheckCircle2, Clock, Fingerprint, Globe, ShieldCheck, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
-import { argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, shortHash } from './lib/approvals';
+import { REASON_MAX_CHARS, argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, normalizeReason, shortHash } from './lib/approvals';
 
-type Decide = (approval: Approval, decision: 'approve' | 'reject') => void;
+type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: string) => void;
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -45,6 +45,8 @@ export function ApprovalsView({ items, busy, decide, metric, empty }: {
                 <strong>{a.action}</strong>
                 <small>{decisionSummary(a, formatDate, now)}</small>
               </summary>
+              {a.decisionReason && <p className="approvalReason"><span>Reason</span> {a.decisionReason}</p>}
+              <TargetLine approval={a} />
               <ArgumentList approval={a} />
               <HashLine approval={a} />
             </details>
@@ -58,12 +60,16 @@ export function ApprovalsView({ items, busy, decide, metric, empty }: {
 function PendingApproval({ approval, busy, decide, now }: { approval: Approval; busy: boolean; decide: Decide; now: Date }) {
   const approvable = canApprove(approval, now);
   const expiry = expiryLabel(approval, now);
+  const [reason, setReason] = useState('');
+  const reasonId = useId();
+  const typed = normalizeReason(reason);
   return (
     <article className="approvalDetail" aria-label={`Approval for ${approval.action}`}>
       <div className="approvalIcon"><ShieldCheck /></div>
       <div className="approvalBody">
         <h3>The agent wants to call <code>{approval.action}</code></h3>
         <p>{approval.reason}</p>
+        <TargetLine approval={approval} />
         <p className="approvalSubhead">Exactly what it will send</p>
         <ArgumentList approval={approval} />
         <HashLine approval={approval} />
@@ -72,10 +78,22 @@ function PendingApproval({ approval, busy, decide, now }: { approval: Approval; 
           {expiry && <> · <Clock aria-hidden size={12} /> {expiry}</>}
         </small>
         {!approval.payloadHash && <p className="approvalWarning">This approval is not bound to a payload hash and cannot be approved. Run the task again.</p>}
+        <label className="approvalReasonField" htmlFor={reasonId}>
+          <span>Reason (optional)</span>
+          <textarea
+            id={reasonId}
+            value={reason}
+            maxLength={REASON_MAX_CHARS}
+            rows={2}
+            placeholder="Why you approve or reject this; kept in the audit trail"
+            onChange={(event) => setReason(event.target.value)}
+          />
+          <small>{reason.length}/{REASON_MAX_CHARS}</small>
+        </label>
       </div>
       <div className="approvalActions">
-        <button disabled={busy || !approvable} onClick={() => decide(approval, 'approve')}><CheckCircle2 />Approve</button>
-        <button className="danger" disabled={busy} onClick={() => decide(approval, 'reject')}><XCircle />Reject</button>
+        <button disabled={busy || !approvable} onClick={() => decide(approval, 'approve', typed)}><CheckCircle2 />Approve</button>
+        <button className="danger" disabled={busy} onClick={() => decide(approval, 'reject', typed)}><XCircle />Reject</button>
       </div>
     </article>
   );
@@ -95,6 +113,15 @@ function ArgumentList({ approval }: { approval: Approval }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+function TargetLine({ approval }: { approval: Approval }) {
+  if (!approval.target) return null;
+  return (
+    <small className="approvalTarget">
+      <Globe aria-hidden size={12} /> Sends to <code>{approval.target}</code>
+    </small>
   );
 }
 

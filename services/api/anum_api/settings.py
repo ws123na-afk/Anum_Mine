@@ -105,6 +105,9 @@ class Settings(BaseSettings):
     s3_create_bucket: bool = False
     external_webhook_url: str | None = None
     external_webhook_api_key: str | None = None
+    # Integration tool responses (REST and MCP) are read up to this many bytes; the rest
+    # is dropped and the result is marked truncated (threat model T7/G3).
+    tool_response_max_bytes: int = Field(default=256 * 1024, ge=1024, le=16 * 1024 * 1024)
     # Automation (docs/automation.md): workflows, schedules and runs live in this SQLite
     # file with ANUM_REPOSITORY_BACKEND=memory and in PostgreSQL with postgresql.
     automation_database_path: str = ".anum/automation.db"

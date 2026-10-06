@@ -5,8 +5,10 @@ from .agent_skills import SkillRegistry, default_skill_registry
 from .agent_tools import (
     ToolCall,
     ToolPolicy,
+    ToolPolicyDecision,
     ToolPolicyOutcome,
     ToolRegistry,
+    ToolResult,
     default_tool_registry,
 )
 from .approval_integrity import display_arguments, is_expired, payload_hash
@@ -19,11 +21,11 @@ from .schemas import (
     AgentRunStep,
     Approval,
     ApprovalStatus,
-    RiskLevel,
     RunPhase,
     Task,
     TaskStatus,
     TenantContext,
+    WorkspaceApprovalPolicy,
     new_id,
     utc_now,
 )
@@ -62,6 +64,16 @@ class AgentRuntime:
             updated_at=now,
         )
 
+    def workspace_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy:
+        """The workspace's approval policy (defaults when none is stored)."""
+        return self.repository.get_approval_policy(context)
+
+    def evaluate(self, call: ToolCall, context: TenantContext) -> ToolPolicyDecision:
+        """Tool policy for ``call`` under the workspace's approval policy (outside the model)."""
+        return self.tool_policy.evaluate(
+            call, self.tools.definition(call.name), context, self.workspace_policy(context)
+        )
+
     async def run_task(self, task: Task, context: TenantContext) -> tuple[AgentRun, Approval | None]:
         """Plan and, when policy allows, execute in one call (the inline backend)."""
         run = self.new_run(task)
@@ -97,7 +109,7 @@ class AgentRuntime:
         run.steps.append(model_step)
 
         call = planned.plan.tool_calls[0]
-        decision = self.tool_policy.evaluate(call, self.tools.definition(call.name), context)
+        decision = self.evaluate(call, context)
         proposal_step = AgentRunStep(
                 id=new_id("step"),
                 type="tool_proposal",
@@ -122,7 +134,7 @@ class AgentRuntime:
             self._fail(task, run, context, decision.reason)
             return None
         if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
-            _, approval = self._pause_for_approval(task, run, context, call, decision.reason)
+            _, approval = self._pause_for_approval(task, run, context, call, decision)
             return approval
         return None
 
@@ -133,7 +145,7 @@ class AgentRuntime:
         call = ToolCall.model_validate(run.checkpoint.tool_call)
         self._mark_executing(task, run)
         result = await self.tools.execute(call, context)
-        return self._complete(task, run, context, result.summary)
+        return self._complete(task, run, context, result)
 
     def check_resumable(self, task: Task, run: AgentRun) -> None:
         """Raise ``ValueError`` unless ``run`` is stranded at an executable checkpoint."""
@@ -203,7 +215,13 @@ class AgentRuntime:
                 self._reject_payload_mismatch(task, run, context, approval, current_hash)
                 return None
             call = ToolCall.model_validate(run.checkpoint.tool_call)
-            decision = self.tool_policy.evaluate(call, self.tools.definition(call.name), context)
+            # The approver was shown this integration target; refuse if it has changed.
+            definition = self.tools.definition(call.name)
+            current_target = definition.target if definition is not None else None
+            if approval.target is not None and approval.target != current_target:
+                self._reject_target_mismatch(task, run, context, approval, current_target)
+                return None
+            decision = self.evaluate(call, context)
             if decision.outcome == ToolPolicyOutcome.BLOCK:
                 self._fail(
                     task,
@@ -217,12 +235,12 @@ class AgentRuntime:
             if not run.checkpoint.tool_call:
                 raise ValueError("Run has no executable checkpoint")
             call = ToolCall.model_validate(run.checkpoint.tool_call)
-            decision = self.tool_policy.evaluate(call, self.tools.definition(call.name), context)
+            decision = self.evaluate(call, context)
             if decision.outcome == ToolPolicyOutcome.BLOCK:
                 self._fail(task, run, context, decision.reason)
                 return None
             if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
-                self._pause_for_approval(task, run, context, call, decision.reason)
+                self._pause_for_approval(task, run, context, call, decision)
                 return None
 
         self._mark_executing(task, run)
@@ -243,7 +261,7 @@ class AgentRuntime:
     ) -> AgentRun:
         """Execute ``call`` through the tool registry and complete the run."""
         result = await self.tools.execute(call, context)
-        return self._complete(task, run, context, result.summary, approval_id)
+        return self._complete(task, run, context, result, approval_id)
 
     async def recover_interrupted_execution(
         self, task: Task, run: AgentRun, context: TenantContext
@@ -260,7 +278,7 @@ class AgentRuntime:
             raise ValueError("Run is not interrupted mid-execution")
         call = ToolCall.model_validate(run.checkpoint.tool_call)
         definition = self.tools.definition(call.name)
-        decision = self.tool_policy.evaluate(call, definition, context)
+        decision = self.evaluate(call, context)
         if decision.outcome != ToolPolicyOutcome.ALLOW or definition is None or not definition.idempotent:
             self._fail(
                 task,
@@ -278,7 +296,7 @@ class AgentRuntime:
         )
         run.checkpoint.version += 1
         result = await self.tools.execute(call, context)
-        return self._complete(task, run, context, result.summary)
+        return self._complete(task, run, context, result)
 
     async def resume_after_approval(
         self,
@@ -364,6 +382,39 @@ class AgentRuntime:
             approval.id,
         )
 
+    def _reject_target_mismatch(
+        self,
+        task: Task,
+        run: AgentRun,
+        context: TenantContext,
+        approval: Approval,
+        current_target: str | None,
+    ) -> None:
+        self._audit(
+            context,
+            "approval.target_mismatch",
+            approval.id,
+            "denied",
+            task.id,
+            {
+                "task_id": task.id,
+                "run_id": run.id,
+                "tool": approval.action,
+                "approved_target": approval.target,
+                "current_target": current_target,
+                "decided_by": approval.decided_by,
+            },
+        )
+        self._fail(
+            task,
+            run,
+            context,
+            "The integration target changed after approval "
+            f"(approved {approval.target}, now {current_target or 'none'}); "
+            "the action was not executed.",
+            approval.id,
+        )
+
     def _audit(
         self,
         context: TenantContext,
@@ -404,16 +455,17 @@ class AgentRuntime:
         run: AgentRun,
         context: TenantContext,
         call: ToolCall,
-        reason: str,
+        decision: ToolPolicyDecision,
     ) -> tuple[AgentRun, Approval]:
         created_at = utc_now()
+        definition = self.tools.definition(call.name)
         approval = Approval(
             id=new_id("approval"),
             task_id=task.id,
             action=call.name,
-            risk_level=RiskLevel.HIGH,
+            risk_level=decision.risk_level,
             status=ApprovalStatus.PENDING,
-            reason=f"{reason} Proposed action: {task.prompt[:240]}",
+            reason=f"{decision.reason} Proposed action: {task.prompt[:240]}",
             created_at=created_at,
             run_id=run.id,
             step_id=run.checkpoint.last_step_id,
@@ -421,6 +473,8 @@ class AgentRuntime:
             payload_hash=self.checkpoint_payload_hash(task, run)
             or payload_hash(call, task_id=task.id, run_id=run.id, step_id=run.checkpoint.last_step_id),
             expires_at=created_at + self.approval_ttl,
+            requested_by=context.user_id,
+            target=definition.target if definition is not None else None,
         )
         task.status = run.status = TaskStatus.WAITING_APPROVAL
         run.checkpoint.phase = RunPhase.WAITING_APPROVAL
@@ -437,11 +491,18 @@ class AgentRuntime:
             )
         )
         self.repository.save_approval(approval)
+        requested_payload = {
+            "task_id": task.id,
+            "tool": call.name,
+            "risk_level": approval.risk_level.value,
+        }
+        if approval.target:
+            requested_payload["target"] = approval.target
         self._record_event(
             "approval.requested",
             context,
             approval.id,
-            {"task_id": task.id, "tool": call.name},
+            requested_payload,
             task.id,
         )
         return run, approval
@@ -451,9 +512,10 @@ class AgentRuntime:
         task: Task,
         run: AgentRun,
         context: TenantContext,
-        result_summary: str,
+        result: ToolResult,
         approval_id: str | None = None,
     ) -> AgentRun:
+        result_summary = result.summary
         task.status = run.status = TaskStatus.COMPLETED
         run.checkpoint.phase = RunPhase.COMPLETED
         run.checkpoint.version += 1
@@ -466,6 +528,7 @@ class AgentRuntime:
                     type="tool_result",
                     summary=result_summary,
                     created_at=utc_now(),
+                    metadata={"status": result.status, "truncated": result.truncated},
                 ),
                 AgentRunStep(
                     id=new_id("step"),

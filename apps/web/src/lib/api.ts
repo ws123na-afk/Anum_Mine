@@ -20,6 +20,7 @@ export interface ApiTask {
   workspace_id: string;
   created_at: string;
   updated_at: string;
+  created_by?: string | null;
 }
 
 interface ApiAgentRunStep {
@@ -52,6 +53,9 @@ export interface ApiApproval {
   expires_at?: string | null;
   decided_at?: string | null;
   decided_by?: string | null;
+  decision_reason?: string | null;
+  requested_by?: string | null;
+  target?: string | null;
 }
 
 interface ApiRunTaskResponse {
@@ -102,8 +106,8 @@ export async function cancelTask(taskId: string): Promise<Task> {
 }
 
 /** Approve exactly what was displayed: the request carries the approval's payload hash. */
-export async function approveTask(approval: Approval): Promise<ApprovalDecisionResult> {
-  return decideApproval(approval, 'approve');
+export async function approveTask(approval: Approval, reason?: string): Promise<ApprovalDecisionResult> {
+  return decideApproval(approval, 'approve', reason);
 }
 
 export interface MemoryNote { id: string; task_id: string; content: string; provenance: { source_type: string; source_id: string | null; created_by_user_id: string; created_at: string }; retention: { kind: string; expires_at: string | null }; created_at: string; }
@@ -169,8 +173,8 @@ export interface IntegrationHealth {
   credentials: { configured: boolean; source: string; scopes: string[]; expires_at: string | null };
 }
 
-export async function rejectTask(approval: Approval): Promise<ApprovalDecisionResult> {
-  return decideApproval(approval, 'reject');
+export async function rejectTask(approval: Approval, reason?: string): Promise<ApprovalDecisionResult> {
+  return decideApproval(approval, 'reject', reason);
 }
 
 export async function getIntegrations(): Promise<IntegrationHealth[]> {
@@ -224,8 +228,9 @@ export async function streamEvents(
 async function decideApproval(
   approval: Approval,
   decision: 'approve' | 'reject',
+  reason?: string,
 ): Promise<ApprovalDecisionResult> {
-  const body = decisionBody(approval);
+  const body = decisionBody(approval, reason);
   const result = await request<ApiApprovalDecisionResponse>(`/api/v1/approvals/${encodeURIComponent(approval.id)}/${decision}`, {
     method: 'POST',
     ...(body ? { body: JSON.stringify(body) } : {}),
@@ -297,6 +302,7 @@ function mapTask(task: ApiTask): Task {
     workspaceId: task.workspace_id,
     createdAt: task.created_at,
     updatedAt: task.updated_at,
+    createdBy: task.created_by ?? null,
   };
 }
 
@@ -331,5 +337,8 @@ function mapApproval(approval: ApiApproval): Approval {
     expiresAt: approval.expires_at ?? null,
     decidedAt: approval.decided_at ?? null,
     decidedBy: approval.decided_by ?? null,
+    decisionReason: approval.decision_reason ?? null,
+    requestedBy: approval.requested_by ?? null,
+    target: approval.target ?? null,
   };
 }

@@ -45,7 +45,9 @@ from .schemas import (
     Approval,
     ApprovalDecisionRequest,
     ApprovalDecisionResponse,
+    ApprovalRejectRequest,
     ApprovalStatus,
+    RiskLevel,
     DomainEvent,
     RunTaskResponse,
     RunPhase,
@@ -56,6 +58,8 @@ from .schemas import (
     TenantCreate,
     TenantContext,
     Workspace,
+    WorkspaceApprovalPolicy,
+    WorkspaceApprovalPolicyUpdate,
     WorkspaceCreate,
     WorkspaceMembership,
     new_id,
@@ -345,6 +349,7 @@ async def create_task(
         workspace_id=context.workspace_id,
         created_at=now,
         updated_at=now,
+        created_by=context.user_id,
     )
     repository.create_task(task)
     repository.record_event(
@@ -723,7 +728,13 @@ async def approve(
 ) -> ApprovalDecisionResponse | JSONResponse:
     require_permission(context, Permission.APPROVAL_DECIDE)
     return await _decide_approval(
-        approval_id, ApprovalStatus.APPROVED, payload.payload_hash, request, context, repository
+        approval_id,
+        ApprovalStatus.APPROVED,
+        payload.payload_hash,
+        payload.reason,
+        request,
+        context,
+        repository,
     )
 
 
@@ -735,7 +746,7 @@ async def approve(
 async def reject(
     approval_id: str,
     request: Request,
-    payload: ApprovalDecisionRequest | None = None,
+    payload: ApprovalRejectRequest | None = None,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> ApprovalDecisionResponse | JSONResponse:
@@ -744,10 +755,65 @@ async def reject(
         approval_id,
         ApprovalStatus.REJECTED,
         payload.payload_hash if payload else None,
+        payload.reason if payload else None,
         request,
         context,
         repository,
     )
+
+
+@app.get("/api/v1/approval-policy", response_model=WorkspaceApprovalPolicy)
+async def get_approval_policy(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> WorkspaceApprovalPolicy:
+    require_permission(context, Permission.APPROVAL_READ)
+    return repository.get_approval_policy(context)
+
+
+@app.put("/api/v1/approval-policy", response_model=WorkspaceApprovalPolicy)
+async def update_approval_policy(
+    payload: WorkspaceApprovalPolicyUpdate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> WorkspaceApprovalPolicy:
+    """Owner-only: set the workspace's two-person rule and medium-risk approval policy."""
+    require_permission(context, Permission.POLICY_MANAGE)
+    previous = repository.get_approval_policy(context)
+    now = utc_now()
+    saved = repository.save_approval_policy(
+        WorkspaceApprovalPolicy(
+            two_person_rule=payload.two_person_rule,
+            medium_risk_requires_approval=payload.medium_risk_requires_approval,
+            updated_by=context.user_id,
+            updated_at=now,
+        ),
+        context,
+    )
+    repository.record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            actor=context.user_id,
+            action="approval_policy.updated",
+            target=context.workspace_id,
+            outcome="success",
+            correlation_id=new_id("policy"),
+            created_at=now,
+            metadata={
+                "before": {
+                    "two_person_rule": previous.two_person_rule,
+                    "medium_risk_requires_approval": previous.medium_risk_requires_approval,
+                },
+                "after": {
+                    "two_person_rule": saved.two_person_rule,
+                    "medium_risk_requires_approval": saved.medium_risk_requires_approval,
+                },
+            },
+        )
+    )
+    return saved
 
 
 def _get_task_for_context(
@@ -771,6 +837,7 @@ async def _decide_approval(
     approval_id: str,
     decision: ApprovalStatus,
     shown_hash: str | None,
+    reason: str | None,
     request: Request,
     context: TenantContext,
     repository: AnumRepository,
@@ -780,14 +847,19 @@ async def _decide_approval(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
     async with _task_lock(context, approval.task_id):
         return await _decide_approval_locked(
-            approval_id, decision, shown_hash, request, context, repository
+            approval_id, decision, shown_hash, reason, request, context, repository
         )
+
+
+# Risk levels the optional two-person rule applies to (docs/approvals-and-risk.md, A6).
+TWO_PERSON_RISK_LEVELS = frozenset({RiskLevel.HIGH})
 
 
 async def _decide_approval_locked(
     approval_id: str,
     decision: ApprovalStatus,
     shown_hash: str | None,
+    reason: str | None,
     request: Request,
     context: TenantContext,
     repository: AnumRepository,
@@ -834,17 +906,52 @@ async def _decide_approval_locked(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Approval payload does not match what was shown; reload and review it again",
             )
+    if (
+        decision == ApprovalStatus.APPROVED
+        and approval.risk_level in TWO_PERSON_RISK_LEVELS
+        and context.user_id in {task.created_by, approval.requested_by}
+        and repository.get_approval_policy(context).two_person_rule
+    ):
+        # Nothing about the approval changes; the refusal itself is audited (and committed,
+        # since nothing is raised) so repeated self-approval attempts are visible.
+        repository.record_audit(
+            AuditRecord(
+                id=new_id("audit"),
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                actor=context.user_id,
+                action="approval.self_approval_denied",
+                target=approval.id,
+                outcome="denied",
+                correlation_id=task.id,
+                created_at=now,
+                metadata={"task_id": task.id, "tool": approval.action, "risk_level": approval.risk_level.value},
+            )
+        )
+        return error_response(
+            request,
+            status_code=status.HTTP_403_FORBIDDEN,
+            code=ErrorCode.FORBIDDEN,
+            message=(
+                "This workspace requires two people for high-risk actions: you created or "
+                "started this task, so another owner must approve it. You can still reject it."
+            ),
+        )
 
     approval.status = decision
     approval.decided_at = now
     approval.decided_by = context.user_id
+    approval.decision_reason = reason
     repository.save_approval(approval)
+    decided_payload = {"task_id": task.id}
+    if reason:
+        decided_payload["reason"] = reason
     repository.record_event(
         create_event(
             CanonicalEventName(f"approval.{decision.value}"),
             context,
             approval.id,
-            {"task_id": task.id},
+            decided_payload,
             correlation_id=task.id,
             created_at=approval.decided_at,
         ).event
@@ -864,6 +971,9 @@ async def _decide_approval_locked(
                 "task_id": task.id,
                 "tool": approval.action,
                 "payload_hash": approval.payload_hash,
+                "risk_level": approval.risk_level.value,
+                "target": approval.target,
+                "reason": reason,
             },
         )
     )
