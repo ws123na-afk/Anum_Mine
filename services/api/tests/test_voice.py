@@ -239,3 +239,48 @@ def test_assistant_name_is_validated() -> None:
     )
 
     assert response.status_code == 422
+
+
+def _session_with_transcript(retention: str) -> str:
+    session_id = client.post(
+        "/api/v1/voice/sessions", headers=headers, json={"retention": retention}
+    ).json()["id"]
+    client.post(
+        f"/api/v1/voice/sessions/{session_id}/transcript",
+        headers=headers,
+        json={"text": "remember the dentist", "client_sequence": 0},
+    )
+    return session_id
+
+
+def test_cancelling_a_session_only_session_erases_its_transcript_too() -> None:
+    session_id = _session_with_transcript("session")
+
+    assert client.delete(f"/api/v1/voice/sessions/{session_id}", headers=headers).json()["status"] == "cancelled"
+    assert client.get(f"/api/v1/voice/sessions/{session_id}/transcript", headers=headers).json() == []
+
+
+def test_thirty_day_transcript_is_hidden_after_expiry_and_purged() -> None:
+    from datetime import timedelta
+
+    session_id = _session_with_transcript("30_days")
+    session = voice_store.sessions[session_id]
+    assert session.expires_at == session.created_at + timedelta(days=30)
+    assert client.post(f"/api/v1/voice/sessions/{session_id}/complete", headers=headers).status_code == 200
+    assert len(client.get(f"/api/v1/voice/sessions/{session_id}/transcript", headers=headers).json()) == 1
+
+    session.expires_at = session.created_at  # thirty days later
+    assert client.get(f"/api/v1/voice/sessions/{session_id}/transcript", headers=headers).json() == []
+    assert voice_store.purge_expired() == 1
+    assert voice_store.segments[session_id] == []
+
+
+def test_permanent_transcript_outlives_completion() -> None:
+    session_id = _session_with_transcript("permanent")
+
+    completed = client.post(f"/api/v1/voice/sessions/{session_id}/complete", headers=headers).json()
+    assert completed["expires_at"] is None
+    assert voice_store.purge_expired() == 0
+    assert [item["text"] for item in client.get(
+        f"/api/v1/voice/sessions/{session_id}/transcript", headers=headers
+    ).json()] == ["remember the dentist"]

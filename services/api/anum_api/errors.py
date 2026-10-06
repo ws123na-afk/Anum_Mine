@@ -23,6 +23,8 @@ class ErrorCode(StrEnum):
     FORBIDDEN = "forbidden"
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
+    MODEL_BUDGET_EXCEEDED = "model_budget_exceeded"
+    GONE = "gone"
     PAYLOAD_TOO_LARGE = "payload_too_large"
     RATE_LIMITED = "rate_limited"
     SERVICE_UNAVAILABLE = "service_unavailable"
@@ -65,9 +67,11 @@ class ApplicationError(Exception):
 _STATUS_CODES: dict[int, ErrorCode] = {
     400: ErrorCode.BAD_REQUEST,
     401: ErrorCode.UNAUTHORIZED,
+    402: ErrorCode.MODEL_BUDGET_EXCEEDED,
     403: ErrorCode.FORBIDDEN,
     404: ErrorCode.NOT_FOUND,
     409: ErrorCode.CONFLICT,
+    410: ErrorCode.GONE,
     413: ErrorCode.PAYLOAD_TOO_LARGE,
     422: ErrorCode.VALIDATION_ERROR,
     429: ErrorCode.RATE_LIMITED,
@@ -104,6 +108,20 @@ def _error_response(
         content=_model_payload(envelope),
         headers=response_headers,
     )
+
+
+def error_response(
+    request: Request,
+    *,
+    status_code: int,
+    code: ErrorCode,
+    message: str,
+) -> JSONResponse:
+    """The standard error envelope, for routes that must commit work and still refuse.
+
+    Raising rolls the request's unit of work back; returning this response does not.
+    """
+    return _error_response(request, status_code=status_code, code=code, message=message)
 
 
 async def application_error_handler(request: Request, exc: ApplicationError) -> JSONResponse:

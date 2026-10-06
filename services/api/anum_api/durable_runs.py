@@ -21,9 +21,10 @@ from opentelemetry import trace
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from .model_budget import ModelBudgetExceededError
 from .repository import AnumRepository
 from .runtime import AgentRuntime
-from .schemas import AgentRun, ApprovalStatus, RunPhase, TaskStatus, TenantContext, utc_now
+from .schemas import AgentRun, Approval, ApprovalStatus, RunPhase, TaskStatus, TenantContext, utc_now
 from .temporal_workflow import (
     ADVANCE_ACTIVITY,
     APPROVAL_SIGNAL,
@@ -63,12 +64,22 @@ def run_input_for(context: TenantContext, task_id: str, run_id: str) -> AgentRun
     )
 
 
-def state_of(run: AgentRun) -> AgentRunState:
+def state_of(run: AgentRun, approval: Approval | None = None) -> AgentRunState:
+    """The workflow's view of a run; a pending approval adds its expiry (epoch seconds)."""
+    expires_at = (
+        approval.expires_at.timestamp()
+        if approval is not None
+        and approval.status == ApprovalStatus.PENDING
+        and approval.expires_at is not None
+        and run.checkpoint.phase == RunPhase.WAITING_APPROVAL
+        else None
+    )
     return AgentRunState(
         run_id=run.id,
         phase=run.checkpoint.phase.value,
         status=run.status.value,
         approval_id=run.checkpoint.approval_id,
+        approval_expires_at=expires_at,
     )
 
 
@@ -143,6 +154,10 @@ class AgentRunActivities:
       previous worker died mid-tool.
     * ``executing`` (found at the start of a call) -> the previous attempt stopped
       mid-tool: :meth:`AgentRuntime.recover_interrupted_execution`.
+    * a pending approval past its ``expires_at`` -> mark it ``expired`` and fail the
+      run (the workflow's wait is capped at the expiry, so this is observed on time).
+    * a decided approval whose checkpointed call no longer hashes to the approved
+      ``payload_hash`` -> fail the run with an audit record; nothing executes.
     * terminal or still-pending approval -> no change.
     """
 
@@ -210,7 +225,12 @@ class AgentRunActivities:
             approval_id: str | None = None
             call = None
             if phase == RunPhase.PLANNING:
-                await runtime.plan_run(task, run, context)
+                try:
+                    await runtime.plan_run(task, run, context)
+                except ModelBudgetExceededError as exc:
+                    # Retrying cannot help until the budget resets or is raised: fail the
+                    # run with the budget message instead of retrying the activity.
+                    runtime._fail(task, run, context, exc.message)
             elif phase == RunPhase.TOOL_READY:
                 call = runtime.begin_execution(task, run, context)
             elif phase == RunPhase.WAITING_APPROVAL:
@@ -219,8 +239,11 @@ class AgentRunActivities:
                     if run.checkpoint.approval_id
                     else None
                 )
-                if approval is None or approval.status == ApprovalStatus.PENDING:
+                if approval is None:
                     return state_of(run)
+                runtime.expire_if_due(task, approval, context)
+                if approval.status == ApprovalStatus.PENDING:
+                    return state_of(run, approval)
                 approval_id = approval.id
                 call = runtime.begin_execution(task, run, context, approval=approval)
             elif phase == RunPhase.EXECUTING:
@@ -228,7 +251,12 @@ class AgentRunActivities:
             repository.save_task(task)
             repository.save_run(run)
             if call is None:
-                return state_of(run)
+                pending = (
+                    repository.get_approval(run.checkpoint.approval_id, context)
+                    if run.checkpoint.phase == RunPhase.WAITING_APPROVAL and run.checkpoint.approval_id
+                    else None
+                )
+                return state_of(run, pending)
 
         # Second transaction: the `executing` checkpoint above is committed first.
         with self.unit_of_work(context) as repository:

@@ -8,7 +8,6 @@ import hmac
 import secrets
 from threading import RLock
 from typing import Protocol
-from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
@@ -28,6 +27,13 @@ from .model_config_store import (
     WorkspaceNotProvisionedError,
     memory_model_config_store,
     open_model_config_store,
+)
+from .model_budget import BudgetedModelGateway
+from .model_egress import (
+    EgressPolicy,
+    UnsafeModelEndpointError,
+    check_endpoint,
+    validate_model_base_url,
 )
 from .model_gateway import ModelGateway, build_model_gateway, normalize_provider
 from .repository import AnumRepository
@@ -110,11 +116,11 @@ class ModelConfigWrite(BaseModel):
     @field_validator("base_url")
     @classmethod
     def validate_base_url(cls, value: str) -> str:
-        parsed = urlparse(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username:
-            raise ValueError("base_url must be an absolute HTTP(S) URL without credentials")
-        if settings.environment != "local" and parsed.scheme != "https":
-            raise ValueError("base_url must use HTTPS outside local development")
+        # Syntax half of the SSRF guard (model_egress.py); the route resolves the host.
+        try:
+            check_endpoint(value, EgressPolicy.from_settings())
+        except UnsafeModelEndpointError as exc:
+            raise ValueError(str(exc)) from None
         return value.rstrip("/")
 
 
@@ -322,13 +328,33 @@ def workspace_model_gateway(context: TenantContext, fallback: ModelGateway) -> M
         model=config.model,
         base_url=config.base_url,
         client=_test_client_factory(),
+        egress_guard=True,
     )
     with _lock:
         _workspace_gateways[key] = (config.fingerprint, gateway)
     return gateway
 
 
+def budgeted_model_gateway(context: TenantContext, fallback: ModelGateway) -> ModelGateway:
+    """The workspace's gateway behind its monthly model budget (model_budget.py).
+
+    Every model call made for a workspace (task runs, voice answers) uses this.
+    """
+    return BudgetedModelGateway(workspace_model_gateway(context, fallback), context)
+
+
+GENERIC_CONNECTION_FAILURE = (
+    "Could not connect to the model provider. Check the base URL, model name and API key."
+)
+
+
 def _connection_failure_detail(provider: str, model: str, base_url: str, exc: Exception) -> str:
+    # Outside local/test the reason stays generic: messages that distinguish refused,
+    # unreachable or erroring endpoints would map internal reachability (SSRF, G1).
+    if EgressPolicy.from_settings().enforce:
+        return GENERIC_CONNECTION_FAILURE
+    if isinstance(exc, UnsafeModelEndpointError):
+        return str(exc)
     label = "Ollama" if provider == "ollama" else "the model provider"
     if isinstance(exc, httpx.TransportError):
         detail = f"Could not reach {label} at {base_url}."
@@ -474,6 +500,10 @@ async def set_model_config(payload: ModelConfigWrite, context: TenantContext = D
     if payload.provider not in KEYLESS_PROVIDERS and payload.api_key is None:
         raise HTTPException(status_code=422, detail="api_key is required for external providers")
     try:
+        await validate_model_base_url(payload.base_url)
+    except UnsafeModelEndpointError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
         with open_model_config_store(context) as store:
             config = store.save(
                 context,
@@ -523,6 +553,7 @@ async def test_model_config(
             model=config.model,
             base_url=config.base_url,
             client=_test_client_factory(),
+            egress_guard=True,
         )
         response = await gateway.generate_text("Reply with ANUM_OK only.")
     except Exception as exc:

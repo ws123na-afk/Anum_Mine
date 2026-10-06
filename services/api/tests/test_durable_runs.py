@@ -125,6 +125,12 @@ def _queue(prompt: str, dispatcher: RecordingDispatcher) -> AgentRunInput:
     return request
 
 
+def _shown(approval_id: str) -> dict[str, str]:
+    """The decision body a client sends: the payload hash it displayed."""
+    approval = client.get(f"/api/v1/approvals/{approval_id}", headers=HEADERS).json()
+    return {"payload_hash": approval["payload_hash"]}
+
+
 def _advance(activities: AgentRunActivities, request: AgentRunInput):
     return asyncio.run(activities.advance(CONTEXT, request))
 
@@ -199,7 +205,9 @@ def test_approval_waits_for_decision_and_is_applied_by_the_worker(dispatcher: Re
     assert waiting.phase == "waiting_approval" and waiting.approval_id
     assert _advance(activities, request).phase == "waiting_approval"  # still pending: no change
 
-    decided = client.post(f"/api/v1/approvals/{waiting.approval_id}/approve", headers=HEADERS)
+    decided = client.post(
+        f"/api/v1/approvals/{waiting.approval_id}/approve", headers=HEADERS, json=_shown(waiting.approval_id)
+    )
     assert decided.status_code == 200
     body = decided.json()
     assert body["approval"]["status"] == "approved"
@@ -226,7 +234,7 @@ def test_crash_during_an_approved_high_risk_action_is_never_repeated(dispatcher:
     executed: list[str] = []
     worker = activities_with(CountingGateway(), crashing_registry(crashes, executed))
     waiting = _advance(worker, request)
-    client.post(f"/api/v1/approvals/{waiting.approval_id}/approve", headers=HEADERS)
+    client.post(f"/api/v1/approvals/{waiting.approval_id}/approve", headers=HEADERS, json=_shown(waiting.approval_id))
     with pytest.raises(WorkerCrashed):
         _advance(worker, request)
 

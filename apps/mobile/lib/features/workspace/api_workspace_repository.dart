@@ -90,10 +90,16 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
   }
 
   @override
-  Future<WorkspaceApproval> decideApproval(String approvalId,
+  Future<WorkspaceApproval> decideApproval(WorkspaceApproval approval,
       {required bool approve}) async {
-    final value = await api.request('POST',
-        '/api/v1/approvals/$approvalId/${approve ? 'approve' : 'reject'}');
+    // Send back the payload hash that was displayed: the API refuses a stale
+    // one and the runtime executes only a call that still matches it.
+    final hash = approval.payloadHash;
+    final value = await api.request(
+        'POST',
+        '/api/v1/approvals/${Uri.encodeComponent(approval.id)}/'
+            '${approve ? 'approve' : 'reject'}',
+        body: hash == null ? null : {'payload_hash': hash});
     return _approval(value['approval']! as JsonMap);
   }
 
@@ -208,7 +214,12 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
       reason: j['reason']! as String,
       risk: j['risk_level']! as String,
       status: j['status']! as String,
-      createdAt: _date(j['created_at']));
+      createdAt: _date(j['created_at']),
+      arguments: ((j['arguments'] as Map?) ?? const {}).cast<String, Object?>(),
+      payloadHash: j['payload_hash'] as String?,
+      expiresAt: j['expires_at'] == null ? null : _date(j['expires_at']),
+      decidedAt: j['decided_at'] == null ? null : _date(j['decided_at']),
+      decidedBy: j['decided_by'] as String?);
   WorkspaceAutomation _automation(JsonMap j,
       [List<JsonMap> workflows = const []]) {
     final workflowId = j['workflow_id']! as String;

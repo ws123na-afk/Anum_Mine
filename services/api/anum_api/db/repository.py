@@ -440,6 +440,12 @@ class SqlAlchemyRepository(AnumRepository):
         record.reason = approval.reason
         record.created_at = approval.created_at
         record.decided_at = approval.decided_at
+        record.run_id = approval.run_id
+        record.step_id = approval.step_id
+        record.arguments = dict(approval.arguments)
+        record.payload_hash = approval.payload_hash
+        record.expires_at = approval.expires_at
+        record.decided_by = approval.decided_by
         self.session.flush()
         return self._approval_from_record(record)
 
@@ -690,6 +696,12 @@ class SqlAlchemyRepository(AnumRepository):
             reason=record.reason,
             created_at=record.created_at,
             decided_at=record.decided_at,
+            run_id=record.run_id,
+            step_id=record.step_id,
+            arguments=dict(record.arguments or {}),
+            payload_hash=record.payload_hash,
+            expires_at=record.expires_at,
+            decided_by=record.decided_by,
         )
 
     @staticmethod

@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))
+    # SSRF guard for workspace model base URLs (anum_api/model_egress.py, threat model G1).
+    # Outside local/test only public HTTPS endpoints on port 443 are called. This
+    # comma-separated list of host or host:port entries lets an operator allow a
+    # self-hosted model on a private network, e.g. "ollama.internal:11434".
+    model_allowed_hosts: str = ""
     # Fernet key(s) that encrypt stored provider credentials (comma-separated: the first
     # encrypts, all decrypt, for rotation). Required outside ANUM_ENVIRONMENT=local.
     secrets_key: SecretStr | None = Field(default=None, validate_default=True)
@@ -83,6 +88,9 @@ class Settings(BaseSettings):
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "default"
     temporal_task_queue: str = "anum-agent-runs"
+    # Pending approvals lapse after this many seconds (docs/approvals-and-risk.md); an
+    # expired approval can no longer be approved and its run fails.
+    approval_ttl_seconds: int = Field(default=86_400, ge=1, le=30 * 86_400)
     # Workspace file bytes (docs/files.md): "local" filesystem, "memory", or "s3"
     # (any S3-compatible endpoint, SeaweedFS locally).
     object_storage_backend: str = Field(default="local", pattern="^(local|memory|s3)$")
@@ -97,8 +105,15 @@ class Settings(BaseSettings):
     s3_create_bucket: bool = False
     external_webhook_url: str | None = None
     external_webhook_api_key: str | None = None
+    # Automation (docs/automation.md): workflows, schedules and runs live in this SQLite
+    # file with ANUM_REPOSITORY_BACKEND=memory and in PostgreSQL with postgresql.
     automation_database_path: str = ".anum/automation.db"
-    automation_backend: str = "local"
+    # Background loop in each API process that fires due schedules. Safe on every replica
+    # with PostgreSQL (FOR UPDATE SKIP LOCKED plus one idempotency key per fire time); the
+    # API login must be granted the anum_maintenance role to discover due schedules.
+    automation_scheduler_enabled: bool = False
+    automation_scheduler_poll_seconds: float = Field(default=30.0, gt=0)
+    automation_scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
     # HTTP hardening (anum_api/hardening.py, docs/security.md). Uploads to
     # /api/v1/files get max_upload_body_bytes; every other request gets the general limit.
     max_request_body_bytes: int = 1_048_576
@@ -128,6 +143,14 @@ class Settings(BaseSettings):
         # Startup validation errors must never echo secrets (keys, passwords) into logs.
         hide_input_in_errors=True,
     )
+
+    @field_validator("model_allowed_hosts")
+    @classmethod
+    def _valid_model_allowed_hosts(cls, value: str) -> str:
+        from .model_egress import parse_allowed_hosts
+
+        parse_allowed_hosts(value)
+        return value
 
     @field_validator("secrets_key")
     @classmethod

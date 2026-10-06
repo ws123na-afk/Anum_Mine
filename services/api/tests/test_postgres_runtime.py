@@ -64,6 +64,13 @@ def postgres_client(database_engine: Engine, seed_scopes: None) -> Iterator[Test
         app.dependency_overrides.pop(repository_context, None)
 
 
+def shown_hash(client: TestClient, approval_id: str) -> dict[str, str]:
+    """The decision body a client sends: the payload hash it displayed."""
+    approval = client.get(f"/api/v1/approvals/{approval_id}", headers=HEADERS)
+    assert approval.status_code == 200
+    return {"payload_hash": approval.json()["payload_hash"]}
+
+
 def create_waiting_approval(client: TestClient) -> tuple[str, str, str]:
     created = client.post(
         "/api/v1/tasks",
@@ -110,6 +117,7 @@ def test_waiting_approval_survives_reload_and_resumes_durably(
     decided = postgres_client.post(
         f"/api/v1/approvals/{approval_id}/{decision}",
         headers=HEADERS,
+        json=shown_hash(postgres_client, approval_id),
     )
     assert decided.status_code == 200
 
@@ -138,6 +146,7 @@ def test_duplicate_approval_decision_is_a_conflict_and_emits_no_extra_events(
     first = postgres_client.post(
         f"/api/v1/approvals/{approval_id}/approve",
         headers=HEADERS,
+        json=shown_hash(postgres_client, approval_id),
     )
     second = postgres_client.post(
         f"/api/v1/approvals/{approval_id}/reject",
@@ -160,17 +169,80 @@ def test_cancelling_waiting_task_expires_approval_and_prevents_resume(
     context = tenant_context()
     task_id, run_id, approval_id = create_waiting_approval(postgres_client)
 
+    shown = shown_hash(postgres_client, approval_id)
     cancelled = postgres_client.post(f"/api/v1/tasks/{task_id}/cancel", headers=HEADERS)
     late_approval = postgres_client.post(
         f"/api/v1/approvals/{approval_id}/approve",
         headers=HEADERS,
+        json=shown,
     )
 
     assert cancelled.status_code == 200
-    assert late_approval.status_code == 409
+    assert late_approval.status_code == 410  # cancelling expired the approval
     with repository_factory(context) as repository:
         assert repository.get_task(task_id, context).status == TaskStatus.CANCELLED
         assert repository.get_run(run_id, context).status == TaskStatus.CANCELLED
         assert repository.get_approval(approval_id, context).status == ApprovalStatus.EXPIRED
         event_types = [event.type for event in repository.list_events(context)]
         assert event_types == ["task.created", "approval.requested", "task.cancelled"]
+
+
+def test_expired_approval_is_refused_with_410_and_the_expiry_is_committed(
+    postgres_client: TestClient,
+    database_engine: Engine,
+    repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],
+) -> None:
+    """The 410 answer still commits the expiry and the failed run (no rollback)."""
+    context = tenant_context()
+    task_id, run_id, approval_id = create_waiting_approval(postgres_client)
+    shown = shown_hash(postgres_client, approval_id)
+    with database_engine.begin() as connection:
+        connection.execute(
+            text("update approvals set expires_at = now() - interval '1 second' where id = :id"),
+            {"id": approval_id},
+        )
+
+    late = postgres_client.post(f"/api/v1/approvals/{approval_id}/approve", headers=HEADERS, json=shown)
+
+    assert late.status_code == 410
+    assert late.json()["error"]["code"] == "gone"
+    with repository_factory(context) as repository:
+        approval = repository.get_approval(approval_id, context)
+        assert approval.status == ApprovalStatus.EXPIRED and approval.decided_by is None
+        assert repository.get_run(run_id, context).status == TaskStatus.FAILED
+        assert repository.get_task(task_id, context).status == TaskStatus.FAILED
+        event_types = [event.type for event in repository.list_events(context)]
+        assert event_types[-2:] == ["approval.expired", "agent_run.failed"]
+        assert any(record.action == "approval.expired" for record in repository.list_audit_records(context))
+
+
+def test_tampered_checkpoint_is_not_executed_and_is_audited(
+    postgres_client: TestClient,
+    database_engine: Engine,
+    repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],
+) -> None:
+    context = tenant_context()
+    task_id, run_id, approval_id = create_waiting_approval(postgres_client)
+    shown = shown_hash(postgres_client, approval_id)
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "update agent_runs set checkpoint = jsonb_set(checkpoint, "
+                "'{tool_call,arguments,action}', '\"Delete every customer record\"') where id = :id"
+            ),
+            {"id": run_id},
+        )
+
+    decided = postgres_client.post(f"/api/v1/approvals/{approval_id}/approve", headers=HEADERS, json=shown)
+
+    assert decided.status_code == 200
+    assert decided.json()["run"]["status"] == "failed"
+    with repository_factory(context) as repository:
+        approval = repository.get_approval(approval_id, context)
+        assert approval.status == ApprovalStatus.APPROVED and approval.decided_by == "user_test"
+        assert repository.get_task(task_id, context).status == TaskStatus.FAILED
+        event_types = [event.type for event in repository.list_events(context)]
+        assert "agent_run.completed" not in event_types
+        audit = {record.action: record for record in repository.list_audit_records(context)}
+        assert audit["approval.approved"].actor == "user_test"
+        assert audit["approval.payload_mismatch"].outcome == "denied"

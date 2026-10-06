@@ -176,6 +176,15 @@ class ApprovalRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Approval integrity (0010_approval_integrity, docs/approvals-and-risk.md).
+    run_id: Mapped[str | None] = mapped_column(String(80))
+    step_id: Mapped[str | None] = mapped_column(String(80))
+    arguments: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    payload_hash: Mapped[str | None] = mapped_column(String(64))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[str | None] = mapped_column(String(160))
 
     task: Mapped[TaskRecord] = relationship(back_populates="approvals")
 
@@ -184,6 +193,10 @@ class ApprovalRecord(Base, TimestampMixin, WorkspaceScopedMixin):
             ["tenant_id", "workspace_id", "task_id"],
             ["tasks.tenant_id", "tasks.workspace_id", "tasks.id"],
             name="fk_approvals_task",
+        ),
+        CheckConstraint(
+            "payload_hash is null or payload_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_approvals_payload_hash",
         ),
         Index("ix_approvals_tenant_workspace_status", "tenant_id", "workspace_id", "status"),
     )
@@ -601,3 +614,123 @@ class NotificationPreferenceRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("notification_preferences"),)
+
+
+# Voice and automation (migration 0009). Voice rows are private to one user: their RLS
+# policies check ``anum.user_id`` as well as the tenant and workspace.
+
+
+class VoiceSessionRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "voice_sessions"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    locale: Mapped[str] = mapped_column(String(35), nullable=False)
+    retention: Mapped[str] = mapped_column(String(20), nullable=False)
+    assistant_name: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    ask_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    transcript_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("voice_sessions"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "id", name="uq_voice_sessions_scope_id"),
+    )
+
+
+class VoiceTranscriptSegmentRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "voice_transcript_segments"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_final: Mapped[bool] = mapped_column(nullable=False)
+    client_sequence: Mapped[int] = mapped_column(nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "user_id", "session_id"],
+            [
+                "voice_sessions.tenant_id",
+                "voice_sessions.workspace_id",
+                "voice_sessions.user_id",
+                "voice_sessions.id",
+            ],
+            name="fk_voice_transcript_segments_session",
+            ondelete="CASCADE",
+        ),
+    )
+
+
+class AutomationWorkflowRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "automation_workflows"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    version: Mapped[int] = mapped_column(nullable=False)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("automation_workflows"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_automation_workflows_scope_id"),
+    )
+
+
+def _workflow_fk(table: str) -> ForeignKeyConstraint:
+    return ForeignKeyConstraint(
+        ["tenant_id", "workspace_id", "workflow_id"],
+        [
+            "automation_workflows.tenant_id",
+            "automation_workflows.workspace_id",
+            "automation_workflows.id",
+        ],
+        name=f"fk_{table}_workflow",
+    )
+
+
+class AutomationScheduleRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "automation_schedules"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    cron: Mapped[str] = mapped_column(String(120), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(80), nullable=False)
+    enabled: Mapped[bool] = mapped_column(nullable=False)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("automation_schedules"), _workflow_fk("automation_schedules"))
+
+
+class AutomationRunRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "automation_runs"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    schedule_id: Mapped[str | None] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(200))
+    retry_of: Mapped[str | None] = mapped_column(String(80))
+    current_step: Mapped[int] = mapped_column(nullable=False, default=0)
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("automation_runs"), _workflow_fk("automation_runs"))

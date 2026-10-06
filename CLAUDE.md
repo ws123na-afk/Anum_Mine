@@ -26,3 +26,5 @@ Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `
 - Integration-marked tests (`valkey`, `s3`, `temporal`, `nats`) must not skip in CI; the "API integration" job fails on any skip.
 - A log-record attribute with the same name as an `extra=` key makes the logging call raise `KeyError`; telemetry fields are prefixed `anum_` for that reason.
 - The Temporal worker exits with `os._exit(0)` after a clean shutdown: interpreter finalization can hang collecting the SDK's native objects. CI asserts exit code 0.
+- Run database tests the way CI does: from the repository root (`python -m pytest services/api -m database`) against a PostgreSQL that requires a password for 127.0.0.1. A local `trust` cluster run from `services/api` hid a CI-only hang.
+- Background tasks that hold a database transaction (the outbox relay) must finish their pass on shutdown, not be cancelled mid-commit; run session calls through `outbox_relay._in_thread` so cancellation never races a commit.

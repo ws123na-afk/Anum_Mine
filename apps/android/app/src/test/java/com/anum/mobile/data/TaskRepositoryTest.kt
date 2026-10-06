@@ -19,14 +19,25 @@ class TaskRepositoryTest {
         assertEquals(listOf("a1"), TaskRepository(api).pendingApprovals().map { it.id })
     }
 
+    @Test fun approvingSendsTheDisplayedPayloadHash() = runTest {
+        val api = FakeApi()
+        val shown = approval("a1", ApprovalStatus.PENDING).copy(payloadHash = "ab".repeat(32))
+        TaskRepository(api).decide(shown, approve = true)
+        assertEquals("ab".repeat(32), api.approvedWith?.payloadHash)
+    }
+
     private class FakeApi : AnumApi {
+        var approvedWith: ApprovalDecisionRequest? = null
         var created: TaskCreate? = null
         var runId: String? = null
         var approvalItems = emptyList<Approval>()
         override suspend fun createTask(request: TaskCreate): Task { created = request; return task(TaskStatus.CREATED) }
         override suspend fun runTask(id: String): RunTaskResponse { runId = id; return RunTaskResponse(task(TaskStatus.COMPLETED), run()) }
         override suspend fun approvals() = approvalItems
-        override suspend fun approve(id: String) = decision(id, ApprovalStatus.APPROVED)
+        override suspend fun approve(id: String, request: ApprovalDecisionRequest): ApprovalDecisionResponse {
+            approvedWith = request
+            return decision(id, ApprovalStatus.APPROVED)
+        }
         override suspend fun reject(id: String) = decision(id, ApprovalStatus.REJECTED)
         override suspend fun getTask(id: String) = task(TaskStatus.CREATED)
         override suspend fun cancelTask(id: String) = task(TaskStatus.CANCELLED)

@@ -46,11 +46,23 @@ export interface AgentRun {
 export interface Approval {
   id: string;
   taskId: string;
+  /** The exact tool the agent will call. */
   action: string;
   riskLevel: RiskLevel;
   status: ApprovalStatus;
   reason: string;
   createdAt: string;
+  runId?: string | null;
+  stepId?: string | null;
+  /** The exact tool arguments; secret-looking values arrive as "[REDACTED]". */
+  arguments?: Record<string, unknown>;
+  /** SHA-256 of the canonical tool call. Approving sends back the hash that was shown. */
+  payloadHash?: string | null;
+  /** Pending approvals lapse at this time and can no longer be approved. */
+  expiresAt?: string | null;
+  decidedAt?: string | null;
+  /** User id of whoever approved or rejected. */
+  decidedBy?: string | null;
 }
 
 export interface DomainEvent<TPayload = Record<string, unknown>> {

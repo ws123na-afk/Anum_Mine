@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .authorization import Permission
 from .dependencies import (
@@ -18,7 +18,9 @@ from .dependencies import (
     require_permission,
     tenant_context,
 )
-from .errors import register_exception_handlers
+from .approval_integrity import as_viewed
+from .audit import AuditRecord
+from .errors import ApplicationError, ErrorCode, application_error_handler, error_response, register_exception_handlers
 from .events import CanonicalEventName, create_event
 from .integrations import IntegrationConfiguration, IntegrationConfigurationView, IntegrationHealth, default_integration_registry
 from .integration_tools import configured_external_handler
@@ -41,6 +43,7 @@ from .schemas import (
     AgentRun,
     AgentRunStep,
     Approval,
+    ApprovalDecisionRequest,
     ApprovalDecisionResponse,
     ApprovalStatus,
     DomainEvent,
@@ -65,10 +68,11 @@ from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
-from .automation import router as automation_router
+from .automation import build_automation_scheduler, router as automation_router
 from .files import router as files_router
 from .skills_api import router as skills_router
-from .onboarding import router as onboarding_router, workspace_model_gateway
+from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
+from .onboarding import budgeted_model_gateway, router as onboarding_router
 from .workspace_members import router as workspace_members_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
@@ -80,9 +84,16 @@ validate_auth_configuration(settings)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await event_runtime.start()
+    # Fires due automation schedules when ANUM_AUTOMATION_SCHEDULER_ENABLED=true; safe on
+    # every replica with PostgreSQL (docs/automation.md#scheduler).
+    scheduler = build_automation_scheduler(settings)
+    if scheduler is not None:
+        scheduler.start()
     try:
         yield
     finally:
+        if scheduler is not None:
+            await scheduler.stop()
         await event_runtime.stop()
         shutdown_telemetry()
 
@@ -120,6 +131,17 @@ app.add_middleware(HttpMetricsMiddleware)
 # otherwise only log correlation (docs/observability.md).
 setup_telemetry(settings, service_name="anum-api", app=app, engines=sqlalchemy_engines(event_runtime))
 register_exception_handlers(app)
+
+
+@app.exception_handler(ModelBudgetExceededError)
+async def model_budget_exceeded_handler(request: Request, exc: ModelBudgetExceededError) -> Response:
+    # 402: the tenant's or workspace's monthly model budget is used up (threat model G4).
+    return await application_error_handler(
+        request,
+        ApplicationError(ErrorCode.MODEL_BUDGET_EXCEEDED, exc.message, status_code=status.HTTP_402_PAYMENT_REQUIRED),
+    )
+
+
 app.include_router(voice_router)
 app.include_router(phase5_router)
 app.include_router(governance_router)
@@ -128,6 +150,7 @@ app.include_router(files_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
+app.include_router(model_budget_router)
 repository = memory_repository
 model_gateway = build_model_gateway(
     settings.model_provider,
@@ -369,12 +392,14 @@ async def run_task(
     repository: AnumRepository = Depends(repository_context),
 ) -> RunTaskResponse:
     require_permission(context, Permission.TASK_RUN)
+    # Refuse before the task changes state when the monthly model budget is used up.
+    check_model_budget(context)
     async with _task_lock(context, task_id):
         task = _get_task_for_context(task_id, context, repository, for_update=True)
         if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
-        runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
         if run_dispatcher is not None:
             return await _queue_durable_run(task, context, repository, runtime)
         run, approval = await runtime.run_task(task, context)
@@ -490,7 +515,7 @@ async def resume_agent_run(
     async with _task_lock(context, run.task_id):
         task = _get_task_for_context(run.task_id, context, repository, for_update=True)
         run = repository.get_run(run_id, context) or run
-        runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
+        runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
         try:
             if run_dispatcher is not None:
                 # The worker resumes from the same checkpoint; this only (re)starts its workflow.
@@ -600,7 +625,8 @@ async def list_approvals(
     repository: AnumRepository = Depends(repository_context),
 ) -> list[Approval]:
     require_permission(context, Permission.APPROVAL_READ)
-    return repository.list_approvals(context)
+    now = utc_now()
+    return [as_viewed(approval, now) for approval in repository.list_approvals(context)]
 
 
 @app.get("/api/v1/approvals/{approval_id}", response_model=Approval)
@@ -613,7 +639,7 @@ async def get_approval(
     approval = repository.get_approval(approval_id, context)
     if approval is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
-    return approval
+    return as_viewed(approval, utc_now())
 
 
 @app.post("/api/v1/memories", response_model=MemoryNote, status_code=status.HTTP_201_CREATED)
@@ -677,24 +703,51 @@ async def delete_memory(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.post("/api/v1/approvals/{approval_id}/approve", response_model=ApprovalDecisionResponse)
+_DECISION_ERRORS: dict[int | str, dict[str, object]] = {
+    status.HTTP_409_CONFLICT: {"description": "Already decided, or the payload hash does not match"},
+    status.HTTP_410_GONE: {"description": "The approval expired; its run was failed"},
+}
+
+
+@app.post(
+    "/api/v1/approvals/{approval_id}/approve",
+    response_model=ApprovalDecisionResponse,
+    responses=_DECISION_ERRORS,
+)
 async def approve(
     approval_id: str,
+    payload: ApprovalDecisionRequest,
+    request: Request,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> ApprovalDecisionResponse:
+) -> ApprovalDecisionResponse | JSONResponse:
     require_permission(context, Permission.APPROVAL_DECIDE)
-    return await _decide_approval(approval_id, ApprovalStatus.APPROVED, context, repository)
+    return await _decide_approval(
+        approval_id, ApprovalStatus.APPROVED, payload.payload_hash, request, context, repository
+    )
 
 
-@app.post("/api/v1/approvals/{approval_id}/reject", response_model=ApprovalDecisionResponse)
+@app.post(
+    "/api/v1/approvals/{approval_id}/reject",
+    response_model=ApprovalDecisionResponse,
+    responses=_DECISION_ERRORS,
+)
 async def reject(
     approval_id: str,
+    request: Request,
+    payload: ApprovalDecisionRequest | None = None,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> ApprovalDecisionResponse:
+) -> ApprovalDecisionResponse | JSONResponse:
     require_permission(context, Permission.APPROVAL_DECIDE)
-    return await _decide_approval(approval_id, ApprovalStatus.REJECTED, context, repository)
+    return await _decide_approval(
+        approval_id,
+        ApprovalStatus.REJECTED,
+        payload.payload_hash if payload else None,
+        request,
+        context,
+        repository,
+    )
 
 
 def _get_task_for_context(
@@ -717,22 +770,28 @@ def _get_task_for_context(
 async def _decide_approval(
     approval_id: str,
     decision: ApprovalStatus,
+    shown_hash: str | None,
+    request: Request,
     context: TenantContext,
     repository: AnumRepository,
-) -> ApprovalDecisionResponse:
+) -> ApprovalDecisionResponse | JSONResponse:
     approval = repository.get_approval(approval_id, context)
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
     async with _task_lock(context, approval.task_id):
-        return await _decide_approval_locked(approval_id, decision, context, repository)
+        return await _decide_approval_locked(
+            approval_id, decision, shown_hash, request, context, repository
+        )
 
 
 async def _decide_approval_locked(
     approval_id: str,
     decision: ApprovalStatus,
+    shown_hash: str | None,
+    request: Request,
     context: TenantContext,
     repository: AnumRepository,
-) -> ApprovalDecisionResponse:
+) -> ApprovalDecisionResponse | JSONResponse:
     approval = repository.get_approval(approval_id, context)
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
@@ -745,13 +804,41 @@ async def _decide_approval_locked(
     approval = repository.get_approval_for_update(approval_id, context)
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
+    if approval.status == ApprovalStatus.EXPIRED:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Approval expired")
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval already decided")
 
-    approval.status = decision
-    approval.decided_at = utc_now()
-    repository.save_approval(approval)
+    runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
     run = repository.find_run_for_task(task.id, context)
+    now = utc_now()
+    if runtime.expire_if_due(task, approval, context, now):
+        # Commit the expiry (and the failed run) but refuse the decision. Nothing is
+        # raised, so the request's unit of work commits before the 410 is sent.
+        if run_dispatcher is not None:
+            if run:
+                await run_dispatcher.approval_decided(context, task.id, approval.id)
+        elif run is not None and run.checkpoint.approval_id == approval.id:
+            runtime.begin_execution(task, run, context, approval=approval)
+            repository.save_task(task)
+            repository.save_run(run)
+        return error_response(
+            request,
+            status_code=status.HTTP_410_GONE,
+            code=ErrorCode.GONE,
+            message="Approval expired; the action was not executed",
+        )
+    if shown_hash is not None or decision == ApprovalStatus.APPROVED:
+        if approval.payload_hash is None or shown_hash != approval.payload_hash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Approval payload does not match what was shown; reload and review it again",
+            )
+
+    approval.status = decision
+    approval.decided_at = now
+    approval.decided_by = context.user_id
+    repository.save_approval(approval)
     repository.record_event(
         create_event(
             CanonicalEventName(f"approval.{decision.value}"),
@@ -762,12 +849,29 @@ async def _decide_approval_locked(
             created_at=approval.decided_at,
         ).event
     )
+    repository.record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            actor=context.user_id,
+            action=f"approval.{decision.value}",
+            target=approval.id,
+            outcome="success",
+            correlation_id=task.id,
+            created_at=now,
+            metadata={
+                "task_id": task.id,
+                "tool": approval.action,
+                "payload_hash": approval.payload_hash,
+            },
+        )
+    )
     if run_dispatcher is not None:
         # The workflow applies the decision; a lost signal is caught by its next poll.
         if run:
             await run_dispatcher.approval_decided(context, task.id, approval.id)
         return ApprovalDecisionResponse(approval=approval, task=task, run=run)
-    runtime = AgentRuntime(workspace_model_gateway(context, model_gateway), repository, tools=tool_registry)
     resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
     repository.save_task(task)
     if resumed_run:

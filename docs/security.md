@@ -10,7 +10,10 @@ The realm is code (`infra/keycloak/anum-realm.json`): public clients use authori
 
 ## Authorization
 
-ANUM authorization should combine application-level policy with PostgreSQL row-level security. The backend decides whether a user, service, or agent may perform an action. The database enforces tenant and workspace isolation so accidental query mistakes do not leak data across boundaries. The only cross-tenant reader is the event outbox relay, which runs as the narrowly privileged `anum_outbox_relay` role: it can read unpublished `domain_events` rows and update their publication columns, nothing else, and is not `BYPASSRLS` ([Events](events.md#relay-role-and-rls)).
+ANUM authorization should combine application-level policy with PostgreSQL row-level security. The backend decides whether a user, service, or agent may perform an action. The database enforces tenant and workspace isolation so accidental query mistakes do not leak data across boundaries. Two narrowly privileged roles read across tenants, and neither is `BYPASSRLS`:
+
+- The event outbox relay runs as `anum_outbox_relay`. It can read unpublished `domain_events` rows and update their publication columns, nothing else ([Events](events.md#relay-role-and-rls)).
+- Maintenance jobs (automation scheduler, voice transcript purge, secrets rotation) discover work as `anum_maintenance`. It reads a few id and timestamp columns of rows that need work and cannot write. The work itself runs as the application role inside each tenant's RLS context ([Multi-tenancy](multi-tenancy.md#maintenance-role)).
 
 ## Secrets
 
@@ -28,6 +31,12 @@ Secrets must be stored outside source control. Provider keys, integration tokens
 | Interactive docs | `/docs` and `/redoc` are served only in `local` (and are exempt from the API CSP there). | `ANUM_ENVIRONMENT` |
 
 Rate-limit state is in memory per process by default. `ANUM_RATE_LIMIT_BACKEND=valkey` shares it across API replicas: the token bucket runs as one atomic Valkey script on the server clock under `anum:ratelimit:<client>` keys that expire once the bucket would be full again. The call runs in a worker thread with a short timeout (`ANUM_VALKEY_TIMEOUT_SECONDS`, 0.5); if Valkey is unreachable the request is limited by a per-process bucket instead of failing or going unlimited. Client IPs come from uvicorn's proxy-header handling, which only trusts `FORWARDED_ALLOW_IPS`; see [Infrastructure](infrastructure.md).
+
+### Model endpoints and budgets
+
+Workspace owners choose the model `base_url` the server calls. Outside `local`/`test` the outbound guard (`anum_api/model_egress.py`) only calls public HTTPS endpoints on port 443: it refuses credentials in the URL, non-canonical IP literals and hosts resolving to loopback, private, unique-local, link-local or cloud metadata, multicast, unspecified or reserved addresses, checks at save time and on every request, connects to the address it resolved (original Host and TLS name, so DNS rebinding cannot redirect a call), never follows redirects, and the connection test returns one generic error. `ANUM_MODEL_ALLOWED_HOSTS` (comma-separated `host` or `host:port`) is the explicit operator allow-list for a self-hosted model on a private network; metadata and link-local addresses stay refused for listed hosts too. Details in [Model gateway](model-gateway.md#outbound-guard-ssrf).
+
+Owners can set monthly estimated-cost and token budgets for the organization and per workspace (`/api/v1/model-budgets`, audited); model calls are refused with `402 model_budget_exceeded` once a budget is used up ([Model gateway](model-gateway.md#monthly-budgets)).
 
 ### Startup policy
 
@@ -71,7 +80,6 @@ Each exception is scoped as narrowly as the tool allows. Add new ones only with 
 
 | Tool | Exception | Reason |
 |---|---|---|
-| bandit | `# nosec B608` on the `select` in `LocalAutomationEngine._list` (`anum_api/automation.py`) | The interpolated table name must pass the `_TABLES` allow-list first; all values are bound parameters. |
 | gitleaks | `docs/figma-design-state.json` `fileKey` | A public Figma file identifier, not a credential. Only that exact key shape in that file is allowed. |
 | gitleaks | `docs/infrastructure.md` prose where "Keycloak" is followed by the S3 storage name | The generic API-key rule reads the word "key" inside "Keycloak" as a key name. The text stays in history. |
 | gitleaks | `services/api/tests/test_postgres_model_configs.py` value `sk-live-PERSISTED-secret-4321` | A made-up provider key used to test encryption at rest. Only that exact value in that file is allowed; it stays in history. |
@@ -85,7 +93,7 @@ Fixed findings when image scanning was added: the web image moved from `nginx-un
 
 ## Agent Safety
 
-Agents must not receive raw unrestricted access to user accounts, files, or integrations. Each tool call should be mediated by the runtime, checked against policy, logged, and paused for approval when risk requires it. Prompt injection must be treated as an expected attack class, especially when agents read external content. The [Threat model](threat-model.md) maps the trust boundaries, what an injected instruction can and cannot do today, and the open gaps (SSRF through workspace model base URLs, approval content and binding, per-tenant budgets).
+Agents must not receive raw unrestricted access to user accounts, files, or integrations. Each tool call should be mediated by the runtime, checked against policy, logged, and paused for approval when risk requires it. Prompt injection must be treated as an expected attack class, especially when agents read external content. The [Threat model](threat-model.md) maps the trust boundaries, what an injected instruction can and cannot do today, and the open gaps (approval content and binding, tool output size and provenance). SSRF through workspace model base URLs (G1) and per-tenant model budgets (G4) are closed.
 
 ## Data Protection
 
@@ -93,7 +101,7 @@ Tenant data should be encrypted in transit and at rest by infrastructure default
 
 ## Auditability
 
-Security-relevant events should be recorded: login, token refresh failures, tenant membership changes, role grants, integration consent, tool execution, approval decisions, memory deletion, policy changes, and administrative exports. Invitation, membership and governance changes (policy packs, role templates, approval rules, memory governance) are recorded in the append-only `audit_records` table (RLS allows select and insert only) when `ANUM_REPOSITORY_BACKEND=postgresql`; the `memory` backend keeps an in-process recorder.
+Security-relevant events should be recorded: login, token refresh failures, tenant membership changes, role grants, integration consent, tool execution, approval decisions, memory deletion, policy changes, and administrative exports. Invitation, membership, model budget and governance changes (policy packs, role templates, approval rules, memory governance) are recorded in the append-only `audit_records` table (RLS allows select and insert only) when `ANUM_REPOSITORY_BACKEND=postgresql`; the `memory` backend keeps an in-process recorder.
 
 ## Now
 
@@ -101,4 +109,4 @@ OIDC validation with membership resolution is implemented (`ANUM_AUTH_MODE=oidc`
 
 ## Later
 
-Add per-tenant quotas, scanning of the images pushed by `deploy-staging.yml` and of base images on a schedule, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.
+Add per-tenant quotas beyond model budgets (storage, runs, integrations), scanning of the images pushed by `deploy-staging.yml` and of base images on a schedule, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.

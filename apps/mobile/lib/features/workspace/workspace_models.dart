@@ -55,9 +55,71 @@ class WorkspaceApproval {
       required this.reason,
       required this.risk,
       required this.status,
-      required this.createdAt});
+      required this.createdAt,
+      this.arguments = const {},
+      this.payloadHash,
+      this.expiresAt,
+      this.decidedAt,
+      this.decidedBy});
+
+  /// [action] is the exact tool the agent will call and [arguments] the exact
+  /// arguments it will send (secret-looking values arrive as `[REDACTED]`).
   final String id, taskId, action, reason, risk, status;
   final DateTime createdAt;
+  final Map<String, Object?> arguments;
+
+  /// SHA-256 of the canonical tool call. Approving sends back this value, so
+  /// the agent executes only what was displayed (docs/approvals-and-risk.md).
+  final String? payloadHash;
+  final DateTime? expiresAt, decidedAt;
+
+  /// User id of whoever approved or rejected.
+  final String? decidedBy;
+
+  /// A pending approval past [expiresAt] reads as expired.
+  String effectiveStatus([DateTime? now]) => status == 'pending' &&
+          expiresAt != null &&
+          !expiresAt!.isAfter(now ?? DateTime.now())
+      ? 'expired'
+      : status;
+
+  /// Approve is offered only while pending, unexpired and bound to a hash.
+  bool canApprove([DateTime? now]) =>
+      effectiveStatus(now) == 'pending' && payloadHash != null;
+}
+
+/// One readable line of an approval's arguments: a dotted key and its value.
+class ApprovalArgument {
+  const ApprovalArgument(this.key, this.value);
+  final String key, value;
+  bool get redacted => value == '[REDACTED]';
+}
+
+/// Flattens nested arguments into sorted `key.path` / value rows.
+List<ApprovalArgument> approvalArguments(Map<String, Object?> arguments) {
+  final rows = <ApprovalArgument>[];
+  void visit(String key, Object? value) {
+    if (value is Map) {
+      if (value.isEmpty) rows.add(ApprovalArgument(key, '{}'));
+      final keys = value.keys.map((k) => '$k').toList()..sort();
+      for (final child in keys) {
+        visit('$key.$child', value[child]);
+      }
+    } else if (value is List) {
+      if (value.isEmpty) rows.add(ApprovalArgument(key, '[]'));
+      for (var i = 0; i < value.length; i++) {
+        visit('$key[$i]', value[i]);
+      }
+    } else {
+      rows.add(ApprovalArgument(key, value == null ? 'null' : '$value'));
+    }
+  }
+
+  final keys = arguments.keys.toList()..sort();
+  for (final key in keys) {
+    visit(key, arguments[key]);
+  }
+  return rows;
 }
 
 class WorkspaceAutomation {

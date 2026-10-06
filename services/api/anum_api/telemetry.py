@@ -175,6 +175,17 @@ class Telemetry:
             unit="{USD}",
             description="Estimated model spend in US dollars (price table estimate).",
         )
+        # Bounded labels only (scope, kind, percent): no tenant or workspace ids.
+        self.model_budget_thresholds = meter.create_counter(
+            "anum.model.budget.thresholds",
+            unit="{event}",
+            description="Model calls that crossed 80% or 100% of a monthly budget.",
+        )
+        self.model_budget_rejections = meter.create_counter(
+            "anum.model.budget.rejections",
+            unit="{call}",
+            description="Model calls refused because a monthly budget was used up.",
+        )
         self.outbox_published = meter.create_counter(
             "anum.outbox.published", unit="{event}", description="Events acknowledged by the bus."
         )
@@ -254,6 +265,15 @@ class Telemetry:
             self.model_tokens.add(output_tokens, {**usage_attributes, "gen_ai.token.type": "output"})
         if estimated_cost_usd:
             self.model_cost.add(estimated_cost_usd, usage_attributes)
+
+    def record_model_budget_threshold(self, scope: str, kind: str, percent: int) -> None:
+        self.model_budget_thresholds.add(
+            1,
+            {"anum.budget.scope": scope, "anum.budget.kind": kind, "anum.budget.percent": percent},
+        )
+
+    def record_model_budget_rejection(self, scope: str, kind: str) -> None:
+        self.model_budget_rejections.add(1, {"anum.budget.scope": scope, "anum.budget.kind": kind})
 
     def record_lock_contention(self, outcome: str, *, source: str = "api") -> None:
         self.run_lock_contention.add(1, {"anum.lock.outcome": outcome, "anum.lock.source": source})

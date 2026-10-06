@@ -31,7 +31,9 @@ class SecretCipher:
     def __init__(self, keys: list[bytes]) -> None:
         if not keys:
             raise ValueError("at least one secrets key is required")
-        self._fernet = MultiFernet([Fernet(key) for key in keys])
+        fernets = [Fernet(key) for key in keys]
+        self._primary = fernets[0]
+        self._fernet = MultiFernet(fernets)
 
     def encrypt(self, plaintext: str) -> str:
         return self._fernet.encrypt(plaintext.encode("utf-8")).decode("ascii")
@@ -41,6 +43,21 @@ class SecretCipher:
             return self._fernet.decrypt(token.encode("ascii")).decode("utf-8")
         except (InvalidToken, ValueError) as exc:
             # Never include the token or key material in the error.
+            raise SecretDecryptionError("stored secret could not be decrypted") from exc
+
+    def is_current(self, token: str) -> bool:
+        """True when the first (encrypting) key decrypts the token: nothing to rotate."""
+        try:
+            self._primary.decrypt(token.encode("ascii"))
+        except (InvalidToken, ValueError):
+            return False
+        return True
+
+    def rotate(self, token: str) -> str:
+        """Re-encrypt a token with the first key; any configured key may decrypt it."""
+        try:
+            return self._fernet.rotate(token.encode("ascii")).decode("ascii")
+        except (InvalidToken, ValueError) as exc:
             raise SecretDecryptionError("stored secret could not be decrypted") from exc
 
     @classmethod

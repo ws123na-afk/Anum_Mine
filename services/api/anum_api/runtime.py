@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from .agent_planning import AgentPlanner
 from .agent_skills import SkillRegistry, default_skill_registry
 from .agent_tools import (
@@ -7,6 +9,8 @@ from .agent_tools import (
     ToolRegistry,
     default_tool_registry,
 )
+from .approval_integrity import display_arguments, is_expired, payload_hash
+from .audit import AuditRecord
 from .events import CanonicalEventName, create_event
 from .model_gateway import ModelGateway
 from .repository import AnumRepository
@@ -34,7 +38,13 @@ class AgentRuntime:
         skills: SkillRegistry | None = None,
         tools: ToolRegistry | None = None,
         tool_policy: ToolPolicy | None = None,
+        approval_ttl_seconds: float | None = None,
     ) -> None:
+        if approval_ttl_seconds is None:
+            from .settings import settings
+
+            approval_ttl_seconds = settings.approval_ttl_seconds
+        self.approval_ttl = timedelta(seconds=approval_ttl_seconds)
         self.repository = repository
         self.tools = tools or default_tool_registry()
         self.skills = skills or default_skill_registry()
@@ -161,14 +171,38 @@ class AgentRuntime:
         before running the tool, so a crash mid-tool is visible as ``executing``.
         """
         if approval is not None:
+            if approval.status == ApprovalStatus.EXPIRED:
+                self._fail(
+                    task,
+                    run,
+                    context,
+                    "The approval expired before anyone approved it; the action was not executed.",
+                    approval.id,
+                )
+                return None
             if approval.status != ApprovalStatus.APPROVED:
                 self._fail(task, run, context, "High-risk action was not approved.", approval.id)
                 return None
-            call = (
-                ToolCall.model_validate(run.checkpoint.tool_call)
-                if run.checkpoint.tool_call
-                else ToolCall(name=approval.action, arguments={"action": task.prompt})
-            )
+            if (
+                approval.expires_at is not None
+                and approval.decided_at is not None
+                and approval.decided_at > approval.expires_at
+            ):
+                self._fail(
+                    task,
+                    run,
+                    context,
+                    "The approval was decided after it expired; the action was not executed.",
+                    approval.id,
+                )
+                return None
+            # Bind the decision to the payload: the checkpointed call must still hash to
+            # what the approver was shown. Anything else is never executed.
+            current_hash = self.checkpoint_payload_hash(task, run)
+            if approval.payload_hash is None or current_hash != approval.payload_hash:
+                self._reject_payload_mismatch(task, run, context, approval, current_hash)
+                return None
+            call = ToolCall.model_validate(run.checkpoint.tool_call)
             decision = self.tool_policy.evaluate(call, self.tools.definition(call.name), context)
             if decision.outcome == ToolPolicyOutcome.BLOCK:
                 self._fail(
@@ -259,6 +293,103 @@ class AgentRuntime:
         await self.finish_execution(task, run, context, call, approval.id)
         return run
 
+    def checkpoint_payload_hash(self, task: Task, run: AgentRun) -> str | None:
+        """The payload hash of the run's checkpointed tool call (``None`` without one)."""
+        if not run.checkpoint.tool_call:
+            return None
+        call = ToolCall.model_validate(run.checkpoint.tool_call)
+        return payload_hash(call, task_id=task.id, run_id=run.id, step_id=run.checkpoint.last_step_id)
+
+    def expire_if_due(
+        self, task: Task, approval: Approval, context: TenantContext, now: datetime | None = None
+    ) -> bool:
+        """Mark a lapsed pending approval ``expired`` (and record it). True if it lapsed."""
+        now = now or utc_now()
+        if not is_expired(approval, now):
+            return False
+        approval.status = ApprovalStatus.EXPIRED
+        approval.decided_at = now
+        self.repository.save_approval(approval)
+        self._record_event(
+            CanonicalEventName.APPROVAL_EXPIRED.value,
+            context,
+            approval.id,
+            {"task_id": task.id},
+            task.id,
+        )
+        self._audit(
+            context,
+            "approval.expired",
+            approval.id,
+            "expired",
+            task.id,
+            {
+                "task_id": task.id,
+                "tool": approval.action,
+                "expires_at": approval.expires_at.isoformat() if approval.expires_at else None,
+            },
+            actor="system",
+        )
+        return True
+
+    def _reject_payload_mismatch(
+        self,
+        task: Task,
+        run: AgentRun,
+        context: TenantContext,
+        approval: Approval,
+        current_hash: str | None,
+    ) -> None:
+        self._audit(
+            context,
+            "approval.payload_mismatch",
+            approval.id,
+            "denied",
+            task.id,
+            {
+                "task_id": task.id,
+                "run_id": run.id,
+                "tool": approval.action,
+                "approved_hash": approval.payload_hash,
+                "checkpoint_hash": current_hash,
+                "decided_by": approval.decided_by,
+            },
+        )
+        self._fail(
+            task,
+            run,
+            context,
+            "The tool call no longer matches what was approved (payload hash mismatch); "
+            "the action was not executed.",
+            approval.id,
+        )
+
+    def _audit(
+        self,
+        context: TenantContext,
+        action: str,
+        target: str,
+        outcome: str,
+        correlation_id: str,
+        metadata: dict[str, object],
+        *,
+        actor: str | None = None,
+    ) -> None:
+        self.repository.record_audit(
+            AuditRecord(
+                id=new_id("audit"),
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                actor=actor or context.user_id,
+                action=action,
+                target=target,
+                outcome=outcome,
+                correlation_id=correlation_id,
+                created_at=utc_now(),
+                metadata=metadata,
+            )
+        )
+
     def _mark_executing(self, task: Task, run: AgentRun) -> None:
         task.status = run.status = TaskStatus.RUNNING
         run.checkpoint.phase = RunPhase.EXECUTING
@@ -275,6 +406,7 @@ class AgentRuntime:
         call: ToolCall,
         reason: str,
     ) -> tuple[AgentRun, Approval]:
+        created_at = utc_now()
         approval = Approval(
             id=new_id("approval"),
             task_id=task.id,
@@ -282,7 +414,13 @@ class AgentRuntime:
             risk_level=RiskLevel.HIGH,
             status=ApprovalStatus.PENDING,
             reason=f"{reason} Proposed action: {task.prompt[:240]}",
-            created_at=utc_now(),
+            created_at=created_at,
+            run_id=run.id,
+            step_id=run.checkpoint.last_step_id,
+            arguments=display_arguments(call.arguments),
+            payload_hash=self.checkpoint_payload_hash(task, run)
+            or payload_hash(call, task_id=task.id, run_id=run.id, step_id=run.checkpoint.last_step_id),
+            expires_at=created_at + self.approval_ttl,
         )
         task.status = run.status = TaskStatus.WAITING_APPROVAL
         run.checkpoint.phase = RunPhase.WAITING_APPROVAL

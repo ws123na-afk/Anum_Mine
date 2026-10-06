@@ -337,10 +337,11 @@ def test_approval_decision_takes_the_task_lock(locked_api) -> None:
         TenantContext(tenant_id="tenant_lock", workspace_id="workspace_lock", user_id="u", roles=[]), task["id"]
     )
     core.set(key, "other-replica", nx=True, px=30_000)
-    assert client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=HEADERS).status_code == 409
+    body = {"payload_hash": approval["payload_hash"]}
+    assert client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=HEADERS, json=body).status_code == 409
     assert store.approvals[approval["id"]].status == "pending"
     core.delete(key)
-    assert client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=HEADERS).status_code == 200
+    assert client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=HEADERS, json=body).status_code == 200
 
 
 def test_run_endpoint_reports_unavailable_coordination(locked_api) -> None:

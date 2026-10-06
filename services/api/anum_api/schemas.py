@@ -161,6 +161,16 @@ class AgentRun(BaseModel):
 
 
 class Approval(BaseModel):
+    """A paused high-risk tool call waiting for a person (docs/approvals-and-risk.md).
+
+    ``action`` is the exact tool name and ``arguments`` the exact arguments the agent
+    will execute, with secret-looking values redacted for display. ``payload_hash`` is
+    the SHA-256 of the canonical, unredacted tool call bound to its task, run and
+    proposal step; approving requires sending it back, and the runtime executes only
+    if the checkpointed call still hashes to it. Pending approvals lapse at
+    ``expires_at``. ``decided_by`` is the user id of whoever approved or rejected.
+    """
+
     id: str
     task_id: str
     action: str
@@ -169,6 +179,18 @@ class Approval(BaseModel):
     reason: str
     created_at: datetime
     decided_at: datetime | None = None
+    run_id: str | None = None
+    step_id: str | None = None
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    payload_hash: str | None = None
+    expires_at: datetime | None = None
+    decided_by: str | None = None
+
+
+class ApprovalDecisionRequest(BaseModel):
+    """The approval's ``payload_hash`` exactly as the client displayed it."""
+
+    payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class DomainEvent(BaseModel):

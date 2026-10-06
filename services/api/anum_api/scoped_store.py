@@ -4,7 +4,8 @@ The skills, governance, marketplace, routing, integration, file and notification
 stores each have an in-memory implementation (``ANUM_REPOSITORY_BACKEND=memory``, the
 local and test default) and a PostgreSQL implementation. With PostgreSQL the store gets
 a session whose tenant and workspace RLS context is already set, the unit of work
-commits when the ``with`` block ends normally and rolls back otherwise.
+commits when the ``with`` block ends normally and rolls back otherwise. Per-user stores
+(voice) pass ``user_scoped=True`` so ``anum.user_id`` is set as well.
 """
 
 from __future__ import annotations
@@ -33,6 +34,8 @@ def open_scoped_store(
     context: TenantContext,
     memory_store: StoreT,
     sql_store: Callable[["Session"], StoreT],
+    *,
+    user_scoped: bool = False,
 ) -> Iterator[StoreT]:
     if settings.repository_backend == "memory":
         yield memory_store
@@ -44,7 +47,12 @@ def open_scoped_store(
 
     session = db_session.SessionLocal()
     try:
-        db_session.set_tenant_context(session, context.tenant_id, context.workspace_id)
+        db_session.set_tenant_context(
+            session,
+            context.tenant_id,
+            context.workspace_id,
+            user_id=context.user_id if user_scoped else None,
+        )
         yield sql_store(session)
         session.commit()
     except ScopeNotProvisionedError as exc:
