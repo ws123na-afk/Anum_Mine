@@ -158,6 +158,8 @@ VITE_ANUM_OIDC_ISSUER=http://localhost:8080/realms/anum pnpm dev:web
 
 The API must allow the web origin (`ANUM_CORS_ORIGINS`) and run in `oidc` mode; the web app then shows a Sign in button that opens Keycloak.
 
+`services/api/scripts/run_journey.sh` does all of this end to end and is what the CI job "Authenticated journey" runs: it starts Keycloak, PostgreSQL and NATS from the compose file, runs the API in `oidc` mode against PostgreSQL as a non-superuser role (`anum_app`, so RLS applies) with the NATS event bus, signs in as `dev` through `anum-web` with authorization code + PKCE by posting the Keycloak login form, bootstraps onboarding, then creates, runs and approves a risky task (`services/api/scripts/journey.py`). It also checks that requests without a token, with header-asserted identity or with a tampered signature get `401`, and that Keycloak refuses an `anum-web` authorization request without PKCE.
+
 ## Now
 
 Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.

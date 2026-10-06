@@ -87,6 +87,33 @@ jobs:
       - name: Run database tests
         run: python -m pytest services/api -m database
 
+  journey:
+    name: Authenticated journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      JOURNEY_API_LOG: ${{ github.workspace }}/anum-journey-api.log
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/pyproject.toml
+      - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
+      - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      - name: Sign in through Keycloak, run and approve a task, verify SSE, NATS and PostgreSQL
+        # Starts postgres, nats and keycloak from infra/docker/compose.yaml, migrates,
+        # runs the API with ANUM_AUTH_MODE=oidc, ANUM_REPOSITORY_BACKEND=postgresql and
+        # ANUM_EVENT_BUS=nats as a non-superuser role, then runs scripts/journey.py.
+        run: bash services/api/scripts/run_journey.sh
+      - name: Service logs
+        if: failure()
+        run: |
+          docker compose -f infra/docker/compose.yaml ps || true
+          docker compose -f infra/docker/compose.yaml logs --no-color --tail 200 postgres nats keycloak || true
+          cat "$JOURNEY_API_LOG" || true
+
   compose:
     name: Docker Compose config
     runs-on: ubuntu-latest

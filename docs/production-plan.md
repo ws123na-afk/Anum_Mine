@@ -8,10 +8,10 @@ Status after the `claude/festive-ride-ghttk0` branch merges. Before that, `main`
 
 | Area | State |
 |---|---|
-| CI | All 8 original jobs green with no tolerated failures. Actions upgraded to Node 24 releases. New: Security scans (pip-audit, pnpm audit, bandit, gitleaks), Docker images (build and smoke test), and a CodeQL workflow. Branch protection is not yet required on `main`. |
+| CI | All 8 original jobs green with no tolerated failures. Actions upgraded to Node 24 releases. New: Security scans (pip-audit, pnpm audit, bandit, gitleaks), Docker images (build and smoke test), a CodeQL workflow, and Authenticated journey (Keycloak, PostgreSQL and NATS end to end). Branch protection is not yet required on `main`. |
 | Flutter | Analyzer clean, 61 tests pass. Screens show live workspace data only, with a depth design system and a wake-by-name voice assistant. |
 | Web and desktop | Voice assistant with wake by name, free voices and a WebGL orb; depth redesign. Desktop builds an unsigned Windows installer in CI. |
-| API | Unit and PostgreSQL/RLS suites pass. Auth still defaults to development headers (`ANUM_AUTH_MODE=headers`); an OIDC validator exists but is not exercised end to end. Request size limits, per-client rate limiting, security headers and fail-fast startup checks are in (`anum_api/hardening.py`). |
+| API | Unit and PostgreSQL/RLS suites pass. Auth defaults to development headers (`ANUM_AUTH_MODE=headers`) locally; `oidc` mode is exercised end to end in CI by the Authenticated journey job. Request size limits, per-client rate limiting, security headers and fail-fast startup checks are in (`anum_api/hardening.py`). |
 | Model gateway | Mock, OpenAI-compatible and Ollama (free, local, keyless). A model saved per workspace runs that workspace's tasks and voice answers. Per-workspace configs are in memory only. No retries or cost accounting yet. |
 | Infra adapters | Valkey, NATS, Temporal and object storage appear only as settings and health probes. No client code, workers, or durable event consumers. |
 | Deployment | API and web Dockerfiles, a compose `app` profile, and `deploy-staging.yml` pushing images to GHCR. No OpenTofu, no cloud, no staging environment yet; the deploy step waits on the cloud choice. |
@@ -39,9 +39,11 @@ Goal: the documented thin slice works against real services, not stubs.
 - Client sign-in through Keycloak (authorization code + PKCE, refresh, sign-out) in web, desktop and Flutter, with the local session kept for development. Done; the Kotlin Android client and a CI journey against a real Keycloak remain.
 - NATS JetStream publisher for canonical events plus a consumer that drives the web realtime status stream ([Events](events.md), [Realtime](realtime.md)). A restart-durable PostgreSQL outbox relay (multi-instance safe, narrow relay role) is in.
 - One real model provider behind the gateway with timeouts, retries, cost accounting and redacted logging ([Model gateway](model-gateway.md)). Ollama and OpenAI-compatible adapters with timeouts, bounded retries with backoff, token and estimated-cost accounting, redacted call logging, and per-workspace model configs persisted in PostgreSQL (RLS, Fernet-encrypted keys via `ANUM_SECRETS_KEY`) are in; a real hosted-provider run in CI remains.
-- CI job that starts Keycloak, Postgres and NATS and runs an authenticated task journey.
+- CI job that starts Keycloak, Postgres and NATS and runs an authenticated task journey. Done: the "Authenticated journey" job runs `services/api/scripts/run_journey.sh` (see [Identity and sign-in](identity.md#local-use)).
 
 Exit: a user signs in through Keycloak, creates a task, sees live status, approves the risky sample action, and the run is persisted, all in CI.
+
+Exit status: met in CI once the Authenticated journey job is green on `main`. The job signs in as the realm's `dev` user through `anum-web` with authorization code + PKCE (login form posted by a script, no browser), bootstraps onboarding, opens the SSE stream, creates a task whose prompt triggers the high-risk `external.action` tool, runs it, approves it, and checks that `task.created`, `approval.requested`, `approval.approved` and `agent_run.completed` arrive over SSE in order, are on the `ANUM_EVENTS` JetStream stream, and that the task, run, steps, approval and events are rows in PostgreSQL visible to the non-superuser `anum_app` role only inside the tenant's RLS scope. The journey found and fixed one bug: SSE streams never ended after their client disconnected (see [Realtime](realtime.md#implementation)). Still open in Stage 2: a real hosted-provider run in CI (the journey uses the mock model provider), and the web, desktop and mobile clients' own Keycloak sign-in flows (the journey signs in as the web client would, without the web UI).
 
 ## Stage 3: Durable Runtime and Storage
 

@@ -25,6 +25,10 @@ Realtime subscriptions must be authorized by tenant, workspace, and resource. St
 - `ANUM_EVENT_BUS=memory` (default): the stream polls the repository once a second.
 - `ANUM_EVENT_BUS=nats`: each API process runs one ordered JetStream consumer on `anum.>` (deliver new) that feeds an in-process realtime hub (`services/api/anum_api/realtime.py`). A stream registers a listener for its tenant and workspace before replaying history from the repository after the `Last-Event-ID` cursor, then forwards live events; duplicates from replay overlap or at-least-once redelivery are suppressed by event id. If NATS is unavailable, or a slow listener overflows its 1,000-event queue, the stream falls back to catching up from the repository, so no event is lost to a client.
 
+A stream ends when `request.is_disconnected()` reports that its client left; uvicorn drops writes to a closed connection silently, so this check is the stream's only way out. Middleware in front of the API must therefore be plain ASGI: Starlette's `BaseHTTPMiddleware` hides the disconnect, which once left every closed SSE stream running and blocked graceful shutdown (`CorrelationIdMiddleware` is plain ASGI for this reason, covered by `tests/test_api_contracts.py`).
+
+The CI job "Authenticated journey" (`services/api/scripts/run_journey.sh`) opens this stream as a Keycloak-authenticated user with `ANUM_EVENT_BUS=nats` and checks that a task's `task.created`, `approval.requested`, `approval.approved` and `agent_run.completed` events arrive in order, are on the `ANUM_EVENTS` JetStream stream, and are persisted.
+
 Isolation: the hub routes a message only to listeners whose escaped tenant and workspace tokens equal the subject's, and only after checking that the decoded event's tenant, workspace, type and `Nats-Msg-Id` agree with the subject; mismatched messages are dropped and counted. Each listener re-checks the event against its own tenant context. Tenant-wide events (no workspace) reach every workspace of that tenant only. Tests in `services/api/tests/test_event_bus.py` cover cross-tenant and cross-workspace isolation, forged subjects and hostile identifiers.
 
 ## Now
