@@ -85,8 +85,17 @@ final JsonMap _budgets = {
 };
 
 class AdminTransport implements ApiTransport {
-  AdminTransport({this.forbidden = false});
+  AdminTransport(
+      {this.forbidden = false,
+      this.role = 'owner',
+      this.policyForbidden = false});
   final bool forbidden;
+
+  /// Role from `/workspace-memberships/current`; null answers 404.
+  final String? role;
+
+  /// `PUT /approval-policy` answers 403.
+  final bool policyForbidden;
   final requests = <ApiRequest>[];
   List<JsonMap> members = [
     _member('user_owner', 'owner'),
@@ -94,6 +103,12 @@ class AdminTransport implements ApiTransport {
   ];
   List<JsonMap> invitations = [_invitation()];
   JsonMap budgets = Map.of(_budgets);
+  JsonMap policy = {
+    'two_person_rule': false,
+    'medium_risk_requires_approval': false,
+    'updated_by': null,
+    'updated_at': null,
+  };
 
   @override
   Future<ApiResponse> send(ApiRequest r) async {
@@ -101,6 +116,29 @@ class AdminTransport implements ApiTransport {
     final path = r.uri.path;
     ApiResponse ok(Object body) => ApiResponse(
         statusCode: 200, body: body is JsonMap ? body : {'data': body});
+    if (path.endsWith('/workspace-memberships/current')) {
+      return role == null
+          ? ApiResponse(
+              statusCode: 404,
+              body: _envelope('not_found', 'Membership not found'))
+          : ok({..._member('user_owner', role!)});
+    }
+    if (path.endsWith('/approval-policy') && r.method == 'GET') {
+      return ok(policy);
+    }
+    if (path.endsWith('/approval-policy') && r.method == 'PUT') {
+      if (policyForbidden) {
+        return ApiResponse(
+            statusCode: 403,
+            body: _envelope('forbidden', 'permission_denied: policy:manage'));
+      }
+      policy = {
+        ...r.body!,
+        'updated_by': 'user_owner',
+        'updated_at': '2026-10-06T12:00:00Z'
+      };
+      return ok(policy);
+    }
     if (forbidden &&
         (path.endsWith('/workspace-members') ||
             path.endsWith('/workspace-invitations') ||
@@ -470,6 +508,254 @@ void main() {
       expect(find.text('Used up'), findsNothing);
     });
   });
+
+  group('invitation link', () {
+    test('builds the web link only when the web app URL is configured', () {
+      expect(
+          invitationLink(
+              'https://anum.example/app/#members', _token, 'workspace_sales'),
+          'https://anum.example/app/#invitation=$_token&workspace=workspace_sales');
+      expect(invitationLink('', _token, 'workspace_sales'), isNull);
+      expect(invitationLink('anum.example', _token, 'w_1'), isNull);
+      expect(invitationLink('ftp://anum.example', _token, 'w_1'), isNull);
+      // What the web client builds, the web client and this app both parse.
+      final parsed = parseInvitationInput(
+          invitationLink('http://localhost:5173/', _token, 'workspace_x')!);
+      expect(parsed?.token, _token);
+      expect(parsed?.workspaceId, 'workspace_x');
+    });
+
+    testWidgets('a new invitation shows the link and copies it when configured',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 2600);
+      addTearDown(tester.view.reset);
+      final repo = ApiAdminRepository(await _api(AdminTransport()));
+      final controller = MembersController(repo);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(MembersScreen(
+          controller: controller,
+          repository: repo,
+          currentWorkspaceId: 'workspace_test',
+          webAppUrl: 'https://anum.example/')));
+      await tester.pumpAndSettle();
+      await controller.invite(
+          const InvitationDraft(role: 'member', email: 'ana@example.com'));
+      await tester.pumpAndSettle();
+
+      const link =
+          'https://anum.example/#invitation=$_token&workspace=workspace_test';
+      expect(find.byKey(const Key('invitation-link')), findsOneWidget);
+      expect(find.text(link), findsOneWidget);
+      String? copied;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      });
+      await tester.ensureVisible(find.text('Copy link'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Copy link'));
+      await tester.pump();
+      expect(copied, link);
+    });
+
+    testWidgets('without a web app URL only the token and workspace id show',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 2600);
+      addTearDown(tester.view.reset);
+      final repo = ApiAdminRepository(await _api(AdminTransport()));
+      final controller = MembersController(repo);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(MembersScreen(
+          controller: controller,
+          repository: repo,
+          currentWorkspaceId: 'workspace_test',
+          webAppUrl: '')));
+      await tester.pumpAndSettle();
+      await controller.invite(
+          const InvitationDraft(role: 'member', email: 'ana@example.com'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('invitation-token')), findsOneWidget);
+      expect(find.byKey(const Key('invitation-link')), findsNothing);
+      expect(find.text('Copy link'), findsNothing);
+      expect(find.textContaining('workspace id, needed when accepting'),
+          findsOneWidget);
+    });
+  });
+
+  group('approval policy', () {
+    test('maps the wire shape, explains each switch and warns on one owner',
+        () {
+      final policy = ApprovalPolicy.fromJson(const {
+        'two_person_rule': true,
+        'medium_risk_requires_approval': false,
+        'updated_by': 'user_owner',
+        'updated_at': '2026-10-06T10:00:00Z',
+      });
+      expect(policy.twoPersonRule, isTrue);
+      expect(policy.toJson(),
+          {'two_person_rule': true, 'medium_risk_requires_approval': false});
+      expect(
+          policy
+              .copyWith(PolicySwitch.mediumRiskRequiresApproval, true)
+              .toJson(),
+          {'two_person_rule': true, 'medium_risk_requires_approval': true});
+      expect(policyUpdatedLabel(policy, (_) => 'today'),
+          'Last changed today by user_owner.');
+      expect(
+          policyUpdatedLabel(
+              const ApprovalPolicy(
+                  twoPersonRule: false, mediumRiskRequiresApproval: false),
+              (_) => ''),
+          'Never changed: both switches are off by default.');
+      expect(policySwitchText.keys, PolicySwitch.values);
+      final owner = WorkspaceMember.fromJson(_member('a', 'owner'));
+      final other = WorkspaceMember.fromJson(_member('b', 'owner'));
+      expect(twoPersonWarning(policy, [owner]), contains('one active owner'));
+      expect(twoPersonWarning(policy, [owner, other]), isNull);
+      expect(twoPersonWarning(policy, null), isNull);
+    });
+
+    test('owners load, change and save; the PUT carries both switches',
+        () async {
+      final transport = AdminTransport();
+      final controller =
+          ApprovalPolicyController(ApiAdminRepository(await _api(transport)));
+      addTearDown(controller.dispose);
+      await controller.load();
+      expect(controller.phase, AdminPhase.ready);
+      expect(controller.role, 'owner');
+      expect(controller.readOnly, isFalse);
+      expect(controller.members, hasLength(2));
+      expect(controller.changed, isFalse);
+      controller.toggle(PolicySwitch.twoPersonRule, true);
+      expect(controller.changed, isTrue);
+      expect(controller.warning, contains('one active owner'));
+      expect(await controller.save(), isTrue);
+      final put = transport.requests.lastWhere((r) => r.method == 'PUT');
+      expect(put.uri.path, '/api/v1/approval-policy');
+      expect(put.body,
+          {'two_person_rule': true, 'medium_risk_requires_approval': false});
+      expect(controller.policy!.updatedBy, 'user_owner');
+      expect(controller.changed, isFalse);
+      expect(controller.notice, startsWith('Approval policy saved.'));
+    });
+
+    test('members are read-only and never list members', () async {
+      final transport = AdminTransport(role: 'member');
+      final controller =
+          ApprovalPolicyController(ApiAdminRepository(await _api(transport)));
+      addTearDown(controller.dispose);
+      await controller.load();
+      expect(controller.readOnly, isTrue);
+      controller.toggle(PolicySwitch.twoPersonRule, true);
+      expect(controller.changed, isFalse);
+      expect(await controller.save(), isFalse);
+      expect(
+          transport.requests
+              .where((r) => r.uri.path.endsWith('/workspace-members')),
+          isEmpty);
+    });
+
+    test('a 403 on saving turns read-only with the API answer', () async {
+      final controller = ApprovalPolicyController(ApiAdminRepository(
+          await _api(AdminTransport(role: null, policyForbidden: true))));
+      addTearDown(controller.dispose);
+      await controller.load();
+      expect(controller.role, isNull);
+      expect(controller.readOnly, isFalse);
+      controller.toggle(PolicySwitch.mediumRiskRequiresApproval, true);
+      expect(await controller.save(), isFalse);
+      expect(controller.denied, 'permission_denied: policy:manage');
+      expect(controller.readOnly, isTrue);
+      expect(controller.draft!.mediumRiskRequiresApproval, isFalse);
+    });
+
+    testWidgets('screen: owners toggle a switch and save', (tester) async {
+      tester.view.physicalSize = const Size(1200, 2600);
+      addTearDown(tester.view.reset);
+      final transport = AdminTransport();
+      final controller =
+          ApprovalPolicyController(ApiAdminRepository(await _api(transport)));
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(ApprovalPolicyScreen(
+          controller: controller, workspaceId: 'workspace_test')));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Two-person rule for high-risk actions'), findsOneWidget);
+      expect(find.textContaining('Another owner must approve them'),
+          findsOneWidget);
+      expect(find.text('Never changed: both switches are off by default.'),
+          findsOneWidget);
+      await tester.tap(find.byKey(const Key('policy-twoPersonRule')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('policy-warning')), findsOneWidget);
+      await tester.ensureVisible(find.text('Save policy'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save policy'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('policy-notice')), findsOneWidget);
+      expect(find.textContaining('Last changed'), findsOneWidget);
+      expect(transport.requests.last.method, 'PUT');
+    });
+
+    testWidgets('screen: non-owners see the owner access explanation',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 2600);
+      addTearDown(tester.view.reset);
+      final controller = ApprovalPolicyController(
+          ApiAdminRepository(await _api(AdminTransport(role: 'viewer'))));
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(ApprovalPolicyScreen(
+          controller: controller, workspaceId: 'workspace_test')));
+      await tester.pumpAndSettle();
+      expect(find.text('Owner access required'), findsOneWidget);
+      expect(find.textContaining('Your role here is viewer.'), findsOneWidget);
+      expect(find.text('Save policy'), findsNothing);
+      final tile =
+          tester.widget<Switch>(find.byKey(const Key('policy-twoPersonRule')));
+      expect(tile.onChanged, isNull);
+    });
+  });
+
+  group('controller ownership', () {
+    testWidgets('a screen pushed with OwnedController disposes it on pop',
+        (tester) async {
+      final repo = ApiAdminRepository(await _api(AdminTransport()));
+      _TrackedPolicyController? created;
+      await tester.pumpWidget(_app(Builder(
+          builder: (context) => TextButton(
+              onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                      builder: (_) => OwnedController(
+                          create: () =>
+                              created = _TrackedPolicyController(repo),
+                          builder: (_, c) => ApprovalPolicyScreen(
+                              controller: c, workspaceId: 'workspace_test')))),
+              child: const Text('open')))));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(created, isNotNull);
+      expect(created!.disposed, isFalse);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(created!.disposed, isTrue);
+    });
+  });
+}
+
+class _TrackedPolicyController extends ApprovalPolicyController {
+  _TrackedPolicyController(super.repository);
+  bool disposed = false;
+  @override
+  void dispose() {
+    disposed = true;
+    super.dispose();
+  }
 }
 
 class _TaskTransport implements ApiTransport {

@@ -16,6 +16,11 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if not (hasPrefix "https://" (toString $c.ANUM_KEYCLOAK_ISSUER)) -}}
 {{- fail "config.ANUM_KEYCLOAK_ISSUER must be the https issuer URL of the Keycloak realm" -}}
 {{- end -}}
+{{- range $key, $value := merge (dict) (default (dict) $c) (default (dict) .Values.extraEnv) -}}
+{{- if has (upper (toString $key)) (list "KEYCLOAK_ADMIN" "KEYCLOAK_ADMIN_PASSWORD" "KC_BOOTSTRAP_ADMIN_USERNAME" "KC_BOOTSTRAP_ADMIN_PASSWORD") -}}
+{{- fail (printf "%s is a Keycloak admin credential: ANUM never uses it, it must not be in config or extraEnv (rendered into a ConfigMap), and the API refuses the compose default admin/admin at startup" $key) -}}
+{{- end -}}
+{{- end -}}
 {{- if not $c.ANUM_OIDC_AUDIENCE -}}
 {{- fail "config.ANUM_OIDC_AUDIENCE is required" -}}
 {{- end -}}

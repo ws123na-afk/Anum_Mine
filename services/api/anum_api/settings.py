@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator
+from pydantic import AliasChoices, BaseModel, Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # Optional override when the API reaches Keycloak on a different host than the issuer URL
     # (for example `http://keycloak:8080/...` inside Docker while tokens say `localhost`).
     oidc_jwks_url: str | None = None
+    # Keycloak's bootstrap admin password (Keycloak's own variable names, no ANUM_ prefix).
+    # The API never uses it; it is read only so startup can refuse the compose default
+    # admin/admin outside local when it leaks into the API's environment or .env
+    # (anum_api/hardening.py, docs/security.md#startup-policy).
+    keycloak_admin_password: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("KC_BOOTSTRAP_ADMIN_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD"),
+    )
     oidc_jwks_cache_seconds: int = 300
     oidc_jwks_min_refresh_seconds: int = 30
     oidc_leeway_seconds: int = 30

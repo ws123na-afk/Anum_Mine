@@ -25,8 +25,12 @@ from anum_api.schemas import (
     utc_now,
 )
 
+from anum_api.tool_governance import ToolGovernance, tool_governance_from
+
 from .models import (
     AgentRunRecord,
+    ApprovalRuleRecord,
+    PolicyPackRecord,
     AuditRecordRow,
     AgentRunStepRecord,
     ApprovalRecord,
@@ -587,6 +591,23 @@ class SqlAlchemyRepository(AnumRepository):
         record.updated_at = policy.updated_at or utc_now()
         self.session.flush()
         return self.get_approval_policy(context)
+
+    def get_tool_governance(self, context: TenantContext) -> ToolGovernance:
+        """Enabled approval rules and active policy packs of the caller's tenant.
+
+        Read in this session, so under its tenant RLS scope (the tables are tenant-level).
+        """
+        approval_rules = self.session.scalars(
+            select(ApprovalRuleRecord)
+            .where(ApprovalRuleRecord.tenant_id == context.tenant_id, ApprovalRuleRecord.enabled.is_(True))
+            .order_by(ApprovalRuleRecord.created_at, ApprovalRuleRecord.id)
+        ).all()
+        policy_packs = self.session.scalars(
+            select(PolicyPackRecord)
+            .where(PolicyPackRecord.tenant_id == context.tenant_id, PolicyPackRecord.active.is_(True))
+            .order_by(PolicyPackRecord.created_at, PolicyPackRecord.version, PolicyPackRecord.id)
+        ).all()
+        return tool_governance_from(approval_rules, policy_packs)
 
     def _sync_steps(
         self,

@@ -14,6 +14,7 @@ from .schemas import (
     WorkspaceMembership,
 )
 from .store import InMemoryStore
+from .tool_governance import ToolGovernance, tool_governance_from
 
 
 class AnumRepository(Protocol):
@@ -62,6 +63,7 @@ class AnumRepository(Protocol):
     def save_approval_policy(
         self, policy: WorkspaceApprovalPolicy, context: TenantContext
     ) -> WorkspaceApprovalPolicy: ...
+    def get_tool_governance(self, context: TenantContext) -> ToolGovernance: ...
 
 
 class InMemoryRepository:
@@ -294,3 +296,15 @@ class InMemoryRepository:
     ) -> WorkspaceApprovalPolicy:
         self.store.approval_policies[(context.tenant_id, context.workspace_id)] = policy.model_copy()
         return policy
+
+    def get_tool_governance(self, context: TenantContext) -> ToolGovernance:
+        """The tenant's enabled approval rules and active policy pack rules.
+
+        The in-memory backend keeps governance in ``governance.governance_store`` (the
+        store behind the governance routes), filtered to the caller's tenant.
+        """
+        from .governance import governance_store
+
+        return tool_governance_from(
+            governance_store.list_approval_rules(context), governance_store.list_policy_packs(context)
+        )

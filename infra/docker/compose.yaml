@@ -55,6 +55,9 @@ services:
     image: quay.io/keycloak/keycloak:25.0
     # Imports the `anum` realm from infra/keycloak on first start (existing realms are skipped).
     # Admin credentials and the realm's `dev` user password are DEV-ONLY placeholders.
+    # Never copy this block to a shared Keycloak: outside local the API refuses to start
+    # if admin/admin reaches its environment, and the Helm chart refuses Keycloak admin
+    # credentials in its values (docs/security.md#startup-policy).
     command: ["start-dev", "--import-realm"]
     environment:
       KEYCLOAK_ADMIN: admin
@@ -130,7 +133,7 @@ services:
 
   loki:
     profiles: ["observability"]
-    image: grafana/loki:3.6.17
+    image: grafana/loki:3.7.8
     command: ["-config.file=/etc/loki/config.yaml"]
     volumes:
       - ../observability/loki/loki.yaml:/etc/loki/config.yaml:ro

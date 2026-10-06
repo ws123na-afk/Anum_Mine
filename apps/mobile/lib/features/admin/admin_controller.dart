@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import 'admin_models.dart';
 import 'admin_repository.dart';
+import 'approval_policy.dart';
 
 /// `forbidden` comes from the API's 403: the client never guesses roles.
 enum AdminPhase { initial, loading, ready, forbidden, offline, error }
@@ -218,6 +219,115 @@ class BudgetsController extends ChangeNotifier {
       return false;
     } finally {
       savingScope = null;
+      notifyListeners();
+    }
+  }
+}
+
+/// The workspace approval policy. Any member loads it; the caller's role comes
+/// from their persisted membership, and a 403 on saving is the API's answer.
+class ApprovalPolicyController extends ChangeNotifier {
+  ApprovalPolicyController(this.repository);
+  final AdminRepository repository;
+
+  AdminPhase phase = AdminPhase.initial;
+  ApprovalPolicy? policy;
+
+  /// The switches as edited, sent by [save].
+  ApprovalPolicy? draft;
+
+  /// The caller's role, or null when unknown (the API then decides on save).
+  String? role;
+
+  /// Owners only: used to warn before the two-person rule locks approvals.
+  List<WorkspaceMember>? members;
+
+  String? loadMessage;
+
+  /// The API's 403 answer to a save; the screen then turns read-only.
+  String? denied;
+  String? notice;
+  bool noticeFailed = false;
+  bool saving = false;
+
+  bool get readOnly => (role != null && role != 'owner') || denied != null;
+  bool get changed =>
+      policy != null && draft != null && !policy!.sameSwitches(draft!);
+  String? get warning =>
+      draft == null ? null : twoPersonWarning(draft!, members);
+
+  Future<void> load() async {
+    phase = AdminPhase.loading;
+    loadMessage = null;
+    denied = null;
+    notice = null;
+    notifyListeners();
+    try {
+      final loaded = await repository.approvalPolicy();
+      String? ownRole;
+      try {
+        ownRole = await repository.currentRole();
+      } on Object {
+        ownRole = null;
+      }
+      List<WorkspaceMember>? owners;
+      if (ownRole == 'owner') {
+        try {
+          owners = await repository.members();
+        } on Object {
+          owners = null;
+        }
+      }
+      policy = draft = loaded;
+      role = ownRole;
+      members = owners;
+      phase = AdminPhase.ready;
+    } on Object catch (error) {
+      loadMessage = describeAdminError(error);
+      phase = error is ApiException && error.isPermissionDenied
+          ? AdminPhase.forbidden
+          : _offline(error)
+              ? AdminPhase.offline
+              : AdminPhase.error;
+    }
+    notifyListeners();
+  }
+
+  void toggle(PolicySwitch key, bool on) {
+    if (draft == null || readOnly || saving) return;
+    draft = draft!.copyWith(key, on);
+    notice = null;
+    notifyListeners();
+  }
+
+  void undo() {
+    draft = policy;
+    notifyListeners();
+  }
+
+  Future<bool> save() async {
+    final next = draft;
+    if (next == null || !changed || readOnly) return false;
+    saving = true;
+    notice = null;
+    noticeFailed = false;
+    notifyListeners();
+    try {
+      policy = draft = await repository.setApprovalPolicy(next);
+      notice = 'Approval policy saved. It applies from the next approval '
+          'decision and is in the audit log.';
+      return true;
+    } on Object catch (error) {
+      if (error is ApiException && error.isPermissionDenied) {
+        denied = error.message;
+        draft = policy;
+      } else {
+        noticeFailed = true;
+        notice = describeAdminError(error);
+      }
+      return false;
+    } finally {
+      saving = false;
       notifyListeners();
     }
   }

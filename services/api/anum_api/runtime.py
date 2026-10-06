@@ -69,9 +69,19 @@ class AgentRuntime:
         return self.repository.get_approval_policy(context)
 
     def evaluate(self, call: ToolCall, context: TenantContext) -> ToolPolicyDecision:
-        """Tool policy for ``call`` under the workspace's approval policy (outside the model)."""
+        """Tool policy for ``call`` (outside the model).
+
+        Uses the workspace's approval policy and the tenant's governance rules (enabled
+        approval rules and active policy packs), both read through the repository in the
+        caller's tenant scope. A failure to read them propagates: the call never runs
+        on a guess.
+        """
         return self.tool_policy.evaluate(
-            call, self.tools.definition(call.name), context, self.workspace_policy(context)
+            call,
+            self.tools.definition(call.name),
+            context,
+            self.workspace_policy(context),
+            self.repository.get_tool_governance(context),
         )
 
     async def run_task(self, task: Task, context: TenantContext) -> tuple[AgentRun, Approval | None]:
@@ -119,6 +129,7 @@ class AgentRuntime:
                     "tool": call.name,
                     "risk_level": decision.risk_level.value,
                     "policy_outcome": decision.outcome.value,
+                    "governance_rules": list(decision.governance_rules),
                 },
             )
         run.steps.append(proposal_step)

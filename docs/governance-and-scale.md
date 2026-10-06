@@ -12,6 +12,8 @@ Audit exports are asynchronous, tenant-scoped, time-bounded artifacts. Completed
 
 Governance policies cover memory, audit events, transcripts, and task artifacts. Retention deletion is idempotent, legal hold takes precedence, and residency restrictions constrain both primary storage and exports. Organization approval rules may increase risk or require additional approvers, but cannot weaken a platform-level deny.
 
+Enforcement today: the agent runtime's `ToolPolicy` consults the tenant's enabled approval rules and the rules of its active policy pack versions on every evaluation (planning, execution, recovery); a `deny` blocks, approval rules and `require_approval` pause the call for approval at any risk level, and `allow` changes nothing. The approve route enforces a matching rule's `required_roles` and `minimum_approvers`. Patterns, conditions and the evaluation order are in [Approvals and risk](approvals-and-risk.md#organization-approval-rules-and-policy-packs). Policy pack simulation and a separate evaluation log are not built; the run's `tool_proposal` step records the matched rules and pack versions.
+
 ## Phase 5 Control Plane
 
 Marketplace packages use immutable semantic versions, content digests, publisher signatures, requested scopes, review state, and revocation. Installation requires an administrator to grant a subset of requested scopes. Revocation prevents new execution without erasing historical evidence.

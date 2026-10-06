@@ -58,6 +58,10 @@ async function mockApi(page: Page, options: MockOptions = {}) {
       return json(envelope('model_budget_exceeded', 'This workspace has used its monthly model budget (tokens). It resets on 2026-11-01 (UTC); an owner can raise it in Settings.'), options.runStatus ?? 402);
     }
 
+    if (path === '/api/v1/workspace-memberships/current') {
+      const workspace = request.headers()['x-workspace-id'];
+      return json({ ...memberRow('user_local', workspace === 'workspace_sales' ? 'member' : 'owner'), workspace_id: workspace });
+    }
     if (path === '/api/v1/workspace-members') return options.forbidden ? forbidden(route) : json(members);
     if (path === '/api/v1/workspace-invitations' && method === 'GET') return options.forbidden ? forbidden(route) : json(invitations);
     if (path === '/api/v1/workspace-invitations' && method === 'POST') {
@@ -176,6 +180,15 @@ test('non-owners see the API permission answer and can still accept an invitatio
   const accepted = calls.find((c) => c.path === '/api/v1/workspace-invitations/accept');
   expect(accepted?.body).toEqual({ token });
   expect(accepted?.workspace).toBe('workspace_sales');
+
+  // The joined workspace is one click away, and after the switch every request names it.
+  await accept.getByRole('button', { name: 'Switch to workspace_sales' }).click();
+  await expect(page.getByRole('button', { name: /tenant_local \/ workspace_sales/ })).toBeVisible();
+  const switchedAt = calls.findIndex((c) => c.path === '/api/v1/workspace-memberships/current' && c.workspace === 'workspace_sales');
+  expect(switchedAt).toBeGreaterThan(-1);
+  await expect.poll(() => calls.slice(switchedAt + 1).filter((c) => c.path === '/api/v1/workspace-members').length).toBeGreaterThan(0);
+  // The development session request carries the workspace in its body; every other call in the header.
+  expect(calls.slice(switchedAt + 1).every((c) => c.path === '/api/v1/auth/local/session' ? (c.body as Json).workspace_id === 'workspace_sales' : c.workspace === 'workspace_sales')).toBe(true);
 });
 
 test('budgets show usage against limits, the reset date, and save new limits', async ({ page }) => {

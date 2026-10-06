@@ -259,6 +259,24 @@ def test_compose_object_storage_secret_is_refused_outside_local() -> None:
     assert any("ANUM_S3_SECRET_KEY" in problem for problem in problems)
 
 
+@pytest.mark.parametrize("variable", ["KEYCLOAK_ADMIN_PASSWORD", "KC_BOOTSTRAP_ADMIN_PASSWORD"])
+def test_keycloak_admin_default_in_the_environment_is_refused_outside_local(
+    variable: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(variable, "admin")
+    with pytest.raises(InsecureConfigurationError) as raised:
+        enforce_startup_policy(_settings())
+    assert any("Keycloak admin/admin" in problem for problem in raised.value.problems)
+    # The password itself never appears in the refusal.
+    assert all("=admin" not in problem for problem in raised.value.problems)
+    assert insecure_configuration_problems(Settings(environment="local")) == []
+
+
+def test_a_rotated_keycloak_admin_password_is_not_a_startup_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KEYCLOAK_ADMIN_PASSWORD", "a-rotated-password-from-the-secret-store")
+    assert not any("Keycloak" in problem for problem in insecure_configuration_problems(_settings()))
+
+
 def test_disabling_rate_limits_is_refused_outside_local() -> None:
     problems = insecure_configuration_problems(_settings(rate_limit_enabled=False))
     assert any("RATE_LIMIT" in problem for problem in problems)

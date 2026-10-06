@@ -336,6 +336,59 @@ void main() {
     expect(approve.onPressed, isNull);
     expect(find.textContaining('cannot be approved'), findsOneWidget);
   });
+
+  testWidgets(
+      'the two-person 403 is shown on the card and the screen stays usable',
+      (tester) async {
+    final repository = _RefusingRepository(
+        [_approval(expiresAt: DateTime.now().add(const Duration(hours: 5)))]);
+    final controller = WorkspaceController(repository);
+    await controller.load();
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: AnumTheme.dark(),
+      home: Scaffold(body: ApprovalsScreen(controller: controller)),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approve').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('approval-refusal-approval_pending')),
+        findsOneWidget);
+    expect(find.text('Decision refused'), findsOneWidget);
+    expect(find.text(_twoPersonMessage), findsOneWidget);
+    expect(controller.phase, isNot(LoadPhase.error));
+    expect(controller.message, isNull);
+    expect(find.text('Reject'), findsOneWidget);
+
+    // Rejecting your own task is still allowed and clears the refusal.
+    await tester.tap(find.text('Reject'));
+    await tester.pumpAndSettle();
+    expect(repository.decided.last, ('approval_pending', _hash, false));
+    expect(controller.decisionRefusals, isEmpty);
+  });
+}
+
+const _twoPersonMessage =
+    'This workspace requires two people for high-risk actions: you created or '
+    'started this task, so another owner must approve it. You can still reject it.';
+
+class _RefusingRepository extends _FakeRepository {
+  _RefusingRepository(super.approvals);
+
+  @override
+  Future<WorkspaceApproval> decideApproval(WorkspaceApproval approval,
+      {required bool approve, String? reason}) async {
+    if (approve) {
+      throw const ApiException(403, _twoPersonMessage, code: 'forbidden');
+    }
+    return super.decideApproval(approval, approve: approve, reason: reason);
+  }
 }
 
 extension on WorkspaceApproval {

@@ -18,7 +18,7 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 - Approval decisions, automation controls, workspace files, and durable memory.
 - Push-to-talk voice commands with English/Arabic locales, editable transcript review, explicit retention, governed execution, permission recovery, and spoken status confirmation.
 - A wake-by-name voice assistant with a 3D orb, and Home, Tasks, Approvals, Automations, Resources and Governance screens that show only live workspace data, with honest empty states instead of samples.
-- Owner screens under Settings › Workspace administration: members and invitations (roles, deactivation, a one-time invitation token with copy), accepting an invitation by token or link, and monthly model budgets with usage; non-owners see the API's `403` explanation ([Identity](identity.md#client-screens), [Model gateway](model-gateway.md#monthly-budgets)). A task run refused for a used-up budget (`402`) shows the budget message on Tasks.
+- Owner screens under Settings › Workspace administration: members and invitations (roles, deactivation, a one-time invitation token with copy, plus the web invitation link when `ANUM_WEB_APP_URL` is defined), accepting an invitation by token or link, monthly model budgets with usage, and the workspace approval policy (two-person rule, approval for medium risk); non-owners see the API's `403` explanation, and members see the approval policy read-only ([Identity](identity.md#client-screens), [Model gateway](model-gateway.md#monthly-budgets), [Approvals and risk](approvals-and-risk.md#policy-screens)). Each of these screens owns its controller and disposes it when closed. A task run refused for a used-up budget (`402`) shows the budget message on Tasks; an approval refused with `403` (for example the two-person rule) shows the API's sentence on that approval's card.
 - Loading, empty, error, offline, permission-denied, expired-session, and responsive phone/tablet components.
 - Widget and architecture tests for compact layout, accessibility semantics, route coverage, and embedded-secret detection.
 
@@ -39,7 +39,7 @@ flutter run \
   --dart-define=ANUM_OIDC_ISSUER=http://localhost:8080/realms/anum
 ```
 
-`ANUM_OIDC_CLIENT_ID`, `ANUM_OIDC_REDIRECT_URL` and `ANUM_WORKSPACE_ID` override the client, redirect and fallback workspace. The issuer must match the API's `ANUM_KEYCLOAK_ISSUER` exactly, which is why the emulator reaches Keycloak through `adb reverse` on `localhost` instead of `10.0.2.2`. Plain-HTTP issuers work only in debug and profile builds.
+`ANUM_OIDC_CLIENT_ID`, `ANUM_OIDC_REDIRECT_URL` and `ANUM_WORKSPACE_ID` override the client, redirect and fallback workspace; `ANUM_WEB_APP_URL` (for example `http://localhost:5173/`) adds the web invitation link to new invitations ([Release builds](#release-builds)). The issuer must match the API's `ANUM_KEYCLOAK_ISSUER` exactly, which is why the emulator reaches Keycloak through `adb reverse` on `localhost` instead of `10.0.2.2`. Plain-HTTP issuers work only in debug and profile builds.
 
 When `ANUM_OIDC_ISSUER` is not defined the app keeps the local development sign-in (password, one-time code, password recovery), which requires an API in `ANUM_AUTH_MODE=headers`. Production builds must use HTTPS and OIDC; the local sign-in screen is not shown when an issuer is configured.
 
@@ -69,7 +69,8 @@ Production configuration is passed at build time; there are no flavours. Keep th
 ```json
 {
   "ANUM_API_URL": "https://api.example.com/",
-  "ANUM_OIDC_ISSUER": "https://id.example.com/realms/anum"
+  "ANUM_OIDC_ISSUER": "https://id.example.com/realms/anum",
+  "ANUM_WEB_APP_URL": "https://app.example.com/"
 }
 ```
 
@@ -79,6 +80,8 @@ flutter build ipa --release --dart-define-from-file=production.json
 ```
 
 The issuer must use HTTPS (plain HTTP is refused in release builds) and equal the API's `ANUM_KEYCLOAK_ISSUER`. Without `ANUM_OIDC_ISSUER` a release build would show the development sign-in, so a production build must always set it.
+
+`ANUM_WEB_APP_URL` is optional: the address of the web app (absolute `http(s)` URL, path allowed). With it, a newly created invitation also shows and copies the web client's link `<ANUM_WEB_APP_URL>#invitation=<token>&workspace=<workspace_id>`, which opens the web app's accept form pre-filled ([Identity](identity.md#client-screens)). Without it, or with a value that is not an absolute `http(s)` URL, the app shows the token and the workspace id only. The release workflow adds it to the generated defines file when the optional repository variable `ANUM_PRODUCTION_WEB_APP_URL` is set.
 
 Android signing (`android/app/build.gradle.kts`). The `release` build type uses the upload key when all four values are set, from the environment or from `android/key.properties` (gitignored; same property names as Flutter's guide):
 
@@ -110,6 +113,7 @@ Repository variables:
 | --- | --- |
 | `ANUM_PRODUCTION_API_URL` | Production API origin, HTTPS (becomes `ANUM_API_URL`). Shared with the desktop build. |
 | `ANUM_PRODUCTION_OIDC_ISSUER` | Production Keycloak issuer, HTTPS, equal to the API's `ANUM_KEYCLOAK_ISSUER` (becomes `ANUM_OIDC_ISSUER`). |
+| `ANUM_PRODUCTION_WEB_APP_URL` | Optional. Production web app address (becomes `ANUM_WEB_APP_URL`, adds the web invitation link). |
 | `ANUM_BUILD_NUMBER_OFFSET` | Optional. A whole number added to the run number, for example to continue above a build uploaded by hand. |
 | `ANUM_PLAY_RELEASE_STATUS` | Optional. `completed` by default; set `draft` while the Play app has never been reviewed (Play refuses `completed` releases for a draft app). |
 

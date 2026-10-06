@@ -192,6 +192,28 @@ class InvitationDraft {
   );
 }
 
+/// The web app's address, from `--dart-define=ANUM_WEB_APP_URL=...`
+/// (docs/mobile.md). Empty when the build does not know it.
+const configuredWebAppUrl = String.fromEnvironment('ANUM_WEB_APP_URL');
+
+/// The same invitation link the web client builds:
+/// `<app URL>#invitation=<token>&workspace=<id>`. The token travels in the
+/// fragment, which browsers never send to a server. Null without an app URL
+/// (or with one that is not an absolute http(s) URL), so the caller falls
+/// back to showing the token and workspace id.
+String? invitationLink(String appUrl, String token, String workspaceId) {
+  final base = appUrl.trim().split('#').first;
+  final uri = Uri.tryParse(base);
+  if (base.isEmpty ||
+      uri == null ||
+      !uri.hasAuthority ||
+      (uri.scheme != 'https' && uri.scheme != 'http')) {
+    return null;
+  }
+  return '$base#invitation=${Uri.encodeComponent(token)}'
+      '&workspace=${Uri.encodeComponent(workspaceId)}';
+}
+
 /// "Expires in 3 d", "Expires in 5 h", "Expired 2 h ago".
 String expiryLabel(DateTime expiresAt, {DateTime? now}) {
   final diff = expiresAt.difference(now ?? DateTime.now());

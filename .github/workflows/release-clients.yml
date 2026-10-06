@@ -78,6 +78,7 @@ jobs:
       BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
       PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
       PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
     steps:
       - name: Check signing secrets and production configuration
         id: config
@@ -137,8 +138,8 @@ jobs:
           ANUM_ANDROID_KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
         run: |
           flutter pub get
-          jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" \
-            '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer}' > "$RUNNER_TEMP/production.json"
+          jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" --arg web "$PRODUCTION_WEB_APP_URL" \
+            '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer} + (if $web == "" then {} else {ANUM_WEB_APP_URL: $web} end)' > "$RUNNER_TEMP/production.json"
           flutter build appbundle --release \
             --build-name="$VERSION" --build-number="$BUILD_NUMBER" \
             --dart-define-from-file="$RUNNER_TEMP/production.json"
@@ -247,8 +248,8 @@ jobs:
           API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
         run: |
-          jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" \
-            '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer}' > "$RUNNER_TEMP/production.json"
+          jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" --arg web "$PRODUCTION_WEB_APP_URL" \
+            '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer} + (if $web == "" then {} else {ANUM_WEB_APP_URL: $web} end)' > "$RUNNER_TEMP/production.json"
           flutter build ios --release --config-only \
             --build-name="$VERSION" --build-number="$BUILD_NUMBER" \
             --dart-define-from-file="$RUNNER_TEMP/production.json"
@@ -437,6 +438,7 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
       PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
     steps:
       - uses: actions/checkout@v7
       - name: Check production configuration

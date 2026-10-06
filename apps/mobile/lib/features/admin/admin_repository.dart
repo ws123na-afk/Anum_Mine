@@ -1,8 +1,10 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'admin_models.dart';
+import 'approval_policy.dart';
 
-/// Owner screens' data: memberships, invitations and model budgets.
+/// Owner screens' data: memberships, invitations, model budgets and the
+/// workspace approval policy.
 abstract interface class AdminRepository {
   Future<List<WorkspaceMember>> members();
   Future<WorkspaceMember> changeRole(String userId, String role);
@@ -14,6 +16,12 @@ abstract interface class AdminRepository {
       {String? workspaceId});
   Future<BudgetOverview> budgets();
   Future<BudgetOverview> setBudget(String scope, ModelBudgetLimits limits);
+  Future<ApprovalPolicy> approvalPolicy();
+  Future<ApprovalPolicy> setApprovalPolicy(ApprovalPolicy policy);
+
+  /// The caller's role from their persisted membership in this workspace,
+  /// or null when it is inactive or unknown.
+  Future<String?> currentRole();
 }
 
 class ApiAdminRepository implements AdminRepository {
@@ -96,4 +104,21 @@ class ApiAdminRepository implements AdminRepository {
       BudgetOverview.fromJson(await api.request(
           'PUT', '/api/v1/model-budgets/$scope',
           body: limits.toJson()));
+
+  @override
+  Future<ApprovalPolicy> approvalPolicy() async => ApprovalPolicy.fromJson(
+      await api.request('GET', '/api/v1/approval-policy'));
+
+  /// Owners only: anyone else gets 403. Every change is audited.
+  @override
+  Future<ApprovalPolicy> setApprovalPolicy(ApprovalPolicy policy) async =>
+      ApprovalPolicy.fromJson(await api
+          .request('PUT', '/api/v1/approval-policy', body: policy.toJson()));
+
+  @override
+  Future<String?> currentRole() async {
+    final value =
+        await api.request('GET', '/api/v1/workspace-memberships/current');
+    return value['active'] == false ? null : value['role'] as String?;
+  }
 }

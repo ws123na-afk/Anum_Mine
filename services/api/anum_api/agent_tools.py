@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from .prompt_provenance import Provenance, label_untrusted
 from .schemas import RiskLevel, TenantContext, WorkspaceApprovalPolicy
+from .tool_governance import ToolGovernance, match_governance
 
 
 class ToolDefinition(BaseModel):
@@ -49,6 +50,8 @@ class ToolPolicyDecision(BaseModel):
     outcome: ToolPolicyOutcome
     reason: str
     risk_level: RiskLevel
+    # Governance rules (approval rules, policy pack versions) that shaped the decision.
+    governance_rules: list[str] = Field(default_factory=list)
 
 
 ToolHandler = Callable[[ToolCall, TenantContext], Awaitable[ToolResult]]
@@ -89,7 +92,16 @@ class ToolPolicy:
         definition: ToolDefinition | None,
         context: TenantContext,
         workspace_policy: WorkspaceApprovalPolicy | None = None,
+        governance: ToolGovernance | None = None,
     ) -> ToolPolicyDecision:
+        """Decide a call outside the model.
+
+        Order: unregistered, outside the allowlist, missing role and ``blocked`` tools are
+        blocked; a matching governance ``deny`` blocks; ``high`` risk needs approval; a
+        matching governance approval rule or ``require_approval`` policy rule needs
+        approval; ``medium`` risk needs approval when the workspace policy says so;
+        everything else is allowed. Governance can only add restrictions.
+        """
         if definition is None:
             return ToolPolicyDecision(
                 outcome=ToolPolicyOutcome.BLOCK,
@@ -115,11 +127,29 @@ class ToolPolicy:
                 reason="The tool is prohibited by runtime policy.",
                 risk_level=RiskLevel.BLOCKED,
             )
+        match = match_governance(
+            governance, tool=call.name, target=definition.target, risk_level=definition.risk_level
+        )
+        if match.deny:
+            return ToolPolicyDecision(
+                outcome=ToolPolicyOutcome.BLOCK,
+                reason="An organization policy pack denies this action.",
+                risk_level=RiskLevel.BLOCKED,
+                governance_rules=[rule.label for rule in match.deny],
+            )
         if definition.risk_level == RiskLevel.HIGH:
             return ToolPolicyDecision(
                 outcome=ToolPolicyOutcome.REQUIRE_APPROVAL,
                 reason="External or high-impact actions require explicit approval.",
                 risk_level=definition.risk_level,
+                governance_rules=match.approval_labels,
+            )
+        if match.requires_approval:
+            return ToolPolicyDecision(
+                outcome=ToolPolicyOutcome.REQUIRE_APPROVAL,
+                reason="An organization approval rule requires approval for this action.",
+                risk_level=definition.risk_level,
+                governance_rules=match.approval_labels,
             )
         if (
             definition.risk_level == RiskLevel.MEDIUM

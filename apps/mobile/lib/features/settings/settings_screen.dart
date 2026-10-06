@@ -471,15 +471,22 @@ class _ModelSheetState extends State<_ModelSheet> {
               ])));
 }
 
-/// Members, invitations and model budgets. Shown to everyone: the screens
-/// show the API's 403 answer to non-owners instead of guessing roles.
+/// Members, invitations, model budgets and the approval policy. Shown to
+/// everyone: the screens show the API's answer to non-owners instead of
+/// guessing roles. Each pushed screen owns its controller and disposes it
+/// when it is popped ([OwnedController]).
 class _AdminCard extends StatelessWidget {
   const _AdminCard({required this.repository, required this.workspaceId});
   final AdminRepository repository;
   final String workspaceId;
 
-  void _push(BuildContext context, Widget screen) =>
-      Navigator.push(context, MaterialPageRoute<void>(builder: (_) => screen));
+  void _push<T extends ChangeNotifier>(BuildContext context,
+          T Function() create, Widget Function(T controller) screen) =>
+      Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => OwnedController<T>(
+                  create: create, builder: (_, c) => screen(c))));
 
   @override
   Widget build(BuildContext context) => Card(
@@ -491,8 +498,9 @@ class _AdminCard extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _push(
                 context,
-                MembersScreen(
-                    controller: MembersController(repository),
+                () => MembersController(repository),
+                (c) => MembersScreen(
+                    controller: c,
                     repository: repository,
                     currentWorkspaceId: workspaceId))),
         ListTile(
@@ -500,8 +508,19 @@ class _AdminCard extends StatelessWidget {
             title: const Text('Model budgets'),
             subtitle: const Text('Monthly cost and token limits with usage.'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => _push(context,
-                BudgetsScreen(controller: BudgetsController(repository)))),
+            onTap: () => _push(context, () => BudgetsController(repository),
+                (c) => BudgetsScreen(controller: c))),
+        ListTile(
+            leading: const Icon(Icons.policy_outlined),
+            title: const Text('Approval policy'),
+            subtitle: const Text(
+                'Two-person rule and approval for medium-risk actions.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _push(
+                context,
+                () => ApprovalPolicyController(repository),
+                (c) => ApprovalPolicyScreen(
+                    controller: c, workspaceId: workspaceId))),
         ListTile(
             leading: const Icon(Icons.how_to_reg_outlined),
             title: const Text('Accept an invitation'),
@@ -509,8 +528,8 @@ class _AdminCard extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _push(
                 context,
-                AcceptInvitationScreen(
-                    controller: AcceptInvitationController(repository,
-                        currentWorkspaceId: workspaceId)))),
+                () => AcceptInvitationController(repository,
+                    currentWorkspaceId: workspaceId),
+                (c) => AcceptInvitationScreen(controller: c))),
       ]));
 }
