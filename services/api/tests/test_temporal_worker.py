@@ -4,7 +4,8 @@ Server, in order of preference:
 
 * ``ANUM_TEST_TEMPORAL_TARGET`` (for example ``localhost:7233`` from
   ``docker compose -f infra/docker/compose.yaml up temporal``), or
-* temporalio's time-skipping test server, which the SDK downloads on first use.
+* a Temporal dev server started by the SDK (``WorkflowEnvironment.start_local``), which
+  downloads the Temporal CLI on first use or uses ``ANUM_TEST_TEMPORAL_CLI``.
 
 When neither is available every test here is skipped with the reason.
 """
@@ -49,10 +50,15 @@ async def temporal_client() -> AsyncIterator[Client]:
         return
     from temporalio.testing import WorkflowEnvironment
 
+    # A real Temporal dev server (the SDK downloads the CLI on first use, or uses
+    # ANUM_TEST_TEMPORAL_CLI). The time-skipping test server is a separate, simplified
+    # implementation that does not reproduce worker shutdown mid-activity faithfully.
     try:
-        env = await WorkflowEnvironment.start_time_skipping()
-    except RuntimeError as exc:
-        pytest.skip(f"Temporal test server unavailable (set ANUM_TEST_TEMPORAL_TARGET): {exc}")
+        env = await WorkflowEnvironment.start_local(
+            dev_server_existing_path=os.getenv("ANUM_TEST_TEMPORAL_CLI") or None,
+        )
+    except Exception as exc:
+        pytest.skip(f"Temporal dev server unavailable (set ANUM_TEST_TEMPORAL_TARGET): {exc}")
     try:
         yield env.client
     finally:

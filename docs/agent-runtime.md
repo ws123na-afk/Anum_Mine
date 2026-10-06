@@ -47,7 +47,7 @@ Because a step always starts from what the repository holds, a run survives a wo
 
 ### Tests
 
-`tests/test_durable_runs.py` drives the activity without a server, including a simulated worker crash mid-tool and the high-risk never-repeat rule. `tests/test_temporal_worker.py` (marker `temporal`) runs the workflow on a real server (`ANUM_TEST_TEMPORAL_TARGET`, or the SDK's time-skipping test server when it can be downloaded) and stops a worker while its tool call is in flight, then asserts a second worker completes the run without re-planning. `tests/test_valkey_integration.py` (marker `valkey`, `ANUM_TEST_VALKEY_URL`) includes a lock contention test across threads and connections.
+`tests/test_durable_runs.py` drives the activity without a server, including a simulated worker crash mid-tool and the high-risk never-repeat rule. `tests/test_temporal_worker.py` (marker `temporal`) runs the workflow on a real server (`ANUM_TEST_TEMPORAL_TARGET`, or a dev server the SDK starts with `WorkflowEnvironment.start_local`, downloading the Temporal CLI or using `ANUM_TEST_TEMPORAL_CLI`) and stops a worker while its tool call is in flight, then asserts a second worker completes the run without re-planning. `tests/test_valkey_integration.py` (marker `valkey`, `ANUM_TEST_VALKEY_URL`) includes a lock contention test across threads and connections.
 
 ## Guardrails
 

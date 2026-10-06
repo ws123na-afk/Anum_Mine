@@ -119,7 +119,7 @@ jobs:
           ANUM_TEST_VALKEY_URL: redis://127.0.0.1:6379/15
           ANUM_TEST_S3_ENDPOINT: http://127.0.0.1:9000
           ANUM_TEST_NATS_URL: nats://127.0.0.1:4222
-          # Temporal tests use the SDK's time-skipping test server (downloaded on first use).
+          # Temporal tests start a real dev server through the SDK (downloaded on first use).
         run: |
           set -o pipefail
           python -m pytest -m "(valkey or s3 or temporal or nats) and not database" -rs | tee integration.log

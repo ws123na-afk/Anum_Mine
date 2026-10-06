@@ -255,7 +255,8 @@ class RunDispatcher:
             return True
         except Exception:
             # The decision is already committed; the workflow re-reads it on its next poll.
-            logger.warning("Could not signal %s to workflow %s", signal, workflow_id, exc_info=True)
+            safe_id = workflow_id.replace("\r", "").replace("\n", "")  # task ids come from the URL
+            logger.warning("Could not signal %s to workflow %s", signal, safe_id, exc_info=True)
             return False
 
     async def approval_decided(self, context: TenantContext, task_id: str, approval_id: str) -> bool:
