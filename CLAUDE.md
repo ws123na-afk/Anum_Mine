@@ -31,3 +31,7 @@ Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `
 - Parallel branches that each add a migration will collide on the number: renumber at merge into one chain (and fix every reference). Alembic revision ids must fit in 32 characters.
 - Cross-tenant jobs (retention purge, scheduler, key rotation, outbox) find work through a narrow NOLOGIN role (`anum_maintenance`, `anum_outbox_relay`) and then act as the app role inside each tenant's context. Never BYPASSRLS, never SECURITY DEFINER over forced-RLS tables.
 - Approvals require the payload hash the client displayed (`POST /approve {"payload_hash": ...}`); tests and scripts that approve must send it.
+- gitleaks' `generic-api-key` rule also fires on realistic-looking fake tokens in TypeScript and Dart tests (a mixed-case value with digits and dashes). Use plainly fake, low-entropy fixtures (a lowercase word such as "example" after the prefix); if one was committed, squash it out before pushing, because CI scans the history.
+- The Helm chart mirrors the API's startup refusals (`infra/helm/ci/lint.sh`). A new refusal in `config.py` needs a matching chart check, and a chart value the API would refuse must fail `helm lint`, not the pod.
+- `helm rollback` never reverses migrations: every migration must be expand/contract, so the previous release still runs against the new schema.
+- Parallel branches all edit the status table in `docs/production-plan.md`. Resolve that conflict row by row, keeping both sides' facts, and recount the CI checks.
