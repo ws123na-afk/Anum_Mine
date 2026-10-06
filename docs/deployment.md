@@ -11,7 +11,7 @@ ANUM deploys to any Kubernetes cluster with the Helm chart in `infra/helm/anum`.
 | Web | Deployment, Service, PodDisruptionBudget | Web image, unprivileged nginx on 8080 | Probes on `/healthz`; `ANUM_CSP_CONNECT_SRC` from `web.cspConnectSrc`. |
 | Ingress | Ingress | | One host for the web client, one for the API. TLS from an existing Secret or cert-manager (`ingress.tls.clusterIssuer`). |
 | Migrations | Job, `pre-install,pre-upgrade` hook | API image, `python -m alembic upgrade head` | Runs with the migration login before any new pod starts. |
-| Voice retention | CronJob, daily | API image, `python -m anum_api.voice_retention` | [Runbooks](runbooks.md#voice-transcript-retention). |
+| Voice retention | CronJob, daily | API image, `python -m anum_api.voice_retention` | Also purges retrieval index rows of expired memories. [Runbooks](runbooks.md#voice-transcript-retention). |
 | Backup (optional) | CronJob, daily | Backup image (`infra/backup/Dockerfile`), `anum_backup.py backup` | Off by default; [Runbooks](runbooks.md#backups). |
 | Network policies | NetworkPolicy | | Default deny for every pod of the release, then only the traffic each workload needs. |
 | `helm test` | Pod, `test` hook | API image | `/health`, the configured environment, CSP header, 401 without a token, `/docs` disabled, web `/healthz`. |

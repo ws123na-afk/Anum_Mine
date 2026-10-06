@@ -27,7 +27,15 @@ Retrieval is tenant-scoped, workspace-aware, permission-filtered and explainable
 
 Both tables force RLS on `anum.tenant_id` and `anum.workspace_id`, like every workspace table, and the store also names the tenant and workspace in every statement. The embedding column is untyped because models differ in dimension; a check ties it to `dimensions`, and a search only compares chunks of the query's model and dimension. Search is exact (cosine distance), bounded to one workspace and model by `ix_retrieval_chunks_scope_model`; an approximate (HNSW) index per model is later work for large workspaces. With `ANUM_REPOSITORY_BACKEND=memory` the same index lives in process memory.
 
-**When indexing happens.** Creating a memory indexes it in the same transaction; uploading a text file indexes it after its metadata commits ([Workspace files](files.md#retrieval)). Indexing is best effort: a provider error or an exhausted budget is recorded on the source row and never fails the create. Deleting a memory or file deletes its index rows. Unchanged text with the same embedding model is never embedded again.
+**When indexing happens.** Creating a memory indexes it in the same transaction; uploading a text file indexes it after its metadata commits ([Workspace files](files.md#retrieval)). Indexing is best effort: a provider error or an exhausted budget is recorded on the source row and never fails the create. Deleting a memory or file deletes its index rows (see [Retention](#retention)). Unchanged text with the same embedding model is never embedded again.
+
+### Retention
+
+Search ignores a chunk the moment its memory expires or its memory or file is deleted. The rows themselves are removed too:
+
+- **Deleted memories and files.** Migration `0015_retrieval_retention` adds `AFTER DELETE` row triggers on `memories` and `workspace_files` that delete the matching `retrieval_sources` row (its chunks cascade) in the same transaction, whatever deleted the record (the API, a cascade from a deleted task, an operator). The trigger functions are `SECURITY INVOKER`: the delete runs as the role that deleted the record and is checked by the same tenant-isolation policies. The API's delete hooks remain and find nothing left to do.
+- **Expired memories.** The retention purge `python -m anum_api.retrieval_retention [--dry-run]` deletes the index rows of memories whose retention passed. It runs as part of `python -m anum_api.voice_retention` (the daily retention CronJob; its output adds a `retrieval_index` entry), so no extra schedule is needed. It follows the [maintenance pattern](multi-tenancy.md#maintenance-role): workspaces holding a source of an expired memory are discovered as `anum_maintenance`, which may read only the scope, id and expiry columns of exactly those `retrieval_sources` rows; each workspace is then purged as the application role in its own tenant and workspace RLS context. In that workspace it also removes rows whose memory is gone or expired or whose file metadata is gone (orphans left before `0015`). Output: counts of workspaces, sources and chunks, never text.
+- Orphans in a workspace with no expired memory source are not discovered by the purge; `POST /api/v1/retrieval/index` removes them (below). The memory records themselves are not deleted by the purge; reads hide them once expired.
 
 ### Embeddings
 

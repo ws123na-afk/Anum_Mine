@@ -182,7 +182,7 @@ Measured locally (PostgreSQL 16.15 with pgvector, synthetic data: 3 tenants, 60,
 
 ## Voice Transcript Retention
 
-`30_days` voice transcripts are unreadable from their `expires_at` on. `python -m anum_api.voice_retention` deletes the rows ([Voice](voice.md#storage-and-retention)).
+`30_days` voice transcripts are unreadable from their `expires_at` on. `python -m anum_api.voice_retention` deletes the rows ([Voice](voice.md#storage-and-retention)). The same run deletes the retrieval index rows of expired memories (and orphaned rows in those workspaces) and reports them under `retrieval_index` ([Memory](memory.md#retention)); `python -m anum_api.retrieval_retention [--dry-run]` runs that part alone.
 
 - **Schedule:** run it at least daily with the API's configuration. On Kubernetes the chart's `anum-voice-retention` CronJob does (03:17 UTC, `voiceRetention.schedule`); run it now with `kubectl -n <ns> create job --from=cronjob/anum-voice-retention anum-voice-retention-manual`. The login must be a member of `anum_maintenance` (`infra/helm/bootstrap-database.sql` grants it to `anum_app`).
 - **Dry run:** `--dry-run` prints how many sessions and segments would be deleted, as counts only.

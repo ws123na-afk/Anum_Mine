@@ -247,3 +247,25 @@ def test_retrieval_index_migration_extends_the_chain_with_forced_rls_and_pgvecto
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
     assert "drop_" not in upgrade and "alter_column" not in upgrade
     assert 'op.drop_table("retrieval_chunks")' in revision_text
+
+
+def test_retrieval_retention_migration_adds_a_discovery_only_policy_and_invoker_triggers() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0015_retrieval_retention.py").read_text(encoding="utf-8")
+
+    assert 'revision = "0015_retrieval_retention"' in revision_text
+    assert 'down_revision = "0014_retrieval_index"' in revision_text
+    assert len("0015_retrieval_retention") <= 32
+    others = [path for path in versions.glob("*.py") if path.name != "0015_retrieval_retention.py"]
+    assert not [path for path in others if 'down_revision = "0014_retrieval_index"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Discovery only: column-level select for the maintenance role, a select-only policy.
+    assert "grant select (tenant_id, workspace_id, source_type, source_id, source_expires_at)" in upgrade
+    assert "for select to anum_maintenance" in upgrade
+    assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade
+    assert "on retrieval_chunks to" not in upgrade
+    # The triggers' functions run as the invoker, under the same RLS as the delete.
+    assert upgrade.count("security invoker") == 2
+    assert "security definer" not in upgrade and "bypassrls" not in upgrade
+    # Expand only.
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "alter table" not in upgrade

@@ -9,11 +9,13 @@ so a missing context finds nothing rather than relying on one layer alone.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from anum_api.maintenance import SessionFactory, discover, scoped_unit
 from anum_api.retrieval import (
     ChunkInput,
     IndexStatus,
@@ -229,3 +231,110 @@ class SqlAlchemyRetrievalStore:
             )
             for row in rows
         ]
+
+
+# Retention purge ---------------------------------------------------------------------
+
+# Runs as anum_maintenance (migration 0015): its policy shows only sources of memories
+# whose retention has passed, and its grants cover the scope and id columns only.
+_WORKSPACES_WITH_EXPIRED_SOURCES = text(
+    """
+    select tenant_id, workspace_id
+    from retrieval_sources
+    group by tenant_id, workspace_id
+    order by tenant_id, workspace_id
+    limit :limit
+    """
+)
+
+# As the application role inside one workspace's RLS context. A memory source is purged
+# when its recorded expiry passed or its memory is gone or expired; a file source when its
+# file metadata is gone. Chunks cascade from the source row.
+_COUNT_PURGEABLE = text(
+    """
+    select count(*) as sources, coalesce(sum(s.chunk_count), 0) as chunks
+    from retrieval_sources s
+    where s.tenant_id = :tenant_id and s.workspace_id = :workspace_id
+      and (
+        (s.source_type = 'memory' and (
+          (s.source_expires_at is not null and s.source_expires_at <= now())
+          or not exists (
+            select 1 from memories m
+            where m.tenant_id = s.tenant_id and m.workspace_id = s.workspace_id and m.id = s.source_id
+              and (m.retention_expires_at is null or m.retention_expires_at > now()))))
+        or (s.source_type = 'file' and not exists (
+            select 1 from workspace_files f
+            where f.tenant_id = s.tenant_id and f.workspace_id = s.workspace_id and f.id = s.source_id))
+      )
+    """
+)
+# The same predicate as _COUNT_PURGEABLE.
+_DELETE_PURGEABLE = text(
+    """
+    delete from retrieval_sources s
+    where s.tenant_id = :tenant_id and s.workspace_id = :workspace_id
+      and (
+        (s.source_type = 'memory' and (
+          (s.source_expires_at is not null and s.source_expires_at <= now())
+          or not exists (
+            select 1 from memories m
+            where m.tenant_id = s.tenant_id and m.workspace_id = s.workspace_id and m.id = s.source_id
+              and (m.retention_expires_at is null or m.retention_expires_at > now()))))
+        or (s.source_type = 'file' and not exists (
+            select 1 from workspace_files f
+            where f.tenant_id = s.tenant_id and f.workspace_id = s.workspace_id and f.id = s.source_id))
+      )
+    returning s.chunk_count
+    """
+)
+
+
+@dataclass
+class RetrievalPurgeResult:
+    workspaces: int = 0
+    sources: int = 0
+    chunks: int = 0
+    dry_run: bool = False
+
+
+def purge_expired_retrieval_sources(
+    session_factory: SessionFactory,
+    *,
+    maintenance_session_factory: SessionFactory | None = None,
+    batch_size: int = 500,
+    dry_run: bool = False,
+) -> RetrievalPurgeResult:
+    """Delete index rows of expired or deleted memories and of deleted files.
+
+    Workspaces are discovered as ``anum_maintenance`` (scope only, and only where an
+    expired memory's source remains); each workspace is then purged as the application
+    role inside its tenant and workspace RLS context, which also removes rows whose memory
+    or file is gone in that workspace. Deleting a memory or file already removes its rows
+    in the same transaction (migration 0015 triggers), so orphans are rare.
+    """
+    result = RetrievalPurgeResult(dry_run=dry_run)
+    seen: set[tuple[str, str]] = set()
+    while True:
+        rows = discover(
+            maintenance_session_factory or session_factory, _WORKSPACES_WITH_EXPIRED_SOURCES, {"limit": batch_size}
+        )
+        fresh = [(row.tenant_id, row.workspace_id) for row in rows if (row.tenant_id, row.workspace_id) not in seen]
+        if not fresh:
+            return result
+        for tenant_id, workspace_id in fresh:
+            seen.add((tenant_id, workspace_id))
+            scope = {"tenant_id": tenant_id, "workspace_id": workspace_id}
+            with scoped_unit(session_factory, tenant_id, workspace_id) as session:
+                if dry_run:
+                    counted = session.execute(_COUNT_PURGEABLE, scope).one()
+                    sources, chunks = int(counted.sources), int(counted.chunks)
+                    session.rollback()
+                else:
+                    deleted = list(session.execute(_DELETE_PURGEABLE, scope).scalars().all())
+                    sources, chunks = len(deleted), int(sum(deleted))
+            if sources:
+                result.workspaces += 1
+                result.sources += sources
+                result.chunks += chunks
+        if len(rows) < batch_size:
+            return result
