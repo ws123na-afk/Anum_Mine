@@ -47,6 +47,7 @@ Outside `ANUM_ENVIRONMENT=local` the API refuses to start (`InsecureConfiguratio
 - `ANUM_CORS_ORIGINS` contains `*`, a localhost or loopback origin, or any non-`https` origin;
 - `ANUM_DATABASE_URL` uses the compose credentials (`anum:anum`);
 - the object-storage secret, webhook key or model key is a compose default (`anum-local-secret`, `anum`, `admin`);
+- Keycloak's compose admin password (`admin/admin`) is in the API's environment or `.env` as `KEYCLOAK_ADMIN_PASSWORD` or `KC_BOOTSTRAP_ADMIN_PASSWORD` (or is `anum`/`anum-local-secret`). The API never uses Keycloak's admin account and normally never sees these variables; the check catches a shared env file or a copied compose `environment` block. The Helm chart refuses any Keycloak admin credential in `config` or `extraEnv`. The Keycloak deployment itself is outside ANUM's reach, so its rotated admin password is a release-gate item;
 - rate limiting is disabled or a limit is not positive.
 
 The API container defaults to `ANUM_ENVIRONMENT=production`, so these checks apply unless a deployment deliberately opts into `local`. Header-mode authentication outside `local` is tracked separately in Stage 2 of the [Production plan](production-plan.md).
@@ -73,6 +74,8 @@ Other jobs:
 - **Tauri desktop**: `cargo clippy --locked --all-targets -- -D warnings` is the Rust static analysis (on the Windows runner, which already builds the crate).
 
 `codeql.yml` runs CodeQL `security-extended` queries for Python and JavaScript/TypeScript.
+
+- **Deployed images**: `deploy-staging.yml` and `deploy-production.yml` scan every image they push with Trivy (same flags as above) before pushing it, generate a CycloneDX SBOM, sign the pushed digest keyless with cosign (GitHub OIDC, `id-token: write`, no stored key) with the SBOM as a signed attestation, and verify signature, signer identity (the workflow on `main`), commit annotation and attestation before `helm upgrade` deploys the images by digest. Production re-scans the promoted digests. Trivy and cosign are built with `go install` at pinned versions (checksum database verified) instead of third-party actions. Keyless signatures are public in Rekor (repository and workflow names), so staging signs only once `STAGING_DEPLOY_TARGET` is set. Details and manual verification: [Deployment](deployment.md#image-supply-chain). Open: an in-cluster admission policy that admits only signed images.
 
 Third-party actions (anything outside `actions/*`) are pinned to full commit SHAs with the version in a comment, and `.github/dependabot.yml` proposes weekly updates for GitHub Actions, pip (`services/api`), npm (root workspace), pub (`apps/mobile`), Cargo (`apps/desktop/src-tauri`), the two Dockerfiles and the compose file, so the pins do not go stale.
 

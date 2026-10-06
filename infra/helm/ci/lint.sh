@@ -46,7 +46,8 @@ for name in values-staging values-production kind-values; do
   fi
 done
 
-# The chart refuses what the API refuses (anum_api/hardening.py, identity.py).
+# The chart refuses what the API refuses (anum_api/hardening.py, identity.py), including
+# the Keycloak admin/admin default (any Keycloak admin credential in config or extraEnv).
 refuses() {
   local expected="$1"; shift
   local output
@@ -66,6 +67,8 @@ refuses "ANUM_REPOSITORY_BACKEND must be postgresql" --set config.ANUM_REPOSITOR
 refuses "mock is a release blocker" --set config.ANUM_ENVIRONMENT=production --set config.ANUM_MODEL_PROVIDER=mock
 refuses "files on one pod's disk" --set config.ANUM_OBJECT_STORAGE_BACKEND=local
 refuses "ANUM_KEYCLOAK_ISSUER" --set config.ANUM_KEYCLOAK_ISSUER=http://id.anum.example/realms/anum
+refuses "Keycloak admin credential" --set config.KEYCLOAK_ADMIN_PASSWORD=admin
+refuses "Keycloak admin credential" --set extraEnv.KC_BOOTSTRAP_ADMIN_PASSWORD=admin
 refuses "worker.enabled must be true" --set worker.enabled=false
 refuses "backup.persistentVolumeClaim" --set backup.enabled=true
 log "all chart checks passed"

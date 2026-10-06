@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -39,6 +40,7 @@ from .runtime import AgentRuntime
 from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
 from .valkey import CoordinationUnavailable, LockNotAcquired, build_run_lock_manager
 from .agent_tools import default_tool_registry
+from .tool_governance import decision_requirements, match_governance
 from .schemas import (
     AgentRun,
     AgentRunStep,
@@ -855,6 +857,80 @@ async def _decide_approval(
 TWO_PERSON_RISK_LEVELS = frozenset({RiskLevel.HIGH})
 
 
+def _governance_decision_refusal(
+    request: Request,
+    context: TenantContext,
+    repository: AnumRepository,
+    task: Task,
+    approval: Approval,
+    now: datetime,
+) -> JSONResponse | None:
+    """Enforce the matching organization approval rules on an approve (threat model A4).
+
+    The rules are re-read now, in the caller's tenant scope, and matched against the
+    approval's tool, integration target and risk level. A decider must hold a role every
+    matching rule requires; ``minimum_approvers`` 2 means another person than the task
+    creator or the requester must approve; more than 2 approvers cannot be collected yet,
+    so such an approval can only be rejected (fail closed). Each refusal is audited and
+    leaves the approval pending.
+    """
+    match = match_governance(
+        repository.get_tool_governance(context),
+        tool=approval.action,
+        target=approval.target,
+        risk_level=approval.risk_level,
+    )
+    if not match.approval_rules:
+        return None
+    minimum, allowed_roles = decision_requirements(match)
+    rules = [rule.name for rule in match.approval_rules]
+    roles = {role.lower() for role in context.roles}
+    refusal: tuple[str, str] | None = None
+    if allowed_roles is not None and not roles & allowed_roles:
+        refusal = (
+            "approval.role_denied",
+            "An organization approval rule requires a decider with one of these roles: "
+            f"{', '.join(sorted(allowed_roles)) or 'none'}. You can still reject it.",
+        )
+    elif minimum > 2:
+        refusal = (
+            "approval.approvers_unavailable",
+            f"An organization approval rule requires {minimum} approvers, and ANUM cannot "
+            "collect more than two yet; this action can only be rejected.",
+        )
+    elif minimum == 2 and context.user_id in {task.created_by, approval.requested_by}:
+        refusal = (
+            "approval.self_approval_denied",
+            "An organization approval rule requires two people: you created or started this "
+            "task, so another owner must approve it. You can still reject it.",
+        )
+    if refusal is None:
+        return None
+    action, message = refusal
+    repository.record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            actor=context.user_id,
+            action=action,
+            target=approval.id,
+            outcome="denied",
+            correlation_id=task.id,
+            created_at=now,
+            metadata={
+                "task_id": task.id,
+                "tool": approval.action,
+                "risk_level": approval.risk_level.value,
+                "approval_rules": rules,
+            },
+        )
+    )
+    return error_response(
+        request, status_code=status.HTTP_403_FORBIDDEN, code=ErrorCode.FORBIDDEN, message=message
+    )
+
+
 async def _decide_approval_locked(
     approval_id: str,
     decision: ApprovalStatus,
@@ -906,6 +982,10 @@ async def _decide_approval_locked(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Approval payload does not match what was shown; reload and review it again",
             )
+    if decision == ApprovalStatus.APPROVED:
+        refusal = _governance_decision_refusal(request, context, repository, task, approval, now)
+        if refusal is not None:
+            return refusal
     if (
         decision == ApprovalStatus.APPROVED
         and approval.risk_level in TWO_PERSON_RISK_LEVELS

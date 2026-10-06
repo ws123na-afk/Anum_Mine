@@ -415,6 +415,14 @@ def insecure_configuration_problems(config: Any) -> list[str]:
         if value and value in DEFAULT_DEV_SECRETS:
             problems.append(f"ANUM_{name.upper()} uses a default development credential")
 
+    keycloak_password = getattr(config, "keycloak_admin_password", None)
+    if keycloak_password is not None and keycloak_password.get_secret_value() in DEFAULT_DEV_SECRETS:
+        problems.append(
+            "KEYCLOAK_ADMIN_PASSWORD/KC_BOOTSTRAP_ADMIN_PASSWORD is the compose default "
+            "(Keycloak admin/admin); rotate the Keycloak admin account and keep its "
+            "credentials out of the API environment"
+        )
+
     if config.max_request_body_bytes <= 0 or config.rate_limit_requests_per_minute <= 0:
         problems.append("Request size and rate limits must be positive outside local")
     if not config.rate_limit_enabled:

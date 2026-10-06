@@ -70,8 +70,9 @@ Replace the placeholders with real hosts, endpoints and CIDRs in the overlay or 
 - Object storage other than `s3` with more than one API replica, with the HPA, or in production.
 - `ANUM_MODEL_PROVIDER=mock` in production; rate limiting turned off.
 - Missing Secret names, `web.cspConnectSrc`, ingress hosts, or the backup volume claim.
+- A Keycloak admin credential (`KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_BOOTSTRAP_ADMIN_PASSWORD`) in `config` or `extraEnv`, whatever its value: ANUM never uses Keycloak's admin account, and both are rendered into a ConfigMap.
 
-The API checks the rest at startup (compose credentials in database URLs or S3 keys, missing `ANUM_SECRETS_KEY`; [Security](security.md#startup-policy)).
+The API checks the rest at startup (compose credentials in database URLs or S3 keys, Keycloak's compose `admin/admin` if it reaches the API's environment, missing `ANUM_SECRETS_KEY`; [Security](security.md#startup-policy)). Keycloak itself is not deployed by the chart, so neither the chart nor the API can see the password of the Keycloak you run: rotating its bootstrap admin away from `admin/admin` is a release-gate item ([anum-release-gate](../.claude/skills/anum-release-gate/SKILL.md)).
 
 Settings to get right per environment:
 
@@ -95,7 +96,7 @@ kubectl -n anum-staging create secret generic anum-migrate \
 # 3. Install or upgrade: migrations run first, then the rollout.
 helm upgrade --install anum infra/helm/anum --namespace anum-staging \
   -f infra/helm/anum/values-staging.yaml \
-  --set-string image.api.tag=<sha> --set-string image.web.tag=<sha> \
+  --set-string image.api.digest=sha256:<digest> --set-string image.web.digest=sha256:<digest> \
   --wait --timeout 15m --rollback-on-failure
 helm test anum --namespace anum-staging --logs
 ```
@@ -116,6 +117,38 @@ The chart is checked with Helm 4 (`v4.3.0`); Helm 3 renders it too, with `--atom
 | `STAGING_WEB_URL`, `PRODUCTION_WEB_URL` | repository variables | Environment URL shown on the run. |
 
 The deploy identity needs, in the release namespace only: create, update, patch and delete on Deployments, Services, ConfigMaps, ServiceAccounts, Jobs, CronJobs, PodDisruptionBudgets, HorizontalPodAutoscalers, Ingresses, NetworkPolicies and Pods (for `helm test`), get and list on Pods, Events and Secrets of type `helm.sh/release.v1` (Helm stores release state in Secrets), and read on ReplicaSets for `--wait`. It does not need to read the application's Secrets' values.
+
+### Image supply chain
+
+Every image the deploy workflows deploy is scanned, described and signed in CI, and verified again right before `helm upgrade`. `infra/supply-chain/images.sh` holds the steps for both workflows:
+
+| Step | Where | What fails the run |
+|---|---|---|
+| Trivy scan (`trivy image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`, as in the CI Docker images job) | `deploy-staging.yml` images job, before anything is pushed; `deploy-production.yml` web-image job before its push; the production deploy job again on all three digests (new advisories since staging block the promotion) | Any HIGH or CRITICAL vulnerability with a fixed version, or a secret in a layer. Exceptions go in `.trivyignore` with the CVE, a reason and an expiry; none exist. |
+| SBOM (`trivy image --format cyclonedx`) | Same jobs, from the image that is pushed | An empty SBOM. |
+| Keyless signature and SBOM attestation (`cosign sign`, `cosign attest --type cyclonedx`), annotated `commit=<sha>` | On the pushed digest, in the job that built it (`id-token: write`): GitHub OIDC is exchanged for a short-lived Fulcio certificate that names the workflow; there is no signing key to store or rotate | Signing errors. |
+| Verification (`cosign verify`, `cosign verify-attestation --type cyclonedx`) | Deploy jobs, before cluster access and `helm upgrade` | A signature or SBOM attestation that is missing, made by another workflow, repository or branch than `main`, or annotated with another commit. |
+| Deploy by digest | `helm upgrade` gets `image.*.digest` / `backup.image.digest` (the chart renders `repository@sha256:...`) | Nothing else can be pulled in place of the verified digest. |
+
+Expected signers (certificate identity, issuer `https://token.actions.githubusercontent.com`):
+
+- Staging API, web and backup images, and the API and backup images production promotes: `https://github.com/<owner>/<repo>/.github/workflows/deploy-staging.yml@refs/heads/main`.
+- The production web image (built per environment): `.../deploy-production.yml@refs/heads/main`, so dispatch `deploy-production.yml` from `main`.
+
+To check an image by hand (for example as release evidence):
+
+```bash
+cosign verify ghcr.io/<owner>/anum-api@sha256:<digest> \
+  --certificate-identity "https://github.com/<owner>/<repo>/.github/workflows/deploy-staging.yml@refs/heads/main" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com -a commit=<sha>
+cosign verify-attestation --type cyclonedx ghcr.io/<owner>/anum-api@sha256:<digest> \
+  --certificate-identity "..." --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  | jq -r '.payload' | base64 -d | jq '.predicate.components | length'
+```
+
+Tools: Trivy `v0.75.0` (the version the CI Docker images job runs) and cosign `v2.6.5` are built with `go install` at those versions, so the Go module proxy and checksum database (`sum.golang.org`) verify their source, as for Helm, kind and kubeconform; no third-party action is added. Keyless signatures are written to the public Rekor transparency log, which records the repository and workflow names, so the staging workflow signs only once `STAGING_DEPLOY_TARGET` is set (scanning and SBOMs run on every push). Images pushed before that are unsigned and cannot be deployed or promoted; rebuild them by re-running the workflow.
+
+Open: an admission policy in the cluster (for example Sigstore policy-controller or Kyverno `verifyImages`) so that only images signed by these identities can run, whoever deploys them.
 
 ## Migrations
 
@@ -155,7 +188,7 @@ A default-deny policy selects every pod of the release. Then:
 
 The CI job **Helm deploy (kind)** (`.github/workflows/ci.yml`) runs on every PR and push to `main`:
 
-1. `infra/helm/ci/lint.sh`: `helm lint --strict` for the staging, production and CI values; `helm template` piped into `kubeconform -strict` against Kubernetes 1.37.0 schemas pinned to a commit; no rendered Secret, no writable root filesystem, no mounted token; and twelve refusals (local or test environment, header auth, http, local and wildcard CORS origins, the memory repository, mock model in production, local storage with replicas, a non-https issuer, the worker disabled with Temporal, backup without a volume).
+1. `infra/helm/ci/lint.sh`: `helm lint --strict` for the staging, production and CI values; `helm template` piped into `kubeconform -strict` against Kubernetes 1.37.0 schemas pinned to a commit; no rendered Secret, no writable root filesystem, no mounted token; and fourteen refusals (local or test environment, header auth, http, local and wildcard CORS origins, the memory repository, mock model in production, local storage with replicas, a non-https issuer, a Keycloak admin credential in `config` or `extraEnv`, the worker disabled with Temporal, backup without a volume).
 2. Builds the API, web and backup images.
 3. `infra/helm/ci/kind-smoke.sh`: creates a kind cluster (kind `v0.33.0`, node image pinned by digest), loads the images and digest-pinned PostgreSQL (pgvector), NATS and Temporal dev server images, runs `bootstrap-database.sql`, creates the Secrets with generated passwords and a generated `ANUM_SECRETS_KEY`, installs the chart with `ci/kind-values.yaml` (`ANUM_ENVIRONMENT=staging`, OIDC, PostgreSQL, NATS, Temporal), and then checks: the migration Job succeeded and tables are owned by `anum_migrator`; pods are non-root, without a token and cannot write their root filesystem; the worker polls Temporal; the API created the `ANUM_EVENTS` stream; `/health`, `/healthz`, CSP headers and a 401 without a token through port-forward; `helm test`; one run each of the retention and backup CronJobs; a deleted worker pod logs a clean shutdown well inside its grace period; `helm upgrade` (migration hook again) and `helm rollback` to revision 1, then `helm test` again.
 
@@ -165,5 +198,5 @@ Tools are pinned: Helm `v4.3.0`, kind `v0.33.0` and kubeconform `v0.8.0` are bui
 
 - The cloud itself: cluster, managed PostgreSQL, NATS, Temporal, Valkey, object storage, DNS and certificates (OpenTofu, [Infrastructure](infrastructure.md#opentofu)).
 - A real staging run of the workflows: they stay skipped until the owner sets the variables and secrets above.
-- Image signing and admission policy (only signed images run), and scanning the pushed images.
+- An admission policy so that only signed images run (signing, SBOMs, scanning and verification before deploy are done: [Image supply chain](#image-supply-chain)).
 - Shipping backups off the volume to encrypted, versioned object storage in a second region.

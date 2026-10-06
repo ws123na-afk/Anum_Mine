@@ -5,6 +5,13 @@ name: Deploy production
 # (docs/deployment.md#rollback). Manual only. Every job that touches production runs in
 # the `production` GitHub environment, whose required reviewers approve the run.
 # Skipped while the `PRODUCTION_DEPLOY_TARGET` repository variable is unset.
+#
+# Supply chain (docs/deployment.md#image-supply-chain): the production web image is
+# scanned with Trivy before it is pushed, gets a CycloneDX SBOM and is signed keyless with
+# cosign. Before `helm upgrade` the deploy job verifies every image's signature and SBOM
+# attestation (API and backup: signed by deploy-staging.yml on main for this commit; web:
+# signed by this workflow on main for this commit), re-scans all three by digest, and
+# deploys them by digest. Dispatch this workflow from main.
 
 on:
   workflow_dispatch:
@@ -41,8 +48,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless cosign signing with the job's GitHub OIDC token.
+      id-token: write
     outputs:
       web_image: ${{ steps.names.outputs.web_image }}
+      web_ref: ${{ steps.publish.outputs.web_ref }}
     steps:
       - name: Check the commit input
         env:
@@ -66,7 +76,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-      - name: Build and push web image
+      - name: Build web image
         env:
           IMAGE: ${{ steps.names.outputs.web_image }}
           COMMIT: ${{ inputs.commit }}
@@ -83,8 +93,29 @@ jobs:
             --build-arg "VITE_ANUM_API_URL=${PRODUCTION_API_URL}" \
             --build-arg "VITE_ANUM_OIDC_ISSUER=${PRODUCTION_OIDC_ISSUER}" \
             -f apps/web/Dockerfile -t "$IMAGE" .
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Install Trivy and cosign (pinned, verified by the Go checksum database)
+        run: infra/supply-chain/images.sh install
+      - name: Scan and SBOM (fixable HIGH/CRITICAL fail the run)
+        env:
+          IMAGE: ${{ steps.names.outputs.web_image }}
+        run: |
+          infra/supply-chain/images.sh scan "$IMAGE"
+          infra/supply-chain/images.sh sbom "$IMAGE" "$RUNNER_TEMP/sbom-web.cdx.json"
+      - name: Push, sign and attest the SBOM (cosign keyless)
+        id: publish
+        env:
+          IMAGE: ${{ steps.names.outputs.web_image }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
           docker push "$IMAGE"
-          echo "- \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          ref="$(infra/supply-chain/images.sh digest "$IMAGE")"
+          infra/supply-chain/images.sh sign "$ref" "$RUNNER_TEMP/sbom-web.cdx.json" "$COMMIT"
+          echo "web_ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "- \`$IMAGE\` = \`$ref\` (signed by \`${GITHUB_WORKFLOW_REF}\`)" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: Deploy to production
@@ -96,11 +127,13 @@ jobs:
       url: ${{ vars.PRODUCTION_WEB_URL }}
     permissions:
       contents: read
+      # Pull the private images to verify and scan them.
+      packages: read
       id-token: write
     env:
       DEPLOY_TARGET: ${{ vars.PRODUCTION_DEPLOY_TARGET }}
       COMMIT: ${{ inputs.commit }}
-      WEB_IMAGE: ${{ needs.web-image.outputs.web_image }}
+      WEB_REF: ${{ needs.web-image.outputs.web_ref }}
       PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
       NAMESPACE: ${{ vars.PRODUCTION_NAMESPACE || 'anum' }}
     steps:
@@ -124,6 +157,38 @@ jobs:
         run: |
           go install "helm.sh/helm/v4/cmd/helm@${HELM_VERSION}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install Trivy and cosign (pinned, verified by the Go checksum database)
+        run: infra/supply-chain/images.sh install
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      # The promoted API and backup images are resolved to digests once; the verified
+      # digest is the one deployed, so a moved tag cannot slip in another image.
+      - name: Verify image signatures and SBOM attestations
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          api_ref="$(infra/supply-chain/images.sh resolve "ghcr.io/${owner}/anum-api:${COMMIT}")"
+          backup_ref="$(infra/supply-chain/images.sh resolve "ghcr.io/${owner}/anum-backup:${COMMIT}")"
+          infra/supply-chain/images.sh verify "$api_ref" deploy-staging.yml "$COMMIT"
+          infra/supply-chain/images.sh verify "$backup_ref" deploy-staging.yml "$COMMIT"
+          infra/supply-chain/images.sh verify "$WEB_REF" deploy-production.yml "$COMMIT"
+          {
+            echo "API_REF=$api_ref"
+            echo "BACKUP_REF=$backup_ref"
+          } >> "$GITHUB_ENV"
+          {
+            echo "### Verified images"
+            echo "- \`$api_ref\`"
+            echo "- \`$WEB_REF\`"
+            echo "- \`$backup_ref\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      # Re-scanned at promotion: a fixable HIGH/CRITICAL published since staging blocks production.
+      - name: Scan images (fixable HIGH/CRITICAL fail the run)
+        run: |
+          infra/supply-chain/images.sh scan "$API_REF"
+          infra/supply-chain/images.sh scan "$WEB_REF"
+          infra/supply-chain/images.sh scan "$BACKUP_REF"
       # Kubeconfig for a namespace-scoped deploy identity in the `production` environment
       # secret PRODUCTION_KUBECONFIG, or replace this step with the cloud's OIDC login.
       - name: Configure cluster access
@@ -152,14 +217,13 @@ jobs:
           helm history "$RELEASE" --namespace "$NAMESPACE" --max 5 >> "$GITHUB_STEP_SUMMARY" 2>&1 || echo "(first install)" >> "$GITHUB_STEP_SUMMARY"
       - name: Helm upgrade --install (migrations run first as a hook)
         run: |
-          owner="${GITHUB_REPOSITORY_OWNER,,}"
           helm upgrade --install "$RELEASE" infra/helm/anum \
             --namespace "$NAMESPACE" \
             -f infra/helm/anum/values-production.yaml \
             -f "$RUNNER_TEMP/values-extra.yaml" \
-            --set "image.api.repository=ghcr.io/${owner}/anum-api" --set-string "image.api.tag=${COMMIT}" \
-            --set "image.web.repository=${WEB_IMAGE%:*}" --set-string "image.web.tag=${WEB_IMAGE##*:}" \
-            --set "backup.image.repository=ghcr.io/${owner}/anum-backup" --set-string "backup.image.tag=${COMMIT}" \
+            --set "image.api.repository=${API_REF%@*}" --set-string "image.api.digest=${API_REF##*@}" \
+            --set "image.web.repository=${WEB_REF%@*}" --set-string "image.web.digest=${WEB_REF##*@}" \
+            --set "backup.image.repository=${BACKUP_REF%@*}" --set-string "backup.image.digest=${BACKUP_REF##*@}" \
             --wait --timeout 20m --rollback-on-failure --history-max 30
       - name: Helm test
         run: helm test "$RELEASE" --namespace "$NAMESPACE" --logs --timeout 5m
