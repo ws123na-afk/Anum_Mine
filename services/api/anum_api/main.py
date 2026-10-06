@@ -1093,6 +1093,19 @@ async def _decide_approval_locked(
             ),
         )
 
+    if decision == ApprovalStatus.APPROVED and runtime.refuse_changed_target(task, run, approval, context, now):
+        # Every approve, partial or final, re-checks the integration target the way
+        # execution does. Nothing is raised, so the expired approval, the failed run and
+        # the approval.target_mismatch audit record commit with this request.
+        repository.save_task(task)
+        if run is not None:
+            repository.save_run(run)
+            if run_dispatcher is not None:
+                await run_dispatcher.approval_decided(context, task.id, approval.id)
+        return ApprovalDecisionResponse(
+            approval=_approval_with_progress(approval, context, repository) or approval, task=task, run=run
+        )
+
     approvers = repository.list_approval_approvers([approval.id], context).get(approval.id, [])
     if decision == ApprovalStatus.APPROVED:
         if any(approver.user_id == context.user_id for approver in approvers):
