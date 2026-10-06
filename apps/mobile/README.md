@@ -1,6 +1,6 @@
 # ANUM Mobile
 
-ANUM Mobile is the Flutter client for Android, iOS, and tablet supervision. Agent execution remains server-side; the client owns onboarding, task capture, approvals, automation controls, files, and responsive operational views.
+ANUM Mobile is the Flutter client for Android, iOS, and tablet supervision, and the mobile app ANUM ships (`com.anum.app`); the Kotlin client in `apps/android` is frozen. Agent execution remains server-side; the client owns onboarding, task capture, approvals, automation controls, files, and responsive operational views.
 
 ## Product Routes
 
@@ -21,14 +21,14 @@ flutter test
 flutter build apk --debug
 ```
 
-When native wrapper directories are not present yet, initialize them once with:
+The `android/` and `ios/` projects are committed. To regenerate them, delete both folders and run:
 
 ```sh
-flutter create --platforms=android,ios .
+flutter create --platforms=android,ios --org com.anum --project-name anum_mobile .
 dart run tool/configure_native.dart
 ```
 
-CI performs wrapper generation, analysis, widget tests, and a debug APK build on every change.
+CI performs analysis, widget tests, a debug APK build and a debug-signed release app bundle build on every change. Release builds, signing and the real-device checklist are in [docs/mobile.md](../../docs/mobile.md#release-builds).
 
 Widget tests exercise compact phone and expanded tablet dimensions, status semantics, minimum action sizes, feedback states, and route-contract completeness. They do not require an emulator or native SDK. APK, permission, secure-storage, microphone, notification, deep-link, and lifecycle verification still require an Android toolchain and emulator or physical device.
 

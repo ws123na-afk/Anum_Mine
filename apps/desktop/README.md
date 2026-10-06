@@ -14,8 +14,16 @@ The desktop package starts the existing web Vite server and loads it at `http://
 
 ## Sign-in
 
-Build the web client with `VITE_ANUM_OIDC_ISSUER=<issuer>` and `VITE_ANUM_OIDC_CLIENT_ID=anum-desktop` to sign in through Keycloak; without them the shell uses the local development session. Add the issuer origin to `connect-src` in `src-tauri/tauri.conf.json` for anything other than the local Keycloak on port 8080. See [docs/identity.md](../../docs/identity.md#web-and-desktop).
+Build the web client with `VITE_ANUM_OIDC_ISSUER=<issuer>` and `VITE_ANUM_OIDC_CLIENT_ID=anum-desktop` to sign in through Keycloak; without them the shell uses the local development session. The login opens in the system browser and returns through a one-shot loopback listener on `127.0.0.1` (`src-tauri/src/oidc_loopback.rs`, RFC 8252). See [docs/desktop.md](../../docs/desktop.md#sign-in).
+
+## Release builds
+
+```sh
+pnpm --filter @anum/desktop build:release
+```
+
+writes `src-tauri/tauri.release.conf.json` (gitignored) from the environment: production issuer and API origins for the CSP, the updater public key and endpoint, and the Windows certificate thumbprint. Private keys are read by the Tauri CLI from CI secrets and are never committed. See [docs/desktop.md](../../docs/desktop.md#release-builds).
 
 ## Native boundary
 
-The default capability grants only window controls, notifications, user-driven open/save dialogs, opening external links, and one registered global shortcut. Arbitrary filesystem and shell access are intentionally absent. Files selected through a dialog are sent to the web client as paths; backend upload and policy enforcement remain application responsibilities.
+The default capability grants only window controls, notifications, user-driven open/save dialogs, opening external links, and one registered global shortcut. The app's own commands are `desktop_context` and the three sign-in commands (`oidc_loopback_listen`, `oidc_loopback_authorize`, `oidc_open_browser`), which only open HTTPS (or local HTTP) identity-provider URLs. Arbitrary filesystem and shell access are intentionally absent. Files selected through a dialog are sent to the web client as paths; backend upload and policy enforcement remain application responsibilities.

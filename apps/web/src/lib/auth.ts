@@ -3,6 +3,11 @@
 // With VITE_ANUM_OIDC_ISSUER set, the app signs in through Keycloak (authorization code + PKCE)
 // and sends the access token to the API. Without it, the app keeps the local development
 // session from /api/v1/auth/local/session (ANUM_AUTH_MODE=headers only).
+//
+// Inside the Tauri desktop shell the login runs in the system browser and returns through an
+// RFC 8252 loopback redirect (http://127.0.0.1:<port>/callback) served by the shell, instead of
+// loading the identity provider inside the webview. See docs/desktop.md, "Sign-In".
+import { desktopShell } from './desktop';
 import { OidcClient, OidcError, oidcConfigFromEnv, type TokenSet } from './oidc';
 
 export type AuthStatus =
@@ -13,7 +18,11 @@ export type AuthStatus =
 const config = oidcConfigFromEnv(import.meta.env as Record<string, string | boolean | undefined>, window.location);
 const client = config ? new OidcClient(config, { fetch: (input, init) => fetch(input, init), storage: window.sessionStorage, crypto: window.crypto }) : null;
 
+const desktop = desktopShell(window);
+
 export const oidcEnabled = client !== null;
+/** True when sign-in opens the system browser (desktop shell) and the page stays where it is. */
+export const browserSignIn = client !== null && desktop !== null;
 
 let tokens: TokenSet | null = null;
 let refreshing: Promise<TokenSet | null> | null = null;
@@ -88,9 +97,32 @@ export async function initAuth(): Promise<AuthStatus> {
   }
 }
 
+/**
+ * Starts a sign-in. In the browser this navigates to the provider. In the desktop shell it opens
+ * the system browser and returns; the session arrives through onAuthChange when the loopback
+ * callback completes. Calling it again restarts the desktop sign-in.
+ */
 export async function signIn(): Promise<void> {
   if (!client) return;
-  window.location.assign(await client.beginSignIn(window.location.hash));
+  if (!desktop) {
+    window.location.assign(await client.beginSignIn(window.location.hash));
+    return;
+  }
+  const port = await desktop.listenForSignIn();
+  const authorizationUrl = await client.beginSignIn(window.location.hash, `http://127.0.0.1:${port}/callback`);
+  const callback = desktop.authorizeInBrowser(authorizationUrl);
+  void callback
+    .then(async (url) => {
+      const result = await client.completeSignIn(new URL(url));
+      accept(result.tokens);
+      if (result.returnTo) window.history.replaceState(null, '', `${window.location.pathname}${result.returnTo}`);
+      emit({ kind: 'signedIn', claims: result.tokens.claims });
+    })
+    .catch((error: unknown) => {
+      // A restarted sign-in supersedes this one; its own result is reported instead.
+      if (String(error).includes('Sign-in was restarted')) return;
+      emit({ kind: 'signedOut', message: error instanceof Error ? error.message : String(error) });
+    });
 }
 
 export async function signOut(): Promise<void> {
@@ -98,6 +130,13 @@ export async function signOut(): Promise<void> {
   const idToken = tokens?.idToken;
   tokens = null;
   clearTimeout(refreshTimer);
+  if (desktop) {
+    // End the provider session in the system browser, where the sign-in happened.
+    const url = await client.signOutUrl(idToken, { postLogoutRedirect: false });
+    drop();
+    if (url) await desktop.openInBrowser(url).catch(() => undefined);
+    return;
+  }
   const url = await client.signOutUrl(idToken);
   if (url) window.location.assign(url);
   else drop();

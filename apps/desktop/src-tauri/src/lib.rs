@@ -1,3 +1,5 @@
+mod oidc_loopback;
+
 use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -72,7 +74,13 @@ pub fn run() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![desktop_context])
+        .manage(oidc_loopback::LoopbackState::default())
+        .invoke_handler(tauri::generate_handler![
+            desktop_context,
+            oidc_loopback::oidc_loopback_listen,
+            oidc_loopback::oidc_loopback_authorize,
+            oidc_loopback::oidc_open_browser
+        ])
         .setup(|app| {
             install_tray(app.handle())?;
             app.global_shortcut().register(launcher_shortcut())?;

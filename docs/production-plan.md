@@ -12,7 +12,7 @@ Status on `main` after PR #12 (Stages 2 to 5, code side). Every CI job is green 
 | Identity | Keycloak realm as code; `oidc` mode with JWKS rotation and persisted membership roles; PKCE sign-in in web, desktop and Flutter; invitations and member management with last-owner protection. Header and local sessions are refused outside `local`/`test`. |
 | API | Request limits, rate limiting, security headers, fail-fast startup checks. Model gateway with Ollama/OpenAI-compatible, retries, cost accounting, redacted logs and per-workspace configs in PostgreSQL (Fernet-encrypted keys). |
 | Events and runtime | NATS JetStream with a restart-durable PostgreSQL outbox and narrow relay role; tenant-filtered SSE. Valkey run locks and shared rate limits; S3-compatible file storage (SeaweedFS locally); Temporal worker for durable runs. All adapters are off by default and exercised in CI. |
-| Clients | Flutter (real data, depth design, wake-by-name voice), web/desktop (voice, WebGL orb), Kotlin Android. None signed or device-verified yet. |
+| Clients | Flutter (real data, depth design, wake-by-name voice) is the shipping Android and iOS app; web/desktop (voice, WebGL orb); the Kotlin Android client is frozen. None signed or device-verified yet. |
 | Deployment | API and web images, compose `app` profile with a worker, `deploy-staging.yml` pushing to GHCR. No cloud, OpenTofu or staging environment yet: waits on the owner's cloud choice. |
 | Still in memory | Skills, governance, integrations, file metadata and notification preferences stores (Stage 3 remainder). |
 
@@ -84,11 +84,12 @@ Exit: restore drill and pen-test findings closed or accepted in writing.
 
 Goal: shippable, signed clients on every surface ([Desktop](desktop.md), [Android](android.md), [Flutter mobile](mobile.md)).
 
-- Decide whether the Kotlin Android client or the Flutter client is the shipping Android app; retire or freeze the other.
-- Commit generated Flutter platform folders instead of running `flutter create` in CI.
-- Android release AAB signed with Play App Signing; iOS build with signing, provisioning and TestFlight; desktop installers signed (Windows Authenticode, macOS notarization) with Tauri updater keys.
-- Real-device test matrix including Arabic RTL, 200 percent text scale and voice permissions.
-- Store listings, privacy policy, data-safety forms, and production API URLs passed via `--dart-define` or build flavours.
+- Decide whether the Kotlin Android client or the Flutter client is the shipping Android app; retire or freeze the other. Done: Flutter (`apps/mobile`, `com.anum.app`) ships on Android and iOS; the Kotlin client is frozen ([Android](android.md#status-frozen)).
+- Commit generated Flutter platform folders instead of running `flutter create` in CI. Done: `android/` and `ios/` are committed and configured by `tool/configure_native.dart`; a test fails if they drift ([Flutter mobile](mobile.md#native-projects)).
+- Android release AAB signed with Play App Signing; iOS build with signing, provisioning and TestFlight; desktop installers signed (Windows Authenticode, macOS notarization) with Tauri updater keys. Code side done: the Android `release` signing config reads the upload key from the environment or a gitignored `key.properties` and CI builds a (debug-signed) release bundle ([Flutter mobile](mobile.md#release-builds)); the desktop release overlay takes the updater public key, endpoint and Windows certificate thumbprint from the environment ([Desktop](desktop.md#release-builds)). Open, needs the owner's accounts: the upload keystore, Play App Signing enrolment, Apple team, provisioning profiles and TestFlight, the Authenticode certificate, Apple notarization credentials, the updater key pair and endpoint, and registering the `tauri-plugin-updater` runtime check.
+- Desktop sign-in in the system browser with an RFC 8252 loopback redirect instead of the webview. Done in code ([Desktop](desktop.md#sign-in)); a round trip against a running Keycloak is on the device checklist.
+- Real-device test matrix including Arabic RTL, 200 percent text scale and voice permissions. The checklist is written ([Flutter mobile](mobile.md#real-device-test-checklist)); running it needs devices and is open.
+- Store listings, privacy policy, data-safety forms, and production API URLs passed via `--dart-define` or build flavours. Production defines are documented (`--dart-define-from-file`, [Flutter mobile](mobile.md#release-builds)); listings, policy and forms are open.
 
 Exit: internal testing tracks (Play internal, TestFlight, desktop beta channel) running against staging.
 
