@@ -383,6 +383,58 @@ jobs:
           docker logs worker || true
           docker logs temporal --tail 100 || true
 
+  helm:
+    name: Helm deploy (kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # helm, kind and kubeconform are built from source: the Go module proxy and
+      # checksum database verify each module (same approach as OSV-Scanner).
+      HELM_VERSION: v4.3.0
+      KIND_VERSION: v0.33.0
+      KUBECONFORM_VERSION: v0.8.0
+      # kubectl matches the kind node image (Kubernetes 1.37.0, pinned by digest in
+      # infra/helm/ci/kind-smoke.sh); the binary is checked against this SHA-256.
+      KUBECTL_VERSION: v1.37.0
+      KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Install helm, kind and kubeconform
+        run: |
+          go install "helm.sh/helm/v4/cmd/helm@${HELM_VERSION}"
+          go install "sigs.k8s.io/kind@${KIND_VERSION}"
+          go install "github.com/yannh/kubeconform/cmd/kubeconform@${KUBECONFORM_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install kubectl
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  $RUNNER_TEMP/kubectl" | sha256sum --check -
+          sudo install -m 0755 "$RUNNER_TEMP/kubectl" /usr/local/bin/kubectl
+      - name: Tool versions
+        run: |
+          helm version
+          kind version
+          kubeconform -v
+          kubectl version --client
+      - name: Lint and validate the chart (staging, production, CI values)
+        # helm lint --strict, kubeconform -strict against pinned Kubernetes schemas, and
+        # the chart's refusals of configurations the API refuses at startup.
+        run: bash infra/helm/ci/lint.sh
+      - name: Build API, web and backup images
+        run: |
+          docker build -t anum-api:ci services/api
+          docker build -f apps/web/Dockerfile -t anum-web:ci .
+          docker build -t anum-backup:ci infra/backup
+      - name: Install the chart in kind and smoke-test it
+        # PostgreSQL, NATS and Temporal in-cluster; migration hook, rollout under
+        # default-deny NetworkPolicies, /health and /healthz through port-forward,
+        # helm test, retention and backup CronJobs, worker SIGTERM, upgrade and rollback.
+        run: bash infra/helm/ci/kind-smoke.sh
+
   desktop:
     name: Tauri desktop
     runs-on: windows-latest

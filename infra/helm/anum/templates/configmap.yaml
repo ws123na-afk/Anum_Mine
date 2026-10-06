@@ -1,0 +1,14 @@
+{{- include "anum.validate" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "anum.configName" . }}
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "config") | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{- if ne (toString $value) "" }}
+  {{ $key }}: {{ toString $value | quote }}
+  {{- end }}
+  {{- end }}
+  FORWARDED_ALLOW_IPS: {{ .Values.api.forwardedAllowIps | quote }}

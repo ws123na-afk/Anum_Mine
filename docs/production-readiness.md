@@ -21,4 +21,4 @@ Production acceptance requires model-provider credentials, OIDC client secrets, 
 
 ## Release Evidence
 
-Each release records the web build, API test results, browser test report, Android APK/AAB checksum, signed desktop installer checksum, migration revision, infrastructure smoke-test result, and the environment in which each check ran. A skipped gate remains open and must be reported explicitly.
+Each release records the web build, API test results, browser test report, Android APK/AAB checksum, signed desktop installer checksum, migration revision, infrastructure smoke-test result, and the environment in which each check ran. Deployments also record the "Helm deploy (kind)" CI result, the deployed image digests, the Helm revision before and after, `helm test` output and the revision to roll back to ([Deployment](deployment.md)). A skipped gate remains open and must be reported explicitly.

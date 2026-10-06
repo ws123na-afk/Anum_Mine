@@ -1,9 +1,10 @@
 name: Deploy staging
 
-# Builds the API and web images on every push to main and pushes them to GHCR.
-# The deploy job only runs once the owner has chosen a cloud provider and set the
-# `STAGING_DEPLOY_TARGET` repository variable (docs/infrastructure.md). Until then it is
-# skipped, so this workflow never fails for lack of credentials. It never runs on PRs.
+# Builds the API, web and backup images on every push to main and pushes them to GHCR,
+# then deploys them to any Kubernetes cluster with the Helm chart in infra/helm/anum
+# (docs/deployment.md). The deploy job only runs once the owner has set the
+# `STAGING_DEPLOY_TARGET` repository variable; until then it is skipped, so this
+# workflow never fails for lack of credentials. It never runs on PRs.
 
 on:
   push:
@@ -27,6 +28,7 @@ jobs:
     outputs:
       api_image: ${{ steps.names.outputs.api_image }}
       web_image: ${{ steps.names.outputs.web_image }}
+      backup_image: ${{ steps.names.outputs.backup_image }}
     steps:
       - uses: actions/checkout@v7
       - name: Image names
@@ -35,6 +37,7 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "api_image=ghcr.io/${owner}/anum-api:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "web_image=ghcr.io/${owner}/anum-web:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "backup_image=ghcr.io/${owner}/anum-backup:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -61,21 +64,32 @@ jobs:
             --build-arg "VITE_ANUM_API_URL=${STAGING_API_URL:-http://localhost:8000}" \
             --build-arg "VITE_ANUM_OIDC_ISSUER=${STAGING_OIDC_ISSUER:-}" \
             -f apps/web/Dockerfile -t "$IMAGE" .
+      - name: Build backup image
+        env:
+          IMAGE: ${{ steps.names.outputs.backup_image }}
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "$IMAGE" infra/backup
       - name: Push images
         env:
           API_IMAGE: ${{ steps.names.outputs.api_image }}
           WEB_IMAGE: ${{ steps.names.outputs.web_image }}
+          BACKUP_IMAGE: ${{ steps.names.outputs.backup_image }}
         run: |
           docker push "$API_IMAGE"
           docker push "$WEB_IMAGE"
+          docker push "$BACKUP_IMAGE"
           echo "### Images" >> "$GITHUB_STEP_SUMMARY"
           echo "- \`$API_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- \`$WEB_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`$BACKUP_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: Deploy to staging
     needs: images
-    # Skipped until the owner picks a cloud and sets the STAGING_DEPLOY_TARGET variable.
+    # Skipped until the owner picks a cluster and sets the STAGING_DEPLOY_TARGET variable.
     if: ${{ vars.STAGING_DEPLOY_TARGET != '' }}
     runs-on: ubuntu-latest
     environment:
@@ -83,26 +97,74 @@ jobs:
       url: ${{ vars.STAGING_WEB_URL }}
     permissions:
       contents: read
+      # Lets an owner-added cloud login step use GitHub OIDC instead of a kubeconfig.
+      id-token: write
     env:
       DEPLOY_TARGET: ${{ vars.STAGING_DEPLOY_TARGET }}
       API_IMAGE: ${{ needs.images.outputs.api_image }}
       WEB_IMAGE: ${{ needs.images.outputs.web_image }}
+      BACKUP_IMAGE: ${{ needs.images.outputs.backup_image }}
       STAGING_API_URL: ${{ vars.STAGING_API_URL }}
+      NAMESPACE: ${{ vars.STAGING_NAMESPACE || 'anum-staging' }}
+      RELEASE: anum
+      # Same pinned Helm as the CI "Helm deploy (kind)" job.
+      HELM_VERSION: v4.3.0
     steps:
       - uses: actions/checkout@v7
-      # OWNER DECISION NEEDED: replace this step with the chosen provider's deploy.
-      # It must (1) run `python -m alembic upgrade head` with the API image as a one-off
-      # job, then (2) roll out API_IMAGE and WEB_IMAGE, reading every secret from the
-      # `staging` environment's secret store. Until then it fails loudly instead of
-      # pretending to deploy.
-      - name: Deploy images (provider-specific, not implemented)
+      - name: Check deploy target
         run: |
           case "$DEPLOY_TARGET" in
+            kubernetes) ;;
             *)
-              echo "::error::No deploy implementation for STAGING_DEPLOY_TARGET='${DEPLOY_TARGET}'. Add the provider steps in .github/workflows/deploy-staging.yml (see docs/infrastructure.md)."
+              echo "::error::STAGING_DEPLOY_TARGET='${DEPLOY_TARGET}' is not supported. Set it to 'kubernetes' (docs/deployment.md)."
               exit 1
               ;;
           esac
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Install Helm
+        run: |
+          go install "helm.sh/helm/v4/cmd/helm@${HELM_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # Cluster access. Either store a kubeconfig for a namespace-scoped deploy identity
+      # in the `staging` environment secret STAGING_KUBECONFIG, or replace this step with
+      # the cloud's GitHub OIDC login (it must leave a kubeconfig at $KUBECONFIG).
+      - name: Configure cluster access
+        env:
+          KUBECONFIG_DATA: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          if [ -z "$KUBECONFIG_DATA" ]; then
+            echo "::error::Set the staging environment secret STAGING_KUBECONFIG, or replace this step with the cloud's OIDC login (docs/deployment.md#cluster-access)."
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$KUBECONFIG_DATA" > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+      - name: Environment values
+        env:
+          # Optional YAML that overrides values-staging.yaml (real hosts, endpoints,
+          # CIDRs). Not secret: every credential stays in the cluster's Secrets.
+          EXTRA_VALUES: ${{ vars.STAGING_HELM_VALUES }}
+        run: |
+          if [ -n "$EXTRA_VALUES" ]; then
+            printf '%s\n' "$EXTRA_VALUES" > "$RUNNER_TEMP/values-extra.yaml"
+          else
+            echo '{}' > "$RUNNER_TEMP/values-extra.yaml"
+          fi
+      - name: Helm upgrade --install (migrations run first as a hook)
+        run: |
+          helm upgrade --install "$RELEASE" infra/helm/anum \
+            --namespace "$NAMESPACE" \
+            -f infra/helm/anum/values-staging.yaml \
+            -f "$RUNNER_TEMP/values-extra.yaml" \
+            --set "image.api.repository=${API_IMAGE%:*}" --set-string "image.api.tag=${API_IMAGE##*:}" \
+            --set "image.web.repository=${WEB_IMAGE%:*}" --set-string "image.web.tag=${WEB_IMAGE##*:}" \
+            --set "backup.image.repository=${BACKUP_IMAGE%:*}" --set-string "backup.image.tag=${BACKUP_IMAGE##*:}" \
+            --wait --timeout 15m --rollback-on-failure --history-max 20
+      - name: Helm test
+        run: helm test "$RELEASE" --namespace "$NAMESPACE" --logs --timeout 5m
       - name: Smoke test staging API
         if: ${{ vars.STAGING_API_URL != '' }}
         run: |
@@ -114,3 +176,10 @@ jobs:
           done
           echo "::error::Staging API did not become healthy"
           exit 1
+      - name: Release history
+        if: always()
+        run: |
+          if [ -n "${KUBECONFIG:-}" ]; then
+            helm history "$RELEASE" --namespace "$NAMESPACE" --max 10 || true
+            helm status "$RELEASE" --namespace "$NAMESPACE" || true
+          fi

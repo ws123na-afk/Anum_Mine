@@ -1,0 +1,75 @@
+{{- if .Values.migration.enabled }}
+{{- $component := "migrate" }}
+{{- $v := .Values.migration }}
+{{- /*
+`alembic upgrade head` before any pod of the new release starts (pre-install and
+pre-upgrade hook). It runs with the migration login (owner of the schema), never with
+the application login. Hooks run before the release's ConfigMap exists, so the few
+settings Alembic reads are set inline. A failed migration fails `helm upgrade`, and
+the running release stays as it was.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "anum.fullname" . }}-migrate
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    # Kept after success so its logs stay readable; replaced on the next release.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ $v.backoffLimit }}
+  activeDeadlineSeconds: {{ $v.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ $v.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "anum.serviceAccountName" (dict "root" $ "component" $component) }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: {{ .Values.api.uid }}
+        runAsGroup: {{ .Values.api.uid }}
+        fsGroup: {{ .Values.api.uid }}
+      containers:
+        - name: migrate
+          image: {{ include "anum.image" (dict "image" .Values.image.api "root" $) }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          workingDir: /app
+          command: ["python", "-m", "alembic", "upgrade", "head"]
+          env:
+            - name: ANUM_ENVIRONMENT
+              value: {{ .Values.config.ANUM_ENVIRONMENT | quote }}
+            - name: ANUM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.migration.name }}
+                  key: {{ .Values.secrets.migration.key }}
+            # Settings validation needs the key outside local; migrations do not use it.
+            - name: ANUM_SECRETS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.app.name }}
+                  key: ANUM_SECRETS_KEY
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+{{- end }}

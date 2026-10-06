@@ -27,6 +27,7 @@ ANUM should be a monorepo so shared contracts, docs, infrastructure, and clients
     model-gateway/
   infra/
     docker/
+    helm/
     opentofu/
     github-actions/
   tests/
