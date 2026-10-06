@@ -74,7 +74,7 @@ Other rules:
 - Shutdown waits for a pass in progress to commit or roll back and close its sessions; it never abandons a transaction.
 - The local SQLite engine holds SQLite's write lock (`BEGIN IMMEDIATE`) for a pass.
 
-Deployment: the API login must be a member of `anum_maintenance` (`grant anum_maintenance to <api login>`). Without it, discovery fails with a permission error in the logs and nothing fires.
+Deployment: the API login must be a member of `anum_maintenance` (`grant anum_maintenance to <api login> with inherit false, set true`; the code switches to it with `SET LOCAL ROLE`, and an inherited grant would let its cross-tenant discovery policies widen the API login's own queries). Without it, discovery fails with a permission error in the logs and nothing fires.
 
 ## Now
 

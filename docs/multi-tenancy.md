@@ -63,7 +63,7 @@ Why not a `SECURITY DEFINER` function: it runs as the table owner, and `FORCE RO
 
 Deployment:
 
-- Grant `anum_maintenance` to the API login if the scheduler is enabled.
+- Grant `anum_maintenance` to the API login if the scheduler is enabled, `WITH INHERIT FALSE, SET TRUE` as `infra/helm/bootstrap-database.sql` does. Its policies admit rows from every tenant; an inheriting grant would apply them to the API login's own queries too, so the RLS backstop would no longer keep those reads to one tenant.
 - Grant it to the operator login that runs the purge and rotation commands.
 - Like `anum_outbox_relay`, the role is cluster-wide and survives a downgrade.
 

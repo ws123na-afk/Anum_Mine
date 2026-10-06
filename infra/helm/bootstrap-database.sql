@@ -48,7 +48,11 @@ select format('create role %I login password %L nosuperuser nobypassrls nocreate
 where not exists (select 1 from pg_roles where rolname = 'anum_relay') \gexec
 
 grant anum_outbox_relay to anum_relay;
-grant anum_maintenance to anum_app;
+-- SET ROLE only: the API and jobs switch to it with SET LOCAL ROLE for discovery.
+-- Inherited, its cross-tenant discovery policies would also apply to anum_app's own
+-- queries (test_maintenance_grant_without_inherit_keeps_the_app_role_in_one_workspace).
+-- Re-running this on an existing database updates the grant's options.
+grant anum_maintenance to anum_app with inherit false, set true;
 -- The API switches to it with SET LOCAL ROLE for the "my workspaces" read only. Without
 -- INHERIT its row policies never apply to anum_app's own queries (docs/identity.md).
 grant anum_membership_reader to anum_app with inherit false, set true;

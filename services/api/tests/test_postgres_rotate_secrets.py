@@ -173,3 +173,41 @@ def test_maintenance_role_cannot_read_ciphertexts_or_write(
                 with connection.begin():
                     connection.execute(text("set local role anum_maintenance"))
                     connection.execute(text(statement))
+
+
+def _app_role_scopes(database_engine: Engine) -> list[tuple[str, str]]:
+    with database_engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            connection.execute(text(f"set local role {APP_ROLE}"))
+            connection.execute(text("select set_config('anum.tenant_id', :value, true)"), {"value": TENANT_A})
+            connection.execute(text("select set_config('anum.workspace_id', :value, true)"), {"value": WORKSPACE_A})
+            rows = connection.execute(
+                text("select tenant_id, workspace_id from workspace_model_configs order by 1, 2")
+            ).all()
+        finally:
+            transaction.rollback()
+    return [tuple(row) for row in rows]
+
+
+@pytest.mark.parametrize(
+    ("grant_options", "expected"),
+    [
+        # How infra/helm/bootstrap-database.sql grants it: SET ROLE only, so the
+        # discovery policies never apply to the app role's own queries.
+        ("with inherit false, set true", [(TENANT_A, WORKSPACE_A)]),
+        # A plain grant inherits: the cross-tenant discovery policy then widens what
+        # the app role sees, which is why the bootstrap must not use it.
+        ("with inherit true", sorted(PROVIDER_KEYS)),
+    ],
+)
+def test_maintenance_grant_without_inherit_keeps_the_app_role_in_one_workspace(
+    stored_with_old_key: None, database_engine: Engine, grant_options: str, expected: list[tuple[str, str]]
+) -> None:
+    with database_engine.begin() as connection:
+        connection.execute(text(f"grant anum_maintenance to {APP_ROLE} {grant_options}"))
+    try:
+        assert _app_role_scopes(database_engine) == expected
+    finally:
+        with database_engine.begin() as connection:
+            connection.execute(text(f"revoke anum_maintenance from {APP_ROLE}"))
