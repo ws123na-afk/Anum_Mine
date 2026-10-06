@@ -18,11 +18,17 @@ class WorkspaceTask {
       required this.status,
       required this.createdAt,
       required this.updatedAt,
-      this.run});
+      this.run,
+      this.approval});
   final String id, title, prompt;
   final WorkStatus status;
   final DateTime createdAt, updatedAt;
   final WorkspaceRun? run;
+
+  /// The approval this run created, from the run response's `approval`
+  /// (`POST /tasks/{id}/run` and resume), with its `required_approvals` and
+  /// `approvers` when the response carries them. Null everywhere else.
+  final WorkspaceApproval? approval;
 }
 
 class WorkspaceRun {

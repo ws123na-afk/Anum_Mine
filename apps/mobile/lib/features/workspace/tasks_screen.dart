@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import 'approvals_screen.dart';
 import 'retrieval_sources.dart';
 import 'sources_used.dart';
 import 'work_status.dart';
@@ -327,10 +328,18 @@ class _TaskDetailState extends State<TaskDetailScreen> {
     }
   }
 
+  // Rebuilt on controller changes, so an approval or a source label that
+  // arrives with a reload shows without leaving the screen.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: widget.controller, builder: (context, _) => _build(context));
+
+  Widget _build(BuildContext context) {
     final p = context.palette;
     final run = task.run;
+    final approval = task.status == WorkStatus.waitingApproval
+        ? widget.controller.pendingApprovalFor(task)
+        : null;
     final terminal = {
       WorkStatus.completed,
       WorkStatus.failed,
@@ -346,17 +355,19 @@ class _TaskDetailState extends State<TaskDetailScreen> {
           AnumSurface(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                  child: Text(task.title,
-                      style: TextStyle(
-                          color: p.text,
-                          fontSize: 21,
-                          fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(width: 10),
-                WorkStatusPill(task.status),
-              ]),
+              // The status pill moves below a long title at large text sizes.
+              Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(task.title,
+                        style: TextStyle(
+                            color: p.text,
+                            fontSize: 21,
+                            fontWeight: FontWeight.w700)),
+                    WorkStatusPill(task.status),
+                  ]),
               const SizedBox(height: 12),
               Text('What was asked',
                   style: TextStyle(color: p.faint, fontSize: 12)),
@@ -391,6 +402,25 @@ class _TaskDetailState extends State<TaskDetailScreen> {
               ]),
             ]),
           ),
+          if (approval != null)
+            AnumSurface(
+              key: const Key('task-approval'),
+              accent: p.warn,
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AnumHeader(
+                      eyebrow: 'Needs approval',
+                      title: 'Waiting for a decision',
+                      subtitle: 'The agent will call ${approval.action} only '
+                          'after approval. Decide in Approvals.',
+                    ),
+                    if (approval.progressLabel != null) ...[
+                      const SizedBox(height: 10),
+                      ApprovalProgress(approval: approval),
+                    ],
+                  ]),
+            ),
           if (run?.result case final result?)
             AnumSurface(
               accent: p.ok,

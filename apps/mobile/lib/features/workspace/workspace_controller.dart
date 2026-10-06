@@ -41,7 +41,7 @@ class WorkspaceController extends ChangeNotifier {
     message = null;
     notifyListeners();
     try {
-      snapshot = await repository.loadWorkspace();
+      snapshot = _withRunApprovals(await repository.loadWorkspace());
       phase = _isEmpty(snapshot!) ? LoadPhase.empty : LoadPhase.ready;
     } on WorkspaceOfflineException catch (error) {
       phase = LoadPhase.offline;
@@ -54,12 +54,63 @@ class WorkspaceController extends ChangeNotifier {
   }
 
   Future<WorkspaceTask?> createTask(String prompt) =>
-      _mutate(() => repository.createAndRunTask(prompt));
+      _mutate(() => _keepRunApproval(repository.createAndRunTask(prompt)));
   Future<WorkspaceTask> loadTask(String id) => repository.loadTask(id);
   Future<WorkspaceTask?> cancelTask(String id) =>
       _mutate(() => repository.cancelTask(id));
   Future<WorkspaceTask?> resumeTask(String id) =>
-      _mutate(() => repository.resumeTask(id));
+      _mutate(() => _keepRunApproval(repository.resumeTask(id)));
+
+  /// Approvals a run response created that the approvals list has not
+  /// returned yet, by id.
+  final Map<String, WorkspaceApproval> _runApprovals = {};
+
+  /// Shows the approval a run just created at once, with the progress the
+  /// run response carries (`required_approvals`, `approvers`), before the
+  /// approvals list reloads. Once the list returns that approval its entry
+  /// wins: the list always reports chain progress (docs/approvals-and-risk.md).
+  Future<WorkspaceTask> _keepRunApproval(Future<WorkspaceTask> run) async {
+    final task = await run;
+    final approval = task.approval;
+    if (approval != null) {
+      _runApprovals[approval.id] = approval;
+      final current = snapshot;
+      if (current != null) {
+        snapshot = _withRunApprovals(current);
+        notifyListeners();
+      }
+    }
+    return task;
+  }
+
+  WorkspaceSnapshot _withRunApprovals(WorkspaceSnapshot value) {
+    final listed = {for (final approval in value.approvals) approval.id};
+    _runApprovals.removeWhere((id, _) => listed.contains(id));
+    if (_runApprovals.isEmpty) return value;
+    return WorkspaceSnapshot(
+      tasks: value.tasks,
+      approvals: [..._runApprovals.values, ...value.approvals],
+      automations: value.automations,
+      files: value.files,
+      memories: value.memories,
+      workflowDefinitions: value.workflowDefinitions,
+      schedules: value.schedules,
+      skills: value.skills,
+      integrations: value.integrations,
+    );
+  }
+
+  /// The pending approval of [task]: the listed one, else the one its run
+  /// response carried.
+  WorkspaceApproval? pendingApprovalFor(WorkspaceTask task) {
+    for (final approval in pendingApprovals) {
+      if (approval.taskId == task.id) return approval;
+    }
+    final fromRun = task.approval;
+    return fromRun != null && fromRun.effectiveStatus() == 'pending'
+        ? fromRun
+        : null;
+  }
 
   /// The API's refusal of a decision, by approval id: a 403 such as the
   /// two-person rule refusing to let you approve your own high-risk task, or a

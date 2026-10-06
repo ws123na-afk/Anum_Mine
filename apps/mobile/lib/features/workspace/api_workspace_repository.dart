@@ -61,7 +61,7 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
         'POST', '/api/v1/tasks/${JsonReader(created).string('id')}/run');
     final value = JsonReader(result);
     return _task(value.optObject('task') ?? JsonReader(created),
-        run: value.optObject('run'));
+        run: value.optObject('run'), approval: value.optObject('approval'));
   }
 
   @override
@@ -86,7 +86,8 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
     final run = await api.request('GET', '/api/v1/tasks/$taskId/latest-run');
     final value = JsonReader(await api.request(
         'POST', '/api/v1/agent-runs/${JsonReader(run).string('id')}/resume'));
-    return _task(value.object('task'), run: value.optObject('run'));
+    return _task(value.object('task'),
+        run: value.optObject('run'), approval: value.optObject('approval'));
   }
 
   @override
@@ -185,7 +186,8 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
     });
   }
 
-  WorkspaceTask _task(JsonReader j, {JsonReader? run}) => WorkspaceTask(
+  WorkspaceTask _task(JsonReader j, {JsonReader? run, JsonReader? approval}) =>
+      WorkspaceTask(
         id: j.string('id'),
         title: j.string('title'),
         prompt: j.string('prompt'),
@@ -193,6 +195,7 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
         createdAt: _date(j, 'created_at'),
         updatedAt: _date(j, 'updated_at'),
         run: run == null ? null : _run(run),
+        approval: approval == null ? null : _approval(approval),
       );
   WorkspaceRun _run(JsonReader j) => WorkspaceRun(
         id: j.string('id'),
