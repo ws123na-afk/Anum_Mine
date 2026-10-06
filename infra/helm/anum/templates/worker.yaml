@@ -1,0 +1,94 @@
+{{- if .Values.worker.enabled }}
+{{- $component := "worker" }}
+{{- $v := .Values.worker }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "anum.fullname" . }}-worker
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  replicas: {{ $v.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "anum.configChecksum" . }}
+        {{- with $v.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "anum.serviceAccountName" (dict "root" $ "component" $component) }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # SIGTERM: the worker stops polling, hands in-flight activities back to Temporal
+      # (they are retried on another worker), flushes telemetry and exits 0.
+      terminationGracePeriodSeconds: {{ $v.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: {{ .Values.api.uid }}
+        runAsGroup: {{ .Values.api.uid }}
+        fsGroup: {{ .Values.api.uid }}
+      containers:
+        - name: worker
+          image: {{ include "anum.image" (dict "image" .Values.image.api "root" $) }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          command: ["python", "-m", "anum_api.worker"]
+          # No ports and no HTTP probes: the worker serves nothing. A worker that loses
+          # Temporal exits non-zero and is restarted.
+          envFrom:
+            - configMapRef:
+                name: {{ include "anum.configName" . }}
+          env:
+            {{- include "anum.secretEnv" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "anum.apiVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "anum.apiVolumes" . | nindent 8 }}
+      affinity:
+        {{- include "anum.affinity" (dict "root" $ "component" $component "affinity" $v.affinity) | nindent 8 }}
+      {{- with $v.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if $v.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "anum.fullname" . }}-worker
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  minAvailable: {{ $v.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+{{- end }}
+{{- end }}

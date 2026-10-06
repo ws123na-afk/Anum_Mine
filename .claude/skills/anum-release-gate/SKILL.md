@@ -9,16 +9,21 @@ Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A
 
 ## Collect, for the exact commit being released
 1. CI run URL on that commit with every job green, and no `continue-on-error` left on test or analyze steps.
-2. Alembic revision applied (`python -m alembic current` in `services/api`).
+2. Alembic revision applied: the migration hook's log (`kubectl -n <ns> logs job/anum-migrate`) and `select version_num from alembic_version`, or `python -m alembic current` in `services/api`.
 3. Web build hash, Playwright report.
 4. Android APK/AAB SHA-256, Flutter APK/AAB and iOS build SHA-256, signed desktop installer SHA-256.
 5. Staging smoke test: OIDC login (`ANUM_AUTH_MODE=oidc`), create task, approval round-trip, memory write/read, file round-trip through object storage, event published and consumed, workflow resumed after worker restart.
 6. Environment where each check ran (local / CI / staging).
+7. Deployment: the green "Helm deploy (kind)" job on the release commit (chart lint, kubeconform, install, `helm test`, CronJobs, upgrade and rollback); the staging `deploy-staging.yml` run with `helm test` output; the production `deploy-production.yml` run with its approval, the Helm revision before and after (`helm history anum`), `helm test` output, and the revision to roll back to (`docs/deployment.md`).
+8. Image digests deployed (API, web, backup) and the values used (`values-production.yaml` plus `PRODUCTION_HELM_VALUES`).
 
 ## Hard blockers
 - `ANUM_AUTH_MODE=headers` in any non-local environment.
 - `ANUM_MODEL_PROVIDER=mock` in production.
 - Default credentials from `infra/docker/compose.yaml` (anum/anum, admin/admin, `anum-local-secret`) anywhere outside local.
 - Any secret in git history or in a client bundle.
+- A Secret rendered by the chart, or a credential in a values file or repository variable (Secrets are referenced by name only).
+- A migration in the release that the previous release cannot run against: `helm rollback` does not reverse migrations, so they must be expand/contract.
+- `ANUM_OBJECT_STORAGE_BACKEND` other than `s3` in production.
 
 Output a table: gate, evidence link or value, status (pass / open / fail).

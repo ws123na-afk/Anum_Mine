@@ -102,6 +102,7 @@ x-user-roles: owner,member
 - [Android](docs/android.md)
 - [Flutter mobile](docs/mobile.md)
 - [Infrastructure](docs/infrastructure.md)
+- [Deployment (Kubernetes and Helm)](docs/deployment.md)
 - [Observability](docs/observability.md)
 - [Runbooks](docs/runbooks.md)
 - [Development standards](docs/development-standards.md)

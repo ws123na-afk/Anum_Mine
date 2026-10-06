@@ -1,0 +1,58 @@
+{{- if .Values.ingress.enabled }}
+{{- $tls := .Values.ingress.tls }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "anum.fullname" . }}
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "ingress") | nindent 4 }}
+  {{- if or .Values.ingress.annotations (and $tls.enabled $tls.clusterIssuer) }}
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if and $tls.enabled $tls.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ $tls.clusterIssuer | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $tls.enabled }}
+  tls:
+    - secretName: {{ $tls.secretName }}
+      hosts:
+        {{- if .Values.web.enabled }}
+        - {{ .Values.ingress.hosts.web | quote }}
+        {{- end }}
+        {{- if .Values.api.enabled }}
+        - {{ .Values.ingress.hosts.api | quote }}
+        {{- end }}
+  {{- end }}
+  rules:
+    {{- if .Values.web.enabled }}
+    - host: {{ .Values.ingress.hosts.web | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "anum.fullname" . }}-web
+                port:
+                  name: http
+    {{- end }}
+    {{- if .Values.api.enabled }}
+    - host: {{ .Values.ingress.hosts.api | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "anum.fullname" . }}-api
+                port:
+                  name: http
+    {{- end }}
+{{- end }}

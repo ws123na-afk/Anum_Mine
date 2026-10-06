@@ -1,0 +1,149 @@
+{{- if .Values.voiceRetention.enabled }}
+{{- $component := "voice-retention" }}
+{{- $v := .Values.voiceRetention }}
+{{- /*
+Deletes voice transcripts past their 30-day retention (docs/runbooks.md#voice-transcript-retention).
+Discovers work as anum_maintenance and deletes inside each tenant's RLS context, so
+the secrets.app login must be a member of anum_maintenance. Safe to repeat.
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "anum.fullname" . }}-voice-retention
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  schedule: {{ $v.schedule | quote }}
+  {{- with $v.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ $v.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $v.failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 8 }}
+    spec:
+      backoffLimit: {{ $v.backoffLimit }}
+      activeDeadlineSeconds: {{ $v.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "anum.serviceAccountName" (dict "root" $ "component" $component) }}
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+            runAsUser: {{ .Values.api.uid }}
+            runAsGroup: {{ .Values.api.uid }}
+            fsGroup: {{ .Values.api.uid }}
+          containers:
+            - name: voice-retention
+              image: {{ include "anum.image" (dict "image" .Values.image.api "root" $) }}
+              imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+              command:
+                - python
+                - -m
+                - anum_api.voice_retention
+                {{- if $v.dryRun }}
+                - --dry-run
+                {{- end }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "anum.configName" . }}
+              env:
+                {{- include "anum.secretEnv" . | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              resources:
+                {{- toYaml $v.resources | nindent 16 }}
+              volumeMounts:
+                {{- include "anum.apiVolumeMounts" . | nindent 16 }}
+          volumes:
+            {{- include "anum.apiVolumes" . | nindent 12 }}
+{{- end }}
+{{- if .Values.backup.enabled }}
+{{- $component := "backup" }}
+{{- $v := .Values.backup }}
+---
+{{- /*
+Logical backup with infra/backup/anum_backup.py (docs/runbooks.md#backups): pg_dump
+custom format plus a manifest, written 0600 into the claim. The backup login bypasses
+RLS by design (a partial backup is refused) and is used by nothing else.
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "anum.fullname" . }}-backup
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  schedule: {{ $v.schedule | quote }}
+  {{- with $v.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ $v.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $v.failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 8 }}
+    spec:
+      backoffLimit: {{ $v.backoffLimit }}
+      activeDeadlineSeconds: {{ $v.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "anum.serviceAccountName" (dict "root" $ "component" $component) }}
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+          containers:
+            - name: backup
+              image: {{ include "anum.image" (dict "image" $v.image "root" $) }}
+              imagePullPolicy: {{ $v.image.pullPolicy }}
+              # A subdirectory: the tool creates it 0700, which it cannot do to the mount root.
+              args: ["backup", "--out", "/backups/anum"]
+              env:
+                - name: ANUM_BACKUP_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secrets.backup.name }}
+                      key: {{ .Values.secrets.backup.key }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              resources:
+                {{- toYaml $v.resources | nindent 16 }}
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: {{ $v.persistentVolumeClaim }}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi
+{{- end }}

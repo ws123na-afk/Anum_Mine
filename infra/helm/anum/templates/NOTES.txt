@@ -1,0 +1,16 @@
+ANUM {{ .Chart.AppVersion }} ({{ .Values.config.ANUM_ENVIRONMENT }}) is deployed as release {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+{{- if .Values.ingress.enabled }}
+  Web: https://{{ .Values.ingress.hosts.web }}
+  API: https://{{ .Values.ingress.hosts.api }}/health
+{{- end }}
+
+Check it:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "anum.fullname" . }}-api
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+Migrations ran in the hook Job {{ include "anum.fullname" . }}-migrate:
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "anum.fullname" . }}-migrate
+
+Roll back (application only; migrations are not reversed, see docs/deployment.md#rollback):
+  helm rollback {{ .Release.Name }} <revision> -n {{ .Release.Namespace }}

@@ -1,6 +1,6 @@
 # Runbooks
 
-Operational procedures for ANUM. Each alert in `infra/observability/prometheus/alerts.yaml` links a section here ([Observability](observability.md#alerts)). No production environment exists yet (the cloud is not chosen, see the [Production plan](production-plan.md)), so commands use the local compose stack and placeholders such as `<api>`; replace them with the deployment's equivalents when it exists. Everything that needs an owner decision is marked **Proposal**.
+Operational procedures for ANUM. Each alert in `infra/observability/prometheus/alerts.yaml` links a section here ([Observability](observability.md#alerts)). No production environment exists yet (the cloud is not chosen, see the [Production plan](production-plan.md)). Shared environments will run the Helm chart in `infra/helm/anum` on Kubernetes ([Deployment](deployment.md)), so procedures give `kubectl`/`helm` commands for release `anum` in namespace `<ns>` where they differ from the local compose stack; `<api>` stands for the API's public URL. Everything that needs an owner decision is marked **Proposal**.
 
 Ground rules for every procedure:
 
@@ -24,6 +24,16 @@ Ground rules for every procedure:
 - `severity: page` alerts page the primary at any hour (acknowledge within 15 minutes, escalate to the secondary after 30). `severity: ticket` alerts open a ticket handled in working hours.
 - Alertmanager routing to the paging tool is not configured yet; today alerts are visible only in Prometheus and Grafana ([Observability](observability.md#alerts)).
 - The on-call engineer needs: read access to Grafana, Tempo and Loki; the deploy and rollback workflow; Temporal UI; read-only database access as `anum_app`; break-glass access to the secret store and Keycloak admin, used only during a declared incident and logged.
+
+## Deploy and Rollback
+
+Deploys go through the workflows only: `deploy-staging.yml` on every push to `main`, `deploy-production.yml` by hand with the commit staging deployed and the `production` approval ([Deployment](deployment.md)).
+
+1. **Before a production deploy:** the commit is green in CI and healthy in staging; note the current revision (`helm history anum -n <ns>`; the workflow writes it to the run summary).
+2. **During:** the migration hook runs first (`kubectl -n <ns> logs job/anum-migrate`). If it fails, the release fails and Helm rolls back to the previous release; old pods were never replaced. Read the Job log, fix forward, deploy again.
+3. **After:** `helm test anum -n <ns> --logs`, the health check, and the API dashboard for five minutes.
+4. **Roll back** when a deploy correlates with errors: run `deploy-production.yml` with `rollback_to_revision=<previous revision>` (or `helm rollback anum <revision> -n <ns> --wait` with break-glass access), then `helm test`. A rollback restores images, configuration and manifests, not the schema: migrations stay applied, which is safe because they are written expand/contract. A migration that must be undone needs a reviewed down-migration release or a restore ([Restoring for real](#restoring-for-real)).
+5. **Stuck rollout** (`helm upgrade` timed out): `kubectl -n <ns> get pods -l app.kubernetes.io/instance=anum`, then `describe` the failing pod. `CreateContainerConfigError` means a Secret or key is missing ([Deployment](deployment.md#secrets)); `CrashLoopBackOff` with `InsecureConfigurationError` or `AuthConfigurationError` means configuration the API refuses ([Security](security.md#startup-policy)).
 
 ## API Error Rate or Latency
 
@@ -58,7 +68,7 @@ Alerts: `AnumTemporalActivityFailures`, `AnumRunCoordinationUnavailable`. See [A
 
 1. Open the **queue depth** dashboard: activity outcomes by type. `locked` is normal under contention; `not_visible_yet` is normal right after a start; `error`, `not_found` and `coordination_unavailable` are not.
 2. `coordination_unavailable` or the Valkey alert: Valkey is down or unreachable. API run/resume/approve answer `503`; workers retry with backoff. Restore Valkey; no data is lost (locks expire by TTL, `ANUM_RUN_LOCK_TTL_SECONDS`).
-3. Workers: check the worker processes are up and polling `ANUM_TEMPORAL_TASK_QUEUE` (Temporal UI, task queue view shows pollers). No pollers means no progress: restart or scale workers. Workers need the same `ANUM_*` configuration as the API.
+3. Workers: check the worker processes are up and polling `ANUM_TEMPORAL_TASK_QUEUE` (Temporal UI, task queue view shows pollers; on Kubernetes `kubectl -n <ns> logs deployment/anum-worker | grep "ANUM worker polling"`). No pollers means no progress: restart (`kubectl -n <ns> rollout restart deployment/anum-worker`; workers shut down cleanly on SIGTERM and Temporal retries their in-flight activities) or scale (`worker.replicas`). Workers need the same `ANUM_*` configuration as the API; the chart gives both the same ConfigMap and Secret.
 4. A single stuck run: find the workflow `anum-run/<tenant>/<workspace>/<task>` in the Temporal UI. Its run state is in PostgreSQL (`agent_runs.checkpoint`). Typical cases:
    - `waiting_approval`: by design; the run waits for a person (re-read at least hourly if a signal was lost).
    - `tool_ready` with no live workflow: `POST /api/v1/agent-runs/{id}/resume` restarts it.
@@ -90,6 +100,7 @@ Tool: `infra/backup/anum_backup.py` (Python 3.11+, psycopg 3, PostgreSQL client 
 python infra/backup/anum_backup.py backup --database-url "$ANUM_BACKUP_DATABASE_URL" --out /secure/backups
 ```
 
+- On Kubernetes, the chart's optional backup CronJob (`backup.enabled`, image `infra/backup/Dockerfile`) runs this daily into the volume claim `backup.persistentVolumeClaim` with the `secrets.backup` login; run one now with `kubectl -n <ns> create job --from=cronjob/anum-backup anum-backup-manual` ([Deployment](deployment.md)). Shipping the files from that volume to the encrypted, versioned bucket below is still open.
 - One `pg_dump --format=custom` of the whole database plus `anum-<UTC>.manifest.json`: Alembic revision, extensions, RLS policies, per-table row counts, RLS and FORCE RLS flags, per-tenant row counts and the dump's SHA-256. The manifest's counts come from the same exported snapshot as the dump, so they match it exactly.
 - The backup login must bypass RLS (superuser or a dedicated `anum_backup` role with `BYPASSRLS` and `pg_read_all_data`). The tool refuses a role subject to RLS, which would otherwise produce a silently partial backup. Keep that login out of the application's configuration.
 - Dumps contain every tenant. Files are written `0600` in a `0700` directory; ship them to encrypted object storage with versioning and object lock, readable only by the backup and restore roles, in a second region. **Proposal:** keep 35 daily and 12 monthly backups.
@@ -160,7 +171,7 @@ Measured locally (PostgreSQL 16.15 with pgvector, synthetic data: 3 tenants, 60,
 
 `30_days` voice transcripts are unreadable from their `expires_at` on. `python -m anum_api.voice_retention` deletes the rows ([Voice](voice.md#storage-and-retention)).
 
-- **Schedule:** run it at least daily, from a cron job or a scheduled container with the API's configuration. The login must be a member of `anum_maintenance`.
+- **Schedule:** run it at least daily with the API's configuration. On Kubernetes the chart's `anum-voice-retention` CronJob does (03:17 UTC, `voiceRetention.schedule`); run it now with `kubectl -n <ns> create job --from=cronjob/anum-voice-retention anum-voice-retention-manual`. The login must be a member of `anum_maintenance` (`infra/helm/bootstrap-database.sql` grants it to `anum_app`).
 - **Dry run:** `--dry-run` prints how many sessions and segments would be deleted, as counts only.
 - **Safe to repeat:** an interrupted run is finished by the next one.
 - **Never** delete transcript rows by hand or as a superuser. If the job fails with a permission error, the login lost `anum_maintenance`.

@@ -1,0 +1,19 @@
+apiVersion: v2
+name: anum
+description: >-
+  ANUM API, Temporal worker and web client for any Kubernetes cluster
+  (docs/deployment.md). PostgreSQL, NATS, Temporal, Valkey, object storage and
+  Keycloak are external dependencies; every secret is referenced by name.
+type: application
+# Chart version: bump on every change to templates or values.
+version: 0.1.0
+# Default image tag when image.*.tag is empty. Deploy workflows pass the commit SHA.
+appVersion: "0.1.0"
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/ws123na-afk/Anum_Mine
+sources:
+  - https://github.com/ws123na-afk/Anum_Mine/tree/main/infra/helm/anum
+keywords:
+  - anum
+  - fastapi
+  - temporal

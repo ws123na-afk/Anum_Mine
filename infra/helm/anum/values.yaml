@@ -1,0 +1,405 @@
+# Default values for the ANUM chart (docs/deployment.md).
+#
+# The defaults are production-shaped: OIDC only, PostgreSQL + NATS + Temporal, no
+# development credentials. Environment overlays (values-staging.yaml,
+# values-production.yaml) fill in hosts and sizing. Nothing in this file is a secret:
+# every credential is read from a Kubernetes Secret that already exists in the
+# namespace (created by External Secrets, Sealed Secrets, a CSI driver or by hand),
+# referenced by name under `secrets`.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  api:
+    # The API image also runs the Temporal worker, the migration Job and the
+    # maintenance CronJobs (services/api/Dockerfile).
+    repository: ghcr.io/OWNER/anum-api
+    # Empty: .Chart.AppVersion. Deploy workflows pass the commit SHA.
+    tag: ""
+    # Optional sha256 digest; when set the image is pulled by digest.
+    digest: ""
+    pullPolicy: IfNotPresent
+  web:
+    # Built per environment: VITE_ANUM_API_URL and VITE_ANUM_OIDC_ISSUER are compiled
+    # into the bundle (apps/web/Dockerfile).
+    repository: ghcr.io/OWNER/anum-web
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Secrets: referenced by name only. The chart never creates or reads their values.
+# Each Secret key is named after the environment variable it feeds, so an
+# ExternalSecret can map remote keys straight onto them.
+# ---------------------------------------------------------------------------
+secrets:
+  app:
+    # Secret used by the API, the worker and the voice retention CronJob.
+    name: anum-app
+    # Keys that must exist. ANUM_SECRETS_KEY: comma-separated Fernet keys (first
+    # encrypts). ANUM_DATABASE_URL: the application login (not the owner, no
+    # BYPASSRLS, member of anum_maintenance when the scheduler or retention runs).
+    required:
+      - ANUM_SECRETS_KEY
+      - ANUM_DATABASE_URL
+    # Keys read when present (secretKeyRef optional: true).
+    # ANUM_OUTBOX_DATABASE_URL: a login granted only anum_outbox_relay.
+    optional:
+      - ANUM_OUTBOX_DATABASE_URL
+      - ANUM_VALKEY_URL
+      - ANUM_MODEL_API_KEY
+      - ANUM_S3_ACCESS_KEY
+      - ANUM_S3_SECRET_KEY
+      - ANUM_EXTERNAL_WEBHOOK_URL
+      - ANUM_EXTERNAL_WEBHOOK_API_KEY
+  migration:
+    # Secret with ANUM_DATABASE_URL for the migration login (owner of the schema,
+    # see docs/deployment.md#database-roles). ANUM_SECRETS_KEY comes from secrets.app.
+    name: anum-migrate
+    key: ANUM_DATABASE_URL
+  backup:
+    # Secret with ANUM_BACKUP_DATABASE_URL (a login with BYPASSRLS and
+    # pg_read_all_data). Read only when backup.enabled.
+    name: anum-backup
+    key: ANUM_BACKUP_DATABASE_URL
+
+# ---------------------------------------------------------------------------
+# Non-secret ANUM_* settings (services/api/anum_api/settings.py), rendered into one
+# ConfigMap shared by the API, the worker and the jobs. Values must be strings.
+# The chart refuses (fails to render) configurations the API would refuse at
+# startup: see templates/_validate.tpl.
+# ---------------------------------------------------------------------------
+config:
+  # Anything but local/test. local and test allow development auth and are refused.
+  ANUM_ENVIRONMENT: production
+  ANUM_AUTH_MODE: oidc
+  # Keycloak realm issuer exactly as it appears in tokens (https).
+  ANUM_KEYCLOAK_ISSUER: ""
+  ANUM_OIDC_AUDIENCE: anum-api
+  # Set when the API reaches Keycloak on another URL than the issuer (in-cluster).
+  ANUM_OIDC_JWKS_URL: ""
+  ANUM_OIDC_JWKS_CACHE_SECONDS: "300"
+  ANUM_OIDC_JWKS_MIN_REFRESH_SECONDS: "30"
+  ANUM_OIDC_LEEWAY_SECONDS: "30"
+  # JSON list of the exact https web origins.
+  ANUM_CORS_ORIGINS: "[]"
+
+  ANUM_REPOSITORY_BACKEND: postgresql
+  ANUM_EVENT_BUS: nats
+  ANUM_NATS_URL: ""
+  ANUM_NATS_STREAM: ANUM_EVENTS
+  ANUM_OUTBOX_BATCH_SIZE: "100"
+  ANUM_OUTBOX_POLL_SECONDS: "1.0"
+
+  ANUM_RUNTIME_BACKEND: temporal
+  ANUM_TEMPORAL_TARGET: ""
+  ANUM_TEMPORAL_NAMESPACE: default
+  ANUM_TEMPORAL_TASK_QUEUE: anum-agent-runs
+  ANUM_APPROVAL_TTL_SECONDS: "86400"
+
+  # Shared coordination across replicas needs Valkey. Put a URL that carries a
+  # password in secrets.app (key ANUM_VALKEY_URL) instead; the Secret wins.
+  ANUM_VALKEY_URL: ""
+  ANUM_RUN_LOCK_BACKEND: valkey
+  ANUM_RUN_LOCK_TTL_SECONDS: "300"
+  ANUM_RUN_LOCK_WAIT_SECONDS: "0"
+  ANUM_RATE_LIMIT_BACKEND: valkey
+  ANUM_VALKEY_TIMEOUT_SECONDS: "0.5"
+  ANUM_RATE_LIMIT_ENABLED: "true"
+  ANUM_RATE_LIMIT_REQUESTS_PER_MINUTE: "600"
+  ANUM_RATE_LIMIT_BURST: "120"
+  ANUM_MAX_REQUEST_BODY_BYTES: "1048576"
+  ANUM_MAX_UPLOAD_BODY_BYTES: "26214400"
+
+  # Workspace file bytes. Use s3 whenever more than one API replica runs.
+  ANUM_OBJECT_STORAGE_BACKEND: s3
+  ANUM_S3_ENDPOINT: ""
+  ANUM_S3_REGION: us-east-1
+  ANUM_S3_BUCKET: ""
+  ANUM_S3_SERVER_SIDE_ENCRYPTION: AES256
+  ANUM_S3_CREATE_BUCKET: "false"
+
+  # Model gateway. mock is refused when ANUM_ENVIRONMENT=production.
+  ANUM_MODEL_PROVIDER: openai-compatible
+  ANUM_MODEL_NAME: gpt-4.1-mini
+  ANUM_MODEL_BASE_URL: https://api.openai.com/v1
+  ANUM_MODEL_TIMEOUT_SECONDS: "60"
+  ANUM_MODEL_MAX_ATTEMPTS: "3"
+  ANUM_MODEL_RETRY_BASE_SECONDS: "0.5"
+  ANUM_MODEL_RETRY_MAX_SECONDS: "8.0"
+  ANUM_MODEL_RETRY_AFTER_MAX_SECONDS: "30.0"
+  # JSON object {"model": {"input_per_million": .., "output_per_million": ..}};
+  # empty keeps the built-in price table (estimates for cost accounting only).
+  ANUM_MODEL_PRICES: ""
+  # host or host:port entries allowed for self-hosted models on private networks.
+  ANUM_MODEL_ALLOWED_HOSTS: ""
+
+  # Fires due automation schedules; the API login must be in anum_maintenance.
+  ANUM_AUTOMATION_SCHEDULER_ENABLED: "true"
+  ANUM_AUTOMATION_SCHEDULER_POLL_SECONDS: "30"
+  ANUM_AUTOMATION_SCHEDULER_BATCH_SIZE: "100"
+
+  # OpenTelemetry (docs/observability.md). Empty: export off.
+  ANUM_OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  ANUM_OTEL_TRACES_SAMPLER_RATIO: "1.0"
+  ANUM_OTEL_LOGS_ENABLED: "true"
+  ANUM_OTEL_METRIC_EXPORT_INTERVAL_SECONDS: "15"
+  # Empty: "anum-api" for the API, "anum-worker" for the worker. Do not set it here,
+  # it would give both processes the same service name.
+  ANUM_OTEL_SERVICE_NAME: ""
+  # Not set by the chart (development only): ANUM_APP_NAME, ANUM_AUTOMATION_DATABASE_PATH
+  # (memory backend), ANUM_OBJECT_STORAGE_LOCAL_PATH (local file storage under
+  # /app/.anum-data, an emptyDir).
+
+# Extra non-secret environment variables for API, worker and jobs (name: value).
+extraEnv: {}
+
+# Pod-level defaults shared by every workload.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ---------------------------------------------------------------------------
+# API
+# ---------------------------------------------------------------------------
+api:
+  enabled: true
+  replicas: 2
+  # uvicorn trusts X-Forwarded-For/Proto only from these peers: set the ingress
+  # controller's pod or load balancer CIDR (comma-separated).
+  forwardedAllowIps: "127.0.0.1"
+  uid: 10001
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+  terminationGracePeriodSeconds: 30
+  probes:
+    startup:
+      periodSeconds: 5
+      failureThreshold: 24
+    liveness:
+      periodSeconds: 15
+      timeoutSeconds: 4
+      failureThreshold: 3
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 4
+      failureThreshold: 3
+  service:
+    type: ClusterIP
+    port: 8000
+  pdb:
+    enabled: true
+    minAvailable: 1
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# ---------------------------------------------------------------------------
+# Temporal worker: same image, `python -m anum_api.worker`. It serves no port; on
+# SIGTERM it stops polling, hands in-flight activities back to Temporal and exits 0.
+# ---------------------------------------------------------------------------
+worker:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+  # Long enough for the worker's own shutdown (polling stop, activity hand-back,
+  # telemetry flush).
+  terminationGracePeriodSeconds: 60
+  pdb:
+    enabled: true
+    minAvailable: 1
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# ---------------------------------------------------------------------------
+# Web: the static bundle behind unprivileged nginx on port 8080.
+# ---------------------------------------------------------------------------
+web:
+  enabled: true
+  replicas: 2
+  uid: 101
+  # Origins the page may call besides itself, space-separated: the API origin and the
+  # Keycloak issuer origin (apps/web/Dockerfile, docs/security.md#web-container).
+  cspConnectSrc: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+  service:
+    type: ClusterIP
+    port: 8080
+  pdb:
+    enabled: true
+    minAvailable: 1
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# ---------------------------------------------------------------------------
+# Ingress: one host for the web client and one for the API (the bundle calls the API
+# origin compiled into it).
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  hosts:
+    web: ""
+    api: ""
+  tls:
+    enabled: true
+    # Existing TLS Secret, or the one cert-manager creates when clusterIssuer is set.
+    secretName: anum-tls
+    # cert-manager ClusterIssuer name; empty: no cert-manager annotation.
+    clusterIssuer: ""
+
+# ---------------------------------------------------------------------------
+# Migrations: `python -m alembic upgrade head` as a pre-install/pre-upgrade hook, with
+# the migration login from secrets.migration. A failed migration fails the release
+# before any pod is rolled.
+# ---------------------------------------------------------------------------
+migration:
+  enabled: true
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# Voice transcript retention: `python -m anum_api.voice_retention` daily
+# (docs/runbooks.md#voice-transcript-retention). Uses secrets.app; that login must be
+# a member of anum_maintenance.
+# ---------------------------------------------------------------------------
+voiceRetention:
+  enabled: true
+  schedule: "17 3 * * *"
+  timeZone: Etc/UTC
+  dryRun: false
+  backoffLimit: 2
+  activeDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
+
+# ---------------------------------------------------------------------------
+# Logical backups with infra/backup/anum_backup.py (docs/runbooks.md#backups). Off by
+# default: prefer the managed database's PITR and keep this as the provider-independent
+# second copy. Needs the backup image (infra/backup/Dockerfile) and a volume.
+# ---------------------------------------------------------------------------
+backup:
+  enabled: false
+  schedule: "41 2 * * *"
+  timeZone: Etc/UTC
+  image:
+    repository: ghcr.io/OWNER/anum-backup
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  # PersistentVolumeClaim (created outside the chart) the dumps are written to. Back it
+  # with encrypted, versioned storage; dumps hold every tenant.
+  persistentVolumeClaim: ""
+  backoffLimit: 1
+  activeDeadlineSeconds: 7200
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+serviceAccount:
+  # One ServiceAccount per workload, none of them mounts an API token.
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# NetworkPolicies: deny all ingress and egress for the release's pods, then allow
+# only what each workload needs.
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # Who may reach the API and web pods (the ingress controller). Peers as in a
+  # NetworkPolicy `from` clause.
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  # DNS servers.
+  dnsTo:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+  # Egress rules (NetworkPolicy `egress` items) for the API and the worker: database,
+  # NATS, Temporal, Valkey, object storage, Keycloak JWKS, model provider, OTLP.
+  # Narrow `to` to the real CIDRs or selectors per environment.
+  appEgress:
+    - ports:
+        - { port: 5432, protocol: TCP }
+        - { port: 4222, protocol: TCP }
+        - { port: 7233, protocol: TCP }
+        - { port: 6379, protocol: TCP }
+        - { port: 443, protocol: TCP }
+        - { port: 4317, protocol: TCP }
+        - { port: 4318, protocol: TCP }
+  # Egress rules for the migration, retention and backup jobs (database only).
+  jobEgress:
+    - ports:
+        - { port: 5432, protocol: TCP }
+
+# `helm test`: checks /health, that the API refuses unauthenticated requests (OIDC),
+# and the web /healthz, from inside the cluster.
+tests:
+  enabled: true

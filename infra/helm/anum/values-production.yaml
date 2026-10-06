@@ -1,0 +1,125 @@
+# Production overlay: helm upgrade --install anum infra/helm/anum -f infra/helm/anum/values-production.yaml
+# Placeholders only (*.example hosts, documentation CIDRs). Replace them once the cloud,
+# domains and managed services exist (docs/deployment.md). Secrets come from the
+# Secrets named under `secrets`.
+
+image:
+  api:
+    repository: ghcr.io/OWNER/anum-api
+  web:
+    repository: ghcr.io/OWNER/anum-web
+
+config:
+  ANUM_ENVIRONMENT: production
+  ANUM_KEYCLOAK_ISSUER: https://id.anum.example/realms/anum
+  ANUM_CORS_ORIGINS: '["https://app.anum.example"]'
+  ANUM_NATS_URL: nats://nats.anum.svc.cluster.local:4222
+  ANUM_TEMPORAL_TARGET: temporal-frontend.temporal.svc.cluster.local:7233
+  ANUM_TEMPORAL_NAMESPACE: anum-production
+  ANUM_S3_ENDPOINT: https://s3.anum.example
+  ANUM_S3_BUCKET: anum-production-files
+  ANUM_MODEL_PROVIDER: openai-compatible
+  ANUM_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4318
+  # Head sampling keeps trace volume bounded; errors are still logged.
+  ANUM_OTEL_TRACES_SAMPLER_RATIO: "0.2"
+
+secrets:
+  app:
+    name: anum-production-app
+  migration:
+    name: anum-production-migrate
+  backup:
+    name: anum-production-backup
+
+api:
+  replicas: 3
+  forwardedAllowIps: "10.0.0.0/8"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  hpa:
+    minReplicas: 3
+    maxReplicas: 12
+    targetCPUUtilizationPercentage: 65
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: anum
+          app.kubernetes.io/component: api
+
+worker:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+web:
+  replicas: 3
+  cspConnectSrc: "https://api.anum.example https://id.anum.example"
+
+ingress:
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+  hosts:
+    web: app.anum.example
+    api: api.anum.example
+  tls:
+    secretName: anum-production-tls
+    clusterIssuer: letsencrypt
+
+backup:
+  # Second, provider-independent copy next to the managed database's PITR.
+  enabled: true
+  image:
+    repository: ghcr.io/OWNER/anum-backup
+  persistentVolumeClaim: anum-backups
+
+networkPolicy:
+  # Narrowed to the private ranges of the managed services (placeholders from the
+  # documentation range 192.0.2.0/24; replace with the VPC's CIDRs), plus HTTPS for
+  # Keycloak, the model provider and object storage.
+  appEgress:
+    - to:
+        - ipBlock: { cidr: 192.0.2.0/24 }
+      ports:
+        - { port: 5432, protocol: TCP }
+        - { port: 6379, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: anum
+      ports:
+        - { port: 4222, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: temporal
+      ports:
+        - { port: 7233, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - { port: 4318, protocol: TCP }
+    - ports:
+        - { port: 443, protocol: TCP }
+  jobEgress:
+    - to:
+        - ipBlock: { cidr: 192.0.2.0/24 }
+      ports:
+        - { port: 5432, protocol: TCP }
