@@ -6,6 +6,7 @@ import '../../src/widgets/depth.dart';
 import 'admin_controller.dart';
 import 'admin_models.dart';
 import 'admin_repository.dart';
+import 'owned_controller.dart';
 
 /// Owner screen: memberships and invitations from the live API. Whether the
 /// caller may manage them is the API's answer (403), never a guess.
@@ -14,10 +15,15 @@ class MembersScreen extends StatefulWidget {
       {required this.controller,
       required this.repository,
       required this.currentWorkspaceId,
+      this.webAppUrl = configuredWebAppUrl,
       super.key});
   final MembersController controller;
   final AdminRepository repository;
   final String currentWorkspaceId;
+
+  /// The web app's address (`ANUM_WEB_APP_URL`); when set, a new invitation
+  /// also gets the web client's link. Empty keeps token and workspace id only.
+  final String webAppUrl;
 
   @override
   State<MembersScreen> createState() => _MembersScreenState();
@@ -33,9 +39,11 @@ class _MembersScreenState extends State<MembersScreen> {
   void _openAccept() => Navigator.push(
       context,
       MaterialPageRoute<void>(
-          builder: (_) => AcceptInvitationScreen(
-              controller: AcceptInvitationController(widget.repository,
-                  currentWorkspaceId: widget.currentWorkspaceId))));
+          builder: (_) => OwnedController(
+              create: () => AcceptInvitationController(widget.repository,
+                  currentWorkspaceId: widget.currentWorkspaceId),
+              builder: (_, controller) =>
+                  AcceptInvitationScreen(controller: controller))));
 
   Future<void> _invite() => showModalBottomSheet<void>(
       context: context,
@@ -141,7 +149,11 @@ class _MembersScreenState extends State<MembersScreen> {
             icon: Icons.block),
       ]),
       if (c.created != null)
-        _TokenReveal(created: c.created!, onDone: c.dismissCreated),
+        _TokenReveal(
+            created: c.created!,
+            link: invitationLink(widget.webAppUrl, c.created!.token,
+                c.created!.invitation.workspaceId),
+            onDone: c.dismissCreated),
       AnumSurface(
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -245,15 +257,35 @@ class _MembersScreenState extends State<MembersScreen> {
 }
 
 class _TokenReveal extends StatelessWidget {
-  const _TokenReveal({required this.created, required this.onDone});
+  const _TokenReveal(
+      {required this.created, required this.link, required this.onDone});
   final CreatedInvitation created;
+
+  /// The web invitation link, or null when the build has no ANUM_WEB_APP_URL.
+  final String? link;
   final VoidCallback onDone;
 
-  Future<void> _copy(BuildContext context) async {
-    await Clipboard.setData(ClipboardData(text: created.token));
+  Future<void> _copy(BuildContext context, String label, String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
     if (!context.mounted) return;
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Token copied.')));
+        .showSnackBar(SnackBar(content: Text('$label copied.')));
+  }
+
+  Widget _code(BuildContext context, String text, Key key) {
+    final p = context.palette;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          color: p.background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: p.line)),
+      child: SelectableText(text,
+          key: key,
+          textDirection: TextDirection.ltr,
+          style:
+              TextStyle(color: p.text, fontFamily: 'monospace', fontSize: 13)),
+    );
   }
 
   @override
@@ -272,31 +304,31 @@ class _TokenReveal extends StatelessWidget {
         const SizedBox(height: 10),
         Text(
             'ANUM keeps only a hash of this token. Copy it now: it cannot be shown again. '
-            'The invitee pastes it under Settings › Accept an invitation, signed in as themselves.',
+            '${link == null ? 'The invitee pastes it under Settings › Accept an invitation, signed in as themselves.' : 'The invitee opens the link, or pastes the token or link under Accept an invitation, signed in as themselves.'}',
             style: TextStyle(color: p.warn, fontSize: 13)),
         const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-              color: p.background,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: p.line)),
-          child: SelectableText(created.token,
-              key: const Key('invitation-token'),
-              textDirection: TextDirection.ltr,
-              style: TextStyle(
-                  color: p.text, fontFamily: 'monospace', fontSize: 13)),
-        ),
+        _code(context, created.token, const Key('invitation-token')),
+        if (link != null) ...[
+          const SizedBox(height: 8),
+          _code(context, link!, const Key('invitation-link')),
+        ],
         const SizedBox(height: 8),
         Text(
-            '${roleLabel(invitation.role)} access to ${invitation.workspaceId} (workspace id, needed when accepting), valid until ${exactTime(invitation.expiresAt)}.',
+            link == null
+                ? '${roleLabel(invitation.role)} access to ${invitation.workspaceId} (workspace id, needed when accepting), valid until ${exactTime(invitation.expiresAt)}.'
+                : '${roleLabel(invitation.role)} access to ${invitation.workspaceId}, valid until ${exactTime(invitation.expiresAt)}. The link carries the workspace.',
             style: TextStyle(color: p.muted, fontSize: 12.5)),
         const SizedBox(height: 12),
         Wrap(spacing: 8, runSpacing: 8, children: [
           FilledButton.icon(
-              onPressed: () => _copy(context),
+              onPressed: () => _copy(context, 'Token', created.token),
               icon: const Icon(Icons.copy),
               label: const Text('Copy token')),
+          if (link != null)
+            OutlinedButton.icon(
+                onPressed: () => _copy(context, 'Link', link!),
+                icon: const Icon(Icons.link),
+                label: const Text('Copy link')),
           OutlinedButton(onPressed: onDone, child: const Text('Done')),
         ]),
       ]),

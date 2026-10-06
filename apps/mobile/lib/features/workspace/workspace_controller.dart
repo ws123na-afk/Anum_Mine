@@ -60,10 +60,19 @@ class WorkspaceController extends ChangeNotifier {
       _mutate(() => repository.cancelTask(id));
   Future<WorkspaceTask?> resumeTask(String id) =>
       _mutate(() => repository.resumeTask(id));
+
+  /// The API's refusal of a decision, by approval id: a 403 such as the
+  /// two-person rule refusing to let you approve your own high-risk task.
+  /// Shown on that approval's card; the screen stays usable.
+  final Map<String, String> decisionRefusals = {};
+
   Future<void> decide(WorkspaceApproval approval,
       {required bool approve, String? reason}) async {
-    await _mutate(() =>
-        repository.decideApproval(approval, approve: approve, reason: reason));
+    decisionRefusals.remove(approval.id);
+    await _mutate(
+        () => repository.decideApproval(approval,
+            approve: approve, reason: reason),
+        onRefused: (message) => decisionRefusals[approval.id] = message);
   }
 
   Future<void> startAutomation(String id) async {
@@ -107,7 +116,8 @@ class WorkspaceController extends ChangeNotifier {
     await _mutate(() => repository.installSkill(skill));
   }
 
-  Future<T?> _mutate<T>(Future<T> Function() operation) async {
+  Future<T?> _mutate<T>(Future<T> Function() operation,
+      {void Function(String message)? onRefused}) async {
     mutating = true;
     message = null;
     budgetMessage = null;
@@ -117,7 +127,10 @@ class WorkspaceController extends ChangeNotifier {
       await load();
       return result;
     } on ApiException catch (error) {
-      if (error.isBudgetExceeded) {
+      if (onRefused != null && error.isPermissionDenied) {
+        onRefused(error.message);
+        await load();
+      } else if (error.isBudgetExceeded) {
         budgetMessage = error.message;
         // The task was created before its run was refused: show it.
         await load();

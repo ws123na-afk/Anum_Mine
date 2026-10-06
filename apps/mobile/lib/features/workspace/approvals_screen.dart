@@ -222,6 +222,39 @@ class _PendingCardState extends State<_PendingCard> {
             hintText: 'Why you approve or reject this; kept in the audit trail',
           ),
         ),
+        if (controller.decisionRefusals[approval.id] case final refusal?)
+          Container(
+            key: Key('approval-refusal-${approval.id}'),
+            margin: const EdgeInsets.only(top: 4, bottom: 4),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: p.stop.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: p.stop.withValues(alpha: 0.45)),
+            ),
+            child: Semantics(
+              liveRegion: true,
+              child:
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.person_off_outlined, size: 18, color: p.stop),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Decision refused',
+                            style: TextStyle(
+                                color: p.stop,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 2),
+                        Text(refusal,
+                            style: TextStyle(color: p.text, fontSize: 13)),
+                      ]),
+                ),
+              ]),
+            ),
+          ),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(

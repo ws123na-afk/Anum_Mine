@@ -1,11 +1,15 @@
 // Approvals: the exact tool call, where it goes, why it stopped, when it lapses, and who decided
 // and why. See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
 import { useId, useState, type ReactNode } from 'react';
-import { CheckCircle2, Clock, Fingerprint, Globe, ShieldCheck, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Fingerprint, Globe, ShieldCheck, UserX, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
 import { REASON_MAX_CHARS, argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, normalizeReason, shortHash } from './lib/approvals';
 
-type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: string) => void;
+/**
+ * Resolves with the API's refusal when the decision is not allowed (403, for example the
+ * two-person rule refusing to let you approve your own high-risk task), otherwise with null.
+ */
+type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: string) => Promise<string | null>;
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -61,8 +65,13 @@ function PendingApproval({ approval, busy, decide, now }: { approval: Approval; 
   const approvable = canApprove(approval, now);
   const expiry = expiryLabel(approval, now);
   const [reason, setReason] = useState('');
+  const [refusal, setRefusal] = useState<string | null>(null);
   const reasonId = useId();
   const typed = normalizeReason(reason);
+  const act = (decision: 'approve' | 'reject') => {
+    setRefusal(null);
+    void decide(approval, decision, typed).then(setRefusal);
+  };
   return (
     <article className="approvalDetail" aria-label={`Approval for ${approval.action}`}>
       <div className="approvalIcon"><ShieldCheck /></div>
@@ -90,10 +99,16 @@ function PendingApproval({ approval, busy, decide, now }: { approval: Approval; 
           />
           <small>{reason.length}/{REASON_MAX_CHARS}</small>
         </label>
+        {refusal && (
+          <div className="approvalRefusal" role="alert">
+            <UserX aria-hidden />
+            <div><strong>Decision refused</strong><p>{refusal}</p></div>
+          </div>
+        )}
       </div>
       <div className="approvalActions">
-        <button disabled={busy || !approvable} onClick={() => decide(approval, 'approve', typed)}><CheckCircle2 />Approve</button>
-        <button className="danger" disabled={busy} onClick={() => decide(approval, 'reject', typed)}><XCircle />Reject</button>
+        <button disabled={busy || !approvable} onClick={() => act('approve')}><CheckCircle2 />Approve</button>
+        <button className="danger" disabled={busy} onClick={() => act('reject')}><XCircle />Reject</button>
       </div>
     </article>
   );

@@ -1,9 +1,12 @@
-// Owner screens: workspace members and invitations, and monthly model budgets.
-// Everything shown comes from the API. Who may manage is decided by the API's 403, never guessed here.
+// Owner screens: workspace members and invitations, monthly model budgets, and the approval policy.
+// Everything shown comes from the API. Who may manage is decided by the API (its 403, or the
+// caller's persisted membership role), never guessed from the token here.
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Ban, CircleDot, Copy, Gauge, KeyRound, Link2, Lock, MailPlus, RefreshCw, RotateCcw, Save, Search, ShieldCheck, Ticket, UserCheck, Users, XCircle } from 'lucide-react';
-import type { CreatedInvitation, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
+import { ArrowRightLeft, Ban, CircleDot, Copy, Gauge, KeyRound, Link2, Lock, MailPlus, RefreshCw, RotateCcw, Save, Scale, Search, ShieldCheck, Ticket, UserCheck, Users, XCircle } from 'lucide-react';
+import type { CreatedInvitation, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceApprovalPolicy, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
 import * as admin from './lib/adminApi';
+import { getCurrentMembership, rememberWorkspace } from './lib/api';
+import { POLICY_SWITCHES, policyChanged, policyDraft, policyUpdatedLabel, twoPersonWarning, type PolicyDraft } from './lib/policy';
 import {
   DEFAULT_TTL_HOURS,
   ROLES,
@@ -35,10 +38,10 @@ function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
   return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot />{children}</p>;
 }
 
-function Forbidden({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
+function Forbidden({ title, detail, children }: { title: string; detail: string | null; children: ReactNode }) {
   return <section className="surface adminForbidden" aria-label={title}>
     <span className="adminIcon"><Lock /></span>
-    <div><h3>{title}</h3><p>{children}</p><p className="muted">The API answered: {detail}</p></div>
+    <div><h3>{title}</h3><p>{children}</p>{detail && <p className="muted">The API answered: {detail}</p>}</div>
   </section>;
 }
 
@@ -56,7 +59,7 @@ function takeInvitationFromLocation(): { token: string; workspaceId: string | nu
   return parsed;
 }
 
-export function MembersView({ workspaceId }: { workspaceId: string }) {
+export function MembersView({ workspaceId, onSwitchWorkspace }: { workspaceId: string; onSwitchWorkspace?: (workspaceId: string) => Promise<void> }) {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
@@ -171,7 +174,7 @@ export function MembersView({ workspaceId }: { workspaceId: string }) {
         </div>
       </section>
     </>}
-    <AcceptInvitation initial={linked} currentWorkspaceId={workspaceId} onAccepted={() => void refresh()} />
+    <AcceptInvitation initial={linked} currentWorkspaceId={workspaceId} onAccepted={() => void refresh()} onSwitchWorkspace={onSwitchWorkspace} />
   </>;
 }
 
@@ -220,11 +223,18 @@ function TokenReveal({ created, onDone }: { created: CreatedInvitation; onDone: 
   </section>;
 }
 
-function AcceptInvitation({ initial, currentWorkspaceId, onAccepted }: { initial: { token: string; workspaceId: string | null } | null; currentWorkspaceId: string; onAccepted: () => void }) {
+function AcceptInvitation({ initial, currentWorkspaceId, onAccepted, onSwitchWorkspace }: { initial: { token: string; workspaceId: string | null } | null; currentWorkspaceId: string; onAccepted: () => void; onSwitchWorkspace?: (workspaceId: string) => Promise<void> }) {
   const [input, setInput] = useState(initial?.token ?? '');
   const [workspace, setWorkspace] = useState(initial?.workspaceId ?? '');
   const [busy, setBusy] = useState(false);
+  const [joined, setJoined] = useState<string | null>(null);
   const [flash, setFlash] = useState<Flash>(initial ? { text: 'Invitation link opened. Check the workspace, then accept.' } : null);
+  const switchTo = (target: string) => {
+    if (!onSwitchWorkspace) return;
+    setBusy(true);
+    // On success the app reloads into the new workspace; only a refusal comes back here.
+    void onSwitchWorkspace(target).catch((error: unknown) => { setFlash({ text: describeError(error), error: true }); setBusy(false); });
+  };
   return <form className="surface adminPanel" aria-label="Accept an invitation" onSubmit={(event) => {
     event.preventDefault();
     const parsed = parseInvitationInput(input);
@@ -232,9 +242,13 @@ function AcceptInvitation({ initial, currentWorkspaceId, onAccepted }: { initial
     const target = (parsed.workspaceId ?? workspace.trim()) || null;
     setBusy(true);
     setFlash(null);
+    setJoined(null);
     void admin.acceptInvitation(parsed.token, target).then((result) => {
+      const joinedId = result.membership.workspaceId;
+      rememberWorkspace(joinedId);
       setInput('');
-      setFlash({ text: `You joined ${result.membership.workspaceId} as ${roleLabel[result.membership.role].toLowerCase()}.${result.membership.workspaceId !== currentWorkspaceId ? ' Switch to that workspace to work in it.' : ''}` });
+      setJoined(joinedId !== currentWorkspaceId ? joinedId : null);
+      setFlash({ text: `You joined ${joinedId} as ${roleLabel[result.membership.role].toLowerCase()}.${joinedId !== currentWorkspaceId ? ' Switch to that workspace to work in it.' : ''}` });
       onAccepted();
     }).catch((error: unknown) => setFlash({ text: describeError(error), error: true })).finally(() => setBusy(false));
   }}>
@@ -249,7 +263,10 @@ function AcceptInvitation({ initial, currentWorkspaceId, onAccepted }: { initial
       <label className="field"><span>Workspace</span><input value={workspace} onChange={(event) => setWorkspace(event.target.value)} placeholder={currentWorkspaceId} autoComplete="off" /></label>
     </div>
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-    <div className="actions"><button type="submit" disabled={busy || !input.trim()}><UserCheck />{busy ? 'Accepting...' : 'Accept invitation'}</button></div>
+    <div className="actions">
+      <button type="submit" disabled={busy || !input.trim()}><UserCheck />{busy ? 'Working...' : 'Accept invitation'}</button>
+      {joined && onSwitchWorkspace && <button type="button" className="secondary" disabled={busy} onClick={() => switchTo(joined)}><ArrowRightLeft />Switch to {joined}</button>}
+    </div>
   </form>;
 }
 
@@ -332,6 +349,103 @@ function BudgetCard({ scope, title, subtitle, view, onSaved }: { scope: BudgetSc
       </div>
     </form>
   </section>;
+}
+
+// ------------------------------------------------------------------------- approval policy
+
+/**
+ * The workspace approval policy (docs/approvals-and-risk.md, Workspace Approval Policy). Any member
+ * reads it; only owners change it. The caller's role comes from their persisted membership, and a
+ * 403 on saving is shown the same way the other owner screens show it.
+ */
+export function ApprovalPolicyView({ workspaceId }: { workspaceId: string }) {
+  const [policy, setPolicy] = useState<WorkspaceApprovalPolicy | null>(null);
+  const [draft, setDraft] = useState<PolicyDraft>({ twoPersonRule: false, mediumRiskRequiresApproval: false });
+  const [load, setLoad] = useState<Load>({ kind: 'loading' });
+  const [role, setRole] = useState<string | null>(null);
+  const [members, setMembers] = useState<WorkspaceMember[] | null>(null);
+  const [denied, setDenied] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<Flash>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [next, membership] = await Promise.all([admin.getApprovalPolicy(), getCurrentMembership().catch(() => null)]);
+      setPolicy(next);
+      setDraft(policyDraft(next));
+      const ownRole = membership?.active ? membership.role : null;
+      setRole(ownRole);
+      // Owners can list members: used only to warn before the two-person rule locks everyone out.
+      setMembers(ownRole === 'owner' ? await admin.getMembers().catch(() => null) : null);
+      setLoad({ kind: 'ready' });
+    } catch (error) {
+      setLoad(isPermissionDenied(error) ? { kind: 'forbidden', detail: describeError(error) } : { kind: 'error', detail: describeError(error) });
+    }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const notOwner = role !== null && role !== 'owner';
+  const readOnly = notOwner || denied !== null;
+  const changed = policy !== null && policyChanged(policy, draft);
+  const warning = twoPersonWarning(draft, members);
+
+  const save = () => {
+    setBusy(true);
+    setFlash(null);
+    void admin.setApprovalPolicy(draft).then((next) => {
+      setPolicy(next);
+      setDraft(policyDraft(next));
+      setFlash({ text: 'Approval policy saved. It applies from the next approval decision and is in the audit log.' });
+    }).catch((error: unknown) => {
+      if (isPermissionDenied(error)) {
+        setDenied(describeError(error));
+        if (policy) setDraft(policyDraft(policy));
+      } else {
+        setFlash({ text: describeError(error), error: true });
+      }
+    }).finally(() => setBusy(false));
+  };
+
+  return <>
+    <section className="moduleIntro">
+      <div><p className="eyebrow">Workspace safety</p><h2>Who must approve risky actions</h2><p>The approval rules for agent actions in {workspaceId}. Every change is recorded in the audit log.</p></div>
+      <button type="button" onClick={() => { setLoad({ kind: 'loading' }); setDenied(null); setFlash(null); void refresh(); }}><RefreshCw />Refresh</button>
+    </section>
+    {load.kind === 'loading' && <Notice>Loading the approval policy...</Notice>}
+    {load.kind === 'error' && <Notice error>The approval policy could not be loaded. {load.detail}</Notice>}
+    {load.kind === 'forbidden' && <Forbidden title="Access required" detail={load.detail}>
+      Reading the approval policy needs an active membership in this workspace.
+    </Forbidden>}
+    {load.kind === 'ready' && policy && <>
+      {readOnly && <Forbidden title="Owner access required" detail={denied}>
+        Only workspace owners can change the approval policy.{role && role !== 'owner' ? ` Your role here is ${roleLabel[role as WorkspaceRole]?.toLowerCase() ?? role}.` : ''} What is in force is shown below; ask an owner to change it.
+      </Forbidden>}
+      <section className="surface adminPanel policyPanel" aria-label="Approval policy settings">
+        <div className="sectionHeader"><div><p className="eyebrow">In force</p><h2>Approval rules</h2></div><Scale className="sectionIcon" /></div>
+        <p className="muted">High-risk tools always pause for an owner's approval. These two switches add to that.</p>
+        {POLICY_SWITCHES.map((item) => {
+          const on = draft[item.key];
+          return <div className={`policySwitch ${on ? 'on' : ''}`} key={item.key}>
+            <label>
+              <span className="policySwitchTitle"><strong>{item.title}</strong><span className={`statusBadge ${on ? 'success' : 'neutral'}`}>{on ? 'on' : 'off'}</span></span>
+              <input type="checkbox" role="switch" aria-label={item.title} aria-describedby={`policy-${item.key}`} checked={on} disabled={readOnly || busy} onChange={(event) => setDraft({ ...draft, [item.key]: event.target.checked })} />
+            </label>
+            <ul id={`policy-${item.key}`} className="policyExplain">
+              <li className={on ? 'active' : ''}><span>When on</span>{item.on}</li>
+              <li className={on ? '' : 'active'}><span>When off</span>{item.off}</li>
+            </ul>
+          </div>;
+        })}
+        {warning && <Notice error>{warning}</Notice>}
+        <p className="muted">{policyUpdatedLabel(policy, when)}</p>
+        {flash && <Notice error={flash.error}>{flash.text}</Notice>}
+        {!readOnly && <div className="actions">
+          <button type="button" disabled={busy || !changed} onClick={save}><Save />{busy ? 'Saving...' : 'Save policy'}</button>
+          {changed && <button type="button" className="secondary" disabled={busy} onClick={() => setDraft(policyDraft(policy))}><RotateCcw />Undo changes</button>}
+        </div>}
+      </section>
+    </>}
+  </>;
 }
 
 // ------------------------------------------------------------------------- shared
