@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -11,7 +13,7 @@ plugins {
 // build an unsigned-for-store bundle; set ANUM_ANDROID_REQUIRE_RELEASE_SIGNING
 // to true to make a missing key fail the build instead.
 val keystoreProperties =
-    java.util.Properties().apply {
+    Properties().apply {
         val source = rootProject.file("key.properties")
         if (source.exists()) source.inputStream().use { load(it) }
     }

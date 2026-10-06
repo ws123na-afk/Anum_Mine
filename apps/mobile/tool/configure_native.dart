@@ -104,6 +104,8 @@ const androidReleaseManifest = '''
 /// Marker of the release-signing block, so configuration stays idempotent.
 const _signingMarker = 'ANUM_ANDROID_KEYSTORE_PATH';
 
+const _propertiesImport = 'import java.util.Properties';
+
 const _signingSetup = r'''
 
 // Release signing (docs/mobile.md, "Release builds"). Values come from the
@@ -113,7 +115,7 @@ const _signingSetup = r'''
 // build an unsigned-for-store bundle; set ANUM_ANDROID_REQUIRE_RELEASE_SIGNING
 // to true to make a missing key fail the build instead.
 val keystoreProperties =
-    java.util.Properties().apply {
+    Properties().apply {
         val source = rootProject.file("key.properties")
         if (source.exists()) source.inputStream().use { load(it) }
     }
@@ -193,6 +195,11 @@ String configureAndroidGradle(String gradle) {
       '\n        manifestPlaceholders["appAuthRedirectScheme"] = '
       '"$oidcRedirectScheme"',
     );
+  }
+  // `java` is the java-plugin extension inside the Kotlin DSL, so a fully
+  // qualified `java.util.Properties` does not resolve: import it instead.
+  if (!value.contains(_propertiesImport)) {
+    value = '$_propertiesImport\n\n$value';
   }
   if (!value.contains(_signingMarker)) {
     final android = RegExp(r'^android\s*\{', multiLine: true).firstMatch(value);
