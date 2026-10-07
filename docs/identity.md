@@ -35,7 +35,7 @@ The declarative user profile makes `tenant_id` and `default_workspace_id` admin-
 
 Realm roles `owner`, `member`, and `viewer` mirror `anum_api.authorization.Role`. They are coarse identity-provider grants: they let a caller bootstrap a tenant (see below), but they never override the persisted workspace membership.
 
-The realm ships one user, `dev` / `anum-dev-only-password` (tenant `tenant_local`, default workspace `workspace_foundation`, realm role `owner`). That password and the compose `admin`/`admin` admin account are DEV-ONLY placeholders. Shared environments must use their own realm configuration, secrets from the deployment secret store, and no seeded users.
+The realm ships one user, `dev` / `anum-dev-only-password` (tenant `tenant_local`, default workspace `workspace_foundation`, realm role `owner`). That password and the compose `admin`/`admin` admin account are DEV-ONLY placeholders. Shared environments must use their own realm configuration, secrets from the deployment secret store, and no seeded users. `infra/render/keycloak_realm.py` derives such a realm from this file at image build for the Render path: it drops `users`, sets the `anum-web` redirect URIs, web origins and post-logout redirects to `${ANUM_WEB_ORIGIN}` (resolved by Keycloak from its environment at import) and removes the Vite dev-server URLs from `anum-desktop` ([Deploying on Render](deploy-render.md#keycloak)).
 
 ## Token Contract
 

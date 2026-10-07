@@ -1,0 +1,5 @@
+# Build context for infra/render/keycloak.Dockerfile is the repository root; send only
+# the realm and the script that prepares it.
+*
+!infra/keycloak/anum-realm.json
+!infra/render/keycloak_realm.py

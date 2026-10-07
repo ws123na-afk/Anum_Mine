@@ -23,6 +23,8 @@ Secrets must be stored outside source control. Provider keys, integration tokens
 
 On Kubernetes the Helm chart never renders a Secret and holds no credential in its values: it references Secrets created by the secret store (for example External Secrets) by name, each pod gets a ServiceAccount without an API token, and default-deny NetworkPolicies limit traffic ([Deployment](deployment.md)). The database logins are split: the migration login owns the schema, the application login is subject to RLS, the relay and maintenance roles are narrow, and only the backup login bypasses RLS. The chart also refuses to render the configurations the startup policy below refuses.
 
+On Render (`render.yaml`, [Deploying on Render](deploy-render.md)) every secret is a `sync: false` variable entered in the Dashboard, a Render-generated value, or wired from a Render database or service; `services/api/tests/test_render_blueprint.py` fails on any literal credential. The same login split applies, with one weaker point: the migration login's URL is an environment variable of the API service (used by the pre-deploy step and removed before the API process starts), not a separate secret. Render offers no network policies and no image admission control.
+
 ## HTTP Hardening
 
 `services/api/anum_api/hardening.py` adds pure ASGI middlewares (they never buffer SSE streams). For a request the order is CORS, security headers, rate limit, body size limit, then the application.

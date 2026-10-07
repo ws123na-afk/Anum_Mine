@@ -31,6 +31,13 @@ Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A
     - admission policy (`docs/deployment.md#admission-policy`): `kubectl get clusterimagepolicies` lists `anum-{api,web,backup}-{signature,sbom}` with `mode: enforce` and the expected signer per image (production web: `deploy-production.yml`), the `anum-admission` release values used, the policy-controller release at chart `0.10.8` (`helm -n cosign-system list`), the release namespace labelled `policy.sigstore.dev/include=true` (`kubectl get ns <ns> --show-labels`), and a refusal recorded in that environment by a server-side dry run that names an ANUM policy, not just `no matching policies`: in production, `kubectl -n anum run admission-probe --image=ghcr.io/<owner>/anum-web@<staging web digest> --restart=Never --dry-run=server` (signed by `deploy-staging.yml`, not the production signer) must fail with `failed policy: anum-web-signature`; in staging, use an `anum-api` digest pushed before signing was turned on;
     - the kind job's admission step green on the release commit (unsigned probe refused, unmatched image refused).
 12. Keycloak: the bootstrap admin of every shared Keycloak is not `admin/admin` (log in with it fails), and no `KEYCLOAK_ADMIN*`/`KC_BOOTSTRAP_ADMIN_*` variable is in the API's Secrets or env (the API refuses the default at startup; the chart refuses any in its values).
+13. Render path only (`render.yaml`, `docs/deploy-render.md`), instead of items 9 to 11:
+    - the Render deploy of each service on the release commit (Dashboard → Events: deploy id and commit), and the `anum-api` pre-deploy log showing `alembic upgrade head` reaching the expected revision;
+    - `services/api/tests/test_render_blueprint.py` green in the API unit job on that commit;
+    - database bootstrap evidence: `\du anum_*` (no superuser, no BYPASSRLS on `anum_app`/`anum_migrator`), database owned by `anum_migrator`, `anum-db` external access list empty again;
+    - `anum-keycloak`: a named admin with OTP exists, `anum-bootstrap-admin` deleted, `KC_BOOTSTRAP_ADMIN_*` removed from its environment; realm `anum` has no `dev` user and `anum-web` redirect URIs are the real web origin;
+    - the client-IP check from the guide (API access log shows real client IPs; a forged `X-Forwarded-For` is not taken as the client);
+    - items 9 to 11 recorded as **not available on Render** (no Helm, no signed images, no admission policy, no NetworkPolicies) with the owner's written acceptance of that risk — never as pass.
 
 ## Hard blockers
 - `ANUM_AUTH_MODE=headers` in any non-local environment.
@@ -43,5 +50,6 @@ Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A
 - A staging or production release namespace without the admission policy enforcing (namespace not labelled `policy.sigstore.dev/include=true`, any `anum-*` ClusterImagePolicy in `mode: warn`, or policy-controller not running), unless a recorded break-glass window is open.
 - A migration in the release that the previous release cannot run against: `helm rollback` does not reverse migrations, so they must be expand/contract.
 - `ANUM_OBJECT_STORAGE_BACKEND` other than `s3` in production.
+- On Render: a literal credential in `render.yaml`, the Render database admin login (`anum_admin`) or `ANUM_MIGRATION_DATABASE_URL` in any service other than `anum-api`'s pre-deploy environment, `autoDeployTrigger` other than `off` on production services, or the Render path used for production without the owner's recorded acceptance of the gaps listed in `docs/deploy-render.md`.
 
 Output a table: gate, evidence link or value, status (pass / open / fail).

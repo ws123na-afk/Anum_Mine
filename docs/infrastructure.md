@@ -53,6 +53,10 @@ Recommended environments are local, preview, staging, and production. Each envir
 
 Any `ANUM_ENVIRONMENT` other than `local` must provide, through the deployment secret store: `ANUM_DATABASE_URL` with non-default credentials, `ANUM_CORS_ORIGINS` listing the exact `https` web origins, and real object-storage and provider credentials. The API refuses to start otherwise.
 
+## Render
+
+Without a Kubernetes cluster, `render.yaml` at the repository root deploys the same Dockerfiles to Render: the API (migrations as a pre-deploy step with the migration login), the web client, Keycloak (`infra/render/keycloak.Dockerfile`), the voice retention cron job, Render Postgres and Render Key Value, with files in an external S3-compatible bucket and Temporal and NATS off. Step-by-step guide for a Windows owner and the trade-offs against Kubernetes: [Deploying on Render](deploy-render.md).
+
 ## Kubernetes
 
 Shared environments run on any Kubernetes cluster with the Helm chart in `infra/helm/anum`: API (HPA, PDB, probes on `/health`), Temporal worker, web, ingress, a pre-install/pre-upgrade migration Job, the voice retention CronJob, an optional backup CronJob, default-deny NetworkPolicies and token-less ServiceAccounts. Every secret is referenced by name from Secrets created outside the chart (External Secrets friendly), and the chart refuses to render values the API would refuse at startup. `infra/helm/bootstrap-database.sql` creates the migration, application and relay logins. Overlays exist for staging and production with placeholder hosts. See [Deployment](deployment.md) for values, Secrets, cluster access, migrations, rollback and scaling.

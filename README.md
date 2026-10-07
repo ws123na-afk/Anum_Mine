@@ -103,6 +103,7 @@ x-user-roles: owner,member
 - [Flutter mobile](docs/mobile.md)
 - [Infrastructure](docs/infrastructure.md)
 - [Deployment (Kubernetes and Helm)](docs/deployment.md)
+- [Deploying on Render](docs/deploy-render.md)
 - [Observability](docs/observability.md)
 - [Runbooks](docs/runbooks.md)
 - [Development standards](docs/development-standards.md)
