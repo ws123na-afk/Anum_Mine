@@ -1,7 +1,9 @@
 -- One-time PostgreSQL bootstrap for an ANUM deployment (docs/deployment.md#database-roles).
 --
 -- Run as the cluster admin (superuser, or the managed service's admin role with
--- CREATEROLE) against the ANUM database, after `CREATE DATABASE anum`:
+-- CREATEROLE and CREATEDB, such as the default user of a Render, RDS or Cloud SQL
+-- database; docs/deploy-render.md#database-bootstrap) against the ANUM database, after
+-- `CREATE DATABASE anum`:
 --
 --   psql "$ADMIN_URL" -v ON_ERROR_STOP=1 \
 --     -v migrator_password="$MIGRATOR_PASSWORD" \
@@ -57,10 +59,21 @@ grant anum_maintenance to anum_app with inherit false, set true;
 -- INHERIT its row policies never apply to anum_app's own queries (docs/identity.md).
 grant anum_membership_reader to anum_app with inherit false, set true;
 
+-- A non-superuser admin (a managed service's default user) must be a member of
+-- anum_migrator to hand over ownership and to set its default privileges below. On
+-- PostgreSQL 16+ the admin holds ADMIN OPTION on the roles it created above, so it can
+-- grant itself that membership. A superuser needs none and gets none.
+select format('grant anum_migrator to %I with inherit true, set true', current_user)
+where not (select rolsuper from pg_roles where rolname = current_user) \gexec
+
 -- The migration login owns the database, so it owns the public schema
 -- (pg_database_owner) and can grant schema usage to the relay and maintenance roles.
--- A non-superuser admin must be a member of anum_migrator to hand over ownership.
 select format('alter database %I owner to anum_migrator', current_database()) \gexec
+-- Some managed services create the public schema owned by their admin user instead of
+-- pg_database_owner; hand such a schema to anum_migrator too.
+select 'alter schema public owner to anum_migrator'
+where (select nspowner::regrole::text from pg_namespace where nspname = 'public')
+      not in ('pg_database_owner', 'anum_migrator') \gexec
 
 -- Tables and sequences the migration login creates are usable by the application
 -- login, and only through RLS (every tenant table has FORCE ROW LEVEL SECURITY).

@@ -1,5 +1,14 @@
 # Deployment
 
+ANUM has two deployment paths:
+
+| Path | For | Guide |
+|---|---|---|
+| Kubernetes with the Helm chart | Any cluster; the strict path: images built once, scanned, signed and verified, admission policy, NetworkPolicies, separate migration Secret, Temporal worker and NATS. | This document. |
+| Render Blueprint (`render.yaml`) | An owner without Kubernetes (the current choice): Render builds and runs the API, web client, Keycloak, the retention cron job, PostgreSQL and Valkey. No image signing or admission control, no network policies, no Temporal or NATS; the gaps are listed in the guide. | [Deploying on Render](deploy-render.md) |
+
+Both use the same images' Dockerfiles, the same `infra/helm/bootstrap-database.sql` roles, the same startup refusals and the same expand/contract migration rule. The rest of this document describes the Kubernetes path.
+
 ANUM deploys to any Kubernetes cluster with the Helm chart in `infra/helm/anum`. The chart is cloud-neutral: managed or self-hosted PostgreSQL, NATS, Temporal, Valkey, object storage and Keycloak are external dependencies, and every credential comes from a Kubernetes Secret the chart references by name only. Choosing a cloud (see [Production plan](production-plan.md)) means filling in values, Secrets and cluster access; the chart and workflows stay the same. Image builds and local compose are described in [Infrastructure](infrastructure.md).
 
 ## What the Chart Deploys
@@ -27,7 +36,7 @@ Every pod runs as a non-root user (API uid 10001, web uid 101) with a read-only 
 
 ## Database Roles
 
-Run `infra/helm/bootstrap-database.sql` once per database as the cluster admin, with the passwords from the secret store passed as psql variables (the file header shows the command). It is idempotent. It creates:
+Run `infra/helm/bootstrap-database.sql` once per database as the cluster admin, with the passwords from the secret store passed as psql variables (the file header shows the command). It is idempotent. The admin can be a superuser or a managed service's non-superuser default user with `CREATEROLE` and `CREATEDB` (PostgreSQL 16+): the script then grants that user membership in `anum_migrator` so it can hand over the database, and moves a `public` schema the provider created under the admin's name to `anum_migrator` ([Deploying on Render](deploy-render.md#database-bootstrap)). It creates:
 
 | Role | Login | Used by | Privileges |
 |---|---|---|---|
@@ -250,3 +259,4 @@ Tools are pinned: Helm `v4.3.0`, kind `v0.33.0` and kubeconform `v0.8.0` are bui
 - A real staging run of the workflows: they stay skipped until the owner sets the variables and secrets above.
 - Installing the [admission policy](#admission-policy) in a real cluster, and proof that a signed image is admitted: kind can only show refusals, because no image of this repository has been signed yet.
 - Shipping backups off the volume to encrypted, versioned object storage in a second region.
+- A first real deploy on the Render path: `render.yaml` is checked in CI (`services/api/tests/test_render_blueprint.py`) but has not been applied to a Render account yet ([Deploying on Render](deploy-render.md)).

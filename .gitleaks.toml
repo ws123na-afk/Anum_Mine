@@ -27,3 +27,10 @@ condition = "AND"
 paths = ['''^services/api/tests/test_postgres_model_configs\.py$''']
 regexTarget = "secret"
 regexes = ['''^sk-live-PERSISTED-secret-4321$''']
+
+[[allowlists]]
+description = "Render Blueprint and its test name environment variables (key: ANUM_...), never their values"
+condition = "AND"
+paths = ['''^render\.yaml$''', '''^services/api/tests/test_render_blueprint\.py$''']
+regexTarget = "secret"
+regexes = ['''^ANUM_[A-Z0-9_]+$''']
