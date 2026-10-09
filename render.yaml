@@ -16,8 +16,8 @@
 #   credentials.
 #
 # Region: every resource must be in the same region to use the private network, and a
-# database's region cannot change later. Change `oregon` everywhere before the first apply
-# if another region is closer (frankfurt, ohio, virginia, singapore).
+# database's region cannot change later. Change `frankfurt` everywhere before the first apply
+# if another region is closer (oregon, ohio, virginia, singapore).
 
 previews:
   generation: "off"
@@ -27,7 +27,7 @@ services:
   - type: web
     name: anum-api
     runtime: docker
-    region: oregon
+    region: frankfurt
     plan: starter
     numInstances: 1
     dockerfilePath: ./services/api/Dockerfile
@@ -131,7 +131,7 @@ services:
   - type: web
     name: anum-web
     runtime: docker
-    region: oregon
+    region: frankfurt
     plan: starter
     numInstances: 1
     dockerfilePath: ./apps/web/Dockerfile
@@ -169,7 +169,7 @@ services:
   - type: web
     name: anum-keycloak
     runtime: docker
-    region: oregon
+    region: frankfurt
     # Keycloak needs more than the 512 MB of starter.
     plan: standard
     numInstances: 1
@@ -221,7 +221,7 @@ services:
   # --- Valkey (rate limits shared across instances, run locks) ----------------------
   - type: keyvalue
     name: anum-kv
-    region: oregon
+    region: frankfurt
     plan: free
     maxmemoryPolicy: noeviction
     # Private network only.
@@ -231,7 +231,7 @@ services:
   - type: cron
     name: anum-voice-retention
     runtime: docker
-    region: oregon
+    region: frankfurt
     plan: starter
     # 03:17 UTC daily.
     schedule: "17 3 * * *"
@@ -267,7 +267,7 @@ databases:
   - name: anum-db
     databaseName: anum
     user: anum_admin
-    region: oregon
+    region: frankfurt
     plan: basic-256mb
     postgresMajorVersion: "17"
     # Private network only. Add your own IP in the Dashboard for the bootstrap, then
@@ -278,7 +278,7 @@ databases:
   - name: anum-keycloak-db
     databaseName: keycloak
     user: keycloak
-    region: oregon
+    region: frankfurt
     plan: basic-256mb
     postgresMajorVersion: "17"
     ipAllowList: []

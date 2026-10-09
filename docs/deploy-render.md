@@ -117,7 +117,7 @@ Render has no object storage. ANUM keeps file bytes in any S3-compatible bucket 
 
 ## Apply the Blueprint
 
-1. Push the commit that contains `render.yaml` to the branch Render will deploy (normally `main`). Before the first apply, decide the region: every resource in `render.yaml` uses `region: oregon`; change all of them together (for example to `frankfurt`) if another region is closer to your users. A database's region, name, user and PostgreSQL version cannot change after creation.
+1. Push the commit that contains `render.yaml` to the branch Render will deploy (normally `main`). Before the first apply, decide the region: every resource in `render.yaml` uses `region: frankfurt`; change all of them together (for example to `oregon`) if another region is closer to your users. A database's region, name, user and PostgreSQL version cannot change after creation.
 2. Render Dashboard → **New** → **Blueprint** → choose the GitHub repository → Blueprint name `anum-staging` → branch `main`. Render reads `render.yaml` and lists the services and databases it will create.
 3. Render asks for every variable marked `sync: false`. Fill them in as below. Database URLs are not known yet: enter the placeholder shown, the API's first deploy then fails at the pre-deploy step, which is expected and harmless.
 4. Click **Apply**. Render creates both databases, the Key Value instance, and builds and deploys the services (the first Keycloak and web builds take several minutes).
@@ -151,7 +151,7 @@ Render asks for `sync: false` values only when the Blueprint is first applied. L
 ANUM's row-level security needs two separate logins: `anum_migrator` owns the schema and runs migrations, `anum_app` runs the API and is subject to RLS, plus the NOLOGIN roles the migrations grant narrow access to ([Deployment: database roles](deployment.md#database-roles), [Multi-tenancy](multi-tenancy.md)). Render creates one database user per database (here `anum_admin`), which is not a superuser. `infra/helm/bootstrap-database.sql` works with such an admin: it creates the roles, grants the admin membership in `anum_migrator` (PostgreSQL 16+ gives a role's creator the right to grant it), hands the database and the `public` schema to `anum_migrator`, and creates the `vector` extension (Render supports pgvector on PostgreSQL 13 and later: [Render Postgres extensions](https://render.com/docs/postgresql-extensions)). No login gets `BYPASSRLS` or superuser, nothing is `SECURITY DEFINER`, and the maintenance and membership-reader roles are granted `WITH INHERIT FALSE, SET TRUE`. The `anum_admin` login is used only for this step; no service receives it.
 
 1. **Open external access for your IP, temporarily.** Dashboard → `anum-db` → **Info** (or **Networking**) → **Access Control** → **Add source** → your current public IP (the Dashboard offers to fill it in) as `/32`. `render.yaml` keeps `ipAllowList: []`, so nothing else can connect from outside Render.
-2. **Copy the External Database URL** from `anum-db` → **Connect** → **External**. It looks like `postgresql://anum_admin:...@dpg-xxxx-a.oregon-postgres.render.com/anum`. Treat it as a secret.
+2. **Copy the External Database URL** from `anum-db` → **Connect** → **External**. It looks like `postgresql://anum_admin:...@dpg-xxxx-a.frankfurt-postgres.render.com/anum`. Treat it as a secret.
 3. **Run the bootstrap** from the repository folder, in the PowerShell window that still holds the passwords:
 
    ```powershell
