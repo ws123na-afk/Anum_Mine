@@ -74,3 +74,8 @@ export function agentRows(installs: InstallLike[], versions: SkillLike[]): Agent
     })
     .sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name));
 }
+
+/** Installing, enabling/disabling and uninstalling skills need `policy:manage`: active workspace owners only. */
+export function isActiveOwner(membership: { role: string; active: boolean } | null | undefined): boolean {
+  return membership?.role === 'owner' && membership.active === true;
+}

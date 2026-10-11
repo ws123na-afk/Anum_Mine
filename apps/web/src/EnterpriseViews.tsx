@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Archive, CircleDot, Download, PackageCheck, Pencil, Plus, RefreshCw, Route, ShieldCheck, Undo2 } from 'lucide-react';
-import { apiRequest, authHeaders, getCurrentMembership } from './lib/api';
+import { apiRequest, authHeaders } from './lib/api';
+import { useIsOwner } from './useIsOwner';
 import { apiErrorFromResponse, describeError, isPermissionDenied } from './lib/errors';
 import * as gov from './lib/governanceApi';
 import {
@@ -31,12 +32,6 @@ function useAction(reload: () => Promise<void>) {
     finally { setBusy(null); }
   };
   return { busy, flash, setFlash, act };
-}
-
-function useIsOwner(): boolean | null {
-  const [owner, setOwner] = useState<boolean | null>(null);
-  useEffect(() => { void getCurrentMembership().then((m) => setOwner(m.role === 'owner' && m.active)).catch(() => setOwner(false)); }, []);
-  return owner;
 }
 
 export function GovernanceView() {

@@ -1,7 +1,7 @@
 // Unit tests for the Memory, Skills and Agents helpers in src/lib/capabilities.ts.
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { agentRows, indexSummary, installReview, memoryIndexState, memorySearchPath, skillAnchor, skillInstallState, type RetrievalIndexStatus } from '../src/lib/capabilities.ts';
+import { agentRows, indexSummary, isActiveOwner, installReview, memoryIndexState, memorySearchPath, skillAnchor, skillInstallState, type RetrievalIndexStatus } from '../src/lib/capabilities.ts';
 
 const at = '2026-10-06T12:00:00Z';
 const skill = (over: Partial<{ skill_id: string; version: string; name: string; required_tools: string[]; risk_level: string }> = {}) => ({ skill_id: 'research', version: '1.0.0', name: 'Research', description: 'Finds things.', required_tools: ['web.search', 'files.read'], risk_level: 'low', ...over });
@@ -70,5 +70,15 @@ describe('agentRows', () => {
   });
   test('anchors are safe ids', () => {
     assert.equal(skillAnchor('acme/skill v1'), 'skill-acme-skill-v1');
+  });
+});
+
+describe('isActiveOwner', () => {
+  test('only an active owner manages skills', () => {
+    assert.equal(isActiveOwner({ role: 'owner', active: true }), true);
+    assert.equal(isActiveOwner({ role: 'owner', active: false }), false);
+    assert.equal(isActiveOwner({ role: 'member', active: true }), false);
+    assert.equal(isActiveOwner({ role: 'viewer', active: true }), false);
+    assert.equal(isActiveOwner(null), false);
   });
 });
