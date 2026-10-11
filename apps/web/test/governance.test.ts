@@ -122,7 +122,7 @@ describe('tenant-wide write access', () => {
     const denied = tenantWriteAccess(false, 'organization model budgets');
     assert.equal(denied.canManage, false);
     assert.match(denied.notice ?? '', /^Read only: organization model budgets apply to every workspace in this organization/);
-    assert.match(denied.notice ?? '', /org_admin role/);
+    assert.match(denied.notice ?? '', /realm role org_admin/);
   });
   test('routing targets and the catalog take the governance summary flag', () => {
     assert.deepEqual(enterpriseWriteAccess(null), { canManage: false, notice: null });
