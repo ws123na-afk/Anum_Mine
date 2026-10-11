@@ -5,19 +5,19 @@ const counts = { conversations: 2, conversation_turns: 6, private_memories: 1, r
 const zero = Object.fromEntries(Object.keys(counts).map((key) => [key, 0]));
 const shared = { tasks_created: 4, approvals_decided: 1, shared_memories_created: 0, files_uploaded: 2 };
 
-function summary(privateCounts: Record<string, number>) {
+function summary(privateCounts: Record<string, number>, memory = 'on') {
   return {
     tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner',
     private: privateCounts, shared,
     retention: { conversation_days: 30, voice_transcript_days: 30, voice_transcript_choices: ['session', '30_days', 'permanent'], private_memories: 'Kept until you delete them (Memory, or Delete my data).', task_memories: 'Kept with their task, or until the expiry set when they were saved.', audit_records: 'Kept as the workspace’s security record; they hold ids and counts, not your content.' },
-    model_provider: { deployment: 'anthropic', workspace: null, conversation_memory_enabled: true },
+    model_provider: { deployment: 'anthropic', workspace: null, conversation_memory_enabled: memory !== 'off_on_server', conversation_memory: memory },
     privacy_policy_url: 'https://example.com/privacy', delete_confirmation: 'DELETE MY DATA', export_max_bytes: 26214400,
     account_note: 'Your sign-in account is managed by your organization’s identity provider, not by ANUM. To close it, ask your workspace owner or organization administrator.',
     shared_note: 'Tasks, runs, approvals, shared memories and files belong to the workspace, so they are kept. Ask a workspace owner to remove them.',
   };
 }
 
-async function mockApi(page: Page, options: { summaryStatus?: number; exportStatus?: number } = {}) {
+async function mockApi(page: Page, options: { summaryStatus?: number; exportStatus?: number; memory?: string } = {}) {
   let current: Record<string, number> = { ...counts };
   const calls = { deleted: [] as unknown[] };
   await page.route('http://localhost:8000/**', async (route) => {
@@ -29,12 +29,17 @@ async function mockApi(page: Page, options: { summaryStatus?: number; exportStat
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' });
     if (path === '/api/v1/privacy') {
       if (options.summaryStatus) return json({ detail: 'Workspace permission denied' }, options.summaryStatus);
-      return json(summary(current));
+      return json(summary(current, options.memory));
     }
     if (path === '/api/v1/privacy/export') {
       if (options.exportStatus) return json({ detail: 'Your data is larger than this server’s export limit (25 MB). Delete conversations you no longer need, or ask your administrator to raise ANUM_PRIVACY_EXPORT_MAX_BYTES, then try again.' }, options.exportStatus);
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'content-disposition': 'attachment; filename="anum-my-data-20261011-090000.json"', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'X-Correlation-ID, Retry-After, Content-Disposition' }, body: JSON.stringify({ format: 'anum.privacy-export/v1' }) });
     }
+    // The Workspace tab, for the way from Privacy to "Remember things from my chats".
+    if (path === '/api/v1/me/preferences') return json({ remember_conversations: options.memory !== 'off_by_user', updated_at: null, conversation_memory: options.memory ?? 'on' });
+    if (path === '/api/v1/onboarding') return json({ complete: true, tenant_id: 'tenant_local', workspace_id: 'workspace_foundation' });
+    if (path === '/api/v1/notification-preferences') return json({ task_completed: true, approval_required: true, run_failed: true, automation_failed: true, email_enabled: false, desktop_enabled: true });
+    if (path === '/api/v1/model-config') return json({ detail: 'No workspace model' }, 404);
     if (path === '/api/v1/privacy/delete' && request.method() === 'POST') {
       calls.deleted.push(request.postDataJSON());
       const deleted = current;
@@ -55,6 +60,8 @@ test('a member sees what is stored, downloads it and deletes their private data 
   await expect(page.getByText('Assistant conversations').first()).toBeVisible();
   await expect(page.getByText(/Deleted after 30 days without activity/)).toBeVisible();
   await expect(page.getByText(/sent to Anthropic \(Claude\)/)).toBeVisible();
+  await expect(page.getByTestId('privacy-memory')).toContainText('After each reply, a second short call to the same provider picks out lasting facts');
+  await expect(page.getByRole('button', { name: 'Change Remember things from my chats' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Read the privacy policy' })).toHaveAttribute('href', 'https://example.com/privacy');
 
   const download = page.waitForEvent('download');
@@ -94,4 +101,51 @@ test('the Workspace and Privacy sections switch from Settings', async ({ page })
   await page.getByRole('button', { name: 'Privacy', exact: true }).click();
   await expect(page).toHaveURL(/#privacy$/);
   await expect(page.getByRole('heading', { name: 'Delete my data' })).toBeVisible();
+});
+
+test('when the caller turned chat memory off, the page says nothing is picked out and leads to the switch', async ({ page }) => {
+  await mockApi(page, { memory: 'off_by_user' });
+  await page.goto('/#privacy');
+  const memory = page.getByTestId('privacy-memory');
+  await expect(memory).toContainText('You turned off Remember things from my chats, so no facts are picked out of your chats and no memories are added to your questions.');
+  await expect(memory).not.toContainText('After each reply');
+  await page.getByRole('button', { name: 'Change Remember things from my chats' }).click();
+  await expect(page).toHaveURL(/#settings$/);
+  await expect(page.getByRole('button', { name: 'Workspace', exact: true })).toHaveAttribute('aria-current', 'page');
+  const toggle = page.getByRole('checkbox', { name: /Remember things from my chats/ });
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toBeInViewport();
+  await expect(toggle).not.toBeChecked();
+});
+
+for (const [state, expected, hint] of [
+  ['off_on_server', 'Chat memory is turned off on this server', 'no memories are added to your questions'],
+  ['off_for_organization', "Your organization's memory policy does not allow memories from chats, so no facts are picked out of your chats.", 'organization administrator can allow'],
+  ['not_for_role', 'Your role in this workspace cannot save memories, so no facts are picked out of your chats.', 'workspace owner can change your role'],
+] as const) {
+  test(`chat memory ${state}: the page states what happens and who can change it`, async ({ page }) => {
+    await mockApi(page, { memory: state });
+    await page.goto('/#privacy');
+    const memory = page.getByTestId('privacy-memory');
+    await expect(memory).toContainText(expected);
+    await expect(memory).toContainText(hint);
+    await expect(memory).not.toContainText('After each reply');
+    await expect(page.getByRole('button', { name: 'Change Remember things from my chats' })).toHaveCount(0);
+  });
+}
+
+test.describe('in Arabic', () => {
+  test.use({ locale: 'ar-SA' });
+
+  test('the chat memory sentence and the way to the switch are translated, right to left', async ({ page }) => {
+    await mockApi(page, { memory: 'off_by_user' });
+    await page.goto('/#privacy');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    await expect(page.getByTestId('privacy-memory')).toContainText('لقد أوقفت «تذكّر أشياء من محادثاتي»، لذلك لا تُستخرج أي حقائق من محادثاتك');
+    await page.getByRole('button', { name: 'تغيير «تذكّر أشياء من محادثاتي»' }).click();
+    const toggle = page.getByRole('checkbox', { name: /تذكّر أشياء من محادثاتي/ });
+    await expect(toggle).toBeFocused();
+    await expect(toggle).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+  });
 });

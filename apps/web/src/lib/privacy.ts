@@ -72,8 +72,31 @@ export function providerLabel(provider: string): string {
 /** The sentence about where messages go when the assistant answers. */
 export function providerSentence(summary: PrivacySummary): string {
   const provider = summary.model_provider.workspace ?? summary.model_provider.deployment;
-  const sentence = t('privacy.providerSentence', { provider: providerLabel(provider) });
-  return summary.model_provider.conversation_memory_enabled ? `${sentence} ${t('privacy.memorySentence')}` : sentence;
+  return t('privacy.providerSentence', { provider: providerLabel(provider) });
+}
+
+export interface MemorySentence {
+  text: string;
+  /** "Remember things from my chats" is off by the caller's own choice: offer the switch. */
+  offerSwitch: boolean;
+}
+
+/**
+ * What happens to the caller's chats after a reply, for the caller's effective state
+ * (`model_provider.conversation_memory`, the same value as GET /api/v1/me/preferences):
+ * the post-reply extraction call runs only when it is `on`; recall stops only when the
+ * caller or the server turned memory off.
+ */
+export function memorySentence(summary: PrivacySummary): MemorySentence {
+  const recall = () => t('privacy.memory.recallStill');
+  switch (summary.model_provider.conversation_memory) {
+    case 'on': return { offerSwitch: false, text: t('privacy.memory.on') };
+    case 'off_by_user': return { offerSwitch: true, text: t('privacy.memory.offByUser') };
+    case 'off_on_server': return { offerSwitch: false, text: t('privacy.memory.offServer') };
+    case 'off_for_organization': return { offerSwitch: false, text: t('privacy.memory.offOrg', { recall: recall() }) };
+    case 'not_for_role': return { offerSwitch: false, text: t('privacy.memory.notForRole', { recall: recall() }) };
+    default: return { offerSwitch: false, text: t('privacy.memory.unknown') };
+  }
 }
 
 export function confirmationMatches(typed: string, phrase: string): boolean {

@@ -13,8 +13,15 @@ import 'privacy_models.dart';
 /// App Store require.
 class PrivacyScreen extends StatefulWidget {
   const PrivacyScreen(
-      {required this.controller, this.openLink = openInBrowser, super.key});
+      {required this.controller,
+      this.openLink = openInBrowser,
+      this.onOpenChatMemory,
+      super.key});
   final PrivacyController controller;
+
+  /// Leads to the "Remember things from my chats" switch (in Settings) when
+  /// the caller turned it off; hidden when null.
+  final VoidCallback? onOpenChatMemory;
 
   /// Opens the policy in the browser (url_launcher); tests pass a fake.
   final LinkOpener openLink;
@@ -111,6 +118,19 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                   ])),
                   const SizedBox(height: AnumSpacing.xs),
                   Text(s.providerSentence, style: theme.textTheme.bodySmall),
+                  const SizedBox(height: AnumSpacing.xs),
+                  Text(s.memorySentence,
+                      key: const Key('privacy-memory'),
+                      style: theme.textTheme.bodySmall),
+                  if (s.offerChatMemorySwitch &&
+                      widget.onOpenChatMemory != null)
+                    Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: TextButton.icon(
+                            onPressed: widget.onOpenChatMemory,
+                            icon: const Icon(Icons.tune),
+                            label: const Text(
+                                'Change Remember things from my chats'))),
                   const SizedBox(height: AnumSpacing.xs),
                   _PolicyLink(url: s.policyUrl, open: widget.openLink),
                   _Heading('Download my data'),

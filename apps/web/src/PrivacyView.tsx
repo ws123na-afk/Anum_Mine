@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import { CircleDot, Download, ExternalLink, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react';
+import { CircleDot, Download, ExternalLink, RefreshCw, Settings2, ShieldAlert, Trash2 } from 'lucide-react';
 import {
-  permissionMessage, confirmationMatches, deletedSentence, formatBytes, privacyErrorMessage, privateRows, providerSentence,
+  permissionMessage, confirmationMatches, deletedSentence, formatBytes, memorySentence, privacyErrorMessage, privateRows, providerSentence,
   retentionRows, sharedRows, totalOf, type DeleteResult, type PrivacySummary,
 } from './lib/privacy';
 import * as privacyApi from './lib/privacyApi';
@@ -13,8 +13,10 @@ type Load = { kind: 'loading' } | { kind: 'ready'; summary: PrivacySummary } | {
 type Outcome = { tone: 'ok' | 'error'; text: string } | null;
 
 // Settings -> Privacy (docs/privacy.md): what ANUM stores about the caller in this workspace,
-// how long it is kept, where messages are sent, and the two rights actions: download and delete.
-export function PrivacyView() {
+// how long it is kept, where messages are sent (and whether chats are remembered, for this caller),
+// and the two rights actions: download and delete. `onOpenChatMemory` leads to the
+// "Remember things from my chats" switch when the caller turned it off.
+export function PrivacyView({ onOpenChatMemory }: { onOpenChatMemory?: () => void } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [exporting, setExporting] = useState(false), [exported, setExported] = useState<Outcome>(null);
   const [typed, setTyped] = useState(''), [deleting, setDeleting] = useState(false), [deleted, setDeleted] = useState<Outcome>(null);
@@ -57,6 +59,7 @@ export function PrivacyView() {
   const summary = load.summary, phrase = summary.delete_confirmation;
   const privateTotal = totalOf(summary.private), sharedTotal = totalOf(summary.shared);
   const ready = confirmationMatches(typed, phrase);
+  const memory = memorySentence(summary);
 
   return <div className="settingsStack privacyStack">
     <section className="surface settingsForm privacyBlock" aria-labelledby="privacy-stored">
@@ -80,6 +83,8 @@ export function PrivacyView() {
       <h2 id="privacy-retention">{t('privacy.retention.title')}</h2>
       <dl className="privacyRetention">{retentionRows(summary).map(row => <div key={row.label}><dt>{row.label}</dt><dd dir="auto">{row.value}</dd></div>)}</dl>
       <p className="muted">{providerSentence(summary)}</p>
+      <p className="muted" data-testid="privacy-memory">{memory.text}</p>
+      {memory.offerSwitch && onOpenChatMemory && <div className="actions"><button type="button" className="secondary" onClick={onOpenChatMemory}><Settings2 aria-hidden="true"/>{t('privacy.memory.change')}</button></div>}
       <p className="privacyPolicy">{summary.privacy_policy_url
         ? <a href={summary.privacy_policy_url} target="_blank" rel="noreferrer noopener">{t('privacy.policyLink')}<ExternalLink aria-hidden="true" className="flipRtl"/></a>
         : <span className="muted">{t('privacy.policyMissing')}</span>}</p>

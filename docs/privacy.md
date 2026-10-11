@@ -8,11 +8,27 @@ All three actions act on the caller's own data in the **current tenant and works
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/privacy` | Counts (never content) of the caller's private data and of the shared records they created, retention from the server's configuration, the model provider their messages go to, `privacy_policy_url`, the confirmation phrase and the export limit. |
+| `GET /api/v1/privacy` | Counts (never content) of the caller's private data and of the shared records they created, retention from the server's configuration, the model provider their messages go to, whether their chats are remembered (`model_provider.conversation_memory`, below), `privacy_policy_url`, the confirmation phrase and the export limit. |
 | `GET /api/v1/privacy/export` | The caller's data as one JSON file (`Content-Disposition: attachment`, `Cache-Control: no-store`). |
 | `POST /api/v1/privacy/delete` | Body `{"confirm": "DELETE MY DATA"}`. Deletes the caller's private data; returns `deleted` and `kept` counts. Any other phrase is `422` and nothing is deleted. |
 
 Every workspace role (viewer, member, owner) may use them for their own data: owners see the same page and have no extra power here. A caller without an active role in the workspace gets `403`; with OIDC a deactivated membership is refused before the route runs. The web and mobile pages explain a `403` ("ask a workspace owner to restore your membership").
+
+## Chat memory on the Privacy page
+
+`model_provider.conversation_memory` is the caller's effective chat memory state, computed by the same function as the `conversation_memory` of `GET /api/v1/me/preferences` (`user_preferences.conversation_memory_state`, [Memory](memory.md#from-conversations)): the caller's preference row is read in the summary's RLS unit of work and the tenant's memory governance in its own. An unreadable governance policy reads as `off_for_organization`, as extraction treats it. `model_provider.conversation_memory_enabled` is only the deployment-wide `ANUM_CONVERSATION_MEMORY_ENABLED` and is kept for older clients; it does not say whether this caller's chats are remembered.
+
+The web and Flutter pages state what happens for each value:
+
+| `conversation_memory` | Post-reply extraction call | Memories added to questions (recall) | The page says |
+|---|---|---|---|
+| `on` | Yes: a second short call to the same provider picks out lasting facts and saves them as private memories | Yes | What is extracted and that matching memories are sent with later questions. |
+| `off_by_user` | No | No | The caller turned off "Remember things from my chats"; saved memories stay until deleted. A **Change Remember things from my chats** button opens the switch (web: Settings → Workspace with the switch focused; Flutter: back to Settings with the chat memory card in view). |
+| `off_on_server` | No | No | Memory is off on this server (`ANUM_CONVERSATION_MEMORY_ENABLED`). |
+| `off_for_organization` | No | Yes, for memories the caller can read | The organization's memory policy excludes the `conversation` source; an organization administrator can allow it under Governance. |
+| `not_for_role` | No | Yes, for memories the caller can read | The caller's role cannot create memories; a workspace owner can change it. |
+
+A value the client does not know (an older server without the field) gets a neutral sentence that makes no claim either way.
 
 ## What the export contains
 
@@ -77,8 +93,8 @@ The API exposes `Content-Disposition` to browsers (CORS `expose_headers`) so the
 
 ## Clients
 
-- Web (`apps/web/src/PrivacyView.tsx`, helpers in `src/lib/privacy.ts`): loading, ready, `403` and error states with a retry; the download button reports the saved file and size or the reason it failed; the delete button stays disabled until the phrase is typed exactly and reports what was deleted and kept. Covered by `test/privacy.test.ts` and `e2e/privacy.spec.ts`.
-- Flutter (`apps/mobile/lib/features/privacy/`): the same sections; the export is saved with the system save dialog (`file_picker`), and "Read the privacy policy" opens the link in the browser with `url_launcher` (https only, like developer mode's links); a non-https link, or one no browser opens, is copied instead and a message says so. A copy button is always there. Covered by `test/privacy_test.dart`.
+- Web (`apps/web/src/PrivacyView.tsx`, helpers in `src/lib/privacy.ts`): loading, ready, `403` and error states with a retry; the download button reports the saved file and size or the reason it failed; the delete button stays disabled until the phrase is typed exactly and reports what was deleted and kept; the chat memory sentence follows `conversation_memory` ([above](#chat-memory-on-the-privacy-page)); its sentences and the switch button label are the `privacy.memory.*` keys of the English and Arabic catalogs (`src/lib/messages/en.ts`, `ar.ts`). Covered by `test/privacy.test.ts` and `e2e/privacy.spec.ts` (every memory state, the way to the switch, and the Arabic text right to left).
+- Flutter (`apps/mobile/lib/features/privacy/`): the same sections; the export is saved with the system save dialog (`file_picker`), and "Read the privacy policy" opens the link in the browser with `url_launcher` (https only, like developer mode's links); a non-https link, or one no browser opens, is copied instead and a message says so. A copy button is always there. The chat memory sentence and the way back to the switch work as on the web. Covered by `test/privacy_test.dart` (every memory state, Settings → Privacy → switch, and widths 320 to 1440 at 100% and 200% text).
 
 ## Not done yet
 

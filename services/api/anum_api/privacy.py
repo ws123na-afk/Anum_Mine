@@ -5,7 +5,9 @@ never anyone else's (docs/privacy.md):
 
 - ``GET /api/v1/privacy`` summarises what is stored about the caller (counts only, no
   content), the retention periods this deployment applies, the model provider their
-  messages may be sent to and the privacy policy link.
+  messages may be sent to, whether the Assistant remembers from and recalls into the
+  caller's chats (``model_provider.conversation_memory``, the same state
+  ``GET /api/v1/me/preferences`` returns) and the privacy policy link.
 - ``GET /api/v1/privacy/export`` returns a JSON document (``anum.privacy-export/v1``)
   with the caller's identity in the workspace, conversations and turns, private
   memories and the shared memories they created, voice sessions and transcripts, tasks
@@ -51,7 +53,7 @@ from .onboarding import NotificationPreferences
 from .request_context import current_correlation_id
 from .schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership, new_id, utc_now
 from .settings import settings
-from .user_preferences import UserPreferences
+from .user_preferences import ConversationMemoryState, UserPreferences, conversation_memory_state
 from .voice import TRANSCRIPT_RETENTION_DAYS, TranscriptRetention, TranscriptSegment, VoiceSession
 
 logger = logging.getLogger("anum.privacy")
@@ -112,7 +114,15 @@ class ModelProviderInfo(BaseModel):
     # The deployment's provider (ANUM_MODEL_PROVIDER) and this workspace's override.
     deployment: str
     workspace: str | None = None
+    # The deployment-wide switch (ANUM_CONVERSATION_MEMORY_ENABLED) only; kept for older
+    # clients. What applies to this caller is ``conversation_memory``.
     conversation_memory_enabled: bool
+    conversation_memory: ConversationMemoryState = Field(
+        description=(
+            "Whether a post-reply model call remembers facts from the caller's chats, and if not, why: "
+            "on; off_by_user; off_on_server; off_for_organization; not_for_role (as GET /api/v1/me/preferences)"
+        )
+    )
 
 
 class PrivacySummary(BaseModel):
@@ -548,6 +558,9 @@ async def privacy_summary(context: TenantContext = Depends(tenant_context)) -> P
     with open_privacy_store(context) as store:
         membership = store.membership()
         private, shared = store.counts()
+        preferences = store.user_preferences() or UserPreferences()
+    # Outside the privacy transaction: the governance read opens its own unit of work.
+    memory = conversation_memory_state(context, preferences)
     return PrivacySummary(
         tenant_id=context.tenant_id,
         workspace_id=context.workspace_id,
@@ -560,6 +573,7 @@ async def privacy_summary(context: TenantContext = Depends(tenant_context)) -> P
             deployment=settings.model_provider,
             workspace=_workspace_provider(context),
             conversation_memory_enabled=settings.conversation_memory_enabled,
+            conversation_memory=memory,
         ),
         privacy_policy_url=settings.privacy_policy_url.strip() or None,
         export_max_bytes=settings.privacy_export_max_bytes,

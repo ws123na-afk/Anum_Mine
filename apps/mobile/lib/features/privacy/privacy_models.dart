@@ -49,6 +49,7 @@ class PrivacySummary {
     required this.auditRetention,
     required this.provider,
     required this.memoryExtraction,
+    required this.conversationMemory,
     required this.policyUrl,
     required this.confirmation,
     required this.exportMaxBytes,
@@ -76,6 +77,8 @@ class PrivacySummary {
           provider.optString('workspace') ?? provider.string('deployment'),
       memoryExtraction:
           provider.optBool('conversation_memory_enabled') ?? false,
+      conversationMemory:
+          provider.optString('conversation_memory') ?? 'unknown',
       policyUrl: url == null || url.isEmpty ? null : url,
       confirmation: json.optString('delete_confirmation') ?? 'DELETE MY DATA',
       exportMaxBytes: json.optInt('export_max_bytes') ?? 0,
@@ -95,7 +98,14 @@ class PrivacySummary {
   final String taskMemoryRetention;
   final String auditRetention;
   final String provider;
+
+  /// The deployment-wide switch (ANUM_CONVERSATION_MEMORY_ENABLED) only.
   final bool memoryExtraction;
+
+  /// What applies to the caller (`model_provider.conversation_memory`, the
+  /// same value as `GET /api/v1/me/preferences`): on, off_by_user,
+  /// off_on_server, off_for_organization or not_for_role.
+  final String conversationMemory;
   final String? policyUrl;
   final String confirmation;
   final int exportMaxBytes;
@@ -119,15 +129,35 @@ class PrivacySummary {
         ('Audit log', auditRetention),
       ];
 
-  String get providerSentence {
-    final memory = memoryExtraction
-        ? ' After a reply, a short model call also picks out facts you stated to remember as private memories.'
-        : '';
-    return 'To produce answers, your messages, voice questions and task prompts are sent to ${providerLabel(provider)}.$memory';
-  }
+  String get providerSentence =>
+      'To produce answers, your messages, voice questions and task prompts are sent to ${providerLabel(provider)}.';
+
+  /// The caller turned "Remember things from my chats" off: offer the switch.
+  bool get offerChatMemorySwitch => conversationMemory == 'off_by_user';
+
+  /// What happens to the caller's chats after a reply. The post-reply
+  /// extraction call runs only when memory is `on`; recall stops only when the
+  /// caller or the server turned memory off.
+  String get memorySentence => switch (conversationMemory) {
+        'on' =>
+          'After each reply, a second short call to the same provider picks out lasting facts you stated (such as your name, role or how you like answers) and saves them as private memories only you can see. Memories that match your later questions are added to what is sent to the model.',
+        'off_by_user' =>
+          'You turned off Remember things from my chats, so no facts are picked out of your chats and no memories are added to your questions. Memories already saved from your chats stay until you delete them.',
+        'off_on_server' =>
+          'Chat memory is turned off on this server (ANUM_CONVERSATION_MEMORY_ENABLED), so no facts are picked out of your chats and no memories are added to your questions.',
+        'off_for_organization' =>
+          'Your organization’s memory policy does not allow memories from chats, so no facts are picked out of your chats. $_recallStill An organization administrator can allow the "conversation" source under Governance.',
+        'not_for_role' =>
+          'Your role in this workspace cannot save memories, so no facts are picked out of your chats. $_recallStill A workspace owner can change your role.',
+        _ =>
+          'This server did not say whether facts are picked out of your chats. Check Remember things from my chats in Settings, or update the server.',
+      };
 
   bool matches(String typed) => typed.trim() == confirmation;
 }
+
+const _recallStill =
+    'Memories you can read that match your question (ones you or your workspace saved) are still added to what is sent to the model.';
 
 String _days(int n) => '$n ${n == 1 ? 'day' : 'days'}';
 

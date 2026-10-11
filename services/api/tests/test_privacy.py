@@ -12,6 +12,7 @@ from anum_api import privacy
 from anum_api.conversations import conversation_store
 from anum_api.dependencies import memory_note_repository
 from anum_api.files import file_store
+from anum_api.governance import MemoryGovernance, governance_store
 from anum_api.main import app, store
 from anum_api.memory import MemoryNote, MemoryProvenance, RetentionKind, RetentionPolicy
 from anum_api.onboarding import _notifications
@@ -46,6 +47,7 @@ def setup_function() -> None:
     voice_store.clear()
     _notifications.clear()
     user_preference_store.clear()
+    governance_store.clear()
     file_store.clear()
 
 
@@ -132,6 +134,51 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
     assert "identity provider" in body["account_note"]
     # Counts only: the summary never carries content.
     assert "mine question" not in response.text
+
+
+def test_summary_reports_the_callers_effective_chat_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same state GET /api/v1/me/preferences returns, not just the deployment flag."""
+
+    def memory(hdrs: dict[str, str] = ME) -> tuple[bool, str]:
+        provider = client.get("/api/v1/privacy", headers=hdrs).json()["model_provider"]
+        mine = client.get("/api/v1/me/preferences", headers=hdrs).json()["conversation_memory"]
+        assert provider["conversation_memory"] == mine
+        return provider["conversation_memory_enabled"], provider["conversation_memory"]
+
+    assert memory() == (True, "on")
+    assert memory(headers("user_viewer", roles="viewer")) == (True, "not_for_role")
+
+    assert client.put("/api/v1/me/preferences", headers=ME, json={"remember_conversations": False}).status_code == 200
+    assert memory() == (True, "off_by_user")
+    # Only the caller's own switch: a colleague in the same workspace is unaffected.
+    assert memory(COLLEAGUE) == (True, "on")
+    assert client.put("/api/v1/me/preferences", headers=ME, json={"remember_conversations": True}).status_code == 200
+
+    governance_store.save_memory_governance(
+        _context(ME),
+        MemoryGovernance(
+            tenant_id=ME["x-tenant-id"], default_retention_days=30, allow_permanent_retention=True,
+            require_provenance=True, allowed_source_types=["task_message"], updated_by="user_owner", updated_at=utc_now(),
+        ),
+    )
+    assert memory() == (True, "off_for_organization")
+    # Another tenant's policy does not apply.
+    assert memory(OTHER_TENANT) == (True, "on")
+
+    monkeypatch.setattr(settings, "conversation_memory_enabled", False)
+    assert memory() == (False, "off_on_server")
+
+
+def test_summary_treats_an_unreadable_memory_policy_as_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import conversation_memory
+
+    def broken(_context: TenantContext) -> bool:
+        raise RuntimeError("governance store unavailable")
+
+    monkeypatch.setattr(conversation_memory, "governance_allows_conversation_memory", broken)
+    response = client.get("/api/v1/privacy", headers=ME)
+    assert response.status_code == 200
+    assert response.json()["model_provider"]["conversation_memory"] == "off_for_organization"
 
 
 def test_summary_shows_the_configured_policy_url(monkeypatch: pytest.MonkeyPatch) -> None:

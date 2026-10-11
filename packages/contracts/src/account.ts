@@ -64,7 +64,13 @@ export interface PrivacyModelProvider {
   deployment: string;
   /** This workspace's own choice, when it saved one. */
   workspace: string | null;
+  /** The deployment-wide switch (ANUM_CONVERSATION_MEMORY_ENABLED) only; kept for older clients. */
   conversation_memory_enabled: boolean;
+  /**
+   * What applies to the caller: whether a post-reply model call remembers facts from their
+   * chats, and if not, why. The same value `GET /api/v1/me/preferences` returns.
+   */
+  conversation_memory: ConversationMemoryState;
 }
 
 /** `GET /api/v1/privacy`: counts only, never content. */

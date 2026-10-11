@@ -18,6 +18,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  // The chat memory card, for the Privacy screen's way back to its switch.
+  final _chatMemoryKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -52,15 +55,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: 'Settings unavailable',
                 message: widget.controller.message,
                 action: widget.controller.load),
-            SettingsPhase.ready ||
-            SettingsPhase.saving =>
-              AnumBackdrop(child: _Content(controller: widget.controller)),
+            SettingsPhase.ready || SettingsPhase.saving => AnumBackdrop(
+                child: _Content(
+                    controller: widget.controller,
+                    chatMemoryKey: _chatMemoryKey)),
           }));
 }
 
 class _Content extends StatelessWidget {
-  const _Content({required this.controller});
+  const _Content({required this.controller, required this.chatMemoryKey});
   final SettingsController controller;
+  final GlobalKey chatMemoryKey;
+
+  /// From Privacy back to "Remember things from my chats": close Privacy and
+  /// bring the chat memory card into view.
+  void _openChatMemory(BuildContext context) {
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = chatMemoryKey.currentContext;
+      if (target != null && target.mounted) {
+        Scrollable.ensureVisible(target,
+            alignment: 0.2, duration: const Duration(milliseconds: 250));
+      }
+    });
+  }
 
   Future<void> _changeModel(BuildContext context) => showModalBottomSheet<void>(
       context: context,
@@ -178,7 +196,7 @@ class _Content extends StatelessWidget {
             _Heading('Notifications'),
             _NotificationCard(controller: controller),
             _Heading('Chat memory'),
-            _ChatMemoryCard(controller: controller),
+            _ChatMemoryCard(key: chatMemoryKey, controller: controller),
             if (controller.privacy != null) ...[
               _Heading('Privacy'),
               Card(
@@ -192,8 +210,10 @@ class _Content extends StatelessWidget {
                           context,
                           MaterialPageRoute<void>(
                               builder: (_) => PrivacyScreen(
-                                  controller: PrivacyController(
-                                      controller.privacy!)))))),
+                                  controller:
+                                      PrivacyController(controller.privacy!),
+                                  onOpenChatMemory: () =>
+                                      _openChatMemory(context)))))),
             ],
             _Heading('Security'),
             Card(
@@ -295,7 +315,7 @@ class _NotificationState extends State<_NotificationCard> {
 /// saved at once, with what it means now and a way to delete the memories
 /// already remembered.
 class _ChatMemoryCard extends StatelessWidget {
-  const _ChatMemoryCard({required this.controller});
+  const _ChatMemoryCard({required this.controller, super.key});
   final SettingsController controller;
 
   Future<void> _confirmDelete(BuildContext context) async {

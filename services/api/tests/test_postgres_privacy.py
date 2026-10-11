@@ -189,6 +189,32 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
     assert summary["shared"]["tasks_created"] == 1
 
 
+def test_summary_reports_my_own_chat_memory_switch_under_rls(client: TestClient, app_factory: sessionmaker[Session]) -> None:
+    """The summary reads the caller's preference row inside its RLS unit of work, and the
+    tenant's memory governance in its own: the state matches GET /api/v1/me/preferences."""
+
+    def state(hdrs: dict[str, str]) -> str:
+        summary = client.get("/api/v1/privacy", headers=hdrs)
+        assert summary.status_code == 200, summary.text
+        value = summary.json()["model_provider"]["conversation_memory"]
+        assert value == client.get("/api/v1/me/preferences", headers=hdrs).json()["conversation_memory"]
+        return value
+
+    assert state(ME) == "on"
+    assert client.put("/api/v1/me/preferences", headers=ME, json={"remember_conversations": False}).status_code == 200
+    assert state(ME) == "off_by_user"
+    # Same tenant, same workspace and same user elsewhere: the switch is per user and tenant.
+    assert (state(COLLEAGUE), state(OTHER_WORKSPACE), state(OTHER_TENANT)) == ("on", "off_by_user", "on")
+
+    assert client.put(
+        "/api/v1/organization/memory-governance",
+        headers={**ME, "x-user-roles": "owner,org_admin"},
+        json={"default_retention_days": 30, "allow_permanent_retention": True, "require_provenance": True, "allowed_source_types": ["task_message"]},
+    ).status_code == 200
+    assert client.put("/api/v1/me/preferences", headers=ME, json={"remember_conversations": True}).status_code == 200
+    assert (state(ME), state(OTHER_TENANT)) == ("off_for_organization", "on")
+
+
 def test_export_in_each_workspace_of_one_tenant_holds_only_that_workspace(
     client: TestClient, app_factory: sessionmaker[Session]
 ) -> None:

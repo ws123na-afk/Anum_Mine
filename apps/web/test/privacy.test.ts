@@ -4,15 +4,16 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   PERMISSION_MESSAGE, confirmationMatches, deletedSentence, exportFileName, formatBytes, privacyErrorMessage, privateRows,
-  providerLabel, providerSentence, retentionRows, sharedRows, totalOf, type PrivacySummary,
+  memorySentence, providerLabel, providerSentence, retentionRows, sharedRows, totalOf, type PrivacySummary,
 } from '../src/lib/privacy.ts';
+import { setLocale, t } from '../src/lib/i18n.ts';
 
 const summary: PrivacySummary = {
   tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'member',
   private: { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 1, voice_transcript_segments: 3, notification_preferences: 1, user_preferences: 1 },
   shared: { tasks_created: 4, approvals_decided: 1, shared_memories_created: 0, files_uploaded: 2 },
   retention: { conversation_days: 30, voice_transcript_days: 30, voice_transcript_choices: ['session', '30_days', 'permanent'], private_memories: 'Kept until you delete them.', task_memories: 'Kept with their task.', audit_records: 'Kept as the security record.' },
-  model_provider: { deployment: 'anthropic', workspace: null, conversation_memory_enabled: true },
+  model_provider: { deployment: 'anthropic', workspace: null, conversation_memory_enabled: true, conversation_memory: 'on' },
   privacy_policy_url: null, delete_confirmation: 'DELETE MY DATA', export_max_bytes: 26214400,
   account_note: 'Ask your administrator.', shared_note: 'Shared records stay.',
 };
@@ -45,11 +46,70 @@ describe('provider', () => {
     assert.match(providerLabel('ollama'), /own server/);
     assert.match(providerLabel('mock'), /nothing leaves/);
   });
-  test('prefers the workspace override and mentions memory extraction when on', () => {
-    assert.match(providerSentence(summary), /Anthropic.*private memories/);
-    const local = { ...summary, model_provider: { deployment: 'anthropic', workspace: 'ollama', conversation_memory_enabled: false } };
+  test('prefers the workspace override and leaves memory to its own sentence', () => {
+    assert.match(providerSentence(summary), /sent to Anthropic/);
+    const local = { ...summary, model_provider: { ...summary.model_provider, workspace: 'ollama' } };
     assert.match(providerSentence(local), /Ollama/);
-    assert.doesNotMatch(providerSentence(local), /private memories/);
+    assert.doesNotMatch(providerSentence(local), /memor/);
+  });
+});
+
+describe('memorySentence', () => {
+  const withState = (conversation_memory: PrivacySummary['model_provider']['conversation_memory'], enabled = true): PrivacySummary =>
+    ({ ...summary, model_provider: { ...summary.model_provider, conversation_memory_enabled: enabled, conversation_memory } });
+
+  test('describes the post-reply extraction call only when memory is on for the caller', () => {
+    const on = memorySentence(withState('on'));
+    assert.match(on.text, /After each reply, a second short call .* picks out lasting facts/);
+    assert.equal(on.offerSwitch, false);
+    for (const state of ['off_by_user', 'off_on_server', 'off_for_organization', 'not_for_role'] as const) {
+      const sentence = memorySentence(withState(state));
+      assert.match(sentence.text, /no facts are picked out of your chats/, state);
+      assert.doesNotMatch(sentence.text, /After each reply/, state);
+    }
+  });
+
+  test('the deployment flag alone does not decide it: the caller may have turned it off', () => {
+    const sentence = memorySentence(withState('off_by_user', true));
+    assert.match(sentence.text, /You turned off Remember things from my chats/);
+    assert.match(sentence.text, /no memories are added to your questions/);
+    assert.equal(sentence.offerSwitch, true);
+  });
+
+  test('says who can change it, and that recall continues when only saving is blocked', () => {
+    assert.match(memorySentence(withState('off_on_server', false)).text, /ANUM_CONVERSATION_MEMORY_ENABLED.*no memories are added/);
+    const org = memorySentence(withState('off_for_organization'));
+    assert.match(org.text, /organization administrator can allow the "conversation" source/);
+    assert.match(org.text, /still added/);
+    const role = memorySentence(withState('not_for_role'));
+    assert.match(role.text, /workspace owner can change your role/);
+    assert.match(role.text, /still added/);
+    for (const state of ['off_on_server', 'off_for_organization', 'not_for_role'] as const) assert.equal(memorySentence(withState(state)).offerSwitch, false);
+  });
+
+  test('an older server without the field gets a neutral sentence, not a claim', () => {
+    const old = { ...summary, model_provider: { deployment: 'anthropic', workspace: null, conversation_memory_enabled: true } } as unknown as PrivacySummary;
+    assert.match(memorySentence(old).text, /did not say/);
+  });
+});
+
+describe('memorySentence in Arabic', () => {
+  test('every state and the switch label come from the Arabic catalog', () => {
+    setLocale('ar');
+    try {
+      const of = (conversation_memory: PrivacySummary['model_provider']['conversation_memory']) =>
+        memorySentence({ ...summary, model_provider: { ...summary.model_provider, conversation_memory } }).text;
+      assert.match(of('off_by_user'), /^لقد أوقفت «تذكّر أشياء من محادثاتي»/);
+      assert.match(of('on'), /بعد كل رد/);
+      assert.match(of('off_on_server'), /ANUM_CONVERSATION_MEMORY_ENABLED/);
+      // {recall} is filled in, in Arabic.
+      assert.match(of('off_for_organization'), /لا تزال الذكريات/);
+      assert.match(of('not_for_role'), /لا تزال الذكريات/);
+      assert.doesNotMatch(of('off_for_organization'), /\{recall\}|Memories/);
+      assert.equal(t('privacy.memory.change'), 'تغيير «تذكّر أشياء من محادثاتي»');
+    } finally {
+      setLocale('en');
+    }
   });
 });
 

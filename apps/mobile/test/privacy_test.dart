@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_models.dart';
 import 'package:anum_mobile/data/session_store.dart';
+import 'package:anum_mobile/features/auth/auth_repository.dart';
 import 'package:anum_mobile/features/privacy/privacy_controller.dart';
 import 'package:anum_mobile/features/privacy/privacy_models.dart';
 import 'package:anum_mobile/features/privacy/privacy_repository.dart';
 import 'package:anum_mobile/features/privacy/privacy_screen.dart';
+import 'package:anum_mobile/features/settings/settings.dart';
+import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,7 +32,8 @@ const _shared = {
 };
 
 Map<String, Object?> _summary(Map<String, int> private,
-        {String policy = 'https://example.com/privacy'}) =>
+        {String policy = 'https://example.com/privacy',
+        String memory = 'on'}) =>
     {
       'tenant_id': 'tenant_test',
       'workspace_id': 'workspace_test',
@@ -48,7 +52,8 @@ Map<String, Object?> _summary(Map<String, int> private,
       'model_provider': {
         'deployment': 'anthropic',
         'workspace': null,
-        'conversation_memory_enabled': true,
+        'conversation_memory_enabled': memory != 'off_on_server',
+        'conversation_memory': memory,
       },
       'privacy_policy_url': policy,
       'delete_confirmation': 'DELETE MY DATA',
@@ -61,8 +66,10 @@ class _PrivacyTransport implements ApiTransport {
   _PrivacyTransport(
       {this.summaryStatus = 200,
       this.exportStatus = 200,
-      this.policy = 'https://example.com/privacy'});
+      this.policy = 'https://example.com/privacy',
+      this.memory = 'on'});
   final int summaryStatus;
+  final String memory;
   final String policy;
   final int exportStatus;
   final List<ApiRequest> requests = [];
@@ -75,10 +82,29 @@ class _PrivacyTransport implements ApiTransport {
     if (path.endsWith('/api/v1/privacy')) {
       return summaryStatus == 200
           ? ApiResponse(
-              statusCode: 200, body: _summary(current, policy: policy))
+              statusCode: 200,
+              body: _summary(current, policy: policy, memory: memory))
           : ApiResponse(
               statusCode: summaryStatus,
               body: const {'detail': 'Workspace permission denied'});
+    }
+    // Settings, for the way from Privacy back to "Remember things from my chats".
+    if (path.endsWith('/me/preferences')) {
+      return ApiResponse(statusCode: 200, body: {
+        'remember_conversations': memory != 'off_by_user',
+        'updated_at': null,
+        'conversation_memory': memory,
+      });
+    }
+    if (path.endsWith('/notification-preferences')) {
+      return const ApiResponse(statusCode: 200, body: {
+        'task_completed': true,
+        'approval_required': true,
+        'run_failed': true,
+        'automation_failed': true,
+        'email_enabled': false,
+        'desktop_enabled': true,
+      });
     }
     if (path.endsWith('/privacy/export')) {
       return exportStatus == 200
@@ -122,8 +148,7 @@ class _Saver implements PrivacyExportSaver {
   }
 }
 
-Future<ApiPrivacyRepository> _repository(_PrivacyTransport transport,
-    {_Saver? saver}) async {
+Future<MemorySessionStore> _sessions() async {
   final sessions = MemorySessionStore();
   await sessions.write(LocalSession.fromJson({
     'access_token': 'anum_local_example',
@@ -137,6 +162,12 @@ Future<ApiPrivacyRepository> _repository(_PrivacyTransport transport,
       'roles': ['member'],
     },
   }));
+  return sessions;
+}
+
+Future<ApiPrivacyRepository> _repository(_PrivacyTransport transport,
+    {_Saver? saver}) async {
+  final sessions = await _sessions();
   return ApiPrivacyRepository(
       AnumApiClient(
           baseUri: Uri.parse('http://127.0.0.1:8000'),
@@ -154,11 +185,147 @@ void main() {
     expect(summary.retention.first.$2,
         'Deleted after 30 days without activity, or when you delete them.');
     expect(summary.providerSentence, contains('Anthropic (Claude)'));
-    expect(summary.providerSentence, contains('private memories'));
+    expect(summary.providerSentence, isNot(contains('memor')));
     expect(summary.matches(' DELETE MY DATA '), isTrue);
     expect(summary.matches('delete my data'), isFalse);
     expect(providerLabel('ollama'), contains('own server'));
     expect(providerLabel('openai_compatible'), contains('OpenAI-compatible'));
+  });
+
+  test('the memory sentence follows the caller\'s own state, not the flag', () {
+    PrivacySummary of(String memory) =>
+        PrivacySummary.fromJson(_summary(_counts, memory: memory));
+    final on = of('on');
+    expect(on.memorySentence,
+        contains('After each reply, a second short call to the same provider'));
+    expect(on.offerChatMemorySwitch, isFalse);
+    for (final state in const [
+      'off_by_user',
+      'off_on_server',
+      'off_for_organization',
+      'not_for_role'
+    ]) {
+      expect(of(state).memorySentence,
+          contains('no facts are picked out of your chats'),
+          reason: state);
+      expect(of(state).memorySentence, isNot(contains('After each reply')),
+          reason: state);
+    }
+    // The deployment flag is still true here: the caller turned it off.
+    final mine = of('off_by_user');
+    expect(mine.memoryExtraction, isTrue);
+    expect(mine.memorySentence,
+        startsWith('You turned off Remember things from my chats'));
+    expect(mine.offerChatMemorySwitch, isTrue);
+    expect(of('off_on_server').memorySentence,
+        contains('ANUM_CONVERSATION_MEMORY_ENABLED'));
+    expect(of('off_for_organization').memorySentence,
+        allOf(contains('still added'), contains('organization administrator')));
+    expect(of('not_for_role').memorySentence,
+        allOf(contains('still added'), contains('change your role')));
+    for (final state in const [
+      'off_on_server',
+      'off_for_organization',
+      'not_for_role'
+    ]) {
+      expect(of(state).offerChatMemorySwitch, isFalse, reason: state);
+    }
+    // An older server without the field: no claim either way.
+    final old = _summary(_counts);
+    (old['model_provider'] as Map).remove('conversation_memory');
+    expect(
+        PrivacySummary.fromJson(old).memorySentence, contains('did not say'));
+  });
+
+  testWidgets('off by the caller: Privacy leads back to the switch in Settings',
+      (tester) async {
+    final transport = _PrivacyTransport(memory: 'off_by_user');
+    final sessions = await _sessions();
+    final api = AnumApiClient(
+        baseUri: Uri.parse('http://127.0.0.1:8000'),
+        transport: transport,
+        sessions: sessions);
+    final settings = SettingsController(
+        AuthRepository(api: api, sessions: sessions),
+        privacy: ApiPrivacyRepository(api, saver: _Saver()));
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        theme: AnumTheme.dark(), home: SettingsScreen(controller: settings)));
+    await tester.pumpAndSettle();
+
+    final privacy = find.text('Your data and privacy');
+    await tester.scrollUntilVisible(privacy, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(privacy);
+    await tester.pumpAndSettle();
+
+    final memory = find.byKey(const Key('privacy-memory'));
+    await tester.scrollUntilVisible(memory, 200,
+        scrollable: find.byType(Scrollable).last);
+    expect(tester.widget<Text>(memory).data,
+        startsWith('You turned off Remember things from my chats'));
+    final change = find.text('Change Remember things from my chats');
+    await tester.ensureVisible(change);
+    await tester.pumpAndSettle();
+    await tester.tap(change);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PrivacyScreen), findsNothing);
+    final toggle =
+        find.widgetWithText(SwitchListTile, 'Remember things from my chats');
+    expect(toggle, findsOneWidget);
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+    final box = tester.getRect(toggle);
+    expect(box.top, greaterThanOrEqualTo(0));
+    expect(box.bottom, lessThanOrEqualTo(844));
+  });
+
+  testWidgets('the memory sentence fits every width and 200% text',
+      (tester) async {
+    for (final memory in const ['on', 'off_by_user', 'off_for_organization']) {
+      for (final width in const [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
+        for (final scale in const [1.0, 2.0]) {
+          final controller = PrivacyController(
+              await _repository(_PrivacyTransport(memory: memory)));
+          await tester.binding.setSurfaceSize(Size(width, 900));
+          await tester.pumpWidget(MaterialApp(
+              key: ValueKey('$memory $width $scale'),
+              theme: AnumTheme.dark(),
+              home: MediaQuery.withClampedTextScaling(
+                  minScaleFactor: scale,
+                  maxScaleFactor: scale,
+                  child: PrivacyScreen(
+                      controller: controller, onOpenChatMemory: () {}))));
+          await tester.pumpAndSettle();
+          final text = find.byKey(const Key('privacy-memory'));
+          await tester.scrollUntilVisible(text, 200,
+              scrollable: find.byType(Scrollable).first);
+          await tester.pumpAndSettle();
+          final rect = tester.getRect(text);
+          expect(rect.left, greaterThanOrEqualTo(0));
+          expect(rect.right, lessThanOrEqualTo(width));
+          final change = find.text('Change Remember things from my chats');
+          expect(
+              change, memory == 'off_by_user' ? findsOneWidget : findsNothing,
+              reason: '$memory $width $scale');
+          if (memory == 'off_by_user') {
+            await tester.ensureVisible(change);
+            await tester.pumpAndSettle();
+            expect(tester.getRect(change).right, lessThanOrEqualTo(width));
+            expect(
+                tester
+                    .getSize(find.ancestor(
+                        of: change, matching: find.byType(TextButton)))
+                    .height,
+                greaterThanOrEqualTo(40));
+          }
+          expect(tester.takeException(), isNull,
+              reason: '$memory $width $scale');
+        }
+      }
+    }
+    await tester.binding.setSurfaceSize(null);
   });
 
   test('download saves the export as a dated JSON file', () async {
