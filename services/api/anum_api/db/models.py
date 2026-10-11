@@ -373,7 +373,7 @@ class WorkspaceModelConfigRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     api_key_ciphertext: Mapped[str | None] = mapped_column(Text)
     credential_hint: Mapped[str | None] = mapped_column(String(16))
     updated_by_user_id: Mapped[str | None] = mapped_column(String(120))
-    # Model routing (migration 0023_model_config_routes); null means "not set".
+    # Model routing (migration 0024_model_config_routes); null means "not set".
     fast_model: Mapped[str | None] = mapped_column(String(160))
     capable_model: Mapped[str | None] = mapped_column(String(160))
     fast_effort: Mapped[str | None] = mapped_column(String(10))

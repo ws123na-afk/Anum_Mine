@@ -255,11 +255,11 @@ def test_the_anthropic_gateway_still_refuses_an_explicit_embedding_model(monkeyp
 
 
 def test_routing_migration_is_expand_only_and_chained() -> None:
-    path = Path(__file__).resolve().parents[1] / "migrations" / "versions" / "0023_model_config_routes.py"
+    path = Path(__file__).resolve().parents[1] / "migrations" / "versions" / "0024_model_config_routes.py"
     source = path.read_text(encoding="utf-8")
 
-    assert 'revision = "0023_model_config_routes"' in source and len("0023_model_config_routes") <= 32
-    assert 'down_revision = "0022_developer_requests"' in source
+    assert 'revision = "0024_model_config_routes"' in source and len("0024_model_config_routes") <= 32
+    assert 'down_revision = "0023_developer_one_active"' in source
     assert "'anthropic'" in source
     upgrade = source.split("def upgrade")[1].split("def downgrade")[0]
     assert "drop_column" not in upgrade and "drop_table" not in upgrade

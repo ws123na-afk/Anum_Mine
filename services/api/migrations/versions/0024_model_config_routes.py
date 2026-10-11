@@ -14,15 +14,14 @@ the new columns, and it already builds the ``anthropic`` gateway the server defa
 uses, so an ``anthropic`` row saved by this release still answers there (with its one
 saved model). The existing RLS policy covers the new columns.
 
-Numbered 0023 on a parallel branch: re-chain ``down_revision`` onto the newest
-migration when this lands (CLAUDE.md, parallel migrations).
+Chained after ``0023_developer_one_active``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0023_model_config_routes"
-down_revision = "0022_developer_requests"
+revision = "0024_model_config_routes"
+down_revision = "0023_developer_one_active"
 branch_labels = None
 depends_on = None
 
