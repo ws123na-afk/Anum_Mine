@@ -79,6 +79,10 @@ The web and desktop Voice view is a spoken conversation with a named assistant, 
 - **Endpoint:** `POST /api/v1/voice/sessions/{id}/ask` with a final user transcript segment.
   - Sessions carry `assistant_name`: letters, digits, spaces and `.'-`; at most 40 characters.
   - The endpoint is read-only: it never creates, approves or deletes anything.
+- **Streamed endpoint (used by the web Voice view):** `POST /api/v1/voice/sessions/{id}/ask/stream`, same body, same checks, intents, limit and stored reply, answered as server-sent events: `meta` (`intent`, `risk_tier`, `proposed_task`, `workspace`), `delta` (`{"text"}` pieces of the reply), then `done` (`{"assistant_segment"}`), or `error` when the model failed before saying anything.
+  - Questions stream from the model with the session's recent final turns as context (at most 8 turns and 6000 characters, each spoken turn labeled as untrusted speech) and at most 400 output tokens; fixed replies (status, small talk, refusals, task proposals) arrive as one `delta`. The reply is cut at 1200 characters, as `/ask`.
+  - The body reads nothing through the request's session; the reply is stored in its own unit of work, and a reply cut short because the client stopped listening is stored as far as it got.
+  - The web Voice view speaks each complete sentence as soon as it arrives, so speech starts with the first sentence instead of after the whole answer ([Conversations](conversations.md) use the same streaming gateway call).
 - **Intents:**
   - **Question:** answered by the model gateway. With the default `mock` provider it reports workspace facts and suggests connecting a free local model.
   - **Status:** answered from workspace counts in plain sentences.

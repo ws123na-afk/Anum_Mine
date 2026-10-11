@@ -40,7 +40,15 @@ from pydantic import BaseModel, Field
 from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
-from .model_gateway import EmbeddingResponse, ModelGateway, ModelResponse, ModelUsage, StructuredModel
+from .model_gateway import (
+    ChatMessage,
+    EmbeddingResponse,
+    ModelGateway,
+    ModelResponse,
+    ModelUsage,
+    StructuredModel,
+    UsageCallback,
+)
 from .repository import AnumRepository
 from .schemas import TenantContext, new_id
 from .scoped_store import open_scoped_store
@@ -224,6 +232,16 @@ def open_model_budget_store(context: TenantContext) -> Iterator[ModelBudgetStore
 # --------------------------------------------------------------------------- enforcement
 
 
+def budget_exceeded_message(scope: BudgetScope, kind: BudgetKind, resets_on: date) -> str:
+    """The user-facing refusal, built from the budget's fields rather than an exception's text."""
+    owner = "organization" if scope == BudgetScope.TENANT else "workspace"
+    measure = "estimated cost" if kind == BudgetKind.COST else "tokens"
+    return (
+        f"This {owner} has used its monthly model budget ({measure}). It resets on "
+        f"{resets_on.isoformat()} (UTC); an owner can raise it in Settings."
+    )
+
+
 class ModelBudgetExceededError(Exception):
     """A tenant or workspace has used its model budget for the current UTC month."""
 
@@ -231,12 +249,7 @@ class ModelBudgetExceededError(Exception):
         self.scope = scope
         self.kind = kind
         self.resets_on = resets_on
-        owner = "organization" if scope == BudgetScope.TENANT else "workspace"
-        measure = "estimated cost" if kind == BudgetKind.COST else "tokens"
-        super().__init__(
-            f"This {owner} has used its monthly model budget ({measure}). It resets on "
-            f"{resets_on.isoformat()} (UTC); an owner can raise it in Settings."
-        )
+        super().__init__(budget_exceeded_message(scope, kind, resets_on))
 
     @property
     def message(self) -> str:
@@ -431,9 +444,26 @@ class BudgetedModelGateway:
         return response
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
-        # Checked, but not metered: the gateway does not report usage for streams yet.
+        async for chunk in self.stream_chat([{"role": "user", "content": prompt}]):
+            yield chunk
+
+    async def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        *,
+        max_tokens: int | None = None,
+        on_usage: UsageCallback | None = None,
+    ) -> AsyncIterator[str]:
+        """Checked before the call; metered with the stream's usage when it ends (the
+        provider's figures, or an estimate when it reports none or the stream stopped)."""
         check_model_budget(self.context, now=self._clock())
-        async for chunk in self.inner.stream_text(prompt):
+
+        def record(usage: ModelUsage) -> None:
+            self._record(ModelResponse(text="", usage=usage))
+            if on_usage is not None:
+                on_usage(usage)
+
+        async for chunk in self.inner.stream_chat(messages, max_tokens=max_tokens, on_usage=record):
             yield chunk
 
 

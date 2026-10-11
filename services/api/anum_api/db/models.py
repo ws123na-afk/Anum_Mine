@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Double,
     ForeignKeyConstraint,
+    Identity,
     Index,
     String,
     Text,
@@ -803,3 +804,48 @@ class AutomationRunRecord(Base, WorkspaceScopedMixin):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("automation_runs"), _workflow_fk("automation_runs"))
+
+
+class ConversationRecord(Base, WorkspaceScopedMixin):
+    """An assistant conversation, private to its user (migration 0018)."""
+
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    title: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("conversations"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "id", name="uq_conversations_scope_id"),
+    )
+
+
+class ConversationTurnRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "conversation_turns"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    conversation_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Insertion order: turns are read back in the order they were written.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "user_id", "conversation_id"],
+            [
+                "conversations.tenant_id",
+                "conversations.workspace_id",
+                "conversations.user_id",
+                "conversations.id",
+            ],
+            name="fk_conversation_turns_conversation",
+            ondelete="CASCADE",
+        ),
+    )

@@ -17,6 +17,13 @@ For every web or Flutter UI change, a passing build is not proof the UI is right
 - Content-driven heights: no fixed heights or full-viewport min-heights for normal sections, no stacked padding from parent and child; spacing from the shared tokens, not one-off magic numbers.
 - Desktop must use vertical space efficiently; compare before/after screenshots for significant visual changes.
 
+## Definition of done: production ready, never thin
+The owner wants finished features, not placeholders. Before calling any page or feature done:
+- It does a real job end to end against the real API: create, read, update, delete where it applies, with server-side permission checks. No mock data, "coming soon", dead buttons or lists with nothing to act on.
+- Every state is handled: loading, empty (with a next action), error (says what failed and how to fix it), permission denied (explains who can do it), and long or large content (paging, search).
+- It passes the Responsive UI quality gate above, keyboard and screen-reader basics, and has unit plus e2e coverage of its main path.
+- Docs describe it. If something cannot be finished in the change, say so plainly and list it; never present a partial page as complete.
+
 ## Skills in this repo
 - `anum-verify` — run the right local checks for what you changed.
 - `steward` — how to drive a red PR or `main` back to green.

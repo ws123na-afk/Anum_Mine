@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
 import { ArrowUp, Check, Cpu, Globe2, Keyboard, Mic, Radio, Settings2, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
 import {
   appendTranscript,
-  askVoiceAssistant,
   baseRecognitionMode,
   completeVoiceSession,
   createPushToTalk,
@@ -17,8 +16,9 @@ import {
   naturalVoiceSupports,
   playWakeChime,
   rankVoices,
-  speak,
+  speakAndWait,
   stopSpeaking,
+  streamVoiceAssistant,
   submitVoiceCommand,
   type RecognitionMode,
   type ReplyVoice,
@@ -30,6 +30,7 @@ import {
 import { Orb3D } from './Orb3D';
 import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import './voice.css';
+import { takeSentences } from './lib/chat';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -97,6 +98,8 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   const meter = useRef<{ stream: MediaStream; context: AudioContext; frame: number } | null>(null);
   const logEnd = useRef<HTMLLIElement | null>(null);
   const askRef = useRef<(text?: string) => Promise<void>>(async () => undefined);
+  // The streamed reply in flight; aborting it stops the model and the spoken queue.
+  const replyAbort = useRef<AbortController | null>(null);
   const startRef = useRef<(holdToTalk?: boolean, followUpTurn?: boolean) => Promise<void>>(async () => undefined);
 
   const wakeOnRef = useRef(wakeOn);
@@ -117,7 +120,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   useEffect(() => { probedLocale.current = null; setMode(baseRecognitionMode()); store('anum.voice.locale', locale); }, [locale]);
   useEffect(() => { void listSystemVoices().then(setVoices); }, []);
   useEffect(() => { if (turns.length) logEnd.current?.scrollIntoView({ block: 'nearest' }); }, [turns]);
-  useEffect(() => () => { stopMeter(); stopSpeaking(); controller.current?.cancel(); wake.current?.stop(); }, []);
+  useEffect(() => () => { replyAbort.current?.abort(); stopMeter(); stopSpeaking(); controller.current?.cancel(); wake.current?.stop(); }, []);
 
   async function ensureMode(): Promise<RecognitionMode> {
     if (probedLocale.current === locale) return mode;
@@ -210,33 +213,62 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
     setNotice('');
     setTurns((current) => [...current, { id: `you-${Date.now()}`, speaker: 'you', text }]);
     setDraft('');
+    const abort = new AbortController();
+    replyAbort.current?.abort();
+    replyAbort.current = abort;
+    const pendingId = `assistant-${Date.now()}`;
+    // Speak each sentence as soon as it is complete instead of waiting for the whole reply.
+    const queue: string[] = [];
+    let buffered = '';
+    let speaking: Promise<void> | null = null;
+    const speakQueue = () => {
+      if (muted || speaking || !queue.length || abort.signal.aborted) return;
+      setState('speaking');
+      speaking = (async () => {
+        while (queue.length && !abort.signal.aborted) {
+          await speakAndWait(queue.shift()!, {
+            locale,
+            voice: effectiveVoice,
+            onFallback: () => setNotice('The natural voice could not load, so I used your device voice.'),
+          });
+        }
+        speaking = null;
+      })();
+    };
+    const hear = (final: boolean) => {
+      const split = takeSentences(buffered, final);
+      buffered = split.rest;
+      queue.push(...split.sentences);
+      speakQueue();
+    };
     try {
       const active = await ensureSession();
       const segment = await appendTranscript(active.id, text, sequence.current++);
-      const result = await askVoiceAssistant(active.id, segment.id);
-      setTurns((current) => [...current, { id: result.assistant_segment.id, speaker: 'assistant', text: result.reply, result }]);
-      setPendingApprovals(result.workspace.pending_approvals);
-      if (muted) { setState('idle'); wake.current?.resume(); return; }
-      // finish() may run from a timer after state changes; read the latest wake setting via a ref.
-      setState('speaking');
-      const finish = () => {
-        setState((current) => current === 'speaking' ? 'idle' : current);
-        // Keep the conversation going: after a reply, listen once for a follow-up without the name.
-        if (wakeOnRef.current && result.risk_tier === 'read') window.setTimeout(() => void startRef.current(false, true), 150);
-        else wake.current?.resume();
-      };
-      // Some browsers never report the end of speech; never leave the console stuck.
-      const fallback = window.setTimeout(finish, Math.min(30000, 4000 + result.reply.length * 80));
-      await speak(result.reply, {
-        locale,
-        voice: effectiveVoice,
-        onFallback: () => setNotice('The natural voice could not load, so I used your device voice.'),
-        onEnd: () => { window.clearTimeout(fallback); finish(); },
+      setTurns((current) => [...current, { id: pendingId, speaker: 'assistant', text: '' }]);
+      const result = await streamVoiceAssistant(active.id, segment.id, abort.signal, {
+        onMeta: (meta) => setPendingApprovals(meta.workspace.pending_approvals),
+        onText: (piece) => {
+          buffered += piece;
+          setTurns((current) => current.map((turn) => turn.id === pendingId ? { ...turn, text: turn.text + piece } : turn));
+          hear(false);
+        },
       });
+      setTurns((current) => current.map((turn) => turn.id === pendingId ? { id: result.assistant_segment.id, speaker: 'assistant', text: result.reply, result } : turn));
+      hear(true);
+      while (speaking) await speaking;
+      if (abort.signal.aborted) return;
+      setState((current) => current === 'speaking' || current === 'thinking' ? 'idle' : current);
+      // Keep the conversation going: after a reply, listen once for a follow-up without the name.
+      if (!muted && wakeOnRef.current && result.risk_tier === 'read') window.setTimeout(() => void startRef.current(false, true), 150);
+      else wake.current?.resume();
     } catch (error) {
+      setTurns((current) => current.filter((turn) => turn.id !== pendingId || turn.text));
       setState('idle');
       wake.current?.resume();
+      if (abort.signal.aborted) return;
       setNotice(isBudgetExceeded(error) ? `Monthly model budget reached. ${budgetMessage(error)}` : error instanceof Error ? error.message : 'I could not answer. Check the connection and try again.');
+    } finally {
+      if (replyAbort.current === abort) replyAbort.current = null;
     }
   }
   askRef.current = ask;
@@ -332,7 +364,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
 
   function onOrbClick() {
     if (state === 'listening') stopListening();
-    else if (state === 'speaking') { stopSpeaking(); setState('idle'); wake.current?.resume(); }
+    else if (state === 'speaking') { replyAbort.current?.abort(); stopSpeaking(); setState('idle'); wake.current?.resume(); }
     else void startListening();
   }
 
@@ -389,7 +421,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
         <span>“{arabic ? 'ما حالة مهامي؟' : "What's the status of my workspace?"}”</span>
         <span>“{arabic ? 'أنشئ مهمة: تجهيز التقرير الأسبوعي' : 'Create a task: draft the weekly report'}”</span>
       </li>}
-      {turns.map((turn) => <li key={turn.id} className={`voiceTurn ${turn.speaker}`}>
+      {turns.filter((turn) => turn.text).map((turn) => <li key={turn.id} className={`voiceTurn ${turn.speaker}`}>
         {turn.speaker === 'assistant' && <span className="voiceSpeaker">{name}</span>}
         <p>{turn.text}</p>
         {turn.result && turn.result.risk_tier !== 'read' && <span className={`voiceTier ${turn.result.risk_tier}`}>{tierLabel[turn.result.risk_tier]}</span>}

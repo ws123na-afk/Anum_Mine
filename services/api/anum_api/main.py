@@ -75,6 +75,7 @@ from .store import store
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
 from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
+from .conversations import router as conversations_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -154,6 +155,7 @@ async def model_budget_exceeded_handler(request: Request, exc: ModelBudgetExceed
 
 
 app.include_router(voice_router)
+app.include_router(conversations_router)
 app.include_router(phase5_router)
 app.include_router(governance_router)
 app.include_router(automation_router)

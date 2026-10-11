@@ -304,3 +304,21 @@ def test_tasks_scope_created_migration_is_concurrent_and_expand_only() -> None:
     assert "create index concurrently if not exists ix_tasks_scope_created" in upgrade
     assert "on tasks (tenant_id, workspace_id, created_at desc, id desc)" in upgrade
     assert "drop " not in upgrade and "alter " not in upgrade
+
+
+def test_conversations_migration_is_expand_only_with_user_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0018_conversations.py").read_text(encoding="utf-8")
+    assert 'revision = "0018_conversations"' in revision_text
+    assert len("0018_conversations") <= 32
+    assert 'down_revision = "0017_tasks_scope_created"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    for table in ("conversations", "conversation_turns"):
+        assert f'"{table}"' in upgrade
+    assert "force row level security" in upgrade
+    assert "current_setting('anum.user_id', true)" in revision_text
+    assert "{user_predicate}" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    # No other role is granted anything: nothing discovers conversations across tenants.
+    assert "grant " not in upgrade

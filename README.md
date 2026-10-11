@@ -85,6 +85,7 @@ x-user-roles: owner,member
 - [Multi-tenancy](docs/multi-tenancy.md)
 - [Agent runtime](docs/agent-runtime.md)
 - [Model gateway](docs/model-gateway.md)
+- [Conversations](docs/conversations.md)
 - [Memory](docs/memory.md)
 - [Skills](docs/skills.md)
 - [Workspace files](docs/files.md)

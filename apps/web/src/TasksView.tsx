@@ -3,9 +3,10 @@ import { Activity, CheckCircle2, CircleDot, Play, RefreshCw, Search, ShieldCheck
 import type { AgentRun, Approval, Task } from '@anum/contracts';
 import * as api from './lib/api';
 import { SourcesUsed } from './SourcesUsed';
+import { Answer } from './AnswerView';
 import {
   approvalsForTask, countByStatus, filterTasks, finalAnswer, hasMorePages, isTerminal, mergeTaskPages, parseAnswer,
-  runForTask, streamBadge, TASK_PAGE_SIZE, type AnswerBlock, type Inline, type StatusFilter, type StreamState,
+  runForTask, streamBadge, TASK_PAGE_SIZE, type StatusFilter, type StreamState,
 } from './lib/tasks';
 import './tasks.css';
 
@@ -145,18 +146,6 @@ function TaskDetail({ task, run, approvals, openApprovals }: { task: Task; run: 
   </>;
 }
 
-/** Renders parsed blocks as React text nodes only: model output can never inject markup. */
-function Answer({ blocks }: { blocks: AnswerBlock[] }) {
-  return <div className="answerBody">{blocks.map((b, i) => {
-    if (b.kind === 'heading') return b.level === 1 ? <h3 key={i}><Inlines parts={b.inline} /></h3> : <h4 key={i}><Inlines parts={b.inline} /></h4>;
-    if (b.kind === 'code') return <pre key={i}><code>{b.text}</code></pre>;
-    if (b.kind === 'list') { const items = b.items.map((it, j) => <li key={j}><Inlines parts={it} /></li>); return b.ordered ? <ol key={i}>{items}</ol> : <ul key={i}>{items}</ul>; }
-    return <p key={i}><Inlines parts={b.inline} /></p>;
-  })}</div>;
-}
-function Inlines({ parts }: { parts: Inline[] }) {
-  return <>{parts.map((x, i) => x.kind === 'strong' ? <strong key={i}>{x.text}</strong> : x.kind === 'em' ? <em key={i}>{x.text}</em> : x.kind === 'code' ? <code key={i}>{x.text}</code> : <span key={i}>{x.text}</span>)}</>;
-}
 
 function Metric({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) { return <article className="metric"><div className="metricTop"><span>{label}</span><div className="metricIcon">{icon}</div></div><strong>{value}</strong><small>{detail}</small></article>; }
 function Status({ value }: { value: string }) { return <span className={`statusBadge ${value === 'completed' || value === 'approved' ? 'success' : ['failed', 'cancelled', 'rejected', 'expired'].includes(value) ? 'dangerTone' : 'warning'}`}>{value.replaceAll('_', ' ')}</span>; }
