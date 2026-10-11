@@ -400,6 +400,16 @@ def test_apply_sets_authenticator_app_and_passkey_policies(keycloak: FakeKeycloa
     assert actions["CONFIGURE_RECOVERY_AUTHN_CODES"]["enabled"]
 
 
+def test_status_reports_the_bound_flow_and_the_passkey_policy(keycloak: FakeKeycloak) -> None:
+    run_apply(keycloak)
+
+    lines = tf.status(tf.Kcadm(["kcadm"], runner=keycloak))
+
+    assert lines[0] == f"browser flow: {tf.FLOW_ALIAS}"
+    assert any(line.startswith("passkeys: offered (relying party 'auth.example.test'") for line in lines)
+    assert f"{tf.FLOW_ALIAS}:" in lines
+
+
 def test_apply_is_idempotent(keycloak: FakeKeycloak) -> None:
     run_apply(keycloak)
     before = (copy.deepcopy(keycloak.realm), keycloak.second_factor_tree(), set(keycloak.flows))

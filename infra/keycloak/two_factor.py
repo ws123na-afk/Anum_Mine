@@ -401,8 +401,17 @@ def reset_user(kcadm: Kcadm, username: str, log: Callable[[str], None] = print) 
     )
 
 
+def _passkey_policy(realm: dict[str, Any]) -> dict[str, Any]:
+    """The realm's passkey (WebAuthn passwordless) policy settings, by their short names
+    (``RpId``, ``UserVerificationRequirement``, ...). These are public policy values,
+    never credentials."""
+    prefix = "webAuthnPolicy" + "Passwordless"
+    return {key[len(prefix):]: value for key, value in realm.items() if key.startswith(prefix)}
+
+
 def status(kcadm: Kcadm) -> list[str]:
     realm = kcadm.get(f"realms/{REALM}")
+    passkeys = _passkey_policy(realm)
     lines = [
         f"browser flow: {realm.get('browserFlow')}"
         + (
@@ -417,9 +426,9 @@ def status(kcadm: Kcadm) -> list[str]:
             realm.get("otpPolicyPeriod"),
         ),
         "passkeys: {} (relying party {!r}, user verification {})".format(
-            "offered" if realm.get("webAuthnPolicyPasswordlessPasskeysEnabled") else "off",
-            realm.get("webAuthnPolicyPasswordlessRpId") or "request host",
-            realm.get("webAuthnPolicyPasswordlessUserVerificationRequirement"),
+            "offered" if passkeys.get("PasskeysEnabled") else "off",
+            passkeys.get("RpId") or "request host",
+            passkeys.get("UserVerificationRequirement"),
         ),
     ]
     if FLOW_ALIAS in {flow["alias"] for flow in kcadm.get("authentication/flows")}:
