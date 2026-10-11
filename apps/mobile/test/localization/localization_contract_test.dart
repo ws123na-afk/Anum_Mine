@@ -8,6 +8,7 @@ void main() {
     final english = AnumLocalizations(Locale('en'));
     final arabic = AnumLocalizations(Locale('ar'));
     for (final key in [
+      'assistant',
       'workspace',
       'tasks',
       'voice',

@@ -15,6 +15,7 @@ void main() {
       '/sign-in',
       '/workspace-setup',
       '/model-setup',
+      '/assistant',
       '/home',
       '/tasks',
       '/tasks/:id',
@@ -38,6 +39,7 @@ void main() {
     final source =
         File('lib/features/workspace/workspace_home.dart').readAsStringSync();
     for (final label in <String>[
+      'assistant',
       'tasks',
       'voice',
       'approvals',

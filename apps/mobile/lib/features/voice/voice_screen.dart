@@ -29,6 +29,7 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
   bool _onScreen = true;
   bool _resumed = true;
   int _turnCount = 0;
+  int _lastLength = 0;
 
   VoiceController get controller => widget.controller;
 
@@ -72,8 +73,14 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
   }
 
   void _onControllerChanged() {
-    if (controller.turns.length == _turnCount) return;
+    // A new bubble, or the streamed reply growing: keep the newest in view.
+    final length =
+        controller.turns.isEmpty ? 0 : controller.turns.last.text.length;
+    if (controller.turns.length == _turnCount && length == _lastLength) {
+      return;
+    }
     _turnCount = controller.turns.length;
+    _lastLength = length;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) return;
       final end = _scroll.position.maxScrollExtent;

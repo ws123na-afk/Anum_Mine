@@ -11,6 +11,7 @@ class AnumLocalizations {
       Localizations.of<AnumLocalizations>(context, AnumLocalizations)!;
   String t(String key) => (isArabic ? _ar : _en)[key] ?? _en[key] ?? key;
   static const _en = <String, String>{
+    'assistant': 'Assistant',
     'home': 'Home',
     'workspace': 'ANUM Workspace',
     'subtitle': 'Governed agent operations',
@@ -34,6 +35,7 @@ class AnumLocalizations {
     'saveModel': 'Test, save, and continue',
   };
   static const _ar = <String, String>{
+    'assistant': 'المساعد',
     'home': 'الرئيسية',
     'workspace': 'مساحة عمل أنوم',
     'subtitle': 'عمليات وكلاء خاضعة للحوكمة',

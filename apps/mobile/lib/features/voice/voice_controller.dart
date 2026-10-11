@@ -4,6 +4,9 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../../data/api_models.dart';
+import '../../data/sse.dart';
+import 'sentences.dart';
 import 'speech_service.dart';
 import 'voice_models.dart';
 import 'voice_preferences.dart';
@@ -257,6 +260,11 @@ class VoiceController extends ChangeNotifier {
       final active = await _ensureSession();
       final segment = await repository.appendFinalTranscript(
           active.id, clean, _nextSequence(active.id));
+      final stream = repository.askStream(active.id, segment.id);
+      if (stream != null) {
+        await _streamReply(stream, active.id);
+        return;
+      }
       final result = await repository.ask(active.id, segment.id);
       if (_disposed) return;
       turns = [
@@ -304,6 +312,143 @@ class VoiceController extends ChangeNotifier {
       notice = _friendlyError(error);
       _notify();
       _maybeListenForWake();
+    }
+  }
+
+  /// Shows the reply as it streams and speaks each sentence as soon as it is
+  /// complete, so speech starts with the first sentence instead of after the
+  /// whole answer (docs/voice.md). Errors go to [ask]'s handler.
+  Future<void> _streamReply(Stream<SseEvent> events, String sessionId) async {
+    final pendingId = 'assistant_pending_${_turnCounter++}';
+    final speakToken = ++_speakToken;
+    final reply = StringBuffer();
+    final queue = <String>[];
+    var buffered = '';
+    JsonMap? meta;
+    String? segmentId;
+    String? failure;
+    Future<void>? speaking;
+    var spoke = false;
+
+    bool canSpeak() =>
+        !_disposed && !muted && _visible && speakToken == _speakToken;
+
+    void speakQueued() {
+      if (speaking != null || queue.isEmpty || !canSpeak()) return;
+      spoke = true;
+      state = VoiceState.speaking;
+      _notify();
+      speaking = () async {
+        while (queue.isNotEmpty && canSpeak()) {
+          final sentence = queue.removeAt(0);
+          try {
+            // Some engines never report the end of speech; never get stuck.
+            await speech.speak(sentence, locale).timeout(Duration(
+                milliseconds: math.min(30000, 4000 + sentence.length * 80)));
+          } on Object {
+            // Speaking is best effort; the reply is on screen.
+          }
+        }
+        speaking = null;
+      }();
+    }
+
+    void hear({required bool isFinal}) {
+      final split = takeSentences(buffered, isFinal: isFinal);
+      buffered = split.rest;
+      queue.addAll(split.sentences);
+      speakQueued();
+    }
+
+    try {
+      await for (final event in events) {
+        if (_disposed) return;
+        final data = event.fields;
+        switch (event.event) {
+          case 'meta':
+            meta = data;
+            pendingApprovals = WorkspaceFacts.fromJson(
+                    JsonReader(data).optObject('workspace')?.json)
+                .pendingApprovals;
+            _notify();
+          case 'delta':
+            final text = data['text'];
+            if (text is! String || text.isEmpty) continue;
+            reply.write(text);
+            buffered += text;
+            final turn = VoiceTurn(
+                id: pendingId,
+                speaker: VoiceSpeaker.assistant,
+                text: reply.toString());
+            if (_turn(pendingId) == null) {
+              turns = [...turns, turn];
+            } else {
+              _replaceTurn(turn);
+            }
+            _notify();
+            hear(isFinal: false);
+          case 'done':
+            final segment = data['assistant_segment'];
+            segmentId = segment is Map && segment['id'] is String
+                ? segment['id'] as String
+                : null;
+          case 'error':
+            final message = data['message'];
+            failure = message is String && message.isNotEmpty
+                ? message
+                : 'I could not answer. Try again in a moment.';
+        }
+      }
+      if (failure != null) throw VoiceReplyException(failure);
+      final answered = meta;
+      if (answered == null) {
+        throw const VoiceReplyException('The answer ended early. Try again.');
+      }
+      final result = VoiceAskResult.fromJson({
+        ...answered,
+        'reply': reply.toString().trim(),
+        'assistant_segment': segmentId == null ? null : {'id': segmentId},
+      });
+      final done = VoiceTurn(
+        id: result.assistantSegmentId,
+        speaker: VoiceSpeaker.assistant,
+        text: result.reply,
+        result: result,
+        sessionId: sessionId,
+      );
+      if (_turn(pendingId) == null) {
+        turns = [...turns, done];
+      } else {
+        turns = [for (final t in turns) t.id == pendingId ? done : t];
+      }
+      _notify();
+      hear(isFinal: true);
+      while (speaking != null) {
+        await speaking;
+      }
+      if (_disposed || speakToken != _speakToken) return;
+      state = VoiceState.idle;
+      _notify();
+      // Keep the conversation going after a spoken reply, as before.
+      if (spoke &&
+          wakeEnabled &&
+          _visible &&
+          result.riskTier == VoiceRiskTier.read) {
+        await startCapture(followUp: true);
+      } else {
+        _maybeListenForWake();
+      }
+    } on Object {
+      // A reply that never said anything leaves no empty bubble behind.
+      final partial = _turn(pendingId);
+      if (partial != null && partial.text.trim().isEmpty) {
+        turns = [
+          for (final t in turns)
+            if (t.id != pendingId) t
+        ];
+      }
+      if (speakToken == _speakToken) await _interruptSpeaking();
+      rethrow;
     }
   }
 
@@ -660,6 +805,12 @@ class VoiceController extends ChangeNotifier {
   }
 
   String _friendlyError(Object error) {
+    if (error is VoiceReplyException) return error.message;
+    if (error is EventStreamTimeoutException) {
+      return isArabic
+          ? 'توقف وصول الرد. تحقق من الاتصال وحاول مرة أخرى.'
+          : error.message;
+    }
     if (error is ApiException) {
       if (error.statusCode == 401) {
         return isArabic
@@ -699,4 +850,12 @@ class VoiceController extends ChangeNotifier {
     level.dispose();
     super.dispose();
   }
+}
+
+/// The streamed reply ended with an `error` event or without an answer.
+class VoiceReplyException implements Exception {
+  const VoiceReplyException(this.message);
+  final String message;
+  @override
+  String toString() => message;
 }
