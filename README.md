@@ -124,6 +124,7 @@ x-user-roles: owner,member
 - [Production readiness gates](docs/production-readiness.md)
 - [Production plan](docs/production-plan.md)
 - [Figma mobile design system](docs/figma-mobile-design.md)
+- [ANUM 360 redesign (owner mockups)](docs/design/anum360.md)
 - [Repository structure](docs/repository-structure.md)
 - [Scaling](docs/scaling.md)
 - [Governance and scale](docs/governance-and-scale.md)
