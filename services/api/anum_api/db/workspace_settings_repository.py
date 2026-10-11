@@ -129,6 +129,7 @@ class SqlAlchemyNotificationPreferenceStore:
             automation_failed=record.automation_failed,
             email_enabled=record.email_enabled,
             desktop_enabled=record.desktop_enabled,
+            push_enabled=record.push_enabled,
         )
 
     def save(self, context: TenantContext, preferences: NotificationPreferences) -> NotificationPreferences:
@@ -147,6 +148,7 @@ class SqlAlchemyNotificationPreferenceStore:
         record.automation_failed = preferences.automation_failed
         record.email_enabled = preferences.email_enabled
         record.desktop_enabled = preferences.desktop_enabled
+        record.push_enabled = preferences.push_enabled
         record.updated_at = utc_now()
         self.session.flush()
         return preferences

@@ -7,6 +7,7 @@ import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
 import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
 import * as chatMemory from './chatMemory';
+import * as push from './push';
 import { parseSourceNames, type SourceName } from './retrieval';
 import { taskTitleFrom } from './tasks';
 
@@ -146,7 +147,7 @@ export interface SkillInstallation { id: string; skill_id: string; version: stri
 export interface WorkspaceInfo { id: string; tenant_id: string; name: string; created_at: string; updated_at: string; }
 export interface OnboardingStatus { complete: boolean; tenant: { id: string; name: string } | null; workspace: WorkspaceInfo | null; membership: { role: string } | null; model_configured: boolean; }
 export type { ModelConfig, ModelConnectionTest } from './modelConfig';
-export interface NotificationPreferences { task_completed: boolean; approval_required: boolean; run_failed: boolean; automation_failed: boolean; email_enabled: boolean; desktop_enabled: boolean; }
+export type NotificationPreferences = push.NotificationPreferences;
 
 /** Local development session; a no-op when the app signs in through OIDC. */
 export async function ensureLocalSession(): Promise<void> {
@@ -205,6 +206,11 @@ export async function searchMemories(query: string, onlyChats = false): Promise<
 /** The caller's own preferences, including "Remember things from my chats". */
 export async function getMyPreferences(): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'GET' }); }
 export async function saveMyPreferences(rememberConversations: boolean): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'PUT', body: JSON.stringify({ remember_conversations: rememberConversations } satisfies UserPreferencesUpdate) }); }
+/** Whether this server can send phone push at all (ANUM_FCM_SERVICE_ACCOUNT_JSON). */
+export async function getPushStatus(): Promise<push.PushStatus> { return request(push.PUSH_STATUS_PATH, { method: 'GET' }); }
+/** The caller's own phones registered for push in this workspace (never their tokens). */
+export async function listMyDevices(): Promise<push.PushDevice[]> { return request(push.MY_DEVICES_PATH, { method: 'GET' }); }
+export async function removeMyDevice(id: string): Promise<void> { await requestVoid(push.deviceDeletePath(id), { method: 'DELETE' }); }
 /** Deletes every memory remembered from the caller's own chats in this workspace. */
 export async function deleteMyChatMemories(): Promise<{ deleted: number }> { return request(chatMemory.CHAT_MEMORIES_PATH, { method: 'DELETE' }); }
 export async function getRetrievalStatus(): Promise<capabilities.RetrievalIndexStatus> { return request('/api/v1/retrieval/status', { method: 'GET' }); }

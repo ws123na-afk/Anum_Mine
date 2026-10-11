@@ -106,6 +106,8 @@ from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
 from .user_preferences import router as user_preferences_router
+from .push import push_dispatcher, router as push_router
+from .developer_watch import build_developer_watcher
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -127,6 +129,13 @@ validate_auth_configuration(settings)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await event_runtime.start()
+    # Phone push from committed events when ANUM_FCM_SERVICE_ACCOUNT_JSON is set
+    # (docs/notifications.md); the developer watcher refreshes in-progress developer
+    # requests so "ready for review" reaches a closed app.
+    push_dispatcher.start()
+    developer_watcher = build_developer_watcher()
+    if developer_watcher is not None:
+        developer_watcher.start()
     # Fires due automation schedules when ANUM_AUTOMATION_SCHEDULER_ENABLED=true; safe on
     # every replica with PostgreSQL (docs/automation.md#scheduler).
     scheduler = build_automation_scheduler(settings)
@@ -137,6 +146,9 @@ async def lifespan(_: FastAPI):
     finally:
         if scheduler is not None:
             await scheduler.stop()
+        if developer_watcher is not None:
+            await developer_watcher.stop()
+        await push_dispatcher.stop()
         await event_runtime.stop()
         shutdown_telemetry()
         shutdown_error_reporting()
@@ -205,6 +217,8 @@ app.include_router(membership_directory_router)
 app.include_router(model_budget_router)
 app.include_router(developer_router)
 app.include_router(user_preferences_router)
+app.include_router(push_router)
+event_runtime.add_listener(push_dispatcher.submit)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

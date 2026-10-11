@@ -48,6 +48,8 @@ class CanonicalEventName(StrEnum):
     WORKSPACE_MEMBER_ROLE_CHANGED = "workspace_member.role_changed"
     WORKSPACE_MEMBER_DEACTIVATED = "workspace_member.deactivated"
     WORKSPACE_MEMBER_REACTIVATED = "workspace_member.reactivated"
+    DEVELOPER_REQUEST_READY_FOR_REVIEW = "developer_request.ready_for_review"
+    DEVELOPER_REQUEST_FAILED = "developer_request.failed"
 
 
 class PublicationStatus(StrEnum):

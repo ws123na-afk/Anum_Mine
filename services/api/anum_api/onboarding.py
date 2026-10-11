@@ -200,6 +200,8 @@ class NotificationPreferences(BaseModel):
     automation_failed: bool = True
     email_enabled: bool = False
     desktop_enabled: bool = True
+    # Phone push (docs/notifications.md); omitted by older clients, so it defaults on.
+    push_enabled: bool = True
 
 
 def _config_view(config: StoredModelConfig) -> ModelConfigView:

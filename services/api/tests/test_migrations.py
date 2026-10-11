@@ -420,3 +420,29 @@ def test_task_archive_migration_is_expand_only() -> None:
     assert "autocommit_block" in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+
+
+def test_push_devices_migration_is_expand_only_with_user_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0027_push_devices.py").read_text(encoding="utf-8")
+    assert 'revision = "0027_push_devices"' in revision_text
+    assert len("0027_push_devices") <= 32
+    assert 'down_revision = "0026_task_archive"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0027_push_devices.py"]
+    assert not [path for path in others if 'down_revision = "0026_task_archive"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "op.create_table(" in upgrade and "workspaces.tenant_id" in upgrade
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    for setting in ("anum.tenant_id", "anum.workspace_id", "anum.user_id"):
+        assert f"current_setting('{setting}', true)" in revision_text
+    # Tokens are stored encrypted; only a digest and a four-character hint are in clear.
+    assert "token_ciphertext" in upgrade and "token_sha256" in upgrade and "token_hint" in upgrade
+    assert '"token",' not in upgrade
+    # The new preference column has a default, so the previous release can still insert.
+    assert "add_column(" in upgrade and "server_default=sa.true()" in upgrade
+    # The discovery grant is column-limited and only for the narrow maintenance role.
+    assert "grant select (id, tenant_id, workspace_id, status) on developer_requests to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade

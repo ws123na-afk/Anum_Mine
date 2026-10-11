@@ -60,7 +60,12 @@ secret_env_reaches() {
 }
 for template in api.yaml worker.yaml; do
   secret_env_reaches ANUM_SENTRY_DSN "$template"
+  # Phone push (docs/notifications.md): the API sends, and runs the worker finishes push too.
+  secret_env_reaches ANUM_FCM_SERVICE_ACCOUNT_JSON "$template"
 done
+if helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" --show-only templates/configmap.yaml | grep -q 'ANUM_FCM_SERVICE_ACCOUNT_JSON'; then
+  fail "configmap.yaml: ANUM_FCM_SERVICE_ACCOUNT_JSON (a private key) must never be in the ConfigMap"
+fi
 if helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" --show-only templates/configmap.yaml | grep -q 'ANUM_SENTRY_DSN'; then
   fail "configmap.yaml: ANUM_SENTRY_DSN must stay out of the ConfigMap unless config sets it"
 fi
@@ -99,6 +104,8 @@ refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://exa
 refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://examplekey@localhost:8000/1
 refuses "ANUM_SENTRY_DSN must use https" --set extraEnv.ANUM_SENTRY_DSN=http://examplekey@10.0.0.5:8000/1
 refuses "ANUM_SENTRY_DSN must look like" --set config.ANUM_SENTRY_DSN=https://errors.anum.example/1
+refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string config.ANUM_FCM_SERVICE_ACCOUNT_JSON=example-service-account
+refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string extraEnv.ANUM_FCM_SERVICE_ACCOUNT_JSON=example
 
 # ---------------------------------------------------------------------------
 # Admission policy chart (infra/helm/anum-admission, docs/deployment.md#admission-policy).

@@ -251,6 +251,19 @@ class Settings(BaseSettings):
     # (anum_api/error_reporting.py, docs/observability.md#error-reporting). Empty: off.
     # Outside local it must be https, or http to a private service name (no dots).
     sentry_dsn: SecretStr | None = None
+    # Phone push through Firebase Cloud Messaging HTTP v1 (anum_api/push.py,
+    # docs/notifications.md). The whole service-account JSON key of the Firebase project
+    # (it carries a private key: keep it in a secret store). Empty: push is off and
+    # GET /api/v1/push/status says so. Android and iOS both deliver through FCM.
+    fcm_service_account_json: SecretStr | None = None
+    # Bounded fan-out: at most this many recipients per event and devices per recipient,
+    # each message tried at most push_max_attempts times with exponential backoff.
+    push_max_recipients: int = Field(default=50, ge=1, le=500)
+    push_max_devices_per_user: int = Field(default=10, ge=1, le=50)
+    push_max_attempts: int = Field(default=4, ge=1, le=10)
+    push_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    # Events waiting for delivery in each process; beyond this the oldest are dropped.
+    push_max_pending: int = Field(default=1000, ge=10, le=100_000)
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",
@@ -279,6 +292,19 @@ class Settings(BaseSettings):
         problem = dsn_problem(value.get_secret_value())
         if problem:
             # The message names the setting only: a DSN carries the project's key.
+            raise ValueError(problem)
+        return value
+
+    @field_validator("fcm_service_account_json")
+    @classmethod
+    def _valid_fcm_service_account(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None or not value.get_secret_value().strip():
+            return None
+        from .push_fcm import service_account_problem
+
+        problem = service_account_problem(value.get_secret_value())
+        if problem:
+            # The message names the setting and the problem only, never the key.
             raise ValueError(problem)
         return value
 

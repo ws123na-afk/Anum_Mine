@@ -16,6 +16,7 @@ from anum_api.governance import MemoryGovernance, governance_store
 from anum_api.main import app, store
 from anum_api.memory import MemoryNote, MemoryProvenance, RetentionKind, RetentionPolicy
 from anum_api.onboarding import _notifications
+from anum_api.push import PushPlatform, StoredPushDevice, push_device_store
 from anum_api.user_preferences import user_preference_store
 from anum_api.retrieval import IndexStatus, RetrievalSource, SourceType, memory_retrieval_store
 from anum_api.schemas import TenantContext, new_id, utc_now
@@ -48,6 +49,7 @@ def setup_function() -> None:
     _notifications.clear()
     user_preference_store.clear()
     governance_store.clear()
+    push_device_store.clear()
     file_store.clear()
 
 
@@ -104,6 +106,22 @@ def _seed(hdrs: dict[str, str], label: str) -> dict[str, str]:
         "/api/v1/notification-preferences", headers=hdrs, json={"email_enabled": True}
     ).status_code == 200
     assert client.put("/api/v1/me/preferences", headers=hdrs, json={"remember_conversations": False}).status_code == 200
+    context, now = _context(hdrs), utc_now()
+    push_device_store.save(
+        StoredPushDevice(
+            id=new_id("device"),
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            user_id=context.user_id,
+            platform=PushPlatform.ANDROID,
+            label=f"{label} phone",
+            token_ciphertext="ciphertext-placeholder",
+            token_sha256="1" * 64,
+            token_hint="abcd",
+            created_at=now,
+            updated_at=now,
+        )
+    )
     task = client.post("/api/v1/tasks", headers=hdrs, json={"title": f"{label} task", "prompt": f"{label} summarize notes"})
     assert task.status_code == 201
     return {"conversation": conversation_id, "memory": memory_id, "voice": session_id, "task": task.json()["id"]}
@@ -124,6 +142,7 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "voice_transcript_segments": 1,
         "notification_preferences": 1,
         "user_preferences": 1,
+        "push_devices": 1,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -210,6 +229,9 @@ def test_export_contains_my_data_and_nobody_elses() -> None:
     assert [t["id"] for t in export["tasks_created"]] == [mine["task"]]
     assert export["notification_preferences"]["email_enabled"] is True
     assert export["user_preferences"]["remember_conversations"] is False
+    (exported_device,) = export["push_devices"]
+    assert exported_device["label"] == "mine phone" and exported_device["token_hint"] == "abcd"
+    assert not {"token", "token_ciphertext", "token_sha256"} & set(exported_device)
     (exported_file,) = export["files_uploaded"]
     assert exported_file["download_path"] == f"/api/v1/files/{upload.json()['id']}/content"
     assert "storage_key" not in exported_file
@@ -282,6 +304,7 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "voice_transcript_segments": 1,
         "notification_preferences": 1,
         "user_preferences": 1,
+        "push_devices": 1,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]
@@ -341,10 +364,11 @@ def test_build_export_is_valid_json_with_every_section() -> None:
     parsed = json.loads(body)
     assert set(sections) == {
         "identity", "conversations", "memories", "voice_sessions", "tasks_created",
-        "approvals_decided", "notification_preferences", "user_preferences", "files_uploaded",
+        "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "files_uploaded",
     }
     assert parsed["notification_preferences"] is None
     assert parsed["user_preferences"] is None
+    assert parsed["push_devices"] == []
     assert parsed["not_included"]
 
 

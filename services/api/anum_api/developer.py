@@ -95,6 +95,10 @@ class DeveloperSettings(BaseSettings):
     # Each request is counted as one budgeted model action of this estimated cost.
     request_cost_usd: float = Field(default=1.0, ge=0, le=1000)
     status_cache_seconds: float = Field(default=15.0, ge=0, le=3600)
+    # With phone push on (ANUM_FCM_SERVICE_ACCOUNT_JSON), the API refreshes requests still
+    # in progress from GitHub this often, so the owner hears that a pull request is ready
+    # while the app is closed (docs/notifications.md#developer-mode). 0 turns it off.
+    watch_seconds: float = Field(default=120.0, ge=0, le=86_400)
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_DEVELOPER_", env_file=".env", extra="ignore", hide_input_in_errors=True
@@ -739,7 +743,29 @@ async def _refresh(
             metadata={"from": previous.value, "to": request.status.value, "reason": request.failure_reason},
             actor="system",
         )
+        event_type = STATUS_EVENTS.get(request.status)
+        if event_type is not None:
+            # Ids and statuses only (docs/events.md): phone push tells the owner, even with
+            # the app closed, without the request text or the pull request title.
+            repository.record_event(
+                create_event(
+                    event_type,
+                    context,
+                    request.id,
+                    {"status": request.status.value, "previous_status": previous.value, "pr_number": request.pr_number},
+                    actor_id=request.created_by,
+                    correlation_id=request.id,
+                ).event
+            )
     return request
+
+
+# A refresh that moves a request into one of these statuses announces it (once per change).
+STATUS_EVENTS: dict[DevRequestStatus, CanonicalEventName] = {
+    DevRequestStatus.WAITING_APPROVAL: CanonicalEventName.DEVELOPER_REQUEST_READY_FOR_REVIEW,
+    DevRequestStatus.CI_FAILED: CanonicalEventName.DEVELOPER_REQUEST_FAILED,
+    DevRequestStatus.FAILED: CanonicalEventName.DEVELOPER_REQUEST_FAILED,
+}
 
 
 def _retire_merge_task(repository: AnumRepository, context: TenantContext, request: DeveloperRequest) -> None:

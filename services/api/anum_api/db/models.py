@@ -705,9 +705,40 @@ class NotificationPreferenceRecord(Base):
     automation_failed: Mapped[bool] = mapped_column(nullable=False)
     email_enabled: Mapped[bool] = mapped_column(nullable=False)
     desktop_enabled: Mapped[bool] = mapped_column(nullable=False)
+    # Migration 0027_push_devices; the server default keeps older releases' inserts valid.
+    push_enabled: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("notification_preferences"),)
+
+
+class PushDeviceRecord(Base):
+    """A phone registered for push by one user in one workspace (migration ``0027_push_devices``).
+
+    Private to the user: the RLS policy checks ``anum.user_id`` as well as the tenant and
+    workspace. The token is stored only encrypted (``token_ciphertext``).
+    """
+
+    __tablename__ = "push_devices"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(80))
+    token_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    token_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    token_hint: Mapped[str] = mapped_column(String(8), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("push_devices"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "token_sha256", name="uq_push_devices_user_token"),
+        Index("ix_push_devices_scope_user", "tenant_id", "workspace_id", "user_id", "created_at"),
+    )
 
 
 class UserPreferenceRecord(Base):

@@ -300,6 +300,16 @@ then `cd ~/anum/infra/oracle && docker compose up -d`. `ollama-pull` downloads t
 
 The stack runs a private SearXNG and the API has `ANUM_SEARXNG_URL=http://searxng:8080`, so agents get the read-only `web_search` tool: a task that asks to search the web runs a query and its result lists titles and links. Queries leave the VM for the search engines SearXNG asks (no ANUM tenant or user identity goes with them). The tool is low risk and needs no approval unless a workspace or organization rule asks for one; a workspace owner turns it off under **Integrations > SearXNG web search**, and an organization can deny it with a policy pack (`web_search`, effect `deny`). The Integrations page shows whether SearXNG answers. After an update from a version without it, `update.sh` adds `SEARXNG_SECRET` to `.env` and starts the container. To switch web search off for the whole deployment, remove the `ANUM_SEARXNG_URL` line from the `api` service and `docker compose up -d api`.
 
+## Phone Push
+
+Off until you give the API a Firebase service account key ([Notifications](notifications.md#server), Firebase setup in [Flutter mobile](mobile.md#owner-steps-firebase-project)). Put the key file's JSON on one line, in single quotes, into `infra/oracle/.env`:
+
+```bash
+jq -c . service-account.json   # prints the key on one line; paste it as ANUM_FCM_SERVICE_ACCOUNT_JSON='...'
+```
+
+Then `docker compose up -d api` and delete the downloaded file. The API refuses to start if the value is not a service-account key; `GET /api/v1/push/status` and Settings › Notifications in the web app say whether push is on. The developer watcher that announces ready pull requests uses the `anum_maintenance` role the bootstrap already grants `anum_app`. Pushes leave the VM for Google's FCM servers with a fixed title ("Approval needed") and ids only.
+
 ## Check the Deployment
 
 **Smoke test.** `install.sh` ends with it; run it again any time, on the VM as `ubuntu` (no sudo):

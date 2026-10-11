@@ -45,6 +45,7 @@ Format `anum.privacy-export/v1`, sections in this order:
 | `approvals_decided` | Approvals the caller approved or rejected, or approved as one of a chain (`your_approval`). Tool `arguments` are left out: they belong to the run and may carry redacted values. |
 | `notification_preferences` | The caller's notification preferences in this workspace, or `null`. |
 | `user_preferences` | The caller's own preferences (`GET /api/v1/me/preferences`, such as "Remember things from my chats"), or `null` when never saved. One row per user and tenant, so it applies in every workspace of the organization. |
+| `push_devices` | The phones the caller registered for push in this workspace: platform, label, the token's last four characters and dates. Never the push token ([Notifications](notifications.md#devices)). |
 | `files_uploaded` | Metadata of files the caller uploaded (name, type, size, SHA-256, time) with a `download_path` (`/api/v1/files/{id}/content`). |
 | `not_included` | Plain sentences listing what is not in the file (below). |
 
@@ -62,6 +63,7 @@ Removed, in one transaction:
 - private memories and their retrieval index rows (`retrieval_sources` with `owner_user_id` = caller; chunks cascade);
 - voice sessions and their transcript segments;
 - notification preferences;
+- the phones registered for push in this workspace (`push_devices`, migration `0027_push_devices`): they get no more pushes for it;
 - the caller's `user_preferences` row (migration `0025_user_preferences`). It is per user and tenant, not per workspace, so deleting from any workspace resets it everywhere in that organization; the defaults apply again ("Remember things from my chats" back on).
 
 Kept, and counted in the response and on the page:

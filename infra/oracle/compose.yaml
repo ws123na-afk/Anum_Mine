@@ -262,6 +262,8 @@ services:
       # network, no hairpin through the public address). Scrubbed to types, frames,
       # routes and the tenant id (docs/observability.md#error-reporting).
       ANUM_SENTRY_DSN: ${ANUM_SENTRY_DSN:-}
+      # Phone push through Firebase Cloud Messaging; empty is off (docs/notifications.md).
+      ANUM_FCM_SERVICE_ACCOUNT_JSON: ${ANUM_FCM_SERVICE_ACCOUNT_JSON:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
       interval: 30s

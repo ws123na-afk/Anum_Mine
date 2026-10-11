@@ -79,6 +79,11 @@ services:
       # Render: generateValue does not promise the url-safe base64 format Fernet needs.
       - key: ANUM_SECRETS_KEY
         sync: false
+      # Optional phone push (docs/notifications.md): the Firebase service account's whole
+      # JSON key, pasted as one value. It carries a private key. Leave it empty and push
+      # stays off (GET /api/v1/push/status says so); the API refuses a malformed key.
+      - key: ANUM_FCM_SERVICE_ACCOUNT_JSON
+        sync: false
       # No NATS and no Temporal on this path: events stay in PostgreSQL (SSE reads
       # them) and agent runs execute inside the API request (docs/deploy-render.md).
       - key: ANUM_EVENT_BUS

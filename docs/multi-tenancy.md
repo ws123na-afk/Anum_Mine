@@ -37,7 +37,7 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` every control-plane store is a tenant 
 |---|---|---|
 | Tenant | `skill_versions`, `policy_packs`, `role_templates`, `approval_rules`, `memory_governance`, `marketplace_packages`, `routing_targets` | `tenant_id` |
 | Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `workspace_files`, `notification_preferences` (per user), `automation_workflows`, `automation_schedules`, `automation_runs` (migration `0011_voice_automation`), `retrieval_sources`, `retrieval_chunks` (migration `0014_retrieval_index`, [Memory](memory.md#retrieval)) | `tenant_id` and `workspace_id` |
-| User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`), `conversations`, `conversation_turns` (migration `0018_conversations`) | `tenant_id`, `workspace_id` and `user_id` |
+| User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`), `conversations`, `conversation_turns` (migration `0018_conversations`), `push_devices` (migration `0027_push_devices`, [Notifications](notifications.md#devices)) | `tenant_id`, `workspace_id` and `user_id` |
 | User, tenant-wide | `user_preferences` (migration `0025_user_preferences`, [Memory](memory.md#per-user-switch)) | `tenant_id` and `user_id` |
 | Workspace, with private rows | `memories`, `retrieval_sources` (owner column and restrictive policy from migration `0021_memory_sources`, [Memory](memory.md#from-conversations)) | `tenant_id` and `workspace_id`; a row with an `owner_user_id` also needs `anum.user_id` = that owner |
 
@@ -58,6 +58,7 @@ Some jobs must find work in every tenant:
 - the retrieval index purge (index rows of expired memories, [Memory](memory.md#retention); migration `0015_retrieval_retention`);
 - the conversation retention purge (conversations idle past `ANUM_CONVERSATION_RETENTION_DAYS`, [Conversations](conversations.md#retention); migration `0019_conversation_retention`);
 - `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, [Runbooks](runbooks.md#rotating-anum_secrets_key)).
+- the developer watcher (developer requests still in progress, refreshed so phone push can announce a ready pull request, [Notifications](notifications.md#developer-mode); migration `0027_push_devices`).
 
 They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automation`):
 
@@ -70,6 +71,7 @@ They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automa
    | `workspace_model_configs` | `tenant_id`, `workspace_id` | `api_key_ciphertext is not null` |
    | `retrieval_sources` (`0015`) | `tenant_id`, `workspace_id`, `source_type`, `source_id`, `source_expires_at` | `source_type = 'memory' and source_expires_at <= now()` |
    | `conversations` (`0019`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `updated_at` | `updated_at <= now() - interval '1 day'` (the purge then filters on the configured retention) |
+   | `developer_requests` (`0026`) | `id`, `tenant_id`, `workspace_id`, `status` | `status in ('queued', 'coding', 'ci_running', 'ci_failed', 'waiting_approval')` |
 
 2. **Act.** Each discovered scope gets its own transaction as the application role, with that tenant, workspace (and user) set as RLS context. Every content read (transcript text, workflow steps, ciphertexts) and every write is checked by the normal tenant-isolation policies. Audit records are written there too.
 
@@ -77,7 +79,7 @@ Why not a `SECURITY DEFINER` function: it runs as the table owner, and `FORCE RO
 
 Deployment:
 
-- Grant `anum_maintenance` to the API login if the scheduler is enabled, `WITH INHERIT FALSE, SET TRUE` as `infra/helm/bootstrap-database.sql` does. Its policies admit rows from every tenant; an inheriting grant would apply them to the API login's own queries too, so the RLS backstop would no longer keep those reads to one tenant.
+- Grant `anum_maintenance` to the API login if the scheduler or the developer watcher (phone push with developer mode) runs, `WITH INHERIT FALSE, SET TRUE` as `infra/helm/bootstrap-database.sql` does. Its policies admit rows from every tenant; an inheriting grant would apply them to the API login's own queries too, so the RLS backstop would no longer keep those reads to one tenant.
 - Grant it to the operator login that runs the purge and rotation commands.
 - Like `anum_outbox_relay`, the role is cluster-wide and survives a downgrade.
 

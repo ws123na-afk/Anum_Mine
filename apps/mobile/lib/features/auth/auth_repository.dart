@@ -4,12 +4,44 @@ import '../../data/session_store.dart';
 import 'oidc.dart';
 import 'workspace_selection.dart';
 
+/// Told when the signed-in workspace is about to change and when it has
+/// (phone push unregisters and registers here, docs/notifications.md).
+abstract interface class WorkspaceSessionListener {
+  /// Sign-out or a workspace switch is about to happen; the session still works.
+  Future<void> leavingWorkspace();
+
+  /// A workspace switch finished (or failed and the old workspace stays).
+  Future<void> enteredWorkspace();
+}
+
 class AuthRepository {
   const AuthRepository(
       {required this.api,
       required this.sessions,
       this.oidc,
-      this.workspacePreferences});
+      this.workspacePreferences,
+      this.sessionListener});
+
+  /// Phone push, in the app; null in most tests.
+  final WorkspaceSessionListener? sessionListener;
+
+  Future<void> _leaving() async {
+    try {
+      await sessionListener
+          ?.leavingWorkspace()
+          .timeout(const Duration(seconds: 5));
+    } on Object {
+      // Never block signing out or switching on push.
+    }
+  }
+
+  Future<void> _entered() async {
+    try {
+      await sessionListener?.enteredWorkspace();
+    } on Object {
+      // Push reports its own errors in Settings.
+    }
+  }
 
   final AnumApiClient api;
   final SessionStore sessions;
@@ -117,6 +149,26 @@ class AuthRepository {
 
   Future<LocalSession> switchWorkspace(String workspaceId) async {
     final current = await sessions.read();
+    if (current != null &&
+        current.context.workspaceId.isNotEmpty &&
+        current.context.workspaceId != workspaceId) {
+      return _switchAnnounced(current, workspaceId);
+    }
+    return _switch(current, workspaceId);
+  }
+
+  Future<LocalSession> _switchAnnounced(
+      LocalSession current, String workspaceId) async {
+    await _leaving();
+    try {
+      return await _switch(current, workspaceId);
+    } finally {
+      await _entered();
+    }
+  }
+
+  Future<LocalSession> _switch(
+      LocalSession? current, String workspaceId) async {
     if (current != null && current.isOidc) {
       // Ask the API first: only an active membership in the target workspace
       // switches. A refusal (403) throws and leaves the session unchanged.
@@ -220,6 +272,7 @@ class AuthRepository {
   }
 
   Future<void> signOut() async {
+    await _leaving();
     LocalSession? session;
     try {
       session = await sessions.read();

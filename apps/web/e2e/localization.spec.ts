@@ -59,7 +59,7 @@ test('Settings > Language switches to Arabic, keeps it after a reload, and can f
   expect(await page.evaluate(() => localStorage.getItem('anum.locale'))).toBeNull();
 });
 
-test('the Assistant, Approvals, Memory and Privacy read in Arabic', async ({ page }) => {
+test('the Assistant, Approvals, Memory, Notifications and Privacy read in Arabic', async ({ page }) => {
   await mockWorkspaceApi(page);
   await useSavedLocale(page, 'ar');
 
@@ -82,6 +82,17 @@ test('the Assistant, Approvals, Memory and Privacy read in Arabic', async ({ pag
   await expect(page.getByRole('radio', { name: 'من محادثاتي' })).toBeVisible();
 
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'الإعدادات' }).click();
+  // Settings › Notifications: the switches, phone push and the registered phone, in Arabic.
+  await page.getByRole('navigation', { name: 'أقسام الإعدادات' }).getByRole('button', { name: 'الإشعارات' }).click();
+  await expect(page).toHaveURL(/#notifications$/);
+  await expect(page.getByRole('checkbox', { name: 'إشعارات الهاتف' })).toBeChecked();
+  const push = page.getByRole('region', { name: 'إشعارات الهاتف' });
+  await expect(push.getByText('مفعّلة', { exact: true })).toBeVisible();
+  await expect(push.getByText(/^هاتف واحد يتلقى الإشعارات/)).toBeVisible();
+  await expect(push.getByRole('list', { name: 'هواتفي المسجّلة' }).getByText(/Pixel 8.*Android.?، ينتهي بـ .?1a2b/)).toBeVisible();
+  await expect(push.getByRole('button', { name: /^إزالة / })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+
   await page.getByRole('navigation', { name: 'أقسام الإعدادات' }).getByRole('button', { name: 'الخصوصية' }).click();
   await expect(page.getByRole('heading', { name: 'ما يخزّنه أنوم عنك' })).toBeVisible();
   await expect(page.getByText('تُحذف بعد 30 يومًا بلا نشاط، أو عندما تحذفها.')).toBeVisible();

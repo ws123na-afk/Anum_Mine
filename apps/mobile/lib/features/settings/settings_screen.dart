@@ -9,6 +9,7 @@ import '../auth/account_screens.dart';
 import '../admin/admin.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
+import '../push/push_settings_card.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({required this.controller, super.key});
@@ -195,6 +196,10 @@ class _Content extends StatelessWidget {
                       ])),
             _Heading('Notifications'),
             _NotificationCard(controller: controller),
+            if (controller.push != null) ...[
+              const SizedBox(height: AnumSpacing.xs),
+              PhonePushCard(controller: controller.push!),
+            ],
             _Heading('Chat memory'),
             _ChatMemoryCard(key: chatMemoryKey, controller: controller),
             if (controller.privacy != null) ...[
@@ -266,14 +271,16 @@ class _NotificationState extends State<_NotificationCard> {
           bool? failure,
           bool? automation,
           bool? email,
-          bool? desktop}) =>
+          bool? desktop,
+          bool? push}) =>
       NotificationPreferences(
           taskCompleted: task ?? value.taskCompleted,
           approvalRequired: approval ?? value.approvalRequired,
           runFailed: failure ?? value.runFailed,
           automationFailed: automation ?? value.automationFailed,
           emailEnabled: email ?? value.emailEnabled,
-          desktopEnabled: desktop ?? value.desktopEnabled);
+          desktopEnabled: desktop ?? value.desktopEnabled,
+          pushEnabled: push ?? value.pushEnabled);
   @override
   Widget build(BuildContext context) => Card(
           child: Column(children: [
@@ -304,8 +311,15 @@ class _NotificationState extends State<_NotificationCard> {
             value: value.emailEnabled,
             onChanged: (v) => update(copy(email: v))),
         SwitchListTile(
+            secondary: const Icon(Icons.phone_iphone),
+            title: const Text('Phone push'),
+            subtitle: const Text(
+                'Send these to your phones, even when the app is closed.'),
+            value: value.pushEnabled,
+            onChanged: (v) => update(copy(push: v))),
+        SwitchListTile(
             secondary: const Icon(Icons.notifications_outlined),
-            title: const Text('Device notifications'),
+            title: const Text('Desktop notifications'),
             value: value.desktopEnabled,
             onChanged: (v) => update(copy(desktop: v)))
       ]));

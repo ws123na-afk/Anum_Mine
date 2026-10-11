@@ -230,8 +230,31 @@ String configureAndroidGradle(String gradle) {
       '        }',
     );
   }
+  if (!value.contains(_googleServicesMarker)) {
+    final plugins =
+        RegExp(r'^plugins\s*\{[^}]*\}\n', multiLine: true).firstMatch(value);
+    // After the plugins block (as Flutter generates it), else at the end.
+    final at = plugins?.end ?? value.length;
+    value = value.replaceRange(at, at, _googleServices);
+  }
   return value;
 }
+
+/// Marker of the phone-push block, so configuration stays idempotent.
+const _googleServicesMarker = 'file("google-services.json").exists()';
+
+/// Phone push (docs/mobile.md#phone-push): the Google services plugin
+/// (declared in settings.gradle.kts) runs only when the owner's gitignored
+/// google-services.json is present, so the app builds without it.
+const _googleServices = '''
+
+// Phone push (docs/mobile.md#phone-push): the Firebase project comes from the
+// owner's google-services.json, which is gitignored. Without it the build still
+// succeeds and the app reports push as not set up in this build.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+''';
 
 String configureIosInfoPlist(String plist) {
   var value = plist;
@@ -261,6 +284,16 @@ String configureIosInfoPlist(String plist) {
 ''';
     value = _insertBeforeLastDictClose(value, urlTypes);
   }
+  // Phone push: lets iOS deliver remote notifications (FCM through APNs).
+  if (!value.contains('<string>remote-notification</string>')) {
+    const backgroundModes = '''
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+''';
+    value = _insertBeforeLastDictClose(value, backgroundModes);
+  }
   return value.replaceFirst(
     RegExp(r'(<key>CFBundleDisplayName</key>\s*<string>)[^<]*(</string>)'),
     '<key>CFBundleDisplayName</key>\n\t<string>$displayName</string>',
@@ -269,10 +302,49 @@ String configureIosInfoPlist(String plist) {
 
 /// Replaces the generated bundle identifier (`com.anum.anumMobile`) in the
 /// Runner and RunnerTests targets.
-String configureIosProject(String pbxproj) => pbxproj.replaceAllMapped(
+/// Also adds the "Copy Firebase config" build phase (phone push).
+String configureIosProject(String pbxproj) =>
+    _configureFirebasePhase(pbxproj.replaceAllMapped(
       RegExp(r'PRODUCT_BUNDLE_IDENTIFIER = [A-Za-z0-9.\-]+?(\.RunnerTests)?;'),
       (match) => 'PRODUCT_BUNDLE_IDENTIFIER = $applicationId${match[1] ?? ''};',
-    );
+    ));
+
+/// The "Copy Firebase config" shell script phase of the Runner target.
+const _firebasePhaseRef = 'A11CE0F1BA5E0000000F1BA5 /* Copy Firebase config */';
+
+/// Copies the owner's gitignored GoogleService-Info.plist into the app when it
+/// is present (docs/mobile.md#phone-push). Without it the build succeeds and
+/// the app reports push as not set up in this build.
+const _firebasePhase = r'''
+		A11CE0F1BA5E0000000F1BA5 /* Copy Firebase config */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Firebase config";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Phone push (docs/mobile.md#phone-push): the owner's gitignored Firebase file.\nPLIST=\"${SRCROOT}/Runner/GoogleService-Info.plist\"\nif [ -f \"$PLIST\" ]; then\n  cp \"$PLIST\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleService-Info.plist\"\nfi\n";
+		};
+''';
+
+String _configureFirebasePhase(String pbxproj) {
+  if (pbxproj.contains(_firebasePhaseRef)) return pbxproj;
+  const resources = '97C146EC1CF9000F007C117D /* Resources */,\n';
+  const section = '/* End PBXShellScriptBuildPhase section */';
+  // Fragments (tests) without the Runner target's phases are left alone.
+  if (!pbxproj.contains(resources) || !pbxproj.contains(section)) {
+    return pbxproj;
+  }
+  return pbxproj
+      .replaceFirst(resources, '$resources\t\t\t\t$_firebasePhaseRef,\n')
+      .replaceFirst(section, '$_firebasePhase$section');
+}
 
 /// permission_handler compiles every iOS permission out unless its macro is
 /// set, so the microphone and speech-recognition requests are enabled here.
@@ -287,7 +359,13 @@ const _podPermissions = '''
     end
 ''';
 
-String configureIosPodfile(String podfile) {
+String configureIosPodfile(String source) {
+  // Firebase (phone push) and the app's deployment target are iOS 15.
+  final podfile = source.replaceFirst(
+      "# Uncomment this line to define a global platform for your project\n"
+          "# platform :ios, '15.0'\n",
+      "# Firebase (phone push) and the app's deployment target are iOS 15.\n"
+          "platform :ios, '15.0'\n");
   if (podfile.contains('PERMISSION_MICROPHONE=1')) return podfile;
   const hook = '    flutter_additional_ios_build_settings(target)\n';
   if (!podfile.contains(hook)) {

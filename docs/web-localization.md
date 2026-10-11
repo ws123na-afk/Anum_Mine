@@ -8,7 +8,7 @@ The web client (`apps/web`), and therefore the desktop app that renders its buil
 2. Without a saved choice, the first language in `navigator.languages` that has a catalog is used. This is the same list the browser sends as `Accept-Language`, so a browser set to Arabic opens ANUM in Arabic.
 3. Otherwise English.
 
-"Match my browser" in Settings > Language forgets the saved choice and goes back to step 2. If the browser blocks storage (some private modes), the switch still applies to the open page and is not remembered. The page sets `<html lang dir>` before its first render (`initLocale` in `apps/web/src/main.tsx`), so there is no flash of the wrong direction. `#language` deep-links to the Language section of Settings.
+"Match my browser" in Settings > Language forgets the saved choice and goes back to step 2. If the browser blocks storage (some private modes), the switch still applies to the open page and is not remembered. The page sets `<html lang dir>` before its first render (`initLocale` in `apps/web/src/main.tsx`), so there is no flash of the wrong direction. `#language` deep-links to the Language section of Settings (and `#notifications` to Notifications).
 
 ## The i18n layer
 
@@ -37,13 +37,13 @@ Text people or the model wrote keeps its own direction with `dir="auto"`: chat m
 
 ## What is translated
 
-Translated: the shell (navigation, header, event-stream status, workspace switcher, sign-in), Assistant chat, Settings (Workspace onboarding, Model gateway, Notifications, Chat memory, Language), Privacy, Memory, Tasks (including Sources used), and Approvals.
+Translated: the shell (navigation, header, event-stream status, workspace switcher, sign-in), Assistant chat, Settings (Workspace onboarding, Model gateway, Notifications with phone push and registered phones, Chat memory, Language), Privacy, Memory, Tasks (including Sources used), and Approvals.
 
 Not yet translated (they render in English inside the Arabic layout, which still mirrors): Workbench (automation), Agents, Files, Skills, Integrations, Voice, Governance, Enterprise, Members, Budgets, Approval policy, Developer mode and the developer-mode confirmation in chat. Messages written by the API (error details such as a budget's reset date, the retention and account notes on the Privacy page, refusals) are English; the API does not localize them yet. These are listed in the [production plan](production-plan.md).
 
 ## Accessibility
 
-`apps/web/e2e/accessibility.spec.ts` runs axe-core (`@axe-core/playwright`, pinned exactly) over Assistant, Tasks, Approvals, Memory, Settings, Language and Privacy, in English and in Arabic, on the desktop and mobile Playwright projects, with the WCAG 2.0/2.1 A and AA rules plus best practices. A serious or critical violation fails CI and the failure lists the rule and the offending selectors. The same spec checks:
+`apps/web/e2e/accessibility.spec.ts` runs axe-core (`@axe-core/playwright`, pinned exactly) over Assistant, Tasks, Approvals, Memory, Settings, Notifications, Language and Privacy, in English and in Arabic, on the desktop and mobile Playwright projects, with the WCAG 2.0/2.1 A and AA rules plus best practices. A serious or critical violation fails CI and the failure lists the rule and the offending selectors. The same spec checks:
 
 - a "Skip to content" link is the first Tab stop and moves focus into the page, past the navigation;
 - there is exactly one `main` landmark, named by the page title, and a labelled primary navigation (the sidebar is a sibling of `main`, not inside it).

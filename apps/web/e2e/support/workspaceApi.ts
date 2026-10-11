@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 // One mocked workspace with something on every main view (Assistant, Tasks, Approvals, Memory,
-// Settings, Privacy), for the accessibility and localization specs. Every request the views make
+// Settings, Notifications, Privacy), for the accessibility and localization specs. Every request the views make
 // is answered; anything else is aborted so a new, unmocked call shows up as a failure.
 const now = new Date().toISOString();
 const later = new Date(Date.now() + 5 * 3600_000).toISOString();
@@ -27,7 +27,9 @@ const memories = [
   { id: 'memory_chat', task_id: null, owner_user_id: 'user_local', content: 'The user prefers short answers.', provenance: { source_type: 'conversation', source_id: 'conv_1', created_by_user_id: 'user_local', created_at: now, metadata: { conversation_title: 'Release planning' } }, retention: { kind: 'indefinite', expires_at: null }, created_at: now, updated_at: null },
   { id: 'memory_task', task_id: 'task_done', content: 'Exports must finish within a minute.', provenance: { source_type: 'user', source_id: null, created_by_user_id: 'user_local', created_at: now }, retention: { kind: 'task', expires_at: null }, created_at: now },
 ];
-const counts = { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 0, voice_transcript_segments: 0, notification_preferences: 1, user_preferences: 1 };
+const counts = { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 0, voice_transcript_segments: 0, notification_preferences: 1, user_preferences: 1, push_devices: 1 };
+// One phone registered for push (Settings › Notifications, docs/notifications.md).
+const devices = [{ id: 'device_pixel', platform: 'android', label: 'Pixel 8', token_hint: '1a2b', created_at: now, updated_at: now, last_sent_at: now }];
 const shared = { tasks_created: 2, approvals_decided: 1, shared_memories_created: 1, files_uploaded: 0 };
 const privacy = {
   tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', private: counts, shared,
@@ -68,8 +70,10 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/me/preferences') return json({ remember_conversations: true, updated_at: now, conversation_memory: 'on' });
     if (path === '/api/v1/onboarding') return json({ complete: true, tenant: { id: 'tenant_local', name: 'ANUM' }, workspace: { id: 'workspace_foundation', name: 'Foundation' }, membership: { role: 'owner' }, model_configured: false });
     if (path === '/api/v1/notification-preferences') {
-      return json(method === 'PUT' ? request.postDataJSON() : { task_completed: true, approval_required: true, run_failed: true, automation_failed: false, email_enabled: false, desktop_enabled: true });
+      return json(method === 'PUT' ? request.postDataJSON() : { task_completed: true, approval_required: true, run_failed: true, automation_failed: false, email_enabled: false, desktop_enabled: true, push_enabled: true });
     }
+    if (path === '/api/v1/push/status') return json({ available: true, provider: 'fcm', project_id: 'anum-example', message: 'Phone push is on.' });
+    if (path === '/api/v1/me/devices' && method === 'GET') return json(devices);
     if (path === '/api/v1/model-config') return json({ detail: 'No workspace model configuration' }, 404);
     if (path === '/api/v1/privacy') return json(privacy);
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: now, updated_at: now });

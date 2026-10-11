@@ -19,6 +19,7 @@ from anum_api.memory import MemoryNote
 from anum_api.onboarding import NotificationPreferences
 from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
+from anum_api.push import PushDevice
 from anum_api.user_preferences import UserPreferences
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
 
@@ -32,6 +33,7 @@ from .models import (
     ConversationTurnRecord,
     MemoryRecord,
     NotificationPreferenceRecord,
+    PushDeviceRecord,
     TaskRecord,
     UserPreferenceRecord,
     VoiceSessionRecord,
@@ -181,6 +183,15 @@ class SqlAlchemyPrivacyStore:
             return None
         return UserPreferences(remember_conversations=record.remember_conversations, updated_at=record.updated_at)
 
+    def _push_device_filter(self):  # type: ignore[no-untyped-def]
+        # Under forced RLS on tenant, workspace and user (0027_push_devices).
+        return (*self._in_workspace(PushDeviceRecord), PushDeviceRecord.user_id == self.context.user_id)
+
+    def push_devices(self) -> list[PushDevice]:
+        from anum_api.db.push_repository import SqlAlchemyPushDeviceStore
+
+        return [device.view() for device in SqlAlchemyPushDeviceStore(self.session).list(self.context)]
+
     def _file_filter(self):  # type: ignore[no-untyped-def]
         return (*self._in_workspace(WorkspaceFileRecord), WorkspaceFileRecord.created_by == self.context.user_id)
 
@@ -222,6 +233,7 @@ class SqlAlchemyPrivacyStore:
             voice_transcript_segments=self._count(VoiceTranscriptSegmentRecord, *self._mine(VoiceTranscriptSegmentRecord)),
             notification_preferences=self._count(NotificationPreferenceRecord, *self._mine(NotificationPreferenceRecord)),
             user_preferences=self._count(UserPreferenceRecord, *self._user_preference_filter()),
+            push_devices=self._count(PushDeviceRecord, *self._push_device_filter()),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -251,6 +263,7 @@ class SqlAlchemyPrivacyStore:
         self.session.execute(delete(VoiceSessionRecord).where(*self._mine(VoiceSessionRecord)))
         self.session.execute(delete(NotificationPreferenceRecord).where(*self._mine(NotificationPreferenceRecord)))
         self.session.execute(delete(UserPreferenceRecord).where(*self._user_preference_filter()))
+        self.session.execute(delete(PushDeviceRecord).where(*self._push_device_filter()))
         self.session.flush()
         return deleted
 

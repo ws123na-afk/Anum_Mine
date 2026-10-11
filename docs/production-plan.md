@@ -121,5 +121,5 @@ These cannot be produced from the repository and block the stages noted.
 | Model spend budget (replaces the placeholder `AnumModelHourlySpendHigh` threshold) and default monthly workspace budgets to set through `/api/v1/model-budgets` | Stage 5 |
 | Apple Developer and Google Play accounts (both exist; the keys and secrets they yield are in the [owner checklist](mobile.md#owner-checklist-windows)) | Stage 6 |
 | Code-signing certificates for Windows and macOS (deferred: the owner does not ship desktop releases for now) | Stage 6 |
-| Notification provider credentials (FCM, APNs) | Stage 6 |
+| Notification provider credentials: a Firebase project with the APNs key, its service account key in `ANUM_FCM_SERVICE_ACCOUNT_JSON`, and the app files `google-services.json` / `GoogleService-Info.plist` ([Flutter mobile](mobile.md#owner-steps-firebase-project); the code is in place, [Notifications](notifications.md)) | Stage 6 |
 | Privacy policy (from the [template](privacy-policy.md), reviewed and published at `ANUM_PRIVACY_POLICY_URL`) and terms of service | Stage 6 |

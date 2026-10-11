@@ -5,6 +5,7 @@ import '../../data/api_models.dart';
 import '../admin/admin_repository.dart';
 import '../auth/auth_repository.dart';
 import '../privacy/privacy_repository.dart';
+import '../push/push_controller.dart';
 
 enum SettingsPhase {
   initial,
@@ -17,7 +18,7 @@ enum SettingsPhase {
 }
 
 class SettingsController extends ChangeNotifier {
-  SettingsController(this.repository, {this.admin, this.privacy});
+  SettingsController(this.repository, {this.admin, this.privacy, this.push});
   final AuthRepository repository;
 
   /// Members, invitations and model budgets; the API decides who may use them.
@@ -25,6 +26,10 @@ class SettingsController extends ChangeNotifier {
 
   /// Download my data / Delete my data (docs/privacy.md).
   final PrivacyRepository? privacy;
+
+  /// Phone push on this device (docs/notifications.md); null in tests that
+  /// do not need it.
+  final PushController? push;
   SettingsPhase phase = SettingsPhase.initial;
   LocalSession? session;
   ModelConfiguration? model;

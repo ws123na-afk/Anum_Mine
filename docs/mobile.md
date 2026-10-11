@@ -95,7 +95,30 @@ To regenerate (for example after a Flutter template change), delete the folders,
 - Tests: `test/developer/` covers the helpers, the controller, the chat and voice confirmation flows (voice never approves), the navigation (owners only, More on phones, Arabic label, deep link), and layouts at 320x568, 390x844, 768x1024, 1024x768 and 1440x900, at 200 percent text and right to left, including the open merge approval and the confirmation card in the Assistant and Voice.
 - Making the voice header and the Assistant's notices fit a short phone at 200 percent text (the voice controls wrap under the name; the notices, including the developer card, get only the height the header and composer leave) came with this change.
 
+## Phone push
+
+Push notifications for approvals waiting, tasks finished or failed and developer pull requests ready ([Notifications](notifications.md)). Code: `lib/features/push/` (the `PushMessaging` interface, its Firebase implementation in `firebase_push_messaging.dart`, the controller and the Settings card).
+
+- **When the app asks.** Never on first launch. **Settings › Notifications › Turn on notifications** asks for the system permission (Android 13+ and iOS), and after the first approval decision the app offers it once (a notice with **Turn on**). A refused permission shows **Open phone settings**.
+- **Registration.** After sign-in, a phone that already allows notifications registers its FCM token for the current workspace (`POST /api/v1/me/devices`, re-encrypting the token with the server's current key) and again when Firebase rotates it. Before sign-out and before a workspace switch it removes its registration while the session still works; after sign-out it deletes the Firebase token so the next person on the phone gets a new one; after a switch it registers in the new workspace.
+- **Taps and foreground.** A tapped push opens the approval queue, the task or the Developer screen, also from a cold start (kept until sign-in finishes). A push for another workspace says so instead of opening. A push that arrives while the app is open shows as an in-app notice with **Open**; the system does not show it.
+- **Without Firebase files** the app builds and runs; Settings says push is not set up in this build. The server side is off until `ANUM_FCM_SERVICE_ACCOUNT_JSON` is set, and the app then says that instead.
+- **Tests.** `test/push/` covers the destinations, the controller with a fake push channel and API (never prompting on its own, registering, unregistering on sign-out and switches, the one-time offer), the Settings card states and its layout at 360x640 with 200 percent text, 390x844 and 1024x768. `test/configure_native_test.dart` checks the native wiring below.
+
+### Owner steps: Firebase project
+
+Do these once; nothing here is committed. File and secret names only.
+
+1. In the Firebase console, create a project (or use the Google Cloud project you already have) and add two apps: **Android** with package name `com.anum.app`, and **iOS** with bundle id `com.anum.app`.
+2. Download **`google-services.json`** to `apps/mobile/android/app/google-services.json` and **`GoogleService-Info.plist`** to `apps/mobile/ios/Runner/GoogleService-Info.plist`. Both paths are in `apps/mobile/.gitignore`. The Android build applies the Google services plugin (`com.google.gms.google-services`, declared in `android/settings.gradle.kts`) only when the file exists; the iOS build copies the plist in the **Copy Firebase config** build phase only when it exists. If an AGP upgrade breaks the plugin, bump its version in `settings.gradle.kts`.
+3. **iOS only.** In the Apple Developer account create an **APNs authentication key** (`.p8`) and upload it in Firebase under *Project settings › Cloud Messaging › Apple app configuration* with its key id and team id. In Xcode, open `ios/Runner.xcworkspace`, select the Runner target and add the **Push Notifications** capability (it writes `Runner/Runner.entitlements` with `aps-environment`; commit that file once the App ID has the capability, since CI signs the release with that App ID). `Info.plist` already has `UIBackgroundModes` `remote-notification`.
+4. **Server.** In Google Cloud IAM, create a service account with the **Firebase Cloud Messaging API Admin** role, create a JSON key and put the whole file on one line into the API's `ANUM_FCM_SERVICE_ACCOUNT_JSON` secret (Helm: the `anum-app` Secret; Render: the dashboard; Oracle: `infra/oracle/.env`, [Phone push](deploy-oracle.md#phone-push)). Delete the downloaded key file afterwards.
+5. **CI release builds.** To ship push in store builds, the release workflow must write the two files before building, from repository secrets you create (suggested names `ANUM_GOOGLE_SERVICES_JSON` and `ANUM_GOOGLE_SERVICE_INFO_PLIST`). That workflow step is not written yet: until it is, release builds from CI have push off.
+6. Check on a real phone (the Real-Device Test Checklist below): sign in, **Turn on notifications**, ask for something that needs approval from another device, lock the phone, and tap the push.
+
 ## Dependencies
+
+`firebase_core` 4.15 and `firebase_messaging` 16.7 (phone push) were checked against `android.builtInKotlin=false` before adding them: `firebase_messaging`'s Android code is Java only, and `firebase_core` applies `kotlin-android` itself when built-in Kotlin is off, so neither needs a pin.
 
 `url_launcher` opens pull request and run links in the browser. `url_launcher_android` is held at 6.3.29, the last release written in Java: 6.3.30 and later rely on AGP 9 built-in Kotlin like `file_picker` 11 (below) and would not compile while `android.builtInKotlin=false`. `AndroidManifest.xml` declares the `https` VIEW intent in `<queries>` for Android 11 package visibility.
 
@@ -343,6 +366,7 @@ Voice
 - [ ] The first microphone use shows the system prompt with ANUM's usage text (iOS also asks for speech recognition). Denying it shows the permission-recovery screen, whose button opens system settings; granting there and returning works without a restart.
 - [ ] "Don't ask again" (Android) and a later revoke in settings both land on the recovery screen, not a crash or silent failure.
 - [ ] English and Arabic recognition each produce an editable transcript; nothing runs before the user confirms.
+- [ ] Phone push with the owner's Firebase files: Settings › Notifications asks only when **Turn on notifications** is tapped; an approval from another device shows "Approval needed" on the locked phone and tapping it opens Approvals; a finished task opens its detail; a push while the app is open shows the in-app notice; after sign-out the phone gets nothing; denying the permission shows **Open phone settings**.
 - [ ] Wake-by-name, push-to-talk and spoken confirmation work with the phone speaker, wired headphones and a Bluetooth headset (on Android 12+ check whether the nearby-devices permission is requested and what happens when it is denied).
 - [ ] An incoming call or another app taking audio focus stops listening cleanly.
 - [ ] Backgrounding the app or pressing back out of the workspace stops listening immediately (the microphone indicator goes off).

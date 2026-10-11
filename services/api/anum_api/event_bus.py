@@ -621,6 +621,17 @@ class EventBusRuntime:
         self.max_reconnect_backoff = max_reconnect_backoff
         self._supervisor: asyncio.Task[None] | None = None
         self._hub_unsubscribe: Unsubscribe | None = None
+        # In-process consumers of committed events (phone push, anum_api/push.py). They
+        # run in the committing thread and must only queue work, never block or raise.
+        self._listeners: list[Callable[[Sequence[DomainEvent]], None]] = []
+
+    def add_listener(self, listener: Callable[[Sequence[DomainEvent]], None]) -> None:
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def remove_listener(self, listener: Callable[[Sequence[DomainEvent]], None]) -> None:
+        if listener in self._listeners:
+            self._listeners.remove(listener)
 
     @property
     def live(self) -> bool:
@@ -631,6 +642,11 @@ class EventBusRuntime:
     def after_commit(self, events: Sequence[DomainEvent]) -> None:
         if not events:
             return
+        for listener in list(self._listeners):
+            try:
+                listener(events)
+            except Exception:  # a listener must never fail the request
+                logger.exception("A committed-event listener failed")
         try:
             if self.relay is not None:
                 # The events are already durable outbox rows; just wake the relay.

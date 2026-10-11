@@ -39,6 +39,8 @@ export interface PrivacyPrivateCounts {
   notification_preferences: number;
   /** Tenant-wide (every workspace of the organization). Absent from older servers. */
   user_preferences?: number;
+  /** Phones registered for push in this workspace (docs/notifications.md). Absent from older servers. */
+  push_devices?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */
@@ -118,6 +120,8 @@ export interface PrivacyExport {
   approvals_decided: Array<Record<string, unknown> & { your_approval: Record<string, unknown> | null }>;
   notification_preferences: Record<string, boolean> | null;
   user_preferences: UserPreferences | null;
+  /** Platform, label, the token's last four characters and dates; never the push token. */
+  push_devices?: Array<Record<string, unknown> & { id: string; platform: string; token_hint: string }>;
   files_uploaded: Array<Record<string, unknown> & { id: string; download_path: string }>;
 }
 

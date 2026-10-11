@@ -161,13 +161,21 @@ class WorkspaceController extends ChangeNotifier {
   /// second approval (set by the app once signed in; null until then).
   String? currentUserId;
 
+  /// Called after the person decided an approval; the app offers phone push
+  /// after the first one (docs/notifications.md).
+  VoidCallback? onApprovalDecided;
+
   Future<void> decide(WorkspaceApproval approval,
       {required bool approve, String? reason}) async {
     decisionRefusals.remove(approval.id);
-    await _mutate(
-        () => repository.decideApproval(approval,
-            approve: approve, reason: reason),
-        onRefused: (message) => decisionRefusals[approval.id] = message);
+    var decided = false;
+    await _mutate(() async {
+      final result = await repository.decideApproval(approval,
+          approve: approve, reason: reason);
+      decided = true;
+      return result;
+    }, onRefused: (message) => decisionRefusals[approval.id] = message);
+    if (decided) onApprovalDecided?.call();
   }
 
   Future<void> startAutomation(String id) async {

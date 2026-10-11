@@ -24,6 +24,10 @@ import '../features/voice/voice_repository.dart';
 import '../features/settings/settings_controller.dart';
 import '../features/admin/admin_repository.dart';
 import '../features/privacy/privacy_repository.dart';
+import '../features/push/firebase_push_messaging.dart';
+import '../features/push/push_controller.dart';
+import '../features/push/push_models.dart';
+import '../features/push/push_repository.dart';
 import '../features/governance/api_governance_repository.dart';
 import '../features/governance/governance_controller.dart';
 import 'infrastructure/appauth_authenticator.dart';
@@ -77,6 +81,12 @@ class _AnumAppState extends State<AnumApp> {
   late final DeveloperController developer;
   late final DeveloperAssist chatDeveloper;
   late final DeveloperAssist voiceDeveloper;
+  late final PushController push;
+
+  /// For push deep links and foreground notices, which arrive outside any
+  /// widget's context.
+  final _navigator = GlobalKey<NavigatorState>();
+  final _messenger = GlobalKey<ScaffoldMessengerState>();
 
   /// Set when the build's configuration is unsafe; the app then shows only
   /// this message and creates no clients.
@@ -105,11 +115,20 @@ class _AnumAppState extends State<AnumApp> {
       transport: HttpApiTransport(),
       sessions: sessions,
     );
+    // Phone push (docs/notifications.md): off unless this build carries the
+    // owner's Firebase files and the server has ANUM_FCM_SERVICE_ACCOUNT_JSON.
+    push = PushController(
+        repository: PushRepository(api),
+        messaging: FirebasePushMessaging(),
+        store: SharedPreferencesPushLocalStore())
+      ..onOpen = _openPush
+      ..onNotice = _showPushNotice;
     final authRepository = AuthRepository(
         api: api,
         sessions: sessions,
         oidc: oidc,
-        workspacePreferences: SecureWorkspacePreferenceStore());
+        workspacePreferences: SecureWorkspacePreferenceStore(),
+        sessionListener: push);
     auth = AuthController(authRepository);
     workspace = WorkspaceController(ApiWorkspaceRepository(
       api,
@@ -128,7 +147,9 @@ class _AnumAppState extends State<AnumApp> {
     settings = SettingsController(authRepository,
         admin: ApiAdminRepository(api),
         privacy:
-            ApiPrivacyRepository(api, saver: const FilePickerExportSaver()));
+            ApiPrivacyRepository(api, saver: const FilePickerExportSaver()),
+        push: push);
+    workspace.onApprovalDecided = _offerPushAfterApproval;
     governance = GovernanceController(ApiGovernanceRepository(
       api,
       auditExporter: HttpAuditExporter(
@@ -151,13 +172,24 @@ class _AnumAppState extends State<AnumApp> {
     locale = LocaleController()..restore();
     auth.addListener(_onAuthChanged);
     auth.restore();
+    push.start();
   }
 
   void _onAuthChanged() {
     if (auth.phase == AuthPhase.ready && workspace.phase.name == 'initial') {
       workspace.load();
     }
+    if (auth.phase == AuthPhase.ready && !_pushReady) {
+      _pushReady = true;
+      // Registers when this phone already allows notifications; never asks.
+      push.refresh().then((_) {
+        final pending = push.takePendingDestination();
+        if (pending != null) _openPush(pending);
+      });
+    }
     if (auth.phase == AuthPhase.signedOut) {
+      if (_pushReady) push.signedOut();
+      _pushReady = false;
       workspace.currentUserId = null;
       // The next person to sign in never sees these conversations.
       chat.reset();
@@ -168,6 +200,48 @@ class _AnumAppState extends State<AnumApp> {
     if (auth.phase == AuthPhase.ready && workspace.currentUserId == null) {
       _rememberUser();
     }
+  }
+
+  bool _pushReady = false;
+
+  /// A tapped push: open the approval queue, the task or the developer
+  /// request it names, in the workspace it belongs to.
+  Future<void> _openPush(PushDestination destination) async {
+    if (auth.phase != AuthPhase.ready) {
+      push.pendingDestination = destination;
+      return;
+    }
+    final session = await auth.repository.restoreSession();
+    final current = session?.context.workspaceId;
+    if (current != null && current != destination.workspaceId) {
+      _messenger.currentState?.showSnackBar(SnackBar(
+          content: Text('That notification is for workspace '
+              '"${destination.workspaceId}". Switch to it in Settings to open it.')));
+      return;
+    }
+    _navigator.currentState?.pushNamed(destination.route);
+  }
+
+  void _showPushNotice(PushNotice notice) {
+    final destination = notice.destination;
+    _messenger.currentState?.showSnackBar(SnackBar(
+        content: Text(notice.body.isEmpty
+            ? notice.title
+            : '${notice.title}: ${notice.body}'),
+        action: destination == null
+            ? null
+            : SnackBarAction(
+                label: 'Open', onPressed: () => _openPush(destination))));
+  }
+
+  /// After the person's first approval decision, offer phone push once.
+  Future<void> _offerPushAfterApproval() async {
+    if (!await push.shouldOfferAfterApproval()) return;
+    _messenger.currentState?.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 10),
+        content: const Text(
+            'Get a notification on this phone when an approval is waiting?'),
+        action: SnackBarAction(label: 'Turn on', onPressed: push.enable)));
   }
 
   /// Who is signed in, for the approval cards (one approval per person).
@@ -194,6 +268,7 @@ class _AnumAppState extends State<AnumApp> {
     settings.dispose();
     governance.dispose();
     developer.dispose();
+    push.dispose();
     chatDeveloper.dispose();
     voiceDeveloper.dispose();
     locale.dispose();
@@ -226,6 +301,8 @@ class _AnumAppState extends State<AnumApp> {
   Widget _buildApp(BuildContext context) => ListenableBuilder(
       listenable: locale,
       builder: (context, _) => MaterialApp(
+            navigatorKey: _navigator,
+            scaffoldMessengerKey: _messenger,
             title: 'ANUM',
             debugShowCheckedModeBanner: false,
             theme: AnumTheme.light(),

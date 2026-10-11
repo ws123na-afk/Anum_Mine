@@ -149,4 +149,37 @@ void main() {
     expect(File('ios/Runner/Info.plist').readAsStringSync(),
         contains('NSSpeechRecognitionUsageDescription'));
   });
+
+  group('phone push builds without the owner\'s Firebase files', () {
+    test('Android applies the Google services plugin only with the file', () {
+      final value = configureAndroidGradle(gradle);
+      expect(value, contains('if (file("google-services.json").exists())'));
+      expect(
+          value, contains('apply(plugin = "com.google.gms.google-services")'));
+      expect(configureAndroidGradle(value), value, reason: 'idempotent');
+      final settings = File('android/settings.gradle.kts').readAsStringSync();
+      expect(
+          settings, contains('id("com.google.gms.google-services") version'));
+      expect(settings, contains('apply false'));
+    });
+
+    test('iOS allows remote notifications and copies the plist if present', () {
+      final value = configureIosInfoPlist(plist);
+      expect(value, contains('<string>remote-notification</string>'));
+      expect(configureIosInfoPlist(value), value);
+      final project =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      expect(project, contains('/* Copy Firebase config */ = {'));
+      expect(project, contains(r'if [ -f \"$PLIST\" ]'));
+      final podfile = configureIosPodfile(iosPodfileTemplate);
+      expect(podfile, contains("\nplatform :ios, '15.0'"));
+      expect(configureIosPodfile(podfile), podfile);
+    });
+
+    test('the Firebase files stay out of git', () {
+      final ignored = File('.gitignore').readAsStringSync();
+      expect(ignored, contains('/android/app/google-services.json'));
+      expect(ignored, contains('/ios/Runner/GoogleService-Info.plist'));
+    });
+  });
 }

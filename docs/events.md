@@ -75,6 +75,14 @@ The in-memory repository has no durable storage, so after the request finishes t
 
 Both outboxes report `anum.outbox.backlog`, `anum.outbox.oldest_unpublished_age` and `anum.outbox.parked` gauges plus published, failed and rejected counters ([Observability](observability.md#metrics)). The PostgreSQL relay reads the backlog as `anum_outbox_relay` from its own loop, also while NATS is down. Each publish is a `publish ANUM_EVENTS` producer span, and the message carries a W3C `traceparent` header next to `Nats-Msg-Id` so consumers can continue the trace. Alerts and the procedure are in [Runbooks](runbooks.md#outbox-backlog).
 
+## Developer Request Events
+
+A refresh of a developer-mode request (when someone views it, or the developer watcher with phone push on, [Notifications](notifications.md#developer-mode)) that changes its status records `developer_request.ready_for_review` (now `waiting_approval`: the pull request is open with green checks) or `developer_request.failed` (now `ci_failed` or `failed`). Subject: the request id. Payload: `status`, `previous_status` and `pr_number`; never the request text or the pull request title.
+
+## In-process Consumers
+
+`EventBusRuntime.add_listener` registers a callback that receives every committed batch in the process that committed it, next to the outbox hand-off: the API request path, `tenant_unit_of_work` and the worker. Listeners must only queue work and never raise; phone push is the one listener today ([Notifications](notifications.md#delivery)). They see each event once per committing process, not once per cluster, and nothing is replayed after a restart.
+
 ## Membership Events
 
 Workspace invitations and membership management ([Identity](identity.md#invitations-and-membership-management)) emit `workspace_invitation.created`, `workspace_invitation.accepted`, `workspace_invitation.revoked`, `workspace_member.added`, `workspace_member.role_changed`, `workspace_member.deactivated` and `workspace_member.reactivated`. Payloads carry ids, roles, the expiry and whether an invitation is email-bound; never the invitation token or the invitee's email (the email is kept in the audit record only).

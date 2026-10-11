@@ -18,6 +18,7 @@ const _privateLabels = <String, String>{
   'voice_transcript_segments': 'Voice transcript lines',
   'notification_preferences': 'Notification preferences',
   'user_preferences': 'Your preferences (all workspaces)',
+  'push_devices': 'Phones registered for push',
 };
 
 const _sharedLabels = <String, String>{

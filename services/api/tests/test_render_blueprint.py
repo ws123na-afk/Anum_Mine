@@ -69,6 +69,8 @@ OWNER_VALUES = {
     "ANUM_S3_ACCESS_KEY": "example",
     "ANUM_S3_SECRET_KEY": "example",
     "ANUM_VALKEY_URL": "redis://red-example:6379",
+    # Optional: empty keeps phone push off (docs/notifications.md).
+    "ANUM_FCM_SERVICE_ACCOUNT_JSON": "",
 }
 
 

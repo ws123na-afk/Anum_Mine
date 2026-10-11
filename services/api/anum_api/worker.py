@@ -132,7 +132,12 @@ async def run_worker(config: Settings = settings) -> None:
         except NotImplementedError:  # pragma: no cover - Windows
             pass
 
+    # Runs finished by this worker push to phones too (docs/notifications.md).
+    from .push import push_dispatcher
+
+    event_runtime.add_listener(push_dispatcher.submit)
     await event_runtime.start()
+    push_dispatcher.start()
     try:
         async with worker:
             logger.info(
@@ -144,6 +149,7 @@ async def run_worker(config: Settings = settings) -> None:
             await stop.wait()
             logger.info("Shutting down; in-flight activities are retried by Temporal")
     finally:
+        await push_dispatcher.stop()
         await event_runtime.stop()
         shutdown_telemetry()
         shutdown_error_reporting()

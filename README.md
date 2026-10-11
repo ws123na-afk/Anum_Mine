@@ -97,6 +97,7 @@ x-user-roles: owner,member
 - [Tools and integrations](docs/tools-and-integrations.md)
 - [Automation](docs/automation.md)
 - [Approvals and risk](docs/approvals-and-risk.md)
+- [Notifications and phone push](docs/notifications.md)
 - [Data architecture](docs/data-architecture.md)
 - [API contracts](docs/api-contracts.md)
 - [Events](docs/events.md)

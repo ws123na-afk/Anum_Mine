@@ -11,13 +11,15 @@ never anyone else's (docs/privacy.md):
 - ``GET /api/v1/privacy/export`` returns a JSON document (``anum.privacy-export/v1``)
   with the caller's identity in the workspace, conversations and turns, private
   memories and the shared memories they created, voice sessions and transcripts, tasks
-  they created with their runs, approvals they decided, notification preferences and
+  they created with their runs, approvals they decided, notification preferences, the
+  phones they registered for push (platform, label and dates; never the push token) and
   the metadata of files they uploaded (file bytes are linked, not embedded). It is built
   in memory up to ``ANUM_PRIVACY_EXPORT_MAX_BYTES`` and refused with 413 beyond that,
   never truncated.
 - ``POST /api/v1/privacy/delete`` with ``{"confirm": "DELETE MY DATA"}`` deletes the
   caller's user-private data: conversations (and turns), private memories and their
-  retrieval index rows, voice sessions (and transcripts) and notification preferences.
+  retrieval index rows, voice sessions (and transcripts), notification preferences and
+  the phones registered for push in this workspace.
   Workspace-shared records the caller created (tasks, runs, approvals, shared memories,
   files) are kept and counted; the sign-in account lives in the identity provider and
   is not deleted by ANUM.
@@ -50,6 +52,7 @@ from .dependencies import require_permission, tenant_context
 from .files import FileRecord
 from .memory import MemoryNote
 from .onboarding import NotificationPreferences
+from .push import PushDevice
 from .request_context import current_correlation_id
 from .schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership, new_id, utc_now
 from .settings import settings
@@ -85,6 +88,8 @@ class PrivateCounts(BaseModel):
     notification_preferences: int = 0
     # Tenant-wide, not per workspace (migration 0025_user_preferences).
     user_preferences: int = 0
+    # Phones registered for push in this workspace (migration 0027_push_devices).
+    push_devices: int = 0
 
     @property
     def total(self) -> int:
@@ -167,6 +172,7 @@ class PrivacyStore(Protocol):
     def approvals_decided(self) -> list[tuple[Approval, ApprovalApproverRecord | None]]: ...
     def notification_preferences(self) -> NotificationPreferences | None: ...
     def user_preferences(self) -> UserPreferences | None: ...
+    def push_devices(self) -> list[PushDevice]: ...
     def files_uploaded(self) -> list[FileRecord]: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
@@ -266,6 +272,11 @@ class InMemoryPrivacyStore:
 
         return user_preference_store.get(self.context)
 
+    def push_devices(self) -> list[PushDevice]:
+        from .push import push_device_store
+
+        return [device.view() for device in push_device_store.list(self.context)]
+
     def files_uploaded(self) -> list[FileRecord]:
         from .files import file_store
 
@@ -300,6 +311,7 @@ class InMemoryPrivacyStore:
             voice_transcript_segments=sum(len(voice_store.segments.get(session.id, [])) for session, _ in voice),
             notification_preferences=int(self.notification_preferences() is not None),
             user_preferences=int(self.user_preferences() is not None),
+            push_devices=len(self.push_devices()),
         )
         return private, self._shared_counts()
 
@@ -337,6 +349,10 @@ class InMemoryPrivacyStore:
 
         with user_preference_store._lock:
             user_preference_store._items.pop((self.context.tenant_id, self.context.user_id), None)
+        from .push import push_device_store
+
+        for device in push_device_store.list(self.context):
+            push_device_store.delete(self.context, device.id)
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -465,6 +481,8 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     # Tenant-wide (every workspace of this organization), e.g. "Remember things from my chats".
     mine = store.user_preferences()
     yield ("user_preferences", _dump(mine) if mine is not None else None)
+    # Platform, label and dates only: the push token is never exported.
+    yield ("push_devices", [_dump(device) for device in store.push_devices()])
     yield (
         "files_uploaded",
         [
