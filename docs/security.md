@@ -73,7 +73,7 @@ The **Security scans** job in `.github/workflows/ci.yml` fails the build on:
 
 Other jobs:
 
-- **Docker images**: Trivy (`aquasec/trivy:0.75.0`, pinned by digest) scans the built `anum-api` and `anum-web` images with `--scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed`, so any high or critical vulnerability that has a fixed version, and any secret in a layer, fails the job. Fix findings in the Dockerfile (base image bump, `apt-get upgrade` / `apk upgrade`, removing unneeded packages); an unavoidable exception goes in a `.trivyignore` at the repository root with a row below. There is no `.trivyignore` today.
+- **Docker images**: Trivy (`aquasec/trivy:0.75.0`, pinned by digest) scans the built `anum-api`, `anum-web` and `anum-backup` images (every image a deploy workflow pushes) with `--scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed`, so any high or critical vulnerability that has a fixed version, and any secret in a layer, fails the job. Fix findings in the Dockerfile (base image bump, `apt-get upgrade` / `apk upgrade`, removing unneeded packages); an unavoidable exception goes in a `.trivyignore` at the repository root with a row below. There is no `.trivyignore` today.
 - **Flutter mobile**: `flutter analyze --fatal-infos --fatal-warnings` (the `flutter_lints` set plus the rules and the `strict-casts`, `strict-inference` and `strict-raw-types` language modes in `apps/mobile/analysis_options.yaml`) is the Dart static analysis, and OSV-Scanner checks the `pubspec.lock` that `flutter pub get` resolves.
 - **Tauri desktop**: `cargo clippy --locked --all-targets -- -D warnings` is the Rust static analysis (on the Windows runner, which already builds the crate).
 
@@ -100,7 +100,7 @@ Each exception is scoped as narrowly as the tool allows. Add new ones only with 
 
 Fixed findings when the scans were added: PyJWT 2.9.0 → 2.15.1 and Starlette 0.38.6 → 1.7.0 (via FastAPI 0.115.0 → 0.135.4), and `sharp` forced to `^0.35.4` through a pnpm override (it is pulled in by `@huggingface/transformers` but unused by the browser bundle).
 
-Fixed findings when image scanning was added: the web image moved from `nginx-unprivileged:1.28-alpine` (the February 2026 build on Alpine 3.23.3 that was scanned had 3 critical and 64 high fixable findings, counted per package, in nginx, OpenSSL, curl, expat, musl and others) to `1.30-alpine` (Alpine 3.24, none) plus `apk upgrade`. The API image no longer ships pip: the base image's pip vendors `urllib3` 2.7.0 (CVE-2026-97687, CVE-2026-97689), `msgpack` 1.1.2 (GHSA-6v7p-g79w-8964) and `setuptools` 70.3.0 (CVE-2025-47273), all high with fixes, and the runtime never installs packages.
+Fixed findings when image scanning was added: the web image moved from `nginx-unprivileged:1.28-alpine` (the February 2026 build on Alpine 3.23.3 that was scanned had 3 critical and 64 high fixable findings, counted per package, in nginx, OpenSSL, curl, expat, musl and others) to `1.30-alpine` (Alpine 3.24, none) plus `apk upgrade`. The API image no longer ships pip: the base image's pip vendors `urllib3` 2.7.0 (CVE-2026-97687, CVE-2026-97689), `msgpack` 1.1.2 (GHSA-6v7p-g79w-8964) and `setuptools` 70.3.0 (CVE-2025-47273), all high with fixes, and the runtime never installs packages. The backup image drops `/usr/local/bin/gosu` from its `postgres:17-trixie` base: it is the setuid helper of the base image's `docker-entrypoint.sh`, which the backup image never runs (own `ENTRYPOINT`, `USER 10001`), and its bundled Go runtime (stdlib, `golang.org/x/net`) had 25 fixable findings (24 high, 1 critical) that failed `deploy-staging.yml` while PR CI did not yet scan this image.
 
 ## Agent Safety
 
@@ -120,4 +120,4 @@ OIDC validation with membership resolution is implemented (`ANUM_AUTH_MODE=oidc`
 
 ## Later
 
-Add per-tenant quotas beyond model budgets (storage, runs, integrations), scanning of the images pushed by `deploy-staging.yml` and of base images on a schedule, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.
+Add per-tenant quotas beyond model budgets (storage, runs, integrations), scheduled re-scanning of the pushed images and their base images, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.
