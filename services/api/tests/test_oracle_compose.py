@@ -581,3 +581,14 @@ def test_install_does_not_ask_for_a_password_with_nopasswd_sudo() -> None:
     install = (ORACLE / "install.sh").read_text(encoding="utf-8")
     assert "sudo -n true 2>/dev/null || sudo -v" in install
     assert not [line for line in install.splitlines() if line.strip() == "sudo -v"]
+
+
+def test_keycloak_starts_after_the_bootstrap_admin_is_emptied() -> None:
+    # Emptied bootstrap values reach Keycloak as set-but-empty variables, which it
+    # refuses; the entrypoint unsets them, and still runs the image's start command.
+    service = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]["keycloak"]
+    entrypoint = service["entrypoint"]
+    assert entrypoint[:2] == ["bash", "-c"]
+    assert "unset KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD" in entrypoint[2]
+    assert 'exec /opt/keycloak/bin/kc.sh "$$@"' in entrypoint[2]
+    assert service["command"] == ["start", "--optimized", "--import-realm"]
