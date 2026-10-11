@@ -113,6 +113,8 @@ test('the audit log and this workspace read in Arabic, right to left, without ho
   await page.goto('/#settings');
   await page.reload();
   await expect(page.getByRole('region', { name: 'مساحة العمل هذه' }).getByRole('heading', { name: 'مساحة العمل هذه' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
 
 test('Files reads in Arabic, right to left, with Arabic plurals', async ({ page }) => {
   await mockWorkspaceApi(page);
@@ -127,6 +129,8 @@ test('Files reads in Arabic, right to left, with Arabic plurals', async ({ page 
   const detail = page.locator('.fileDetail');
   await expect(detail.getByText('تستطيع المهام استخدام هذا الملف (3 مقاطع).')).toBeVisible();
   await expect(detail.getByRole('region', { name: 'معاينة' }).getByRole('heading', { name: 'Release notes' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
 
 test('Integrations, Skills and the marketplace read in Arabic, right to left, without overflow', async ({ page }) => {
   await mockWorkspaceApi(page);
