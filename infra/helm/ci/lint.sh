@@ -76,6 +76,10 @@ refuses "backup.persistentVolumeClaim" --set backup.enabled=true
 refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=-1
 refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=3651
 refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=30d
+refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://examplekey@errors.anum.example/1
+refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://examplekey@localhost:8000/1
+refuses "ANUM_SENTRY_DSN must use https" --set extraEnv.ANUM_SENTRY_DSN=http://examplekey@10.0.0.5:8000/1
+refuses "ANUM_SENTRY_DSN must look like" --set config.ANUM_SENTRY_DSN=https://errors.anum.example/1
 
 # ---------------------------------------------------------------------------
 # Admission policy chart (infra/helm/anum-admission, docs/deployment.md#admission-policy).

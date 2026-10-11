@@ -1,0 +1,44 @@
+# Monitoring sites for ANUM on one VM (profile `monitoring`, docs/monitoring-oracle.md).
+#
+# Mounted at /etc/caddy/sites-available/monitoring.caddy and imported by the Caddyfile
+# only while infra/oracle/sites-enabled/monitoring.caddy exists (monitoring.sh enable
+# writes it, disable removes it), so Caddy never asks Let's Encrypt for an empty or
+# unused hostname. Uses the Caddyfile's `common` and `upstream_headers` snippets.
+#
+# Both hosts sit behind HTTP basic auth (ANUM_MONITORING_BASIC_AUTH_USER and the bcrypt
+# hash monitoring.sh stores in ANUM_MONITORING_BASIC_AUTH_HASH) in front of each tool's
+# own login, so nobody else can reach a first-run sign-up page. The one exception is
+# GlitchTip's event ingest: Sentry SDKs cannot send a password, and the project's DSN
+# key authenticates them instead.
+
+(monitoring_auth) {
+	basic_auth {
+		{$ANUM_MONITORING_BASIC_AUTH_USER} {$ANUM_MONITORING_BASIC_AUTH_HASH}
+	}
+}
+
+{$ANUM_MONITOR_HOST} {
+	import common
+	header Strict-Transport-Security "max-age=63072000"
+	import monitoring_auth
+	reverse_proxy beszel:8090 {
+		import upstream_headers
+	}
+}
+
+{$ANUM_ERRORS_HOST} {
+	import common
+	header Strict-Transport-Security "max-age=63072000"
+	@ingest path_regexp ingest ^/api/[0-9]+/(envelope|store|security|minidump)/$
+	handle @ingest {
+		reverse_proxy glitchtip:8000 {
+			import upstream_headers
+		}
+	}
+	handle {
+		import monitoring_auth
+		reverse_proxy glitchtip:8000 {
+			import upstream_headers
+		}
+	}
+}

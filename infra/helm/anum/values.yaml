@@ -163,6 +163,13 @@ config:
   # Empty: "anum-api" for the API, "anum-worker" for the worker. Do not set it here,
   # it would give both processes the same service name.
   ANUM_OTEL_SERVICE_NAME: ""
+  # Errors to a Sentry-compatible server such as GlitchTip, scrubbed to types, frames,
+  # routes and the tenant id (docs/observability.md#error-reporting). Empty: off. Must be
+  # https, or http to a service name without dots (http://<key>@glitchtip:8000/1);
+  # the chart and the API refuse anything else. The DSN carries the project's ingest
+  # key: to keep it out of the ConfigMap, leave this empty and put ANUM_SENTRY_DSN in
+  # secrets.app instead.
+  ANUM_SENTRY_DSN: ""
   # Not set by the chart (development only): ANUM_APP_NAME, ANUM_AUTOMATION_DATABASE_PATH
   # (memory backend), ANUM_OBJECT_STORAGE_LOCAL_PATH (local file storage under
   # /app/.anum-data, an emptyDir).

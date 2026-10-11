@@ -9,6 +9,9 @@
 #   3. db/anum.sql         passwords from .env (the source of truth, so rotating one is
 #                          "edit .env, docker compose up -d"), and CONNECT only for the
 #                          logins that need each database.
+#   4. db/glitchtip.sql    only when GLITCHTIP_DB_PASSWORD is set (the optional monitoring
+#                          profile, infra/oracle/monitoring.sh): GlitchTip's own login and
+#                          database, outside every ANUM role.
 #
 # Passwords are handed to psql as \set lines on stdin, never on a command line, and are
 # never printed.
@@ -46,4 +49,23 @@ run_psql() {
 
 run_psql postgres /init/db/cluster.sql
 run_psql anum /init/bootstrap-database.sql /init/db/anum.sql
+
+glitchtip_password="${GLITCHTIP_DB_PASSWORD:-}"
+if [ -n "$glitchtip_password" ]; then
+  case "$glitchtip_password" in
+    *[!A-Za-z0-9_-]*)
+      echo "db-init: GLITCHTIP_DB_PASSWORD must be url-safe base64 (letters, digits, - and _); run monitoring.sh enable" >&2
+      exit 2
+      ;;
+  esac
+  if [ "${#glitchtip_password}" -lt 24 ]; then
+    echo "db-init: GLITCHTIP_DB_PASSWORD is shorter than 24 characters" >&2
+    exit 2
+  fi
+  {
+    printf '\\set glitchtip_password %s\n' "$glitchtip_password"
+    cat /init/db/glitchtip.sql
+  } | psql -X -q -v ON_ERROR_STOP=1 --dbname=postgres
+  echo "db-init: GlitchTip's login and database are in place"
+fi
 echo "db-init: roles and databases are in place"

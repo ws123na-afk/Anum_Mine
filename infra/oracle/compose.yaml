@@ -52,6 +52,12 @@ services:
       # separated addresses or CIDR ranges; empty closes the console to the internet
       # (configure_env.py --check validates the list; docs/deploy-oracle.md#keycloak).
       ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS: ${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}
+      # Optional sites of the `monitoring` profile (monitoring.caddy). Empty until
+      # monitoring.sh enable sets them; the sites are imported only while enabled.
+      ANUM_MONITOR_HOST: ${ANUM_MONITOR_HOST:-}
+      ANUM_ERRORS_HOST: ${ANUM_ERRORS_HOST:-}
+      ANUM_MONITORING_BASIC_AUTH_USER: ${ANUM_MONITORING_BASIC_AUTH_USER:-}
+      ANUM_MONITORING_BASIC_AUTH_HASH: ${ANUM_MONITORING_BASIC_AUTH_HASH:-}
     # The Caddyfile's remote_ip matcher takes space-separated ranges and needs at least
     # one: commas become spaces, and an empty list becomes 0.0.0.0/32 ::/128, which no
     # TCP peer can have (admin console closed). Overriding the entrypoint clears the
@@ -67,6 +73,10 @@ services:
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # monitoring.sh enable puts an import of monitoring.caddy into sites-enabled/;
+      # the Caddyfile imports sites-enabled/*.caddy (nothing while monitoring is off).
+      - ./monitoring.caddy:/etc/caddy/sites-available/monitoring.caddy:ro
+      - ./sites-enabled:/etc/caddy/sites-enabled:ro
       # Certificates and ACME account: keep this volume, or Let's Encrypt rate limits
       # apply on every re-issue.
       - caddy-data:/data
@@ -111,6 +121,11 @@ services:
       - work_mem=16MB
       - -c
       - max_connections=100
+      # GlitchTip (profile `monitoring`) partitions its event tables; queries over many
+      # partitions lock each of them. 512 is GlitchTip's recommended floor; it costs a
+      # few MB of shared memory whether or not monitoring is on.
+      - -c
+      - max_locks_per_transaction=512
       - -c
       - password_encryption=scram-sha-256
     shm_size: 512m
@@ -144,6 +159,9 @@ services:
       ANUM_RELAY_PASSWORD: ${ANUM_RELAY_PASSWORD:?set ANUM_RELAY_PASSWORD in infra/oracle/.env}
       ANUM_BACKUP_DB_PASSWORD: ${ANUM_BACKUP_DB_PASSWORD:?set ANUM_BACKUP_DB_PASSWORD in infra/oracle/.env}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in infra/oracle/.env}
+      # Set by monitoring.sh enable: GlitchTip's own login and database (db/glitchtip.sql).
+      # Empty: db-init creates nothing for GlitchTip.
+      GLITCHTIP_DB_PASSWORD: ${GLITCHTIP_DB_PASSWORD:-}
     volumes:
       - ./db-init.sh:/init/db-init.sh:ro
       - ./db:/init/db:ro
@@ -239,6 +257,11 @@ services:
       # Private web search (the searxng service below); a workspace owner can switch
       # the web_search tool off under Integrations.
       ANUM_SEARXNG_URL: http://searxng:8080
+      # Errors to GlitchTip (profile `monitoring`) or any Sentry-compatible server; empty
+      # is off. monitoring.sh sets http://<key>@glitchtip:8000/<project> (the private
+      # network, no hairpin through the public address). Scrubbed to types, frames,
+      # routes and the tenant id (docs/observability.md#error-reporting).
+      ANUM_SENTRY_DSN: ${ANUM_SENTRY_DSN:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
       interval: 30s
@@ -560,6 +583,143 @@ services:
         condition: service_healthy
     logging: *logging
 
+  # --- Optional monitoring (profiles `monitoring` and `monitoring-agent`) -------------
+  # Off by default. infra/oracle/monitoring.sh turns it on and off: it asks for two more
+  # hostnames and a password for Caddy's basic auth, generates GlitchTip's secrets into
+  # .env and adds the profiles to COMPOSE_PROFILES (docs/monitoring-oracle.md). Nothing
+  # here publishes a port: Caddy serves both UIs on their own hostnames, behind basic
+  # auth and each tool's own login. Memory limits keep the three containers under 1.4 GB.
+
+  # Beszel hub: host metrics (CPU, memory, disk, load) with history and alerts.
+  beszel:
+    profiles: ["monitoring"]
+    image: henrygd/beszel:0.20.0
+    restart: unless-stopped
+    environment:
+      APP_URL: https://${ANUM_MONITOR_HOST:-}
+      # The container view would show `docker inspect` output, environment (secrets)
+      # included; there is no Docker socket anyway (see beszel-agent).
+      CONTAINER_DETAILS: "false"
+    volumes:
+      - beszel-data:/beszel_data
+    networks:
+      - edge
+      - monitoring
+    healthcheck:
+      # The image is FROM scratch: the hub binary checks itself.
+      test: ["CMD", "/beszel", "health", "--url", "http://localhost:8090"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    logging: *logging
+
+  # Beszel agent: connects out to the hub over the internal `monitoring` network (the
+  # hub's WebSocket endpoint, with the system's token; the hub's public key verifies the
+  # hub). Its own profile, because it cannot start before the hub has issued that key and
+  # token (monitoring.sh agent). No Docker socket and no host /proc: either would give
+  # it root-equivalent access or every container's environment. CPU, memory, load, disk
+  # usage and disk I/O are the host's; network traffic is only the agent's own.
+  beszel-agent:
+    profiles: ["monitoring-agent"]
+    image: henrygd/beszel-agent:0.20.0
+    restart: unless-stopped
+    environment:
+      HUB_URL: http://beszel:8090
+      KEY: ${BESZEL_AGENT_KEY:-}
+      TOKEN: ${BESZEL_AGENT_TOKEN:-}
+      # Empty turns the Docker client off (no socket is mounted).
+      DOCKER_HOST: ""
+      SYSTEM_NAME: ${BESZEL_SYSTEM_NAME:-anum-vm}
+    volumes:
+      # The agent's fingerprint, so the hub recognises it after a recreate.
+      - beszel-agent-data:/var/lib/beszel-agent
+    networks:
+      - monitoring
+    healthcheck:
+      # Healthy while the hub connection is less than 90 seconds old.
+      test: ["CMD", "/agent", "health"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      beszel:
+        condition: service_healthy
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    logging: *logging
+
+  # GlitchTip: Sentry-compatible error tracking for the API (ANUM_SENTRY_DSN). Web,
+  # ingest and the task worker in one process (GlitchTip's all-in-one mode). Its own
+  # login and database in the existing PostgreSQL (db/glitchtip.sql, created by db-init
+  # only when GLITCHTIP_DB_PASSWORD is set). No Valkey: cache and task queue live in its
+  # database, so it can never fill the `noeviction` Valkey that holds the API's rate
+  # limits and run locks. No e-mail: alerts go to webhooks.
+  glitchtip:
+    profiles: ["monitoring"]
+    image: glitchtip/glitchtip:6.2.6
+    restart: unless-stopped
+    # Refuse to start on GlitchTip's built-in default secret key or without a database
+    # password (monitoring.sh enable generates both).
+    command:
+      - sh
+      - -c
+      - >-
+        if [ "$${#SECRET_KEY}" -lt 40 ] || [ -z "$${DATABASE_PASSWORD}" ] || [ "$${GLITCHTIP_DOMAIN}" = "https://" ]; then
+        echo "glitchtip: run infra/oracle/monitoring.sh enable (secret key, database password or host missing)" >&2;
+        exit 1; fi;
+        exec ./bin/start.sh
+    environment:
+      SERVER_ROLE: all_in_one
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-}
+      GLITCHTIP_DOMAIN: https://${ANUM_ERRORS_HOST:-}
+      # The public host (through Caddy) and `glitchtip` (the API's DSN on the private
+      # network); localhost for the health check.
+      ALLOWED_HOSTS: ${ANUM_ERRORS_HOST:-},glitchtip,localhost
+      CSRF_TRUSTED_ORIGINS: https://${ANUM_ERRORS_HOST:-}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: glitchtip
+      DATABASE_USER: glitchtip
+      DATABASE_PASSWORD: ${GLITCHTIP_DB_PASSWORD:-}
+      DATABASE_POOL_MIN_SIZE: "1"
+      DATABASE_POOL_MAX_SIZE: "5"
+      # Empty disables Valkey (see above).
+      VALKEY_URL: ""
+      ENABLE_USER_REGISTRATION: "false"
+      ENABLE_ORGANIZATION_CREATION: "false"
+      GLITCHTIP_MAX_EVENT_LIFE_DAYS: ${GLITCHTIP_MAX_EVENT_LIFE_DAYS:-30}
+      # One web worker, recycled before it reaches the memory limit (GlitchTip's own
+      # default would allow 1 GiB, the whole limit). The embedded task worker runs two
+      # tasks at a time.
+      GRANIAN_WORKERS: "1"
+      GRANIAN_WORKERS_MAX_RSS: "640"
+      VTASKS_CONCURRENCY: "2"
+    volumes:
+      - glitchtip-uploads:/code/uploads
+    networks:
+      - edge
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # The first start runs GlitchTip's migrations.
+      start_period: 300s
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    logging: *logging
+
 networks:
   # Caddy and the three services it proxies to. Not internal: Caddy's published ports
   # and its ACME (Let's Encrypt) traffic need it.
@@ -581,9 +741,20 @@ networks:
     ipam:
       config:
         - subnet: 172.30.30.0/24
+  # The Beszel hub and its agent (profiles `monitoring`, `monitoring-agent`). Internal:
+  # the agent has no route to the internet.
+  monitoring:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.40.0/24
 
 volumes:
   postgres-data:
   caddy-data:
   caddy-config:
   ollama-models:
+  # Monitoring data (monitoring.sh purge deletes them).
+  beszel-data:
+  beszel-agent-data:
+  glitchtip-uploads:

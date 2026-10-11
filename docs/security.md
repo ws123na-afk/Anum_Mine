@@ -56,7 +56,8 @@ Outside `ANUM_ENVIRONMENT=local` the API refuses to start (`InsecureConfiguratio
 - `ANUM_DATABASE_URL` uses the compose credentials (`anum:anum`);
 - the object-storage secret, webhook key or model key is a compose default (`anum-local-secret`, `anum`, `admin`);
 - Keycloak's compose admin password (`admin/admin`) is in the API's environment or `.env` as `KEYCLOAK_ADMIN_PASSWORD` or `KC_BOOTSTRAP_ADMIN_PASSWORD` (or is `anum`/`anum-local-secret`). The API never uses Keycloak's admin account and normally never sees these variables; the check catches a shared env file or a copied compose `environment` block. The Helm chart refuses any Keycloak admin credential in `config` or `extraEnv`. The Keycloak deployment itself is outside ANUM's reach, so its rotated admin password is a release-gate item;
-- rate limiting is disabled or a limit is not positive.
+- rate limiting is disabled or a limit is not positive;
+- `ANUM_SENTRY_DSN` (optional error reporting) uses plain `http` to anything but a private service name without dots, such as `glitchtip` on the compose network ([Observability: Error reporting](observability.md#error-reporting)). A malformed DSN is refused in every environment, without echoing its key.
 
 Each deployment path checks these refusals before deploying: `infra/helm/ci/lint.sh` for the chart, `test_render_blueprint.py` for `render.yaml`, and `test_oracle_compose.py` for `infra/oracle/compose.yaml` (the API settings built from `.env.example` must pass `enforce_startup_policy`, in staging and in production with Ollama).
 

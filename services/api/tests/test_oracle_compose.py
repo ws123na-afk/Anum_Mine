@@ -47,7 +47,8 @@ KEYCLOAK_ADMIN_VARS = {
     "KC_BOOTSTRAP_ADMIN_USERNAME",
     "KC_BOOTSTRAP_ADMIN_PASSWORD",
 }
-LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng"}
+LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "beszel", "beszel-agent", "glitchtip"}
+MONITORING = {"beszel", "beszel-agent", "glitchtip"}
 ONE_SHOT = {"db-init", "migrate", "retention", "backup", "restore-tools", "backup-upload", "ollama-pull"}
 API_REQUIRED = {
     "ANUM_ENVIRONMENT",
@@ -156,6 +157,9 @@ def test_compose_has_the_expected_services_and_profiles() -> None:
         assert profiles[name] == ("jobs",), name
     for name in ("ollama", "ollama-pull"):
         assert profiles[name] == ("ai",), name
+    # Optional monitoring; the agent separately, as it needs the hub's key first.
+    assert profiles["beszel"] == profiles["glitchtip"] == ("monitoring",)
+    assert profiles["beszel-agent"] == ("monitoring-agent",)
     for name in ("caddy", "postgres", "db-init", "migrate", "api", "web", "keycloak", "valkey"):
         assert profiles[name] == (), name
 
@@ -200,7 +204,7 @@ def test_restart_policies_health_checks_and_log_rotation() -> None:
         logging = service["logging"]
         assert logging["driver"] == "json-file", name
         assert logging["options"]["max-size"] and int(logging["options"]["max-file"]) >= 1, name
-    for name in ("caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama"):
+    for name in LONG_RUNNING:
         assert services[name].get("mem_limit"), name
 
 
@@ -805,3 +809,160 @@ def test_searxng_is_private_and_only_the_api_uses_it() -> None:
     assert "json" in searxng_settings["search"]["formats"]
     assert searxng_settings["server"]["limiter"] is False
     assert searxng_settings["server"]["public_instance"] is False
+
+
+# --------------------------------------------------------------------------- monitoring
+
+MONITORING_CADDY = ORACLE / "monitoring.caddy"
+MONITORING_SH = ORACLE / "monitoring.sh"
+
+
+def test_monitoring_is_opt_in_and_reachable_only_through_caddy() -> None:
+    compose = _compose()
+    services = compose["services"]
+    # Off unless monitoring.sh adds the profiles.
+    assert "monitoring" not in _example()["COMPOSE_PROFILES"]
+    for name in MONITORING:
+        service = services[name]
+        assert not service.get("ports") and not service.get("expose"), name
+        assert service["cap_drop"] == ["ALL"], name
+        assert "no-new-privileges:true" in service["security_opt"], name
+        for volume in service.get("volumes", []):
+            assert "docker.sock" not in str(volume) and ":/proc" not in str(volume), name
+    assert compose["networks"]["monitoring"]["internal"] is True
+    assert set(services["beszel-agent"]["networks"]) == {"monitoring"}
+    assert set(services["beszel"]["networks"]) == {"edge", "monitoring"}
+    # GlitchTip reaches PostgreSQL; Caddy reaches GlitchTip and the hub on `edge`.
+    assert set(services["glitchtip"]["networks"]) == {"edge", "backend"}
+    assert _env(services["beszel-agent"])["DOCKER_HOST"] == ""
+    assert _env(services["beszel"])["CONTAINER_DETAILS"] == "false"
+    # Pinned images, both Beszel parts on the same release.
+    hub, agent = services["beszel"]["image"], services["beszel-agent"]["image"]
+    assert re.fullmatch(r"henrygd/beszel:\d+\.\d+\.\d+", hub)
+    assert hub.split(":")[1] == agent.split(":")[1]
+    assert re.fullmatch(r"glitchtip/glitchtip:\d+\.\d+\.\d+", services["glitchtip"]["image"])
+    # The three stay within the RAM budget in docs/monitoring-oracle.md (1.4 GB).
+    limits = {"256m": 256, "128m": 128, "1g": 1024}
+    assert sum(limits[services[name]["mem_limit"]] for name in MONITORING) <= 1408
+
+
+def test_glitchtip_has_its_own_database_login_and_no_shared_valkey() -> None:
+    services = _services()
+    glitchtip = _env(services["glitchtip"])
+    assert glitchtip["DATABASE_USER"] == glitchtip["DATABASE_NAME"] == "glitchtip"
+    assert glitchtip["DATABASE_PASSWORD"] == "${GLITCHTIP_DB_PASSWORD:-}"
+    # The API's Valkey is noeviction and holds rate limits and run locks.
+    assert glitchtip["VALKEY_URL"] == ""
+    assert glitchtip["ENABLE_USER_REGISTRATION"] == "false"
+    assert "glitchtip" in glitchtip["ALLOWED_HOSTS"].split(",")
+    # Never GlitchTip's built-in default secret key.
+    assert '"$${#SECRET_KEY}" -lt 40' in services["glitchtip"]["command"][2]
+    assert _services_referencing("GLITCHTIP_DB_PASSWORD") == {"db-init", "glitchtip"}
+    assert _services_referencing("GLITCHTIP_SECRET_KEY") == {"glitchtip"}
+    assert _services_referencing("BESZEL_AGENT_TOKEN") == {"beszel-agent"}
+    assert "max_locks_per_transaction=512" in services["postgres"]["command"]
+    sql = (ORACLE / "db" / "glitchtip.sql").read_text(encoding="utf-8").lower()
+    assert "create role glitchtip login password %l nosuperuser nobypassrls nocreatedb nocreaterole" in sql
+    assert "revoke connect, temporary on database glitchtip from public" in sql
+    script = (ORACLE / "db-init.sh").read_text(encoding="utf-8")
+    assert "\\\\set glitchtip_password" in script and 'if [ -n "$glitchtip_password" ]' in script
+
+
+def test_monitoring_sites_are_imported_only_when_enabled_and_need_a_login() -> None:
+    caddy = _services()["caddy"]
+    volumes = caddy["volumes"]
+    assert "./monitoring.caddy:/etc/caddy/sites-available/monitoring.caddy:ro" in volumes
+    assert "./sites-enabled:/etc/caddy/sites-enabled:ro" in volumes
+    assert (ORACLE / "sites-enabled").is_dir()
+    assert not list((ORACLE / "sites-enabled").glob("*.caddy"))
+    assert "infra/oracle/sites-enabled/*.caddy" in (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "\nimport /etc/caddy/sites-enabled/*.caddy\n" in CADDYFILE.read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in MONITORING_CADDY.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "{$ANUM_MONITORING_BASIC_AUTH_USER} {$ANUM_MONITORING_BASIC_AUTH_HASH}" in code
+    for host, upstream in (("{$ANUM_MONITOR_HOST}", "beszel:8090"), ("{$ANUM_ERRORS_HOST}", "glitchtip:8000")):
+        block = code[code.index(f"\n{host} {{") :]
+        block = block[: block.index("\n}\n") + 3] if "\n}\n" in block else block
+        assert "import common" in block and "import upstream_headers" in block, host
+        assert f"reverse_proxy {upstream} {{" in block, host
+    errors = code[code.index("\n{$ANUM_ERRORS_HOST} {") :]
+    # Only the SDK ingest endpoints skip basic auth (the DSN key authenticates them).
+    assert "@ingest path_regexp ingest ^/api/[0-9]+/(envelope|store|security|minidump)/$" in errors
+    assert errors.index("handle @ingest") < errors.index("import monitoring_auth")
+    monitor = code[code.index("\n{$ANUM_MONITOR_HOST} {") : code.index("\n{$ANUM_ERRORS_HOST} {")]
+    assert "import monitoring_auth" in monitor and "handle" not in monitor
+    caddy_env = _env(caddy)
+    for name in ("ANUM_MONITOR_HOST", "ANUM_ERRORS_HOST", "ANUM_MONITORING_BASIC_AUTH_USER", "ANUM_MONITORING_BASIC_AUTH_HASH"):
+        assert caddy_env[name] == f"${{{name}:-}}", name
+
+
+def test_api_reports_errors_to_glitchtip_on_the_private_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _env(_services()["api"])["ANUM_SENTRY_DSN"] == "${ANUM_SENTRY_DSN:-}"
+    assert _example()["ANUM_SENTRY_DSN"] == ""
+    # What monitoring.sh dsn writes passes the startup policy in production.
+    environment = _api_environment(
+        {"ANUM_ENVIRONMENT": "production", **OLLAMA_VALUES, "ANUM_SENTRY_DSN": "http://examplekey@glitchtip:8000/1"}
+    )
+    settings = _settings(monkeypatch, environment)
+    assert insecure_configuration_problems(settings) == []
+    assert settings.sentry_dsn is not None
+    public = _settings(monkeypatch, {**environment, "ANUM_SENTRY_DSN": "http://examplekey@errors.example.org/1"})
+    assert any("ANUM_SENTRY_DSN" in problem for problem in insecure_configuration_problems(public))
+
+
+def test_monitoring_script_asks_for_secrets_privately_and_avoids_sudo() -> None:
+    script = MONITORING_SH.read_text(encoding="utf-8")
+    assert script.startswith("#!/usr/bin/env bash\n") and "set -euo pipefail" in script
+    for command in ("enable)", "disable)", "status)", "agent)", "dsn)", "purge)"):
+        assert command in script, command
+    # Hidden prompts for every secret; values reach .env on stdin through configure_env.py
+    # (mode 600, written as the .env owner), never on a command line.
+    assert script.count("read -r -s -p") >= 4
+    assert "write_private" in script and "as_env_owner" in script
+    assert "sudo -n true 2>/dev/null || sudo -v" in script
+    assert not [line for line in script.splitlines() if line.strip() == "sudo -v"]
+    # GlitchTip's admin password goes to Django on stdin.
+    assert "manage.py shell -c" in script and "DJANGO_SUPERUSER_PASSWORD" not in script
+    # The new sites are validated before Caddy is recreated, and removed if refused.
+    assert script.index("caddy_config_cmd validate") < script.index("dc up -d --no-deps caddy\n  caddy_config_cmd reload")
+    # exec'd caddy commands rewrite the admin allow-list as the Caddy entrypoint does.
+    entrypoint = _services()["caddy"]["entrypoint"][2].replace("$$", "$")
+    assert "tr ',' ' '" in entrypoint and 'tr "," " "' in script
+    assert "0.0.0.0/32 ::/128" in entrypoint and "0.0.0.0/32 ::/128" in script
+    assert 'rm -f "$SITE_LINK"' in script
+    assert {"ANUM_MONITOR_HOST", "ANUM_ERRORS_HOST"} <= _configure_env_module().HOST_NAMES
+
+
+def test_monitoring_script_edits_env_through_configure_env(tmp_path: Path) -> None:
+    """The script's .env helper keeps other lines, quotes bcrypt hashes and stays 600."""
+    script = MONITORING_SH.read_text(encoding="utf-8")
+    helper = script[script.index("ENV_HELPER='") + len("ENV_HELPER='") :]
+    helper = helper[: helper.index("\n'\n")]
+    env_file = tmp_path / ".env"
+    env_file.write_text("COMPOSE_PROFILES=ai\nANUM_WEB_HOST=app.example.org\n", encoding="utf-8")
+
+    def run(*args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603
+            [sys.executable, "-c", helper, str(CONFIGURE_ENV), *args],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    fake_hash = "$2a$14$" + "example" * 7 + "exa"
+    assert run("set", str(env_file), "ANUM_MONITORING_BASIC_AUTH_HASH", stdin=fake_hash + "\n").returncode == 0
+    assert run("set", str(env_file), "COMPOSE_PROFILES", stdin="ai,monitoring\n").returncode == 0
+    assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
+    text = env_file.read_text(encoding="utf-8")
+    assert "ANUM_WEB_HOST=app.example.org\n" in text
+    assert f"ANUM_MONITORING_BASIC_AUTH_HASH='{fake_hash}'\n" in text
+    assert text.count("COMPOSE_PROFILES=") == 1
+    assert run("get", str(env_file), "ANUM_MONITORING_BASIC_AUTH_HASH").stdout.strip() == fake_hash
+    assert run("get", str(env_file), "COMPOSE_PROFILES").stdout.strip() == "ai,monitoring"
+    secret = run("secret", str(env_file), "GLITCHTIP_DB_PASSWORD").stdout.strip()
+    assert re.fullmatch(r"[A-Za-z0-9_-]{43}", secret)
+    assert run("valid", str(env_file), "ANUM_ERRORS_HOST", stdin="https://errors.example.org\n").returncode == 1
+    assert run("valid", str(env_file), "ANUM_ERRORS_HOST", stdin="anum-errors-me.duckdns.org\n").returncode == 0
+    assert not (ORACLE / "__pycache__").exists()

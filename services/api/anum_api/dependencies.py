@@ -21,6 +21,7 @@ from .schemas import TenantContext
 from .schemas import WorkspaceMembership as WorkspaceMembershipRecord
 from .settings import settings
 from .store import store
+from .error_reporting import tag_tenant
 from .telemetry import set_tenant_attributes
 from .identity import (
     JwksUnavailableError,
@@ -265,8 +266,10 @@ async def tenant_context(
 
 
 def _traced(context: TenantContext) -> TenantContext:
-    """Tag the request span with the resolved tenant and workspace ids (ids only)."""
+    """Tag the request span with the resolved tenant and workspace ids (ids only), and
+    error reports with the tenant id only (anum_api/error_reporting.py)."""
     set_tenant_attributes(trace.get_current_span(), context.tenant_id, context.workspace_id)
+    tag_tenant(context.tenant_id)
     return context
 
 

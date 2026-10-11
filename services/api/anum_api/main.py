@@ -89,6 +89,7 @@ from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
+from .error_reporting import setup_error_reporting, shutdown_error_reporting
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -109,9 +110,13 @@ async def lifespan(_: FastAPI):
             await scheduler.stop()
         await event_runtime.stop()
         shutdown_telemetry()
+        shutdown_error_reporting()
 
 
 enforce_startup_policy(settings)
+# Errors to a Sentry-compatible server (GlitchTip) when ANUM_SENTRY_DSN is set; scrubbed
+# to types, frames, routes and the tenant id (anum_api/error_reporting.py).
+setup_error_reporting(settings, service_name="anum-api")
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan, **docs_routes(settings))
 app.add_middleware(CorrelationIdMiddleware)
 install_hardening(

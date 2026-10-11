@@ -83,6 +83,34 @@ With export on, `OtlpLogHandler` on the root logger ships records with a fixed a
 
 ANUM's own spans and metrics are built from metadata only. Tests in `services/api/tests/test_telemetry.py` drive real requests, model calls (with a prompt and reply marked `PRIVATE`), NATS publishes, outbox passes, lock contention and activities through in-memory exporters and assert both what is recorded and that no prompt, reply, query string, key, user id or client address is exported; one test runs the API in a subprocess against a local OTLP/HTTP endpoint and checks the protobuf payloads on the wire.
 
+### Error reporting
+
+`services/api/anum_api/error_reporting.py` optionally sends unhandled errors, and log records at `ERROR` and above, from the API and the Temporal worker to a Sentry-compatible server: GlitchTip on the [Oracle VM](monitoring-oracle.md#glitchtip), or any hosted Sentry-compatible endpoint. It uses `sentry-sdk` 2.71.0 (pinned in `pyproject.toml`). Tracing stays with OpenTelemetry: the SDK runs without performance tracing, sessions or log shipping.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `ANUM_SENTRY_DSN` | empty (off) | `https://<key>@<host>/<project id>`. Outside `local`, plain `http` is allowed only to a private service name without dots, for example `http://<key>@glitchtip:8000/1` on the compose network. The startup policy, and the Helm chart through `infra/helm/ci/lint.sh`, refuse anything else. A malformed DSN is refused at startup in every environment, and the error never echoes the key. |
+
+An event keeps:
+
+- the exception type and stack frames (file, function, line);
+- the route, the request method and the URL path;
+- log message templates;
+- `environment` and `server_name` (`anum-api`/`anum-worker`);
+- two tags: `anum.tenant_id` (set per API request by the tenant dependency) and `anum.correlation_id` (matches the log lines).
+
+Removed before sending, whatever the integration that produced the event:
+
+- exception messages, which can echo request text;
+- local variables and source lines;
+- request bodies, query strings, cookies, and every header except `Content-Type` and `Content-Length`;
+- client addresses and user identity (`send_default_pii=False`, and `user` is dropped);
+- log arguments, formatted log messages and `extra=` fields;
+- contexts other than runtime, OS and trace;
+- breadcrumb data other than method, status code and query-less URL.
+
+The worker sends no tenant tag, because its activities share one SDK scope. `tests/test_error_reporting.py` runs the real SDK against a FastAPI route and checks that none of these values leave the process.
+
 ### Local stack
 
 `infra/docker/compose.yaml` keeps the `otel-collector` service in the default stack (debug exporter only) and adds an `observability` profile:
@@ -128,7 +156,7 @@ No Alertmanager is configured: alerts show in Prometheus and Grafana only until 
 
 ## Now
 
-In place: request, model, outbox, coordination and Temporal metrics; traces across API, model gateway, outbound HTTP, SQL, NATS publish and Temporal; correlated and redacted logs; the local backend stack with dashboards and tested alert rules; [Runbooks](runbooks.md) for each alert.
+In place: request, model, outbox, coordination and Temporal metrics; traces across API, model gateway, outbound HTTP, SQL, NATS publish and Temporal; correlated and redacted logs; optional scrubbed error reporting to GlitchTip or another Sentry-compatible server ([Error reporting](#error-reporting)); the local backend stack with dashboards and tested alert rules; [Runbooks](runbooks.md) for each alert.
 
 ## Later
 

@@ -68,6 +68,15 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- fail (printf "config.%s must be low, medium, high, xhigh, max or empty (the API refuses other values at startup)" $key) -}}
 {{- end -}}
 {{- end -}}
+{{- $dsn := trim (toString (default "" (coalesce (get (default (dict) .Values.extraEnv) "ANUM_SENTRY_DSN") $c.ANUM_SENTRY_DSN))) -}}
+{{- if $dsn -}}
+{{- if not (regexMatch "^https?://[^@/?#]+@[^/?#]+/([^?#]*/)?[0-9]+/?$" $dsn) -}}
+{{- fail "config.ANUM_SENTRY_DSN must look like https://<public key>@<host>/<project id>" -}}
+{{- end -}}
+{{- if and (not (hasPrefix "https://" $dsn)) (or (not (regexMatch "^http://[^@/]+@[^.:/@\\[\\]]+(:[0-9]+)?/" $dsn)) (regexMatch "^http://[^@/]+@localhost(:[0-9]+)?/" $dsn)) -}}
+{{- fail "config.ANUM_SENTRY_DSN must use https, or http to a service name without dots such as glitchtip (the API refuses other clear-text DSNs at startup)" -}}
+{{- end -}}
+{{- end -}}
 {{- if ne (lower (toString $c.ANUM_RATE_LIMIT_ENABLED)) "true" -}}
 {{- fail "config.ANUM_RATE_LIMIT_ENABLED must stay true outside local" -}}
 {{- end -}}

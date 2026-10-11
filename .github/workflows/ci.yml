@@ -180,6 +180,8 @@ jobs:
       # The one-VM deployment (docs/deploy-oracle.md), with the placeholder .env.example.
       - run: docker compose -f infra/oracle/compose.yaml --env-file infra/oracle/.env.example config -q
       - run: docker compose -f infra/oracle/compose.yaml --env-file infra/oracle/.env.example --profile ai --profile jobs config -q
+      # Optional monitoring (docs/monitoring-oracle.md).
+      - run: docker compose -f infra/oracle/compose.yaml --env-file infra/oracle/.env.example --profile monitoring --profile monitoring-agent config -q
       - name: ShellCheck the one-VM scripts
         run: |
           shellcheck --version

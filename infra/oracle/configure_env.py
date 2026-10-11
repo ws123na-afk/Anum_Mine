@@ -45,7 +45,8 @@ GENERATE = "generate-on-server"
 PLACEHOLDER = "replace-me"
 FERNET_KEYS = {"ANUM_SECRETS_KEY"}
 SECRET_NAME = re.compile(r"(PASSWORD|SECRET|TOKEN|PASSPHRASE|_KEY$)")
-HOST_NAMES = {"ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST"}
+# The three ANUM hosts plus the optional monitoring hosts (monitoring.sh validates those).
+HOST_NAMES = {"ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ANUM_MONITOR_HOST", "ANUM_ERRORS_HOST"}
 # Each host's example name, in the order install.sh prints them.
 HOST_EXAMPLES = {
     "ANUM_WEB_HOST": "anum-app-yourname.duckdns.org",

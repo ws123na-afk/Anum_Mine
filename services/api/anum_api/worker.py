@@ -23,6 +23,7 @@ from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxR
 
 from .agent_tools import ToolRegistry, default_tool_registry
 from .durable_runs import AgentRunActivities
+from .error_reporting import setup_error_reporting, shutdown_error_reporting
 from .integration_tools import configured_external_handler
 from .integrations import default_integration_registry
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
@@ -111,6 +112,8 @@ async def run_worker(config: Settings = settings) -> None:
         raise RuntimeError("The worker needs ANUM_REPOSITORY_BACKEND=postgresql outside local")
 
     setup_telemetry(config, service_name="anum-worker", engines=sqlalchemy_engines(event_runtime))
+    # Errors only, without tenant tags: activities share one scope (anum_api/error_reporting.py).
+    setup_error_reporting(config, service_name="anum-worker")
     client = await Client.connect(
         config.temporal_target,
         namespace=config.temporal_namespace,
@@ -139,6 +142,7 @@ async def run_worker(config: Settings = settings) -> None:
     finally:
         await event_runtime.stop()
         shutdown_telemetry()
+        shutdown_error_reporting()
 
 
 def main() -> None:

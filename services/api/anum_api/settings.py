@@ -223,6 +223,10 @@ class Settings(BaseSettings):
     otel_logs_enabled: bool = True
     # Head sampling ratio for new traces (parent-based, so a sampled caller stays sampled).
     otel_traces_sampler_ratio: float = Field(default=1.0, ge=0, le=1)
+    # Error reporting to a Sentry-compatible server such as GlitchTip
+    # (anum_api/error_reporting.py, docs/observability.md#error-reporting). Empty: off.
+    # Outside local it must be https, or http to a private service name (no dots).
+    sentry_dsn: SecretStr | None = None
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",
@@ -239,6 +243,19 @@ class Settings(BaseSettings):
         from .model_egress import parse_allowed_hosts
 
         parse_allowed_hosts(value)
+        return value
+
+    @field_validator("sentry_dsn")
+    @classmethod
+    def _valid_sentry_dsn(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        from .error_reporting import dsn_problem
+
+        problem = dsn_problem(value.get_secret_value())
+        if problem:
+            # The message names the setting only: a DSN carries the project's key.
+            raise ValueError(problem)
         return value
 
     @field_validator("secrets_key")

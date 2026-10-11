@@ -85,3 +85,8 @@
 		import upstream_headers
 	}
 }
+
+# Optional sites: infra/oracle/monitoring.sh enable puts an import of monitoring.caddy
+# (Beszel and GlitchTip, docs/monitoring-oracle.md) into sites-enabled/ and disable
+# removes it. A glob that matches no file imports nothing.
+import /etc/caddy/sites-enabled/*.caddy

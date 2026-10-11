@@ -106,6 +106,7 @@ x-user-roles: owner,member
 - [Deployment (Kubernetes and Helm)](docs/deployment.md)
 - [Deploying on Render](docs/deploy-render.md)
 - [Deploying on one Oracle Cloud VM](docs/deploy-oracle.md)
+- [Monitoring the Oracle VM](docs/monitoring-oracle.md)
 - [Observability](docs/observability.md)
 - [Runbooks](docs/runbooks.md)
 - [Development standards](docs/development-standards.md)
