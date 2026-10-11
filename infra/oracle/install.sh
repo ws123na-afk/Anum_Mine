@@ -32,7 +32,10 @@ else
   sudo -n true 2>/dev/null || sudo -v
 fi
 run_as_owner() {
-  if [ "$(id -un)" = "$OWNER" ]; then "$@"; else $SUDO -u "$OWNER" -- "$@"; fi
+  # Under `sudo bash install.sh` SUDO is empty: switch to the owner with runuser.
+  if [ "$(id -un)" = "$OWNER" ]; then "$@"
+  elif [ -z "$SUDO" ]; then runuser -u "$OWNER" -- "$@"
+  else $SUDO -u "$OWNER" -- "$@"; fi
 }
 
 # --- Checks -------------------------------------------------------------------------
