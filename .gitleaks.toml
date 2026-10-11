@@ -41,3 +41,10 @@ condition = "AND"
 paths = ['''^services/api/tests/test_oracle_compose\.py$''']
 regexTarget = "secret"
 regexes = ['''^ANUM_[A-Z0-9_]+$''']
+
+[[allowlists]]
+description = "Keycloak authenticator-config alias (the name of a 2FA flow step), not a credential"
+condition = "AND"
+paths = ['''^infra/keycloak/two_factor\.py$''']
+regexTarget = "secret"
+regexes = ['''^anum-2fa-unless-passkey$''']
