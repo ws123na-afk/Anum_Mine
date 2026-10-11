@@ -1,4 +1,5 @@
 import 'package:anum_mobile/features/voice/voice_controller.dart';
+import 'package:anum_mobile/features/voice/voice_models.dart';
 import 'package:anum_mobile/features/voice/voice_preferences.dart';
 import 'package:anum_mobile/features/voice/voice_screen.dart';
 import 'package:anum_mobile/features/voice/speech_service.dart';
@@ -103,6 +104,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.assistantName, 'Layla');
     expect(preferences.values['anum.voice.name'], 'Layla');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('pausing the app stops listening at once', (tester) async {
+    final speech = FakeSpeech();
+    final controller = await tester.runAsync(() => buildController(
+        speech: speech,
+        transport: FakeVoiceTransport(),
+        preferences: MemoryVoicePreferences({'anum.voice.wake': 'off'})));
+    await _pumpScreen(tester, controller!);
+    await tester.runAsync(controller.tapOrb);
+    await tester.pump();
+    expect(controller.state, VoiceState.listening);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    expect(controller.state, VoiceState.idle);
+    await tester.pump();
+    expect(speech.cancels, greaterThan(0));
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const SizedBox());
   });
 }

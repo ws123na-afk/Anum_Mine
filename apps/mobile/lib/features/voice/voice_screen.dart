@@ -55,6 +55,12 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _resumed = state == AppLifecycleState.resumed;
+    if (!_resumed) {
+      // Stop the microphone now: a post-frame callback may never run once
+      // the app is in the background.
+      controller.setVisible(false);
+      return;
+    }
     _syncVisibility();
   }
 

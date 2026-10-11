@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -37,6 +38,17 @@ abstract final class AnumRoutes {
   static const voice = '/voice';
 }
 
+/// Why [apiUrl] cannot be used by a release build, or null when it can.
+/// Release builds talk to the API over HTTPS only.
+String? releaseApiUrlError(String apiUrl, {required bool release}) {
+  if (!release) return null;
+  final uri = Uri.tryParse(apiUrl);
+  if (uri != null && uri.scheme == 'https' && uri.host.isNotEmpty) return null;
+  return 'This build is misconfigured: ANUM_API_URL must be an https:// '
+      'address in release builds (got "$apiUrl"). Rebuild with '
+      '--dart-define=ANUM_API_URL=https://...';
+}
+
 class AnumApp extends StatefulWidget {
   const AnumApp({super.key});
 
@@ -52,6 +64,10 @@ class _AnumAppState extends State<AnumApp> {
   late final GovernanceController governance;
   late final LocaleController locale;
 
+  /// Set when the build's configuration is unsafe; the app then shows only
+  /// this message and creates no clients.
+  String? _configError;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +75,8 @@ class _AnumAppState extends State<AnumApp> {
       'ANUM_API_URL',
       defaultValue: 'http://10.0.2.2:8000/',
     );
+    _configError = releaseApiUrlError(configuredUrl, release: kReleaseMode);
+    if (_configError != null) return;
     // With --dart-define=ANUM_OIDC_ISSUER the app signs in through Keycloak;
     // without it, the local development sign-in stays in place.
     final oidcConfig = OidcConfig.fromEnvironment();
@@ -119,6 +137,10 @@ class _AnumAppState extends State<AnumApp> {
 
   @override
   void dispose() {
+    if (_configError != null) {
+      super.dispose();
+      return;
+    }
     auth.removeListener(_onAuthChanged);
     auth.dispose();
     workspace.dispose();
@@ -130,7 +152,29 @@ class _AnumAppState extends State<AnumApp> {
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
+  Widget build(BuildContext context) {
+    final configError = _configError;
+    if (configError != null) {
+      return MaterialApp(
+        title: 'ANUM',
+        debugShowCheckedModeBanner: false,
+        theme: AnumTheme.dark(),
+        home: Scaffold(
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(configError, textAlign: TextAlign.center),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return _buildApp(context);
+  }
+
+  Widget _buildApp(BuildContext context) => ListenableBuilder(
       listenable: locale,
       builder: (context, _) => MaterialApp(
             title: 'ANUM',

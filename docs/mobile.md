@@ -68,6 +68,7 @@ and `tool/configure_native.dart` applies everything ANUM changes, idempotently:
 - The `com.anum.app` OIDC redirect scheme: the `appAuthRedirectScheme` manifest placeholder on Android and `CFBundleURLTypes` on iOS.
 - Microphone, Bluetooth and recognition-service declarations on Android; `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription` on iOS; `PERMISSION_MICROPHONE` and `PERMISSION_SPEECH_RECOGNIZER` in `ios/Podfile`, without which `permission_handler` compiles the microphone request out.
 - Cleartext HTTP in debug and profile builds only; `android/app/src/release/AndroidManifest.xml` turns it off for release.
+- `android:allowBackup="false"` and `android:fullBackupContent="false"`, so sessions and tokens in app storage stay out of Android backups.
 - The release signing configuration (see [Release builds](#release-builds)) and `compileSdk = 37`.
 
 To regenerate (for example after a Flutter template change), delete the folders, run the two commands above, and commit the result. `test/configure_native_test.dart` fails when a committed file differs from what the tool would write, so hand edits to these files belong in the tool. Build outputs, `local.properties`, Gradle wrapper binaries, generated plugin registrants, keystores, `key.properties`, `google-services.json` and `GoogleService-Info.plist` are gitignored.
@@ -87,6 +88,8 @@ Production configuration is passed at build time; there are no flavours. Keep th
   "ANUM_WEB_APP_URL": "https://app.example.com/"
 }
 ```
+
+A release build whose `ANUM_API_URL` is not an `https://` address starts on an error screen naming the problem and creates no API client.
 
 ```bash
 flutter build appbundle --release --dart-define-from-file=production.json
@@ -294,6 +297,7 @@ Voice
 - [ ] English and Arabic recognition each produce an editable transcript; nothing runs before the user confirms.
 - [ ] Wake-by-name, push-to-talk and spoken confirmation work with the phone speaker, wired headphones and a Bluetooth headset (on Android 12+ check whether the nearby-devices permission is requested and what happens when it is denied).
 - [ ] An incoming call or another app taking audio focus stops listening cleanly.
+- [ ] Backgrounding the app or pressing back out of the workspace stops listening immediately (the microphone indicator goes off).
 
 Platform behaviour
 - [ ] Deep links to task URLs open the right task after sign-in; process death and restore keep the current destination.

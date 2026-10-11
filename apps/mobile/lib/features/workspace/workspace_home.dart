@@ -51,7 +51,13 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
+  Widget build(BuildContext context) => PopScope<Object?>(
+      // Leaving the workspace never keeps the microphone open.
+      onPopInvokedWithResult: (didPop, result) =>
+          widget.voiceController.setVisible(false),
+      child: _buildShell(context));
+
+  Widget _buildShell(BuildContext context) => ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
           final pages = [
