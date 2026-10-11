@@ -206,6 +206,7 @@ Day one, before anyone else uses it:
 3. Sign out, sign in as the new user, set up OTP, then **Users** → `anum-bootstrap-admin` → **Delete**.
 4. Render → `anum-keycloak` → **Environment**: delete `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` → **Save and deploy**. Keycloak creates the bootstrap admin only on its first start against an empty database, so these variables do nothing afterwards; if a later Blueprint sync adds them back, delete them again.
 5. Realm **anum** → **Realm settings**: confirm "User registration" is off (it is in the realm file) and set the e-mail settings if you want password-reset mail.
+6. Turn on two-factor sign-in for ANUM users: the imported realm already has the OTP and passkey policies, but the `anum-browser-2fa` flow has to be added after the import. The Render Keycloak image has no Python for `infra/keycloak/two_factor.py`, so follow "In the admin console" in [Identity: Two-factor sign-in](identity.md#two-factor-sign-in), and set **Authentication** → **Policies** → **Webauthn Passwordless Policy** → Relying party ID to the auth host (`<AUTH>` without `https://`).
 
 Create ANUM users (realm **anum** → **Users** → **Add user**):
 

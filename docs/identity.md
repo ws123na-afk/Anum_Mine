@@ -37,7 +37,53 @@ Realm roles `owner`, `member`, and `viewer` mirror `anum_api.authorization.Role`
 
 The realm role `org_admin` mirrors `anum_api.authorization.OrganizationRole`: the organization administrator of the user's `tenant_id`, the only role that may change tenant-wide policy ([Governance](governance-and-scale.md#who-may-change-what)). It is authoritative and is kept in `TenantContext.organization_roles` next to the membership role; it grants no workspace permission and never works without an active membership. Grant it only to the tenant's administrators; the DEV-ONLY `dev` user has it.
 
-The realm ships one user, `dev` / `anum-dev-only-password` (tenant `tenant_local`, default workspace `workspace_foundation`, realm role `owner`). That password and the compose `admin`/`admin` admin account are DEV-ONLY placeholders. Shared environments must use their own realm configuration, secrets from the deployment secret store, and no seeded users. `infra/render/keycloak_realm.py` derives such a realm from this file at image build for the Render path: it drops `users`, sets the `anum-web` redirect URIs, web origins and post-logout redirects to `${ANUM_WEB_ORIGIN}` (resolved by Keycloak from its environment at import) and removes the Vite dev-server URLs from `anum-desktop` ([Deploying on Render](deploy-render.md#keycloak)).
+The realm ships one user, `dev` / `anum-dev-only-password` (tenant `tenant_local`, default workspace `workspace_foundation`, realm role `owner`). That password and the compose `admin`/`admin` admin account are DEV-ONLY placeholders. Shared environments must use their own realm configuration, secrets from the deployment secret store, and no seeded users. `infra/render/keycloak_realm.py` derives such a realm from this file at image build for the Render path: it drops `users`, sets the `anum-web` redirect URIs, web origins and post-logout redirects to `${ANUM_WEB_ORIGIN}` (resolved by Keycloak from its environment at import), removes the Vite dev-server URLs from `anum-desktop` and adds the two-factor policies ([Two-factor sign-in](#two-factor-sign-in), [Deploying on Render](deploy-render.md#keycloak)).
+
+## Two-Factor Sign-In
+
+Shared Keycloaks (Oracle, Render; Keycloak 26.4, which passkeys need) ask **every** user who signs in with a password for a second factor. Requiring it for everyone rather than only owners is a deliberate choice: the realm role is coarse (the authoritative role is the ANUM membership, which Keycloak cannot see), any member can read tenant data, and one rule is simpler to explain and harder to get wrong. The development realm (`infra/keycloak/anum-realm.json` as imported by `infra/docker/compose.yaml`, Keycloak 25) stays password-only so the CI journey can post the login form.
+
+| What | Setting |
+| --- | --- |
+| Browser flow | `anum-browser-2fa`, bound as the realm's browser flow (below) |
+| Authenticator app (OTP) | TOTP, HmacSHA1, 6 digits, 30 seconds, look-ahead 1, codes not reusable: what Google Authenticator, Microsoft Authenticator, FreeOTP, 1Password and Bitwarden accept |
+| Passkeys | WebAuthn passwordless policy: relying party = the auth host (`ANUM_AUTH_HOST`), user verification **required**, discoverable credential required, ES256/RS256, "Enable passkeys" on, so the username and password page offers "Sign in with Passkey" and the browser's passkey autofill (conditional UI) |
+| Recovery codes | Recovery Authentication Codes, an alternative to the app code on the second step |
+| Required actions | "Configure OTP" enabled and a **default action** (every new user sets up an app at first sign-in); "Webauthn Register Passwordless" and "Recovery Authentication Codes" enabled |
+
+`anum-browser-2fa` is a copy of Keycloak's `browser` flow (cookie, identity-provider redirector, organizations, username and password with passkeys) whose second step is replaced by `anum-2fa`:
+
+```text
+anum-2fa                               CONDITIONAL
+  Condition - credential               REQUIRED   webauthn-passwordless not used
+  anum-2fa-verify                      CONDITIONAL
+    Condition - user configured        REQUIRED
+    OTP Form                           ALTERNATIVE
+    Recovery Authentication Code Form  ALTERNATIVE
+  anum-2fa-enrol                       CONDITIONAL
+    Condition - sub-flow executed      REQUIRED   anum-2fa-verify not-executed
+    OTP Form                           REQUIRED
+```
+
+- **Password + app code** (or one recovery code through "Try another way"). Keycloak's default flow skips the second step for users who never set one up; `anum-2fa-verify` keeps that condition only to choose between asking and enrolling.
+- **Password, no app yet** (every existing user, the first time): `anum-2fa-enrol` runs and the user must scan the QR code and enter a code before the sign-in completes. Nobody is locked out and nobody skips it. Existing users therefore need no preparation: they enrol on their next sign-in.
+- **Passkey**: the whole second step is skipped. A passkey with user verification (fingerprint, face or device PIN) is already two factors.
+
+People add a passkey or recovery codes themselves in the account console (`https://<AUTH>/realms/anum/account` → Account security → Signing in), or the owner sets the "Webauthn Register Passwordless" or "Recovery Authentication Codes" required action on them.
+
+Clients need no change. Web, desktop, Flutter (`flutter_appauth`, the system browser) and Android all use authorization code + PKCE (S256) against Keycloak's hosted login pages, and the second step, passkeys and enrolment all happen on those pages; the tokens and claims the API checks are the same. No client uses the password grant (direct access grants stay off), which could not carry a second factor.
+
+**How it gets there.** A realm file that lists any authentication flow must list all of them, so the flow is not in the import. `infra/render/keycloak_realm.py` adds the OTP and passkey policies to the imported realm (relying party left to Keycloak's host name), and `infra/keycloak/two_factor.py` converges a running Keycloak through `kcadm`: it creates and checks the flow, sets the relying party, enables the required actions and binds the flow, changes nothing when all is in place, and rebuilds `anum-2fa` if someone changed it in the console. On the Oracle VM run `infra/oracle/keycloak-2fa.sh` ([Deploying on Oracle: Two-factor sign-in](deploy-oracle.md#two-factor-sign-in)); on Render, follow the console steps below. `services/api/tests/test_keycloak_two_factor.py` checks the convergence against a stand-in of Keycloak's admin API; the flow was also exercised against Keycloak 26.4.0 (enrolment of an existing user, code, wrong code, recovery code, passkey registration and passkey-only sign-in).
+
+**In the admin console** (Render, or to check by hand), realm **anum**: **Authentication** → `browser` → **Duplicate** as `anum-browser-2fa`; in the copy delete "Browser - Conditional 2FA" and add the `anum-2fa` sub-flow under the forms sub-flow exactly as above (the gear icon of each condition sets its options); **Action** → **Bind flow** → Browser flow. **Authentication** → **Policies** → OTP Policy and Webauthn Passwordless Policy as in the table. **Authentication** → **Required actions**: the three above on, "Configure OTP" also "Set as default action".
+
+### Resetting a user's second factor
+
+A user who lost the phone and the recovery codes: realm **anum** → **Users** → the user → **Credentials** → delete `otp` and `recovery-authn-codes` (keep the password). At the next sign-in they set up a new app. If repeated wrong codes locked them out, the same page offers **Unlock** (or **Realm settings** → **Security defenses** → brute force detection). A lost passkey: delete its `webauthn-passwordless` credential; the user signs in with password and app code.
+
+On the Oracle VM the same without the console: `bash ~/anum/infra/oracle/keycloak-2fa.sh reset-user <username>` removes the app and the recovery codes and clears the lockout, nothing else.
+
+**Break-glass** (the owner cannot reach the admin console, for example lost the master-realm admin's OTP): every `keycloak-2fa.sh` action takes `--temporary-admin`, which creates a temporary master-realm service account inside the Keycloak container with `kc.sh bootstrap-admin service`, uses it through `kcadm` and deletes it at the end. The secret is generated on the VM and reaches the container on stdin. To get back into the console itself, the same command creates a temporary user instead (it asks for the password): `cd ~/anum/infra/oracle && docker compose exec keycloak /opt/keycloak/bin/kc.sh bootstrap-admin user --optimized --username temporary-admin`, then sign in, fix the account (master realm → Users → your admin → Credentials → delete OTP; it asks for a new one at the next sign-in) and delete `temporary-admin`.
 
 ## Token Contract
 
@@ -211,8 +257,8 @@ The API must allow the web origin (`ANUM_CORS_ORIGINS`) and run in `oidc` mode; 
 
 ## Now
 
-Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients, the caller's own memberships across the tenant's workspaces (`GET /api/v1/me/workspace-memberships`) listed by the web workspace switcher and the Flutter workspace picker, both checking the membership before switching, fail-fast refusal of development authentication outside local/test, and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
+Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients, the caller's own memberships across the tenant's workspaces (`GET /api/v1/me/workspace-memberships`) listed by the web workspace switcher and the Flutter workspace picker, both checking the membership before switching, fail-fast refusal of development authentication outside local/test, two-factor sign-in on shared Keycloaks (authenticator app or recovery code for every password sign-in, passkeys, enrolment at the next sign-in; [Two-factor sign-in](#two-factor-sign-in)), and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
 
 ## Later
 
-Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; MFA and federation policy.
+Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; federation policy; two-factor configuration as part of a declarative realm sync (today a one-time `keycloak-2fa.sh` run or console steps per Keycloak).

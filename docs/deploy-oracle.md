@@ -235,11 +235,30 @@ Before anyone else uses it:
 
 1. Open the admin console (`http://localhost:8080/admin/` through the tunnel, or `https://<AUTH>/admin/` from an allowed address). User `anum-bootstrap-admin`, password `KC_BOOTSTRAP_ADMIN_PASSWORD` from `.env`.
 2. Realm **master** → **Users** → **Add user** with your name and e-mail → **Credentials**: a long password (not temporary) → **Role mapping** → **Assign role** → realm role `admin` → **Required user actions**: `Configure OTP`.
-3. Sign out, sign in as the new user, set up OTP, then **Users** → `anum-bootstrap-admin` → **Delete**.
-4. On the VM, empty both bootstrap values in `.env` (keep the lines, so `update.sh` does not add them again): `KC_BOOTSTRAP_ADMIN_USERNAME=` and `KC_BOOTSTRAP_ADMIN_PASSWORD=`; then `cd ~/anum/infra/oracle && docker compose up -d keycloak`. Keycloak only creates the bootstrap admin against an empty database, so this only removes the password from the container.
-5. Realm **anum** → **Realm settings**: "User registration" stays off; set up e-mail if you want password-reset mail. Then **Clients** → `anum-web` → **Valid redirect URIs** must show `https://<WEB>/*`.
+3. On the VM, turn on two-factor sign-in for ANUM users while the bootstrap admin still works (it signs in with the values in `.env`, nothing to type): `bash ~/anum/infra/oracle/keycloak-2fa.sh` ([Two-factor sign-in](#two-factor-sign-in)).
+4. Sign out, sign in as the new user, set up OTP, then **Users** → `anum-bootstrap-admin` → **Delete**.
+5. On the VM, empty both bootstrap values in `.env` (keep the lines, so `update.sh` does not add them again): `KC_BOOTSTRAP_ADMIN_USERNAME=` and `KC_BOOTSTRAP_ADMIN_PASSWORD=`; then `cd ~/anum/infra/oracle && docker compose up -d keycloak`. Keycloak only creates the bootstrap admin against an empty database, so this only removes the password from the container.
+6. Realm **anum** → **Realm settings**: "User registration" stays off; set up e-mail if you want password-reset mail. Then **Clients** → `anum-web` → **Valid redirect URIs** must show `https://<WEB>/*`.
 
-Create ANUM users as on Render: realm **anum** → **Users** → **Add user**, attribute `tenant_id` (and optionally `default_workspace_id`), realm role `owner` for a tenant's first person, a temporary password sent out of band.
+Create ANUM users as on Render: realm **anum** → **Users** → **Add user**, attribute `tenant_id` (and optionally `default_workspace_id`), realm role `owner` for a tenant's first person, a temporary password sent out of band. At their first sign-in they set a new password and an authenticator app.
+
+### Two-factor sign-in
+
+Every ANUM user who signs in with a password also needs a code from an authenticator app (or one of their recovery codes); signing in with a passkey needs nothing else. Users without an app set one up at their next sign-in, so turning this on locks nobody out. What exactly is configured and why: [Identity: Two-factor sign-in](identity.md#two-factor-sign-in).
+
+Keycloak imports the realm only on its first start, so the flow is applied to the running server by a script. Run it on the VM as `ubuntu` (no sudo), after an `update.sh` that brought it:
+
+```bash
+bash ~/anum/infra/oracle/keycloak-2fa.sh
+```
+
+It signs in to Keycloak as a master-realm admin: the bootstrap admin from `.env` if its password is still there (day one), otherwise it asks for your admin's username and password (typed without echo, never shown or put on a command line). It then prints the bound flow and the policies. Running it again changes nothing, and repairs the flow if someone edited it in the console; `keycloak-2fa.sh status` only shows the state.
+
+**Your admin has OTP** (as day one sets up): `kcadm`, which the script uses, cannot answer an OTP prompt, so the sign-in fails with a hint. Run `bash ~/anum/infra/oracle/keycloak-2fa.sh --temporary-admin` instead: it creates a temporary service account inside the Keycloak container (`kc.sh bootstrap-admin service`, about a minute), uses it and deletes it at the end. The `bootstrap-admin` step was tested on Keycloak 26.4's file database while the server was stopped (that database allows one process); on PostgreSQL it is meant to run next to the live server (it starts Keycloak without an HTTP listener), which was not tested. If it fails, or make the same changes in the console ([Identity: Two-factor sign-in](identity.md#two-factor-sign-in), "In the admin console").
+
+What existing users see (for example `shahzeb`): after the password, a page "Mobile Authenticator Setup" with a QR code. Scan it with an authenticator app, enter the six-digit code, and the sign-in completes. From then on every password sign-in asks for a code. Add a passkey (phone, laptop fingerprint or a security key) or recovery codes in the account console, `https://<AUTH>/realms/anum/account` → Account security → Signing in; print or store the recovery codes in the password manager.
+
+**Someone lost their phone:** `bash ~/anum/infra/oracle/keycloak-2fa.sh reset-user <username>` (add `--temporary-admin` if your admin has OTP) removes their app and recovery codes and lifts a lockout; they set up a new app at the next sign-in. The same in the console, the break-glass path when you cannot reach the console yourself, and lost passkeys: [Identity: Resetting a user's second factor](identity.md#resetting-a-users-second-factor).
 
 ## AI Model
 

@@ -4,7 +4,7 @@ ANUM should be designed as a security-sensitive system from the beginning becaus
 
 ## Identity
 
-Keycloak is the identity provider. ANUM uses OIDC for sign-in, token issuance, session management, MFA policy, and federation. Application services validate tokens, map external identities to ANUM users, and avoid embedding identity assumptions in client code.
+Keycloak is the identity provider. ANUM uses OIDC for sign-in, token issuance, session management, MFA policy, and federation. Application services validate tokens, map external identities to ANUM users, and avoid embedding identity assumptions in client code. On shared Keycloaks every password sign-in needs a second factor (authenticator app or recovery code) and passkeys with user verification are accepted alone ([Two-factor sign-in](identity.md#two-factor-sign-in)).
 
 The realm is code (`infra/keycloak/anum-realm.json`): public clients use authorization code with PKCE only, tokens carry `aud: anum-api` and an admin-managed `tenant_id` claim, and the API validates issuer, audience, expiry, and signature against a cached, rotation-aware JWKS. The persisted workspace membership, not the token's realm roles, decides the caller's workspace role. Development authentication (header-asserted context and `anum_local_*` sessions) is refused at startup outside `local`/`test`. The full contract is in [Identity and sign-in](identity.md).
 
