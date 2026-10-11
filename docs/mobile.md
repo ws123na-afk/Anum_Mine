@@ -2,6 +2,8 @@
 
 `apps/mobile` is ANUM's cross-platform Flutter client for Android, iOS, and tablets, and the app ANUM ships to the Play Store and the App Store (applicationId and bundle identifier `com.anum.app`). It implements the approved Figma foundations, authentication journey, governed workbench, responsive states, and platform-safe storage boundary.
 
+For a plain-language list of everything the app does, what is partial and what is coming next, see [Mobile app features](mobile-features.md).
+
 ## Shipping App Decision
 
 Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android` is frozen (kept building in CI, no new features). Flutter is the only mobile client with Keycloak sign-in, the voice assistant and the real-data screens, and it covers iOS from the same code. The details and what "frozen" allows are in [Android](android.md#status-frozen).
