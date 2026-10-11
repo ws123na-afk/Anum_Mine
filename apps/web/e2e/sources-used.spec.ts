@@ -76,3 +76,40 @@ test('a run without a retrieval step shows no sources panel', async ({ page }) =
   await runTask(page);
   await expect(page.getByRole('region', { name: 'Sources used' })).toHaveCount(0);
 });
+
+// The Tauri desktop app renders this same web build (apps/desktop/src-tauri/tauri.conf.json,
+// `frontendDist: ../../web/dist`) in a window that opens at 1440x900 and shrinks to 960x640.
+for (const size of [
+  { width: 1440, height: 900 },
+  { width: 960, height: 640 },
+]) {
+  test.describe(`in the desktop window at ${size.width}x${size.height}`, () => {
+    test.use({ viewport: size });
+
+    test('the sources panel fits without horizontal overflow', async ({ page }) => {
+      await mockRun(page, {
+        id: 'step_retrieval',
+        type: 'retrieval',
+        summary: 'Used 1 passage from 1 workspace source as labeled, untrusted context.',
+        created_at: now,
+        metadata: {
+          status: 'ok',
+          embedding_model: 'anum-local-hash-v1',
+          truncated: false,
+          max_chars: 6000,
+          sources: [{ chunk_id: 'chunk_1', source_type: 'memory', source_id: 'memory_launch', chunk_index: 0, score: 0.72, truncated: false }],
+        },
+      });
+      await runTask(page);
+      const sources = page.getByRole('region', { name: 'Sources used' });
+      await sources.scrollIntoViewIfNeeded();
+      await expect(sources.getByText('memory_launch')).toBeVisible();
+      const box = await sources.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(size.width);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    });
+  });
+}

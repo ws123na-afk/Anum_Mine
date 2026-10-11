@@ -2,6 +2,7 @@
 // records with chunk ids, source ids and scores only, never the retrieved text
 // (docs/memory.md, At run time). Mirrors apps/web/src/lib/retrieval.ts. Nothing
 // here invents data: a run without a retrieval step has no sources record.
+import '../../src/localization/anum_localizations.dart';
 import 'workspace_models.dart';
 
 /// The retrieval step's `status`; an unknown value reads as [unavailable].
@@ -126,26 +127,43 @@ List<SourceGroup> groupSources(List<RetrievedSourceUsed> sources) {
   return groups.values.toList();
 }
 
-String sourceTypeLabel(String sourceType) =>
-    sourceType == 'memory' ? 'Memory' : 'File';
+// The labels below take the screen's catalog ([AnumLocalizations]); English
+// when none is passed, matching the web's wording.
+
+String sourceTypeLabel(String sourceType,
+        [AnumLocalizations l = AnumLocalizations.english]) =>
+    l.t(sourceType == 'memory' ? 'sourcesMemory' : 'sourcesFile');
 
 /// One line explaining an empty or degraded retrieval, or null.
-String? sourcesNote(RunSources record) => switch (record.state) {
-      RetrievalState.ok => record.truncated
-          ? 'Some retrieved text was shortened to fit the prompt limit.'
-          : null,
-      RetrievalState.noResults =>
-        'No indexed memory or file matched this task.',
-      RetrievalState.skipped =>
-        'Retrieval skipped${record.reason == null ? '' : ': ${record.reason}'}.',
-      RetrievalState.unavailable =>
-        'Retrieval was unavailable; the task ran without workspace context.',
+String? sourcesNote(RunSources record,
+        [AnumLocalizations l = AnumLocalizations.english]) =>
+    switch (record.state) {
+      RetrievalState.ok => record.truncated ? l.t('sourcesTruncated') : null,
+      RetrievalState.noResults => l.t('sourcesNoResults'),
+      RetrievalState.skipped => record.reason == null
+          ? l.t('sourcesSkipped')
+          : l.f('sourcesSkippedReason', {'reason': record.reason!}),
+      RetrievalState.unavailable => l.t('sourcesUnavailable')
     };
 
-String scoreLabel(double score) =>
-    '${(score.clamp(0, 1) * 100).round()}% match';
+/// "3 sources", "1 source" or "none".
+String sourcesCountLabel(int count,
+        [AnumLocalizations l = AnumLocalizations.english]) =>
+    switch (count) {
+      0 => l.t('sourcesNone'),
+      1 => l.t('sourcesOne'),
+      _ => l.f('sourcesMany', {'n': count})
+    };
+
+int _percent(double score) => (score.clamp(0, 1) * 100).round();
+
+String scoreLabel(double score) => '${_percent(score)}% match';
 
 /// "passage 2, 87% match, shortened" (chunk indexes are zero-based).
-String passageLabel(RetrievedSourceUsed passage) =>
-    'passage ${passage.chunkIndex + 1}, ${scoreLabel(passage.score)}'
-    '${passage.truncated ? ', shortened' : ''}';
+String passageLabel(RetrievedSourceUsed passage,
+    [AnumLocalizations l = AnumLocalizations.english]) {
+  final text = l.f('sourcesPassage',
+      {'n': passage.chunkIndex + 1, 'score': _percent(passage.score)});
+  if (!passage.truncated) return text;
+  return '$text${l.isArabic ? '، ' : ', '}${l.t('sourcesShortened')}';
+}

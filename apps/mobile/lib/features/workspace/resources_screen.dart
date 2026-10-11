@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'work_status.dart';
@@ -10,8 +11,16 @@ import 'workspace_sheets.dart';
 
 /// Files, memory, skills and integrations: the workspace's resources.
 class ResourcesScreen extends StatefulWidget {
-  const ResourcesScreen({required this.controller, super.key});
+  const ResourcesScreen(
+      {required this.controller,
+      this.initialTab = ResourcesTab.files,
+      this.focusMemoryId,
+      super.key});
   final WorkspaceController controller;
+  final int initialTab;
+
+  /// A memory to scroll to and mark, e.g. one a run's "Sources used" listed.
+  final String? focusMemoryId;
 
   @override
   State<ResourcesScreen> createState() => _ResourcesScreenState();
@@ -19,7 +28,8 @@ class ResourcesScreen extends StatefulWidget {
 
 class _ResourcesScreenState extends State<ResourcesScreen>
     with SingleTickerProviderStateMixin {
-  late final _tabs = TabController(length: 4, vsync: this);
+  late final _tabs =
+      TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
 
   @override
   void dispose() {
@@ -69,7 +79,8 @@ class _ResourcesScreenState extends State<ResourcesScreen>
                 Expanded(
                   child: TabBarView(controller: _tabs, children: [
                     _FilesTab(controller: c),
-                    _MemoryTab(controller: c),
+                    _MemoryTab(
+                        controller: c, focusMemoryId: widget.focusMemoryId),
                     _SkillsTab(controller: c),
                     _ServicesTab(controller: c),
                   ]),
@@ -173,16 +184,54 @@ class _FilesTab extends StatelessWidget {
   }
 }
 
+/// Tab positions in [ResourcesScreen].
+abstract final class ResourcesTab {
+  static const files = 0;
+  static const memory = 1;
+  static const skills = 2;
+  static const services = 3;
+}
+
+/// Opens the Memory tab on its own page with [memoryId] scrolled into view
+/// and marked (the "Sources used" panel's memory rows).
+Future<void> openMemoryInResources(BuildContext context,
+        WorkspaceController controller, String memoryId) =>
+    Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+            builder: (_) => Scaffold(
+                appBar: AppBar(title: const Text('Memory')),
+                body: ResourcesScreen(
+                    controller: controller,
+                    initialTab: ResourcesTab.memory,
+                    focusMemoryId: memoryId))));
+
 class _MemoryTab extends StatefulWidget {
-  const _MemoryTab({required this.controller});
+  const _MemoryTab({required this.controller, this.focusMemoryId});
   final WorkspaceController controller;
+  final String? focusMemoryId;
   @override
   State<_MemoryTab> createState() => _MemoryTabState();
 }
 
 class _MemoryTabState extends State<_MemoryTab> {
   final _content = TextEditingController();
+  final _focused = GlobalKey();
   String? _taskId;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.focusMemoryId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _focused.currentContext;
+        if (mounted && target != null) {
+          Scrollable.ensureVisible(target,
+              alignment: 0.2, duration: const Duration(milliseconds: 250));
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -268,11 +317,16 @@ class _MemoryTabState extends State<_MemoryTab> {
           child: Column(children: [
             for (final m in memories)
               AnumRow(
+                key: m.id == widget.focusMemoryId ? _focused : null,
                 icon: Icons.psychology_outlined,
+                tone: m.id == widget.focusMemoryId ? AnumTone.accent : null,
                 title: m.content,
                 subtitle: 'From: ${taskTitle(m.taskId)}',
-                detail:
-                    '${humanSource(m.sourceType)} · ${exactTime(m.createdAt)}',
+                detail: [
+                  '${humanSource(m.sourceType)} · ${exactTime(m.createdAt)}',
+                  if (m.id == widget.focusMemoryId)
+                    AnumLocalizations.maybeOf(context).t('memoryUsedByRun'),
+                ].join('\n'),
                 trailing: IconButton(
                   tooltip: 'Delete memory',
                   icon: const Icon(Icons.delete_outline),

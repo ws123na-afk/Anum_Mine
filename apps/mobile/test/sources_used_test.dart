@@ -1,5 +1,7 @@
 // "Sources used" on a run (docs/memory.md, At run time; docs/mobile.md):
 // read only from the run's `retrieval` step, never invented.
+import 'dart:async';
+
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_models.dart';
 import 'package:anum_mobile/data/session_store.dart';
@@ -9,8 +11,11 @@ import 'package:anum_mobile/features/workspace/tasks_screen.dart';
 import 'package:anum_mobile/features/workspace/workspace_controller.dart';
 import 'package:anum_mobile/features/workspace/workspace_models.dart';
 import 'package:anum_mobile/features/workspace/workspace_repository.dart';
+import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
+import 'package:anum_mobile/src/widgets/depth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final _time = DateTime.utc(2026, 10, 6, 10);
@@ -80,8 +85,11 @@ WorkspaceTask _task(WorkspaceRun? run) => WorkspaceTask(
     run: run);
 
 class _Repository implements WorkspaceRepository {
-  _Repository(this.task);
+  _Repository(this.task, {Future<WorkspaceTask> Function()? loadTask})
+      : _loadTask = loadTask;
   final WorkspaceTask task;
+  final Future<WorkspaceTask> Function()? _loadTask;
+  int taskLoads = 0;
 
   @override
   Future<WorkspaceSnapshot> loadWorkspace() async => WorkspaceSnapshot(
@@ -103,33 +111,68 @@ class _Repository implements WorkspaceRepository {
               content: 'Incidents are summarised every Friday',
               sourceType: 'mobile',
               createdAt: _time),
+          WorkspaceMemory(
+              id: 'memory_other',
+              taskId: 'task_1',
+              content: 'An unrelated note',
+              sourceType: 'mobile',
+              createdAt: _time.add(const Duration(hours: 1))),
         ],
       );
 
   @override
-  Future<WorkspaceTask> loadTask(String taskId) async => task;
+  Future<WorkspaceTask> loadTask(String taskId) {
+    taskLoads++;
+    return _loadTask?.call() ?? Future.value(task);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-Future<void> _pump(WidgetTester tester, WorkspaceTask task,
-    {TextDirection direction = TextDirection.ltr, double textScale = 1}) async {
-  tester.view.physicalSize = const Size(360, 800);
+/// The list's summary: no run until the detail fetches the latest one.
+WorkspaceTask _summary() => _task(null);
+
+Future<_Repository> _pump(WidgetTester tester, WorkspaceTask task,
+    {TextDirection direction = TextDirection.ltr,
+    double textScale = 1,
+    Size size = const Size(360, 800),
+    Locale? locale,
+    Future<WorkspaceTask> Function()? loadTask,
+    bool settle = true}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  final controller = WorkspaceController(_Repository(task));
+  final repository = _Repository(task, loadTask: loadTask);
+  final controller = WorkspaceController(repository);
   await controller.load();
   await tester.pumpWidget(MaterialApp(
     theme: AnumTheme.light(),
+    locale: locale,
+    supportedLocales: const [Locale('en'), Locale('ar')],
+    localizationsDelegates: locale == null
+        ? null
+        : const [
+            AnumLocalizations.delegate,
+            ...GlobalMaterialLocalizations.delegates
+          ],
     builder: (context, content) => MediaQuery(
       data: MediaQuery.of(context)
           .copyWith(textScaler: TextScaler.linear(textScale)),
-      child: Directionality(textDirection: direction, child: content!),
+      child: locale != null
+          ? content!
+          : Directionality(textDirection: direction, child: content!),
     ),
-    home: TaskDetailScreen(controller: controller, task: task),
+    home: TaskDetailScreen(controller: controller, task: _summary()),
   ));
+  if (settle) await tester.pumpAndSettle();
+  return repository;
+}
+
+Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(finder, 200,
+      scrollable: find.byType(Scrollable).first);
   await tester.pumpAndSettle();
 }
 
@@ -195,6 +238,53 @@ void main() {
     expect(task.run!.steps.last.metadata, isEmpty);
   });
 
+  test('every Sources used string has an Arabic translation', () {
+    const english = AnumLocalizations(Locale('en'));
+    const arabic = AnumLocalizations(Locale('ar'));
+    for (final key in [
+      'sourcesEyebrow',
+      'sourcesTitle',
+      'sourcesNone',
+      'sourcesOne',
+      'sourcesMany',
+      'sourcesNoneSpoken',
+      'sourcesCountSpoken',
+      'sourcesMemory',
+      'sourcesFile',
+      'sourcesPassage',
+      'sourcesShortened',
+      'sourcesOpensFile',
+      'sourcesOpensMemory',
+      'sourcesTruncated',
+      'sourcesNoResults',
+      'sourcesSkipped',
+      'sourcesSkippedReason',
+      'sourcesUnavailable',
+      'sourcesUntrusted',
+      'sourcesLoading',
+      'sourcesErrorTitle',
+      'sourcesErrorHint',
+      'sourcesDeniedHint',
+      'retry',
+      'memoryUsedByRun',
+    ]) {
+      expect(english.t(key), isNot(key), reason: key);
+      expect(arabic.t(key), isNot(english.t(key)), reason: key);
+    }
+    expect(sourcesCountLabel(0), 'none');
+    expect(sourcesCountLabel(1), '1 source');
+    expect(sourcesCountLabel(4), '4 sources');
+    expect(sourcesCountLabel(4, arabic), 'المصادر: 4');
+    const passage = RetrievedSourceUsed(
+        chunkId: 'c',
+        sourceType: 'file',
+        sourceId: 'f',
+        chunkIndex: 1,
+        score: 0.5,
+        truncated: true);
+    expect(passageLabel(passage, arabic), 'المقطع 2، تطابق 50٪، مختصر');
+  });
+
   testWidgets('task detail lists the sources a run used', (tester) async {
     await _pump(
         tester, _task(_run([_step('retrieval', _okMetadata), _step('final')])));
@@ -213,17 +303,69 @@ void main() {
         findsOneWidget);
     expect(
         find.bySemanticsLabel('Memory Incidents are summarised every Friday, '
-            'passage 1, 87% match; passage 4, 40% match'),
+            'passage 1, 87% match; passage 4, 40% match, opens it in Memory'),
+        findsOneWidget);
+    // A source the workspace no longer lists is not a dead button.
+    expect(find.bySemanticsLabel('File file_gone, passage 1, 30% match'),
         findsOneWidget);
     expect(
         find.text('Some retrieved text was shortened to fit the prompt limit.'),
         findsOneWidget);
 
-    await tester.ensureVisible(find.text('incidents.md'));
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, find.text('incidents.md'));
     await tester.tap(find.text('incidents.md'));
     await tester.pumpAndSettle();
     expect(find.text('Download'), findsOneWidget);
+  });
+
+  testWidgets('a memory source opens in the Memory tab, marked',
+      (tester) async {
+    await _pump(
+        tester, _task(_run([_step('retrieval', _okMetadata), _step('final')])));
+    final memory = find.descendant(
+        of: find.byKey(const Key('sources-used')),
+        matching: find.text('Incidents are summarised every Friday'));
+    await _scrollTo(tester, memory);
+    await tester.tap(memory);
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(AppBar, 'Memory'), findsOneWidget);
+    expect(find.text('Teach your agents'), findsOneWidget);
+    expect(find.text('An unrelated note'), findsOneWidget);
+    final used = find.textContaining('Used by the run you came from');
+    expect(used, findsOneWidget);
+    // The mark sits on the memory the run used, not on the other one.
+    expect(
+        find.ancestor(
+            of: used,
+            matching: find.ancestor(
+                of: find.text('Incidents are summarised every Friday'),
+                matching: find.byType(AnumRow))),
+        findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Sources used'), findsOneWidget);
+  });
+
+  testWidgets('retrieval that found nothing says so', (tester) async {
+    await _pump(
+        tester,
+        _task(_run([
+          _step('retrieval', {'status': 'no_results', 'sources': <Object?>[]}),
+          _step('final'),
+        ])));
+    await _scrollTo(tester, find.byKey(const Key('sources-used')));
+    expect(find.text('none'), findsOneWidget);
+    expect(find.bySemanticsLabel('No sources used'), findsOneWidget);
+    expect(find.text('Try again'), findsNothing);
+    expect(find.text('No indexed memory or file matched this task.'),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('sources-used')),
+            matching: find.byType(AnumRow)),
+        findsNothing);
   });
 
   testWidgets('a run without a retrieval step shows no sources section',
@@ -233,19 +375,120 @@ void main() {
     expect(find.byKey(const Key('sources-used')), findsNothing);
   });
 
+  testWidgets('the panel says so while the latest run loads', (tester) async {
+    final pending = Completer<WorkspaceTask>();
+    await _pump(tester, _task(null),
+        loadTask: () => pending.future, settle: false);
+    await tester.pump();
+    expect(find.byKey(const Key('sources-used')), findsOneWidget);
+    expect(find.text("Loading the run's sources…"), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    // The run arrives without a retrieval step: the panel goes away.
+    pending.complete(_task(_run([_step('model_call'), _step('final')])));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('sources-used')), findsNothing);
+  });
+
+  testWidgets('a failed run load explains itself and retries', (tester) async {
+    var fail = true;
+    final repository = await _pump(tester, _task(null),
+        loadTask: () async => fail
+            ? throw const ApiException(503, 'Service unavailable')
+            : _task(_run([_step('retrieval', _okMetadata), _step('final')])));
+    await _scrollTo(tester, find.byKey(const Key('sources-used')));
+    expect(find.text("Couldn't load the sources used"), findsOneWidget);
+    expect(
+        find.text('Service unavailable. Check your connection, then try '
+            'again.'),
+        findsOneWidget);
+    expect(repository.taskLoads, 1);
+
+    fail = false;
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+    expect(repository.taskLoads, 2);
+    expect(find.text("Couldn't load the sources used"), findsNothing);
+    expect(find.text('3 sources'), findsOneWidget);
+  });
+
+  testWidgets('a refused run load says who can see the sources',
+      (tester) async {
+    await _pump(tester, _task(null),
+        loadTask: () async =>
+            throw const ApiException(403, 'You cannot read this task'));
+    await _scrollTo(tester, find.byKey(const Key('sources-used')));
+    expect(find.text("Couldn't load the sources used"), findsOneWidget);
+    expect(
+        find.text('You cannot read this task. Members with task access can '
+            'see them; ask a workspace owner for access.'),
+        findsOneWidget);
+    // Retrying cannot grant access.
+    expect(find.text('Try again'), findsNothing);
+  });
+
   testWidgets('sources fit a phone in Arabic RTL at 200 percent text',
       (tester) async {
     await _pump(
         tester, _task(_run([_step('retrieval', _okMetadata), _step('final')])),
-        direction: TextDirection.rtl, textScale: 2);
-    await tester.scrollUntilVisible(find.text('incidents.md'), 200,
-        scrollable: find.byType(Scrollable).first);
+        locale: const Locale('ar'), textScale: 2);
+    await _scrollTo(tester, find.text('incidents.md'));
     expect(find.text('incidents.md'), findsOneWidget);
+    expect(find.text('المصادر المستخدمة'), findsOneWidget);
+    expect(find.text('المصادر: 3'), findsOneWidget);
+    expect(find.text('ملف \u2068file_gone\u2069'), findsOneWidget);
     expect(
         Directionality.of(
             tester.element(find.byKey(const Key('sources-used')))),
         TextDirection.rtl);
     expect(tester.takeException(), isNull);
+  });
+
+  group('layout', () {
+    const sizes = {
+      'phone small 320x568': Size(320, 568),
+      'phone 390x844': Size(390, 844),
+      'tablet 768x1024': Size(768, 1024),
+      'desktop 1440x900': Size(1440, 900),
+    };
+    for (final entry in sizes.entries) {
+      for (final scale in [1.0, 2.0]) {
+        for (final direction in TextDirection.values) {
+          testWidgets(
+              '${entry.key}, ${scale}x text, ${direction.name}: fits '
+              'without overflow', (tester) async {
+            await _pump(tester,
+                _task(_run([_step('retrieval', _okMetadata), _step('final')])),
+                size: entry.value, textScale: scale, direction: direction);
+            final panel = find.byKey(const Key('sources-used'));
+            await _scrollTo(tester, panel);
+            final rect = tester.getRect(panel);
+            // Inside the page gutter on every side.
+            expect(rect.left, greaterThanOrEqualTo(AnumSpacing.md));
+            expect(rect.right,
+                lessThanOrEqualTo(entry.value.width - AnumSpacing.md));
+            // The count pill never squeezes the title into a sliver.
+            // (The test font draws every glyph one em wide, so even the
+            // narrowest phone at 200 percent may break the title; a squeezed
+            // title would stack a glyph per line.)
+            final title = tester.getRect(find.descendant(
+                of: panel, matching: find.text('Sources used')));
+            expect(title.height, lessThanOrEqualTo(19 * scale * 1.15 * 4 + 1));
+            // Content-driven height: at normal text on a tablet or desktop
+            // the three sources fit well inside one screen.
+            if (scale == 1 && entry.value.width >= 768) {
+              expect(rect.height, lessThan(entry.value.height / 2));
+            }
+            for (final row in tester.widgetList<AnumRow>(
+                find.descendant(of: panel, matching: find.byType(AnumRow)))) {
+              final box = tester.getRect(find.byWidget(row));
+              expect(box.right, lessThanOrEqualTo(rect.right + 0.5));
+            }
+            expect(tester.takeException(), isNull);
+          });
+        }
+      }
+    }
   });
 }
 
