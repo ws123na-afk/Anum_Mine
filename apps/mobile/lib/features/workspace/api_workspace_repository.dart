@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
+import 'task_management.dart';
 import 'workspace_models.dart';
 import 'workspace_repository.dart';
 
@@ -8,7 +11,8 @@ abstract interface class WorkspaceFileTransfer {
   Future<void> download(WorkspaceFile file);
 }
 
-class ApiWorkspaceRepository implements WorkspaceRepository {
+class ApiWorkspaceRepository
+    implements WorkspaceRepository, TaskManagementRepository {
   const ApiWorkspaceRepository(this.api, {required this.fileTransfer});
   final AnumApiClient api;
   final WorkspaceFileTransfer fileTransfer;
@@ -76,6 +80,68 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
     }
     return _task(JsonReader(task), run: run);
   }
+
+  String _taskPath(String taskId, [String suffix = '']) =>
+      '/api/v1/tasks/${Uri.encodeComponent(taskId)}$suffix';
+
+  @override
+  Future<List<WorkspaceTask>> listTasks(TaskListQuery query,
+          {String? cursor}) async =>
+      (await _list('/api/v1/tasks?'
+              '${query.queryString(cursor: cursor, limit: taskPageSize)}'))
+          .map(_task)
+          .toList();
+
+  @override
+  Future<TaskSummaryCounts> taskSummary(TaskListQuery query) async {
+    final qs = query.queryString(withStatus: false);
+    final j = JsonReader(await api.request(
+        'GET', '/api/v1/tasks/summary${qs.isEmpty ? '' : '?$qs'}'));
+    final byStatus = j.optMap('by_status') ?? const {};
+    return TaskSummaryCounts(
+      total: j.optInt('total') ?? 0,
+      archived: j.optInt('archived') ?? 0,
+      byStatus: {
+        for (final entry in byStatus.entries)
+          if (entry.value is int) _status(entry.key): entry.value as int,
+      },
+    );
+  }
+
+  @override
+  Future<WorkspaceTask> renameTask(String taskId, String title) async =>
+      _task(JsonReader(
+          await api.request('PUT', _taskPath(taskId), body: {'title': title})));
+
+  @override
+  Future<WorkspaceTask> archiveTask(String taskId) async => _task(
+      JsonReader(await api.request('POST', _taskPath(taskId, '/archive'))));
+
+  @override
+  Future<WorkspaceTask> unarchiveTask(String taskId) async => _task(
+      JsonReader(await api.request('POST', _taskPath(taskId, '/unarchive'))));
+
+  @override
+  Future<WorkspaceTask> retryTask(String taskId) async {
+    final value =
+        JsonReader(await api.request('POST', _taskPath(taskId, '/retry')));
+    return _task(value.object('task'),
+        run: value.optObject('run'), approval: value.optObject('approval'));
+  }
+
+  @override
+  Future<List<WorkspaceRun>> listRuns(String taskId, {String? cursor}) async {
+    final after =
+        cursor == null ? '' : '&cursor=${Uri.encodeQueryComponent(cursor)}';
+    return (await _list(_taskPath(taskId, '/runs?limit=$runPageSize$after')))
+        .map(_run)
+        .toList();
+  }
+
+  @override
+  Future<String> exportRunLog(String taskId) async =>
+      const JsonEncoder.withIndent('  ').convert(
+          await api.request('GET', _taskPath(taskId, '/export?format=json')));
 
   @override
   Future<WorkspaceTask> cancelTask(String taskId) async => _task(
@@ -196,6 +262,8 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
         updatedAt: _date(j, 'updated_at'),
         run: run == null ? null : _run(run),
         approval: approval == null ? null : _approval(approval),
+        createdBy: j.optString('created_by'),
+        archivedAt: j['archived_at'] == null ? null : _date(j, 'archived_at'),
       );
   WorkspaceRun _run(JsonReader j) => WorkspaceRun(
         id: j.string('id'),
@@ -210,6 +278,7 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
                 createdAt: _date(x, 'created_at'),
                 metadata: x.optMap('metadata') ?? const {})),
         result: j.optString('result'),
+        createdAt: j['created_at'] == null ? null : _date(j, 'created_at'),
       );
   WorkspaceApproval _approval(JsonReader j) => workspaceApprovalFromJson(j);
   WorkspaceAutomation _automation(JsonReader j,

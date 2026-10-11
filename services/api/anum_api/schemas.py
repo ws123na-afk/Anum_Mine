@@ -149,6 +149,78 @@ class Task(BaseModel):
     updated_at: datetime
     # User id of whoever created the task (the two-person rule refuses their approval).
     created_by: str | None = None
+    # Archived tasks leave the default list but keep their runs, approvals and events
+    # (0026_task_archive, docs/tasks.md). Null while the task is in the active list.
+    archived_at: datetime | None = None
+    archived_by: str | None = None
+
+
+class TaskUpdate(BaseModel):
+    """``PUT /api/v1/tasks/{id}``: a new title, and new instructions while the task never ran."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    prompt: str | None = Field(default=None, min_length=1, max_length=8000)
+
+    @field_validator("title", "prompt")
+    @classmethod
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("must not be blank")
+        return value.strip() if value is not None else None
+
+
+class TaskBulkAction(StrEnum):
+    ARCHIVE = "archive"
+    UNARCHIVE = "unarchive"
+    CANCEL = "cancel"
+
+
+TASK_BULK_MAX_IDS = 100
+
+
+class TaskBulkRequest(BaseModel):
+    action: TaskBulkAction
+    task_ids: list[str] = Field(min_length=1, max_length=TASK_BULK_MAX_IDS)
+
+    @field_validator("task_ids")
+    @classmethod
+    def _unique(cls, value: list[str]) -> list[str]:
+        if any(not item or len(item) > 80 for item in value):
+            raise ValueError("task ids must be 1-80 characters")
+        if len(set(value)) != len(value):
+            raise ValueError("task ids must be unique")
+        return value
+
+
+class TaskBulkItemResult(BaseModel):
+    """One task's outcome: ``status_code`` is what the single-task route would answer."""
+
+    task_id: str
+    ok: bool
+    status_code: int
+    message: str | None = None
+    task: Task | None = None
+
+
+class TaskBulkResponse(BaseModel):
+    action: TaskBulkAction
+    succeeded: int
+    failed: int
+    results: list[TaskBulkItemResult]
+
+
+class TaskSummary(BaseModel):
+    """Counts for the task list's filters (``GET /api/v1/tasks/summary``).
+
+    ``by_status`` counts the tasks matching every filter except ``status``; ``total`` is
+    their sum. ``archived`` counts archived tasks matching the other filters, and
+    ``creators`` are the distinct creator ids in the workspace (at most 200).
+    """
+
+    total: int
+    by_status: dict[str, int]
+    archived: int
+    creators: list[str]
 
 
 class AgentRunStep(BaseModel):

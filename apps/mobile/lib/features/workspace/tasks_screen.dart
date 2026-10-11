@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../../data/api_client.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'approvals_screen.dart';
 import 'sources_used.dart';
+import 'task_management.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
@@ -24,8 +29,121 @@ class _TasksScreenState extends State<TasksScreen> {
   final _search = TextEditingController();
   _TaskFilter _filter = _TaskFilter.all;
 
+  // Server mode (docs/tasks.md): the list is fetched with its filters and
+  // paged by keyset; without task management the loaded snapshot is
+  // filtered here instead.
+  bool _archived = false;
+  List<WorkspaceTask>? _rows;
+  TaskSummaryCounts? _summary;
+  bool _loading = false, _paging = false, _more = false;
+  Object? _error;
+  Timer? _debounce;
+  int _fetchId = 0;
+  List<WorkspaceTask>? _seenTasks;
+
+  TaskManagementRepository? get _server => widget.controller.taskManagement;
+
+  static Set<WorkStatus> _statusesOf(_TaskFilter f) => switch (f) {
+        _TaskFilter.all => const {},
+        _TaskFilter.active => const {
+            WorkStatus.created,
+            WorkStatus.queued,
+            WorkStatus.running
+          },
+        _TaskFilter.approval => const {WorkStatus.waitingApproval},
+        _TaskFilter.completed => const {WorkStatus.completed},
+        _TaskFilter.failed => const {WorkStatus.failed, WorkStatus.cancelled},
+      };
+
+  TaskListQuery get _query => TaskListQuery(
+      statuses: _statusesOf(_filter),
+      search: _search.text,
+      archived: _archived);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onController);
+    if (_server != null) _fetch();
+  }
+
+  /// A reload of the workspace (after a run, an approval, pull to refresh)
+  /// refreshes the server list too.
+  void _onController() {
+    final tasks = widget.controller.tasks;
+    if (_server == null || identical(tasks, _seenTasks)) return;
+    _seenTasks = tasks;
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    final server = _server;
+    if (server == null) return;
+    final id = ++_fetchId;
+    final query = _query;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait<Object>([
+        server.listTasks(query),
+        server.taskSummary(query),
+      ]);
+      if (!mounted || id != _fetchId) return;
+      setState(() {
+        _rows = results[0] as List<WorkspaceTask>;
+        _summary = results[1] as TaskSummaryCounts;
+        _more = _rows!.length >= taskPageSize;
+        _loading = false;
+      });
+    } on Object catch (error) {
+      if (!mounted || id != _fetchId) return;
+      setState(() {
+        _error = error;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    final server = _server, rows = _rows;
+    if (server == null || rows == null || rows.isEmpty) return;
+    setState(() => _paging = true);
+    try {
+      final page = await server.listTasks(_query, cursor: rows.last.id);
+      if (!mounted) return;
+      final seen = {for (final t in rows) t.id};
+      setState(() {
+        _rows = [...rows, ...page.where((t) => !seen.contains(t.id))];
+        _more = page.length >= taskPageSize;
+      });
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Could not load more tasks: ${_describe(error)}')));
+      }
+    } finally {
+      if (mounted) setState(() => _paging = false);
+    }
+  }
+
+  void _searchChanged() {
+    setState(() {});
+    if (_server == null) return;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), _fetch);
+  }
+
+  Future<void> _refresh() async {
+    await widget.controller.load();
+    await _fetch();
+  }
+
   @override
   void dispose() {
+    widget.controller.removeListener(_onController);
+    _debounce?.cancel();
     _prompt.dispose();
     _search.dispose();
     super.dispose();
@@ -67,18 +185,31 @@ class _TasksScreenState extends State<TasksScreen> {
         listenable: widget.controller,
         builder: (context, _) {
           final p = context.palette;
+          final server = _server != null;
           final tasks = [...widget.controller.tasks]
             ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-          final visible = tasks.where((t) => _matches(t, _filter)).toList();
-          int count(_TaskFilter f) => tasks.where((t) => _matches(t, f)).length;
+          final visible = server
+              ? (_rows ?? (_query.isDefault ? tasks : const <WorkspaceTask>[]))
+              : tasks.where((t) => _matches(t, _filter)).toList();
+          final summary = _summary;
+          int count(_TaskFilter f) => server && summary != null
+              ? (f == _TaskFilter.all
+                  ? summary.total
+                  : summary.count(_statusesOf(f)))
+              : tasks.where((t) => _matches(t, f)).length;
+          final total =
+              server && summary != null ? summary.total : tasks.length;
 
           return AnumPage(
-            onRefresh: widget.controller.load,
+            onRefresh: _refresh,
             children: [
               AnumHeader(
                 eyebrow: 'Work',
-                title: 'Tasks',
-                subtitle: '${tasks.length} in this workspace',
+                title: _archived ? 'Archived tasks' : 'Tasks',
+                subtitle: _archived
+                    ? '${summary?.archived ?? visible.length} archived; '
+                        'their history is kept'
+                    : '$total in this workspace',
                 large: true,
               ),
               AnumSurface(
@@ -100,27 +231,34 @@ class _TasksScreenState extends State<TasksScreen> {
                         onChanged: (_) => setState(() {}),
                       ),
                       const SizedBox(height: 10),
-                      Row(children: [
-                        Expanded(
-                          child: Text(
-                            'Risky actions pause for your approval before they run.',
-                            style: TextStyle(color: p.faint, fontSize: 12),
-                          ),
-                        ),
-                        FilledButton.icon(
-                          onPressed: widget.controller.mutating ||
-                                  _prompt.text.trim().isEmpty
-                              ? null
-                              : _create,
-                          icon: widget.controller.mutating
-                              ? const SizedBox.square(
-                                  dimension: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.play_arrow_rounded),
-                          label: const Text('Run task'),
-                        ),
-                      ]),
+                      // Wraps under the hint at large text sizes instead of overflowing.
+                      Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 360),
+                              child: Text(
+                                'Risky actions pause for your approval before they run.',
+                                style: TextStyle(color: p.faint, fontSize: 12),
+                              ),
+                            ),
+                            FilledButton.icon(
+                              onPressed: widget.controller.mutating ||
+                                      _prompt.text.trim().isEmpty
+                                  ? null
+                                  : _create,
+                              icon: widget.controller.mutating
+                                  ? const SizedBox.square(
+                                      dimension: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
+                                  : const Icon(Icons.play_arrow_rounded),
+                              label: const Text('Run task'),
+                            ),
+                          ]),
                     ]),
               ),
               if (widget.controller.budgetMessage != null)
@@ -162,7 +300,7 @@ class _TasksScreenState extends State<TasksScreen> {
                 ),
               TextField(
                 controller: _search,
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) => _searchChanged(),
                 decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search), hintText: 'Search tasks'),
               ),
@@ -173,25 +311,85 @@ class _TasksScreenState extends State<TasksScreen> {
                     ChoiceChip(
                       label: Text('${_filterLabel(f)} · ${count(f)}'),
                       selected: _filter == f,
-                      onSelected: (_) => setState(() => _filter = f),
+                      onSelected: (_) {
+                        setState(() => _filter = f);
+                        _fetch();
+                      },
                     ),
                     const SizedBox(width: 8),
-                  ]
+                  ],
+                  if (server)
+                    FilterChip(
+                      key: const Key('tasks-archived'),
+                      avatar: const Icon(Icons.inventory_2_outlined, size: 18),
+                      label: Text('Archived'
+                          '${summary == null ? '' : ' · ${summary.archived}'}'),
+                      selected: _archived,
+                      onSelected: (value) {
+                        setState(() => _archived = value);
+                        _fetch();
+                      },
+                    ),
                 ]),
               ),
-              if (visible.isEmpty)
+              if (_error != null)
                 AnumSurface(
+                  key: const Key('tasks-error'),
+                  accent: p.stop,
                   child: AnumEmpty(
-                    icon: Icons.task_alt,
-                    title: tasks.isEmpty ? 'No tasks yet' : 'Nothing matches',
-                    message: tasks.isEmpty
-                        ? 'Write what you want done above and press Run task.'
-                        : 'Try another filter or search term.',
+                    icon: Icons.cloud_off_outlined,
+                    title: 'Could not load tasks',
+                    message: _describe(_error!),
+                    action: 'Try again',
+                    onAction: _fetch,
                   ),
                 )
-              else
+              else if (_loading && visible.isEmpty)
+                const Center(
+                    child: Padding(
+                        padding: EdgeInsets.all(AnumSpacing.lg),
+                        child: CircularProgressIndicator()))
+              else if (visible.isEmpty)
+                AnumSurface(
+                  child: AnumEmpty(
+                    icon:
+                        _archived ? Icons.inventory_2_outlined : Icons.task_alt,
+                    title: _archived
+                        ? 'No archived tasks'
+                        : tasks.isEmpty && _query.isDefault
+                            ? 'No tasks yet'
+                            : 'Nothing matches',
+                    message: _archived
+                        ? 'Archive a finished task from its screen to tidy the list.'
+                        : tasks.isEmpty && _query.isDefault
+                            ? 'Write what you want done above and press Run task.'
+                            : 'Try another filter or search term.',
+                    action: _query.isDefault ? null : 'Clear filters',
+                    onAction: _query.isDefault
+                        ? null
+                        : () {
+                            _search.clear();
+                            setState(() {
+                              _filter = _TaskFilter.all;
+                              _archived = false;
+                            });
+                            _fetch();
+                          },
+                  ),
+                )
+              else ...[
                 for (final task in visible)
                   _TaskCard(task: task, controller: widget.controller),
+                if (server && _more)
+                  Center(
+                    child: OutlinedButton.icon(
+                      key: const Key('tasks-load-more'),
+                      onPressed: _paging ? null : _loadMore,
+                      icon: const Icon(Icons.expand_more),
+                      label: Text(_paging ? 'Loading...' : 'Load more tasks'),
+                    ),
+                  ),
+              ],
             ],
           );
         },
@@ -224,17 +422,21 @@ class _TaskCard extends StatelessWidget {
               : null,
       semanticLabel: '${task.title}, ${workStatusLabel(task.status)}',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(
-            child: Text(task.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: p.text, fontSize: 16, fontWeight: FontWeight.w700)),
-          ),
-          const SizedBox(width: 10),
-          WorkStatusPill(task.status),
-        ]),
+        // The status pill moves below a long title at large text sizes.
+        Wrap(
+            spacing: 10,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(task.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: p.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700)),
+              WorkStatusPill(task.status),
+            ]),
         if (task.run?.result case final result?) ...[
           const SizedBox(height: 6),
           Text(result,
@@ -271,11 +473,15 @@ class _Meta extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(icon, size: 14, color: p.faint),
-      const SizedBox(width: 4),
-      Text(text, style: TextStyle(color: p.faint, fontSize: 12)),
-    ]);
+    // Text.rich wraps at large text sizes where a Row would overflow.
+    return Text.rich(
+        TextSpan(children: [
+          WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Icon(icon, size: 14, color: p.faint)),
+          TextSpan(text: ' $text'),
+        ]),
+        style: TextStyle(color: p.faint, fontSize: 12));
   }
 }
 
@@ -305,6 +511,11 @@ class _TaskDetailState extends State<TaskDetailScreen> {
   bool _runLoading = true;
   Object? _runError;
 
+  /// Every run of the task, newest first (a retried task has several), and
+  /// the one whose steps are shown (null: the latest).
+  List<WorkspaceRun> _runs = const [];
+  String? _chosenRun;
+
   @override
   void initState() {
     super.initState();
@@ -312,14 +523,54 @@ class _TaskDetailState extends State<TaskDetailScreen> {
     _refresh();
   }
 
-  Future<void> _act(Future<WorkspaceTask?> Function() action) async {
+  Future<void> _act(Future<WorkspaceTask?> Function() action,
+      {String? done}) async {
     setState(() => _busy = true);
     final next = await action();
     if (!mounted) return;
     setState(() {
       _busy = false;
-      if (next != null) task = next;
+      if (next != null) {
+        task = next;
+        _chosenRun = null;
+      }
     });
+    if (next != null) {
+      if (done != null) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(done)));
+      }
+      unawaited(_refresh());
+    }
+  }
+
+  Future<void> _rename(BuildContext context) async {
+    final title = await showDialog<String>(
+        context: context, builder: (_) => _RenameDialog(initial: task.title));
+    final value = title?.trim() ?? '';
+    if (value.isEmpty || value == task.title) return;
+    await _act(() => widget.controller.renameTask(task.id, value),
+        done: 'Task renamed');
+  }
+
+  Future<void> _copyRunLog() async {
+    final server = widget.controller.taskManagement;
+    if (server == null) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final log = await server.exportRunLog(task.id);
+      await Clipboard.setData(ClipboardData(text: log));
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Run log copied as JSON')));
+    } on Object catch (error) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Could not export the run log: ${_describe(error)}')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _refresh() async {
@@ -332,9 +583,19 @@ class _TaskDetailState extends State<TaskDetailScreen> {
     }
     try {
       final next = await widget.controller.loadTask(task.id);
+      final server = widget.controller.taskManagement;
+      List<WorkspaceRun> runs = const [];
+      if (server != null) {
+        try {
+          runs = await server.listRuns(task.id);
+        } on Object {
+          // The latest run still shows; the history simply stays short.
+        }
+      }
       if (mounted) {
         setState(() {
           task = next;
+          _runs = runs;
           _runLoading = false;
         });
       }
@@ -358,7 +619,18 @@ class _TaskDetailState extends State<TaskDetailScreen> {
 
   Widget _build(BuildContext context) {
     final p = context.palette;
-    final run = task.run;
+    final server = widget.controller.taskManagement;
+    final actions = TaskActionSet.of(task);
+    final latest = task.run;
+    final runs = _runs.isNotEmpty
+        ? (latest != null && !_runs.any((r) => r.id == latest.id)
+            ? [latest, ..._runs]
+            : _runs)
+        : [if (latest != null) latest];
+    final run = runs.firstWhere((r) => r.id == _chosenRun,
+        orElse: () => runs.isEmpty ? latest ?? _noRun : runs.first);
+    final shownRun = identical(run, _noRun) ? null : run;
+    final refusal = widget.controller.taskRefusal;
     final approval = task.status == WorkStatus.waitingApproval
         ? widget.controller.pendingApprovalFor(task)
         : null;
@@ -400,19 +672,35 @@ class _TaskDetailState extends State<TaskDetailScreen> {
               Wrap(spacing: 18, runSpacing: 8, children: [
                 _Fact(label: 'Created', value: exactTime(task.createdAt)),
                 _Fact(label: 'Updated', value: exactTime(task.updatedAt)),
-                if (run != null)
-                  _Fact(label: 'Run', value: workStatusLabel(run.status)),
+                if (latest != null)
+                  _Fact(label: 'Run', value: workStatusLabel(latest.status)),
+                if (runs.length > 1)
+                  _Fact(label: 'Runs', value: '${runs.length}'),
+                if (task.archivedAt case final archived?)
+                  _Fact(label: 'Archived', value: exactTime(archived)),
               ]),
               const SizedBox(height: 14),
               Wrap(spacing: 8, runSpacing: 8, children: [
-                if (!terminal)
+                if (!terminal && task.archivedAt == null)
                   OutlinedButton.icon(
                     onPressed: _busy ? null : () => _confirmCancel(context),
                     icon: const Icon(Icons.stop_circle_outlined),
                     label: const Text('Cancel task'),
                   ),
-                if (task.status == WorkStatus.failed ||
-                    task.status == WorkStatus.cancelled)
+                // Retry starts a new run; earlier runs stay in the history.
+                if (server != null && actions.retry)
+                  FilledButton.icon(
+                    key: const Key('task-retry'),
+                    onPressed: _busy
+                        ? null
+                        : () => _act(() => widget.controller.retryTask(task.id),
+                            done: 'Retry started'),
+                    icon: const Icon(Icons.replay),
+                    label: const Text('Retry'),
+                  )
+                else if (server == null &&
+                    (task.status == WorkStatus.failed ||
+                        task.status == WorkStatus.cancelled))
                   FilledButton.icon(
                     onPressed: _busy
                         ? null
@@ -421,7 +709,52 @@ class _TaskDetailState extends State<TaskDetailScreen> {
                     icon: const Icon(Icons.replay),
                     label: const Text('Resume'),
                   ),
+                if (server != null && actions.rename)
+                  OutlinedButton.icon(
+                    key: const Key('task-rename'),
+                    onPressed: _busy ? null : () => _rename(context),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Rename'),
+                  ),
+                if (server != null && actions.archive)
+                  OutlinedButton.icon(
+                    key: const Key('task-archive'),
+                    onPressed: _busy
+                        ? null
+                        : () => _act(
+                            () => widget.controller.archiveTask(task.id),
+                            done: 'Task archived; its history is kept'),
+                    icon: const Icon(Icons.inventory_2_outlined),
+                    label: const Text('Archive'),
+                  ),
+                if (server != null && actions.unarchive)
+                  OutlinedButton.icon(
+                    key: const Key('task-unarchive'),
+                    onPressed: _busy
+                        ? null
+                        : () => _act(
+                            () => widget.controller.unarchiveTask(task.id),
+                            done: 'Task restored'),
+                    icon: const Icon(Icons.unarchive_outlined),
+                    label: const Text('Restore'),
+                  ),
+                if (server != null)
+                  OutlinedButton.icon(
+                    key: const Key('task-export'),
+                    onPressed: _busy ? null : _copyRunLog,
+                    icon: const Icon(Icons.download_outlined),
+                    label: const Text('Copy run log'),
+                  ),
               ]),
+              if (refusal != null) ...[
+                const SizedBox(height: 10),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(refusal,
+                      key: const Key('task-refusal'),
+                      style: TextStyle(color: p.stop, fontSize: 13)),
+                ),
+              ],
             ]),
           ),
           if (approval != null)
@@ -443,7 +776,7 @@ class _TaskDetailState extends State<TaskDetailScreen> {
                     ],
                   ]),
             ),
-          if (run?.result case final result?)
+          if (shownRun?.result case final result?)
             AnumSurface(
               accent: p.ok,
               child: Column(
@@ -470,9 +803,10 @@ class _TaskDetailState extends State<TaskDetailScreen> {
             ),
           // Only a run with a retrieval step has sources to show; while the
           // latest run loads, or if it failed to, the panel says so.
-          if (SourcesUsed.shows(run, loading: _runLoading, error: _runError))
+          if (SourcesUsed.shows(shownRun,
+              loading: _runLoading, error: _runError))
             SourcesUsed(
-                run: run,
+                run: shownRun,
                 controller: widget.controller,
                 loading: _runLoading,
                 error: _runError,
@@ -483,21 +817,35 @@ class _TaskDetailState extends State<TaskDetailScreen> {
               AnumHeader(
                 eyebrow: 'Execution trace',
                 title: 'Every step the agent took',
-                subtitle: run == null ? null : 'Run ${run.id}',
+                subtitle: shownRun == null ? null : 'Run ${shownRun.id}',
               ),
+              if (runs.length > 1) ...[
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (var i = 0; i < runs.length; i++)
+                    ChoiceChip(
+                      key: Key('task-run-${runs[i].id}'),
+                      label: Text('${runLabel(i, runs.length)} · '
+                          '${workStatusLabel(runs[i].status)}'),
+                      selected: shownRun?.id == runs[i].id,
+                      onSelected: (_) =>
+                          setState(() => _chosenRun = runs[i].id),
+                    ),
+                ]),
+              ],
               const SizedBox(height: 8),
-              if (run == null || run.steps.isEmpty)
+              if (shownRun == null || shownRun.steps.isEmpty)
                 const AnumEmpty(
                   icon: Icons.timeline,
                   title: 'No steps yet',
                   message: 'Steps appear here as soon as the run starts.',
                 )
               else
-                for (var i = 0; i < run.steps.length; i++)
+                for (var i = 0; i < shownRun.steps.length; i++)
                   _Step(
-                      step: run.steps[i],
+                      step: shownRun.steps[i],
                       index: i + 1,
-                      last: i == run.steps.length - 1),
+                      last: i == shownRun.steps.length - 1),
             ]),
           ),
           Text('Task ID: ${task.id}',
@@ -513,7 +861,7 @@ class _TaskDetailState extends State<TaskDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Cancel this task?'),
-        content: Text('“${task.title}” will stop. You can resume it later.'),
+        content: Text('“${task.title}” will stop. You can retry it later.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -622,4 +970,48 @@ class _Step extends StatelessWidget {
       ]),
     );
   }
+}
+
+const _noRun = WorkspaceRun(id: '', status: WorkStatus.created, steps: []);
+
+/// A sentence for a failed call: the API's own message when it sent one.
+String _describe(Object error) =>
+    error is ApiException ? error.message : error.toString();
+
+/// Owns its text controller so it is disposed only after the dialog is gone.
+class _RenameDialog extends StatefulWidget {
+  const _RenameDialog({required this.initial});
+  final String initial;
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final _field = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Rename task'),
+        content: TextField(
+          controller: _field,
+          autofocus: true,
+          maxLength: 160,
+          decoration: const InputDecoration(labelText: 'Title'),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, _field.text),
+              child: const Text('Save')),
+        ],
+      );
 }

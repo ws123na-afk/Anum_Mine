@@ -8,6 +8,7 @@ from .schemas import (
     CallerMembership,
     DomainEvent,
     Task,
+    TaskSummary,
     Tenant,
     TenantContext,
     Workspace,
@@ -16,6 +17,7 @@ from .schemas import (
     WorkspaceMembership,
 )
 from .store import InMemoryStore
+from .tasks import CREATORS_MAX, TaskFilters
 from .tool_governance import ToolGovernance, tool_governance_from
 
 
@@ -50,8 +52,21 @@ class AnumRepository(Protocol):
     def list_audit_records(self, context: TenantContext) -> list[AuditRecord]: ...
     def create_task(self, task: Task) -> Task: ...
     def list_tasks(
-        self, context: TenantContext, *, limit: int | None = None, after: str | None = None
+        self,
+        context: TenantContext,
+        *,
+        limit: int | None = None,
+        after: str | None = None,
+        filters: TaskFilters | None = None,
     ) -> list[Task]: ...
+    def summarize_tasks(self, context: TenantContext, filters: TaskFilters) -> TaskSummary: ...
+    def list_runs_for_task(
+        self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[AgentRun]: ...
+    def list_task_events(
+        self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[DomainEvent]: ...
+    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]: ...
     def save_task(self, task: Task) -> Task: ...
     def get_task(self, task_id: str, context: TenantContext) -> Task | None: ...
     def get_task_for_update(self, task_id: str, context: TenantContext) -> Task | None: ...
@@ -221,23 +236,97 @@ class InMemoryRepository:
     def create_task(self, task: Task) -> Task:
         return self.save_task(task)
 
-    def list_tasks(
-        self, context: TenantContext, *, limit: int | None = None, after: str | None = None
-    ) -> list[Task]:
-        """Newest first; ``after`` is the id of the last task already shown (keyset paging)."""
-        tasks = [
+    def _scoped_tasks(self, context: TenantContext) -> list[Task]:
+        return [
             task
             for task in self.store.tasks.values()
             if task.tenant_id == context.tenant_id and task.workspace_id == context.workspace_id
         ]
+
+    def list_tasks(
+        self,
+        context: TenantContext,
+        *,
+        limit: int | None = None,
+        after: str | None = None,
+        filters: TaskFilters | None = None,
+    ) -> list[Task]:
+        """Newest first; ``after`` is the id of the last task already shown (keyset paging).
+
+        Without ``filters`` every task is listed (archived ones too), as before filters
+        existed; the route always passes filters.
+        """
+        tasks = self._scoped_tasks(context)
         if after is not None:
             anchor = next((task for task in tasks if task.id == after), None)
             if anchor is None:
                 raise UnknownCursorError(after)
             key = (anchor.created_at, anchor.id)
             tasks = [task for task in tasks if (task.created_at, task.id) < key]
+        if filters is not None:
+            tasks = [task for task in tasks if filters.matches(task)]
         tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
         return tasks if limit is None else tasks[:limit]
+
+    def summarize_tasks(self, context: TenantContext, filters: TaskFilters) -> TaskSummary:
+        tasks = self._scoped_tasks(context)
+        unfiltered = filters.without_status()
+        by_status: dict[str, int] = {}
+        for task in tasks:
+            if unfiltered.matches(task):
+                by_status[task.status.value] = by_status.get(task.status.value, 0) + 1
+        archived_filter = unfiltered.with_archived(True)
+        creators = sorted({task.created_by for task in tasks if task.created_by})[:CREATORS_MAX]
+        return TaskSummary(
+            total=sum(by_status.values()),
+            by_status=by_status,
+            archived=sum(1 for task in tasks if archived_filter.matches(task)),
+            creators=creators,
+        )
+
+    def list_runs_for_task(
+        self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[AgentRun]:
+        """The task's runs newest first, keyset-paged on ``(created_at, id)``."""
+        if not self.get_task(task_id, context):
+            return []
+        runs = [run for run in self.store.runs.values() if run.task_id == task_id]
+        if after is not None:
+            anchor = next((run for run in runs if run.id == after), None)
+            if anchor is None:
+                raise UnknownCursorError(after)
+            key = (anchor.created_at, anchor.id)
+            runs = [run for run in runs if (run.created_at, run.id) < key]
+        runs.sort(key=lambda run: (run.created_at, run.id), reverse=True)
+        return runs if limit is None else runs[:limit]
+
+    def list_task_events(
+        self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[DomainEvent]:
+        """The task's events (correlation id = task id) newest first, keyset-paged."""
+        if not self.get_task(task_id, context):
+            return []
+        events = [
+            event
+            for event in self.list_events(context)
+            if event.correlation_id == task_id and event.workspace_id == context.workspace_id
+        ]
+        if after is not None:
+            anchor = next((event for event in events if event.id == after), None)
+            if anchor is None:
+                raise UnknownCursorError(after)
+            key = (anchor.created_at, anchor.id)
+            events = [event for event in events if (event.created_at, event.id) < key]
+        events.sort(key=lambda event: (event.created_at, event.id), reverse=True)
+        return events if limit is None else events[:limit]
+
+    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]:
+        if not self.get_task(task_id, context):
+            return []
+        return sorted(
+            (approval for approval in self.store.approvals.values() if approval.task_id == task_id),
+            key=lambda approval: (approval.created_at, approval.id),
+        )
 
     def save_task(self, task: Task) -> Task:
         self.store.tasks[task.id] = task
@@ -266,9 +355,9 @@ class InMemoryRepository:
         return run if task else None
 
     def find_run_for_task(self, task_id: str, context: TenantContext) -> AgentRun | None:
-        if not self.get_task(task_id, context):
-            return None
-        return next((run for run in self.store.runs.values() if run.task_id == task_id), None)
+        """The task's newest run (a retried task has several)."""
+        runs = self.list_runs_for_task(task_id, context, limit=1)
+        return runs[0] if runs else None
 
     def save_approval(self, approval: Approval) -> Approval:
         self.store.approvals[approval.id] = approval

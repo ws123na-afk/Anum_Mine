@@ -28,6 +28,36 @@ export interface Task {
   updatedAt: string;
   /** User id of whoever created the task. */
   createdBy?: string | null;
+  /** Set while the task is archived (hidden from the default list, history kept; docs/tasks.md). */
+  archivedAt?: string | null;
+  archivedBy?: string | null;
+}
+
+/** `GET /api/v1/tasks/summary`: per-status counts for the list's other filters (docs/tasks.md). */
+export interface TaskSummary {
+  total: number;
+  byStatus: Partial<Record<TaskStatus, number>>;
+  archived: number;
+  /** Distinct creator user ids in the workspace (at most 200). */
+  creators: string[];
+}
+
+export type TaskBulkAction = 'archive' | 'unarchive' | 'cancel';
+
+/** One task's outcome in `POST /api/v1/tasks/bulk`; `statusCode` is what the single-task route answers. */
+export interface TaskBulkItemResult {
+  taskId: string;
+  ok: boolean;
+  statusCode: number;
+  message: string | null;
+  task: Task | null;
+}
+
+export interface TaskBulkResult {
+  action: TaskBulkAction;
+  succeeded: number;
+  failed: number;
+  results: TaskBulkItemResult[];
 }
 
 export interface AgentRunStep {
@@ -55,6 +85,10 @@ export interface AgentRun {
   status: TaskStatus;
   steps: AgentRunStep[];
   result?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  /** Checkpoint phase (`planning`, `tool_ready`, `waiting_approval`, `executing`, or a terminal phase). */
+  phase?: string;
 }
 
 export interface Approval {

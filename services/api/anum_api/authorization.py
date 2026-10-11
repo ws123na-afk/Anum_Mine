@@ -17,6 +17,9 @@ class Permission(StrEnum):
     TASK_CREATE = "task:create"
     TASK_RUN = "task:run"
     TASK_CANCEL = "task:cancel"
+    # Edit or archive any task in the workspace (owners). A task's creator may edit and
+    # archive their own task with ``task:create`` alone (docs/tasks.md#permissions).
+    TASK_MANAGE = "task:manage"
     APPROVAL_READ = "approval:read"
     APPROVAL_DECIDE = "approval:decide"
     EVENT_READ = "event:read"

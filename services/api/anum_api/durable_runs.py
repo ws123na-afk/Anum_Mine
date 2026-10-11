@@ -295,8 +295,13 @@ class RunDispatcher:
             )
         return self._client
 
-    async def start(self, request: AgentRunInput) -> str:
-        """Start the run's workflow; an already running workflow for the task is reused."""
+    async def start(self, request: AgentRunInput, *, replace_existing: bool = False) -> str:
+        """Start the run's workflow; an already running workflow for the task is reused.
+
+        ``replace_existing`` (a retry, docs/tasks.md#retry) terminates a workflow still
+        open for the task instead: it can only be finishing the failed or cancelled run,
+        and reusing it would leave the new run queued forever.
+        """
         from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
         workflow_id = workflow_id_for(request.tenant_id, request.workspace_id, request.task_id)
@@ -307,7 +312,11 @@ class RunDispatcher:
             id=workflow_id,
             task_queue=self.task_queue,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            id_conflict_policy=(
+                WorkflowIDConflictPolicy.TERMINATE_EXISTING
+                if replace_existing
+                else WorkflowIDConflictPolicy.USE_EXISTING
+            ),
             memo={"tenant_id": request.tenant_id, "workspace_id": request.workspace_id},
         )
         return workflow_id

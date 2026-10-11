@@ -402,3 +402,21 @@ def test_user_preferences_migration_is_expand_only_with_user_scoped_forced_rls()
     assert "server_default=sa.true()" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
+
+
+def test_task_archive_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0026_task_archive.py").read_text(encoding="utf-8")
+    assert 'revision = "0026_task_archive"' in revision_text
+    assert len("0026_task_archive") <= 32
+    assert 'down_revision = "0025_user_preferences"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0026_task_archive.py"]
+    assert not [path for path in others if 'down_revision = "0025_user_preferences"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Two nullable columns the previous release never writes, and a concurrent index.
+    assert upgrade.count("op.add_column(") == 2
+    assert upgrade.count("nullable=true") == 2
+    assert "create index concurrently if not exists ix_agent_runs_task_created" in upgrade
+    assert "autocommit_block" in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade

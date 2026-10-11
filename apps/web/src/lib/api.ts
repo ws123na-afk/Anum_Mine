@@ -8,6 +8,7 @@ import * as capabilities from './capabilities';
 import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
 import * as chatMemory from './chatMemory';
 import { parseSourceNames, type SourceName } from './retrieval';
+import { taskTitleFrom } from './tasks';
 
 // The one API base URL for every module. Deployments compile VITE_ANUM_API_URL in (apps/web/Dockerfile, infra/oracle/compose.yaml).
 export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
@@ -31,6 +32,8 @@ export interface ApiTask {
   created_at: string;
   updated_at: string;
   created_by?: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
 }
 
 interface ApiAgentRunStep {
@@ -46,7 +49,10 @@ export interface ApiAgentRun {
   task_id: string;
   status: AgentRun['status'];
   steps: ApiAgentRunStep[];
-  result?: string;
+  result?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  checkpoint?: { phase?: string };
 }
 
 export interface ApiApproval {
@@ -80,7 +86,7 @@ export interface ApiCallerMembership {
   status: 'active';
 }
 
-interface ApiRunTaskResponse {
+export interface ApiRunTaskResponse {
   task: ApiTask;
   run: ApiAgentRun;
   approval: ApiApproval | null;
@@ -104,10 +110,10 @@ export interface ApprovalDecisionResult {
   approval: Approval;
 }
 
-export async function createAndRunTask(prompt: string): Promise<RunTaskResult> {
+export async function createAndRunTask(prompt: string, title = taskTitleFrom(prompt)): Promise<RunTaskResult> {
   const created = await request<ApiTask>('/api/v1/tasks', {
     method: 'POST',
-    body: JSON.stringify({ title: 'Web task', prompt }),
+    body: JSON.stringify({ title, prompt }),
   });
   const result = await request<ApiRunTaskResponse>(`/api/v1/tasks/${created.id}/run`, {
     method: 'POST',
@@ -423,7 +429,7 @@ export async function getCurrentMembership(): Promise<ApiCurrentMembership> {
   return request('/api/v1/workspace-memberships/current', { method: 'GET' });
 }
 
-function mapTask(task: ApiTask): Task {
+export function mapTask(task: ApiTask): Task {
   return {
     id: task.id,
     title: task.title,
@@ -434,15 +440,20 @@ function mapTask(task: ApiTask): Task {
     createdAt: task.created_at,
     updatedAt: task.updated_at,
     createdBy: task.created_by ?? null,
+    archivedAt: task.archived_at ?? null,
+    archivedBy: task.archived_by ?? null,
   };
 }
 
-function mapRun(run: ApiAgentRun): AgentRun {
+export function mapRun(run: ApiAgentRun): AgentRun {
   return {
     id: run.id,
     taskId: run.task_id,
     status: run.status,
-    result: run.result,
+    result: run.result ?? undefined,
+    createdAt: run.created_at,
+    updatedAt: run.updated_at,
+    phase: run.checkpoint?.phase,
     steps: run.steps.map((step) => ({
       id: step.id,
       type: step.type,

@@ -23,6 +23,8 @@ Before planning, a run retrieves the nearest chunks of the workspace's indexed m
 
 Agent state should be durable enough to resume after worker restarts. Temporal should manage long-running execution, retries, timers, and waits. PostgreSQL should store canonical run state and audit records. Valkey can hold ephemeral locks, short-lived caches, and live coordination data.
 
+A task can have several runs: `POST /api/v1/tasks/{id}/retry` starts a new run of a failed or cancelled task and keeps the earlier runs, steps and approvals in its history, and `resume` continues a run stranded at `tool_ready`. The latest run is the newest by `(created_at, id)`; an approval decision resumes the approval's own run ([Tasks](tasks.md#retry)).
+
 ## Durable Execution
 
 `ANUM_RUNTIME_BACKEND` picks where a run executes:

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
+import 'task_management.dart';
 import 'workspace_models.dart';
 import 'workspace_repository.dart';
 
@@ -56,10 +57,48 @@ class WorkspaceController extends ChangeNotifier {
   Future<WorkspaceTask?> createTask(String prompt) =>
       _mutate(() => _keepRunApproval(repository.createAndRunTask(prompt)));
   Future<WorkspaceTask> loadTask(String id) => repository.loadTask(id);
-  Future<WorkspaceTask?> cancelTask(String id) =>
-      _mutate(() => repository.cancelTask(id));
-  Future<WorkspaceTask?> resumeTask(String id) =>
-      _mutate(() => _keepRunApproval(repository.resumeTask(id)));
+  Future<WorkspaceTask?> cancelTask(String id) {
+    taskRefusal = null;
+    return _mutate(() => repository.cancelTask(id),
+        onRefused: (message) => taskRefusal = message);
+  }
+
+  Future<WorkspaceTask?> resumeTask(String id) {
+    taskRefusal = null;
+    return _mutate(() => _keepRunApproval(repository.resumeTask(id)),
+        onRefused: (message) => taskRefusal = message);
+  }
+
+  /// Filtered paging, retry, rename, archive, run history and export, when
+  /// the repository offers them (the API repository does; docs/tasks.md).
+  TaskManagementRepository? get taskManagement {
+    final value = repository;
+    return value is TaskManagementRepository
+        ? value as TaskManagementRepository
+        : null;
+  }
+
+  /// The API's refusal of the last task action (a 403 names who may act, a
+  /// 409 why the state does not allow it); shown on the task's screen.
+  String? taskRefusal;
+
+  Future<WorkspaceTask?> retryTask(String id) =>
+      _taskAction((m) => _keepRunApproval(m.retryTask(id)));
+  Future<WorkspaceTask?> renameTask(String id, String title) =>
+      _taskAction((m) => m.renameTask(id, title));
+  Future<WorkspaceTask?> archiveTask(String id) =>
+      _taskAction((m) => m.archiveTask(id));
+  Future<WorkspaceTask?> unarchiveTask(String id) =>
+      _taskAction((m) => m.unarchiveTask(id));
+
+  Future<WorkspaceTask?> _taskAction(
+      Future<WorkspaceTask> Function(TaskManagementRepository m) action) {
+    final m = taskManagement;
+    if (m == null) return Future.value(null);
+    taskRefusal = null;
+    return _mutate(() => action(m),
+        onRefused: (message) => taskRefusal = message);
+  }
 
   /// Approvals a run response created that the approvals list has not
   /// returned yet, by id.

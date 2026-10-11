@@ -1,7 +1,7 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from anum_api.audit import AuditRecord, DuplicateAuditRecordError
@@ -16,6 +16,7 @@ from anum_api.schemas import (
     RiskLevel,
     Task,
     TaskStatus,
+    TaskSummary,
     Tenant,
     InvitationStatus,
     TenantContext,
@@ -26,6 +27,7 @@ from anum_api.schemas import (
     utc_now,
 )
 
+from anum_api.tasks import CREATORS_MAX, TaskFilters, like_pattern
 from anum_api.tool_governance import ToolGovernance, tool_governance_from
 
 from .models import (
@@ -324,23 +326,60 @@ class SqlAlchemyRepository(AnumRepository):
         record.title = task.title
         record.prompt = task.prompt
         record.status = task.status.value
+        record.archived_at = task.archived_at
+        record.archived_by_user_id = task.archived_by
         record.created_at = task.created_at
         record.updated_at = task.updated_at
         self.session.flush()
         return self._task_from_record(record)
 
+    @staticmethod
+    def _task_conditions(context: TenantContext, filters: TaskFilters) -> list[Any]:
+        conditions: list[Any] = [
+            TaskRecord.tenant_id == context.tenant_id,
+            TaskRecord.workspace_id == context.workspace_id,
+            TaskRecord.archived_at.is_not(None) if filters.archived else TaskRecord.archived_at.is_(None),
+        ]
+        if filters.statuses:
+            conditions.append(TaskRecord.status.in_(sorted(status.value for status in filters.statuses)))
+        if filters.created_by is not None:
+            conditions.append(TaskRecord.created_by_user_id == filters.created_by)
+        if filters.created_after is not None:
+            conditions.append(TaskRecord.created_at >= filters.created_after)
+        if filters.created_before is not None:
+            conditions.append(TaskRecord.created_at < filters.created_before)
+        if filters.query:
+            pattern = like_pattern(filters.query)
+            conditions.append(
+                or_(
+                    TaskRecord.title.ilike(pattern, escape="\\"),
+                    TaskRecord.prompt.ilike(pattern, escape="\\"),
+                    TaskRecord.id.ilike(pattern, escape="\\"),
+                )
+            )
+        return conditions
+
     def list_tasks(
-        self, context: TenantContext, *, limit: int | None = None, after: str | None = None
+        self,
+        context: TenantContext,
+        *,
+        limit: int | None = None,
+        after: str | None = None,
+        filters: TaskFilters | None = None,
     ) -> list[Task]:
         """Newest first, keyset-paged on ``(created_at, id)`` (``ix_tasks_scope_created``).
 
         ``after`` is the id of the last task already shown; an id outside the caller's scope
-        raises :class:`UnknownCursorError` rather than returning an empty page.
+        raises :class:`UnknownCursorError` rather than returning an empty page. Without
+        ``filters`` every task is listed, archived ones included.
         """
-        statement = select(TaskRecord).where(
-            TaskRecord.tenant_id == context.tenant_id,
-            TaskRecord.workspace_id == context.workspace_id,
-        )
+        if filters is not None:
+            statement = select(TaskRecord).where(*self._task_conditions(context, filters))
+        else:
+            statement = select(TaskRecord).where(
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
         if after is not None:
             anchor = self.session.execute(
                 select(TaskRecord.created_at, TaskRecord.id).where(
@@ -359,6 +398,113 @@ class SqlAlchemyRepository(AnumRepository):
             statement = statement.limit(limit)
         records = self.session.scalars(statement).all()
         return [self._task_from_record(record) for record in records]
+
+    def summarize_tasks(self, context: TenantContext, filters: TaskFilters) -> TaskSummary:
+        unfiltered = filters.without_status()
+        rows = self.session.execute(
+            select(TaskRecord.status, func.count())
+            .where(*self._task_conditions(context, unfiltered))
+            .group_by(TaskRecord.status)
+        ).all()
+        by_status = {str(status): int(count) for status, count in rows}
+        archived = self.session.scalar(
+            select(func.count())
+            .select_from(TaskRecord)
+            .where(*self._task_conditions(context, unfiltered.with_archived(True)))
+        )
+        creators = self.session.scalars(
+            select(TaskRecord.created_by_user_id)
+            .where(
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+            .distinct()
+            .order_by(TaskRecord.created_by_user_id)
+            .limit(CREATORS_MAX)
+        ).all()
+        return TaskSummary(
+            total=sum(by_status.values()),
+            by_status=by_status,
+            archived=int(archived or 0),
+            creators=[creator for creator in creators if creator],
+        )
+
+    def list_runs_for_task(
+        self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[AgentRun]:
+        """The task's runs newest first, keyset-paged (``ix_agent_runs_task_created``)."""
+        statement = (
+            select(AgentRunRecord)
+            .join(TaskRecord, AgentRunRecord.task_id == TaskRecord.id)
+            .where(
+                AgentRunRecord.task_id == task_id,
+                AgentRunRecord.tenant_id == context.tenant_id,
+                AgentRunRecord.workspace_id == context.workspace_id,
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+        )
+        if after is not None:
+            anchor = self.session.execute(
+                select(AgentRunRecord.created_at, AgentRunRecord.id).where(
+                    AgentRunRecord.id == after,
+                    AgentRunRecord.task_id == task_id,
+                    AgentRunRecord.tenant_id == context.tenant_id,
+                    AgentRunRecord.workspace_id == context.workspace_id,
+                )
+            ).first()
+            if anchor is None:
+                raise UnknownCursorError(after)
+            statement = statement.where(
+                tuple_(AgentRunRecord.created_at, AgentRunRecord.id) < tuple_(anchor[0], anchor[1])
+            )
+        statement = statement.order_by(AgentRunRecord.created_at.desc(), AgentRunRecord.id.desc())
+        if limit is not None:
+            statement = statement.limit(limit)
+        return [self._run_from_record(record) for record in self.session.scalars(statement).all()]
+
+    def list_task_events(
+        self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[DomainEvent]:
+        """The task's events (correlation id = task id) newest first, keyset-paged."""
+        statement = select(DomainEventRecord).where(
+            DomainEventRecord.tenant_id == context.tenant_id,
+            DomainEventRecord.workspace_id == context.workspace_id,
+            DomainEventRecord.correlation_id == task_id,
+        )
+        if after is not None:
+            anchor = self.session.execute(
+                select(DomainEventRecord.created_at, DomainEventRecord.id).where(
+                    DomainEventRecord.id == after,
+                    DomainEventRecord.tenant_id == context.tenant_id,
+                    DomainEventRecord.workspace_id == context.workspace_id,
+                    DomainEventRecord.correlation_id == task_id,
+                )
+            ).first()
+            if anchor is None:
+                raise UnknownCursorError(after)
+            statement = statement.where(
+                tuple_(DomainEventRecord.created_at, DomainEventRecord.id) < tuple_(anchor[0], anchor[1])
+            )
+        statement = statement.order_by(DomainEventRecord.created_at.desc(), DomainEventRecord.id.desc())
+        if limit is not None:
+            statement = statement.limit(limit)
+        return [self._event_from_record(record) for record in self.session.scalars(statement).all()]
+
+    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]:
+        records = self.session.scalars(
+            select(ApprovalRecord)
+            .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
+            .where(
+                ApprovalRecord.task_id == task_id,
+                ApprovalRecord.tenant_id == context.tenant_id,
+                ApprovalRecord.workspace_id == context.workspace_id,
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+            .order_by(ApprovalRecord.created_at, ApprovalRecord.id)
+        ).all()
+        return [self._approval_from_record(record) for record in records]
 
     def save_task(self, task: Task) -> Task:
         return self.create_task(task)
@@ -765,6 +911,8 @@ class SqlAlchemyRepository(AnumRepository):
             created_at=record.created_at,
             updated_at=record.updated_at,
             created_by=record.created_by_user_id,
+            archived_at=record.archived_at,
+            archived_by=record.archived_by_user_id,
         )
 
     @staticmethod

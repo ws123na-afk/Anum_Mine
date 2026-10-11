@@ -19,11 +19,18 @@ class WorkspaceTask {
       required this.createdAt,
       required this.updatedAt,
       this.run,
-      this.approval});
+      this.approval,
+      this.createdBy,
+      this.archivedAt});
   final String id, title, prompt;
   final WorkStatus status;
   final DateTime createdAt, updatedAt;
   final WorkspaceRun? run;
+
+  /// Who created the task, and when it was archived (null while it is in
+  /// the active list; docs/tasks.md).
+  final String? createdBy;
+  final DateTime? archivedAt;
 
   /// The approval this run created, from the run response's `approval`
   /// (`POST /tasks/{id}/run` and resume), with its `required_approvals` and
@@ -36,11 +43,13 @@ class WorkspaceRun {
       {required this.id,
       required this.status,
       required this.steps,
-      this.result});
+      this.result,
+      this.createdAt});
   final String id;
   final WorkStatus status;
   final List<RunStep> steps;
   final String? result;
+  final DateTime? createdAt;
 }
 
 class RunStep {

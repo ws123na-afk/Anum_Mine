@@ -21,6 +21,8 @@ Each event should include an ID, type, version, tenant ID, workspace ID when app
 - `memory.created`
 - `integration.webhook.received`
 
+Task lifecycle events published today: `task.created`, `task.cancelled`, `task.updated` (payload `fields`: the changed field names, never the instructions), `task.archived`, `task.unarchived` and `task.retried` (payload `previous_run_id`); every task event's correlation id is the task id, which is how `GET /api/v1/tasks/{id}/events` finds a task's history ([Tasks](tasks.md)).
+
 Approval decisions are published today as `approval.approved`, `approval.rejected` and `approval.expired` (after `approval.requested`). In an [approval chain](approvals-and-risk.md#approval-chains) every approval that does not yet complete the chain publishes `approval.partially_approved` (subject: the approval id; payload `task_id`, `approvals`, `required_approvals`, `approvers` and the optional `reason`), and the completing `approval.approved` adds the same counts.
 
 ## Delivery Rules

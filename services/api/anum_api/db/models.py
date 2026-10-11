@@ -103,6 +103,9 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     title: Mapped[str] = mapped_column(String(160), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Archive (0026_task_archive, docs/tasks.md): null while the task is in the active list.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_by_user_id: Mapped[str | None] = mapped_column(String(120))
 
     workspace: Mapped[Workspace] = relationship(back_populates="tasks")
     runs: Mapped[list["AgentRunRecord"]] = relationship(back_populates="task")
@@ -149,6 +152,15 @@ class AgentRunRecord(Base, TimestampMixin, WorkspaceScopedMixin):
         ),
         UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_agent_runs_scope_id"),
         Index("ix_agent_runs_tenant_workspace_task", "tenant_id", "workspace_id", "task_id"),
+        # Keyset paging of GET /api/v1/tasks/{id}/runs (migration 0026_task_archive).
+        Index(
+            "ix_agent_runs_task_created",
+            "tenant_id",
+            "workspace_id",
+            "task_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
     )
 
 
