@@ -466,7 +466,8 @@ async def ask_in_conversation(
             conversation_title=conversation.title or title_from(user_turn.content),
             question=user_turn.content,
             reply=completed,
-            gateway=gateway,
+            # Fact extraction is a small call: the fast model (Haiku with `anthropic`).
+            gateway=route_gateway(gateway, ModelRoute.FAST),
         )
         if extraction_enabled(context)
         else None

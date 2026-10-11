@@ -232,6 +232,17 @@ class AnthropicGateway(OpenAICompatibleGateway):
         with model_call_span(self.provider, self.model, "generate_text"):
             return await self._call("generate_text", body)
 
+    async def complete_chat(
+        self, messages: list[ChatMessage], *, max_tokens: int | None = None
+    ) -> ModelResponse:
+        """A non-streaming Messages API call (background work such as conversation memory
+        extraction). Not cached: it runs once per reply and nothing would read the cache."""
+        body = self._request(
+            validate_messages(messages), max_tokens or self.max_output_tokens, cache=False
+        )
+        with model_call_span(self.provider, self.model, "complete_chat"):
+            return await self._call("complete_chat", body)
+
     async def generate_structured(
         self,
         prompt: str,

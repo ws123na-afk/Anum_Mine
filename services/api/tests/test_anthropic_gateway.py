@@ -222,6 +222,22 @@ class Plan(BaseModel):
     steps: list[str]
 
 
+def test_complete_chat_posts_messages_without_cache_breakpoints() -> None:
+    # Conversation memory's background call: the Messages API, not the OpenAI form the
+    # parent class would send, capped at the caller's max_tokens and never cached.
+    gateway, seen = _gateway([_json(_message("- Prefers tea"))])
+
+    response = asyncio.run(gateway.complete_chat(MESSAGES, max_tokens=256))
+
+    request = seen[0]
+    assert str(request.url) == "https://api.anthropic.com/v1/messages"
+    body = json.loads(request.content)
+    assert body["max_tokens"] == 256
+    assert "choices" not in body and "cache_control" not in request.content.decode()
+    assert response.text == "- Prefers tea"
+    assert response.usage.provider == "anthropic"
+
+
 def test_generate_structured_asks_for_the_json_schema_and_validates_the_reply() -> None:
     reply = json.dumps({"objective": "ship", "steps": ["build", "test"]})
     gateway, seen = _gateway([_json(_message(reply))])
