@@ -38,7 +38,7 @@ There is no free, commercially usable pretrained wake-word model:
 - openWakeWord's pretrained models are non-commercial.
 - Porcupine's free tier is reported to end in June 2026 (*uncertain*).
 
-ANUM instead listens for the assistant's name with the browser's own recogniser, on by default but only while the Voice view is open, and with a one-click switch-off:
+ANUM instead listens for the assistant's name with the browser's own recogniser, on by default but only while the Voice view is open, and with a one-click switch-off. The page never asks for the microphone by itself: hands-free listening starts on its own only when the browser reports the permission as already granted; otherwise the user taps "Start listening for “<name>”" (or switches the wake name on), and that tap is when the browser asks. Web and mobile share the same matching rules (`apps/web/src/lib/wake.ts` mirrors `apps/mobile/lib/features/voice/wake_word.dart`): an optional "hey / hi / ok / okay / hello / يا" before the name, and the default name "Anum" also answers to common transcriptions such as "annum" and "أنوم". The web Voice view greets by name ("Good evening. I'm Anum."), shows a live caption while you speak, speaks replies with `speechSynthesis` (or the natural voice) behind a mute toggle, and always offers push-to-talk (the dock mic or holding Space) and typing.
 - It uses on-device recognition when Chrome offers it.
 - Otherwise the UI warns that the browser's speech service hears the room.
 

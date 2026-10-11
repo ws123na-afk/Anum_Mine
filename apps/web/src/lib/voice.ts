@@ -1,6 +1,9 @@
 import type { Task } from '@anum/contracts';
 import { apiBaseUrl, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
+import { matchWakeWord } from './wake';
+
+export { defaultAssistantName, greeting, matchWakeWord, sanitizeAssistantName } from './wake';
 
 
 export type TranscriptRetention = 'session' | '30_days' | 'permanent';
@@ -347,6 +350,21 @@ export function playWakeChime(): void {
   }
 }
 
+export type MicrophonePermission = 'granted' | 'denied' | 'prompt' | 'unknown';
+
+/**
+ * Reads the microphone permission without asking for it. Hands-free listening starts on its own
+ * only when this is 'granted'; otherwise the user starts it with a tap, which is when the browser asks.
+ */
+export async function microphonePermission(): Promise<MicrophonePermission> {
+  try {
+    const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
+    return status?.state ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 export interface WakeListener {
   start: () => void;
   stop: () => void;
@@ -369,8 +387,6 @@ export function createWakeListener(
 ): WakeListener | null {
   const Constructor = recognitionConstructor();
   if (!Constructor) return null;
-  const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const wake = new RegExp(`(^|\\s)(hey\\s+|hi\\s+|ok\\s+|okay\\s+|يا\\s+)?${escaped}([\\s,.!?،]|$)`, 'i');
   let running = false;
   let paused = false;
   let recognition: SpeechRecognitionLike | null = null;
@@ -386,8 +402,8 @@ export function createWakeListener(
       const latest = event.results[event.results.length - 1];
       if (!latest?.isFinal) return;
       const heard = latest[0].transcript.trim();
-      const match = wake.exec(heard);
-      if (match) onWake(heard.slice(match.index + match[0].length).trim());
+      const rest = matchWakeWord(heard, name);
+      if (rest !== null) onWake(rest);
     };
     recognition.onerror = (event: Event) => {
       const code = (event as Event & { error?: string }).error;

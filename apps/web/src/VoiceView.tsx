@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { Check, Cpu, Globe2, Keyboard, Mic, Radio, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowUp, Check, Cpu, Globe2, Keyboard, Mic, Radio, Settings2, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
 import {
   appendTranscript,
   askVoiceAssistant,
@@ -9,6 +9,9 @@ import {
   createVoiceSession,
   createWakeListener,
   detectRecognitionMode,
+  greeting,
+  microphonePermission,
+  sanitizeAssistantName,
   hasVoiceServer,
   listSystemVoices,
   naturalVoiceSupports,
@@ -26,6 +29,7 @@ import {
 } from './lib/voice';
 import { Orb3D } from './Orb3D';
 import { budgetMessage, isBudgetExceeded } from './lib/errors';
+import './voice.css';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -77,7 +81,13 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   const [notice, setNotice] = useState('');
   const [level, setLevel] = useState(0);
   const [pendingApprovals, setPendingApprovals] = useState(0);
-  const [orbSize] = useState(() => (window.innerWidth < 860 ? 170 : 220));
+  // Sized by width and height so the greeting and dock stay above the fold on short laptop screens.
+  const [orbSize] = useState(() => Math.round(Math.max(180, Math.min(window.innerWidth < 480 ? 208 : window.innerWidth < 860 ? 248 : 296, window.innerHeight * 0.3))));
+  // Hands-free listening never asks for the microphone by itself: it starts on its own only when
+  // permission was already granted, otherwise after the user taps "Start listening".
+  const [armed, setArmed] = useState(false);
+  const [hour] = useState(() => new Date().getHours());
+  const [needsTap, setNeedsTap] = useState(false);
   const controller = useRef<PushToTalkController | null>(null);
   const wake = useRef<WakeListener | null>(null);
   const probedLocale = useRef<string | null>(null);
@@ -106,7 +116,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
 
   useEffect(() => { probedLocale.current = null; setMode(baseRecognitionMode()); store('anum.voice.locale', locale); }, [locale]);
   useEffect(() => { void listSystemVoices().then(setVoices); }, []);
-  useEffect(() => { logEnd.current?.scrollIntoView({ block: 'nearest' }); }, [turns]);
+  useEffect(() => { if (turns.length) logEnd.current?.scrollIntoView({ block: 'nearest' }); }, [turns]);
   useEffect(() => () => { stopMeter(); stopSpeaking(); controller.current?.cancel(); wake.current?.stop(); }, []);
 
   async function ensureMode(): Promise<RecognitionMode> {
@@ -233,10 +243,17 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
 
   // Wake name: listen in the background only while switched on; paused while talking or speaking.
   useEffect(() => {
-    if (!wakeOn) return;
+    if (!wakeOn) { setNeedsTap(false); return; }
     let cancelled = false;
-    void ensureMode().then((activeMode) => {
+    void (async () => {
+      const permission = armed ? 'granted' : await microphonePermission();
       if (cancelled) return;
+      if (permission === 'denied') { setMicBlocked(true); setNeedsTap(false); return; }
+      if (permission !== 'granted') { setNeedsTap(true); return; }
+      setNeedsTap(false);
+      return ensureMode();
+    })().then((activeMode) => {
+      if (cancelled || !activeMode) return;
       if (activeMode === 'typing') { setNotice(modeLabel.typing.hint); return; }
       wake.current = createWakeListener(name, locale, activeMode === 'on-device', (rest) => {
         playWakeChime();
@@ -248,7 +265,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
     });
     return () => { cancelled = true; wake.current?.stop(); wake.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wakeOn, name, locale]);
+  }, [wakeOn, armed, name, locale]);
 
   useEffect(() => {
     const isOtherControl = (target: EventTarget | null) =>
@@ -293,7 +310,7 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   }
 
   function saveName() {
-    const clean = nameDraft.trim().replace(/[^\p{L}\p{N} .'-]/gu, '').slice(0, 40);
+    const clean = sanitizeAssistantName(nameDraft);
     if (!clean) { setNameDraft(name); return; }
     setName(clean);
     setNameDraft(clean);
@@ -303,6 +320,8 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   async function toggleWake() {
     const next = !wakeOn;
     setWakeOn(next);
+    // Switching it on is a user action, so the browser may ask for the microphone now.
+    setArmed(next);
     store('anum.voice.wake', next ? 'on' : 'off');
     if (next && (await ensureMode()) === 'cloud') {
       setNotice(`While “${name}” is on, your browser's speech service hears the room until you turn it off.`);
@@ -320,83 +339,85 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   function onDraftKey(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void ask(); }
   }
-
-  const orbScale = state === 'listening' ? 1 + level * 0.12 : 1;
+  const orbScale = state === 'listening' ? 1 + level * 0.1 : 1;
   const modeInfo = modeLabel[mode];
+  const caption = notice || (state === 'listening' ? (draft || (arabic ? 'تفضل…' : 'Go ahead…')) : state === 'idle' && !needsTap ? idleHint : '');
 
   return <section className="voiceConsole" data-state={state} aria-label={`${name} voice assistant`}>
-    <header className="voiceConsoleHeader">
-      <div className="voiceIdentity">
-        <span className="voiceAvatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
-        <div><h2>{name}</h2><p>{arabic ? 'مساعدتك الصوتية' : 'Your voice assistant'}</p></div>
-      </div>
+    <header className="voiceTopline">
+      <span className="voiceBadge" title={modeInfo.hint}>{modeInfo.icon}{modeInfo.text}</span>
       <div className="voiceConsoleMeta">
-        <span className="voiceBadge" title={modeInfo.hint}>{modeInfo.icon}{modeInfo.text}</span>
         <button type="button" className={wakeOn ? 'voicePill on' : 'voicePill'} onClick={() => void toggleWake()} aria-pressed={wakeOn} title={`When on, saying “${name}” wakes the assistant. Audio is only processed while this page is open.`}>
-          <Radio size={14} />{wakeOn ? `“${name}” is on` : `Wake on “${name}”`}
+          <Radio size={16} />{wakeOn ? `“${name}” is on` : `Wake on “${name}”`}
         </button>
-        <button type="button" className="voiceIconButton" onClick={() => { setMuted(!muted); if (!muted) stopSpeaking(); }} aria-pressed={muted} aria-label={muted ? 'Unmute spoken replies' : 'Mute spoken replies'}>
+        <button type="button" className="voiceIconButton" onClick={() => { setMuted(!muted); if (!muted) stopSpeaking(); }} aria-pressed={muted} aria-label={muted ? 'Unmute spoken replies' : 'Mute spoken replies'} title={muted ? 'Spoken replies are off' : 'Spoken replies are on'}>
           {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
         </button>
       </div>
     </header>
 
     <div className="voiceStage">
-      <div className="voiceOrbWrap">
-        <button
-          type="button"
-          className="voiceOrb voiceTalk"
-          style={{ transform: `scale(${orbScale})`, width: orbSize, height: orbSize }}
-          onClick={onOrbClick}
-          disabled={state === 'thinking'}
-          aria-label={state === 'listening' ? 'Stop listening' : state === 'speaking' ? 'Stop speaking' : 'Tap to talk'}
-        >
-          <span className="voiceOrbGlow" />
-          <Orb3D state={state} alert={pendingApprovals > 0} level={level} size={orbSize} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />
-          <span className="voiceOrbIcon">{state === 'listening' ? <Square size={24} /> : <Mic size={30} />}</span>
-        </button>
-        <p className="voiceStateLabel" role="status" aria-live="polite">{stateText[state]}</p>
-        <p className="voiceNotice">{notice || (state === 'idle' ? idleHint : state === 'listening' ? (draft || '…') : '')}</p>
+      <button
+        type="button"
+        className="voiceOrb voiceTalk"
+        style={{ transform: `scale(${orbScale})`, width: orbSize, height: orbSize }}
+        onClick={onOrbClick}
+        disabled={state === 'thinking'}
+        aria-label={state === 'listening' ? 'Stop listening' : state === 'speaking' ? 'Stop speaking' : 'Tap to talk'}
+      >
+        <span className="voiceOrbHalo" aria-hidden="true" />
+        <span className="voiceOrbGlow" aria-hidden="true" />
+        <Orb3D state={state} alert={pendingApprovals > 0} level={level} size={orbSize} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />
+        <span className="voiceOrbIcon" aria-hidden="true">{state === 'listening' ? <Square size={26} /> : state === 'speaking' ? <VolumeX size={28} /> : <Mic size={30} />}</span>
+      </button>
+      <h2 className="voiceGreeting">{greeting(name, locale, hour)}</h2>
+      <p className="voiceStateLabel" role="status" aria-live="polite">{stateText[state]}</p>
+      <p className={state === 'listening' && draft ? 'voiceCaption live' : 'voiceCaption'}>{caption}</p>
+      <div className="voiceStageActions">
+        {needsTap && !micBlocked && <button type="button" className="voiceAllowMic" onClick={() => setArmed(true)}><Radio size={16} />Start listening for “{name}”</button>}
+        {micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setMicBlocked(false); setNotice(''); setArmed(true); setWakeOn(false); window.setTimeout(() => setWakeOn(true), 0); }}>Allow microphone</button>}
         {pendingApprovals > 0 && <button type="button" className="voiceScope" onClick={onOpenApprovals}>
           {pendingApprovals === 1 ? '1 approval waiting for you' : `${pendingApprovals} approvals waiting for you`}
         </button>}
-        {micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setMicBlocked(false); setNotice(''); setWakeOn(false); window.setTimeout(() => setWakeOn(true), 0); }}>Allow microphone</button>}
       </div>
-
-      <ol className="voiceLog" aria-label="Conversation">
-        {turns.length === 0 && <li className="voiceEmpty">
-          <strong>{arabic ? 'جرّب أن تقول' : 'Try saying'}</strong>
-          <span>“{arabic ? 'ما اسمك؟' : "What's your name?"}”</span>
-          <span>“{arabic ? 'ما حالة مهامي؟' : "What's the status of my workspace?"}”</span>
-          <span>“{arabic ? 'أنشئ مهمة: تجهيز التقرير الأسبوعي' : 'Create a task: draft the weekly report'}”</span>
-        </li>}
-        {turns.map((turn) => <li key={turn.id} className={`voiceTurn ${turn.speaker}`}>
-          {turn.speaker === 'assistant' && <span className="voiceSpeaker">{name}</span>}
-          <p>{turn.text}</p>
-          {turn.result && turn.result.risk_tier !== 'read' && <span className={`voiceTier ${turn.result.risk_tier}`}>{tierLabel[turn.result.risk_tier]}</span>}
-          {turn.result?.risk_tier === 'confirm' && turn.result.proposed_task && !turn.resolved && <div className="voiceConfirm">
-            <button type="button" onClick={() => void confirmTask(turn)}><Check size={16} />Create task</button>
-            <button type="button" className="secondary" onClick={() => dismiss(turn)}><X size={16} />Not now</button>
-          </div>}
-          {turn.resolved === 'created' && <span className="voiceResolved">Task created</span>}
-          {turn.result?.risk_tier === 'visual_only' && onOpenApprovals && <div className="voiceConfirm">
-            <button type="button" className="secondary" onClick={onOpenApprovals}><ShieldAlert size={16} />Open Approvals</button>
-          </div>}
-        </li>)}
-        <li ref={logEnd} aria-hidden="true" className="voiceLogEnd" />
-      </ol>
     </div>
 
+    <ol className="voiceLog" aria-label="Conversation">
+      {turns.length === 0 && <li className="voiceEmpty">
+        <span className="voiceEmptyLead">{arabic ? 'جرّب أن تقول' : 'Try saying'}</span>
+        <span>“{arabic ? 'ما اسمك؟' : "What's your name?"}”</span>
+        <span>“{arabic ? 'ما حالة مهامي؟' : "What's the status of my workspace?"}”</span>
+        <span>“{arabic ? 'أنشئ مهمة: تجهيز التقرير الأسبوعي' : 'Create a task: draft the weekly report'}”</span>
+      </li>}
+      {turns.map((turn) => <li key={turn.id} className={`voiceTurn ${turn.speaker}`}>
+        {turn.speaker === 'assistant' && <span className="voiceSpeaker">{name}</span>}
+        <p>{turn.text}</p>
+        {turn.result && turn.result.risk_tier !== 'read' && <span className={`voiceTier ${turn.result.risk_tier}`}>{tierLabel[turn.result.risk_tier]}</span>}
+        {turn.result?.risk_tier === 'confirm' && turn.result.proposed_task && !turn.resolved && <div className="voiceConfirm">
+          <button type="button" onClick={() => void confirmTask(turn)}><Check size={16} />Create task</button>
+          <button type="button" className="secondary" onClick={() => dismiss(turn)}><X size={16} />Not now</button>
+        </div>}
+        {turn.resolved === 'created' && <span className="voiceResolved">Task created</span>}
+        {turn.result?.risk_tier === 'visual_only' && onOpenApprovals && <div className="voiceConfirm">
+          <button type="button" className="secondary" onClick={onOpenApprovals}><ShieldAlert size={16} />Open Approvals</button>
+        </div>}
+      </li>)}
+      <li ref={logEnd} aria-hidden="true" className="voiceLogEnd" />
+    </ol>
+
     <footer className="voiceDock">
+      <button type="button" className="voiceDockMic voiceTalk" onClick={onOrbClick} disabled={state === 'thinking'} aria-label={state === 'listening' ? 'Stop listening' : 'Push to talk'} title="Push to talk (or hold Space)">
+        {state === 'listening' ? <Square size={18} /> : <Mic size={18} />}
+      </button>
       <label className="voiceDraft">
         <span className="visuallyHidden">Your message</span>
-        <textarea value={state === 'listening' ? '' : draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onDraftKey} rows={1} placeholder={arabic ? 'أو اكتب رسالتك هنا' : 'Or type a message'} disabled={state === 'listening'} />
+        <textarea value={state === 'listening' ? '' : draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onDraftKey} rows={1} placeholder={arabic ? 'أو اكتب رسالتك هنا' : `Message ${name}`} disabled={state === 'listening'} />
       </label>
-      <button type="button" className="voiceAsk" onClick={() => void ask()} disabled={!draft.trim() || state === 'thinking' || state === 'listening'}>Send</button>
+      <button type="button" className="voiceAsk" onClick={() => void ask()} disabled={!draft.trim() || state === 'thinking' || state === 'listening'} aria-label="Send" title="Send"><ArrowUp size={18} /></button>
     </footer>
 
     <details className="voiceSettings">
-      <summary>Voice settings</summary>
+      <summary><Settings2 size={16} />Voice settings</summary>
       <div className="voiceSettingsGrid">
         <label className="field"><span>Assistant name</span>
           <input value={nameDraft} maxLength={40} onChange={(event) => setNameDraft(event.target.value)} onBlur={saveName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveName(); } }} />

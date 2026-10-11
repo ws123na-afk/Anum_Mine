@@ -1,5 +1,8 @@
 /* Members, invitations and model budgets (owner screens). Uses the depth tokens from styles.css. */
-.adminPanel { margin-top: 16px; padding: 18px; }
+.adminPanel { margin-top: var(--d-s5); padding: var(--d-s5); }
+/* Labels that carry information (scope, "shown once") stay visible; decorative section labels are hidden in styles.css. */
+.tokenReveal .eyebrow, .budgetCard .eyebrow { color: var(--d-muted); display: block; font-size: 13px; font-weight: 600; }
+.tokenReveal .eyebrow { color: var(--d-warn); }
 .adminGrid { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
 .adminFields { display: grid; gap: 0 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
 .adminFields .wide { grid-column: span 2; }
@@ -21,7 +24,7 @@
 .memberMain small { color: var(--d-faint); font-size: 12px; }
 .memberMain .memberHint { color: var(--d-warn); }
 .memberRole select { padding: 7px 9px; }
-.memberRow > button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 36px; padding: 6px 12px; }
+.memberRow > button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
 .tokenReveal { border-color: rgba(252, 211, 141, .45); box-shadow: var(--d-elev-2), 0 0 0 1px rgba(252, 211, 141, .15), 0 10px 40px rgba(252, 211, 141, .12); }
 .tokenWarning { align-items: flex-start; color: var(--d-warn); display: flex; font-size: 13px; gap: 8px; margin-top: 10px; }
 .tokenWarning svg { flex: none; height: 17px; margin-top: 2px; width: 17px; }
@@ -31,7 +34,7 @@
 }
 .sectionIcon { color: var(--d-violet); height: 22px; width: 22px; }
 .budgetGrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); margin-top: 16px; }
-.budgetCard { display: grid; gap: 14px; padding: 18px; }
+.budgetCard { display: grid; gap: var(--d-s4); padding: var(--d-s5); }
 .budgetCard.exceeded { border-color: rgba(253, 164, 175, .45); box-shadow: var(--d-elev-1), 0 10px 36px rgba(253, 164, 175, .12); }
 .budgetMeter { display: grid; gap: 6px; }
 .budgetMeterTop { align-items: baseline; display: flex; gap: 10px; justify-content: space-between; }
@@ -50,8 +53,8 @@
 .budgetAlert { align-items: center; border-color: rgba(253, 164, 175, .45); display: grid; gap: 14px; grid-template-columns: 40px minmax(0, 1fr) auto; margin-bottom: 16px; padding: 16px 18px; }
 .budgetAlert p { color: var(--d-muted); font-size: 13px; margin-top: 2px; }
 .budgetAlertActions { display: flex; flex-wrap: wrap; gap: 8px; }
-.budgetAlertActions button { align-items: center; background: linear-gradient(135deg, #7c6cf2, #a78bfa 60%, #c4b5fd); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 36px; padding: 6px 12px; }
-.budgetAlertActions button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
+.budgetAlertActions button { align-items: center; background: var(--d-primary); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
+.budgetAlertActions button.secondary, .memberRow > button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
 /* Approval policy */
 .policySwitch { border-top: 1px solid var(--d-line); display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; }
 .policySwitch label { align-items: center; cursor: pointer; display: flex; gap: 14px; justify-content: space-between; }
@@ -83,7 +86,8 @@
 .approvalProgress meter { height: 8px; width: 96px; }
 .approvalProgressNote { color: var(--d-muted); font-size: 12px; margin: 4px 0 0; }
 /* Workspace switcher in the top bar */
-.workspaceSwitcher { position: relative; }
+.workspaceSwitcher { min-width: 0; position: relative; }
+.topbar > div:first-child { min-width: 0; }
 .topActions .workspaceSwitch { align-items: center; cursor: pointer; display: inline-flex; gap: 6px; max-width: min(46vw, 360px); }
 .workspaceSwitch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspaceSwitch svg { flex: none; height: 14px; width: 14px; }
@@ -103,11 +107,11 @@
 .workspaceOption .iconButton { height: 36px; width: 36px; }
 .workspacePanel form { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
 .workspacePanel form .field { margin: 0; }
-.workspacePanel form button { align-items: center; background: linear-gradient(135deg, #7c6cf2, #a78bfa 60%, #c4b5fd); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 40px; padding: 6px 12px; }
+.workspacePanel form button { align-items: center; background: var(--d-primary); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 40px; padding: 6px 12px; }
 .workspacePanel form button:disabled { cursor: not-allowed; opacity: .55; }
 .workspacePanel .notice { margin: 0; }
 @media (prefers-reduced-motion: reduce) { .meterTrack span { transition: none; } .policySwitch input[type="checkbox"], .policySwitch input[type="checkbox"]::after { transition: none; } }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .memberRow, .memberRow.invitationRow { grid-template-columns: 40px minmax(0, 1fr); }
   .memberRow > .statusBadge, .memberRow > .memberRole, .memberRow > button { grid-column: 2; justify-self: start; }
   .memberRow > span:empty { display: none; }

@@ -117,10 +117,23 @@ test('tap the mic, speak, and the reply comes back without pressing send', async
   await expect(page.getByText("I'm Layla, your assistant here in ANUM.")).toBeVisible();
 });
 
-test('saying the name wakes the assistant with no tap, and it keeps listening for a follow-up', async ({ page }) => {
+test('hands-free waits for a tap until the microphone is allowed', async ({ page }) => {
   await mockVoiceApi(page);
   await fakeMicrophone(page);
   await page.goto('/#voice');
+  // Without microphone permission the page never asks by itself: the user starts listening.
+  await expect(page.getByRole('button', { name: 'Start listening for “Layla”' })).toBeVisible();
+  await page.getByRole('button', { name: 'Start listening for “Layla”' }).click();
+  await page.evaluate(() => (window as unknown as { __say: (text: string) => void }).__say('Layla, what is your name?'));
+  await expect(page.getByText("I'm Layla, your assistant here in ANUM.")).toBeVisible();
+});
+
+test('saying the name wakes the assistant with no tap, and it keeps listening for a follow-up', async ({ page, context }) => {
+  await context.grantPermissions(['microphone']);
+  await mockVoiceApi(page);
+  await fakeMicrophone(page);
+  await page.goto('/#voice');
+  await expect(page.getByRole('heading', { name: /I'm Layla\./ })).toBeVisible();
   // Wake by name is on by default.
   await expect(page.getByRole('button', { name: '“Layla” is on' })).toBeVisible();
   await expect(page.getByText('Listening for “Layla”')).toBeVisible();
