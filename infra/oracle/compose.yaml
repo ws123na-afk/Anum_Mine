@@ -48,8 +48,23 @@ services:
       ANUM_WEB_HOST: ${ANUM_WEB_HOST:?set ANUM_WEB_HOST in infra/oracle/.env}
       ANUM_API_HOST: ${ANUM_API_HOST:?set ANUM_API_HOST in infra/oracle/.env}
       ANUM_AUTH_HOST: ${ANUM_AUTH_HOST:?set ANUM_AUTH_HOST in infra/oracle/.env}
-      # Source addresses allowed to open Keycloak's /admin console (space-separated CIDRs).
-      ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS: ${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-0.0.0.0/0 ::/0}
+      # Addresses allowed to open Keycloak's admin console and master realm: comma-
+      # separated addresses or CIDR ranges; empty closes the console to the internet
+      # (configure_env.py --check validates the list; docs/deploy-oracle.md#keycloak).
+      ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS: ${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}
+    # The Caddyfile's remote_ip matcher takes space-separated ranges and needs at least
+    # one: commas become spaces, and an empty list becomes 0.0.0.0/32 ::/128, which no
+    # TCP peer can have (admin console closed). Overriding the entrypoint clears the
+    # image's CMD: repeat it.
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS="$$(printf '%s' "$${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}" | tr ',' ' ' | xargs)";
+        export ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS="$${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-0.0.0.0/32 ::/128}";
+        exec "$$@"
+      - caddy-entrypoint
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Certificates and ACME account: keep this volume, or Let's Encrypt rate limits
@@ -293,6 +308,12 @@ services:
       # .env, keeping the lines (docs/deploy-oracle.md#keycloak).
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-}
+      # Read by the entrypoint only: with no allow-list, Caddy closes the admin console
+      # and it is opened through an SSH tunnel to this container
+      # (ssh -L 8080:172.30.10.20:8080), so Keycloak builds the console's URLs for
+      # http://localhost:8080 (KC_HOSTNAME_ADMIN). Sign-in URLs and the token issuer
+      # of the anum realm stay on KC_HOSTNAME.
+      ADMIN_CONSOLE_ALLOWED_IPS: ${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}
     # Keycloak refuses to start when the bootstrap variables are set but empty
     # ("bootstrap-admin-username available only when bootstrap admin password is set"),
     # so drop them once the password has been emptied. Overriding the entrypoint also
@@ -303,6 +324,9 @@ services:
       - >-
         [ -n "$${KC_BOOTSTRAP_ADMIN_PASSWORD:-}" ] ||
         unset KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD;
+        [[ "$${ADMIN_CONSOLE_ALLOWED_IPS:-}" =~ [0-9A-Fa-f] ]] ||
+        export KC_HOSTNAME_ADMIN=http://localhost:8080;
+        unset ADMIN_CONSOLE_ALLOWED_IPS;
         exec /opt/keycloak/bin/kc.sh "$$@"
       - kc.sh
     command: ["start", "--optimized", "--import-realm"]
@@ -321,9 +345,12 @@ services:
       retries: 5
       start_period: 120s
     networks:
-      - edge
-      - backend
-      - egress
+      edge:
+        # Fixed address: the target of the admin SSH tunnel (docs/deploy-oracle.md#keycloak).
+        # Reachable from the VM itself only; no port is published.
+        ipv4_address: 172.30.10.20
+      backend: {}
+      egress: {}
     depends_on:
       db-init:
         condition: service_completed_successfully

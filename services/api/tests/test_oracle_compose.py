@@ -465,10 +465,86 @@ def test_caddy_replaces_client_forwarded_headers_and_serves_the_three_hosts() ->
         assert f"reverse_proxy {upstream} {{\n\t\timport upstream_headers\n" in block, host
     assert "protocols h1 h2" in code
     assert "email {$ACME_EMAIL}" in code
-    assert "not remote_ip {$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS}" in code
     caddy_env = _env(_services()["caddy"])
     for name in ("ACME_EMAIL", "ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS"):
         assert name in caddy_env, name
+
+
+def _auth_site() -> str:
+    caddyfile = CADDYFILE.read_text(encoding="utf-8")
+    code = "\n".join(line for line in caddyfile.splitlines() if not line.lstrip().startswith("#"))
+    block = code[code.index("\n{$ANUM_AUTH_HOST} {") :]
+    return block[: block.index("\n}\n") if "\n}\n" in block else len(block)]
+
+
+def test_keycloak_admin_and_master_realm_follow_the_allow_list() -> None:
+    block = _auth_site()
+    matcher = block[block.index("@admin_denied {") :]
+    matcher = matcher[: matcher.index("\n\t}\n")]
+    # The console, the admin REST API and the master realm (where admins sign in) are
+    # refused unless the TCP peer is on the list and is not a Docker address; the anum
+    # realm, which every ANUM user signs in through, is not in the matcher.
+    assert "path /admin /admin/* /realms/master /realms/master/*" in matcher
+    assert "/realms/anum" not in matcher
+    allowed = (
+        "not {\n"
+        "\t\t\tremote_ip {$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS}\n"
+        "\t\t\tnot remote_ip 172.30.0.0/16\n"
+        "\t\t}"
+    )
+    assert allowed in matcher
+    assert "client_ip" not in matcher.replace("@client_ip", "")  # the peer, never a forwarded header
+    assert block.index("respond @admin_denied") < block.index("reverse_proxy keycloak:8080")
+    # Every compose network is inside the range that is never trusted.
+    docker = ipaddress.ip_network("172.30.0.0/16")
+    for network in _compose()["networks"].values():
+        assert ipaddress.ip_network(network["ipam"]["config"][0]["subnet"]).subnet_of(docker)
+    # The address Caddy sees, for the allow-list and smoke.sh.
+    assert 'respond @client_ip "{remote_host}" 200' in block
+
+
+def test_caddy_entrypoint_turns_the_comma_list_into_caddy_ranges() -> None:
+    caddy = _services()["caddy"]
+    assert _env(caddy)["ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS"] == "${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}"
+    assert caddy["command"] == ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    script = caddy["entrypoint"][2].replace("$$", "$")
+    if shutil.which("sh") is None:
+        return
+    for value, expected in (
+        ("", "0.0.0.0/32 ::/128"),
+        (" , ", "0.0.0.0/32 ::/128"),
+        ("203.0.113.7/32,198.51.100.0/24", "203.0.113.7/32 198.51.100.0/24"),
+        ("203.0.113.7, 2001:db8::/32", "203.0.113.7 2001:db8::/32"),
+    ):
+        result = subprocess.run(  # noqa: S603
+            ["sh", "-c", script, "caddy-entrypoint", "sh", "-c", 'printf %s "$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS"'],
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": value},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout == expected, value
+
+
+def test_keycloak_admin_console_moves_to_the_tunnel_without_an_allow_list() -> None:
+    services = _services()
+    keycloak = services["keycloak"]
+    edge = keycloak["networks"]["edge"]["ipv4_address"]
+    subnet = ipaddress.ip_network(_compose()["networks"]["edge"]["ipam"]["config"][0]["subnet"])
+    assert ipaddress.ip_address(edge) in subnet
+    assert edge != services["caddy"]["networks"]["edge"]["ipv4_address"]
+    assert "ports" not in keycloak
+    script = keycloak["entrypoint"][2]
+    assert _env(keycloak)["ADMIN_CONSOLE_ALLOWED_IPS"] == "${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}"
+    assert "export KC_HOSTNAME_ADMIN=http://localhost:8080" in script
+    assert "unset ADMIN_CONSOLE_ALLOWED_IPS" in script
+    docs = (REPO_ROOT / "docs" / "deploy-oracle.md").read_text(encoding="utf-8")
+    assert f"ssh -L 8080:{edge}:8080" in docs
+    assert f"ssh -L 8080:{edge}:8080" in (ORACLE / "install.sh").read_text(encoding="utf-8")
+
+
+def test_example_closes_the_admin_console_by_default() -> None:
+    assert _example()["ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS"] == ""
 
 
 # --------------------------------------------------------------------------- database roles
@@ -557,6 +633,59 @@ def test_configure_env_quotes_values_compose_would_interpolate() -> None:
     assert module.validate("ANUM_S3_ENDPOINT", "http://s3.example.org") is not None
 
 
+HOSTS_OK = {
+    "ANUM_WEB_HOST": "anum-app-owner.duckdns.org",
+    "ANUM_API_HOST": "anum-api-owner.duckdns.org",
+    "ANUM_AUTH_HOST": "anum-auth-owner.duckdns.org",
+    "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "",
+}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "fragment"),
+    [
+        ({"ANUM_API_HOST": "anum-app-owner.duckdns.org"}, "ANUM_WEB_HOST and ANUM_API_HOST are both"),
+        ({"ANUM_AUTH_HOST": "ANUM-API-owner.duckdns.org"}, "capital letters"),
+        ({"ANUM_AUTH_HOST": "anum-api-owner.duckdns.org"}, "ANUM_API_HOST and ANUM_AUTH_HOST are both"),
+        ({"ANUM_WEB_HOST": ""}, "ANUM_WEB_HOST is empty"),
+        ({"ANUM_AUTH_HOST": "https://anum-auth-owner.duckdns.org"}, "not a valid host name"),
+        ({"ANUM_API_HOST": "anum-api-owner.duckdns.org:8443"}, "not a valid host name"),
+        ({"ANUM_WEB_HOST": "app.replace-me.example"}, "still the placeholder"),
+        ({"ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "203.0.113.7/32,home"}, "'home' is not an IP address"),
+        ({"ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "203.0.113.7/33"}, "is not an IP address"),
+    ],
+)
+def test_configure_env_check_refuses_bad_hosts_and_allow_lists(overrides: dict[str, str], fragment: str) -> None:
+    module = _configure_env_module()
+    problems, _ = module.check_deployment({**HOSTS_OK, **overrides}, strict=False)
+    assert any(fragment in problem for problem in problems), problems
+
+
+def test_configure_env_check_accepts_good_values_and_flags_a_world_open_console(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _configure_env_module()
+    assert module.check_deployment(HOSTS_OK, strict=True) == ([], [])
+    listed = {**HOSTS_OK, "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "203.0.113.7/32, 198.51.100.0/24,2001:db8::/48"}
+    assert module.check_deployment(listed, strict=True) == ([], [])
+    # Older .env files used spaces; an open console stops install.sh, update.sh warns.
+    world = {**HOSTS_OK, "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "0.0.0.0/0 ::/0"}
+    problems, warnings = module.check_deployment(world, strict=True)
+    assert len(problems) == 1 and "whole internet" in problems[0] and not warnings
+    problems, warnings = module.check_deployment(world, strict=False)
+    assert not problems and len(warnings) == 1
+
+    target = tmp_path / ".env"
+    target.write_text("".join(f"{key}={value}\n" for key, value in HOSTS_OK.items()), encoding="utf-8")
+    assert module.main([str(target), "--check", "--strict"]) == 0
+    target.write_text(
+        target.read_text(encoding="utf-8").replace("anum-auth-owner", "anum-api-owner"), encoding="utf-8"
+    )
+    assert module.main([str(target), "--check"]) == 4
+    assert "ANUM_API_HOST and ANUM_AUTH_HOST are both" in capsys.readouterr().err
+    assert module.main([str(tmp_path / "missing.env"), "--check"]) == 2
+
+
 # --------------------------------------------------------------------------- scripts
 
 
@@ -577,6 +706,52 @@ def test_scripts_are_strict_and_units_point_at_existing_files() -> None:
     assert "ufw enable" not in install
     update = (ORACLE / "update.sh").read_text(encoding="utf-8")
     assert update.index("run --rm --no-deps migrate") < update.index("up -d --remove-orphans")
+    # Migrations (alembic upgrade head) run as their own one-shot before the API is
+    # recreated, and the API waits for them on every `up`.
+    assert _services()["migrate"]["command"] == ["python", "-m", "alembic", "upgrade", "head"]
+    assert _services()["api"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+    # Host names and the admin allow-list are checked before anything is built.
+    assert update.index('configure_env.py" "$ENV_FILE" --check') < update.index("build --pull")
+    check = install.index('configure_env.py" "$ENV_FILE" --check --strict')
+    assert check < install.index('update.sh" --no-pull')
+    # install.sh ends with the smoke test, as the owner, after the timers.
+    smoke = install.index('run_as_owner bash "$ORACLE_DIR/smoke.sh"')
+    assert smoke > install.index("systemctl daemon-reload")
+
+
+def test_smoke_test_needs_no_sudo_and_covers_the_edge() -> None:
+    smoke = (ORACLE / "smoke.sh").read_text(encoding="utf-8")
+    code = "\n".join(line for line in smoke.splitlines() if not line.lstrip().startswith("#"))
+    # No sudo and no Docker access: it runs as the owner on the VM or from any machine.
+    assert "sudo" not in code
+    assert not re.search(r"^\s*(docker|dc) ", code, re.MULTILINE)
+    for needle in (
+        "/realms/anum/.well-known/openid-configuration",
+        "/health",
+        "/api/v1/tasks",
+        "/admin/",
+        "/realms/master/.well-known/openid-configuration",
+        "/anum/client-ip",
+        "Strict-Transport-Security",
+        "Content-Security-Policy",
+        "X-Content-Type-Options",
+    ):
+        assert needle in code, needle
+    # The probed path really needs a token: it is an authenticated API route.
+    from anum_api.main import app
+
+    assert "/api/v1/tasks" in app.openapi()["paths"]
+    if shutil.which("bash") is None:
+        return
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(ORACLE / "smoke.sh"), "app.example.org", "app.example.org", "auth.example.org"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 1
+    assert "three different names" in result.stdout
 
 
 def test_install_does_not_ask_for_a_password_with_nopasswd_sudo() -> None:

@@ -11,9 +11,11 @@
 # on unattended security upgrades, opens TCP 80/443 in the host firewall the way Oracle's
 # images expect, adds swap, generates the secrets into infra/oracle/.env (mode 600; the
 # values are never printed), asks for the few values only the owner has, builds and
-# starts the stack, and installs the systemd timers (retention, backup, optional
-# DuckDNS and auto-update). Every step checks first, so a second run changes nothing
-# that is already in place.
+# refuses duplicate or invalid host names and a world-open Keycloak admin allow-list,
+# builds and starts the stack (update.sh: migrations before the API is replaced),
+# installs the systemd timers (retention, backup, optional DuckDNS and auto-update) and
+# ends with infra/oracle/smoke.sh, printing its summary (non-zero exit when a check
+# fails). Every step checks first, so a second run changes nothing already in place.
 set -euo pipefail
 
 log() { printf '\n==> %s\n' "$*"; }
@@ -178,6 +180,17 @@ if [ "$status" -eq 3 ]; then
 elif [ "$status" -ne 0 ]; then
   die "configure_env.py failed ($status)"
 fi
+# Refuse before building anything: three valid, different host names (Caddy serves one
+# site per name; the web bundle and Keycloak's issuer are built from them) and an admin
+# allow-list of addresses or CIDR ranges that does not open the console to everyone.
+log "Checking the host names and the Keycloak admin allow-list"
+set +e
+run_as_owner python3 "$ORACLE_DIR/configure_env.py" "$ENV_FILE" --check --strict
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+  die "fix ANUM_WEB_HOST, ANUM_API_HOST, ANUM_AUTH_HOST or ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS in $ENV_FILE as described above (nano $ENV_FILE), then run this script again"
+fi
 env_value() {
   # One value from .env without sourcing it (values are never echoed by this script).
   sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^'\(.*\)'$/\1/"
@@ -287,12 +300,28 @@ fi
 WEB_HOST="$(env_value ANUM_WEB_HOST)"
 API_HOST="$(env_value ANUM_API_HOST)"
 AUTH_HOST="$(env_value ANUM_AUTH_HOST)"
+if [ -n "$(env_value ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS | tr -d ' ,')" ]; then
+  ADMIN_HOW="https://$AUTH_HOST/admin/ (from ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS only)"
+else
+  ADMIN_HOW="through an SSH tunnel only: ssh -L 8080:172.30.10.20:8080 $OWNER@<VM_IP>, then http://localhost:8080/admin/"
+fi
+
+# --- Smoke test -------------------------------------------------------------------------
+# As the owner, without sudo, against Caddy on this VM (127.0.0.1 with the real names, so
+# it does not depend on Oracle routing the VM's own public IP back to it). A fresh
+# install waits up to 5 minutes for the Let's Encrypt certificates.
+log "Smoke test (infra/oracle/smoke.sh)"
+set +e
+run_as_owner bash "$ORACLE_DIR/smoke.sh" --wait 300
+smoke_status=$?
+set -e
+
 cat <<EOF
 
 ANUM is running.
   Web:      https://$WEB_HOST
   API:      https://$API_HOST/health
-  Keycloak: https://$AUTH_HOST/admin/
+  Keycloak: $ADMIN_HOW
 
 Secrets are in $ENV_FILE (mode 600, never committed). Copy them into your password
 manager now; read them with:  sudo cat $ENV_FILE
@@ -301,4 +330,9 @@ that file: replace it on day one (docs/deploy-oracle.md#keycloak).
 
 Status:   cd $ORACLE_DIR && docker compose ps
 Timers:   systemctl list-timers 'anum-*'
+Smoke:    bash $ORACLE_DIR/smoke.sh   (from your PC: bash smoke.sh $WEB_HOST $API_HOST $AUTH_HOST)
 EOF
+if [ "$smoke_status" -ne 0 ]; then
+  warn "the smoke test failed (summary above); fix those items and run: bash $ORACLE_DIR/smoke.sh"
+  exit 1
+fi
