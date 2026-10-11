@@ -23,7 +23,7 @@ export function IntegrationsView() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void getCurrentMembership().then((m) => setOwner(m.role === 'owner' && m.active)).catch(() => setOwner(false)); }, []);
   return <>
-    <section className="moduleIntro"><div><p className="eyebrow">Connected systems</p><h2>Integrations</h2><p>Live service health and connectivity. Owners can turn an integration off or point it at another endpoint for this workspace.</p></div><button onClick={() => void load()}><RefreshCw />Refresh</button></section>
+    <section className="moduleIntro"><div><p className="eyebrow">Connected systems</p><h2>Integrations</h2><p>Live service health and connectivity. Owners can turn an integration off or record another endpoint for this workspace; health checks always probe the operator-configured endpoint.</p></div><button onClick={() => void load()}><RefreshCw />Refresh</button></section>
     {state && <Notice error={state.error}>{state.text}</Notice>}
     <div className="integrationGrid">{items.map((x) => {
       const badge = integrationBadge(x.status);

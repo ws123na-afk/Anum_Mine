@@ -34,7 +34,9 @@ export function AutomationWorkbench() {
   function saveWorkflow() { let body: ReturnType<typeof workflowBody>; try { body = workflowBody(name, description, steps); } catch (error) { setMessage(error instanceof Error ? error.message : 'Invalid workflow.'); return; } void perform(async () => { const item = await createAutomationWorkflow(body); setSelected(item.id); resetComposer(); }, 'Workflow saved durably.'); }
   function scheduleCron(): string { return cronMode === 'preset' ? preset : cronMode === 'interval' ? intervalCron(interval) : cron.trim(); }
   function saveSchedule() { let expression: string; try { expression = scheduleCron(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Invalid schedule.'); return; } void perform(() => createAutomationSchedule({ workflow_id: selected, name: scheduleName.trim(), cron: expression, timezone: timezone.trim() || 'UTC', enabled: true }), 'Schedule created.'); }
-  const workflowSchedules = schedules.filter((item) => !selected || item.workflow_id === selected);
+  // Run now launches the saved workflow, not the composer: block it while the composer holds unsaved edits.
+  const unsaved = basedOn !== null || name !== 'Daily operations review' || description !== '' || JSON.stringify(steps) !== JSON.stringify(initialSteps());
+  const workflowSchedules =schedules.filter((item) => !selected || item.workflow_id === selected);
   const workflowName = (id: string) => workflows.find((item) => item.id === id)?.name ?? id;
   return <>
     <section className="moduleIntro"><div><p className="eyebrow">Durable execution</p><h2>Automation workbench</h2><p>Compose, schedule, launch, pause, resume, and retry replay-safe agent workflows.</p></div><button type="button" onClick={() => void refresh()}><RefreshCw size={17} />Refresh</button></section>
@@ -53,12 +55,13 @@ export function AutomationWorkbench() {
           </div>
           <label className="field"><span>Input (JSON object{step.action === 'fail' ? ', e.g. {"message": "..."}' : ''})</span><textarea className="wbJson" rows={2} value={step.input} onChange={(event) => updateStep(index, { input: event.target.value })} /></label>
         </li>)}</ol>
-        <div className="actions"><button type="button" className="secondary" disabled={steps.length >= 100} onClick={() => setSteps((current) => [...current, newStep(current)])}><Plus size={17} />Add step</button>{basedOn && <button type="button" className="secondary" onClick={resetComposer}><X size={17} />Discard</button>}<button type="button" disabled={busy || !name.trim()} onClick={saveWorkflow}><Plus size={17} />{basedOn ? 'Save as new' : 'Create'}</button></div>
+        <div className="actions"><button type="button" className="secondary" disabled={steps.length >= 100} onClick={() => setSteps((current) => [...current, newStep(current)])}><Plus size={17} />Add step</button>{unsaved && <button type="button" className="secondary" onClick={resetComposer}><X size={17} />Discard</button>}<button type="button" disabled={busy || !name.trim()} onClick={saveWorkflow}><Plus size={17} />{basedOn ? 'Save as new' : 'Create'}</button></div>
       </section>
       <section className="surface automationComposer"><div className="sectionHeader"><div><p className="eyebrow">Replay-safe launch</p><h2>Start workflow</h2></div><Play size={20} /></div>
         <label className="field"><span>Workflow</span><select value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Select a workflow</option>{workflows.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         {selected && <p className="muted wbMeta">{workflows.find((item) => item.id === selected)?.steps.map((step) => step.name).join(' → ')}</p>}
-        <div className="actions"><button type="button" className="secondary" disabled={!selected} onClick={() => { const item = workflows.find((workflow) => workflow.id === selected); if (item) loadWorkflow(item); }}><Copy size={17} />Edit copy</button><button type="button" disabled={busy || !selected} onClick={() => void perform(() => startAutomationRun(selected, crypto.randomUUID()), 'Workflow run started.')}><Play size={17} />Run now</button></div>
+        <div className="actions"><button type="button" className="secondary" disabled={!selected} onClick={() => { const item = workflows.find((workflow) => workflow.id === selected); if (item) loadWorkflow(item); }}><Copy size={17} />Edit copy</button><button type="button" disabled={busy || !selected || unsaved} aria-describedby={unsaved ? 'wbRunHint' : undefined} onClick={() => void perform(() => startAutomationRun(selected, crypto.randomUUID()), `Run of ${workflowName(selected)} started.`)}><Play size={17} />Run now</button></div>
+        {unsaved && selected && <p className="muted" id="wbRunHint">Save or discard the composer's edits first: Run now starts the saved workflow selected above.</p>}
         <p className="notice" role="status"><Clock3 size={14} />{message}</p>
       </section>
     </section>

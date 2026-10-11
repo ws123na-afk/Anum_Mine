@@ -176,7 +176,9 @@ class IntegrationRegistry:
 
     @staticmethod
     def _effective(definition: IntegrationDefinition, value: IntegrationConfiguration | None) -> IntegrationDefinition:
-        return definition if value is None else definition.model_copy(update={"configured": value.enabled, "endpoint": value.endpoint or definition.endpoint})
+        # A workspace may only switch an integration on or off. Probes and the reported endpoint
+        # always come from the operator's Settings: a tenant-saved endpoint is never connected to (SSRF).
+        return definition if value is None else definition.model_copy(update={"configured": value.enabled})
 
     async def _check(self, definition: IntegrationDefinition) -> IntegrationHealth:
         if not definition.configured:
