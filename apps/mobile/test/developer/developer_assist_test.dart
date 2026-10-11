@@ -30,12 +30,12 @@ void main() {
     final reply =
         await assist.intercept('Developer, add a dark mode toggle to Settings');
     expect(reply,
-        "I'll ask the developer to: add a dark mode toggle to Settings. Start?");
+        "I'll ask the developer to: add a dark mode toggle to Settings in ANUM. Start?");
     expect(assist.awaitingAnswer, isTrue);
     expect(api.calls('POST', '/developer/requests'), isEmpty);
 
     final started = await assist.intercept('yes');
-    expect(started, startsWith('Started.'));
+    expect(started, startsWith('Started in ANUM.'));
     expect(assist.awaitingAnswer, isFalse);
     final body = api.calls('POST', '/developer/requests').single.body!;
     expect(body['text'], 'add a dark mode toggle to Settings');
@@ -104,7 +104,7 @@ void main() {
         status: 'waiting_approval', pr: 42, prTitle: 'Dark mode');
     await assist.poll();
     expect(said.single,
-        'The change is ready for review: Dark mode. Say approve to merge.');
+        'The change is ready for review in ANUM: Dark mode. Say approve to merge.');
     expect(assist.ready!.id, 'dev_1');
 
     final reply = await assist.intercept('approve');

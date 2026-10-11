@@ -191,6 +191,13 @@ def test_maintenance_discovers_unfinished_developer_requests_only(
     monkeypatch.setattr(developer_settings, "workspace_id", "")
     monkeypatch.setattr(developer_settings, "status_cache_seconds", 0.0)
     _register(client, "owner_test", PHONE_OWNER)
+    owner, repo = REPO.split("/")
+    added = client.post(
+        "/api/v1/developer/projects",
+        headers=headers(),
+        json={"name": "ANUM", "github_owner": owner, "github_repo": repo, "token_source": "environment"},
+    )
+    assert added.status_code == 201, added.text
     created = client.post("/api/v1/developer/requests", headers=headers(), json={"text": "Add a dark mode toggle to settings"})
     assert created.status_code == 201, created.text
     request_id = created.json()["id"]

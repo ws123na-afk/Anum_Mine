@@ -127,6 +127,7 @@ void main() {
       'text': 'Add a dark/light toggle to Settings',
       'source': 'text',
       'allow_protected_paths': false,
+      'project_id': 'devproj_anum',
     });
     expect(c.items.first.status, DevStatus.queued);
     expect(c.setup!.requestsToday, 3);

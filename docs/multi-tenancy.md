@@ -57,7 +57,7 @@ Some jobs must find work in every tenant:
 - the voice transcript purge (expired 30-day transcripts, [Voice](voice.md#storage-and-retention));
 - the retrieval index purge (index rows of expired memories, [Memory](memory.md#retention); migration `0015_retrieval_retention`);
 - the conversation retention purge (conversations idle past `ANUM_CONVERSATION_RETENTION_DAYS`, [Conversations](conversations.md#retention); migration `0019_conversation_retention`);
-- `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, [Runbooks](runbooks.md#rotating-anum_secrets_key)).
+- `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, and developer projects with an encrypted token: `id`, `tenant_id` and `workspace_id` only, migration `0031_developer_projects`; [Runbooks](runbooks.md#rotating-anum_secrets_key)).
 - the developer watcher (developer requests still in progress, refreshed so phone push can announce a ready pull request, [Notifications](notifications.md#developer-mode); migration `0027_push_devices`).
 
 They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automation`):
@@ -72,6 +72,7 @@ They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automa
    | `retrieval_sources` (`0015`) | `tenant_id`, `workspace_id`, `source_type`, `source_id`, `source_expires_at` | `source_type = 'memory' and source_expires_at <= now()` |
    | `conversations` (`0019`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `updated_at` | `updated_at <= now() - interval '1 day'` (the purge then filters on the configured retention) |
    | `developer_requests` (`0026`) | `id`, `tenant_id`, `workspace_id`, `status` | `status in ('queued', 'coding', 'ci_running', 'ci_failed', 'waiting_approval')` |
+   | `developer_projects` (`0031`) | `id`, `tenant_id`, `workspace_id` | `token_ciphertext is not null` |
 
 2. **Act.** Each discovered scope gets its own transaction as the application role, with that tenant, workspace (and user) set as RLS context. Every content read (transcript text, workflow steps, ciphertexts) and every write is checked by the normal tenant-isolation policies. Audit records are written there too.
 

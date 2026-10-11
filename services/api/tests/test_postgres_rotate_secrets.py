@@ -211,3 +211,82 @@ def test_maintenance_grant_without_inherit_keeps_the_app_role_in_one_workspace(
     finally:
         with database_engine.begin() as connection:
             connection.execute(text(f"revoke anum_maintenance from {APP_ROLE}"))
+
+
+# -- developer-mode project tokens (migration 0031_developer_projects) ---------------------
+
+PROJECT_TOKENS = {
+    (TENANT_A, WORKSPACE_A, "devproj_a1"): "example-project-token-a1",
+    (TENANT_A, WORKSPACE_A2, "devproj_a2"): "example-project-token-a2",
+    (TENANT_B, WORKSPACE_B, "devproj_b1"): "example-project-token-b1",
+}
+
+
+@pytest.fixture
+def projects_with_old_key(seed_scopes: None, app_session: Callable[..., Iterator[Session]]) -> None:
+    from anum_api.db.developer_repository import SqlAlchemyProjectStore
+    from anum_api.developer_projects import DeveloperProject
+
+    old = SecretCipher([OLD_KEY])
+    for (tenant_id, workspace_id, project_id), token in PROJECT_TOKENS.items():
+        context = tenant_context(tenant_id, workspace_id)
+        with app_session(context, commit=True) as session:
+            store = SqlAlchemyProjectStore(session, context)
+            for suffix, ciphertext in (("", old.encrypt(token)), ("_env", None)):
+                store.add(
+                    DeveloperProject(
+                        id=f"{project_id}{suffix}", tenant_id=tenant_id, workspace_id=workspace_id,
+                        name=f"Project {project_id}{suffix}", github_owner="acme", github_repo=f"repo{project_id}{suffix}",
+                        token_ciphertext=ciphertext, created_by="owner", created_at=FIXED_NOW, updated_at=FIXED_NOW,
+                    )
+                )
+
+
+def _project_ciphertexts(database_engine: Engine) -> dict[tuple[str, str, str], str]:
+    with database_engine.connect() as connection:
+        rows = connection.execute(
+            text("select tenant_id, workspace_id, id, token_ciphertext from developer_projects where token_ciphertext is not null")
+        ).all()
+    return {(row.tenant_id, row.workspace_id, row.id): row.token_ciphertext for row in rows}
+
+
+def test_project_tokens_are_re_encrypted_across_tenants_and_audited(
+    projects_with_old_key: None, app_factory: sessionmaker[Session], database_engine: Engine
+) -> None:
+    from anum_api.rotate_secrets import rotate_developer_project_tokens
+
+    cipher = SecretCipher([NEW_KEY, OLD_KEY])
+    before = _project_ciphertexts(database_engine)
+    dry = rotate_developer_project_tokens(cipher, session_factory=app_factory, dry_run=True)
+    assert (dry.scanned, dry.rotated, dry.failed) == (3, 3, 0)  # projects without a stored token are not seen
+    assert _project_ciphertexts(database_engine) == before
+
+    report = rotate_developer_project_tokens(cipher, session_factory=app_factory, batch_size=2)
+    assert (report.scanned, report.rotated, report.already_current, report.failed) == (3, 3, 0, 0)
+    after = _project_ciphertexts(database_engine)
+    for scope, token in PROJECT_TOKENS.items():
+        assert after[scope] != before[scope] and Fernet(NEW_KEY).decrypt(after[scope].encode()).decode() == token
+    with database_engine.connect() as connection:
+        targets = sorted(
+            connection.execute(text("select target from audit_records where action = 'secrets.rotated'")).scalars()
+        )
+    assert targets == ["developer_project:devproj_a1", "developer_project:devproj_a2", "developer_project:devproj_b1"]
+    again = rotate_developer_project_tokens(cipher, session_factory=app_factory)
+    assert (again.rotated, again.already_current) == (0, 3)
+
+
+def test_maintenance_role_sees_only_project_ids_with_a_token(projects_with_old_key: None, database_engine: Engine) -> None:
+    with database_engine.connect() as connection:
+        with connection.begin():
+            connection.execute(text("set local role anum_maintenance"))
+            rows = connection.execute(text("select tenant_id, workspace_id, id from developer_projects order by 1, 2, 3")).all()
+        assert [tuple(row) for row in rows] == sorted(PROJECT_TOKENS)
+        for statement in (
+            "select token_ciphertext from developer_projects",
+            "select name from developer_projects",
+            "update developer_projects set token_ciphertext = null",
+        ):
+            with pytest.raises(DBAPIError, match="permission denied"):
+                with connection.begin():
+                    connection.execute(text("set local role anum_maintenance"))
+                    connection.execute(text(statement))

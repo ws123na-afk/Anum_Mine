@@ -359,6 +359,8 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
 
 /** The shared JSON request (auth headers, error envelope) for feature modules such as adminApi.ts. */
 export const apiRequest = request;
+/** The same for routes that answer 204 with no body (DELETE). */
+export const apiRequestVoid = (path: string, init: RequestInit): Promise<void> => requestVoid(path, init);
 
 async function requestVoid(path: string, init: RequestInit): Promise<void> {
   const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers: { ...(await authHeaders()), ...init.headers } });

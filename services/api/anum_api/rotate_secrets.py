@@ -4,8 +4,9 @@
     python -m anum_api.rotate_secrets             # re-encrypt and audit
 
 Covers every workspace model provider key (``workspace_model_configs.api_key_ciphertext``)
-and every workspace integration credential (``integration_credentials.ciphertext``,
-migration 0026) in every tenant. See docs/runbooks.md#rotating-anum_secrets_key.
+every workspace integration credential (``integration_credentials.ciphertext``) and
+every developer-mode project token (``developer_projects.token_ciphertext``, migration
+0031) in every tenant. See docs/runbooks.md#rotating-anum_secrets_key.
 
 How it crosses tenants without bypassing RLS (migration 0009, ``anum_api.maintenance``):
 
@@ -265,6 +266,108 @@ def rotate_model_config_keys(
         after = (rows[-1].tenant_id, rows[-1].workspace_id)
 
 
+# Developer-mode project tokens: the same pattern, one project per transaction.
+_DISCOVER_PROJECTS = text(
+    """
+    select tenant_id, workspace_id, id
+    from developer_projects
+    where (tenant_id, workspace_id, id) > (:after_tenant, :after_workspace, :after_id)
+    order by tenant_id, workspace_id, id
+    limit :limit
+    """
+)
+_LOCK_PROJECT = text(
+    """
+    select token_ciphertext
+    from developer_projects
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and id = :project_id
+    for update
+    """
+)
+_REWRITE_PROJECT = text(
+    """
+    update developer_projects
+    set token_ciphertext = :new
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and id = :project_id and token_ciphertext = :old
+    """
+)
+
+
+def _audit_project(session, scope: dict[str, str], correlation_id: str, outcome: str, result: str) -> None:  # type: ignore[no-untyped-def]
+    from .db.repository import SqlAlchemyRepository
+
+    SqlAlchemyRepository(session, created_by_user_id=ACTOR).record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=scope["tenant_id"],
+            workspace_id=scope["workspace_id"],
+            actor=ACTOR,
+            action=ACTION,
+            target=f"developer_project:{scope['project_id']}",
+            outcome=outcome,
+            correlation_id=correlation_id,
+            created_at=utc_now(),
+            metadata={"store": "developer_projects", "result": result},
+        )
+    )
+
+
+def _rotate_project(
+    session_factory: SessionFactory, cipher: SecretCipher, scope: dict[str, str], report: RotationReport
+) -> None:
+    with scoped_unit(session_factory, scope["tenant_id"], scope["workspace_id"]) as session:
+        ciphertext = session.execute(_LOCK_PROJECT, scope).scalar_one_or_none()
+        if ciphertext is None:
+            report.changed_concurrently += 1  # token removed or project deleted since discovery
+            return
+        if cipher.is_current(ciphertext):
+            report.already_current += 1
+            return
+        try:
+            rotated = cipher.rotate(ciphertext)
+        except SecretDecryptionError:
+            report.failed += 1
+            report.failures.append(dict(scope))
+            if not report.dry_run:
+                _audit_project(session, scope, report.correlation_id, "failed", "undecryptable")
+            return
+        if report.dry_run:
+            report.rotated += 1
+            session.rollback()
+            return
+        if session.execute(_REWRITE_PROJECT, {**scope, "new": rotated, "old": ciphertext}).rowcount != 1:
+            report.changed_concurrently += 1
+            return
+        _audit_project(session, scope, report.correlation_id, "succeeded", "re-encrypted")
+        report.rotated += 1
+
+
+def rotate_developer_project_tokens(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    report = RotationReport(dry_run=dry_run, correlation_id=correlation_id or new_id("rotate_secrets"))
+    after = ("", "", "")
+    while True:
+        rows = discover(
+            maintenance_session_factory or session_factory,
+            _DISCOVER_PROJECTS,
+            {"after_tenant": after[0], "after_workspace": after[1], "after_id": after[2], "limit": batch_size},
+        )
+        for row in rows:
+            report.scanned += 1
+            scope = {"tenant_id": row.tenant_id, "workspace_id": row.workspace_id, "project_id": row.id}
+            _rotate_project(session_factory, cipher, scope, report)
+        if len(rows) < batch_size:
+            return report
+        after = (rows[-1].tenant_id, rows[-1].workspace_id, rows[-1].id)
+
+
 def _configuration_problem() -> str | None:
     if settings.repository_backend != "postgresql":
         return "rotate_secrets needs ANUM_REPOSITORY_BACKEND=postgresql (the memory backend stores nothing at rest)"
@@ -276,7 +379,10 @@ def _configuration_problem() -> str | None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m anum_api.rotate_secrets",
-        description="Re-encrypt stored provider keys and integration credentials with the first key in ANUM_SECRETS_KEY.",
+        description=(
+            "Re-encrypt stored provider keys, integration credentials and developer project tokens "
+            "with the first key in ANUM_SECRETS_KEY."
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="report what would change and write nothing")
     parser.add_argument("--batch-size", type=int, default=200, help="workspaces discovered per query")
@@ -291,8 +397,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     cipher = SecretCipher.from_settings()
     report = rotate_model_config_keys(cipher, dry_run=args.dry_run, batch_size=args.batch_size)
     rotate_integration_credentials(cipher, dry_run=args.dry_run, batch_size=args.batch_size, report=report)
-    print(json.dumps(asdict(report), indent=2))
-    return 1 if report.failed else 0
+    projects = rotate_developer_project_tokens(
+        cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id
+    )
+    # Provider keys and integration credentials at the top level (as before); project tokens nested.
+    print(json.dumps({**asdict(report), "developer_projects": asdict(projects)}, indent=2))
+    return 1 if report.failed or projects.failed else 0
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through main()

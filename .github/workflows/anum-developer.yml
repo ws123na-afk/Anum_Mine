@@ -16,7 +16,12 @@ name: ANUM developer
 #
 # One-time setup (owner): repository secrets ANTHROPIC_API_KEY and ANUM_DEV_PUSH_TOKEN;
 # optional repository variable ANUM_DEV_ALLOW_PROTECTED_PATHS=true to allow requests
-# that change CI workflows or secret handling (each request must also opt in).
+# that change CI workflows or secret handling (each request must also opt in), and
+# ANUM_DEV_PROTECTED_PATHS (comma-separated paths that are never changed).
+#
+# This is the ANUM repository's own variant (it installs ANUM's toolchain and follows
+# CLAUDE.md). Other projects use the generic template ANUM installs for them:
+# services/api/anum_api/workflow_templates/anum-developer.yml (same safety model).
 
 on:
   repository_dispatch:
@@ -250,6 +255,10 @@ jobs:
           BRANCH: ${{ needs.code.outputs.branch }}
           ALLOW: ${{ needs.code.outputs.allow }}
           ALLOW_REPOSITORY: ${{ vars.ANUM_DEV_ALLOW_PROTECTED_PATHS }}
+          # The project's protected paths (ANUM > Developer > Projects), read from the event
+          # here, never from the coding job; plus the repository variable.
+          PROTECTED_PATHS_REQUEST: ${{ toJSON(github.event.client_payload.protected_paths) }}
+          PROTECTED_PATHS_REPOSITORY: ${{ vars.ANUM_DEV_PROTECTED_PATHS }}
         run: |
           set -euo pipefail
           git diff --name-only "$BASE_SHA" "refs/heads/$BRANCH" > "$RUNNER_TEMP/changed.txt"
@@ -257,6 +266,15 @@ jobs:
           if [ "$files" -gt 300 ]; then echo "::error::The change touches $files files (limit 300)."; exit 1; fi
           if grep -Fxq ".anum-dev-request.md" "$RUNNER_TEMP/changed.txt"; then echo "::error::The request file was committed."; exit 1; fi
           protected=$(grep -E '^(\.github/|\.claude/|CLAUDE\.md$|\.gitleaks\.toml$)|(^|/)(secret_box|rotate_secrets)\.py$|(^|/)\.env(\.[^/]*)?$' "$RUNNER_TEMP/changed.txt" | grep -Ev '(^|/)\.env\.example$' || true)
+          {
+            printf '%s\n' "${PROTECTED_PATHS_REPOSITORY:-}" | tr ',' '\n'
+            printf '%s' "$PROTECTED_PATHS_REQUEST" | jq -r '.[]? // empty'
+          } | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's#^\./##' | grep -E '^[A-Za-z0-9._/-]{1,200}$' | grep -v '\.\.' > "$RUNNER_TEMP/protected-paths.txt" || true
+          # A path is a file or a directory: "docs/legal" protects docs/legal and everything under it.
+          extra=$(awk 'FILENAME == ARGV[1] { if ($0 != "") { sub(/\/$/, "", $0); keep[$0] = 1 } next }
+            { for (p in keep) if ($0 == p || index($0, p "/") == 1) { print; break } }' \
+            "$RUNNER_TEMP/protected-paths.txt" "$RUNNER_TEMP/changed.txt")
+          protected=$(printf '%s\n%s\n' "$protected" "$extra" | sed '/^$/d' | sort -u)
           if [ -n "$protected" ]; then
             if [ "$ALLOW" = "true" ] && [ "$ALLOW_REPOSITORY" = "true" ]; then
               echo "::warning::Protected paths changed with the owner's explicit allow:"; echo "$protected"

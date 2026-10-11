@@ -72,7 +72,7 @@ void main() {
       await _chatSend(tester, 'build a weekly digest email for owners');
       expect(
           find.text("I'll ask the developer to: a weekly digest email for "
-              'owners. Start?'),
+              'owners in ANUM. Start?'),
           findsOneWidget);
       expect(events.calls, isEmpty, reason: 'never sent to the model');
       expect(api.calls('POST', '/developer/requests'), isEmpty);
@@ -82,7 +82,7 @@ void main() {
       final body = api.calls('POST', '/developer/requests').single.body!;
       expect(body['source'], 'text');
       expect(body['text'], 'a weekly digest email for owners');
-      expect(find.textContaining('Started. The developer is on it'),
+      expect(find.textContaining('Started in ANUM. The developer is on it'),
           findsOneWidget);
       await tester.tap(find.text('Open Developer'));
       expect(opened, 1);
@@ -166,8 +166,8 @@ void main() {
       expect(voice.turns.last.speaker, VoiceSpeaker.assistant);
       expect(
           voice.turns.last.text,
-          "I'll ask the developer to: add a dark mode toggle to Settings. "
-          'Start?');
+          "I'll ask the developer to: add a dark mode toggle to Settings in "
+          'ANUM. Start?');
       expect(speech.spoken.last, voice.turns.last.text);
       expect(transport.requests, isEmpty,
           reason: 'developer commands never reach the voice API');
@@ -177,7 +177,7 @@ void main() {
       await voice.ask('yes');
       final body = api.calls('POST', '/developer/requests').single.body!;
       expect(body['source'], 'voice');
-      expect(voice.turns.last.text, startsWith('Started.'));
+      expect(voice.turns.last.text, startsWith('Started in ANUM.'));
       voice.setVisible(false);
       voice.dispose();
     });
@@ -202,7 +202,7 @@ void main() {
       await assist.poll();
       await pumpEventQueue();
       expect(speech.spoken.last,
-          'The change is ready for review: Dark mode. Say approve to merge.');
+          'The change is ready for review in ANUM: Dark mode. Say approve to merge.');
 
       await voice.ask('approve it');
       expect(voice.turns.last.text, contains('payload hash'));

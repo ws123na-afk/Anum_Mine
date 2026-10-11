@@ -73,8 +73,58 @@
 .devAssistTitle { align-items: center; color: var(--d-violet); display: flex; font-size: 13px; font-weight: 600; gap: var(--d-s2); }
 .devAssistTitle svg { height: 16px; width: 16px; }
 
+/* Sections, request form and filters. */
+.settingsTabs.devTabs { margin-bottom: 0; }
+.devTabs button { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.devTabs svg { height: 16px; width: 16px; }
+.devTabCount { background: var(--d-glass-2); border-radius: 999px; color: var(--d-muted); font-size: 12px; min-width: 20px; padding: 0 var(--d-s2); text-align: center; }
+.devFormGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); }
+.devFormGrid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.devFormGrid .field, .devProjectForm .field { margin-top: 0; }
+.devSearch { justify-content: space-between; }
+.devSearchForm { align-items: center; display: flex; flex: 1 1 320px; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.devSearchForm input { flex: 1 1 200px; min-width: 0; }
+.devFilter { align-items: center; color: var(--d-muted); display: flex; flex: 0 1 auto; font-size: 13px; gap: var(--d-s2); min-width: 0; }
+.devFilter select { max-width: 220px; min-width: 0; }
+.devProjectChip { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.devProjectChip svg { height: 12px; width: 12px; }
+
+/* Projects. */
+.devProjects { display: grid; gap: var(--d-s3); min-width: 0; }
+.devProjectsHead { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.devProjectsHead > div { flex: 1 1 320px; min-width: 0; }
+.devProjectsHead h3 { font-size: 17px; margin-bottom: var(--d-s1); }
+.devSecrets { display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); }
+.devSecrets h4 { align-items: center; display: flex; font-size: 14px; gap: var(--d-s2); }
+.devSecrets h4 svg { color: var(--d-violet); height: 16px; width: 16px; }
+.devSecrets p { overflow-wrap: anywhere; }
+.devSecrets .actions { margin-top: 0; }
+.devProjectList { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); list-style: none; margin: 0; padding: 0; }
+.devProjectCard { display: grid; gap: var(--d-s3); height: 100%; min-width: 0; padding: var(--d-s4); }
+.devProjectCard h4 { font-size: 16px; overflow-wrap: anywhere; }
+.devFacts { display: grid; gap: var(--d-s2); margin: 0; }
+.devFacts dd { margin: 0; overflow-wrap: anywhere; }
+.devPaths { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.devProblems { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.devProjectForm { display: grid; gap: var(--d-s3); padding: var(--d-s4) var(--d-s5); }
+.devProjectForm h4 { font-size: 16px; }
+.devProjectForm .actions { margin-top: 0; }
+.devProjectForm .field > label { color: var(--d-muted); font-size: 13px; font-weight: 600; }
+.devProjectForm small { overflow-wrap: anywhere; }
+.devTokenChoice { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: var(--d-s3); }
+.devTokenChoice legend { color: var(--d-muted); font-size: 13px; font-weight: 600; padding: 0 var(--d-s1); }
+.devTokenChoice .devCheck { align-items: flex-start; }
+.devTokenChoice .devCheck input { flex: none; margin-top: 2px; }
+.devAssistRepo { align-items: center; display: inline-flex; gap: var(--d-s1); }
+
 @media (max-width: 1100px) {
   .devTimeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .devFormGrid, .devFormGrid.two { grid-template-columns: minmax(0, 1fr); gap: var(--d-s3); }
+  .devFilter { flex: 1 1 100%; }
+  .devFilter select { flex: 1; max-width: none; }
+  .devProjectForm { padding: var(--d-s4); }
 }
 @media (max-width: 760px) {
   .devCard, .devForm, .devPanel { padding: var(--d-s4); }

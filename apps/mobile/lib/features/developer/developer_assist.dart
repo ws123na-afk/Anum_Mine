@@ -10,11 +10,15 @@ import 'developer_repository.dart';
 /// Developer mode from the Assistant chat and the voice view
 /// (docs/developer-mode.md). Mirrors the web `useDeveloperAssist`.
 ///
-/// "developer, ...", "build ..." or "Anum build ..." asks first ("I'll ask
-/// the developer to: ... Start?") and creates the request only after Start
-/// or a spoken "yes". When a pull request becomes ready it is announced;
-/// "approve" opens the merge approval with its payload hash, which still
-/// needs a tap on Confirm merge: nothing is ever approved by voice alone.
+/// "developer, ...", "build ...", "Anum build ..." or "ANUM, in PROJECT
+/// ..." first resolves the project on the server (by name, by description,
+/// or the only ready one). When it is clear it always confirms ("I'll ask
+/// the developer to: ... in PROJECT. Start?"); when it is not, it asks
+/// which project (buttons, or a spoken name) and then confirms. The request
+/// is created only after Start or a spoken "yes". When a pull request
+/// becomes ready it is announced; "approve" opens the merge approval with
+/// its payload hash, which still needs a tap on Confirm merge: nothing is
+/// ever approved by voice alone.
 class DeveloperAssist extends ChangeNotifier {
   DeveloperAssist({
     required this.repository,
@@ -34,8 +38,17 @@ class DeveloperAssist extends ChangeNotifier {
   /// Said (voice) or shown (chat) when a pull request becomes ready.
   void Function(String text)? announce;
 
-  /// The request waiting for Start, or null.
+  /// The request waiting for an answer (which project, or Start), or null.
   String? pending;
+
+  /// The project [pending] goes to once started; null while [choices] asks.
+  ProjectRef? pendingProject;
+
+  /// The projects to choose from while the request names none clearly.
+  List<ProjectRef> choices = const [];
+
+  /// Asking "Which project?" rather than "Start?".
+  bool get choosing => pending != null && pendingProject == null;
 
   /// The latest sentence to show.
   String? message;
@@ -111,16 +124,25 @@ class DeveloperAssist extends ChangeNotifier {
   /// Resolves with the reply, or null when [text] is not for the developer.
   Future<String?> intercept(String text) async {
     final waitingFor = pending;
-    if (waitingFor != null) {
+    if (waitingFor != null && pendingProject != null) {
       switch (parseConfirmation(text)) {
         case Confirmation.yes:
           return start(waitingFor);
         case Confirmation.no:
           return _say(declined());
         case null:
-          pending = null;
+          _clearPending();
           _notify();
       }
+    } else if (waitingFor != null) {
+      if (parseConfirmation(text) == Confirmation.no) return _say(declined());
+      final chosen = matchProjectAnswer(text, choices);
+      if (chosen != null) return choose(chosen);
+      if (parseDeveloperCommand(text) == null) {
+        return _say(whichProjectAgain(choices));
+      }
+      _clearPending();
+      _notify();
     }
     if (isApproveIntent(text)) {
       final waiting = ready ??
@@ -135,24 +157,63 @@ class DeveloperAssist extends ChangeNotifier {
     final command = parseDeveloperCommand(text);
     if (command == null) return null;
     if (!await isOwner()) return _say(ownerOnlyReply);
-    pending = command;
+    busy = true;
+    _notify();
+    try {
+      final resolution = await repository.resolve(command);
+      switch (resolution.status) {
+        case ResolutionStatus.none:
+          return _say(noProjectsReply);
+        case ResolutionStatus.resolved when resolution.project != null:
+          return _confirm(resolution.text, resolution.project!);
+        case _:
+          pending = resolution.text;
+          pendingProject = null;
+          choices = resolution.candidates;
+          message = null;
+          return whichProjectPrompt(choices);
+      }
+    } on Object catch (error) {
+      return _say(
+          'I could not check your projects: ${explainDeveloperError(error)}');
+    } finally {
+      busy = false;
+      _notify();
+    }
+  }
+
+  String _confirm(String text, ProjectRef project) {
+    pending = text;
+    pendingProject = project;
+    choices = const [];
     message = null;
     _notify();
-    return confirmPrompt(command);
+    return confirmPrompt(text, project.name);
+  }
+
+  /// A project picked from [choices] (a tap or a spoken name): confirm next.
+  String choose(ProjectRef project) => _confirm(pending ?? '', project);
+
+  void _clearPending() {
+    pending = null;
+    pendingProject = null;
+    choices = const [];
   }
 
   /// "Okay, I won't start it."
   String declined() {
-    pending = null;
+    _clearPending();
     return "Okay, I won't start it.";
   }
 
   /// The Cancel button on the confirmation.
   void decline() => _say(declined());
 
-  /// Start (or a spoken "yes"): creates the request.
+  /// Start (or a spoken "yes"): creates the request in [pendingProject].
   Future<String> start(String text) async {
-    pending = null;
+    final project = pendingProject;
+    _clearPending();
+    if (project == null) return _say(noProjectsReply);
     if (mentionsProtected(text)) {
       return _say('That touches CI workflows or secret handling. Open the '
           'Developer screen to send it with the explicit allow.');
@@ -160,15 +221,16 @@ class DeveloperAssist extends ChangeNotifier {
     busy = true;
     _notify();
     try {
-      final created = await repository.create(text, source: source);
+      final created =
+          await repository.create(text, source: source, projectId: project.id);
       requests = [
         created,
         for (final item in requests ?? const <DevRequest>[])
           if (item.id != created.id) item
       ];
       _previous = [created, ...?_previous];
-      return _say("Started. The developer is on it; I'll tell you when the "
-          'pull request is ready for review.');
+      return _say('Started in ${project.name}. The developer is on it; '
+          "I'll tell you when the pull request is ready for review.");
     } on Object catch (error) {
       return _say(
           'The developer could not start: ${explainDeveloperError(error)}');
@@ -186,8 +248,10 @@ class DeveloperAssist extends ChangeNotifier {
     try {
       final result = await repository.requestMerge(request.id);
       review = result;
+      final where = result.request.projectName ?? result.request.repository;
       return _say('Here is the merge to approve: pull request '
-          '#${result.request.prNumber}, payload hash '
+          '#${result.request.prNumber}${where == null ? '' : ' in $where'}, '
+          'payload hash '
           '${shortHash(result.approval.payloadHash)}. Tap Confirm merge on '
           'screen; I never approve by voice.');
     } on Object catch (error) {
@@ -242,7 +306,7 @@ class DeveloperAssist extends ChangeNotifier {
   /// Forgets everything (sign-out or a workspace switch).
   void reset() {
     _poll?.cancel();
-    pending = null;
+    _clearPending();
     message = null;
     ready = null;
     review = null;

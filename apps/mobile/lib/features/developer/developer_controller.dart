@@ -38,6 +38,15 @@ class DeveloperController extends ChangeNotifier {
   List<DevRequest> items = const [];
   bool hasMore = false;
 
+  /// The workspace's projects (GitHub repositories), by name.
+  List<DevProject> projects = const [];
+
+  /// The project the request form sends to; null until one is chosen.
+  String? projectId;
+
+  /// The project used for the last request, preferred next time.
+  String? _lastProject;
+
   /// The search the list shows; empty for all requests.
   String query = '';
 
@@ -71,8 +80,23 @@ class DeveloperController extends ChangeNotifier {
       };
 
   bool get ready => setup?.ready ?? false;
-  bool get activeExists => items.any((item) =>
-      item.status == DevStatus.queued || item.status == DevStatus.coding);
+
+  /// The chosen project already has a queued or coding request.
+  bool get activeExists =>
+      projectId != null && busyProjects(items).contains(projectId);
+
+  List<DevProject> get sendable => sendableProjects(projects);
+  DevProject? get selectedProject {
+    for (final project in projects) {
+      if (project.id == projectId) return project;
+    }
+    return null;
+  }
+
+  void selectProject(String? id) {
+    projectId = id;
+    _notify();
+  }
 
   DevRequest? find(String id) {
     for (final item in items) {
@@ -156,6 +180,9 @@ class DeveloperController extends ChangeNotifier {
     loadError = null;
     setup = null;
     items = const [];
+    projects = const [];
+    projectId = null;
+    _lastProject = null;
     hasMore = false;
     query = '';
     busy = null;
@@ -198,11 +225,13 @@ class DeveloperController extends ChangeNotifier {
       final results = await Future.wait<Object>([
         repository.setup(),
         repository.list(limit: pageSize, query: query),
+        _projectsOrEmpty(),
       ]);
       if (_disposed || token != _loadToken) return false;
       refreshing = false;
       setup = results[0] as DevSetup;
       final list = results[1] as List<DevRequest>;
+      _setProjects(results[2] as List<DevProject>);
       items = list;
       hasMore = list.length == pageSize;
       phase = DevPhase.ready;
@@ -227,6 +256,117 @@ class DeveloperController extends ChangeNotifier {
     _schedulePoll();
     return ok;
   }
+
+  /// Not set up, or not enabled here: the setup card explains it and the
+  /// list is simply empty.
+  Future<List<DevProject>> _projectsOrEmpty() async {
+    try {
+      return await repository.projects();
+    } on ApiException catch (error) {
+      if (error.statusCode == 409 || error.statusCode == 403) return const [];
+      rethrow;
+    }
+  }
+
+  void _setProjects(List<DevProject> list) {
+    projects = list;
+    if (projectId == null ||
+        !sendableProjects(list).any((p) => p.id == projectId)) {
+      projectId = defaultProjectId(list, _lastProject);
+    }
+  }
+
+  /// Reads the projects and the setup again (after a project changed).
+  Future<void> reloadProjects() async {
+    final results =
+        await Future.wait<Object>([repository.setup(), _projectsOrEmpty()]);
+    if (_disposed) return;
+    setup = results[0] as DevSetup;
+    _setProjects(results[1] as List<DevProject>);
+    _notify();
+  }
+
+  DevProject? findProject(String id) {
+    for (final project in projects) {
+      if (project.id == id) return project;
+    }
+    return null;
+  }
+
+  /// Adds a project or saves changes to one. Returns the error to show next
+  /// to the form, or null when it was saved.
+  Future<String?> saveProject(ProjectDraft draft,
+      {DevProject? existing}) async {
+    final payload = projectPayload(draft);
+    if (payload is InvalidProject) return payload.error;
+    final body = (payload as ValidProject).body;
+    busy = 'project-save';
+    notice = null;
+    _notify();
+    try {
+      final saved = existing == null
+          ? await repository.createProject(body)
+          : await repository.updateProject(existing.id, body);
+      await reloadProjects();
+      noticeFailed = false;
+      notice = existing == null
+          ? 'Added ${saved.name}. Next: Install workflow, or Test connection '
+              'if the workflow is already there.'
+          : 'Saved ${saved.name}.';
+      return null;
+    } on Object catch (error) {
+      return error is ApiException && error.isPermissionDenied
+          ? 'Only workspace owners can manage projects.'
+          : explainDeveloperError(error);
+    } finally {
+      busy = null;
+      _notify();
+    }
+  }
+
+  Future<void> testProject(DevProject project) =>
+      _act('project-test:${project.id}', () async {
+        final tested = await repository.testProject(project.id);
+        await reloadProjects();
+        final check = tested.lastCheck;
+        noticeFailed = !(check?.ok ?? false);
+        notice = '${project.name}: ${check?.message ?? 'tested.'}';
+      });
+
+  Future<void> installWorkflow(DevProject project) =>
+      _act('project-install:${project.id}', () async {
+        final result = await repository.installWorkflow(project.id);
+        await reloadProjects();
+        noticeFailed = false;
+        notice = result.created
+            ? 'Opened pull request #${result.number} in '
+                '${project.repository}. Add the secrets it lists, merge it in '
+                'GitHub, then test the connection.'
+            : 'Pull request #${result.number} is already waiting in '
+                '${project.repository}. Merge it in GitHub, then test the '
+                'connection.';
+      });
+
+  Future<void> toggleProject(DevProject project) =>
+      _act('project-toggle:${project.id}', () async {
+        await repository
+            .updateProject(project.id, {'enabled': !project.enabled});
+        await reloadProjects();
+        noticeFailed = false;
+        notice = project.enabled
+            ? '${project.name} is turned off: it takes no requests and no '
+                'merges.'
+            : '${project.name} is turned on.';
+      });
+
+  /// The screen asks first.
+  Future<void> deleteProject(DevProject project) =>
+      _act('project-delete:${project.id}', () async {
+        await repository.deleteProject(project.id);
+        await reloadProjects();
+        noticeFailed = false;
+        notice = 'Deleted ${project.name}.';
+      });
 
   void _schedulePoll() {
     _poll?.cancel();
@@ -278,6 +418,12 @@ class DeveloperController extends ChangeNotifier {
 
   /// Validates and sends a new request. Returns true when it was created.
   Future<bool> create(String text, {bool allowProtected = false}) async {
+    final project = selectedProject;
+    if (project == null) {
+      _fail('Choose the project this request is for.');
+      _notify();
+      return false;
+    }
     final body = requestBody(text, allowProtected: allowProtected);
     if (body is InvalidRequest) {
       _fail(body.error);
@@ -291,8 +437,11 @@ class DeveloperController extends ChangeNotifier {
     _notify();
     try {
       final created = await repository.create(valid.text,
-          source: 'text', allowProtectedPaths: valid.allowProtectedPaths);
+          source: 'text',
+          allowProtectedPaths: valid.allowProtectedPaths,
+          projectId: project.id);
       if (_disposed) return true;
+      _lastProject = project.id;
       items = [
         created,
         for (final item in items)
@@ -300,8 +449,10 @@ class DeveloperController extends ChangeNotifier {
       ];
       setup = setup?.withOneMore();
       noticeFailed = false;
-      notice = 'Sent to the developer. Progress appears below; the pull '
-          'request opens when the change and its checks are done.';
+      notice =
+          'Sent to the developer for ${created.projectName ?? project.name}. '
+          'Progress appears below; the pull request opens when the change '
+          'and its checks are done.';
       return true;
     } on Object catch (error) {
       if (error is ApiException && error.isBudgetExceeded) {

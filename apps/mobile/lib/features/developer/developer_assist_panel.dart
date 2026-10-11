@@ -54,10 +54,44 @@ class DeveloperAssistPanel extends StatelessWidget {
                   icon: const Icon(Icons.close, size: 20)),
           ]),
           const SizedBox(height: AnumSpacing.xxs),
-          if (pending != null) ...[
-            Text(confirmPrompt(pending),
+          if (pending != null && assist.choosing) ...[
+            Text(whichProjectPrompt(assist.choices),
+                key: const Key('developer-which-project'),
+                style: TextStyle(color: p.text)),
+            const SizedBox(height: AnumSpacing.xs),
+            Semantics(
+              container: true,
+              label: 'Choose the project',
+              child: Wrap(
+                  spacing: AnumSpacing.xs,
+                  runSpacing: AnumSpacing.xs,
+                  children: [
+                    for (final choice in assist.choices)
+                      OutlinedButton.icon(
+                        key: Key('developer-choose-${choice.id}'),
+                        onPressed:
+                            assist.busy ? null : () => assist.choose(choice),
+                        icon: const Icon(Icons.folder_outlined),
+                        label: Text(choice.name),
+                      ),
+                    OutlinedButton.icon(
+                      key: const Key('developer-decline'),
+                      onPressed: assist.busy ? null : assist.decline,
+                      icon: const Icon(Icons.close),
+                      label: const Text('Cancel'),
+                    ),
+                  ]),
+            ),
+          ] else if (pending != null) ...[
+            Text(confirmPrompt(pending, assist.pendingProject!.name),
                 key: const Key('developer-confirm-prompt'),
                 style: TextStyle(color: p.text)),
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Text(assist.pendingProject!.repository,
+                  style: TextStyle(
+                      color: p.muted, fontSize: 12, fontFamily: 'monospace')),
+            ),
             const SizedBox(height: AnumSpacing.xs),
             Wrap(
                 spacing: AnumSpacing.xs,

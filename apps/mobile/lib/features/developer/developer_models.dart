@@ -76,6 +76,9 @@ class DevRequest {
     this.createdBy = '',
     this.source = 'text',
     this.allowProtectedPaths = false,
+    this.projectId,
+    this.projectName,
+    this.repository,
     this.runId,
     this.runUrl,
     this.prNumber,
@@ -105,6 +108,9 @@ class DevRequest {
       status: DevStatus.parse(status),
       statusName: status,
       allowProtectedPaths: j.optBool('allow_protected_paths') ?? false,
+      projectId: j.optString('project_id'),
+      projectName: j.optString('project_name'),
+      repository: j.optString('repository'),
       branch: j.optString('branch') ?? '',
       runId: j.optInt('run_id'),
       runUrl: j.optString('run_url'),
@@ -133,6 +139,10 @@ class DevRequest {
   /// The API's status string, kept for statuses this app does not know.
   final String statusName;
   final bool allowProtectedPaths;
+
+  /// The project it went to (null for requests from before projects), with
+  /// its name and repository when it was sent.
+  final String? projectId, projectName, repository;
   final int? runId, prNumber;
   final String? runUrl, prUrl, prTitle, headSha;
   final bool? prDraft;
@@ -163,6 +173,10 @@ class DevSetup {
     this.missing = const [],
     this.maxRequestsPerDay = 10,
     this.requestsToday = 0,
+    this.projects = 0,
+    this.readyProjects = 0,
+    this.maxProjects = 100,
+    this.environmentTokenConfigured = false,
   });
   factory DevSetup.fromJson(JsonReader j) => DevSetup(
         configured: j.boolean('configured'),
@@ -174,12 +188,21 @@ class DevSetup {
         message: j.optString('message') ?? '',
         maxRequestsPerDay: j.optInt('max_requests_per_day') ?? 10,
         requestsToday: j.optInt('requests_today') ?? 0,
+        projects: j.optInt('projects') ?? 0,
+        readyProjects: j.optInt('ready_projects') ?? 0,
+        maxProjects: j.optInt('max_projects') ?? 100,
+        environmentTokenConfigured:
+            j.optBool('environment_token_configured') ?? false,
       );
   final bool configured, enabledHere;
   final String? repository;
   final String workflow, baseBranch, message;
   final List<String> missing;
   final int maxRequestsPerDay, requestsToday;
+  final int projects, readyProjects, maxProjects;
+
+  /// Whether ANUM_DEVELOPER_GITHUB_TOKEN is set on the API (never its value).
+  final bool environmentTokenConfigured;
 
   bool get ready => configured && enabledHere;
   bool get limitReached => requestsToday >= maxRequestsPerDay;
@@ -193,7 +216,138 @@ class DevSetup {
         missing: missing,
         maxRequestsPerDay: maxRequestsPerDay,
         requestsToday: requestsToday + 1,
+        projects: projects,
+        readyProjects: readyProjects,
+        maxProjects: maxProjects,
+        environmentTokenConfigured: environmentTokenConfigured,
       );
+}
+
+/// What Test connection found, kept on the project until the next test.
+class ProjectCheck {
+  const ProjectCheck({
+    required this.ok,
+    required this.checkedAt,
+    required this.message,
+    this.repositoryReachable = false,
+    this.defaultBranchExists = false,
+    this.workflowPresent = false,
+    this.actionsReadable = false,
+  });
+  factory ProjectCheck.fromJson(JsonReader j) => ProjectCheck(
+        ok: j.optBool('ok') ?? false,
+        checkedAt: (j.optDate('checked_at') ?? DateTime.now()).toLocal(),
+        message: j.optString('message') ?? '',
+        repositoryReachable: j.optBool('repository_reachable') ?? false,
+        defaultBranchExists: j.optBool('default_branch_exists') ?? false,
+        workflowPresent: j.optBool('workflow_present') ?? false,
+        actionsReadable: j.optBool('actions_readable') ?? false,
+      );
+  final bool ok,
+      repositoryReachable,
+      defaultBranchExists,
+      workflowPresent,
+      actionsReadable;
+  final DateTime checkedAt;
+  final String message;
+}
+
+/// A project: one GitHub repository the developer may change
+/// (`GET /api/v1/developer/projects`). Never a token, only whether one is set.
+class DevProject {
+  const DevProject({
+    required this.id,
+    required this.name,
+    required this.githubOwner,
+    required this.githubRepo,
+    this.defaultBranch = 'main',
+    this.description = '',
+    this.enabled = true,
+    this.protectedPaths = const [],
+    this.workflowFile = 'anum-developer.yml',
+    this.tokenSource = 'project',
+    this.tokenConfigured = false,
+    this.lastCheck,
+    this.installPrNumber,
+    this.installPrUrl,
+    this.ready = false,
+    this.problems = const [],
+  });
+  factory DevProject.fromJson(JsonReader j) {
+    final check = j.optObject('last_check');
+    return DevProject(
+      id: j.string('id'),
+      name: j.string('name'),
+      githubOwner: j.optString('github_owner') ?? '',
+      githubRepo: j.optString('github_repo') ?? '',
+      defaultBranch: j.optString('default_branch') ?? 'main',
+      description: j.optString('description') ?? '',
+      enabled: j.optBool('enabled') ?? true,
+      protectedPaths: j.optStrings('protected_paths') ?? const [],
+      workflowFile: j.optString('workflow_file') ?? 'anum-developer.yml',
+      tokenSource: j.optString('token_source') ?? 'project',
+      tokenConfigured: j.optBool('token_configured') ?? false,
+      lastCheck: check == null ? null : ProjectCheck.fromJson(check),
+      installPrNumber: j.optInt('install_pr_number'),
+      installPrUrl: j.optString('install_pr_url'),
+      ready: j.optBool('ready') ?? false,
+      problems: j.optStrings('problems') ?? const [],
+    );
+  }
+  final String id, name, githubOwner, githubRepo, defaultBranch, description;
+  final String workflowFile, tokenSource;
+  final bool enabled, tokenConfigured, ready;
+  final List<String> protectedPaths, problems;
+  final ProjectCheck? lastCheck;
+  final int? installPrNumber;
+  final String? installPrUrl;
+
+  String get repository => '$githubOwner/$githubRepo';
+  ProjectRef get ref => ProjectRef(
+      id: id, name: name, repository: repository, description: description);
+}
+
+/// A project as `POST /api/v1/developer/resolve` names it.
+class ProjectRef {
+  const ProjectRef(
+      {required this.id,
+      required this.name,
+      required this.repository,
+      this.description = ''});
+  factory ProjectRef.fromJson(JsonReader j) => ProjectRef(
+        id: j.string('id'),
+        name: j.string('name'),
+        repository: j.optString('repository') ?? '',
+        description: j.optString('description') ?? '',
+      );
+  final String id, name, repository, description;
+}
+
+enum ResolutionStatus { resolved, ambiguous, none }
+
+/// Which project a chat or voice request is for. `resolved` is still
+/// confirmed before anything starts; `ambiguous` asks which of [candidates].
+class Resolution {
+  const Resolution(
+      {required this.status,
+      required this.text,
+      this.project,
+      this.candidates = const []});
+  factory Resolution.fromJson(JsonReader j) {
+    final project = j.optObject('project');
+    return Resolution(
+      status: ResolutionStatus.values.firstWhere(
+          (s) => s.name == j.optString('status'),
+          orElse: () => ResolutionStatus.ambiguous),
+      text: j.optString('text') ?? '',
+      project: project == null ? null : ProjectRef.fromJson(project),
+      candidates: j.optObjects('candidates', ProjectRef.fromJson),
+    );
+  }
+  final ResolutionStatus status;
+  final String text;
+  final ProjectRef? project;
+  final List<ProjectRef> candidates;
 }
 
 const minRequestChars = 10;
@@ -252,11 +406,18 @@ final _trigger = RegExp(
     caseSensitive: false,
     dotAll: true);
 
+// "ANUM, in TyrePulse add a login page": the project named first, no "build".
+final _inProject = RegExp(
+    r'^\s*(?:(?:hey|ok|okay)[\s,]+)?anum[\s,:]+((?:in|for|on)\s+\S.*)$',
+    caseSensitive: false,
+    dotAll: true);
+
 /// The request text when [text] starts with a developer trigger
-/// ("developer, ...", "build ...", "Anum build ..."), otherwise null. "build"
-/// alone (nothing to build) is not a request.
+/// ("developer, ...", "build ...", "Anum build ...", "ANUM, in PROJECT
+/// ..."), otherwise null. "build" alone (nothing to build) is not a request.
+/// The project phrase stays in the text: the API resolves and strips it.
 String? parseDeveloperCommand(String text) {
-  final match = _trigger.firstMatch(text);
+  final match = _trigger.firstMatch(text) ?? _inProject.firstMatch(text);
   if (match == null) return null;
   final rest = (match.group(1) ?? '')
       .replaceFirst(RegExp(r'^(?:to|please)\s+', caseSensitive: false), '')
@@ -287,22 +448,69 @@ bool isApproveIntent(String text) => RegExp(
         caseSensitive: false)
     .hasMatch(text);
 
-String confirmPrompt(String request) =>
-    "I'll ask the developer to: $request. Start?";
+/// The confirmation always names the project.
+String confirmPrompt(String request, String project) =>
+    "I'll ask the developer to: $request in $project. Start?";
+
+/// Names joined as alternatives: "a", "a or b", "a, b or c".
+String orList(List<String> names) => switch (names.length) {
+      0 => '',
+      1 => names.single,
+      _ => '${names.sublist(0, names.length - 1).join(', ')} or ${names.last}',
+    };
+
+String whichProjectPrompt(List<ProjectRef> candidates) =>
+    'Which project is this for: '
+    '${orList([for (final c in candidates) c.name])}?';
+
+String whichProjectAgain(List<ProjectRef> candidates) =>
+    "I didn't catch the project. Say "
+    '${orList([for (final c in candidates) c.name])}, or cancel.';
+
+const noProjectsReply = 'There is no project ready for requests. Add one '
+    'under Developer › Projects, then ask again.';
+
+String _normalize(String value) => value
+    .toLowerCase()
+    .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
+    .trim();
+
+/// The project a spoken or typed answer names among [candidates]
+/// ("TyrePulse", "the tyre pulse one", "acme/tyrepulse"), or null when it
+/// names none or more than one.
+ProjectRef? matchProjectAnswer(String answer, List<ProjectRef> candidates) {
+  final said = _normalize(answer);
+  if (said.isEmpty) return null;
+  final squashed = said.replaceAll(' ', '');
+  final hits = candidates.where((candidate) {
+    final names = [
+      candidate.name,
+      candidate.repository.split('/').last,
+      candidate.repository
+    ].map(_normalize).where((name) => name.isNotEmpty);
+    return names.any((name) =>
+        said == name ||
+        ' $said '.contains(' $name ') ||
+        squashed.contains(name.replaceAll(' ', '')));
+  }).toList();
+  return hits.length == 1 ? hits.single : null;
+}
 
 const ownerOnlyReply =
-    'Only a workspace owner can ask the developer to change the app. Ask an '
+    'Only a workspace owner can ask the developer to change the apps. Ask an '
     'owner of this workspace.';
 
 const ownerOnlyExplanation =
-    "An owner can ask ANUM's developer to change the app itself: it writes the "
-    'change on a branch, runs CI and opens a pull request, and nothing merges '
-    'until an owner approves it. Ask an owner of this workspace if you want '
-    'something built.';
+    "An owner can ask ANUM's developer to change this workspace's apps: it "
+    'writes the change on a branch, runs CI and opens a pull request, and '
+    'nothing merges until an owner approves it. Ask an owner of this '
+    'workspace if you want something built.';
 
 /// The sentence spoken and shown when a pull request is ready.
-String readyAnnouncement(DevRequest request) =>
-    'The change is ready for review: ${request.title}. Say approve to merge.';
+String readyAnnouncement(DevRequest request) => request.projectName == null
+    ? 'The change is ready for review: ${request.title}. Say approve to merge.'
+    : 'The change is ready for review in ${request.projectName}: '
+        '${request.title}. Say approve to merge.';
 
 String shortText(String text, {int limit = 80}) {
   final words = text.split(RegExp(r'\s+')).join(' ').trim();
@@ -382,10 +590,9 @@ class SetupStep {
 }
 
 const _setupPurpose = {
-  'ANUM_DEVELOPER_GITHUB_REPO': 'the repository to build, as owner/repo.',
-  'ANUM_DEVELOPER_GITHUB_TOKEN':
-      'a fine-grained GitHub token for that repository only (Contents, Pull '
-          'requests and Actions read and write; Commit statuses read).',
+  'ANUM_DEVELOPER_GITHUB_REPO':
+      'the repository used before projects, as owner/repo (or remove the '
+          'setting).',
   'ANUM_DEVELOPER_TENANT_ID': 'the organization allowed to use developer mode.',
   'ANUM_DEVELOPER_WORKFLOW_FILE':
       'the workflow file name (anum-developer.yml).',
@@ -401,6 +608,194 @@ List<SetupStep> setupSteps(DevSetup setup) => [
 
 /// The GitHub repository secrets the coding workflow needs (names only).
 const githubSecretNames = ['ANTHROPIC_API_KEY', 'ANUM_DEV_PUSH_TOKEN'];
+
+/// Optional repository variables the workflow reads (names only).
+const githubVariableNames = [
+  'ANUM_DEV_PROTECTED_PATHS',
+  'ANUM_DEV_ALLOW_PROTECTED_PATHS'
+];
+
+/// Project ids with a queued or coding request: one at a time per project.
+Set<String> busyProjects(List<DevRequest> requests) => {
+      for (final r in requests)
+        if (r.status == DevStatus.queued || r.status == DevStatus.coding)
+          r.projectId ?? ''
+    };
+
+/// Projects requests can go to (enabled with a token; the API re-checks).
+List<DevProject> sendableProjects(List<DevProject> projects) => [
+      for (final p in projects)
+        if (p.enabled && p.tokenConfigured) p
+    ];
+
+/// The project the request form starts with: the only sendable one, else
+/// the one used last.
+String? defaultProjectId(List<DevProject> projects, String? lastUsed) {
+  final sendable = sendableProjects(projects);
+  if (sendable.length == 1) return sendable.single.id;
+  return sendable.any((p) => p.id == lastUsed) ? lastUsed : null;
+}
+
+enum ProjectState { ready, untested, attention, off }
+
+ProjectState projectState(DevProject project) {
+  if (!project.enabled) return ProjectState.off;
+  if (!project.ready) return ProjectState.attention;
+  return project.lastCheck == null ? ProjectState.untested : ProjectState.ready;
+}
+
+String projectStateLabel(ProjectState state) => switch (state) {
+      ProjectState.ready => 'Ready',
+      ProjectState.untested => 'Not tested',
+      ProjectState.attention => 'Needs attention',
+      ProjectState.off => 'Turned off',
+    };
+
+/// Install workflow is offered while the workflow is not known to be there.
+bool canInstallWorkflow(DevProject project) =>
+    project.tokenConfigured && !(project.lastCheck?.workflowPresent ?? false);
+
+final _owner = RegExp(r'^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$');
+final _repo = RegExp(r'^[A-Za-z0-9_.-]{1,100}$');
+final _branch = RegExp(r'^[A-Za-z0-9._][A-Za-z0-9._/-]{0,99}$');
+final _protectedPath = RegExp(r'^[A-Za-z0-9._-][A-Za-z0-9._/-]{0,199}$');
+final _workflow = RegExp(r'^[A-Za-z0-9_.-]{1,100}\.ya?ml$');
+
+/// "acme/tyrepulse", "https://github.com/acme/tyrepulse(.git)" or
+/// "git@github.com:acme/tyrepulse.git"; null when it is none of those.
+({String owner, String repo})? parseRepository(String value) {
+  var text = value.trim();
+  text =
+      text.replaceFirst(RegExp(r'^git@github\.com:', caseSensitive: false), '');
+  text = text.replaceFirst(
+      RegExp(r'^https?://(?:www\.)?github\.com/', caseSensitive: false), '');
+  text = text.replaceFirst(RegExp(r'\.git$', caseSensitive: false), '');
+  text = text.replaceFirst(RegExp(r'/+$'), '');
+  final parts = text.split('/');
+  if (parts.length != 2) return null;
+  final (owner, repo) = (parts[0], parts[1]);
+  if (!_owner.hasMatch(owner) || !_repo.hasMatch(repo)) return null;
+  if (repo == '.' || repo == '..') return null;
+  return (owner: owner, repo: repo);
+}
+
+/// One path per line (or comma-separated), trimmed, "./" removed, no
+/// duplicates.
+List<String> parseProtectedPaths(String value) {
+  final paths = <String>[];
+  for (final raw in value.split(RegExp(r'[\n,]'))) {
+    var path = raw.trim();
+    if (path.startsWith('./')) path = path.substring(2);
+    if (path.isNotEmpty && !paths.contains(path)) paths.add(path);
+  }
+  return paths;
+}
+
+/// The project form's fields as typed.
+class ProjectDraft {
+  const ProjectDraft({
+    this.name = '',
+    this.repository = '',
+    this.defaultBranch = 'main',
+    this.description = '',
+    this.protectedPaths = '',
+    this.enabled = true,
+    this.tokenSource = 'project',
+    this.token = '',
+    this.clearToken = false,
+    this.workflowFile = 'anum-developer.yml',
+  });
+  factory ProjectDraft.from(DevProject project) => ProjectDraft(
+        name: project.name,
+        repository: project.repository,
+        defaultBranch: project.defaultBranch,
+        description: project.description,
+        protectedPaths: project.protectedPaths.join('\n'),
+        enabled: project.enabled,
+        tokenSource: project.tokenSource,
+        workflowFile: project.workflowFile,
+      );
+  final String name, repository, defaultBranch, description, protectedPaths;
+  final String tokenSource, token, workflowFile;
+  final bool enabled, clearToken;
+}
+
+/// The POST/PATCH body for a draft, or the field and what to fix.
+sealed class ProjectPayload {
+  const ProjectPayload();
+}
+
+class ValidProject extends ProjectPayload {
+  const ValidProject(this.body);
+  final JsonMap body;
+}
+
+class InvalidProject extends ProjectPayload {
+  const InvalidProject(this.field, this.error);
+  final String field, error;
+}
+
+ProjectPayload projectPayload(ProjectDraft draft) {
+  final name = draft.name.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (name.isEmpty) {
+    return const InvalidProject('name', 'Give the project a name.');
+  }
+  if (name.length > 60) {
+    return const InvalidProject(
+        'name', 'Keep the project name under 60 characters.');
+  }
+  final repository = parseRepository(draft.repository);
+  if (repository == null) {
+    return const InvalidProject('repository',
+        'Enter the repository as owner/repo, for example acme/tyrepulse.');
+  }
+  final branch = draft.defaultBranch.trim();
+  if (!_branch.hasMatch(branch) ||
+      branch.contains('..') ||
+      branch.endsWith('/')) {
+    return const InvalidProject('branch',
+        'The branch name is not valid (for example main or release/2026).');
+  }
+  final paths = parseProtectedPaths(draft.protectedPaths);
+  for (final path in paths) {
+    if (!_protectedPath.hasMatch(path) ||
+        path.split('/').contains('..') ||
+        path.contains('//')) {
+      return InvalidProject(
+          'protected',
+          'Protected path "$path" is not valid: use a repository-relative '
+              'file or directory, without wildcards or "..".');
+    }
+  }
+  final workflow = draft.workflowFile.trim().isEmpty
+      ? 'anum-developer.yml'
+      : draft.workflowFile.trim();
+  if (!_workflow.hasMatch(workflow)) {
+    return const InvalidProject(
+        'workflow',
+        'The workflow file is a file name ending in .yml, for example '
+            'anum-developer.yml.');
+  }
+  final token = draft.token.trim();
+  if (token.isNotEmpty &&
+      (token.length < 20 || token.contains(RegExp(r'\s')))) {
+    return const InvalidProject(
+        'token', 'Paste the whole fine-grained token (it has no spaces).');
+  }
+  return ValidProject({
+    'name': name,
+    'github_owner': repository.owner,
+    'github_repo': repository.repo,
+    'default_branch': branch,
+    'description': draft.description.trim().replaceAll(RegExp(r'\s+'), ' '),
+    'protected_paths': paths,
+    'enabled': draft.enabled,
+    'token_source': draft.tokenSource,
+    'workflow_file': workflow,
+    if (draft.tokenSource == 'project' && token.isNotEmpty) 'token': token,
+    if (draft.clearToken && token.isEmpty) 'clear_token': true,
+  });
+}
 
 const developerOwnerOnly = 'Only workspace owners can use developer mode.';
 

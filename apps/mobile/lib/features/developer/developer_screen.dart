@@ -11,6 +11,7 @@ import '../workspace/approvals_screen.dart'
 import '../workspace/workspace_models.dart';
 import 'developer_controller.dart';
 import 'developer_models.dart';
+import 'developer_projects_screen.dart';
 
 /// Opens an https link outside the app; false when it could not.
 typedef LinkOpener = Future<bool> Function(Uri uri);
@@ -137,11 +138,12 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
             onRefresh: _refresh,
             children: [
               AnumHeader(
-                eyebrow: 'Build ANUM itself',
+                eyebrow: 'Build your apps',
                 title: 'Developer',
-                subtitle: 'Describe a change. A coding agent makes it on a '
-                    'branch in GitHub, runs CI and opens a draft pull request. '
-                    'Nothing merges until you approve it here.',
+                subtitle: 'Pick a project and describe a change. A coding '
+                    'agent makes it on a branch in that GitHub repository, '
+                    'runs CI and opens a draft pull request. Nothing merges '
+                    'until you approve it here.',
                 large: true,
                 trailing: controller.ownerState == OwnerState.owner
                     ? IconButton(
@@ -210,6 +212,30 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
             semanticsLabel: 'Refreshing developer requests'),
       if (setup != null && !setup.ready) _SetupCard(setup: setup),
       if (setup != null && setup.ready)
+        _ProjectsRow(
+          projects: controller.projects,
+          onOpen: () => openProjects(context),
+        ),
+      if (setup != null && setup.ready && controller.sendable.isEmpty)
+        AnumSurface(
+          key: const Key('developer-no-projects'),
+          child: AnumEmpty(
+            icon: Icons.folder_outlined,
+            title: controller.projects.isEmpty
+                ? 'Add a project first'
+                : 'No project is ready',
+            message: controller.projects.isEmpty
+                ? 'A project is a GitHub repository the developer may '
+                    'change. Add one, then ask for changes here, in the '
+                    'Assistant or by voice.'
+                : 'Open Projects to add a token, test the connection or '
+                    'turn a project on.',
+            action:
+                controller.projects.isEmpty ? 'Add a project' : 'Open Projects',
+            onAction: () => openProjects(context),
+          ),
+        ),
+      if (setup != null && setup.ready && controller.sendable.isNotEmpty)
         _RequestForm(
           controller: controller,
           setup: setup,
@@ -245,7 +271,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
       if (items.isEmpty)
         _EmptyRequests(
           searching: controller.query.isNotEmpty,
-          canAsk: setup?.ready ?? false,
+          canAsk: (setup?.ready ?? false) && controller.sendable.isNotEmpty,
           onExample: (example) {
             _draft.text = example;
             _draft.selection = TextSelection.collapsed(offset: example.length);
@@ -290,6 +316,12 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     ];
   }
 
+  void openProjects(BuildContext context) => unawaited(Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+          builder: (_) => DeveloperProjectsScreen(
+              controller: controller, openLink: widget.openLink))));
+
   void openRequest(BuildContext context, DevRequest item) =>
       unawaited(Navigator.push(
           context,
@@ -299,6 +331,42 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                     requestId: item.id,
                     openLink: widget.openLink,
                   ))));
+}
+
+/// "3 projects, 2 ready" and the way into Projects.
+class _ProjectsRow extends StatelessWidget {
+  const _ProjectsRow({required this.projects, required this.onOpen});
+  final List<DevProject> projects;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final ready = projects.where((project) => project.ready).length;
+    return AnumSurface(
+      key: const Key('developer-projects-row'),
+      onTap: onOpen,
+      child: Row(children: [
+        Icon(Icons.folder_outlined, color: p.sky),
+        const SizedBox(width: AnumSpacing.xs),
+        Expanded(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Projects',
+                style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
+            Text(
+                projects.isEmpty
+                    ? 'No projects yet'
+                    : '${projects.length} '
+                        '${projects.length == 1 ? 'project' : 'projects'}, '
+                        '$ready ready',
+                style: TextStyle(color: p.muted, fontSize: 13)),
+          ]),
+        ),
+        Icon(Icons.chevron_right, color: p.faint),
+      ]),
+    );
+  }
 }
 
 class _Progress extends StatelessWidget {
@@ -394,9 +462,9 @@ class _SetupCard extends StatelessWidget {
             ),
           const SizedBox(height: AnumSpacing.xs),
           Text(
-              'In the GitHub repository, add the secrets '
-              '${githubSecretNames.join(' and ')} under Settings › Secrets and '
-              'variables › Actions. The full steps are in '
+              'Then add your repositories under Projects; each needs the '
+              'secrets ${githubSecretNames.join(' and ')} under Settings › '
+              'Secrets and variables › Actions. The full steps are in '
               'docs/developer-mode.md.',
               style: TextStyle(color: p.muted, fontSize: 13)),
         ],
@@ -428,12 +496,31 @@ class _RequestForm extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final sending = controller.busy == 'create';
-    final blocked = setup.limitReached || controller.activeExists;
+    final project = controller.selectedProject;
+    final blocked =
+        setup.limitReached || controller.activeExists || project == null;
     return AnumSurface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('Ask for a change',
             style: TextStyle(
                 color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
+        const SizedBox(height: AnumSpacing.sm),
+        DropdownButtonFormField<String>(
+          key: const Key('developer-project'),
+          initialValue: project?.id,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Project'),
+          hint: const Text('Choose a project'),
+          items: [
+            for (final option in controller.sendable)
+              DropdownMenuItem(
+                value: option.id,
+                child: Text('${option.name} (${option.repository})',
+                    overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: sending ? null : controller.selectProject,
+        ),
         const SizedBox(height: AnumSpacing.sm),
         TextField(
           key: const Key('developer-draft'),
@@ -464,14 +551,14 @@ class _RequestForm extends StatelessWidget {
         ),
         Text(
             '${setup.requestsToday} of ${setup.maxRequestsPerDay} requests '
-            'used today · builds ${setup.repository ?? 'the repository'} '
-            'from ${setup.baseBranch}',
+            'used today'
+            '${project == null ? '' : ' · builds ${project.repository} from ${project.defaultBranch}'}',
             style: TextStyle(color: p.faint, fontSize: 12)),
-        if (controller.activeExists) ...[
+        if (controller.activeExists && project != null) ...[
           const SizedBox(height: AnumSpacing.xs),
           Text(
-              'One request at a time: wait until the current one opens its '
-              'pull request, or cancel it.',
+              'One request at a time per project: wait until the current one '
+              'in ${project.name} opens its pull request, or cancel it.',
               style: TextStyle(color: p.muted, fontSize: 13)),
         ],
         if (setup.limitReached) ...[
@@ -734,6 +821,7 @@ class DeveloperRequestTile extends StatelessWidget {
                 style: TextStyle(color: p.muted, fontSize: 13.5)),
             const SizedBox(height: AnumSpacing.xxs),
             Text(
+                '${request.projectName == null ? '' : '${request.projectName} · '}'
                 '${relativeTime(request.createdAt)} · '
                 '${request.spoken ? 'spoken' : 'typed'}'
                 '${request.prNumber == null ? '' : ' · #${request.prNumber}'}',
@@ -805,8 +893,17 @@ class DeveloperRequestScreen extends StatelessWidget {
           const SizedBox(height: AnumSpacing.xxs),
           Text(
               '${exactTime(item.createdAt)} · '
-              '${item.spoken ? 'spoken' : 'typed'}',
+              '${item.spoken ? 'spoken' : 'typed'}'
+              '${item.projectName == null ? '' : ' · ${item.projectName}'}',
               style: TextStyle(color: p.faint, fontSize: 12)),
+          if (item.repository != null)
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: SelectableText(item.repository!,
+                  key: const Key('developer-repository'),
+                  style: TextStyle(
+                      color: p.muted, fontSize: 12, fontFamily: 'monospace')),
+            ),
           if (item.branch.isNotEmpty)
             // Branch names are Latin: keep them left-to-right in Arabic.
             Directionality(

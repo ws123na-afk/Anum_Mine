@@ -568,7 +568,7 @@ def test_a_wrong_project_does_not_remove_devices() -> None:
 
 
 @pytest.fixture
-def github(monkeypatch: pytest.MonkeyPatch) -> Any:
+def github(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     from test_developer import PAT, REPO, FakeGitHub
 
     fake = FakeGitHub()
@@ -578,7 +578,19 @@ def github(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(developer_settings, "tenant_id", TENANT)
     monkeypatch.setattr(developer_settings, "workspace_id", "")
     monkeypatch.setattr(developer_settings, "status_cache_seconds", 0.0)
-    return fake
+    from anum_api.developer_projects import project_store
+
+    project_store.clear()
+    # The repository as a project that uses the API's token (docs/developer-mode.md#projects).
+    owner, repo = REPO.split("/")
+    added = client.post(
+        "/api/v1/developer/projects",
+        headers=headers(),
+        json={"name": "ANUM", "github_owner": owner, "github_repo": repo, "token_source": "environment"},
+    )
+    assert added.status_code == 201, added.text
+    yield fake
+    project_store.clear()
 
 
 def test_the_watcher_announces_a_ready_pull_request_to_its_owner(sender: FakeSender, github: Any) -> None:
