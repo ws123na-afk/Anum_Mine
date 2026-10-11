@@ -5,16 +5,19 @@ client with a private-use URI scheme redirect. Four places must agree or a store
 cannot finish sign-in: the realm (as deployed, infra/render/keycloak_realm.py), the app's
 defaults (lib/features/auth/oidc.dart), the Android manifest placeholder that
 flutter_appauth turns into the redirect intent filter, and the iOS `CFBundleURLTypes`.
-The release workflow must also upload the bundle under the same applicationId and keep the
-deferred desktop jobs from failing a mobile release. No network.
+The release workflow must also upload the bundle under the same applicationId, keep the
+deferred desktop jobs from failing a mobile release, and fail with a clear message when a run
+that uploads lacks a secret (.github/scripts/mobile-release-config.sh). No network.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import plistlib
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -113,3 +116,122 @@ def test_release_workflow_uploads_the_app_and_defers_desktop() -> None:
         assert "continue-on-error" not in job
         for step in job.get("steps", []):
             assert "continue-on-error" not in step
+
+
+RELEASE_CONFIG_SCRIPT = REPO_ROOT / ".github" / "scripts" / "mobile-release-config.sh"
+ANDROID_SIGNING = (
+    "ANUM_ANDROID_KEYSTORE_BASE64",
+    "ANUM_ANDROID_KEYSTORE_PASSWORD",
+    "ANUM_ANDROID_KEY_ALIAS",
+    "ANUM_ANDROID_KEY_PASSWORD",
+)
+IOS_SIGNING = (
+    "APPLE_TEAM_ID",
+    "APP_STORE_CONNECT_API_KEY_ID",
+    "APP_STORE_CONNECT_API_ISSUER_ID",
+    "APP_STORE_CONNECT_API_KEY_P8",
+)
+PRODUCTION_URLS = {
+    "ANUM_PRODUCTION_API_URL": "https://api.example.invalid/",
+    "ANUM_PRODUCTION_OIDC_ISSUER": "https://id.example.invalid/realms/anum",
+}
+# Plainly fake placeholders; the script only checks that a value is present.
+PLACEHOLDER = "placeholder"
+
+
+def _release_config(
+    platform: str, tmp_path: Path, *, upload: bool, values: dict[str, str]
+) -> tuple[int, str, dict[str, str]]:
+    output = tmp_path / f"{platform}-{upload}-{len(values)}.out"
+    output.write_text("", encoding="utf-8")
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": str(output)}
+    env["UPLOAD"] = "true" if upload else "false"
+    env.update(values)
+    result = subprocess.run(  # noqa: S603 - fixed script, test-controlled environment
+        ["bash", str(RELEASE_CONFIG_SCRIPT), platform],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    outputs = dict(
+        line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines() if "=" in line
+    )
+    return result.returncode, result.stdout, outputs
+
+
+def test_release_jobs_check_their_configuration_with_the_shared_script() -> None:
+    workflow = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    for job, platform in (("android", "android"), ("ios", "ios")):
+        steps = workflow["jobs"][job]["steps"]
+        config = next(step for step in steps if step.get("id") == "config")
+        assert config["run"] == f"bash .github/scripts/mobile-release-config.sh {platform}"
+        assert config["env"]["UPLOAD"] == "${{ needs.version.outputs.upload }}"
+        # The checkout that provides the script comes first.
+        assert steps.index(config) > next(
+            index for index, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")
+        )
+
+
+def test_build_only_run_without_credentials_passes_with_a_notice(tmp_path: Path) -> None:
+    code, stdout, outputs = _release_config("android", tmp_path, upload=False, values={})
+    assert code == 0
+    assert "::notice title=Android release skipped::" in stdout
+    assert outputs == {"build": "false", "play": "false"}
+    code, stdout, outputs = _release_config("ios", tmp_path, upload=False, values={})
+    assert code == 0
+    assert "::notice title=iOS signing skipped::" in stdout
+    assert outputs == {"signed": "false", "upload": "false"}
+
+
+def test_upload_run_without_credentials_fails_naming_every_missing_value(tmp_path: Path) -> None:
+    code, stdout, _ = _release_config("android", tmp_path, upload=True, values={})
+    assert code == 1
+    assert "::error title=Android release not configured::" in stdout
+    for name in (*ANDROID_SIGNING, "PLAY_SERVICE_ACCOUNT_JSON", *PRODUCTION_URLS):
+        assert name in stdout
+    code, stdout, _ = _release_config("ios", tmp_path, upload=True, values={})
+    assert code == 1
+    assert "::error title=iOS release not configured::" in stdout
+    for name in (*IOS_SIGNING, *PRODUCTION_URLS):
+        assert name in stdout
+
+
+def test_upload_run_names_only_what_is_missing(tmp_path: Path) -> None:
+    values = {name: PLACEHOLDER for name in ANDROID_SIGNING} | PRODUCTION_URLS
+    code, stdout, _ = _release_config("android", tmp_path, upload=True, values=values)
+    assert code == 1
+    assert "PLAY_SERVICE_ACCOUNT_JSON (secret)" in stdout
+    assert "ANUM_ANDROID_KEY_ALIAS" not in stdout
+    # No value is ever printed.
+    assert PLACEHOLDER not in stdout
+
+
+def test_partly_set_signing_secrets_fail_even_without_upload(tmp_path: Path) -> None:
+    for platform, signing in (("android", ANDROID_SIGNING), ("ios", IOS_SIGNING)):
+        values = {name: PLACEHOLDER for name in signing[:-1]} | PRODUCTION_URLS
+        code, stdout, _ = _release_config(platform, tmp_path, upload=False, values=values)
+        assert code == 1, platform
+        assert "signing incomplete::" in stdout
+        assert signing[-1] in stdout
+        assert PLACEHOLDER not in stdout
+
+
+def test_a_non_https_production_url_fails(tmp_path: Path) -> None:
+    values = PRODUCTION_URLS | {"ANUM_PRODUCTION_API_URL": "http://api.example.invalid/"}
+    code, stdout, _ = _release_config("android", tmp_path, upload=False, values=values)
+    assert code == 1
+    assert "ANUM_PRODUCTION_API_URL variable must start with https://" in stdout
+
+
+def test_complete_configuration_builds_signed_and_uploads_when_asked(tmp_path: Path) -> None:
+    android = {name: PLACEHOLDER for name in ANDROID_SIGNING} | PRODUCTION_URLS
+    code, _, outputs = _release_config(
+        "android", tmp_path, upload=True, values=android | {"PLAY_SERVICE_ACCOUNT_JSON": PLACEHOLDER}
+    )
+    assert (code, outputs) == (0, {"build": "true", "play": "true"})
+    code, _, outputs = _release_config("android", tmp_path, upload=False, values=android)
+    assert (code, outputs) == (0, {"build": "true", "play": "false"})
+    ios = {name: PLACEHOLDER for name in IOS_SIGNING} | PRODUCTION_URLS
+    code, _, outputs = _release_config("ios", tmp_path, upload=True, values=ios)
+    assert (code, outputs) == (0, {"signed": "true", "upload": "true"})

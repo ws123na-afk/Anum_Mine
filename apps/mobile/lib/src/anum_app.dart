@@ -91,8 +91,11 @@ class _AnumAppState extends State<AnumApp> {
       transport: HttpApiTransport(),
       sessions: sessions,
     );
-    final authRepository =
-        AuthRepository(api: api, sessions: sessions, oidc: oidc);
+    final authRepository = AuthRepository(
+        api: api,
+        sessions: sessions,
+        oidc: oidc,
+        workspacePreferences: SecureWorkspacePreferenceStore());
     auth = AuthController(authRepository);
     workspace = WorkspaceController(ApiWorkspaceRepository(
       api,

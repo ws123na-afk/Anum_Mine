@@ -133,3 +133,31 @@ def test_oidc_takes_the_tenant_and_user_from_the_token(monkeypatch: pytest.Monke
     finally:
         dependencies.set_oidc_validator(None)
         _clear()
+
+
+def test_oidc_lists_workspaces_before_one_is_selected(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A Keycloak user without the default_workspace_id attribute has no workspace_id claim:
+    # the phone lists the caller's workspaces to pick one (docs/mobile.md#first-run).
+    key = SigningKey("kid-dir-unselected")
+    monkeypatch.setattr(settings, "auth_mode", "oidc")
+    monkeypatch.setattr(settings, "repository_backend", "memory")
+    dependencies.set_oidc_validator(make_validator(FakeJwksEndpoint(key)))
+    _clear()
+    _seed()
+    try:
+        client = TestClient(app)
+        token = key.sign(sub="user_dir", tenant_id=TENANT, workspace_id=None)
+        response = client.get(ROUTE, headers=bearer(token))
+        assert response.status_code == 200, response.text
+        assert [item["workspace_id"] for item in response.json()] == [
+            "workspace_dir_unnamed", "workspace_dir_b", "workspace_dir_a",
+        ]
+        # Every other route still needs a selected workspace.
+        unselected = client.get("/api/v1/onboarding", headers=bearer(token))
+        assert unselected.status_code == 400
+        assert "Select a workspace" in unselected.text
+        # A malformed workspace header is still refused, not ignored.
+        assert client.get(ROUTE, headers=bearer(token, **{"x-workspace-id": "bad id!"})).status_code == 400
+    finally:
+        dependencies.set_oidc_validator(None)
+        _clear()

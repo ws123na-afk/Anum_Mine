@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../src/widgets/depth.dart';
 
 import '../../src/theme/anum_theme.dart';
+import '../../data/api_models.dart';
 import 'auth_controller.dart';
 import 'account_screens.dart';
 
@@ -15,6 +16,9 @@ class AuthFlow extends StatelessWidget {
       builder: (_, __) => switch (controller.phase) {
             AuthPhase.restoring => const SplashScreen(),
             AuthPhase.signedOut => SignInScreen(controller: controller),
+            AuthPhase.workspacePicker =>
+              WorkspacePickerScreen(controller: controller),
+            AuthPhase.noWorkspace => NoWorkspaceScreen(controller: controller),
             AuthPhase.onboarding =>
               WorkspaceSetupScreen(controller: controller),
             AuthPhase.modelSetup =>
@@ -234,6 +238,68 @@ class _SignInState extends State<SignInScreen> {
   }
 }
 
+/// First run without a default workspace: the token names none and the
+/// caller has several memberships (docs/mobile.md#first-run).
+class WorkspacePickerScreen extends StatelessWidget {
+  const WorkspacePickerScreen({required this.controller, super.key});
+  final AuthController controller;
+
+  @override
+  Widget build(BuildContext context) => _Page(
+      eyebrow: 'Choose a workspace',
+      title: 'Where do you want to work?',
+      subtitle: 'You are a member of several workspaces. ANUM opens the one '
+          'you choose next time; switch any time in Settings.',
+      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (final membership in controller.workspaceChoices) ...[
+          AccountPanel(
+              key: ValueKey('choose-${membership.workspaceId}'),
+              title: membership.workspaceName ?? membership.workspaceId,
+              subtitle: _membershipLine(membership),
+              onTap: () => controller.chooseWorkspace(membership.workspaceId)),
+          const SizedBox(height: AnumSpacing.sm),
+        ],
+        const SizedBox(height: AnumSpacing.sm),
+        TextButton(
+            onPressed: controller.signOut,
+            child: const Text('Sign in with another account')),
+      ]));
+
+  static String _membershipLine(CallerMembership membership) => [
+        if (membership.workspaceName != null) membership.workspaceId,
+        'Your role: ${membership.role}',
+      ].join(' · ');
+}
+
+/// Signed in, but no active membership in any workspace of the tenant and no
+/// default workspace to create one in.
+class NoWorkspaceScreen extends StatelessWidget {
+  const NoWorkspaceScreen({required this.controller, super.key});
+  final AuthController controller;
+
+  @override
+  Widget build(BuildContext context) => _Page(
+      eyebrow: 'No workspace yet',
+      title: 'You are not in a workspace',
+      subtitle: 'Your account signed in, but it is not an active member of any '
+          'workspace in your organization, and no default workspace is set '
+          'for it.',
+      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Text('Ask a workspace owner to invite you, or ask your '
+            'administrator to set the default_workspace_id attribute on your '
+            'account. Then check again.'),
+        const SizedBox(height: AnumSpacing.lg),
+        FilledButton.icon(
+            onPressed: controller.checkWorkspacesAgain,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Check again')),
+        const SizedBox(height: AnumSpacing.sm),
+        TextButton(
+            onPressed: controller.signOut,
+            child: const Text('Sign in with another account')),
+      ]));
+}
+
 class WorkspaceSetupScreen extends StatefulWidget {
   const WorkspaceSetupScreen({required this.controller, super.key});
   final AuthController controller;
@@ -341,7 +407,24 @@ class _ModelState extends State<ModelConnectionScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => _Page(
+  Widget build(BuildContext context) => widget.controller.canConfigureModel
+      ? _ownerSetup(context)
+      : _memberWait(context);
+
+  /// Members and viewers may not save the workspace's model (owners only).
+  Widget _memberWait(BuildContext context) => _Page(
+      eyebrow: 'Step 3 of 3',
+      title: 'Connect a model',
+      subtitle: 'Only a workspace owner can connect this workspace to a model.',
+      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _SkipStatus(controller: widget.controller, owner: false),
+        const SizedBox(height: AnumSpacing.sm),
+        TextButton(
+            onPressed: widget.controller.signOut,
+            child: const Text('Sign in with another account')),
+      ]));
+
+  Widget _ownerSetup(BuildContext context) => _Page(
       eyebrow: 'Step 3 of 3',
       title: 'Connect a model',
       subtitle: 'Credentials are write-only and are never returned by the API.',
@@ -424,11 +507,71 @@ class _ModelState extends State<ModelConnectionScreen> {
                 },
                 icon: const Icon(Icons.cable),
                 label: const Text('Test, save, and continue')),
-            const SizedBox(height: AnumSpacing.sm),
-            TextButton(
-                onPressed: widget.controller.useServerModel,
-                child: const Text("Skip and use the server's model"))
+            const SizedBox(height: AnumSpacing.md),
+            _SkipStatus(controller: widget.controller, owner: true),
           ])));
+}
+
+/// The skip action, shown only when a model answers without this step: the
+/// workspace already saved one or the server is configured with one. While
+/// that is being checked, or when the check fails, it says so instead.
+class _SkipStatus extends StatelessWidget {
+  const _SkipStatus({required this.controller, required this.owner});
+  final AuthController controller;
+  final bool owner;
+
+  @override
+  Widget build(BuildContext context) {
+    final availability = controller.modelAvailability;
+    if (controller.checkingModel) {
+      return Semantics(
+          liveRegion: true,
+          child: const Row(children: [
+            SizedBox.square(
+                dimension: 20,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: AnumSpacing.md),
+            Expanded(
+                child: Text('Checking whether the server already has a '
+                    'model...'))
+          ]));
+    }
+    final error = controller.modelCheckError;
+    if (error != null || availability == null) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Could not check whether the server already has a model: '
+            '${error ?? 'no answer'}. Check your connection and try again.'),
+        const SizedBox(height: AnumSpacing.sm),
+        OutlinedButton.icon(
+            onPressed: controller.checkModelAvailability,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Check again')),
+      ]);
+    }
+    if (availability.canSkip) {
+      final label = availability.workspaceConfigured
+          ? "Continue with this workspace's model"
+          : "Skip and use the server's model (${availability.serverModel})";
+      return owner
+          ? TextButton(onPressed: controller.useServerModel, child: Text(label))
+          : FilledButton(
+              onPressed: controller.useServerModel, child: Text(label));
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text(owner
+          ? 'Skipping is not available: neither this workspace nor the ANUM '
+              'server has a model configured, so agents would have nothing '
+              'to answer with. Connect one above to continue.'
+          : 'Neither this workspace nor the ANUM server has a model '
+              'configured yet. Ask a workspace owner to connect one in '
+              'Settings, Model connection, then check again.'),
+      const SizedBox(height: AnumSpacing.sm),
+      OutlinedButton.icon(
+          onPressed: controller.checkModelAvailability,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Check again')),
+    ]);
+  }
 }
 
 class _Busy extends StatelessWidget {

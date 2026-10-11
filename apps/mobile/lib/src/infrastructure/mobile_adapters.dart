@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
+import '../../features/auth/workspace_selection.dart';
 import '../../features/workspace/api_workspace_repository.dart';
 import '../../features/workspace/workspace_models.dart';
 import '../../features/governance/api_governance_repository.dart';
@@ -58,6 +59,32 @@ class SecureSessionStore implements SessionStore {
   @override
   Future<void> write(LocalSession session) =>
       _storage.write(key: _key, value: jsonEncode(session.toJson()));
+}
+
+/// The workspace picked on this device, per tenant and user, in platform
+/// secure storage. Signing out keeps it (it is an id, not a credential), so
+/// the next sign-in of the same person opens the same workspace.
+class SecureWorkspacePreferenceStore implements WorkspacePreferenceStore {
+  SecureWorkspacePreferenceStore({FlutterSecureStorage? storage})
+      : _storage = storage ?? const FlutterSecureStorage();
+
+  final FlutterSecureStorage _storage;
+
+  static String _key(String tenantId, String userId) =>
+      'anum.workspace-choice.${Uri.encodeComponent(tenantId)}.'
+      '${Uri.encodeComponent(userId)}';
+
+  @override
+  Future<String?> read(
+          {required String tenantId, required String userId}) async =>
+      _storage.read(key: _key(tenantId, userId));
+
+  @override
+  Future<void> write(
+          {required String tenantId,
+          required String userId,
+          required String workspaceId}) =>
+      _storage.write(key: _key(tenantId, userId), value: workspaceId);
 }
 
 class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {

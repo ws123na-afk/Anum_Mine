@@ -235,6 +235,23 @@ class OnboardingStatus {
   final MembershipSummary? membership;
 }
 
+/// Whether anything answers agent tasks when the person skips connecting a
+/// model during first run (docs/mobile.md#first-run).
+class ModelAvailability {
+  const ModelAvailability(
+      {required this.workspaceConfigured, this.serverModel});
+
+  /// The workspace already has a usable saved model.
+  final bool workspaceConfigured;
+
+  /// The model the API server is configured with, or null when the server has
+  /// none (only the built-in mock planner).
+  final String? serverModel;
+
+  /// Skipping the model step is offered only when one of them answers.
+  bool get canSkip => workspaceConfigured || serverModel != null;
+}
+
 class ModelConfiguration {
   const ModelConfiguration({
     required this.provider,

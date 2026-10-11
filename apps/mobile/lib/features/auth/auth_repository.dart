@@ -2,12 +2,21 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
 import 'oidc.dart';
+import 'workspace_selection.dart';
 
 class AuthRepository {
-  const AuthRepository({required this.api, required this.sessions, this.oidc});
+  const AuthRepository(
+      {required this.api,
+      required this.sessions,
+      this.oidc,
+      this.workspacePreferences});
 
   final AnumApiClient api;
   final SessionStore sessions;
+
+  /// Remembers the workspace picked on this device (secure storage in the
+  /// app). Without it a person with several workspaces picks at each sign-in.
+  final WorkspacePreferenceStore? workspacePreferences;
 
   /// Set when the build names an OIDC issuer; sign-in then goes through
   /// Keycloak and the local endpoints below are not used.
@@ -127,11 +136,71 @@ class AuthRepository {
               userId: current.context.userId,
               roles: current.context.roles));
       await sessions.write(next);
+      await workspacePreferences?.write(
+          tenantId: next.context.tenantId,
+          userId: next.context.userId,
+          workspaceId: workspaceId);
       return next;
     }
     return _acceptSession(api.request(
         'POST', '/api/v1/auth/local/workspace/switch',
         body: {'workspace_id': workspaceId}));
+  }
+
+  /// Gives a signed-in session a workspace when it has none.
+  ///
+  /// A Keycloak user without the `default_workspace_id` attribute gets a token
+  /// without a `workspace_id` claim; unless the build sets `ANUM_WORKSPACE_ID`
+  /// the session then names no workspace and every workspace call would answer
+  /// 400. The caller's memberships decide instead: exactly one is selected,
+  /// the remembered choice is selected while it is still listed, several ask
+  /// the person to pick, none is reported (docs/mobile.md#first-run).
+  Future<WorkspaceResolution> resolveWorkspace() async {
+    final session = await sessions.read();
+    if (session == null) {
+      throw const ApiException(401, 'Authentication required');
+    }
+    if (session.context.workspaceId.isNotEmpty) {
+      return WorkspaceResolved(session.context.workspaceId);
+    }
+    final memberships = await myWorkspaces();
+    if (memberships.isEmpty) return const NoWorkspaceMembership();
+    final remembered = await workspacePreferences?.read(
+        tenantId: session.context.tenantId, userId: session.context.userId);
+    final pick = memberships.length == 1
+        ? memberships.single
+        : memberships.where((m) => m.workspaceId == remembered).firstOrNull;
+    if (pick == null) return WorkspaceChoiceNeeded(memberships);
+    await switchWorkspace(pick.workspaceId);
+    return WorkspaceResolved(pick.workspaceId);
+  }
+
+  /// What answers when this workspace saves no model of its own: the
+  /// workspace's saved model (`model_configured` of `GET /api/v1/onboarding`)
+  /// or the server's configured model (the `configured-model` routing target
+  /// of `GET /api/v1/routing/targets`). The built-in mock planner does not
+  /// count: it answers with canned plans, not a model.
+  Future<ModelAvailability> modelAvailability() async {
+    final status = await onboardingStatus();
+    if (status.modelConfigured) {
+      return const ModelAvailability(workspaceConfigured: true);
+    }
+    final targets =
+        JsonReader(await api.request('GET', '/api/v1/routing/targets'))
+            .optObjects('data', (item) => item);
+    final server = targets
+        .where((target) => target.optString('id') == 'configured-model')
+        .firstOrNull;
+    final provider = server?.optString('provider');
+    final model = server?.optString('model');
+    if (server == null ||
+        provider == null ||
+        provider == 'mock' ||
+        model == null ||
+        model.isEmpty) {
+      return const ModelAvailability(workspaceConfigured: false);
+    }
+    return ModelAvailability(workspaceConfigured: false, serverModel: model);
   }
 
   Future<LocalSession> _acceptSession(Future<JsonMap> response) async {

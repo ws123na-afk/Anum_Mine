@@ -99,13 +99,16 @@ async def _oidc_identity(
     authorization: str | None,
     x_tenant_id: str | None,
     x_workspace_id: str | None,
+    *,
+    require_workspace: bool = True,
 ) -> tuple[OidcClaims, str]:
     """Validate the bearer token and resolve the tenant (from the token) and workspace.
 
     The tenant always comes from the IdP-asserted `tenant_id` claim; an `x-tenant-id` header,
     when sent, must agree with it. The workspace is the `x-workspace-id` header when present,
     otherwise the token's optional default `workspace_id` claim. Membership is checked by the
-    caller.
+    caller. With ``require_workspace=False`` an unresolved workspace is returned as ``""``
+    (only the caller's own workspace directory accepts that).
     """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise _unauthorized("Bearer token required")
@@ -127,6 +130,8 @@ async def _oidc_identity(
             detail="x-tenant-id does not match the authenticated tenant",
         )
     workspace_id = x_workspace_id or claims.workspace_id
+    if not workspace_id and not require_workspace:
+        return claims, ""
     if not workspace_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -359,6 +364,34 @@ async def authenticated_identity(
     context = _header_context(authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles)
     email = x_user_email.strip() if x_user_email and x_user_email.strip() else None
     return AuthenticatedIdentity(context, email, email_verified=email is not None)
+
+
+async def directory_identity(
+    authorization: str | None = Header(default=None),
+    x_tenant_id: str | None = Header(default=None),
+    x_workspace_id: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+    x_user_roles: str | None = Header(default="member"),
+    x_user_email: str | None = Header(default=None),
+) -> AuthenticatedIdentity:
+    """:func:`authenticated_identity` for ``GET /me/workspace-memberships`` only.
+
+    With OIDC no workspace has to be selected yet: a client whose token carries no
+    ``workspace_id`` claim lists the caller's workspaces to choose one
+    (docs/identity.md#my-workspaces). The context's ``workspace_id`` is then ``""``; the
+    directory never reads it (it filters by tenant and user only).
+    """
+    if settings.auth_mode == "oidc":
+        claims, workspace_id = await _oidc_identity(
+            authorization, x_tenant_id, x_workspace_id, require_workspace=False
+        )
+        context = TenantContext(
+            tenant_id=claims.tenant_id, workspace_id=workspace_id, user_id=claims.subject, roles=[]
+        )
+        return AuthenticatedIdentity(context, claims.email, claims.email_verified)
+    return await authenticated_identity(
+        authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles, x_user_email
+    )
 
 
 async def identity_repository_context(
