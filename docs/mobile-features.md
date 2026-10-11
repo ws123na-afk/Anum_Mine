@@ -22,19 +22,19 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Assistant chat](#assistant-chat) | Done | Assistant, Conversations |
 | [Voice assistant](#voice-assistant) | Done (push-to-talk and wake word); live voice call in progress | Voice, Voice settings |
 | [Memory](#memory) | Partial | Resources › Memory, Settings › Chat memory |
-| [Tasks](#tasks) | Partial | Home, Tasks, task detail |
+| [Tasks](#tasks) | Done | Home, Tasks, task detail |
 | [Approvals](#approvals) | Done | Approvals, Home › Waiting for your decision |
 | [Automations](#automations) | Partial | Automations, run sheet, New workflow, Add schedule |
-| [Files](#files) | Partial | Resources › Files, file details |
+| [Files](#files) | Done | Resources › Files, file details |
 | [Sources used](#sources-used) | Done | Task detail › Sources used |
 | [Governance and organization](#governance-and-organization) | Partial | Organization (Policy packs, Marketplace, Advanced routing) |
 | [Budgets](#budgets) | Done | Settings › Model budgets |
-| [Members, invitations and audit](#members-invitations-and-audit) | Partial | Members and invitations, Accept an invitation, Approval policy |
+| [Members, invitations and audit](#members-invitations-and-audit) | Done (workspace lifecycle is web only) | Members and invitations, Accept an invitation, Audit log, Approval policy |
 | [Developer mode](#developer-mode) | Done | Developer |
 | [Privacy](#privacy) | Done | Settings › Your data and privacy |
-| [Notifications and push](#notifications-and-push) | Partial (preferences only; no push) | Settings › Notifications |
+| [Notifications and push](#notifications-and-push) | Done in the app; needs the owner's Firebase setup to deliver | Settings › Notifications, Phone push card |
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
-| [Integrations and skills](#integrations-and-skills) | Partial | Resources › Skills, Resources › Services, Home › Connected services |
+| [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
 
 ## Sign-in and accounts
 
@@ -45,6 +45,8 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | Switch workspace from Settings; see your user, organization, workspace, roles and when the session expires | Done |
 | Password, one-time code and password recovery screens | Development only: shown only when no company sign-in is configured; a store build never shows them |
 | Sign in with Google or Apple | In progress |
+| Two-factor sign-in (authenticator app, recovery code, passkey) | Done, in the company sign-in page when the Keycloak has it turned on |
+| Rename, archive, restore or create a workspace | Web only |
 | Close your own account | Not built (an administrator does it in Keycloak) |
 
 Sessions and tokens are kept in the phone's encrypted storage and are excluded from Android backups. Details: [Identity and sign-in](identity.md#flutter).
@@ -109,12 +111,16 @@ Details: [Memory](memory.md).
 | --- | --- |
 | Start a task from Home ("Run task") or from a voice command | Done |
 | See counts (Needs you, Running, Done today, Failed) and recent work on Home | Done |
-| List tasks, search them, filter (All, Active, Needs approval, Completed, Failed or cancelled) | Done |
+| List tasks with server-side status filters and counts (All, Active, Needs approval, Completed, Failed or cancelled), search, an Archived filter and "Load more tasks" | Done |
 | Open a task: status, what the agent produced (copy), every step it took, the approval it is waiting on | Done |
-| Cancel a task (with confirmation) and resume it | Done |
-| Open a task from a link (`/tasks/<id>`) | Done |
-| Paging through a long task history | Not built: the app shows the first page the API returns |
+| Cancel a task (with confirmation), resume it, retry a failed or cancelled one, and switch between its runs | Done |
+| Rename a task; archive and restore it | Done |
+| "Copy run log": the run's full record as JSON on the clipboard | Done |
+| Open a task from a link (`/tasks/<id>`) or a push notification | Done |
+| Date-range filter and selecting several tasks at once | Web only |
 | Live updates without pulling to refresh | Not built: the screen refreshes after your own actions and on Refresh |
+
+Details: [Tasks](tasks.md#flutter-tasks-screens).
 
 ## Approvals
 
@@ -125,7 +131,7 @@ Details: [Memory](memory.md).
 | See approval chains ("1 of 3 approvals", who approved) | Done |
 | See the server's reason when you may not approve (for example the two-person rule) | Done |
 | A badge on Approvals with the number waiting | Done |
-| Approve from a notification, or with the phone's fingerprint or face check | Not built |
+| Approve right from the notification (tapping it opens the queue), or with the phone's fingerprint or face check | Not built |
 
 Details: [Approvals and risk](approvals-and-risk.md).
 
@@ -145,13 +151,15 @@ Screen: **Automations** with Workflows, Running now, Runs and Schedules. Details
 
 | What you can do | State |
 | --- | --- |
-| Upload a file with the phone's file picker | Done |
-| Open a file's details (type, size, date), download it with the save dialog, delete it | Done |
-| Files are indexed so tasks can use them as sources | Done |
-| Search and paging through many files | Not built |
-| Preview a file inside the app | Not built |
+| See how much of the workspace's storage is used | Done |
+| Upload one or several files with the phone's picker, with progress and Cancel for each upload | Done |
+| Search files by name, sort them, "Load more files" | Done |
+| Open a file: index state, a preview for text and images, Download (save dialog), Rename (keeps the extension), Re-index, Delete (with confirmation); the buttons follow your role | Done |
+| Text files are indexed so tasks can use them as sources | Done |
+| Preview PDFs, Office files and archives inside the app | Not built: they are downloaded and opened in another app |
+| File versions | Not built: an upload with the same name is a new file |
 
-Screen: **Resources › Files**. Details: [Workspace files](files.md).
+Screen: **Resources › Files**. Details: [Workspace files](files.md#mobile).
 
 ## Sources used
 
@@ -171,8 +179,9 @@ This panel is fully translated into Arabic. Details: [Memory, At run time](memor
 | See counts of role templates, approval rules and active regions | Done (read-only) |
 | Create or edit role templates and approval rules | Web only |
 | Marketplace: install or uninstall published packages | Done (workspace owners) |
+| Publish skill versions or marketplace packages | Web only |
 | Advanced routing: see where AI requests go and mark a target healthy, degraded or offline | Done for administrators; read-only for others |
-| Export the audit log as CSV or JSON | Done |
+| Export the whole audit log as CSV or JSON | Done |
 
 Screen: **Organization** (also reached as Policy packs, Marketplace and Advanced routing from More). Details: [Governance and scale](governance-and-scale.md#who-may-change-what).
 
@@ -191,15 +200,17 @@ Screen: **Settings › Model budgets**. Details: [Model gateway](model-gateway.m
 
 | What you can do | State |
 | --- | --- |
-| List members with counts (active, owners, deactivated, pending invitations) | Done (owners) |
-| Change a member's role; deactivate and reactivate a member | Done (owners) |
-| Invite by email with a role and expiry; copy the one-time token (and the web link when configured); revoke an invitation | Done (owners) |
+| List members with counts (active, owners, deactivated, pending invitations) and search them by user id or email | Done (owners) |
+| Change a member's role or deactivate and reactivate them, each after a confirmation that says what the new role may do | Done (owners) |
+| The only active owner cannot be demoted or deactivated; the reason is shown next to the control | Done |
+| Invite by email with a role and expiry; copy the one-time token (and the web link when configured); resend (new token) or revoke an invitation | Done (owners) |
 | Accept an invitation by pasting a token or link | Done |
+| Audit log: search, filter by action and date range, "Load older records", a detail sheet per record | Done, read-only (owners and organization administrators) |
+| Export a filtered part of the audit log | Web only (the Organization screen exports the whole log) |
 | Set the workspace approval policy (two-person rule, approval for medium risk) | Done (owners; members read-only) |
 | The invitation is emailed automatically | Not built: the owner sends the token or link |
-| Read the audit log inside the app | Not built: export only (see Governance) |
 
-Screens: **Settings › Members and invitations**, **Accept an invitation**, **Approval policy**. Non-owners get the server's explanation of who can do it. Details: [Identity](identity.md#client-screens).
+Screens: **Settings › Members and invitations**, **Accept an invitation**, **Audit log**, **Approval policy**. Non-owners get the server's explanation of who can do it. Details: [Identity](identity.md#client-screens), [Audit log](governance-and-scale.md#audit-log).
 
 ## Developer mode
 
@@ -230,11 +241,16 @@ Screen: **Settings › Your data and privacy**. Details: [Privacy](privacy.md).
 
 | What you can do | State |
 | --- | --- |
-| Choose which events you want to hear about: task completed, approval required, run failed, automation failed; email on or off; device notifications on or off | Done (saved to your account) |
-| Receive push notifications on the phone | Not built: there is no push service in the app yet (needs Firebase and Apple push keys, see [Needs the owner](#needs-the-owner)) |
-| Receive the emails | Depends on the server's email setup; not part of the app |
+| Choose what you hear about in this workspace: approvals waiting, task completed, run failed, automation failed; phone push on or off; email and desktop switches | Done (saved to your account) |
+| Turn on phone notifications from Settings (never asked on first launch; offered once after your first approval decision); "Open phone settings" if they are blocked | Done |
+| See the phones registered in this workspace, when each was last notified, and remove one | Done |
+| Get a push when an approval waits for you, a task finishes or fails, or a developer pull request is ready; tapping it opens the approval queue, the task or Developer, also from a closed app | Done in the app; delivered only once the owner sets up Firebase (see [Needs the owner](#needs-the-owner)) |
+| A push that arrives while the app is open shows as an in-app notice with Open | Done |
+| Push for failed automations | Not built (automation runs emit no event yet) |
+| Email and desktop notifications | Not built: the switches are saved, nothing is sent yet |
+| Push in store builds from CI | Not built: the release workflow does not yet write the Firebase files, so CI builds have push off |
 
-Screen: **Settings**, notifications card.
+Screen: **Settings › Notifications** with the **Phone push** card. Without the Firebase files the app still runs and the card says push is not set up. Details: [Notifications](notifications.md), [Phone push](mobile.md#phone-push).
 
 ## Settings, language and right to left
 
@@ -252,12 +268,12 @@ Screen: **Settings**, notifications card.
 
 | What you can do | State |
 | --- | --- |
-| Skills: see published skills with their risk, install one | Done (the server checks who may install) |
-| Services: see each connected service's health (for example web search) | Done (read-only) |
-| Turn a service off for the workspace or change its settings | Web only |
+| Skills: see published skills with their risk and installed version; install, turn on or off, uninstall (asks first) | Done (owners; others are told only owners can) |
+| Services: each connected service's status, how to fix it and its last error (for example web search) | Done (read-only) |
+| Skill details, rollback, publishing; testing a service, turning it off or changing its settings, integration tokens | Web only |
 | Connect email (Gmail, Outlook, Zoho), WhatsApp Business, Amazon, Noon or the owner's own apps | In progress |
 
-Details: [Skills](skills.md), [Tools and integrations](tools-and-integrations.md).
+Details: [Skills](skills.md), [Tools and integrations](tools-and-integrations.md#workspace-configuration).
 
 ## Coming next
 
@@ -290,7 +306,7 @@ Things only the owner can provide. Values go into GitHub secrets or the server's
 | App Store Connect API key and Apple team ID | Signed iPhone builds and TestFlight uploads | [Owner checklist](mobile.md#owner-checklist-windows) |
 | Production API and sign-in addresses | Store builds must point at the live server | [Release pipeline](mobile.md#release-pipeline) |
 | Published privacy policy, store listings, Data safety and App Privacy forms | Required before leaving internal testing | [Store data safety](store-data-safety.md), [Privacy policy template](privacy-policy.md) |
-| Firebase project (`google-services.json`, `GoogleService-Info.plist`) and an Apple push key | Push notifications on Android and iPhone | Not wired yet; the files are kept out of the repository |
+| Firebase project (`google-services.json`, `GoogleService-Info.plist`), an Apple push key (APNs `.p8`) and the Push Notifications capability in Xcode, the server's `ANUM_FCM_SERVICE_ACCOUNT_JSON`, and CI secrets for the two files | Push notifications on Android and iPhone (the app side is built) | [Owner steps: Firebase project](mobile.md#owner-steps-firebase-project) |
 | Google and Apple sign-in apps (OAuth client ids, Sign in with Apple service id and key) | Google and Apple sign-in | Keycloak identity providers |
 | OAuth apps for Gmail, Microsoft (Outlook), Zoho Mail; WhatsApp Business (Meta) app; Amazon Selling Partner and Noon seller credentials | The email, WhatsApp and commerce connectors | Stored encrypted on the server once each connector merges |
 | Billing decisions | Whether and how users pay (store in-app purchase or outside the app), plans and limits, and the default monthly model budgets | Owner decision; nothing is built until it is made |
