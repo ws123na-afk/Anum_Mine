@@ -45,6 +45,14 @@ flutter run \
 
 When `ANUM_OIDC_ISSUER` is not defined the app keeps the local development sign-in (password, one-time code, password recovery), which requires an API in `ANUM_AUTH_MODE=headers`. Production builds must use HTTPS and OIDC; the local sign-in screen is not shown when an issuer is configured.
 
+### First Run
+
+After Keycloak sign-in the app reads `GET /api/v1/onboarding` and routes by its answer:
+
+- No tenant, workspace or membership yet: the onboarding screen calls `PUT /api/v1/onboarding`, which creates them and makes the caller the first owner. A workspace that already has members answers 403 "Ask a workspace owner to invite you"; the screen shows that message. An inactive membership answers 403 "Active workspace membership required" and shows as "Access denied".
+- No workspace model saved: "Connect a model" saves one, or "Skip and use the server's model" continues with the model the API server is configured with. Members who may not change the model configuration take the skip.
+- The Keycloak user needs the admin-set `tenant_id` attribute and, unless the build sets `ANUM_WORKSPACE_ID`, a `default_workspace_id` attribute ([Identity](identity.md)). Without a tenant the app says the account has no ANUM organization; without a workspace the API answers 400 "Select a workspace".
+
 ## Native Projects
 
 `android/` and `ios/` are committed; CI no longer runs `flutter create`. They were generated with

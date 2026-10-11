@@ -423,7 +423,11 @@ class _ModelState extends State<ModelConnectionScreen> {
                   }
                 },
                 icon: const Icon(Icons.cable),
-                label: const Text('Test, save, and continue'))
+                label: const Text('Test, save, and continue')),
+            const SizedBox(height: AnumSpacing.sm),
+            TextButton(
+                onPressed: widget.controller.useServerModel,
+                child: const Text("Skip and use the server's model"))
           ])));
 }
 
