@@ -287,6 +287,19 @@ services:
       # .env, keeping the lines (docs/deploy-oracle.md#keycloak).
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-}
+    # Keycloak refuses to start when the bootstrap variables are set but empty
+    # ("bootstrap-admin-username available only when bootstrap admin password is set"),
+    # so drop them once the password has been emptied. Overriding the entrypoint also
+    # clears the image's CMD: repeat it.
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        [ -n "$${KC_BOOTSTRAP_ADMIN_PASSWORD:-}" ] ||
+        unset KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD;
+        exec /opt/keycloak/bin/kc.sh "$$@"
+      - kc.sh
+    command: ["start", "--optimized", "--import-realm"]
     healthcheck:
       # The image has no curl or wget; bash reads the management port's readiness.
       test:
