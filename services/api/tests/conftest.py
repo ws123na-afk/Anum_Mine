@@ -83,6 +83,8 @@ TABLES_IN_DELETE_ORDER = (
     "marketing_campaigns",
     "marketing_accounts",
     "marketing_preferences",
+    "agent_memories",
+    "agent_profiles",
     "retrieval_chunks",
     "retrieval_sources",
     "conversation_turns",

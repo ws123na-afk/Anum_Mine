@@ -729,9 +729,20 @@ class Retriever:
         self.clock = clock
 
     async def retrieve(
-        self, context: TenantContext, query: str, *, source_type: SourceType | None = None
+        self,
+        context: TenantContext,
+        query: str,
+        *,
+        source_type: SourceType | None = None,
+        sources: frozenset[tuple[str, str]] | None = None,
     ) -> RetrievalResult:
-        """The top chunks for ``query``; only memories or only files with ``source_type``."""
+        """The top chunks for ``query``; only memories or only files with ``source_type``.
+
+        ``sources`` limits the result to those ``(source_type, source_id)`` pairs (an
+        agent's selected knowledge, docs/agents.md); an empty set finds nothing.
+        """
+        if sources is not None and not sources:
+            return RetrievalResult(RetrievalStatus.NO_RESULTS, None, self.embedder.model_name)
         model = self.embedder.model_name
         if self.top_k <= 0 or self.max_chars <= 0:
             return RetrievalResult(RetrievalStatus.SKIPPED, "retrieval is turned off", model)
@@ -759,7 +770,11 @@ class Retriever:
         if not any(component != 0.0 for component in vector):
             return RetrievalResult(RetrievalStatus.NO_RESULTS, None, model)
         with self.store_factory(context) as store:
-            found = store.search(context, vector, model, self.top_k, self.clock(), source_type=source_type)
+            # Restricted to chosen sources: search wider, then keep only theirs.
+            limit = self.top_k if sources is None else max(self.top_k * 10, 100)
+            found = store.search(context, vector, model, limit, self.clock(), source_type=source_type)
+        if sources is not None:
+            found = [chunk for chunk in found if (str(chunk.source_type), chunk.source_id) in sources][: self.top_k]
         return self._assemble(context, found, model)
 
     def _assemble(self, context: TenantContext, found: list[RetrievedChunk], model: str) -> RetrievalResult:

@@ -173,6 +173,14 @@ const libraryItems = [
 ];
 const { id: _reportId, tenant_id: _t, workspace_id: _w, highlights: _h, data: _d, body_markdown: _b, owner_user_id: _o, updated_at: _u, can_manage: _c, ...reportSummary } = libraryReport;
 
+// Agents (docs/agents.md): one shared agent.
+const agent = {
+  id: 'agent_fleet', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', owner_user_id: 'user_local', status: 'active', created_at: now, updated_at: now,
+  version: 1, can_edit: true, can_run: true, unavailable_tools: [], unavailable_skills: [], name: 'Fleet desk', icon: 'truck', color: '#0f766e', category: 'work',
+  department: 'Logistics', description: 'Plans tyre rotations for the delivery vans.', instructions: '', model_route: 'capable', allowed_skills: [], allowed_tools: [],
+  autonomy: { read: 'auto', write: 'ask', external: 'ask' }, knowledge_mode: 'none', knowledge_sources: [], sharing: 'workspace', template_id: 'fleet',
+};
+
 export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions = {}): Promise<void> {
   const team = createTeamMock(teamOptions);
   await page.route('http://localhost:8000/**', async (route) => {
@@ -273,6 +281,11 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (commerce) return json(commerce.body, commerce.status);
     // Calls & Meetings (docs/meetings.md).
     if (path.startsWith('/api/v1/meetings') && await handleMeetings(route)) return;
+    // Agents (docs/agents.md): one shared agent and the catalog the wizard reads.
+    if (path === '/api/v1/agents/catalog') return json({ tools: [], skills: [], templates: [], icons: ['bot'], autonomy_floor: { read: 'auto', write: 'ask', external: 'ask' } });
+    if (path === '/api/v1/agents/agent_fleet') return json(agent);
+    if (path === '/api/v1/agents/agent_fleet/memories') return json({ items: [{ id: 'agent_memory_1', agent_id: 'agent_fleet', content: 'Truck 12 runs on Michelin tyres.', source: 'manual', task_id: null, created_by: 'user_local', created_at: now }], next_cursor: null, total: 1 });
+    if (path === '/api/v1/agents') return json({ items: [agent], next_cursor: null, counts: { all: 1, work: 1, personal: 0, custom: 0 } });
     if (path === '/api/v1/marketplace/installs') return json([{ package_id: 'acme.crm-sync', version: '1.2.0', enabled: true, installed_by: 'user_local', installed_at: now }]);
     if (path === '/api/v1/email/setup') return json(emailSetup);
     if (path === '/api/v1/email/accounts' && method === 'GET') return json([emailAccount]);

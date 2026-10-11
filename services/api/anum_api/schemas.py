@@ -154,6 +154,8 @@ class TaskCreate(BaseModel):
     # nothing on the server and never change what the agent may do.
     priority: TaskPriority = TaskPriority.MEDIUM
     due_at: datetime | None = None
+    # Run as this agent (docs/agents.md): its instructions, tools and autonomy apply.
+    agent_id: str | None = Field(default=None, max_length=80)
 
 
 class Task(BaseModel):
@@ -170,6 +172,8 @@ class Task(BaseModel):
     # The department assistant this task runs as (docs/team-work.md#department-assistants):
     # the runtime narrows tool policy to that assistant's allowed tools and autonomy.
     assistant_id: str | None = None
+    # The agent the task runs as (docs/agents.md), or None for the plain runtime.
+    agent_id: str | None = None
     # Archived tasks leave the default list but keep their runs, approvals and events
     # (0026_task_archive, docs/tasks.md). Null while the task is in the active list.
     archived_at: datetime | None = None
@@ -268,6 +272,8 @@ class RunCheckpoint(BaseModel):
     last_step_id: str | None = None
     # The autonomy decision for the checkpointed call (docs/autonomy.md); None before it.
     autonomy: dict[str, Any] | None = None
+    # The agent snapshot this run applies (anum_api.agent_policy.AgentRunProfile), if any.
+    agent: dict[str, Any] | None = None
 
 
 class AgentRun(BaseModel):

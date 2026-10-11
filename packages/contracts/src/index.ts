@@ -33,6 +33,8 @@ export interface Task {
   createdBy?: string | null;
   /** The department assistant the task runs as (docs/team-work.md). */
   assistantId?: string | null;
+  /** The agent the task runs as (docs/agents.md), or null for the plain runtime. */
+  agentId?: string | null;
   /** Set while the task is archived (hidden from the default list, history kept; docs/tasks.md). */
   archivedAt?: string | null;
   archivedBy?: string | null;
@@ -187,3 +189,4 @@ export * from './commerce.js';
 export * from './command.js';
 export * from './library.js';
 export * from './team.js';
+export * from './agents.js';

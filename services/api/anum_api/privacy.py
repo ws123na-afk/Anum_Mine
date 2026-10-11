@@ -229,10 +229,14 @@ class InMemoryPrivacyStore:
         return memory_repository.get_membership(self.context)
 
     def conversations(self) -> list[tuple[Conversation, list[ConversationTurn]]]:
-        from .conversations import conversation_store
+        from .conversations import _owned, conversation_store
 
-        found = conversation_store.list(self.context, limit=len(conversation_store.conversations) + 1)
-        return [(item, conversation_store.turns(item)) for item in reversed(found)]
+        # Every thread, the Assistant's and those with agents, oldest first.
+        found = sorted(
+            (item for item in list(conversation_store.conversations.values()) if _owned(item, self.context)),
+            key=lambda item: (item.updated_at, item.id),
+        )
+        return [(item, conversation_store.turns(item)) for item in found]
 
     def _notes(self) -> list[MemoryNote]:
         from .dependencies import memory_note_repository

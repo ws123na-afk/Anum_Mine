@@ -84,6 +84,7 @@ x-user-roles: owner,member
 - [Identity and sign-in](docs/identity.md)
 - [Multi-tenancy](docs/multi-tenancy.md)
 - [Agent runtime](docs/agent-runtime.md)
+- [Agents: user-built agents and department assistants](docs/agents.md)
 - [Tasks and agent runs](docs/tasks.md)
 - [ANUM Command: plan, run and follow one request](docs/command.md)
 - [Model gateway](docs/model-gateway.md)

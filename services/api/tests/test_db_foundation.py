@@ -58,6 +58,8 @@ def test_tenant_scoped_tables_include_tenant_id() -> None:
         "tenant_branding",
         "platform_organizations",
         "calendar_events",
+        "agent_profiles",
+        "agent_memories",
         "audit_records",
         "workspace_invitations",
         "workspaces",

@@ -17,6 +17,8 @@ import '../team/team_screens.dart';
 import '../team/team_strings.dart';
 import '../governance/governance_controller.dart';
 import '../governance/governance_screen.dart';
+import '../agents/agents_controller.dart';
+import '../agents/agents_screen.dart';
 import '../developer/developer_assist.dart';
 import '../developer/developer_controller.dart';
 import '../developer/developer_screen.dart';
@@ -69,6 +71,9 @@ class WorkspaceHome extends StatefulWidget {
       this.emailController,
       this.commerceController,
       this.onOpenCommand,
+      this.agentsController,
+      this.agentChat,
+      this.agentCall,
       this.workspaceName,
       this.library,
       this.initialIndex = WorkspaceDestination.home});
@@ -108,6 +113,11 @@ class WorkspaceHome extends StatefulWidget {
   /// The orb: opens ANUM Command. Without it the orb opens the voice
   /// assistant, the command surface the app has today.
   final VoidCallback? onOpenCommand;
+
+  /// User-built agents (docs/agents.md), opened from Home. Absent: no entry.
+  final AgentsController? agentsController;
+  final AgentChatBuilder? agentChat;
+  final AgentCallOpener? agentCall;
   final String? workspaceName;
 
   /// Favorites, knowledge base and reports (docs/knowledge-base.md): the
@@ -328,6 +338,15 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     : () => Navigator.of(context).push(MaterialPageRoute<void>(
                         builder: (_) => CommerceScreen(
                             controller: widget.commerceController!))),
+                onOpenAgents: widget.agentsController == null
+                    ? null
+                    : () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                            builder: (_) => AgentsScreen(
+                                controller: widget.agentsController!,
+                                chatBuilder: widget.agentChat,
+                                callOpener: widget.agentCall))),
               ),
               TasksScreen(controller: widget.controller),
               VoiceScreen(
@@ -528,6 +547,11 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     );
   }
 
+  void _openAgents() => _push(AgentsScreen(
+      controller: widget.agentsController!,
+      chatBuilder: widget.agentChat,
+      callOpener: widget.agentCall));
+
   /// The Mobile Menu: the mockup's destinations, then everything else the
   /// app has, then the plan card.
   Widget _menu(BuildContext context) {
@@ -557,8 +581,14 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       sections: [
         AnumMenuSection(entries: [
           destination('home', Icons.home_outlined, WorkspaceDestination.home),
-          page('shellAgents', Icons.smart_toy_outlined,
-              () => _openResources(ResourcesTab.skills, l.t('shellAgents'))),
+          // Agents (docs/agents.md); without the agents API, the installed skills.
+          page(
+              'shellAgents',
+              Icons.smart_toy_outlined,
+              widget.agentsController == null
+                  ? () =>
+                      _openResources(ResourcesTab.skills, l.t('shellAgents'))
+                  : _openAgents),
           destination(
               'tasks', Icons.task_alt_outlined, WorkspaceDestination.tasks),
           if (widget.settingsController.team case final team?)

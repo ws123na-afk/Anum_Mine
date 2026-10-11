@@ -42,7 +42,7 @@ from enum import StrEnum
 from threading import RLock
 from typing import Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
@@ -65,6 +65,7 @@ from .model_budget import ModelBudgetExceededError, budget_exceeded_message, che
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .reports import REPORT_BLOCK_INSTRUCTIONS, ReportCard, cards_for_conversation, save_chat_report, split_report_block
+from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
@@ -105,6 +106,8 @@ class TurnStatus(StrEnum):
 
 class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=TITLE_CHARS)
+    # A thread with this agent (docs/agents.md): its persona and memories shape replies.
+    agent_id: str | None = Field(default=None, max_length=80)
 
 
 class ConversationAsk(BaseModel):
@@ -122,6 +125,7 @@ class Conversation(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    agent_id: str | None = None
 
 
 class ConversationTurn(BaseModel):
@@ -144,7 +148,7 @@ class ConversationDetail(Conversation):
 
 class ConversationStoreProtocol(Protocol):
     def create(self, payload: ConversationCreate, context: TenantContext) -> Conversation: ...
-    def list(self, context: TenantContext, limit: int) -> list[Conversation]: ...
+    def list(self, context: TenantContext, limit: int, agent_id: str | None = None) -> list[Conversation]: ...
     def get(self, conversation_id: str, context: TenantContext) -> Conversation | None: ...
     def turns(self, conversation: Conversation, *, last: int | None = None) -> list[ConversationTurn]: ...
     def count_turns(self, conversation: Conversation) -> int: ...
@@ -191,15 +195,18 @@ class ConversationStore:
             title=(payload.title or "").strip(),
             created_at=now,
             updated_at=now,
+            agent_id=payload.agent_id,
         )
         with self._lock:
             self.conversations[conversation.id] = conversation
             self.turn_log[conversation.id] = []
         return conversation
 
-    def list(self, context: TenantContext, limit: int) -> list[Conversation]:
+    def list(self, context: TenantContext, limit: int, agent_id: str | None = None) -> list[Conversation]:
         with self._lock:
-            owned = [item for item in self.conversations.values() if _owned(item, context)]
+            owned = [
+                item for item in self.conversations.values() if _owned(item, context) and item.agent_id == agent_id
+            ]
         owned.sort(key=lambda item: (item.updated_at, item.id), reverse=True)
         return [item.model_copy() for item in owned[:limit]]
 
@@ -299,6 +306,7 @@ def build_messages(
     memory_blocks: Sequence[str] = (),
     learned_block: str | None = None,
     data_blocks: Sequence[str] = (),
+    persona: str | None = None,
 ) -> list[ChatMessage]:
     """The system prompt, the most recent earlier turns that fit, then the question.
 
@@ -323,7 +331,8 @@ def build_messages(
     # The model's context starts with a question, never with an orphan reply.
     while kept and kept[0].role != TurnRole.USER:
         kept.pop(0)
-    base = f"{SYSTEM_PROMPT}\n\n{learned_block}" if learned_block else SYSTEM_PROMPT
+    # The agent's persona (a thread with an agent), then the user's learned style.
+    base = "\n\n".join(part for part in (SYSTEM_PROMPT, persona, learned_block) if part)
     system = with_untrusted_rules(f"{base}\n\n{RECALL_PREFACE}", *memory_blocks) if memory_blocks else base
     if data_blocks:
         # Read-only tool output (tyre planning): labeled untrusted data, after the rules.
@@ -349,6 +358,7 @@ async def stream_reply(
     completed: CompletedReply | None = None,
     memories_used: Sequence[str] = (),
     language: Language = "en",
+    route: ModelRoute = ModelRoute.FAST,
 ) -> AsyncIterator[str]:
     """The ``ask`` response body. Writes go through fresh units of work only.
 
@@ -361,7 +371,7 @@ async def stream_reply(
     error: tuple[str, str] | None = None
     try:
         # A chat reply is a quick reply: the fast model (docs/model-gateway.md#model-routing).
-        async for chunk in route_gateway(gateway, ModelRoute.FAST).stream_chat(messages):
+        async for chunk in route_gateway(gateway, route).stream_chat(messages):
             parts.append(chunk)
             yield sse("delta", {"text": chunk})
         outcome = TurnStatus.COMPLETE
@@ -534,21 +544,41 @@ def _conversation_or_404(
     return conversation
 
 
+def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-untyped-def]
+    """The agent a thread is with, or 409/404 saying why it cannot answer now."""
+    from .agent_profiles import NOT_FOUND, AgentStatus, load_agent
+
+    profile = load_agent(context, agent_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_FOUND)
+    if profile.status != AgentStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{profile.name} is paused. Resume it in Agents to chat with it.",
+        )
+    return profile
+
+
 @router.post("", response_model=Conversation, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     payload: ConversationCreate,
     context: TenantContext = Depends(tenant_context),
 ) -> Conversation:
     require_permission(context, Permission.TASK_CREATE)
+    if payload.agent_id is not None:
+        _usable_agent(context, payload.agent_id)
     with open_conversation_store(context) as store:
         return store.create(payload, context)
 
 
 @router.get("", response_model=list[Conversation])
-async def list_conversations(context: TenantContext = Depends(tenant_context)) -> list[Conversation]:
+async def list_conversations(
+    agent_id: str | None = Query(default=None, max_length=80, description="Threads with this agent; omitted: the Assistant's"),
+    context: TenantContext = Depends(tenant_context),
+) -> list[Conversation]:
     require_permission(context, Permission.TASK_READ)
     with open_conversation_store(context) as store:
-        return store.list(context, MAX_CONVERSATIONS_LISTED)
+        return store.list(context, MAX_CONVERSATIONS_LISTED, agent_id)
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
@@ -627,9 +657,11 @@ async def ask_in_conversation(
         # Asking again is a sign the answer missed (docs/learning.md); recorded only while learning is on.
         record_server_signal(context, new_signal(SignalKind.RETRY, Surface.CHAT, subject_id=user_turn.id))
     runtime_config = chat_tools.configured()
+    # A thread with an agent never runs chat tool cards: they would run without the
+    # agent's narrowing. Work for an agent goes through a task as that agent (docs/agents.md#chat).
     category = (
         chat_tools.chat_intent(user_turn.content, runtime_config.skills, runtime_config.tools.names)
-        if runtime_config is not None
+        if runtime_config is not None and conversation.agent_id is None
         else None
     )
     if runtime_config is not None and category is not None:
@@ -652,12 +684,29 @@ async def ask_in_conversation(
     # A tyre question is grounded in the workspace's tyre data through a read-only tool,
     # decided by tool policy (anum_api/tyre/tools.py); the model never calls tools here.
     grounding = await tyre_grounding(context, user_turn.content)
+    blocks = list(recall.blocks)
+    persona: str | None = None
+    route = ModelRoute.FAST
+    if conversation.agent_id is not None:
+        # A thread with an agent: its persona and instructions, its model route and its
+        # own memories (labeled, untrusted). Still no tools: work goes through tasks.
+        from .agent_policy import AgentRunProfile
+        from .agent_profiles import agent_memories_for_run
+
+        agent = AgentRunProfile.from_profile(_usable_agent(context, conversation.agent_id))
+        persona = agent.persona()
+        route = ModelRoute(agent.model_route)
+        blocks = [
+            label_untrusted(memory.content, source=Provenance.MEMORY, origin=f"agent-memory/{memory.id}", max_chars=2000)
+            for memory in agent_memories_for_run(context, agent.id)
+        ] + blocks
     messages = build_messages(
         history,
         user_turn.content,
-        memory_blocks=[*recall.blocks, *marketing_blocks(context, user_turn.content)],
+        memory_blocks=[*blocks, *marketing_blocks(context, user_turn.content)],
         learned_block=learned_instructions(context, surface=Surface.CHAT.value),
         data_blocks=[grounding.block] if grounding else (),
+        persona=persona,
     )
     completed = CompletedReply()
     # Runs after the whole body has been sent: it never delays or fails the stream.
@@ -685,6 +734,7 @@ async def ask_in_conversation(
             completed=completed,
             memories_used=recall.memory_ids,
             language=language,
+            route=route,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,

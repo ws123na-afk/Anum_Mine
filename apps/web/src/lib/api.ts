@@ -39,6 +39,7 @@ export interface ApiTask {
   created_by?: string | null;
   archived_at?: string | null;
   archived_by?: string | null;
+  agent_id?: string | null;
 }
 
 interface ApiAgentRunStep {
@@ -116,10 +117,11 @@ export interface ApprovalDecisionResult {
   approval: Approval;
 }
 
-export async function createAndRunTask(prompt: string, title = taskTitleFrom(prompt)): Promise<RunTaskResult> {
+/** Create a task and run it; with `agentId` it runs as that agent (docs/agents.md). */
+export async function createAndRunTask(prompt: string, title = taskTitleFrom(prompt), agentId?: string): Promise<RunTaskResult> {
   const created = await request<ApiTask>('/api/v1/tasks', {
     method: 'POST',
-    body: JSON.stringify({ title, prompt }),
+    body: JSON.stringify(agentId ? { title, prompt, agent_id: agentId } : { title, prompt }),
   });
   const result = await request<ApiRunTaskResponse>(`/api/v1/tasks/${created.id}/run`, {
     method: 'POST',
@@ -563,6 +565,7 @@ export function mapTask(task: ApiTask): Task {
     updatedAt: task.updated_at,
     createdBy: task.created_by ?? null,
     archivedAt: task.archived_at ?? null,
+    agentId: task.agent_id ?? null,
     archivedBy: task.archived_by ?? null,
   };
 }

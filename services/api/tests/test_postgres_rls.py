@@ -84,6 +84,8 @@ TENANT_TABLES = {
     "platform_organizations",
     "reports",
     "calendar_events",
+    "agent_profiles",
+    "agent_memories",
     "audit_records",
     "workspace_invitations",
     "workspace_memberships",

@@ -732,3 +732,26 @@ def test_task_planning_migration_is_expand_only() -> None:
     assert upgrade.count("op.add_column(") == 2 and upgrade.count("nullable=true") == 2
     assert "drop" not in upgrade and "alter_column" not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_agent_profiles_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0041_agent_profiles.py").read_text(encoding="utf-8")
+    assert 'revision = "0041_agent_profiles"' in revision_text
+    assert len("0041_agent_profiles") <= 32
+    assert 'down_revision = "0048_task_planning"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0041_agent_profiles.py"]
+    assert not [path for path in others if 'down_revision = "0048_task_planning"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2
+    assert upgrade.count("_force_rls(") == 2
+    assert "enable row level security" in revision_text and "force row level security" in revision_text
+    assert "using (" in revision_text and "with check (" in revision_text
+    assert "current_setting('anum.user_id', true)" in revision_text
+    assert "sharing = 'workspace'" in revision_text
+    # New columns are nullable and the index is built without blocking writes.
+    assert 'op.add_column("tasks", sa.column("agent_id", sa.string(80), nullable=true))' in upgrade
+    assert 'op.add_column("conversations", sa.column("agent_id", sa.string(80), nullable=true))' in upgrade
+    assert "create index concurrently if not exists ix_tasks_scope_agent" in upgrade and "autocommit_block" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade

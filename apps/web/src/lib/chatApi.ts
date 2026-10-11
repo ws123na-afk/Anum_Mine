@@ -33,12 +33,13 @@ export async function postSse(path: string, body: unknown, signal: AbortSignal, 
   }
 }
 
-export function listConversations(): Promise<Conversation[]> {
-  return apiRequest('/api/v1/conversations', { method: 'GET' });
+/** The Assistant's threads, or with `agentId` the threads with that agent (docs/agents.md). */
+export function listConversations(agentId?: string): Promise<Conversation[]> {
+  return apiRequest(agentId ? `/api/v1/conversations?agent_id=${encodeURIComponent(agentId)}` : '/api/v1/conversations', { method: 'GET' });
 }
 
-export function createConversation(): Promise<Conversation> {
-  return apiRequest('/api/v1/conversations', { method: 'POST', body: JSON.stringify({}) });
+export function createConversation(agentId?: string): Promise<Conversation> {
+  return apiRequest('/api/v1/conversations', { method: 'POST', body: JSON.stringify(agentId ? { agent_id: agentId } : {}) });
 }
 
 export function getConversation(id: string): Promise<ConversationDetail> {

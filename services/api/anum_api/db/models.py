@@ -108,6 +108,9 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     title: Mapped[str] = mapped_column(String(160), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
+    # The agent the task runs as (migration 0041_agent_profiles); no foreign key: a
+    # deleted agent's tasks stay in the workspace history.
+    agent_id: Mapped[str | None] = mapped_column(String(80))
     # Archive (0026_task_archive, docs/tasks.md): null while the task is in the active list.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archived_by_user_id: Mapped[str | None] = mapped_column(String(120))
@@ -136,6 +139,15 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
             "workspace_id",
             text("created_at DESC"),
             text("id DESC"),
+        ),
+        Index(
+            "ix_tasks_scope_agent",
+            "tenant_id",
+            "workspace_id",
+            "agent_id",
+            text("created_at DESC"),
+            text("id DESC"),
+            postgresql_where=text("agent_id is not null"),
         ),
     )
 
@@ -1015,6 +1027,8 @@ class ConversationRecord(Base, WorkspaceScopedMixin):
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(160), nullable=False)
     title: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    # A thread with an agent (migration 0041_agent_profiles); None for the Assistant.
+    agent_id: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -1479,3 +1493,76 @@ class ReportRecord(Base, WorkspaceScopedMixin):
 # Team work and organisation tables are Core tables on the same metadata (migration
 # 0039_team_work); importing them here registers them with Base.metadata.
 from . import team_repository as _team_tables  # noqa: E402,F401
+
+
+class AgentProfileRecord(Base, WorkspaceScopedMixin):
+    """A user-built agent (migration 0041_agent_profiles, docs/agents.md).
+
+    Forced RLS: the tenant and workspace, and either ``sharing = 'workspace'`` or the
+    owner's ``anum.user_id``, so a private agent is invisible to everyone else.
+    """
+
+    __tablename__ = "agent_profiles"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    icon: Mapped[str] = mapped_column(String(40), nullable=False)
+    color: Mapped[str] = mapped_column(String(7), nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    department: Mapped[str | None] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model_route: Mapped[str] = mapped_column(String(20), nullable=False)
+    allowed_skills: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    allowed_tools: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    autonomy: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    knowledge_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    knowledge_sources: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    sharing: Mapped[str] = mapped_column(String(20), nullable=False)
+    template_id: Mapped[str | None] = mapped_column(String(40))
+    version: Mapped[int] = mapped_column(nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("agent_profiles"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_agent_profiles_scope_id"),
+        CheckConstraint("category in ('work', 'personal', 'custom')", name="ck_agent_profiles_category"),
+        CheckConstraint("status in ('active', 'paused')", name="ck_agent_profiles_status"),
+        CheckConstraint("sharing in ('private', 'workspace')", name="ck_agent_profiles_sharing"),
+        CheckConstraint("model_route in ('fast', 'capable')", name="ck_agent_profiles_model_route"),
+        CheckConstraint(
+            "knowledge_mode in ('none', 'workspace', 'selected')", name="ck_agent_profiles_knowledge_mode"
+        ),
+        Index("ix_agent_profiles_scope_updated", "tenant_id", "workspace_id", text("updated_at DESC")),
+    )
+
+
+class AgentMemoryRecord(Base, WorkspaceScopedMixin):
+    """A memory that belongs to one agent (migration 0041_agent_profiles).
+
+    Visible only where its agent is (the RLS policy checks the agent row, itself under RLS).
+    """
+
+    __tablename__ = "agent_memories"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String(80))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "agent_id"],
+            ["agent_profiles.tenant_id", "agent_profiles.workspace_id", "agent_profiles.id"],
+            name="fk_agent_memories_agent",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("source in ('manual', 'task')", name="ck_agent_memories_source"),
+        Index("ix_agent_memories_agent", "tenant_id", "workspace_id", "agent_id", text("created_at DESC")),
+    )

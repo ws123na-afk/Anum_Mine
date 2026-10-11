@@ -32,7 +32,7 @@ function explain(error: unknown, action: MessageKey): string {
  * Replies render through the safe answer renderer (text nodes only); Stop aborts the request,
  * which stops the model on the server.
  */
-export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initialConversationId = null, onOpenReport, onOpenFavorite, onOpenFavorites }: {
+export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initialConversationId = null, onOpenReport, onOpenFavorite, onOpenFavorites, agent }: {
   onOpenBudgets: () => void; onOpenDeveloper?: () => void; initialConversationId?: string | null;
   /** Links on task cards (docs/conversations.md#tools-in-chat). */
   onOpenTarget?: (target: ChatTarget) => void;
@@ -40,8 +40,12 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
   onOpenReport?: (reportId: string) => void;
   /** Quick access to starred items on the empty Assistant home (docs/knowledge-base.md#favorites). */
   onOpenFavorite?: (favorite: Favorite) => void; onOpenFavorites?: () => void;
+  /** A thread with this agent (docs/agents.md); its persona answers. */
+  agent?: { id: string; name: string };
 }) {
   const stars = useStars('conversation');
+  // With `agent`: the threads with that agent (docs/agents.md); its persona answers.
+  const agentId = agent?.id;
   // "build ..." / "developer, ..." goes to developer mode after a confirmation (docs/developer-mode.md).
   const developer = useDeveloperAssist({ source: 'text', onOpenDeveloper });
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -95,7 +99,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
     setListState('loading');
     setListError(null);
     try {
-      const items = await listConversations();
+      const items = await listConversations(agentId);
       setConversations(items);
       setListState('ready');
       // Opened from the Memory view: that conversation, even when it is older than the list.
@@ -105,7 +109,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
       setListState('error');
       setListError(explain(e, 'chat.loadListFailed'));
     }
-  }, [open]);
+  }, [open, agentId]);
 
   useEffect(() => {
     void loadList(true, initialConversationId);
@@ -130,7 +134,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
   };
 
   async function refreshList() {
-    try { setConversations(await listConversations()); } catch { /* the list keeps its last good state */ }
+    try { setConversations(await listConversations(agentId)); } catch { /* the list keeps its last good state */ }
   }
 
   async function ask(body: AskBody) {
@@ -147,7 +151,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
     try {
       let id = activeId;
       if (!id) {
-        const created = await createConversation();
+        const created = await createConversation(agentId);
         id = created.id;
         setActiveId(id);
         setConversations((current) => [created, ...current]);
@@ -224,8 +228,8 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
       <div className="chatLog" ref={log} onScroll={onScroll} role="log" aria-live="polite" aria-busy={streaming || opening} tabIndex={0} aria-label={t('chat.messages')}>
         {(opening || (listState === 'loading' && turns.length === 0)) && <p className="chatLoading" role="status">{t('chat.loadingMessages')}</p>}
         {showEmpty && <div className="chatEmpty">
-          <p>{t('chat.intro')}</p>
-          {onOpenFavorite && onOpenFavorites && <FavoritesStrip onOpen={onOpenFavorite} onOpenAll={onOpenFavorites} />}
+          <p>{agent ? t('agents.chat.intro', { name: agent.name }) : t('chat.intro')}</p>
+          {!agent && onOpenFavorite && onOpenFavorites && <FavoritesStrip onOpen={onOpenFavorite} onOpenAll={onOpenFavorites} />}
           <div className="chatSuggestions">{SUGGESTIONS.map((key) => <button type="button" className="secondary" key={key} onClick={() => void ask({ content: t(key) })} disabled={streaming}>{t(key)}</button>)}</div>
         </div>}
         {turns.map((turn) => <article key={turn.id} className={`chatTurn ${turn.role} ${turn.status}`} aria-label={turn.role === 'user' ? t('chat.you') : t('chat.assistant')}>

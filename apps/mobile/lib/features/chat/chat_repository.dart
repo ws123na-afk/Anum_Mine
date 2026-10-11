@@ -7,22 +7,29 @@ import 'chat_models.dart';
 /// The conversations API (docs/conversations.md). Listing and reading need
 /// `task:read`; creating, asking and deleting need `task:create`.
 class ChatRepository {
-  const ChatRepository(this.api, this.events);
+  const ChatRepository(this.api, this.events, {this.agentId});
 
   final AnumApiClient api;
   final EventStreamClient events;
+
+  /// The threads with this agent (docs/agents.md); null for the Assistant's.
+  final String? agentId;
 
   static const _base = '/api/v1/conversations';
 
   /// The caller's 50 most recently active conversations, newest first.
   Future<List<Conversation>> list() async {
-    final items = JsonReader(await api.request('GET', _base))
+    final path = agentId == null
+        ? _base
+        : '$_base?agent_id=${Uri.encodeQueryComponent(agentId!)}';
+    final items = JsonReader(await api.request('GET', path))
         .optObjects('data', Conversation.fromReader);
     return items..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
-  Future<Conversation> create() async => Conversation.fromReader(
-      JsonReader(await api.request('POST', _base, body: const {})));
+  Future<Conversation> create() async =>
+      Conversation.fromReader(JsonReader(await api.request('POST', _base,
+          body: agentId == null ? const {} : {'agent_id': agentId})));
 
   Future<ConversationDetail> get(String id) async =>
       ConversationDetail.fromReader(JsonReader(

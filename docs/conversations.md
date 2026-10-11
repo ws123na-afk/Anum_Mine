@@ -39,8 +39,8 @@ All under `/api/v1/conversations`, with the usual tenant context. Listing and re
 
 | Method and path | Result |
 | --- | --- |
-| `POST /` `{"title"?}` | `201` conversation (title is set from the first question when empty) |
-| `GET /` | the caller's 50 most recently active conversations |
+| `POST /` `{"title"?, "agent_id"?}` | `201` conversation (title is set from the first question when empty); with `agent_id` a thread with that [agent](agents.md#chat) (`404` if the caller cannot see it, `409` if it is paused) |
+| `GET /?agent_id=` | the caller's 50 most recently active conversations: the Assistant's own without `agent_id`, that agent's threads with it |
 | `GET /{id}` | the conversation with all its turns, oldest first |
 | `DELETE /{id}` | `204`; its turns go with it |
 | `POST /{id}/ask` `{"content"}` or `{"retry_turn_id"}` | `200` `text/event-stream` (below) |

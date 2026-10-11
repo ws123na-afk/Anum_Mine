@@ -16,6 +16,10 @@ import '../features/auth/oidc.dart';
 import '../features/chat/chat_controller.dart';
 import '../features/command/command.dart';
 import '../features/chat/chat_repository.dart';
+import '../features/agents/agent_chat.dart';
+import '../features/agents/agents_controller.dart';
+import '../features/agents/agents_repository.dart';
+import '../features/agents/agents_screen.dart';
 import '../features/developer/developer_assist.dart';
 import '../features/developer/developer_controller.dart';
 import '../features/developer/developer_repository.dart';
@@ -39,6 +43,8 @@ import '../features/workspace/files_repository.dart';
 import '../features/workspace/workspace_controller.dart';
 import '../features/workspace/workspace_home.dart';
 import '../features/workspace/tasks_screen.dart';
+import '../features/voice/call_controller.dart';
+import '../features/voice/call_screen.dart';
 import '../features/voice/speech_service.dart';
 import '../features/voice/voice_controller.dart';
 import '../features/voice/voice_repository.dart';
@@ -124,6 +130,9 @@ class _AnumAppState extends State<AnumApp> {
   late final PushController push;
   late final CommerceController commerce;
   late final TyreController tyre;
+  late final AgentsController agents;
+  late final AgentChatBuilder agentChat;
+  late final AgentCallOpener agentCall;
 
   /// For push deep links and foreground notices, which arrive outside any
   /// widget's context.
@@ -190,6 +199,18 @@ class _AnumAppState extends State<AnumApp> {
     final events = HttpEventStreamClient(
         baseUri: Uri.parse(configuredUrl), sessions: sessions);
     chat = ChatController(ChatRepository(api, events));
+    // User-built agents (docs/agents.md) and the chat on each agent's threads.
+    agents = AgentsController(ApiAgentsRepository(api));
+    agentChat = (context, agent) => AgentChat(
+        agent: agent,
+        repository: (agentId) => ChatRepository(api, events, agentId: agentId));
+    // Call on an agent opens the voice call screen (docs/voice.md#call-mode).
+    agentCall = (context, agent) => openCall(context,
+        create: () =>
+            CallController(repository: voice.repository, speech: voice.speech),
+        locale: voice.locale,
+        name: agent.name,
+        openSettings: voice.openSettings);
     voice = VoiceController(
         repository: VoiceRepository(api, events: events),
         speech: DeviceSpeechService());
@@ -440,6 +461,9 @@ class _AnumAppState extends State<AnumApp> {
                       whatsappController: whatsapp,
                       emailController: email,
                       commerceController: commerce,
+                      agentsController: agents,
+                      agentChat: agentChat,
+                      agentCall: agentCall,
                       workspaceName: auth.workspaceName,
                       onOpenCommand: _openCommand,
                       library: library,
@@ -561,6 +585,9 @@ class _AnumAppState extends State<AnumApp> {
         whatsappController: whatsapp,
         emailController: email,
         commerceController: commerce,
+        agentsController: agents,
+        agentChat: agentChat,
+        agentCall: agentCall,
         workspaceName: auth.workspaceName,
         onOpenCommand: _openCommand,
         library: library,

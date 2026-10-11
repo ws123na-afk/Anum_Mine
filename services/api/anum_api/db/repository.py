@@ -414,6 +414,10 @@ class SqlAlchemyRepository(AnumRepository):
 
         record.title = task.title
         record.prompt = task.prompt
+        # Fixed at creation like the creator: a task never changes the agent it runs as.
+        if record.agent_id is None and task.agent_id is not None:
+            record.agent_id = task.agent_id
+        task.agent_id = record.agent_id
         record.status = task.status.value
         record.archived_at = task.archived_at
         record.archived_by_user_id = task.archived_by
@@ -436,6 +440,8 @@ class SqlAlchemyRepository(AnumRepository):
             conditions.append(TaskRecord.status.in_(sorted(status.value for status in filters.statuses)))
         if filters.created_by is not None:
             conditions.append(TaskRecord.created_by_user_id == filters.created_by)
+        if filters.agent_id is not None:
+            conditions.append(TaskRecord.agent_id == filters.agent_id)
         if filters.created_after is not None:
             conditions.append(TaskRecord.created_at >= filters.created_after)
         if filters.created_before is not None:
@@ -1014,6 +1020,7 @@ class SqlAlchemyRepository(AnumRepository):
             assistant_id=record.assistant_id,
             priority=TaskPriority(record.priority) if record.priority else TaskPriority.MEDIUM,
             due_at=record.due_at,
+            agent_id=record.agent_id,
         )
 
     @staticmethod

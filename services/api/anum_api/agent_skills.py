@@ -36,6 +36,10 @@ class SkillRegistry:
     def get(self, skill_id: str) -> SkillManifest | None:
         return self._manifests.get(skill_id)
 
+    def manifests(self) -> list[SkillManifest]:
+        """Every skill, in registration order."""
+        return list(self._manifests.values())
+
     def select(self, prompt: str, available_tools: set[str]) -> list[SkillManifest]:
         words = prompt_words(prompt)
         return [

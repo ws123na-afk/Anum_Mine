@@ -129,6 +129,10 @@ Every state is handled: loading, empty with an import action, error with retry, 
 
 `lib/features/autonomy/` (Settings › Autonomy › Activity and Autonomy levels, [Autonomy](autonomy.md)) is in English and Arabic: the feed, suggestions, filters, Undo, "Always ask for this", levels, thresholds and every load, empty, error and owner-only state read from `AnumLocalizations` (`auto.*` keys). `levelLabel`, `categoryLabel`, `patternLabel` and a suggestion's sentence take the catalog (English by default), and the controllers write their notices and validation messages in the screen's language. A suggestion says how many times it was approved with the Arabic plural forms ("وافقت عليه 3 مرات"). `test/autonomy_test.dart` checks both screens in Arabic, right to left, at 320 to 1440 px and 200 percent text, the Arabic notices, and tap targets.
 
+## Agents
+
+Home opens **Agents** ([Agents](agents.md#clients)): the agents the caller can see with All, Work, Personal and Custom filters, search and paging; an agent's page with Chat (the Assistant on that agent's threads), Call (the voice call screen; a call summary from pasted notes is under More), Edit and More (pause or resume, delete), and the Overview (give it a task, recent tasks), Skills, Memory and Settings tabs; and an editor that starts from a template or from scratch. The server decides every permission; the app shows its sentence when it refuses. Selected knowledge sources are picked on the web. Text is in English and Arabic (`lib/features/agents/agents_strings.dart`); `test/agents/agents_test.dart` covers the states, the requests and layouts from 320 px at 200 percent text to 1440x900.
+
 ## Phone push
 
 Push notifications for approvals waiting, tasks finished or failed and developer pull requests ready ([Notifications](notifications.md)). Code: `lib/features/push/` (the `PushMessaging` interface, its Firebase implementation in `firebase_push_messaging.dart`, the controller and the Settings card).

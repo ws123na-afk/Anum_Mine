@@ -46,6 +46,8 @@ class TaskFilters:
     created_after: datetime | None = None
     created_before: datetime | None = None
     archived: bool = False
+    # Only tasks run as this agent (docs/agents.md); None for every task.
+    agent_id: str | None = None
 
     def without_status(self) -> "TaskFilters":
         return TaskFilters(
@@ -54,6 +56,7 @@ class TaskFilters:
             created_after=self.created_after,
             created_before=self.created_before,
             archived=self.archived,
+            agent_id=self.agent_id,
         )
 
     def with_archived(self, archived: bool) -> "TaskFilters":
@@ -64,12 +67,15 @@ class TaskFilters:
             created_after=self.created_after,
             created_before=self.created_before,
             archived=archived,
+            agent_id=self.agent_id,
         )
 
     def matches(self, task: Task) -> bool:
         if (task.archived_at is not None) != self.archived:
             return False
         if self.statuses and task.status not in self.statuses:
+            return False
+        if self.agent_id is not None and task.agent_id != self.agent_id:
             return False
         if self.created_by is not None and task.created_by != self.created_by:
             return False

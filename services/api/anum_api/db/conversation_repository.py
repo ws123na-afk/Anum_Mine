@@ -42,6 +42,7 @@ def _conversation(record: ConversationRecord) -> Conversation:
         title=record.title,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        agent_id=record.agent_id,
     )
 
 
@@ -96,6 +97,7 @@ class SqlAlchemyConversationStore:
             workspace_id=context.workspace_id,
             user_id=context.user_id,
             title=(payload.title or "").strip(),
+            agent_id=payload.agent_id,
             created_at=now,
             updated_at=now,
         )
@@ -103,10 +105,13 @@ class SqlAlchemyConversationStore:
         self.session.flush()
         return _conversation(record)
 
-    def list(self, context: TenantContext, limit: int) -> list[Conversation]:
+    def list(self, context: TenantContext, limit: int, agent_id: str | None = None) -> list[Conversation]:
+        agent_filter = (
+            ConversationRecord.agent_id.is_(None) if agent_id is None else ConversationRecord.agent_id == agent_id
+        )
         records = self.session.scalars(
             select(ConversationRecord)
-            .where(*self._scope())
+            .where(*self._scope(), agent_filter)
             .order_by(ConversationRecord.updated_at.desc(), ConversationRecord.id.desc())
             .limit(limit)
         ).all()

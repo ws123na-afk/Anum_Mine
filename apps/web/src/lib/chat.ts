@@ -63,6 +63,8 @@ export interface Conversation {
   title: string;
   created_at: string;
   updated_at: string;
+  /** A thread with an agent (docs/agents.md); absent or null for the Assistant's own. */
+  agent_id?: string | null;
 }
 
 export interface ConversationDetail extends Conversation {

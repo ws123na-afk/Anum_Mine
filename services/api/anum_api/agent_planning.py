@@ -1,4 +1,5 @@
 from collections.abc import Collection, Sequence
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +9,9 @@ from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gatewa
 from .retrieval import build_cache_layout_prompt, build_task_prompt
 from .schemas import Task
 from .team_commands import looks_like_assignment
+
+if TYPE_CHECKING:
+    from .agent_policy import AgentRunProfile
 
 
 class AgentPlan(BaseModel):
@@ -33,7 +37,12 @@ class AgentPlanner:
         self.tools = tools
 
     async def plan(
-        self, task: Task, *, context_blocks: Sequence[str] = (), learned_block: str | None = None
+        self,
+        task: Task,
+        *,
+        context_blocks: Sequence[str] = (),
+        learned_block: str | None = None,
+        agent: "AgentRunProfile | None" = None,
     ) -> PlanResult:
         """Plan ``task``; ``context_blocks`` are provenance-labeled retrieved data.
 
@@ -42,13 +51,32 @@ class AgentPlanner:
         (threat model G5); tool policy is evaluated by the runtime afterwards.
         ``learned_block`` (the user's learned style and preferences, docs/learning.md)
         precedes the task in the model prompt only; it never selects a skill or tool.
+
+        As an ``agent`` (docs/agents.md): only the agent's skills and tools can be
+        selected, its persona and instructions come before the task in the model
+        prompt (they never select anything), and its model route is used.
         """
-        selected = self.skills.select(task.prompt, self.tools.names)
-        # Planning is agent work: the capable model (docs/model-gateway.md#model-routing).
-        planner = route_gateway(self.model_gateway, ModelRoute.CAPABLE)
-        prompt = f"{learned_block}\n\nTask:\n{task.prompt}" if learned_block else task.prompt
+        tools = self.tools.names
+        if agent is not None:
+            tools = {name for name in tools if agent.tool_allowed(name)}
+        selected = self.skills.select(task.prompt, tools)
+        if agent is not None:
+            selected = [skill for skill in selected if agent.skill_allowed(skill.id)]
+        # Planning is agent work: the capable model (docs/model-gateway.md#model-routing),
+        # unless the agent asks for the fast one.
+        route = ModelRoute(agent.model_route) if agent is not None else ModelRoute.CAPABLE
+        planner = route_gateway(self.model_gateway, route)
+        # The agent's persona, then the user's learned style, then the task: text for
+        # the model only, never what selects a skill or tool.
+        preface = [part for part in (agent.persona() if agent is not None else None, learned_block) if part]
+        prompt = "\n\n".join([*preface, f"Task:\n{task.prompt}"]) if preface else task.prompt
         response = await self._generate(planner, prompt, context_blocks)
-        call = _marketing_call(task, selected) or self._select_tool(task.prompt, selected, response)
+        # As an agent, only its tools can be chosen (team work's ``team.assign_task`` too).
+        call = _marketing_call(task, selected) or (
+            self._select_tool(task.prompt, selected, response)
+            if agent is None
+            else self._select_tool(task.prompt, selected, response, tools)
+        )
         return PlanResult(
             plan=AgentPlan(
                 objective=task.prompt,
@@ -75,8 +103,10 @@ class AgentPlanner:
         prompt: str,
         skills: list[SkillManifest],
         response: ModelResponse,
+        available_tools: Collection[str] | None = None,
     ) -> ToolCall:
-        return choose_tool_call(prompt, skills, response.text, self.tools.names)
+        tools = self.tools.names if available_tools is None else available_tools
+        return choose_tool_call(prompt, skills, response.text, tools)
 
 
 def choose_tool_call(

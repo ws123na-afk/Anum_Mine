@@ -4,6 +4,7 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../commerce/commerce_strings.dart';
+import '../agents/agents_strings.dart';
 import '../library/library_models.dart' show Favorite;
 import '../library/library_repository.dart';
 import '../library/library_screens.dart' show LibrarySection;
@@ -19,6 +20,7 @@ class HomeScreen extends StatelessWidget {
     required this.controller,
     required this.onNavigate,
     required this.onOpenTask,
+    this.onOpenAgents,
     this.workspaceName,
     this.assistantName = 'Anum',
     this.onOpenCommerce,
@@ -44,6 +46,9 @@ class HomeScreen extends StatelessWidget {
   /// Switches the main destination: 1 tasks, 2 voice, 3 approvals, 4 automations, 5 resources.
   final ValueChanged<int> onNavigate;
   final ValueChanged<WorkspaceTask> onOpenTask;
+
+  /// Opens Agents (docs/agents.md); null hides the entry.
+  final VoidCallback? onOpenAgents;
   final String? workspaceName;
   final String assistantName;
 
@@ -97,6 +102,17 @@ class HomeScreen extends StatelessWidget {
               title: CommerceStrings.of(context).t('entry'),
               subtitle: CommerceStrings.of(context).t('entrySubtitle'),
               icon: Icons.storefront_outlined,
+              trailing: const Icon(Icons.chevron_right),
+            ),
+          ),
+        if (onOpenAgents != null)
+          AnumSurface(
+            onTap: onOpenAgents,
+            semanticLabel: AgentsText.of(context).t('title'),
+            child: AnumRow(
+              icon: Icons.smart_toy_outlined,
+              title: AgentsText.of(context).t('title'),
+              subtitle: AgentsText.of(context).t('subtitle'),
               trailing: const Icon(Icons.chevron_right),
             ),
           ),

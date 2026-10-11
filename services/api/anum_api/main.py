@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 import json
 from datetime import datetime, timezone
 from collections.abc import AsyncIterator
@@ -139,6 +140,9 @@ from .commands import router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
 from .reports import router as reports_router
+from .agent_policy import AgentRunProfile
+from .agent_profiles import NOT_FOUND as AGENT_NOT_FOUND, AgentStatus, configure_runtime_catalog, load_agent
+from .agent_profiles import router as agents_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
@@ -314,6 +318,7 @@ app.include_router(team_router)
 app.include_router(notifications_router)
 app.include_router(assistants_router)
 app.include_router(organisations_router)
+app.include_router(agents_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -329,6 +334,8 @@ configure_tool_catalog(tool_registry.definition)
 email_inbox.integration_enabled = lambda context, integration_id: not integration_registry.switched_off(integration_id, context)
 # Approved social posts publish at their time on every scheduler pass (docs/marketing.md#publishing).
 register_scheduler_pass("marketing_publisher", run_due_posts)
+# Agents are built from exactly the tools this runtime has (docs/agents.md).
+configure_runtime_catalog(tool_registry)
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)
@@ -563,6 +570,8 @@ async def create_task(
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
     require_permission(context, Permission.TASK_CREATE)
+    if payload.agent_id is not None:
+        _usable_agent(context, payload.agent_id)
     now = utc_now()
     task = Task(
         id=new_id("task"),
@@ -576,6 +585,7 @@ async def create_task(
         created_by=context.user_id,
         priority=payload.priority,
         due_at=_utc(payload.due_at),
+        agent_id=payload.agent_id,
     )
     repository.create_task(task)
     repository.record_event(
@@ -646,7 +656,9 @@ class _TaskListQuery:
         created_after: datetime | None = None,
         created_before: datetime | None = None,
         archived: bool = False,
+        agent_id: str | None = Query(default=None, max_length=80, description="Only tasks run as this agent"),
     ) -> None:
+        self.agent_id = agent_id or None
         self.statuses = status_filter
         self.q = q
         self.created_by = created_by
@@ -655,14 +667,17 @@ class _TaskListQuery:
         self.archived = archived
 
     def filters(self, context: TenantContext) -> TaskFilters:
-        return _task_filters(
-            context,
-            self.statuses,
-            self.q,
-            self.created_by,
-            self.created_after,
-            self.created_before,
-            self.archived,
+        return replace(
+            _task_filters(
+                context,
+                self.statuses,
+                self.q,
+                self.created_by,
+                self.created_after,
+                self.created_before,
+                self.archived,
+            ),
+            agent_id=self.agent_id,
         )
 
 
@@ -964,6 +979,8 @@ async def retry_task(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Only a failed or cancelled task can be retried"
             )
+        # A retry as an agent uses the agent as it is now (docs/agents.md).
+        agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
         previous = repository.find_run_for_task(task.id, context)
         _record_task_event(
             repository,
@@ -979,8 +996,8 @@ async def retry_task(
             retriever=retriever_for(context, model_gateway),
         )
         if run_dispatcher is not None:
-            return await _queue_durable_run(task, context, repository, runtime, retry=True)
-        run, approval = await runtime.run_task(task, context)
+            return await _queue_durable_run(task, context, repository, runtime, retry=True, agent=agent)
+        run, approval = await runtime.run_task(task, context, agent=agent)
         repository.save_task(task)
         repository.save_run(run)
         return RunTaskResponse(task=task, run=run, approval=_approval_with_progress(approval, context, repository))
@@ -1001,6 +1018,8 @@ async def run_task(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before running it")
         if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
+        # A task as an agent runs with a snapshot of the agent as it is now (docs/agents.md).
+        agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
 
         runtime = AgentRuntime(
             budgeted_model_gateway(context, model_gateway),
@@ -1009,11 +1028,24 @@ async def run_task(
             retriever=retriever_for(context, model_gateway),
         )
         if run_dispatcher is not None:
-            return await _queue_durable_run(task, context, repository, runtime)
-        run, approval = await runtime.run_task(task, context)
+            return await _queue_durable_run(task, context, repository, runtime, agent=agent)
+        run, approval = await runtime.run_task(task, context, agent=agent)
         repository.save_task(task)
         repository.save_run(run)
         return RunTaskResponse(task=task, run=run, approval=_approval_with_progress(approval, context, repository))
+
+
+def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-untyped-def]
+    """The agent a task runs as, or 404/409 saying why it cannot run now."""
+    profile = load_agent(context, agent_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=AGENT_NOT_FOUND)
+    if profile.status != AgentStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{profile.name} is paused. Resume it in Agents to run tasks with it.",
+        )
+    return profile
 
 
 async def _queue_durable_run(
@@ -1023,6 +1055,7 @@ async def _queue_durable_run(
     runtime: AgentRuntime,
     *,
     retry: bool = False,
+    agent: AgentRunProfile | None = None,
 ) -> RunTaskResponse:
     """Persist a queued run and start its Temporal workflow (ANUM_RUNTIME_BACKEND=temporal).
 
@@ -1031,7 +1064,7 @@ async def _queue_durable_run(
     """
     if not retry and repository.find_run_for_task(task.id, context) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task already has a run")
-    run = runtime.new_run(task, status=TaskStatus.QUEUED)
+    run = runtime.new_run(task, status=TaskStatus.QUEUED, agent=agent)
     workflow_id = workflow_id_for(context.tenant_id, context.workspace_id, task.id)
     run.steps.append(
         AgentRunStep(

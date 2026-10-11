@@ -8,8 +8,8 @@ All paths are under `/api/v1`. Lists are newest first and keyset-paged: `cursor`
 
 | Method and path | Permission | What it does |
 | --- | --- | --- |
-| `POST /tasks` | `task:create` | Create a task (`title` 1-160, `prompt` 1-8000 characters; optional `priority` `low` / `medium` / `high`, default `medium`, and `due_at`). |
-| `GET /tasks` | `task:read` | List tasks. Filters below; `limit` 1-100 (default 50). |
+| `POST /tasks` | `task:create` | Create a task (`title` 1-160, `prompt` 1-8000 characters; optional `priority` `low` / `medium` / `high`, default `medium`, and `due_at`; optional `agent_id` to run it as that [agent](agents.md#running-tasks-as-an-agent); `404` if the caller cannot see the agent, `409` if it is paused). |
+| `GET /tasks` | `task:read` | List tasks. Filters below (and `agent_id`: only tasks run as that agent); `limit` 1-100 (default 50). |
 | `GET /tasks/summary` | `task:read` | `{total, by_status, archived, creators}` for the same filters except `status`. |
 | `GET /tasks/{id}` | `task:read` | One task. |
 | `PUT /tasks/{id}` | creator or owner | Rename (`title`), change `priority` or `due_at` (`"due_at": null` removes it) and, while the task has never run, change its `prompt`. |
