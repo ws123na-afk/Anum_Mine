@@ -18,7 +18,7 @@ Expand only: the previous release never reads the new policy.
 
 from alembic import op
 
-revision = "0021_conversation_retention"
+revision = "0019_conversation_retention"
 down_revision = "0018_conversations"
 branch_labels = None
 depends_on = None

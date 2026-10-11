@@ -93,7 +93,7 @@ CronJob, the Render cron job and the Oracle `retention` service) runs it too and
 it under `conversations` ([Runbooks](runbooks.md#voice-transcript-retention)). It follows
 the [maintenance pattern](multi-tenancy.md#maintenance-role):
 
-- **Discover.** Migration `0021_conversation_retention` grants `anum_maintenance` the
+- **Discover.** Migration `0019_conversation_retention` grants `anum_maintenance` the
   `id`, `tenant_id`, `workspace_id`, `user_id` and `updated_at` columns of
   `conversations`, under a select-only policy that admits only conversations idle for at
   least a day. It never sees a title or any turn, cannot write, and never sees a

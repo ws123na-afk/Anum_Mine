@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     # Conversation retention (docs/conversations.md#retention): the daily retention job
     # deletes conversations (and their turns) with no activity for this many days, the
     # same 30 days as voice transcripts by default; 0 keeps them until the user deletes
-    # them. Migration 0021 lets discovery see only conversations idle for a day or more.
+    # them. Migration 0019 lets discovery see only conversations idle for a day or more.
     conversation_retention_days: int = Field(default=30, ge=0, le=3650)
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.

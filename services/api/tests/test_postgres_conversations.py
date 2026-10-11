@@ -133,7 +133,7 @@ def test_conversations_need_an_onboarded_workspace(client: TestClient) -> None:
     assert response.status_code == 409
 
 
-# Retention (migration 0021_conversation_retention) -------------------------------------
+# Retention (migration 0019_conversation_retention) -------------------------------------
 
 
 def _seed_conversation(

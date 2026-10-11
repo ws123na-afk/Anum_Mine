@@ -10,7 +10,7 @@ conversation) is deleted with its turns (docs/conversations.md#retention).
 and reports it under ``conversations``, so a deployment needs no extra schedule.
 
 Idle conversations are discovered as ``anum_maintenance`` (ids, scope and
-``updated_at`` only, migration ``0021_conversation_retention``); each user's
+``updated_at`` only, migration ``0019_conversation_retention``); each user's
 conversations are deleted as the application role inside that tenant, workspace and
 user's RLS context (``anum_api.maintenance``). The output is counts only, never text.
 """

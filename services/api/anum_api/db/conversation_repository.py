@@ -4,7 +4,7 @@ The session must carry the tenant, workspace *and user* RLS context
 (``set_tenant_context(..., user_id=...)``): conversations are private to the user who
 started them. Queries also filter on the scope explicitly.
 
-``purge_idle_conversations`` is the retention purge (migration 0021): idle conversations
+``purge_idle_conversations`` is the retention purge (migration 0019): idle conversations
 are discovered as ``anum_maintenance`` (ids and scope only) and deleted as the
 application role inside each user's tenant, workspace and user RLS context.
 """
@@ -163,7 +163,7 @@ class SqlAlchemyConversationStore:
         )
 
 
-# Retention purge (migration 0021_conversation_retention) -------------------------------
+# Retention purge (migration 0019_conversation_retention) -------------------------------
 
 # Runs as anum_maintenance: its policy admits only conversations idle for at least a day
 # and its grants cover these columns only. Keyset order, so a dry run (which deletes
