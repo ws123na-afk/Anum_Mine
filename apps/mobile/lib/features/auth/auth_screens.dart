@@ -4,6 +4,7 @@ import '../../src/widgets/depth.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../data/api_models.dart';
+import '../settings/model_choice.dart';
 import 'auth_controller.dart';
 import 'account_screens.dart';
 
@@ -367,19 +368,21 @@ class _ModelState extends State<ModelConnectionScreen> {
   final form = GlobalKey<FormState>(),
       model = TextEditingController(text: 'gpt-4.1-mini'),
       url = TextEditingController(text: 'https://api.openai.com/v1'),
-      key = TextEditingController();
+      key = TextEditingController(),
+      fastModel = TextEditingController(text: anthropicFastModel),
+      capableModel = TextEditingController(text: anthropicCapableModel);
   String provider = 'openai_compatible';
+  String fastEffort = 'low', capableEffort = '';
   bool reveal = false;
 
-  /// Defaults per provider. Ollama is free and runs on the user's computer.
-  /// The ANUM API server (not the phone) calls this URL, so it is the address
-  /// of Ollama as seen from the server: localhost when both run on one machine.
-  static const _presets = <String, (String, String)>{
-    'openai_compatible': ('gpt-4.1-mini', 'https://api.openai.com/v1'),
-    'ollama': ('llama3.2', 'http://localhost:11434/v1'),
-  };
+  /// Defaults per provider (model_choice.dart). Ollama is free and runs on the
+  /// user's computer. The ANUM API server (not the phone) calls this URL, so it
+  /// is the address of Ollama as seen from the server: localhost when both run
+  /// on one machine.
+  static const _presets = modelPresets;
 
-  bool get _needsKey => provider == 'openai_compatible';
+  bool get _needsKey => providerNeedsKey(provider);
+  bool get _claude => provider == 'anthropic';
 
   void _selectProvider(String next) {
     final previous = _presets[provider];
@@ -403,6 +406,8 @@ class _ModelState extends State<ModelConnectionScreen> {
     model.dispose();
     url.dispose();
     key.dispose();
+    fastModel.dispose();
+    capableModel.dispose();
     super.dispose();
   }
 
@@ -438,45 +443,36 @@ class _ModelState extends State<ModelConnectionScreen> {
                     labelText: 'Provider',
                     prefixIcon: Icon(Icons.hub_outlined)),
                 isExpanded: true,
-                items: const [
-                  DropdownMenuItem(
-                      value: 'ollama',
-                      child: Text('Ollama (free, runs on your computer)')),
-                  DropdownMenuItem(
-                      value: 'openai_compatible',
-                      child: Text('OpenAI compatible')),
-                  DropdownMenuItem(value: 'mock', child: Text('Local mock'))
-                ],
+                items: providerItems(),
                 onChanged: (v) {
                   if (v != null) _selectProvider(v);
                 }),
-            const SizedBox(height: AnumSpacing.md),
-            TextFormField(
-                controller: model,
-                decoration: const InputDecoration(
-                    labelText: 'Model',
-                    prefixIcon: Icon(Icons.smart_toy_outlined)),
-                validator: _required),
+            if (!_claude) ...[
+              const SizedBox(height: AnumSpacing.md),
+              TextFormField(
+                  controller: model,
+                  decoration: const InputDecoration(
+                      labelText: 'Model',
+                      prefixIcon: Icon(Icons.smart_toy_outlined)),
+                  validator: _required),
+            ],
             const SizedBox(height: AnumSpacing.md),
             TextFormField(
                 controller: url,
                 textDirection: TextDirection.ltr,
                 keyboardType: TextInputType.url,
                 decoration: InputDecoration(
-                    labelText: 'Base URL',
+                    labelText: _claude ? 'Base URL (optional)' : 'Base URL',
                     prefixIcon: const Icon(Icons.link),
                     helperMaxLines: 3,
                     helperText: provider == 'ollama'
                         ? 'The ANUM server calls this address, not your phone. '
                             'Keep localhost when Ollama runs on the same '
                             'computer as the ANUM server.'
-                        : null),
-                validator: (v) {
-                  final u = Uri.tryParse(v ?? '');
-                  return u != null && u.isAbsolute
-                      ? null
-                      : 'Enter an absolute URL';
-                }),
+                        : _claude
+                            ? 'Leave empty for api.anthropic.com.'
+                            : null),
+                validator: (v) => validateBaseUrl(provider, v)),
             if (_needsKey) ...[
               const SizedBox(height: AnumSpacing.md),
               TextFormField(
@@ -484,7 +480,7 @@ class _ModelState extends State<ModelConnectionScreen> {
                   textDirection: TextDirection.ltr,
                   obscureText: !reveal,
                   decoration: InputDecoration(
-                      labelText: 'API key',
+                      labelText: _claude ? 'Anthropic API key' : 'API key',
                       prefixIcon: const Icon(Icons.key_outlined),
                       suffixIcon: IconButton(
                           tooltip: reveal ? 'Hide API key' : 'Show API key',
@@ -494,15 +490,35 @@ class _ModelState extends State<ModelConnectionScreen> {
                               : Icons.visibility))),
                   validator: _required)
             ],
+            if (_claude) ...[
+              const SizedBox(height: AnumSpacing.md),
+              ClaudeRoutingFields(
+                  fastModel: fastModel,
+                  capableModel: capableModel,
+                  fastEffort: fastEffort,
+                  capableEffort: capableEffort,
+                  onFastEffort: (v) => setState(() => fastEffort = v),
+                  onCapableEffort: (v) => setState(() => capableEffort = v)),
+            ],
             const SizedBox(height: AnumSpacing.lg),
             FilledButton.icon(
                 onPressed: () {
                   if (form.currentState!.validate()) {
                     widget.controller.connectModel(
                         provider: provider,
-                        model: model.text.trim(),
+                        // Claude's planning model is the workspace default.
+                        model: _claude
+                            ? capableModel.text.trim()
+                            : model.text.trim(),
                         baseUrl: url.text.trim(),
-                        apiKey: _needsKey ? key.text.trim() : '');
+                        apiKey: _needsKey ? key.text.trim() : '',
+                        routing: _claude
+                            ? ModelRouting(
+                                fastModel: fastModel.text,
+                                capableModel: capableModel.text,
+                                fastEffort: fastEffort,
+                                capableEffort: capableEffort)
+                            : null);
                   }
                 },
                 icon: const Icon(Icons.cable),

@@ -206,6 +206,7 @@ class AuthController extends ChangeNotifier {
     required String model,
     required String baseUrl,
     required String apiKey,
+    ModelRouting? routing,
   }) async {
     await _run(AuthPhase.modelSetup, () async {
       await repository.configureModel(
@@ -213,6 +214,7 @@ class AuthController extends ChangeNotifier {
         model: model,
         baseUrl: baseUrl,
         apiKey: apiKey,
+        routing: routing,
       );
       await repository.testModelConnection();
       phase = AuthPhase.ready;

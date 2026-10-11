@@ -3,6 +3,9 @@ import 'package:anum_mobile/data/api_models.dart';
 import 'package:anum_mobile/data/session_store.dart';
 import 'package:anum_mobile/features/auth/auth_repository.dart';
 import 'package:anum_mobile/features/settings/settings_controller.dart';
+import 'package:anum_mobile/features/settings/settings_screen.dart';
+import 'package:anum_mobile/src/theme/anum_theme.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _ModelTransport implements ApiTransport {
@@ -19,8 +22,12 @@ class _ModelTransport implements ApiTransport {
       return ApiResponse(statusCode: 200, body: {
         'provider': body['provider'],
         'model': body['model'],
-        'base_url': body['base_url'],
-        'credential_configured': false,
+        'base_url': body['base_url'] ?? 'https://api.anthropic.com',
+        'fast_model': body['fast_model'],
+        'capable_model': body['capable_model'],
+        'fast_effort': body['fast_effort'],
+        'capable_effort': body['capable_effort'],
+        'credential_configured': body['api_key'] != null,
         'updated_at': '2026-10-06T10:00:00Z',
       });
     }
@@ -32,6 +39,20 @@ class _ModelTransport implements ApiTransport {
           : const ApiResponse(statusCode: 502, body: {
               'detail': 'Could not reach Ollama at http://localhost:11434/v1.'
             });
+    }
+    if (path.endsWith('/notification-preferences')) {
+      return const ApiResponse(statusCode: 200, body: {
+        'task_completed': true,
+        'approval_required': true,
+        'run_failed': true,
+        'automation_failed': true,
+        'email_enabled': false,
+        'desktop_enabled': true,
+      });
+    }
+    if (path.endsWith('/model-config') && request.method == 'GET') {
+      return const ApiResponse(
+          statusCode: 404, body: {'detail': 'Model configuration not found'});
     }
     return const ApiResponse(statusCode: 204);
   }
@@ -91,5 +112,130 @@ void main() {
     expect(ok, isFalse);
     expect(controller.phase, SettingsPhase.ready);
     expect(controller.message, contains('Ollama'));
+  });
+
+  test('switching to Claude sends the key and routing, without a base URL',
+      () async {
+    final transport = _ModelTransport();
+    final controller = await _controller(transport);
+
+    final ok = await controller.changeModel(
+      provider: 'anthropic',
+      model: 'claude-sonnet-5-5',
+      baseUrl: '',
+      apiKey: 'sk-ant-example',
+      routing: const ModelRouting(
+          fastModel: 'claude-haiku-5-5',
+          capableModel: 'claude-sonnet-5-5',
+          fastEffort: 'low',
+          capableEffort: ''),
+    );
+
+    expect(ok, isTrue);
+    final put = transport.requests.firstWhere((r) => r.method == 'PUT');
+    expect(put.body, {
+      'provider': 'anthropic',
+      'model': 'claude-sonnet-5-5',
+      'api_key': 'sk-ant-example',
+      'fast_model': 'claude-haiku-5-5',
+      'capable_model': 'claude-sonnet-5-5',
+      'fast_effort': 'low',
+      'capable_effort': null,
+    });
+    expect(controller.model?.fastModel, 'claude-haiku-5-5');
+    expect(controller.model?.capableModel, 'claude-sonnet-5-5');
+    expect(controller.message,
+        'Saved. claude-haiku-5-5 answers chat and voice, claude-sonnet-5-5 plans tasks.');
+  });
+
+  for (final size in const [Size(360, 640), Size(1024, 768)]) {
+    testWidgets(
+        'Settings connects Claude from the model sheet at '
+        '${size.width.toInt()}x${size.height.toInt()}', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final transport = _ModelTransport();
+      final controller = await _controller(transport);
+      await tester.pumpWidget(MaterialApp(
+          theme: AnumTheme.dark(),
+          home: SettingsScreen(controller: controller)));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Connect'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Anthropic (Claude)').last);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Anthropic API key'),
+          'sk-ant-example');
+      final save = find.text('Save and test');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      final put = transport.requests.firstWhere((r) => r.method == 'PUT');
+      expect(put.body!['provider'], 'anthropic');
+      expect(put.body!['fast_model'], 'claude-haiku-5-5');
+      expect(put.body!['capable_model'], 'claude-sonnet-5-5');
+      expect(put.body!['api_key'], 'sk-ant-example');
+      expect(find.text('Anthropic (Claude)'), findsOneWidget);
+      expect(find.textContaining('Chat and voice: claude-haiku-5-5'),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  test('other providers never send routing fields', () async {
+    final transport = _ModelTransport();
+    final controller = await _controller(transport);
+
+    await controller.changeModel(
+      provider: 'openai_compatible',
+      model: 'gpt-4.1-mini',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: 'sk-example',
+      routing: const ModelRouting(fastModel: 'ignored'),
+    );
+
+    final put = transport.requests.firstWhere((r) => r.method == 'PUT');
+    expect(put.body!.keys,
+        unorderedEquals(['provider', 'model', 'base_url', 'api_key']));
+  });
+
+  test('a saved Claude config parses its routes; unset routes use the model',
+      () {
+    final config = ModelConfiguration.fromJson({
+      'provider': 'anthropic',
+      'model': 'claude-opus-5-5',
+      'base_url': 'https://api.anthropic.com',
+      'fast_model': null,
+      'capable_model': null,
+      'fast_effort': 'low',
+      'credential_configured': true,
+      'credential_hint': '...mple',
+      'updated_at': '2026-10-06T10:00:00Z',
+    });
+    expect(config.fastModel, 'claude-opus-5-5');
+    expect(config.capableModel, 'claude-opus-5-5');
+    expect(config.routing.fastEffort, 'low');
+    expect(config.routing.capableEffort, isNull);
+
+    final ollama = ModelConfiguration.fromJson({
+      'provider': 'ollama',
+      'model': 'llama3.2',
+      'base_url': 'http://localhost:11434/v1',
+      'credential_configured': false,
+      'updated_at': '2026-10-06T10:00:00Z',
+    });
+    expect(ollama.fastModel, 'llama3.2');
+    expect(ollama.routing.fastModel, isNull);
   });
 }

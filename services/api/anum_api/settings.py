@@ -76,7 +76,8 @@ class Settings(BaseSettings):
     # ANUM_MODEL_PROVIDER=ollama, ANUM_MODEL_NAME=llama3.2 (or qwen2.5) and optionally
     # ANUM_MODEL_BASE_URL (defaults to http://localhost:11434/v1 for ollama).
     # The task runtime and voice assistant build their gateway from these values at
-    # startup; the per-workspace /model-config endpoint does not change them yet.
+    # startup; a workspace that saved its own model (PUT /model-config, including
+    # "anthropic" with its own routing) uses that instead.
     model_provider: str = "mock"
     model_api_key: str | None = None
     model_name: str = "gpt-4.1-mini"

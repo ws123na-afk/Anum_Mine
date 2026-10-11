@@ -213,9 +213,18 @@ def build_embedder(context: TenantContext, fallback_gateway: Any) -> Embedder:
 
     if settings.embedding_backend == "local":
         return LocalEmbedder()
+    from .model_gateway import normalize_provider
     from .onboarding import budgeted_model_gateway
 
-    return GatewayEmbedder(budgeted_model_gateway(context, fallback_gateway), settings.embedding_model or None)
+    gateway = budgeted_model_gateway(context, fallback_gateway)
+    model = settings.embedding_model or None
+    if getattr(gateway, "provider", None) == "anthropic" and normalize_provider(settings.model_provider) != "anthropic":
+        # A workspace that chose Claude: ANUM_EMBEDDING_MODEL names a model of the server's
+        # own provider, which this workspace's gateway cannot serve. Anthropic has no
+        # embeddings, so retrieval uses the local embedder (the gateway still refuses an
+        # explicit embedding model, as for the server default).
+        model = None
+    return GatewayEmbedder(gateway, model)
 
 
 # --------------------------------------------------------------------------- helpers

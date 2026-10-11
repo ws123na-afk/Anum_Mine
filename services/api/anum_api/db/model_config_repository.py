@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from anum_api.model_config_store import (
+    ModelRouting,
     StoredModelConfig,
     WorkspaceNotProvisionedError,
     credential_hint,
@@ -38,6 +39,12 @@ class SqlAlchemyModelConfigStore:
             provider=record.provider,
             model=record.model,
             base_url=record.base_url,
+            routing=ModelRouting(
+                fast_model=record.fast_model,
+                capable_model=record.capable_model,
+                fast_effort=record.fast_effort,
+                capable_effort=record.capable_effort,
+            ),
             api_key=api_key,
             credential_configured=record.api_key_ciphertext is not None,
             credential_hint=record.credential_hint,
@@ -54,7 +61,9 @@ class SqlAlchemyModelConfigStore:
         base_url: str,
         api_key: str | None,
         updated_at: datetime,
+        routing: ModelRouting | None = None,
     ) -> StoredModelConfig:
+        routing = routing or ModelRouting()
         workspace = self.session.scalar(
             select(WorkspaceRecord.id).where(
                 WorkspaceRecord.tenant_id == context.tenant_id,
@@ -76,6 +85,10 @@ class SqlAlchemyModelConfigStore:
         record.provider = provider
         record.model = model
         record.base_url = base_url
+        record.fast_model = routing.fast_model
+        record.capable_model = routing.capable_model
+        record.fast_effort = routing.fast_effort
+        record.capable_effort = routing.capable_effort
         record.api_key_ciphertext = ciphertext
         record.credential_hint = credential_hint(api_key)
         record.updated_by_user_id = context.user_id
@@ -85,6 +98,7 @@ class SqlAlchemyModelConfigStore:
             provider=provider,
             model=model,
             base_url=base_url,
+            routing=routing,
             api_key=SecretStr(api_key) if api_key else None,
             credential_configured=ciphertext is not None,
             credential_hint=record.credential_hint,

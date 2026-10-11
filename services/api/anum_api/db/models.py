@@ -373,6 +373,11 @@ class WorkspaceModelConfigRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     api_key_ciphertext: Mapped[str | None] = mapped_column(Text)
     credential_hint: Mapped[str | None] = mapped_column(String(16))
     updated_by_user_id: Mapped[str | None] = mapped_column(String(120))
+    # Model routing (migration 0023_model_config_routes); null means "not set".
+    fast_model: Mapped[str | None] = mapped_column(String(160))
+    capable_model: Mapped[str | None] = mapped_column(String(160))
+    fast_effort: Mapped[str | None] = mapped_column(String(10))
+    capable_effort: Mapped[str | None] = mapped_column(String(10))
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -381,12 +386,17 @@ class WorkspaceModelConfigRecord(Base, TimestampMixin, WorkspaceScopedMixin):
             name="fk_workspace_model_configs_workspace",
         ),
         CheckConstraint(
-            "provider in ('mock', 'openai_compatible', 'ollama')",
+            "provider in ('mock', 'openai_compatible', 'ollama', 'anthropic')",
             name="ck_workspace_model_configs_provider",
         ),
         CheckConstraint(
-            "provider <> 'openai_compatible' or api_key_ciphertext is not null",
+            "provider not in ('openai_compatible', 'anthropic') or api_key_ciphertext is not null",
             name="ck_workspace_model_configs_credential",
+        ),
+        CheckConstraint(
+            "(fast_effort is null or fast_effort in ('low', 'medium', 'high', 'xhigh', 'max')) "
+            "and (capable_effort is null or capable_effort in ('low', 'medium', 'high', 'xhigh', 'max'))",
+            name="ck_workspace_model_configs_effort",
         ),
     )
 

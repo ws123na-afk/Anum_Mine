@@ -32,10 +32,22 @@ def credential_hint(secret: str | None) -> str | None:
     return f"...{secret[-4:]}" if secret else None
 
 
+class ModelRouting(BaseModel):
+    """Per-workspace model routing (``anthropic`` only), mirroring the server's
+    ``ANUM_MODEL_FAST_NAME``/``CAPABLE_NAME``/``FAST_EFFORT``/``CAPABLE_EFFORT``.
+    ``None`` means not set: the saved ``model`` serves that route and no effort is sent."""
+
+    fast_model: str | None = None
+    capable_model: str | None = None
+    fast_effort: str | None = None
+    capable_effort: str | None = None
+
+
 class StoredModelConfig(BaseModel):
     provider: str
     model: str
     base_url: str
+    routing: ModelRouting = ModelRouting()
     # Present only when a store was asked for the secret; never serialized to clients.
     api_key: SecretStr | None = None
     credential_configured: bool = False
@@ -50,7 +62,14 @@ class StoredModelConfig(BaseModel):
     @property
     def fingerprint(self) -> tuple[object, ...]:
         """Identity of a saved configuration, used to invalidate cached gateways."""
-        return (self.provider, self.model, self.base_url, self.credential_hint, self.updated_at)
+        return (
+            self.provider,
+            self.model,
+            self.base_url,
+            self.routing.model_dump_json(),
+            self.credential_hint,
+            self.updated_at,
+        )
 
 
 class ModelConfigStore(Protocol):
@@ -65,6 +84,7 @@ class ModelConfigStore(Protocol):
         base_url: str,
         api_key: str | None,
         updated_at: datetime,
+        routing: ModelRouting | None = None,
     ) -> StoredModelConfig: ...
 
 
@@ -89,11 +109,13 @@ class InMemoryModelConfigStore:
         base_url: str,
         api_key: str | None,
         updated_at: datetime,
+        routing: ModelRouting | None = None,
     ) -> StoredModelConfig:
         config = StoredModelConfig(
             provider=provider,
             model=model,
             base_url=base_url,
+            routing=routing or ModelRouting(),
             api_key=SecretStr(api_key) if api_key else None,
             credential_configured=bool(api_key),
             credential_hint=credential_hint(api_key),

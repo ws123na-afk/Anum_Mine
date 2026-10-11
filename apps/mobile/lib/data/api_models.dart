@@ -252,6 +252,46 @@ class ModelAvailability {
   bool get canSkip => workspaceConfigured || serverModel != null;
 }
 
+/// Model routing for the `anthropic` provider (docs/model-gateway.md#model-routing):
+/// quick replies (chat, voice, memory) use [fastModel], planning [capableModel].
+/// Null means not set: the saved model serves that route and no effort is sent.
+class ModelRouting {
+  const ModelRouting({
+    this.fastModel,
+    this.capableModel,
+    this.fastEffort,
+    this.capableEffort,
+  });
+
+  factory ModelRouting.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    return ModelRouting(
+      fastModel: r.optString('fast_model'),
+      capableModel: r.optString('capable_model'),
+      fastEffort: r.optString('fast_effort'),
+      capableEffort: r.optString('capable_effort'),
+    );
+  }
+
+  final String? fastModel;
+  final String? capableModel;
+  final String? fastEffort;
+  final String? capableEffort;
+
+  static String? _clean(String? value) {
+    final text = value?.trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  /// The PUT body fields; empty values are sent as null ("not set").
+  JsonMap toJson() => {
+        'fast_model': _clean(fastModel),
+        'capable_model': _clean(capableModel),
+        'fast_effort': _clean(fastEffort),
+        'capable_effort': _clean(capableEffort),
+      };
+}
+
 class ModelConfiguration {
   const ModelConfiguration({
     required this.provider,
@@ -260,6 +300,7 @@ class ModelConfiguration {
     required this.credentialConfigured,
     required this.updatedAt,
     this.credentialHint,
+    this.routing = const ModelRouting(),
   });
 
   factory ModelConfiguration.fromJson(JsonMap json) {
@@ -271,6 +312,7 @@ class ModelConfiguration {
       credentialConfigured: r.boolean('credential_configured'),
       credentialHint: r.optString('credential_hint'),
       updatedAt: r.date('updated_at').toUtc(),
+      routing: ModelRouting.fromJson(json),
     );
   }
 
@@ -280,6 +322,15 @@ class ModelConfiguration {
   final bool credentialConfigured;
   final String? credentialHint;
   final DateTime updatedAt;
+  final ModelRouting routing;
+
+  /// The model that answers chat, voice and memory.
+  String get fastModel =>
+      provider == 'anthropic' ? (routing.fastModel ?? model) : model;
+
+  /// The model that plans tasks and agent runs.
+  String get capableModel =>
+      provider == 'anthropic' ? (routing.capableModel ?? model) : model;
 }
 
 class NotificationPreferences {

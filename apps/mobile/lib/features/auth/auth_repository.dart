@@ -260,22 +260,28 @@ class AuthRepository {
         },
       ));
 
+  /// Saves the workspace model. [routing] is sent for `anthropic` only; its
+  /// base URL may be empty (the API then uses https://api.anthropic.com).
   Future<ModelConfiguration> configureModel({
     required String provider,
     required String model,
     required String baseUrl,
     String? apiKey,
-  }) async =>
-      ModelConfiguration.fromJson(await api.request(
-        'PUT',
-        '/api/v1/model-config',
-        body: {
-          'provider': provider,
-          'model': model,
-          'base_url': baseUrl,
-          if (apiKey != null && apiKey.isNotEmpty) 'api_key': apiKey,
-        },
-      ));
+    ModelRouting? routing,
+  }) async {
+    final claude = provider == 'anthropic';
+    return ModelConfiguration.fromJson(await api.request(
+      'PUT',
+      '/api/v1/model-config',
+      body: {
+        'provider': provider,
+        'model': model,
+        if (!claude || baseUrl.trim().isNotEmpty) 'base_url': baseUrl,
+        if (apiKey != null && apiKey.isNotEmpty) 'api_key': apiKey,
+        if (claude) ...(routing ?? const ModelRouting()).toJson(),
+      },
+    ));
+  }
 
   Future<ModelConfiguration> modelConfiguration() async =>
       ModelConfiguration.fromJson(

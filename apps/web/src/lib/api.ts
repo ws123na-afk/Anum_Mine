@@ -5,6 +5,7 @@ import { apiErrorFromResponse } from './errors';
 import type { ApiCurrentMembership } from './policy';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
+import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
 
 // The one API base URL for every module. Deployments compile VITE_ANUM_API_URL in (apps/web/Dockerfile, infra/oracle/compose.yaml).
 export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
@@ -136,7 +137,7 @@ export interface SkillVersion { id: string; skill_id: string; version: string; n
 export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; }
 export interface WorkspaceInfo { id: string; tenant_id: string; name: string; created_at: string; updated_at: string; }
 export interface OnboardingStatus { complete: boolean; tenant: { id: string; name: string } | null; workspace: WorkspaceInfo | null; membership: { role: string } | null; model_configured: boolean; }
-export interface ModelConfig { provider: string; model: string; base_url: string; credential_configured: boolean; credential_hint: string | null; updated_at: string; }
+export type { ModelConfig, ModelConnectionTest } from './modelConfig';
 export interface NotificationPreferences { task_completed: boolean; approval_required: boolean; run_failed: boolean; automation_failed: boolean; email_enabled: boolean; desktop_enabled: boolean; }
 
 /** Local development session; a no-op when the app signs in through OIDC. */
@@ -150,8 +151,8 @@ export async function ensureLocalSession(): Promise<void> {
 export async function getOnboarding(): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'GET' }); }
 export async function completeOnboarding(organizationName: string, workspaceName: string): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'PUT', body: JSON.stringify({ organization_name: organizationName, workspace_name: workspaceName }) }); }
 export async function getModelConfig(): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'GET' }); }
-export async function saveModelConfig(provider: string, model: string, baseUrl: string, apiKey?: string): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify({ provider, model, base_url: baseUrl, api_key: apiKey || null }) }); }
-export interface ModelConnectionTest { provider: string; model: string; latency_ms: number; status: string }
+/** PUT /api/v1/model-config with a full body (Claude's routing fields included; src/lib/modelConfig.ts). */
+export async function saveModelConfigBody(body: ModelConfigBody): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify(body) }); }
 export async function testModelConfig(): Promise<ModelConnectionTest> { return request('/api/v1/model-config/test', { method: 'POST' }); }
 export async function getNotificationPreferences(): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'GET' }); }
 export async function saveNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'PUT', body: JSON.stringify(value) }); }

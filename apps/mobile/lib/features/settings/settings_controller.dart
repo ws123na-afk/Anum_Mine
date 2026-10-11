@@ -84,16 +84,24 @@ class SettingsController extends ChangeNotifier {
     required String model,
     required String baseUrl,
     String? apiKey,
+    ModelRouting? routing,
   }) async {
     phase = SettingsPhase.saving;
     message = null;
     notifyListeners();
     try {
-      this.model = await repository.configureModel(
-          provider: provider, model: model, baseUrl: baseUrl, apiKey: apiKey);
+      final saved = this.model = await repository.configureModel(
+          provider: provider,
+          model: model,
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+          routing: routing);
       await repository.testModelConnection();
       phase = SettingsPhase.ready;
-      message = 'Saved. $model is answering tasks and voice now.';
+      message = saved.provider == 'anthropic'
+          ? 'Saved. ${saved.fastModel} answers chat and voice, '
+              '${saved.capableModel} plans tasks.'
+          : 'Saved. $model is answering tasks and voice now.';
       notifyListeners();
       return true;
     } on Object catch (error) {

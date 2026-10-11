@@ -11,7 +11,7 @@ from typing import Protocol
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from .authorization import Permission
 from .dependencies import (
@@ -23,6 +23,7 @@ from .dependencies import (
 from .identity import local_sessions, local_sessions_allowed
 from .model_config_store import (
     KEYLESS_PROVIDERS,
+    ModelRouting,
     StoredModelConfig,
     WorkspaceNotProvisionedError,
     memory_model_config_store,
@@ -35,7 +36,13 @@ from .model_egress import (
     check_endpoint,
     validate_model_base_url,
 )
-from .model_gateway import ModelGateway, build_model_gateway, normalize_provider
+from .model_gateway import (
+    ModelGateway,
+    ModelRoute,
+    build_model_gateway,
+    normalize_provider,
+    route_gateway,
+)
 from .repository import AnumRepository
 from .schemas import Tenant, TenantContext, Workspace, WorkspaceMembership, utc_now
 from .scoped_store import open_scoped_store
@@ -107,15 +114,28 @@ class OnboardingStatus(BaseModel):
     model_configured: bool = False
 
 
+EFFORT_PATTERN = r"^(|low|medium|high|xhigh|max)$"
+ROUTING_FIELDS = ("fast_model", "capable_model", "fast_effort", "capable_effort")
+
+
 class ModelConfigWrite(BaseModel):
-    provider: str = Field(pattern=r"^(mock|openai_compatible|ollama)$")
+    provider: str = Field(pattern=r"^(mock|openai_compatible|ollama|anthropic)$")
     model: str = Field(min_length=1, max_length=160)
-    base_url: str = Field(min_length=1, max_length=500)
+    # Optional only for ``anthropic`` (defaults to https://api.anthropic.com).
+    base_url: str | None = Field(default=None, min_length=1, max_length=500)
     api_key: SecretStr | None = None
+    # Model routing, ``anthropic`` only (docs/model-gateway.md#model-routing). Empty or
+    # null means not set: ``model`` serves that route and no effort is sent.
+    fast_model: str | None = Field(default=None, max_length=160)
+    capable_model: str | None = Field(default=None, max_length=160)
+    fast_effort: str | None = Field(default=None, pattern=EFFORT_PATTERN)
+    capable_effort: str | None = Field(default=None, pattern=EFFORT_PATTERN)
 
     @field_validator("base_url")
     @classmethod
-    def validate_base_url(cls, value: str) -> str:
+    def validate_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         # Syntax half of the SSRF guard (model_egress.py); the route resolves the host.
         try:
             check_endpoint(value, EgressPolicy.from_settings())
@@ -123,11 +143,41 @@ class ModelConfigWrite(BaseModel):
             raise ValueError(str(exc)) from None
         return value.rstrip("/")
 
+    @field_validator("model", "fast_model", "capable_model")
+    @classmethod
+    def strip_names(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def check_provider_fields(self) -> ModelConfigWrite:
+        if not self.model:
+            raise ValueError("model must not be blank")
+        if self.provider == "anthropic":
+            from .anthropic_gateway import anthropic_base_url
+
+            # One stored form: the API root without the OpenAI-style "/v1".
+            self.base_url = anthropic_base_url(self.base_url)
+            return self
+        if self.base_url is None:
+            raise ValueError("base_url is required for this provider")
+        if any(getattr(self, name) for name in ROUTING_FIELDS):
+            raise ValueError(
+                "fast_model, capable_model, fast_effort and capable_effort apply to the anthropic provider only"
+            )
+        return self
+
+    def routing(self) -> ModelRouting:
+        return ModelRouting(**{name: getattr(self, name) or None for name in ROUTING_FIELDS})
+
 
 class ModelConfigView(BaseModel):
     provider: str
     model: str
     base_url: str
+    fast_model: str | None = None
+    capable_model: str | None = None
+    fast_effort: str | None = None
+    capable_effort: str | None = None
     credential_configured: bool
     credential_hint: str | None = None
     updated_at: datetime
@@ -136,6 +186,8 @@ class ModelConfigView(BaseModel):
 class ModelConnectionTest(BaseModel):
     provider: str
     model: str
+    # Every model the test called (anthropic: each distinct routed model).
+    models: list[str] = Field(default_factory=list)
     latency_ms: int = Field(ge=0)
     status: str = "connected"
 
@@ -155,6 +207,7 @@ def _config_view(config: StoredModelConfig) -> ModelConfigView:
         provider=config.provider,
         model=config.model,
         base_url=config.base_url,
+        **config.routing.model_dump(),
         credential_configured=config.credential_configured,
         credential_hint=config.credential_hint,
         updated_at=config.updated_at,
@@ -327,17 +380,43 @@ def workspace_model_gateway(context: TenantContext, fallback: ModelGateway) -> M
         config = store.get(context) if summary.credential_configured else summary
     if config is None or not config.usable:
         return fallback
-    gateway = build_model_gateway(
-        normalize_provider(config.provider),
-        api_key=config.api_key.get_secret_value() if config.api_key else None,
-        model=config.model,
-        base_url=config.base_url,
-        client=_test_client_factory(),
-        egress_guard=True,
-    )
+    gateway = _build_workspace_gateway(config)
     with _lock:
         _workspace_gateways[key] = (config.fingerprint, gateway)
     return gateway
+
+
+def _workspace_routes(config: StoredModelConfig) -> dict[ModelRoute, str]:
+    """The saved fast and capable models (``anthropic``); an unset route uses ``model``."""
+    if config.provider != "anthropic":
+        return {}
+    routing = config.routing
+    return {
+        ModelRoute.FAST: routing.fast_model or config.model,
+        ModelRoute.CAPABLE: routing.capable_model or config.model,
+    }
+
+
+def _build_workspace_gateway(config: StoredModelConfig) -> ModelGateway:
+    routes = _workspace_routes(config)
+    efforts = (
+        {
+            ModelRoute.FAST: config.routing.fast_effort or "",
+            ModelRoute.CAPABLE: config.routing.capable_effort or "",
+        }
+        if routes
+        else None
+    )
+    return build_model_gateway(
+        normalize_provider(config.provider),
+        api_key=config.api_key.get_secret_value() if config.api_key else None,
+        model=routes.get(ModelRoute.CAPABLE) or config.model,
+        base_url=config.base_url,
+        client=_test_client_factory(),
+        egress_guard=True,
+        route_models=routes or None,
+        route_efforts=efforts,
+    )
 
 
 def budgeted_model_gateway(context: TenantContext, fallback: ModelGateway) -> ModelGateway:
@@ -360,7 +439,7 @@ def _connection_failure_detail(provider: str, model: str, base_url: str, exc: Ex
         return GENERIC_CONNECTION_FAILURE
     if isinstance(exc, UnsafeModelEndpointError):
         return str(exc)
-    label = "Ollama" if provider == "ollama" else "the model provider"
+    label = {"ollama": "Ollama", "anthropic": "Anthropic"}.get(provider, "the model provider")
     if isinstance(exc, httpx.TransportError):
         detail = f"Could not reach {label} at {base_url}."
         if provider == "ollama":
@@ -369,7 +448,19 @@ def _connection_failure_detail(provider: str, model: str, base_url: str, exc: Ex
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
         if code in {401, 403}:
+            if provider == "anthropic":
+                return (
+                    f"Anthropic rejected the API key (HTTP {code}). Create a key in the "
+                    "Anthropic Console and save it again."
+                )
             return f"{label.capitalize()} at {base_url} rejected the credentials (HTTP {code})."
+        if code == 404 and provider == "anthropic":
+            return f"Anthropic does not know model '{model}' (HTTP 404). Check the model names."
+        if code == 400 and provider == "anthropic":
+            return (
+                f"Anthropic refused the request for model '{model}' (HTTP 400). Check the model "
+                "names, and clear the effort for a model that does not support it."
+            )
         if code == 404 and provider == "ollama":
             return f"Ollama at {base_url} does not have model '{model}'. Try: ollama pull {model}"
         return f"{label.capitalize()} at {base_url} returned HTTP {code}."
@@ -505,6 +596,8 @@ async def set_model_config(payload: ModelConfigWrite, context: TenantContext = D
     require_permission(context, Permission.ORGANIZATION_MANAGE)
     if payload.provider not in KEYLESS_PROVIDERS and payload.api_key is None:
         raise HTTPException(status_code=422, detail="api_key is required for external providers")
+    if payload.base_url is None:  # set by ModelConfigWrite's validator; kept for typing
+        raise HTTPException(status_code=422, detail="base_url is required for this provider")
     try:
         await validate_model_base_url(payload.base_url)
     except UnsafeModelEndpointError as exc:
@@ -518,6 +611,7 @@ async def set_model_config(payload: ModelConfigWrite, context: TenantContext = D
                 base_url=payload.base_url,
                 api_key=payload.api_key.get_secret_value() if payload.api_key else None,
                 updated_at=utc_now(),
+                routing=payload.routing(),
             )
     except WorkspaceNotProvisionedError as exc:
         raise HTTPException(
@@ -542,6 +636,10 @@ def _test_client_factory() -> httpx.AsyncClient | None:
     return None
 
 
+CONNECTION_TEST_PROMPT = "Reply with ANUM_OK only."
+CONNECTION_TEST_MAX_TOKENS = 16
+
+
 @router.post("/model-config/test", response_model=ModelConnectionTest)
 async def test_model_config(
     context: TenantContext = Depends(tenant_context),
@@ -551,24 +649,39 @@ async def test_model_config(
         config = store.get(context)
     if config is None:
         raise HTTPException(status_code=404, detail="Model configuration not found")
-    secret = config.api_key.get_secret_value() if config.api_key else None
+    routes = _workspace_routes(config)
+    tested_model = config.model
+    models: list[str] = []
+    latency_ms = 0
     try:
-        gateway = build_model_gateway(
-            normalize_provider(config.provider),
-            api_key=secret,
-            model=config.model,
-            base_url=config.base_url,
-            client=_test_client_factory(),
-            egress_guard=True,
-        )
-        response = await gateway.generate_text("Reply with ANUM_OK only.")
+        gateway = _build_workspace_gateway(config)
+        if not routes:
+            response = await gateway.generate_text(CONNECTION_TEST_PROMPT)
+            latency_ms = response.metadata.latency_ms if response.metadata else 0
+            models.append(config.model)
+        else:
+            # Anthropic: one tiny uncached call per distinct routed model (complete_chat
+            # sends no cache breakpoint), each with its route's effort, so a wrong model
+            # name or an effort the model refuses shows up here rather than in a chat.
+            for route in (ModelRoute.CAPABLE, ModelRoute.FAST):
+                tested_model = routes[route]
+                if tested_model in models:
+                    continue
+                routed = route_gateway(gateway, route)
+                response = await routed.complete_chat(  # type: ignore[attr-defined]
+                    [{"role": "user", "content": CONNECTION_TEST_PROMPT}],
+                    max_tokens=CONNECTION_TEST_MAX_TOKENS,
+                )
+                latency_ms += response.metadata.latency_ms if response.metadata else 0
+                models.append(tested_model)
     except Exception as exc:
-        detail = _connection_failure_detail(config.provider, config.model, config.base_url, exc)
+        detail = _connection_failure_detail(config.provider, tested_model, config.base_url, exc)
         raise HTTPException(status_code=502, detail=detail) from exc
     return ModelConnectionTest(
         provider=config.provider,
-        model=config.model,
-        latency_ms=response.metadata.latency_ms if response.metadata else 0,
+        model=routes.get(ModelRoute.CAPABLE, config.model),
+        models=models,
+        latency_ms=latency_ms,
     )
 
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_models.dart';
 import '../../src/theme/anum_theme.dart';
+import 'model_choice.dart';
 import 'settings_controller.dart';
 import '../../src/widgets/depth.dart';
 import '../auth/account_screens.dart';
@@ -125,10 +126,18 @@ class _Content extends StatelessWidget {
                     : Column(children: [
                         ListTile(
                             leading: const Icon(Icons.smart_toy_outlined),
-                            title: Text(controller.model!.model),
+                            title: Text(controller.model!.provider ==
+                                    'anthropic'
+                                ? providerLabel('anthropic')
+                                : controller.model!.model),
                             subtitle: Text(
-                                '${controller.model!.provider} · ${controller.model!.baseUrl}',
+                                controller.model!.provider == 'anthropic'
+                                    ? 'Chat and voice: ${controller.model!.fastModel}\n'
+                                        'Planning: ${controller.model!.capableModel}'
+                                    : '${controller.model!.provider} · ${controller.model!.baseUrl}',
                                 textDirection: TextDirection.ltr),
+                            isThreeLine:
+                                controller.model!.provider == 'anthropic',
                             trailing: Icon(controller
                                         .model!.credentialConfigured ||
                                     controller.model!.provider == 'ollama' ||
@@ -320,7 +329,8 @@ Future<void> _confirmSignOut(
   if (confirmed ?? false) await controller.signOut();
 }
 
-/// Change the workspace model after setup. Ollama is free and needs no key.
+/// Change the workspace model after setup. Ollama is free and needs no key;
+/// Anthropic (Claude) routes quick replies and planning to separate models.
 class _ModelSheet extends StatefulWidget {
   const _ModelSheet({required this.controller, this.current});
   final SettingsController controller;
@@ -330,11 +340,7 @@ class _ModelSheet extends StatefulWidget {
 }
 
 class _ModelSheetState extends State<_ModelSheet> {
-  static const _presets = <String, (String, String)>{
-    'ollama': ('llama3.2', 'http://localhost:11434/v1'),
-    'openai_compatible': ('gpt-4.1-mini', 'https://api.openai.com/v1'),
-    'mock': ('mock', 'http://localhost'),
-  };
+  static const _presets = modelPresets;
   final form = GlobalKey<FormState>();
   late String provider = _normalise(widget.current?.provider) ?? 'ollama';
   late final model = TextEditingController(
@@ -342,16 +348,34 @@ class _ModelSheetState extends State<_ModelSheet> {
   late final url = TextEditingController(
       text: widget.current?.baseUrl ?? _presets[provider]!.$2);
   final key = TextEditingController();
+  late final fastModel = TextEditingController(
+      text: _claudeSaved
+          ? (widget.current!.routing.fastModel ?? '')
+          : anthropicFastModel);
+  late final capableModel = TextEditingController(
+      text: _claudeSaved ? widget.current!.capableModel : anthropicCapableModel);
+  late String fastEffort =
+      _claudeSaved ? (widget.current!.routing.fastEffort ?? '') : 'low';
+  late String capableEffort =
+      _claudeSaved ? (widget.current!.routing.capableEffort ?? '') : '';
   bool saving = false;
   String? error;
 
-  static String? _normalise(String? value) => value?.replaceAll('-', '_');
+  bool get _claudeSaved => widget.current?.provider == 'anthropic';
+  bool get _claude => provider == 'anthropic';
+
+  static String? _normalise(String? value) {
+    final normalised = value?.replaceAll('-', '_');
+    return modelPresets.containsKey(normalised) ? normalised : null;
+  }
 
   @override
   void dispose() {
     model.dispose();
     url.dispose();
     key.dispose();
+    fastModel.dispose();
+    capableModel.dispose();
     super.dispose();
   }
 
@@ -374,9 +398,17 @@ class _ModelSheetState extends State<_ModelSheet> {
     setState(() => saving = true);
     final ok = await widget.controller.changeModel(
         provider: provider,
-        model: model.text.trim(),
+        // Claude's planning model is the workspace's default model.
+        model: _claude ? capableModel.text.trim() : model.text.trim(),
         baseUrl: url.text.trim(),
-        apiKey: provider == 'openai_compatible' ? key.text.trim() : null);
+        apiKey: providerNeedsKey(provider) ? key.text.trim() : null,
+        routing: _claude
+            ? ModelRouting(
+                fastModel: fastModel.text,
+                capableModel: capableModel.text,
+                fastEffort: fastEffort,
+                capableEffort: capableEffort)
+            : null);
     if (!mounted) return;
     setState(() {
       saving = false;
@@ -391,7 +423,8 @@ class _ModelSheetState extends State<_ModelSheet> {
           MediaQuery.viewInsetsOf(context).bottom + 24),
       child: Form(
           key: form,
-          child: Column(
+          child: SingleChildScrollView(
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -399,59 +432,72 @@ class _ModelSheetState extends State<_ModelSheet> {
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 4),
                 const Text(
-                    'Tasks and voice answers in this workspace use this model.'),
+                    'Tasks, chat and voice answers in this workspace use this model.'),
                 const SizedBox(height: AnumSpacing.md),
                 DropdownButtonFormField<String>(
                     initialValue: provider,
                     isExpanded: true,
                     decoration: const InputDecoration(labelText: 'Provider'),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'ollama',
-                          child: Text('Ollama (free, runs on your computer)')),
-                      DropdownMenuItem(
-                          value: 'openai_compatible',
-                          child: Text('OpenAI compatible')),
-                      DropdownMenuItem(
-                          value: 'mock', child: Text('Local mock')),
-                    ],
+                    items: providerItems(),
                     onChanged: saving
                         ? null
                         : (v) {
                             if (v != null) _select(v);
                           }),
-                const SizedBox(height: AnumSpacing.sm),
-                TextFormField(
-                    controller: model,
-                    decoration: const InputDecoration(labelText: 'Model'),
-                    validator: (v) =>
-                        (v ?? '').trim().isEmpty ? 'Enter a model name' : null),
+                if (!_claude) ...[
+                  const SizedBox(height: AnumSpacing.sm),
+                  TextFormField(
+                      controller: model,
+                      decoration: const InputDecoration(labelText: 'Model'),
+                      validator: (v) => (v ?? '').trim().isEmpty
+                          ? 'Enter a model name'
+                          : null),
+                ],
                 const SizedBox(height: AnumSpacing.sm),
                 TextFormField(
                     controller: url,
                     textDirection: TextDirection.ltr,
                     keyboardType: TextInputType.url,
                     decoration: InputDecoration(
-                        labelText: 'Base URL',
+                        labelText: _claude ? 'Base URL (optional)' : 'Base URL',
                         helperMaxLines: 3,
                         helperText: provider == 'ollama'
                             ? 'The ANUM server calls this address, not your phone.'
-                            : null),
-                    validator: (v) {
-                      final u = Uri.tryParse(v ?? '');
-                      return u != null && u.isAbsolute
-                          ? null
-                          : 'Enter an absolute URL';
-                    }),
-                if (provider == 'openai_compatible') ...[
+                            : _claude
+                                ? 'Leave empty for api.anthropic.com.'
+                                : null),
+                    validator: (v) => validateBaseUrl(provider, v)),
+                if (providerNeedsKey(provider)) ...[
                   const SizedBox(height: AnumSpacing.sm),
                   TextFormField(
                       controller: key,
                       obscureText: true,
-                      decoration: const InputDecoration(labelText: 'API key'),
+                      textDirection: TextDirection.ltr,
+                      decoration: InputDecoration(
+                          labelText:
+                              _claude ? 'Anthropic API key' : 'API key',
+                          helperMaxLines: 3,
+                          helperText: widget.current?.credentialConfigured ==
+                                      true &&
+                                  widget.current?.provider == provider
+                              ? 'The saved key (${widget.current?.credentialHint ?? 'hidden'}) '
+                                  'is never shown. Paste it again, or a new one.'
+                              : 'Stored encrypted; never shown again.'),
                       validator: (v) => (v ?? '').trim().isEmpty
                           ? 'Enter the API key'
                           : null),
+                ],
+                if (_claude) ...[
+                  const SizedBox(height: AnumSpacing.sm),
+                  ClaudeRoutingFields(
+                      fastModel: fastModel,
+                      capableModel: capableModel,
+                      fastEffort: fastEffort,
+                      capableEffort: capableEffort,
+                      enabled: !saving,
+                      onFastEffort: (v) => setState(() => fastEffort = v),
+                      onCapableEffort: (v) =>
+                          setState(() => capableEffort = v)),
                 ],
                 if (error != null) ...[
                   const SizedBox(height: AnumSpacing.sm),
@@ -468,7 +514,7 @@ class _ModelSheetState extends State<_ModelSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.cable),
                     label: Text(saving ? 'Testing...' : 'Save and test')),
-              ])));
+              ]))));
 }
 
 /// Members, invitations, model budgets and the approval policy. Shown to

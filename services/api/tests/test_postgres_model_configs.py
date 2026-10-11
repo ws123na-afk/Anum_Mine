@@ -27,7 +27,7 @@ from anum_api import onboarding
 from anum_api.db import session as db_session
 from anum_api.db.model_config_repository import SqlAlchemyModelConfigStore
 from anum_api.main import app
-from anum_api.model_config_store import WorkspaceNotProvisionedError
+from anum_api.model_config_store import ModelRouting, WorkspaceNotProvisionedError
 from anum_api.model_gateway import MockModelGateway, OpenAICompatibleGateway
 from anum_api.secret_box import SecretCipher, reset_secret_cipher
 from anum_api.settings import settings
@@ -148,6 +148,56 @@ def test_database_rejects_hosted_provider_without_ciphertext(
                     insert into workspace_model_configs (tenant_id, workspace_id, provider, model, base_url)
                     values (:tenant_id, :workspace_id, 'openai_compatible', 'm', 'https://x')
                     """
+                ),
+                {"tenant_id": TENANT_A, "workspace_id": WORKSPACE_A},
+            )
+
+
+def test_anthropic_config_round_trips_with_routing(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    routing = ModelRouting(fast_model="claude-haiku-5-5", capable_model="claude-sonnet-5-5", fast_effort="low")
+    with app_session(tenant_context(), commit=True) as session:
+        _save(
+            session,
+            tenant_context(),
+            provider="anthropic",
+            model="claude-sonnet-5-5",
+            base_url="https://api.anthropic.com",
+            api_key="sk-ant-example",
+            routing=routing,
+        )
+
+    with app_session(tenant_context()) as session:
+        config = _store(session).get(tenant_context())
+        summary = _store(session).get(tenant_context(), include_secret=False)
+
+    assert config is not None and config.api_key is not None
+    assert config.api_key.get_secret_value() == "sk-ant-example"
+    assert config.routing == routing
+    assert summary is not None and summary.api_key is None and summary.routing == routing
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        "'anthropic', 'claude-sonnet-5-5', 'https://api.anthropic.com', null, null",
+        "'anthropic', 'claude-sonnet-5-5', 'https://api.anthropic.com', 'ciphertext', 'turbo'",
+    ],
+)
+def test_database_rejects_anthropic_without_key_or_with_unknown_effort(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+    values: str,
+) -> None:
+    with pytest.raises(DBAPIError):
+        with app_session(tenant_context()) as session:
+            session.execute(
+                text(
+                    "insert into workspace_model_configs "  # nosec B608 - fixed test literals
+                    "(tenant_id, workspace_id, provider, model, base_url, api_key_ciphertext, fast_effort) "
+                    f"values (:tenant_id, :workspace_id, {values})"
                 ),
                 {"tenant_id": TENANT_A, "workspace_id": WORKSPACE_A},
             )

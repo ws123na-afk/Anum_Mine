@@ -116,6 +116,26 @@ class _Api implements ApiTransport {
       if (request.method == 'PUT') complete = true;
       return ApiResponse(statusCode: 200, body: _status(workspace));
     }
+    if (path == '/api/v1/model-config' && request.method == 'PUT') {
+      final body = request.body!;
+      modelConfigured = true;
+      return ApiResponse(statusCode: 200, body: {
+        ...body,
+        'base_url': body['base_url'] ?? 'https://api.anthropic.com',
+        'credential_configured': body['api_key'] != null,
+        'credential_hint': '...mple',
+        'updated_at': '2026-10-11T10:00:00Z',
+      }..remove('api_key'));
+    }
+    if (path == '/api/v1/model-config/test') {
+      return const ApiResponse(statusCode: 200, body: {
+        'provider': 'anthropic',
+        'model': 'claude-sonnet-5-5',
+        'models': ['claude-sonnet-5-5', 'claude-haiku-5-5'],
+        'latency_ms': 12,
+        'status': 'connected',
+      });
+    }
     if (path == '/api/v1/routing/targets') {
       await routingGate?.future;
       if (routingFailures > 0) {
@@ -489,6 +509,58 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text("Continue with this workspace's model"));
       await tester.pumpAndSettle();
+      expect(h.controller.phase, AuthPhase.ready);
+    });
+
+    testWidgets('an owner connects Claude with Haiku and Sonnet by default',
+        (tester) async {
+      final h = await atModelStep();
+      await h.controller.signInWithOidc();
+      await _pumpFlow(tester, h.controller);
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Anthropic (Claude)').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Anthropic API key'), findsOneWidget);
+      expect(find.text('Base URL (optional)'), findsOneWidget);
+      Finder field(String text) => find.byWidgetPredicate(
+          (w) => w is EditableText && w.controller.text == text);
+      expect(field('claude-haiku-5-5'), findsOneWidget);
+      expect(field('claude-sonnet-5-5'), findsOneWidget);
+      expect(find.text('Low (quickest)'), findsOneWidget);
+
+      // The key is required for Claude.
+      final save = find.text('Test, save, and continue');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(find.text('This field is required'), findsOneWidget);
+      expect(h.transport.paths, isNot(contains('/api/v1/model-config')));
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Anthropic API key'),
+          'sk-ant-example');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      final put = h.transport.requests.firstWhere(
+          (r) => r.uri.path == '/api/v1/model-config' && r.method == 'PUT');
+      expect(put.body, {
+        'provider': 'anthropic',
+        'model': 'claude-sonnet-5-5',
+        'base_url': 'https://api.anthropic.com',
+        'api_key': 'sk-ant-example',
+        'fast_model': 'claude-haiku-5-5',
+        'capable_model': 'claude-sonnet-5-5',
+        'fast_effort': 'low',
+        'capable_effort': null,
+      });
+      expect(h.transport.paths, contains('/api/v1/model-config/test'));
       expect(h.controller.phase, AuthPhase.ready);
     });
   });
