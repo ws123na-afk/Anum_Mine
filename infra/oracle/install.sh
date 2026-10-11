@@ -27,7 +27,9 @@ else
   command -v sudo >/dev/null || die "run as a user with sudo rights"
   SUDO="sudo"
   OWNER="$(id -un)"
-  sudo -v
+  # Oracle's image grants ubuntu NOPASSWD sudo, but `sudo -v` still asks for a password
+  # (sudoers' default verifypw=all also sees the %sudo rule), and ubuntu has none.
+  sudo -n true 2>/dev/null || sudo -v
 fi
 run_as_owner() {
   if [ "$(id -un)" = "$OWNER" ]; then "$@"; else $SUDO -u "$OWNER" -- "$@"; fi
