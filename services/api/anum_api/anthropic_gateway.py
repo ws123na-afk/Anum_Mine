@@ -84,6 +84,7 @@ def build_messages_request(
     tools: list[dict[str, Any]] | None = None,
     effort: str | None = None,
     cache: bool = True,
+    cache_messages: bool = True,
 ) -> dict[str, Any]:
     """A Messages API body for an OpenAI-style message list.
 
@@ -92,7 +93,9 @@ def build_messages_request(
     system, then messages): the last tool definition, the last system block and the
     last message. Each request therefore reads the previous turn's cached prefix and
     writes its own for the next turn. A prefix below the model's minimum cacheable
-    length is simply not cached (no error, no write charge).
+    length is simply not cached (no error, no write charge). ``cache_messages=False``
+    keeps the tools and system breakpoints only: a one-off message after a stable
+    system prompt (planning) would be written to the cache and never read.
     """
     messages = validate_messages(messages)
     system = [m["content"] for m in messages if m["role"] == "system" and m["content"]]
@@ -114,7 +117,7 @@ def build_messages_request(
         breakpoints += 1 if cache else 0
     body["messages"] = [{"role": m["role"], "content": m["content"]} for m in turns]
     last = body["messages"][-1]
-    if cache and last["content"] and breakpoints < MAX_CACHE_BREAKPOINTS:
+    if cache and cache_messages and last["content"] and breakpoints < MAX_CACHE_BREAKPOINTS:
         last["content"] = [_text_block(last["content"], cache=True)]
     if effort:
         if effort not in EFFORTS:
@@ -202,6 +205,7 @@ class AnthropicGateway(OpenAICompatibleGateway):
         max_tokens: int,
         *,
         cache: bool,
+        cache_messages: bool = True,
         output_format: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         body = build_messages_request(
@@ -211,6 +215,7 @@ class AnthropicGateway(OpenAICompatibleGateway):
             tools=self.tools,
             effort=self.effort,
             cache=cache,
+            cache_messages=cache_messages,
         )
         if output_format is not None:
             body.setdefault("output_config", {})["format"] = output_format
@@ -228,6 +233,26 @@ class AnthropicGateway(OpenAICompatibleGateway):
         # costs 1.25x and nothing would read it.
         body = self._request(
             [{"role": "user", "content": prompt}], self.max_output_tokens, cache=bool(self.tools)
+        )
+        with model_call_span(self.provider, self.model, "generate_text"):
+            return await self._call("generate_text", body)
+
+    # The planner sends its stable instructions through generate_with_instructions.
+    caches_instructions = True
+
+    async def generate_with_instructions(self, instructions: str, prompt: str) -> ModelResponse:
+        """A one-off prompt after stable instructions (planning with retrieved context).
+
+        The instructions become the system prompt with a cache breakpoint (after the
+        tools, when there are any); the prompt itself is not cached, since nothing would
+        read it again. A prefix below the model's minimum cacheable length is simply not
+        cached.
+        """
+        body = self._request(
+            [{"role": "system", "content": instructions}, {"role": "user", "content": prompt}],
+            self.max_output_tokens,
+            cache=True,
+            cache_messages=False,
         )
         with model_call_span(self.provider, self.model, "generate_text"):
             return await self._call("generate_text", body)

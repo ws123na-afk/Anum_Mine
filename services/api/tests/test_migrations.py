@@ -383,3 +383,22 @@ def test_memory_sources_migration_is_expand_only_with_owner_scoped_restrictive_r
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "grant " not in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
+
+
+def test_user_preferences_migration_is_expand_only_with_user_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0025_user_preferences.py").read_text(encoding="utf-8")
+    assert 'revision = "0025_user_preferences"' in revision_text
+    assert len("0025_user_preferences") <= 32
+    assert 'down_revision = "0024_model_config_routes"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0025_user_preferences.py"]
+    assert not [path for path in others if 'down_revision = "0024_model_config_routes"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "op.create_table(" in upgrade and "tenants.id" in upgrade
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text
+    assert "current_setting('anum.user_id', true)" in revision_text
+    assert "server_default=sa.true()" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade

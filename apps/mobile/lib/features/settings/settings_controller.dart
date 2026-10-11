@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../admin/admin_repository.dart';
 import '../auth/auth_repository.dart';
@@ -26,6 +27,14 @@ class SettingsController extends ChangeNotifier {
   NotificationPreferences notifications = const NotificationPreferences();
   String? message;
 
+  /// "Remember things from my chats"; null when it could not be loaded
+  /// ([chatMemoryError] says why). Saved on its own, so a failure here never
+  /// hides the rest of Settings.
+  ChatMemoryPreference? chatMemory;
+  String? chatMemoryError;
+  String? chatMemoryNotice;
+  bool chatMemoryBusy = false;
+
   Future<void> load() async {
     phase = SettingsPhase.loading;
     message = null;
@@ -36,6 +45,7 @@ class SettingsController extends ChangeNotifier {
         throw const _SettingsFailure('Your session has expired.');
       }
       notifications = await repository.notificationPreferences();
+      await _loadChatMemory();
       try {
         model = await repository.modelConfiguration();
       } on Object {
@@ -57,6 +67,70 @@ class SettingsController extends ChangeNotifier {
     } on Object catch (error) {
       _fail(error);
     }
+    notifyListeners();
+  }
+
+  Future<void> _loadChatMemory() async {
+    try {
+      chatMemory = await repository.chatMemoryPreference();
+      chatMemoryError = null;
+    } on Object catch (error) {
+      chatMemory = null;
+      chatMemoryError =
+          'Could not load your chat memory setting. ${_describe(error)}';
+    }
+  }
+
+  Future<void> reloadChatMemory() async {
+    chatMemoryBusy = true;
+    notifyListeners();
+    await _loadChatMemory();
+    chatMemoryBusy = false;
+    notifyListeners();
+  }
+
+  /// Saves the switch at once; on failure the previous choice stays and the
+  /// error says what failed.
+  Future<void> setRememberConversations(bool remember) async {
+    final before = chatMemory;
+    if (before == null) return;
+    chatMemory = ChatMemoryPreference(
+        rememberConversations: remember, state: before.state);
+    chatMemoryBusy = true;
+    chatMemoryError = null;
+    chatMemoryNotice = null;
+    notifyListeners();
+    try {
+      chatMemory = await repository.setRememberConversations(remember);
+      chatMemoryNotice = remember
+          ? 'Saved. The Assistant will remember things from your chats.'
+          : 'Saved. The Assistant will no longer remember or use things from your chats.';
+    } on Object catch (error) {
+      chatMemory = before;
+      chatMemoryError =
+          'Your choice was not saved. ${_describe(error)} Try again.';
+    }
+    chatMemoryBusy = false;
+    notifyListeners();
+  }
+
+  /// Deletes every memory remembered from this user's chats in the workspace.
+  Future<void> deleteChatMemories() async {
+    chatMemoryBusy = true;
+    chatMemoryError = null;
+    chatMemoryNotice = null;
+    notifyListeners();
+    try {
+      final deleted = await repository.deleteMyChatMemories();
+      chatMemoryNotice = deleted == 0
+          ? 'There were no memories from your chats to delete.'
+          : 'Deleted $deleted ${deleted == 1 ? 'memory' : 'memories'} from your chats.';
+    } on Object catch (error) {
+      chatMemoryError = error is ApiException && error.statusCode == 403
+          ? 'Your role cannot delete memories. A workspace owner can delete them or change your role.'
+          : 'Nothing was deleted. ${_describe(error)} Try again.';
+    }
+    chatMemoryBusy = false;
     notifyListeners();
   }
 
@@ -126,6 +200,11 @@ class SettingsController extends ChangeNotifier {
             ? SettingsPhase.offline
             : SettingsPhase.error;
   }
+}
+
+String _describe(Object error) {
+  final text = error is ApiException ? error.message : error.toString();
+  return text.endsWith('.') ? text : '$text.';
 }
 
 class _SettingsFailure implements Exception {

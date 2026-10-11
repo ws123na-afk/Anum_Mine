@@ -371,3 +371,53 @@ class NotificationPreferences {
         'desktop_enabled': desktopEnabled,
       };
 }
+
+/// "Remember things from my chats" (`GET/PUT /api/v1/me/preferences`,
+/// docs/memory.md#from-conversations): the caller's own switch, and whether
+/// chat memory is on for them and, if not, why.
+class ChatMemoryPreference {
+  const ChatMemoryPreference(
+      {required this.rememberConversations, required this.state});
+
+  factory ChatMemoryPreference.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    return ChatMemoryPreference(
+      rememberConversations: r.boolean('remember_conversations'),
+      state: r.optString('conversation_memory') ?? 'unknown',
+    );
+  }
+
+  final bool rememberConversations;
+
+  /// `on`, `off_by_user`, `off_on_server`, `off_for_organization` or
+  /// `not_for_role`.
+  final String state;
+
+  static const _kept =
+      'Memories already saved from your chats stay until you delete them.';
+
+  /// Short status for the badge.
+  String get badge => switch (state) {
+        'on' => 'On',
+        'off_by_user' => 'Off',
+        'off_on_server' => 'Off on this server',
+        'off_for_organization' => 'Off for your organization',
+        'not_for_role' => 'Not remembering',
+        _ => 'Unknown',
+      };
+
+  /// What happens now and, when someone else keeps it off, who can change it.
+  String get explanation => switch (state) {
+        'on' =>
+          'The Assistant remembers lasting facts you state in your chats (your name, role or how you like answers) and uses them in later answers. Only you can see them.',
+        'off_by_user' =>
+          'Nothing new is remembered from your chats and no memories are used in your answers. $_kept',
+        'off_on_server' =>
+          'The server administrator has turned chat memory off for everyone. Your choice is saved and applies if it is turned back on. $_kept',
+        'off_for_organization' =>
+          'Your organization\'s memory policy does not allow memories from chats. An organization administrator can allow it under Governance. Your choice is saved and applies if they do. $_kept',
+        'not_for_role' =>
+          'Your role in this workspace cannot save memories, so nothing new is remembered from your chats. A workspace owner can change your role.',
+        _ => 'The server reported a state this version does not know.',
+      };
+}

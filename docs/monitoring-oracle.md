@@ -6,7 +6,7 @@ Optional monitoring for the [one-VM deployment](deploy-oracle.md). It has three 
 |---|---|---|
 | **Uptime Kuma** | **Off the VM**: a home PC, a Raspberry Pi or a second cheap host | The app, API and sign-in are reachable from the internet, and certificates are not about to expire. The only part that can alert you when the whole VM, Docker, Caddy or the Oracle region is down. |
 | **Beszel** (hub and agent) | On the VM, profile `monitoring` / `monitoring-agent` | CPU, memory, load, disk usage and disk I/O of the VM over time, with threshold alerts (memory nearly full, disk filling up). |
-| **GlitchTip** | On the VM, profile `monitoring` | Every unhandled API error with its stack trace, route and tenant id, grouped into issues, with alerts on new issues. Sentry-compatible. |
+| **GlitchTip** | On the VM, profile `monitoring` | Every unhandled API error with its stack trace, route and tenant id, grouped into issues, with alerts on new issues, and optionally the web app's browser errors ([Web errors](#web-errors)). Sentry-compatible. |
 
 Beszel and GlitchTip are off by default and turned on with one script, `infra/oracle/monitoring.sh`. Nothing in them publishes a port: Caddy serves each UI on its own hostname behind HTTP basic auth, in front of the tool's own login. Monitoring from the same VM is useless when the VM is down, so set up [Uptime Kuma off the VM](#uptime-kuma-off-the-vm) first, even if you skip the rest.
 
@@ -24,6 +24,7 @@ All three images are published for `linux/arm64` and `linux/amd64` (checked agai
 - **db-init** creates the `glitchtip` login and database (`infra/oracle/db/glitchtip.sql`) only when `GLITCHTIP_DB_PASSWORD` is set in `.env`. The login owns only that database. It is not a member of any ANUM role, and `anum` and `keycloak` do not grant it `CONNECT`.
 - **PostgreSQL** runs with `max_locks_per_transaction=512`, GlitchTip's recommended floor for its partitioned event tables. This costs a few MB of shared memory. The first `update.sh` after this change restarts PostgreSQL once.
 - **The API** reads `ANUM_SENTRY_DSN`. It is empty by default, so error reporting is off ([Observability: Error reporting](observability.md#error-reporting)).
+- **The web build** takes `ANUM_WEB_SENTRY_DSN` as its `VITE_SENTRY_DSN` build argument. It is empty by default, so the bundle has no reporting code and the CSP is unchanged ([Web errors](#web-errors)).
 
 ### Why GlitchTip does not use Valkey
 
@@ -76,8 +77,9 @@ The script walks you through these steps. Every secret is read with hidden input
 7. **GlitchTip admin**: it waits for GlitchTip to become healthy (the first start runs its migrations, which takes a few minutes), then asks for the admin e-mail and password and creates the account. GlitchTip sends no mail on this setup, so the address is only a login name.
 8. **Beszel agent** (`monitoring.sh agent`): see [Beszel](#beszel).
 9. **API DSN** (`monitoring.sh dsn`): see [GlitchTip](#glitchtip).
+10. **Web DSN** (`monitoring.sh web-dsn`, optional): see [Web errors](#web-errors).
 
-Press Enter at the agent or DSN prompt to skip that step. You can run `monitoring.sh agent` or `monitoring.sh dsn` later. Running `enable` again is safe: it keeps existing values and asks before changing the basic-auth login.
+Press Enter at the agent or a DSN prompt to skip that step. You can run `monitoring.sh agent`, `monitoring.sh dsn` or `monitoring.sh web-dsn` later. Running `enable` again is safe: it keeps existing values and asks before changing the basic-auth login.
 
 ## Beszel
 
@@ -111,6 +113,20 @@ docker compose exec api python -c "import sentry_sdk; from anum_api.error_report
 **Retention**: events older than `GLITCHTIP_MAX_EVENT_LIFE_DAYS` (30) are deleted. GlitchTip's database is not in the nightly backup: error events are diagnostics, and a restore after losing the VM starts GlitchTip empty. Recreate the project and run `monitoring.sh dsn` again if that happens.
 
 **Lost admin password**: `docker compose exec glitchtip python manage.py changepassword <e-mail>`, or run `monitoring.sh enable` again and give the same e-mail at the admin prompt.
+
+### Web errors
+
+The web app can report errors that happen in visitors' browsers to a second GlitchTip project. It is off by default. What is sent and what is stripped is described in [Observability: Browser errors](observability.md#browser-errors-web-app). In short: the exception type, the stack frames, the page path without its query, and the tenant id. Exception messages, user identity, headers, query strings and token-bearing breadcrumbs are stripped.
+
+1. In GlitchTip, create a second **project** with the platform JavaScript (Browser). Keep the API's project separate, so browser and server issues do not mix.
+2. Under **Project settings → Client Keys (DSN)**, copy its DSN (`https://<key>@<ANUM_ERRORS_HOST>/<id>`).
+3. Run `bash infra/oracle/monitoring.sh web-dsn` and paste it. `enable` also asks for it at the end. The script accepts only an `https` DSN on your `ANUM_ERRORS_HOST`, stores it as `ANUM_WEB_SENTRY_DSN` in `.env`, then rebuilds and restarts the web container (`docker compose up -d --build --no-deps web`).
+
+The browser DSN stays the public address, unlike the API's private one, because browsers send to it directly: Caddy passes GlitchTip's ingest path (`/api/<id>/envelope/`) through without basic auth (`monitoring.caddy`), and the project key authenticates the event. The key is compiled into the bundle every visitor downloads, so treat it as public: it can only submit events to that project. If it is abused, rotate it under Client Keys and run `web-dsn` again.
+
+The DSN is a build argument (`VITE_SENTRY_DSN` in `compose.yaml`), so changing it always needs a rebuild of the web image. `update.sh` keeps it, because the value lives in `.env`. The image adds the DSN's origin (`https://<ANUM_ERRORS_HOST>`) to the CSP's `connect-src` at build time, and only when a DSN is set. Check it from your computer with `curl -sI https://<ANUM_WEB_HOST>/ | grep -i content-security-policy`. `bash infra/oracle/monitoring.sh web-dsn --clear` turns browser reporting off and rebuilds, which also removes the origin from the CSP. `disable` clears it as well when it points at this GlitchTip.
+
+**Test it**: open the web app, open the browser's developer console and run `setTimeout(() => { throw new Error('ANUM web error reporting test') })`. An issue of type `Error` (message `[redacted]`) appears in the browser project within a few seconds, tagged with your `anum.tenant_id`.
 
 ## Uptime Kuma Off the VM
 

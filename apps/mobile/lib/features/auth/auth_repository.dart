@@ -296,6 +296,24 @@ class AuthRepository {
         await api.request('GET', '/api/v1/notification-preferences'),
       );
 
+  /// The caller's own "Remember things from my chats" switch.
+  Future<ChatMemoryPreference> chatMemoryPreference() async =>
+      ChatMemoryPreference.fromJson(
+          await api.request('GET', '/api/v1/me/preferences'));
+
+  Future<ChatMemoryPreference> setRememberConversations(bool remember) async =>
+      ChatMemoryPreference.fromJson(await api.request(
+          'PUT', '/api/v1/me/preferences',
+          body: {'remember_conversations': remember}));
+
+  /// Deletes every memory remembered from the caller's own chats in this
+  /// workspace; returns how many.
+  Future<int> deleteMyChatMemories() async {
+    final result = await api.request(
+        'DELETE', '/api/v1/memories?source_type=conversation');
+    return (result['deleted'] as num?)?.toInt() ?? 0;
+  }
+
   Future<NotificationPreferences> updateNotificationPreferences(
     NotificationPreferences value,
   ) async =>

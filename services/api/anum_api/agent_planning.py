@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from .agent_skills import SkillManifest, SkillRegistry
 from .agent_tools import ToolCall, ToolRegistry
 from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gateway
-from .retrieval import build_task_prompt
+from .retrieval import build_cache_layout_prompt, build_task_prompt
 from .schemas import Task
 
 
@@ -41,7 +41,7 @@ class AgentPlanner:
         selected = self.skills.select(task.prompt, self.tools.names)
         # Planning is agent work: the capable model (docs/model-gateway.md#model-routing).
         planner = route_gateway(self.model_gateway, ModelRoute.CAPABLE)
-        response = await planner.generate_text(build_task_prompt(task.prompt, context_blocks))
+        response = await self._generate(planner, task.prompt, context_blocks)
         call = self._select_tool(task.prompt, selected, response)
         return PlanResult(
             plan=AgentPlan(
@@ -51,6 +51,18 @@ class AgentPlanner:
             ),
             model_response=response,
         )
+
+    @staticmethod
+    async def _generate(planner: ModelGateway, prompt: str, context_blocks: Sequence[str]) -> ModelResponse:
+        """One planning call. A gateway that caches instructions (``anthropic``) gets the
+        stable instructions first, as a cached prefix, and the task last; every other
+        provider gets the single prompt it always has (docs/model-gateway.md)."""
+        layout = build_cache_layout_prompt(prompt, context_blocks)
+        cached = getattr(planner, "generate_with_instructions", None)
+        if layout is not None and getattr(planner, "caches_instructions", False) is True and callable(cached):
+            response: ModelResponse = await cached(layout.instructions, layout.content)
+            return response
+        return await planner.generate_text(build_task_prompt(prompt, context_blocks))
 
     def _select_tool(
         self,

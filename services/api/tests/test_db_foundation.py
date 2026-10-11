@@ -24,6 +24,7 @@ def test_tenant_scoped_tables_include_tenant_id() -> None:
         "integration_configurations",
         "workspace_files",
         "notification_preferences",
+        "user_preferences",
         "audit_records",
         "workspace_invitations",
         "workspaces",

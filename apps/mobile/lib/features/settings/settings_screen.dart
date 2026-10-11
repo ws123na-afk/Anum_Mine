@@ -164,6 +164,8 @@ class _Content extends StatelessWidget {
                       ])),
             _Heading('Notifications'),
             _NotificationCard(controller: controller),
+            _Heading('Chat memory'),
+            _ChatMemoryCard(controller: controller),
             _Heading('Security'),
             Card(
                 child: Column(children: [
@@ -258,6 +260,90 @@ class _NotificationState extends State<_NotificationCard> {
             value: value.desktopEnabled,
             onChanged: (v) => update(copy(desktop: v)))
       ]));
+}
+
+/// "Remember things from my chats" (docs/memory.md#from-conversations):
+/// saved at once, with what it means now and a way to delete the memories
+/// already remembered.
+class _ChatMemoryCard extends StatelessWidget {
+  const _ChatMemoryCard({required this.controller});
+  final SettingsController controller;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final ok = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+                title: const Text('Delete memories from your chats?'),
+                content: const Text(
+                    'Every memory the Assistant remembered from your chats in this workspace is deleted. It no longer appears in search or in answers. This cannot be undone.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      style: FilledButton.styleFrom(
+                          backgroundColor:
+                              Theme.of(dialogContext).colorScheme.error),
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Delete all')),
+                ]));
+    if (ok == true) await controller.deleteChatMemories();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final preference = controller.chatMemory;
+    final busy = controller.chatMemoryBusy;
+    return Card(
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (preference == null)
+        ListTile(
+            leading: const Icon(Icons.psychology_outlined),
+            title: const Text('Remember things from my chats'),
+            subtitle: Text(controller.chatMemoryError ??
+                'Loading your chat memory setting...'),
+            trailing: TextButton(
+                onPressed: busy ? null : controller.reloadChatMemory,
+                child: const Text('Retry')))
+      else ...[
+        SwitchListTile(
+            secondary: const Icon(Icons.psychology_outlined),
+            title: const Text('Remember things from my chats'),
+            subtitle: Text(preference.explanation),
+            isThreeLine: true,
+            value: preference.rememberConversations,
+            onChanged: busy ? null : controller.setRememberConversations),
+        Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 0, 16, 4),
+            child: Text('Status: ${preference.badge}',
+                style: theme.textTheme.labelLarge)),
+      ],
+      if (preference != null && controller.chatMemoryError != null)
+        Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 4),
+            child: Semantics(
+                liveRegion: true,
+                child: Text(controller.chatMemoryError!,
+                    style: TextStyle(color: theme.colorScheme.error)))),
+      if (controller.chatMemoryNotice != null)
+        Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 4),
+            child: Semantics(
+                liveRegion: true,
+                child: Text(controller.chatMemoryNotice!,
+                    style: theme.textTheme.bodySmall))),
+      Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 12),
+          child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: OutlinedButton.icon(
+                  onPressed: busy ? null : () => _confirmDelete(context),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Delete memories from my chats')))),
+    ]));
+  }
 }
 
 class _Heading extends StatelessWidget {

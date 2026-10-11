@@ -65,7 +65,7 @@ The API container defaults to `ANUM_ENVIRONMENT=production`, so these checks app
 
 ### Web container
 
-The web image's nginx sends a CSP of `default-src 'self'` with these exceptions: `script-src 'wasm-unsafe-eval'` and `cdn.jsdelivr.net` plus `connect-src` to `huggingface.co` for the in-browser Kokoro voice (ONNX runtime and model weights); `connect-src` also lists `ANUM_CSP_CONNECT_SRC` (the API origin); `style-src 'unsafe-inline'` for React style attributes; `frame-ancestors 'none'`, `object-src 'none'`. It also sends HSTS, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and a `Permissions-Policy` that allows only the microphone (voice) for the page's own origin.
+The web image's nginx sends a CSP of `default-src 'self'` with these exceptions: `script-src 'wasm-unsafe-eval'` and `cdn.jsdelivr.net` plus `connect-src` to `huggingface.co` for the in-browser Kokoro voice (ONNX runtime and model weights); `connect-src` also lists `ANUM_CSP_CONNECT_SRC` (the API origin) and, only in an image built with `VITE_SENTRY_DSN`, that DSN's origin for browser error reports ([Observability](observability.md#browser-errors-web-app)); `style-src 'unsafe-inline'` for React style attributes; `frame-ancestors 'none'`, `object-src 'none'`. It also sends HSTS, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and a `Permissions-Policy` that allows only the microphone (voice) for the page's own origin.
 
 ## Scanning in CI
 

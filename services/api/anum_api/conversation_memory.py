@@ -23,6 +23,9 @@ takes longer than ``ANUM_CONVERSATION_MEMORY_RECALL_TIMEOUT_SECONDS`` is skipped
 
 ``ANUM_CONVERSATION_MEMORY_ENABLED=false`` turns both off. A tenant turns extraction off
 with its memory governance: an ``allowed_source_types`` list without ``"conversation"``.
+A user turns both off for themselves with "Remember things from my chats"
+(``remember_conversations`` in ``anum_api.user_preferences``); a preference that cannot
+be read counts as off.
 """
 
 from __future__ import annotations
@@ -198,9 +201,23 @@ def local_facts(question: str, max_facts: int | None = None) -> list[str]:
 # ----------------------------------------------------------------------------- gating
 
 
-def _has_permission(context: TenantContext, permission: Permission) -> bool:
+def has_permission(context: TenantContext, permission: Permission) -> bool:
     claimed = {role.strip().lower() for role in context.roles}
     return any(permission in ROLE_PERMISSIONS.get(role, frozenset()) for role in Role if role.value in claimed)
+
+
+_has_permission = has_permission
+
+
+def user_allows_conversation_memory(context: TenantContext) -> bool:
+    """The user's own "Remember things from my chats" switch; unreadable counts as off."""
+    from .user_preferences import remembers_conversations
+
+    try:
+        return remembers_conversations(context)
+    except Exception as exc:
+        _log_failure("preference", exc)
+        return False
 
 
 def governance_allows_conversation_memory(context: TenantContext) -> bool:
@@ -215,14 +232,17 @@ def governance_allows_conversation_memory(context: TenantContext) -> bool:
 
 
 def extraction_enabled(context: TenantContext) -> bool:
-    """Remember from this user's chats: setting on, may create memories, tenant allows it."""
+    """Remember from this user's chats: setting on, may create memories, tenant allows
+    it, and the user has not turned it off for themselves."""
     if not settings.conversation_memory_enabled or not _has_permission(context, Permission.MEMORY_CREATE):
         return False
     try:
-        return governance_allows_conversation_memory(context)
+        if not governance_allows_conversation_memory(context):
+            return False
     except Exception as exc:  # unknown policy: do not remember
         _log_failure("governance", exc)
         return False
+    return user_allows_conversation_memory(context)
 
 
 # ----------------------------------------------------------------------------- extract
@@ -525,6 +545,7 @@ async def recall_memories(
     Bounded by ``conversation_memory_recall_k`` memories and
     ``conversation_memory_recall_chars`` characters. Never raises: recall that fails,
     exhausts the budget or times out is skipped and the question is answered without it.
+    Nothing is recalled for a user who turned "Remember things from my chats" off.
     """
     from .retrieval import Retriever, SourceType, build_embedder
     from .retrieval_api import default_model_gateway
@@ -534,6 +555,9 @@ async def recall_memories(
     if not settings.conversation_memory_enabled or top_k <= 0 or max_chars <= 0 or not question.strip():
         return MemoryRecall()
     if not _has_permission(context, Permission.MEMORY_READ):
+        return MemoryRecall()
+    # The user's own switch turns recall off too (no embedding call is made).
+    if not user_allows_conversation_memory(context):
         return MemoryRecall()
     try:
         retriever = Retriever(

@@ -6,6 +6,7 @@ import type { ApiCurrentMembership } from './policy';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
 import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
+import * as chatMemory from './chatMemory';
 
 // The one API base URL for every module. Deployments compile VITE_ANUM_API_URL in (apps/web/Dockerfile, infra/oracle/compose.yaml).
 export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
@@ -190,7 +191,12 @@ export async function getSkillInstallations(): Promise<SkillInstallation[]> { re
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
 export async function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }); }
 export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }
-export async function searchMemories(query: string): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query), { method: 'GET' }); }
+export async function searchMemories(query: string, onlyChats = false): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query, undefined, onlyChats), { method: 'GET' }); }
+/** The caller's own preferences, including "Remember things from my chats". */
+export async function getMyPreferences(): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'GET' }); }
+export async function saveMyPreferences(rememberConversations: boolean): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'PUT', body: JSON.stringify({ remember_conversations: rememberConversations }) }); }
+/** Deletes every memory remembered from the caller's own chats in this workspace. */
+export async function deleteMyChatMemories(): Promise<{ deleted: number }> { return request(chatMemory.CHAT_MEMORIES_PATH, { method: 'DELETE' }); }
 export async function getRetrievalStatus(): Promise<capabilities.RetrievalIndexStatus> { return request('/api/v1/retrieval/status', { method: 'GET' }); }
 export async function reindexRetrieval(): Promise<capabilities.ReindexResult> { return request('/api/v1/retrieval/index', { method: 'POST' }); }
 export async function getCurrentWorkspace(): Promise<WorkspaceInfo> { return request('/api/v1/workspaces/current', { method: 'GET' }); }

@@ -698,6 +698,22 @@ class NotificationPreferenceRecord(Base):
     __table_args__ = (_workspace_fk("notification_preferences"),)
 
 
+class UserPreferenceRecord(Base):
+    """One user's preferences in one tenant (migration ``0025_user_preferences``).
+
+    Private to the user: the RLS policy checks ``anum.user_id`` as well as the tenant.
+    """
+
+    __tablename__ = "user_preferences"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    remember_conversations: Mapped[bool] = mapped_column(nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_tenant_fk("user_preferences"),)
+
+
 # Voice and automation (migration 0009). Voice rows are private to one user: their RLS
 # policies check ``anum.user_id`` as well as the tenant and workspace.
 

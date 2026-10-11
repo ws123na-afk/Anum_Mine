@@ -403,6 +403,20 @@ def test_task_prompt_is_unchanged_without_blocks_and_rules_precede_blocks() -> N
     assert prompt.index(UNTRUSTED_DATA_RULES) < prompt.index("<<untrusted-data id=1>>")
 
 
+def test_cache_layout_puts_the_same_instructions_first_and_the_task_last() -> None:
+    from anum_api.retrieval import build_cache_layout_prompt
+
+    assert build_cache_layout_prompt("Do the thing", []) is None
+    block = "<<untrusted-data id=1>>\nx\n<<end-untrusted-data id=1>>"
+    first = build_cache_layout_prompt("Do the thing", [block])
+    second = build_cache_layout_prompt("Something else", [block])
+    assert first is not None and second is not None
+    assert first.instructions == second.instructions
+    assert UNTRUSTED_DATA_RULES in first.instructions and "Do the thing" not in first.instructions
+    assert first.content.index(block) < first.content.index("Do the thing")
+    assert first.content.endswith("Task:\nDo the thing")
+
+
 # --------------------------------------------------------------------------- prompt injection through the runtime
 
 

@@ -16,8 +16,7 @@ Built ``CONCURRENTLY`` (outside the migration transaction) so writes continue du
 build; an invalid index left by an interrupted build is dropped first. Expand only: the
 previous release keeps working (its rare racing insert is refused instead of stored).
 
-Numbered 0023 on a parallel branch: re-chain ``down_revision`` onto the newest migration
-when this lands (CLAUDE.md, parallel migrations).
+Chained after ``0022_developer_requests``.
 """
 
 import sqlalchemy as sa

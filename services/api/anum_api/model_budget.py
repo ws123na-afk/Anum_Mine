@@ -427,6 +427,19 @@ class BudgetedModelGateway:
         self._record(response)
         return response
 
+    async def generate_with_instructions(self, instructions: str, prompt: str) -> ModelResponse:
+        """Stable instructions then a prompt (the planner's cache layout), budgeted.
+
+        A gateway without the method gets them as one prompt."""
+        check_model_budget(self.context, now=self._clock())
+        generate = getattr(self.inner, "generate_with_instructions", None)
+        if callable(generate):
+            response: ModelResponse = await generate(instructions, prompt)
+        else:
+            response = await self.inner.generate_text(f"{instructions}\n\n{prompt}")
+        self._record(response)
+        return response
+
     async def generate_structured(
         self, prompt: str, response_model: type[StructuredModel]
     ) -> tuple[StructuredModel, ModelResponse]:

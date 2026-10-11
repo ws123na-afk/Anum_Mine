@@ -32,3 +32,13 @@
 .memorySource { color: var(--d-faint); display: block; font-size: 12px; margin-top: var(--d-s1); overflow-wrap: anywhere; }
 .memoryChatLink { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13px; gap: var(--d-s1); min-height: 44px; padding: 0 var(--d-s3); white-space: nowrap; width: fit-content; }
 .memoryChatLink svg { height: 16px; width: 16px; }
+
+/* Memory view: "All memories" / "From my chats", and deleting every memory from the caller's chats. */
+.memoryFilter { align-items: center; display: flex; flex-wrap: wrap; gap: 0 var(--d-s4); min-width: 0; }
+.memoryFilter > span { color: var(--d-muted); font-size: 13px; }
+.memoryFilter label { align-items: center; cursor: pointer; display: inline-flex; font-size: 14px; gap: var(--d-s2); min-height: 44px; }
+.memoryFilter input { accent-color: var(--d-violet); height: 18px; margin: 0; min-height: 0; width: 18px; }
+.memoryBulk { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; margin-bottom: var(--d-s4); }
+.memoryBulk .featureMeta { flex: 1 1 260px; }
+.memoryBulk .actions { margin-top: 0; }
+.moduleIntro ~ .chatMemorySetting { margin-bottom: var(--d-s4); }

@@ -43,6 +43,7 @@ TABLES_IN_DELETE_ORDER = (
     "model_budgets",
     "workspace_approval_policies",
     "notification_preferences",
+    "user_preferences",
     "workspace_files",
     "integration_configurations",
     "routing_targets",

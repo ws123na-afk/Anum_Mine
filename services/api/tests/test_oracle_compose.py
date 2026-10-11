@@ -966,3 +966,81 @@ def test_monitoring_script_edits_env_through_configure_env(tmp_path: Path) -> No
     assert run("valid", str(env_file), "ANUM_ERRORS_HOST", stdin="https://errors.example.org\n").returncode == 1
     assert run("valid", str(env_file), "ANUM_ERRORS_HOST", stdin="anum-errors-me.duckdns.org\n").returncode == 0
     assert not (ORACLE / "__pycache__").exists()
+
+
+# --------------------------------------------------------------------------- browser error reporting
+
+
+def test_web_error_reporting_is_an_optional_build_argument_with_a_build_time_csp_origin() -> None:
+    web = _services()["web"]
+    args = web["build"]["args"]
+    assert args["VITE_SENTRY_DSN"] == "${ANUM_WEB_SENTRY_DSN:-}"
+    assert _example()["ANUM_WEB_SENTRY_DSN"] == ""
+    # The runtime connect-src stays the API and Keycloak only; the DSN origin is fixed at build.
+    assert "SENTRY" not in _env(web)["ANUM_CSP_CONNECT_SRC"]
+    dockerfile = (REPO_ROOT / "apps" / "web" / "Dockerfile").read_text(encoding="utf-8")
+    template = (REPO_ROOT / "apps" / "web" / "nginx" / "default.conf.template").read_text(encoding="utf-8")
+    assert "ARG VITE_SENTRY_DSN=\n" in dockerfile and "VITE_SENTRY_DSN=$VITE_SENTRY_DSN" in dockerfile
+    assert "apps/web/scripts/sentry-csp-origin.ts" in dockerfile
+    assert 'sed "s|__ANUM_CSP_ERROR_REPORTING_SRC__|${origin}|"' in dockerfile
+    csp = next(line for line in template.splitlines() if line.strip().startswith("set $csp"))
+    connect = next(part for part in csp.split(";") if part.strip().startswith("connect-src"))
+    # Only connect-src names the reporting origin; script-src and the rest do not change.
+    assert "__ANUM_CSP_ERROR_REPORTING_SRC__" in connect
+    assert csp.count("__ANUM_CSP_ERROR_REPORTING_SRC__") == 1
+
+
+@pytest.mark.parametrize(
+    ("dsn", "expected"),
+    [
+        ("", ""),
+        ("https://examplekey@errors.example.org/4", "https://errors.example.org"),
+        ("https://examplekey@errors.example.org:8443/4", "https://errors.example.org:8443"),
+    ],
+)
+def test_csp_origin_script_prints_only_a_validated_origin(dsn: str, expected: str) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    result = subprocess.run(  # noqa: S603
+        [node, "--experimental-strip-types", str(REPO_ROOT / "apps" / "web" / "scripts" / "sentry-csp-origin.ts")],
+        env={**os.environ, "VITE_SENTRY_DSN": dsn},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    ["http://examplekey@errors.example.org/4", "https://errors.example.org/4", "https://examplekey@errors.example.org/4?x=1;evil"],
+)
+def test_csp_origin_script_refuses_bad_dsns_without_echoing_them(dsn: str) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    result = subprocess.run(  # noqa: S603
+        [node, "--experimental-strip-types", str(REPO_ROOT / "apps" / "web" / "scripts" / "sentry-csp-origin.ts")],
+        env={**os.environ, "VITE_SENTRY_DSN": dsn},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert result.stdout.strip() == ""
+    assert "examplekey" not in result.stderr
+
+
+def test_monitoring_script_sets_the_web_dsn_and_rebuilds_the_web_image() -> None:
+    script = MONITORING_SH.read_text(encoding="utf-8")
+    assert "web-dsn)" in script and "cmd_web_dsn" in script
+    body = script[script.index("cmd_web_dsn() {") : script.index("cmd_enable() {")]
+    # Public https DSN for this GlitchTip only, then a rebuild (the DSN is compiled in).
+    assert 'parts.scheme == "https"' in body and 'os.environ["ERRORS_HOST"]' in body
+    assert "set_env_value ANUM_WEB_SENTRY_DSN" in body
+    assert "dc up -d --build --no-deps web" in body
+    caddy = (ORACLE / "monitoring.caddy").read_text(encoding="utf-8")
+    # Browsers reach GlitchTip's ingest without the basic-auth login.
+    assert "@ingest path_regexp ingest ^/api/[0-9]+/(envelope|store|security|minidump)/$" in caddy

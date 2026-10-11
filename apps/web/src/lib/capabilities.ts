@@ -8,12 +8,14 @@ export interface RetrievalSourceView { source_type: 'memory' | 'file'; source_id
 export interface RetrievalIndexStatus { embedding_model: string; indexed: number; failed: number; skipped: number; stale: number; chunks: number; sources: RetrievalSourceView[] }
 export interface ReindexResult { indexed: number; reused: number; failed: number; removed: number; remaining: number; status: RetrievalIndexStatus }
 
-/** Path for GET /api/v1/memories. The API's `query` filter is a text match; blank means "all". */
-export function memorySearchPath(query: string, taskId?: string): string {
+/** Path for GET /api/v1/memories. The API's `query` filter is a text match; blank means "all".
+ * `onlyChats` keeps the caller's own memories remembered from their chats (`source_type=conversation`). */
+export function memorySearchPath(query: string, taskId?: string, onlyChats = false): string {
   const params = new URLSearchParams();
   const q = query.trim();
   if (q) params.set('query', q);
   if (taskId) params.set('task_id', taskId);
+  if (onlyChats) params.set('source_type', 'conversation');
   const text = params.toString();
   return text ? `/api/v1/memories?${text}` : '/api/v1/memories';
 }
