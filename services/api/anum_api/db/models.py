@@ -867,7 +867,7 @@ class AutomationWorkflowRecord(Base, WorkspaceScopedMixin):
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     version: Mapped[int] = mapped_column(nullable=False)
-    # Migration 0031: allow | skip | cancel_previous, and the last editor.
+    # Migration 0034: allow | skip | cancel_previous, and the last editor.
     overlap_policy: Mapped[str] = mapped_column(
         String(20), nullable=False, default="allow", server_default=text("'allow'")
     )
@@ -905,7 +905,7 @@ class AutomationScheduleRecord(Base, WorkspaceScopedMixin):
     enabled: Mapped[bool] = mapped_column(nullable=False)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Migration 0031: what the scheduler did at the last fire time.
+    # Migration 0034: what the scheduler did at the last fire time.
     last_outcome: Mapped[str | None] = mapped_column(String(40))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -925,7 +925,7 @@ class AutomationRunRecord(Base, WorkspaceScopedMixin):
     retry_of: Mapped[str | None] = mapped_column(String(80))
     current_step: Mapped[int] = mapped_column(nullable=False, default=0)
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
-    # Migration 0031: the workflow version the run executed (null for older runs).
+    # Migration 0034: the workflow version the run executed (null for older runs).
     workflow_version: Mapped[int | None] = mapped_column()
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -984,7 +984,7 @@ class ConversationTurnRecord(Base, WorkspaceScopedMixin):
 
 
 class AutonomyGuardrailsRecord(Base):
-    """The organization's autonomy floors (migration ``0031_autonomy``, docs/autonomy.md)."""
+    """The organization's autonomy floors (migration ``0034_autonomy``, docs/autonomy.md)."""
 
     __tablename__ = "autonomy_guardrails"
 
@@ -997,7 +997,7 @@ class AutonomyGuardrailsRecord(Base):
 
 
 class WorkspaceAutonomyRecord(Base):
-    """One workspace's autonomy settings (migration ``0031_autonomy``)."""
+    """One workspace's autonomy settings (migration ``0034_autonomy``)."""
 
     __tablename__ = "workspace_autonomy_settings"
 

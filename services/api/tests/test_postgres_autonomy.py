@@ -1,4 +1,4 @@
-"""Autonomy policy in PostgreSQL (migration 0031_autonomy, docs/autonomy.md).
+"""Autonomy policy in PostgreSQL (migration 0034_autonomy, docs/autonomy.md).
 
 The API runs as the non-owner ``anum_test_app`` role through the real repository, so the
 forced RLS policies decide what each workspace and tenant can see and write.

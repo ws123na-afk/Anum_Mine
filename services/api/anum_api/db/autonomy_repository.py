@@ -1,4 +1,4 @@
-"""PostgreSQL store for the autonomy policy (migration ``0031_autonomy``, docs/autonomy.md).
+"""PostgreSQL store for the autonomy policy (migration ``0034_autonomy``, docs/autonomy.md).
 
 Bound to the caller's session, whose RLS context names the tenant and workspace; every
 statement repeats both, so another workspace's rows are neither read nor written even if

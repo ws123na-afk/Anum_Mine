@@ -522,11 +522,11 @@ def test_whatsapp_migration_is_expand_only_with_forced_rls_and_narrow_routing() 
 
 def test_autonomy_migration_is_expand_only_with_forced_rls_on_every_table() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0031_autonomy.py").read_text(encoding="utf-8")
-    assert 'revision = "0031_autonomy"' in revision_text and len("0031_autonomy") <= 32
-    assert 'down_revision = "0030_integration_health"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0031_autonomy.py"]
-    assert not [path for path in others if 'down_revision = "0030_integration_health"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0034_autonomy.py").read_text(encoding="utf-8")
+    assert 'revision = "0034_autonomy"' in revision_text and len("0034_autonomy") <= 32
+    assert 'down_revision = "0033_whatsapp"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0034_autonomy.py"]
+    assert not [path for path in others if 'down_revision = "0033_whatsapp"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     for table in (
         "autonomy_guardrails", "workspace_autonomy_settings", "autonomy_rules", "autonomy_proposals",

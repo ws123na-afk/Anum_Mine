@@ -16,15 +16,15 @@ workspace tables); no role bypasses it and nothing is granted to a cross-tenant 
 Expand only: new tables; the previous release ignores them and keeps asking for every
 high-risk action, as before.
 
-Chained after ``0030_integration_health``.
+Chained after ``0033_whatsapp``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0031_autonomy"
-down_revision = "0030_integration_health"
+revision = "0034_autonomy"
+down_revision = "0033_whatsapp"
 branch_labels = None
 depends_on = None
 
