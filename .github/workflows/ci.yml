@@ -165,6 +165,13 @@ jobs:
       - uses: actions/checkout@v7
       - run: docker compose -f infra/docker/compose.yaml config
       - run: docker compose -f infra/docker/compose.yaml --profile app config
+      # The one-VM deployment (docs/deploy-oracle.md), with the placeholder .env.example.
+      - run: docker compose -f infra/oracle/compose.yaml --env-file infra/oracle/.env.example config -q
+      - run: docker compose -f infra/oracle/compose.yaml --env-file infra/oracle/.env.example --profile ai --profile jobs config -q
+      - name: ShellCheck the one-VM scripts
+        run: |
+          shellcheck --version
+          shellcheck -x infra/oracle/*.sh
 
   security:
     name: Security scans

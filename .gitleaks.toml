@@ -34,3 +34,10 @@ condition = "AND"
 paths = ['''^render\.yaml$''', '''^services/api/tests/test_render_blueprint\.py$''']
 regexTarget = "secret"
 regexes = ['''^ANUM_[A-Z0-9_]+$''']
+
+[[allowlists]]
+description = "One-VM compose test names environment variables (\"ANUM_S3_SECRET_KEY\"), never their values"
+condition = "AND"
+paths = ['''^services/api/tests/test_oracle_compose\.py$''']
+regexTarget = "secret"
+regexes = ['''^ANUM_[A-Z0-9_]+$''']
