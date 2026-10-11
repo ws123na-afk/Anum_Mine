@@ -200,7 +200,7 @@ def test_service_account_setting_is_validated_without_echoing_the_key() -> None:
     assert account.project_id == "anum-example" and "PRIVATE KEY" not in repr(account)
     for bad, expected in (
         ("not json", "JSON key file"),
-        ('{"type": "authorized_user"}', '"type": "service_account"'),
+        ('{"type": "authorized_user"}', "Google service-account key"),
         ('{"type": "service_account", "project_id": "p"}', "missing client_email, private_key"),
         (
             '{"type": "service_account", "project_id": "p", "client_email": "e", "private_key": "nope"}',

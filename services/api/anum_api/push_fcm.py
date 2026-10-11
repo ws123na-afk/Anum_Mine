@@ -61,7 +61,7 @@ def parse_service_account(raw: str) -> ServiceAccount:
     if not isinstance(data, dict):
         raise ValueError("ANUM_FCM_SERVICE_ACCOUNT_JSON must be a JSON object")
     if data.get("type") != "service_account":
-        raise ValueError('ANUM_FCM_SERVICE_ACCOUNT_JSON must have "type": "service_account"')
+        raise ValueError("ANUM_FCM_SERVICE_ACCOUNT_JSON must be a Google service-account key (its type field says so)")
     missing = [key for key in ("project_id", "client_email", "private_key") if not str(data.get(key) or "").strip()]
     if missing:
         raise ValueError("ANUM_FCM_SERVICE_ACCOUNT_JSON is missing " + ", ".join(missing))
