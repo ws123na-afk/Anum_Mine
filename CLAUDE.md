@@ -33,6 +33,8 @@ The owner wants finished features, not placeholders. Before calling any page or 
 - `anum-verify` — run the right local checks for what you changed.
 - `steward` — how to drive a red PR or `main` back to green.
 - `anum-release-gate` — the evidence a release needs before it ships.
+- `mockup-to-flutter` — turn a mockup image into an ANUM Flutter screen with our tokens, catalog, responsive rules and tests.
+- `flutter-add-widget-test`, `flutter-build-responsive-layout`, `flutter-fix-layout-issues`, `dart-run-static-analysis` — official Flutter/Dart team skills, vendored and pinned; ANUM rules win where they differ. Sources, licenses and rejected skills: `.claude/skills/SOURCES.md`.
 
 Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `code-review`. Prefer Superpowers' planning, TDD, systematic-debugging and verification-before-completion skills for non-trivial work.
 
