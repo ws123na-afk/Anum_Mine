@@ -25,7 +25,7 @@ from .errors import ApplicationError, ErrorCode, application_error_handler, erro
 from .events import CanonicalEventName, create_event
 from .integrations import IntegrationConfiguration, IntegrationConfigurationView, IntegrationHealth, default_integration_registry
 from .integration_tools import configured_external_handler
-from .model_gateway import build_model_gateway
+from .model_gateway import build_default_model_gateway
 from .memory import (
     MemoryAccess,
     MemoryCreate,
@@ -167,12 +167,7 @@ app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(model_budget_router)
 repository = memory_repository
-model_gateway = build_model_gateway(
-    settings.model_provider,
-    api_key=settings.model_api_key,
-    model=settings.model_name,
-    base_url=settings.model_base_url,
-)
+model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
 tool_registry = default_tool_registry(configured_external_handler(settings))
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,

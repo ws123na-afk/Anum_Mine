@@ -170,6 +170,11 @@ class Telemetry:
             unit="{token}",
             description="Model tokens by provider, model and gen_ai.token.type.",
         )
+        self.model_cache_tokens = meter.create_counter(
+            "anum.model.cache.tokens",
+            unit="{token}",
+            description="Input tokens written to or read from the provider's prompt cache.",
+        )
         self.model_cost = meter.create_counter(
             "anum.model.estimated_cost_usd",
             unit="{USD}",
@@ -248,6 +253,8 @@ class Telemetry:
         output_tokens: int | None = None,
         estimated_cost_usd: float | None = None,
         error_type: str | None = None,
+        cache_creation_input_tokens: int | None = None,
+        cache_read_input_tokens: int | None = None,
     ) -> None:
         attributes: dict[str, str] = {
             "gen_ai.provider.name": provider,
@@ -263,6 +270,15 @@ class Telemetry:
             self.model_tokens.add(input_tokens, {**usage_attributes, "gen_ai.token.type": "input"})
         if output_tokens:
             self.model_tokens.add(output_tokens, {**usage_attributes, "gen_ai.token.type": "output"})
+        # Prompt-cache tokens are a breakdown of the input tokens above (not added twice).
+        if cache_creation_input_tokens:
+            self.model_cache_tokens.add(
+                cache_creation_input_tokens, {**usage_attributes, "anum.model.cache.operation": "write"}
+            )
+        if cache_read_input_tokens:
+            self.model_cache_tokens.add(
+                cache_read_input_tokens, {**usage_attributes, "anum.model.cache.operation": "read"}
+            )
         if estimated_cost_usd:
             self.model_cost.add(estimated_cost_usd, usage_attributes)
 
@@ -323,6 +339,8 @@ def annotate_model_span(
     output_tokens: int | None = None,
     estimated_cost_usd: float | None = None,
     error_type: str | None = None,
+    cache_creation_input_tokens: int | None = None,
+    cache_read_input_tokens: int | None = None,
 ) -> None:
     if not span.is_recording():
         return
@@ -337,6 +355,10 @@ def annotate_model_span(
         span.set_attribute("gen_ai.usage.output_tokens", output_tokens)
     if estimated_cost_usd is not None:
         span.set_attribute("anum.model.estimated_cost_usd", estimated_cost_usd)
+    if cache_creation_input_tokens:
+        span.set_attribute("gen_ai.usage.cache_creation.input_tokens", cache_creation_input_tokens)
+    if cache_read_input_tokens:
+        span.set_attribute("gen_ai.usage.cache_read.input_tokens", cache_read_input_tokens)
     if status == "ok":
         return
     # The error is reduced to its class: provider error messages can echo request text.

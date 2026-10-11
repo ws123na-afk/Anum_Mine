@@ -66,6 +66,8 @@ refuses "must be an https origin" --set-string 'config.ANUM_CORS_ORIGINS=["*"]'
 refuses "ANUM_REPOSITORY_BACKEND must be postgresql" --set config.ANUM_REPOSITORY_BACKEND=memory
 refuses "mock is a release blocker" --set config.ANUM_ENVIRONMENT=production --set config.ANUM_MODEL_PROVIDER=mock
 refuses "files on one pod's disk" --set config.ANUM_OBJECT_STORAGE_BACKEND=local
+refuses "ANUM_MODEL_FAST_EFFORT must be" --set config.ANUM_MODEL_FAST_EFFORT=extreme
+refuses "ANUM_MODEL_CAPABLE_EFFORT must be" --set config.ANUM_MODEL_CAPABLE_EFFORT=fast
 refuses "ANUM_KEYCLOAK_ISSUER" --set config.ANUM_KEYCLOAK_ISSUER=http://id.anum.example/realms/anum
 refuses "Keycloak admin credential" --set config.KEYCLOAK_ADMIN_PASSWORD=admin
 refuses "Keycloak admin credential" --set extraEnv.KC_BOOTSTRAP_ADMIN_PASSWORD=admin

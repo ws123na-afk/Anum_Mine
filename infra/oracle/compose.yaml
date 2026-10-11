@@ -212,6 +212,12 @@ services:
       # Operator allow-list for a private model host, `ollama:11434` with the ai profile.
       ANUM_MODEL_ALLOWED_HOSTS: ${ANUM_MODEL_ALLOWED_HOSTS:-}
       ANUM_MODEL_TIMEOUT_SECONDS: ${ANUM_MODEL_TIMEOUT_SECONDS:-60}
+      # Model routing (docs/model-gateway.md#model-routing); empty names keep
+      # ANUM_MODEL_NAME. An empty effort sends none, so it is not defaulted when empty.
+      ANUM_MODEL_FAST_NAME: ${ANUM_MODEL_FAST_NAME:-}
+      ANUM_MODEL_CAPABLE_NAME: ${ANUM_MODEL_CAPABLE_NAME:-}
+      ANUM_MODEL_FAST_EFFORT: ${ANUM_MODEL_FAST_EFFORT-low}
+      ANUM_MODEL_CAPABLE_EFFORT: ${ANUM_MODEL_CAPABLE_EFFORT-}
       # Fires due automation schedules; anum_app is granted anum_maintenance by the
       # bootstrap (WITH INHERIT FALSE, SET TRUE).
       ANUM_AUTOMATION_SCHEDULER_ENABLED: "true"

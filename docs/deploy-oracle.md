@@ -222,7 +222,7 @@ Create ANUM users as on Render: realm **anum** → **Users** → **Add user**, a
 
 ## AI Model
 
-The VM has no GPU. Staging starts with `ANUM_MODEL_PROVIDER=mock` (placeholder answers; production refuses it in the release gate). Two real options:
+The VM has no GPU. Staging starts with `ANUM_MODEL_PROVIDER=mock` (placeholder answers; production refuses it in the release gate). Three real options:
 
 **Ollama on the VM (profile `ai`).** Free and private: prompts never leave the VM. Honest about speed: on 4 Ampere cores a 3-billion-parameter model (the default `qwen2.5:3b`, quantized, about 2 GB) produces in the order of a few to ten words per second, and a long answer takes tens of seconds; 7B models are noticeably slower and need about 5 GB of memory. Good enough to try ANUM's agent flow, not to serve many people. This was not measured on an A1 from the build environment: time a few tasks yourself. In `.env`:
 
@@ -239,6 +239,8 @@ OLLAMA_MODEL=qwen2.5:3b
 then `cd ~/anum/infra/oracle && docker compose up -d`. `ollama-pull` downloads the model and `nomic-embed-text` (retrieval embeddings with Ollama). `ANUM_MODEL_ALLOWED_HOSTS` is the operator allow-list that lets the API's SSRF guard call this private host ([Model gateway](model-gateway.md#outbound-guard-ssrf)); every workspace owner can then choose it too. Ollama has no authentication; it is reachable only on the compose networks.
 
 **A hosted OpenAI-compatible API.** Fast, but prompts leave the VM. Some providers offer free tiers with OpenAI-compatible endpoints (at the time of writing, for example, Google's Gemini API, Groq, and OpenRouter's free models); their rate limits, model lists and data-use terms change, and free tiers may use your prompts for training: read them before you send tenant data. In `.env`: `ANUM_MODEL_PROVIDER=openai-compatible`, `ANUM_MODEL_BASE_URL=https://<provider>/.../v1`, `ANUM_MODEL_NAME=<model>`, `ANUM_MODEL_API_KEY=<key>`, then `docker compose up -d api`. Set monthly budgets through the owner screens or `/api/v1/model-budgets` ([Model gateway](model-gateway.md#monthly-budgets)).
+
+**Claude through the native Anthropic API.** Prompts leave the VM; repeated prompt prefixes are cached and billed at the cache rate. In `.env`: `ANUM_MODEL_PROVIDER=anthropic` and `ANUM_MODEL_API_KEY=<key>`, keeping `ANUM_MODEL_NAME` and `ANUM_MODEL_BASE_URL` at the example's defaults (the provider then uses `https://api.anthropic.com`, `claude-haiku-5-5` for chat and voice replies and `claude-sonnet-5-5` for planning), then `docker compose up -d api`. `ANUM_MODEL_FAST_NAME`, `ANUM_MODEL_CAPABLE_NAME`, `ANUM_MODEL_FAST_EFFORT` and `ANUM_MODEL_CAPABLE_EFFORT` change the routing ([Model routing](model-gateway.md#model-routing)).
 
 ## Check the Deployment
 

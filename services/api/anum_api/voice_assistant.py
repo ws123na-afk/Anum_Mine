@@ -14,7 +14,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from .model_gateway import ChatMessage, ModelGateway
+from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .schemas import ApprovalStatus, Task, TaskStatus
 
@@ -236,5 +236,5 @@ async def answer_question(
         voice_rules(name, facts),
         label_untrusted(question, source=Provenance.USER_SPEECH, origin="voice"),
     )
-    response = await gateway.generate_text(prompt)
+    response = await route_gateway(gateway, ModelRoute.FAST).generate_text(prompt)
     return response.text.strip()[:MAX_REPLY_CHARS]

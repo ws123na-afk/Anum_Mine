@@ -3,10 +3,28 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class ModelPrice(BaseModel):
-    """USD price per million tokens for one model, used for estimated cost accounting."""
+    """USD price per million tokens for one model, used for estimated cost accounting.
+
+    Prompt-cache prices (Anthropic) default to 1.25x the input price for cache writes
+    (5-minute entries) and 0.1x for cache reads; set them where a model differs.
+    """
 
     input_per_million: float = Field(ge=0)
     output_per_million: float = Field(ge=0)
+    cache_write_per_million: float | None = Field(default=None, ge=0)
+    cache_read_per_million: float | None = Field(default=None, ge=0)
+
+    @property
+    def cache_write_price(self) -> float:
+        if self.cache_write_per_million is not None:
+            return self.cache_write_per_million
+        return self.input_per_million * 1.25
+
+    @property
+    def cache_read_price(self) -> float:
+        if self.cache_read_per_million is not None:
+            return self.cache_read_per_million
+        return self.input_per_million * 0.1
 
 
 # Published list prices (USD per 1M tokens) for the default hosted models. They are
@@ -17,6 +35,12 @@ DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
     "gpt-4.1-nano": ModelPrice(input_per_million=0.10, output_per_million=0.40),
     "gpt-4o": ModelPrice(input_per_million=2.50, output_per_million=10.00),
     "gpt-4o-mini": ModelPrice(input_per_million=0.15, output_per_million=0.60),
+    # Anthropic list prices; Claude Opus 5.5 reads its cache at $0.20 (0.05x input).
+    "claude-haiku-5-5": ModelPrice(input_per_million=0.10, output_per_million=0.50),
+    "claude-sonnet-5-5": ModelPrice(input_per_million=2.00, output_per_million=10.00),
+    "claude-opus-5-5": ModelPrice(
+        input_per_million=4.00, output_per_million=20.00, cache_read_per_million=0.20
+    ),
     "text-embedding-3-small": ModelPrice(input_per_million=0.02, output_per_million=0.0),
     "text-embedding-3-large": ModelPrice(input_per_million=0.13, output_per_million=0.0),
 }
@@ -46,7 +70,9 @@ class Settings(BaseSettings):
     oidc_leeway_seconds: int = 30
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     # Model provider: "mock" (default, placeholder text), "openai-compatible" (needs
-    # ANUM_MODEL_API_KEY) or "ollama" (free, local, no key). For Ollama set
+    # ANUM_MODEL_API_KEY), "anthropic" (the native Messages API with prompt caching;
+    # needs ANUM_MODEL_API_KEY, base URL defaults to https://api.anthropic.com) or
+    # "ollama" (free, local, no key). For Ollama set
     # ANUM_MODEL_PROVIDER=ollama, ANUM_MODEL_NAME=llama3.2 (or qwen2.5) and optionally
     # ANUM_MODEL_BASE_URL (defaults to http://localhost:11434/v1 for ollama).
     # The task runtime and voice assistant build their gateway from these values at
@@ -55,6 +81,17 @@ class Settings(BaseSettings):
     model_api_key: str | None = None
     model_name: str = "gpt-4.1-mini"
     model_base_url: str = "https://api.openai.com/v1"
+    # Model routing (docs/model-gateway.md#model-routing): chat and voice quick replies
+    # use the fast model, task planning and agent runs the capable one. Empty means
+    # ANUM_MODEL_NAME for both, as before; with ANUM_MODEL_PROVIDER=anthropic and no
+    # ANUM_MODEL_NAME the defaults are claude-haiku-5-5 (fast) and claude-sonnet-5-5.
+    model_fast_name: str = ""
+    model_capable_name: str = ""
+    # Anthropic only: output_config.effort per route ("" sends none, the model's
+    # default). "low" keeps quick replies quick on models that think by default; clear
+    # it for a fast model without effort support (claude-haiku-4-5).
+    model_fast_effort: str = Field(default="low", pattern="^(|low|medium|high|xhigh|max)$")
+    model_capable_effort: str = Field(default="", pattern="^(|low|medium|high|xhigh|max)$")
     # Gateway hardening: per-attempt timeout, bounded retries with exponential backoff
     # and full jitter (timeouts, connection errors, 429 and 5xx only), and the cap on
     # how long a provider's Retry-After header may ask us to wait before we give up.

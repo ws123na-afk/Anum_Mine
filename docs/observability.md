@@ -39,7 +39,7 @@ The resource carries `service.name`, `service.namespace=anum`, `service.version`
 | Span | Source | Notable attributes |
 |---|---|---|
 | `GET /api/v1/tasks/{task_id}` (server) | FastAPI instrumentation; `/health` excluded | `http.route` template, status, `anum.tenant_id`, `anum.workspace_id` (set by the `tenant_context` dependency) |
-| `generate_text <model>`, `generate_structured <model>`, `stream_text <model>` (client) | `model_gateway.py` | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`/`output_tokens`, `anum.model.estimated_cost_usd`, `anum.model.attempts`, `error.type` |
+| `generate_text <model>`, `generate_structured <model>`, `stream_text <model>` (client) | `model_gateway.py` | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`/`output_tokens`, `gen_ai.usage.cache_creation.input_tokens`/`cache_read.input_tokens` (when non-zero), `anum.model.estimated_cost_usd`, `anum.model.attempts`, `error.type` |
 | `POST` outbound HTTP (client) | httpx instrumentation (model calls, JWKS, webhooks) | URL without query string |
 | SQL statements | SQLAlchemy instrumentation (API session engine, outbox relay engine) | statement text with bind placeholders, never values |
 | `publish ANUM_EVENTS` (producer) | `NatsJetStreamBus.publish` | `messaging.system=nats`, stream, `messaging.message.id`; `traceparent` is injected into the NATS headers. The subject (it embeds tenant tokens) is not recorded. |
@@ -57,6 +57,7 @@ OpenTelemetry names and their Prometheus names after the collector's Prometheus 
 | `anum.rate_limit.rejections` | `anum_rate_limit_rejections_total` | `anum.rate_limit.backend` (`memory`, `valkey`) |
 | `anum.model.call.duration` (histogram, s) | `anum_model_call_duration_seconds_*` | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.operation.name`, `anum.model.status` (`ok`/`error`), `error.type` |
 | `anum.model.tokens` | `anum_model_tokens_total` | provider, model, `gen_ai.token.type` (`input`/`output`) |
+| `anum.model.cache.tokens` | `anum_model_cache_tokens_total` | provider, model, `anum.model.cache.operation` (`write`/`read`). Prompt-cache input tokens ([Anthropic](model-gateway.md#anthropic-messages-api)); already counted in `input` above. |
 | `anum.model.estimated_cost_usd` | `anum_model_estimated_cost_usd_total` | provider, model. Estimate from the price table ([Model gateway](model-gateway.md)); mock and Ollama cost 0. |
 | `anum.model.budget.thresholds` | `anum_model_budget_thresholds_total` | `anum.budget.scope` (`tenant`, `workspace`), `anum.budget.kind` (`cost`, `tokens`), `anum.budget.percent` (`80`, `100`). A model call crossed that share of a monthly budget ([Model gateway](model-gateway.md#monthly-budgets)); the matching `model_budget_threshold` log line names the tenant and workspace. |
 | `anum.model.budget.rejections` | `anum_model_budget_rejections_total` | `anum.budget.scope`, `anum.budget.kind`. Model calls refused because a budget was used up. |

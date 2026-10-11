@@ -242,6 +242,8 @@ Render has no GPUs. Staging starts with `ANUM_MODEL_PROVIDER=mock` (placeholder 
 | `ANUM_MODEL_NAME` | for example `gpt-4.1-mini` |
 | `ANUM_MODEL_API_KEY` | the provider key: **Add Environment Variable** in the Dashboard (it is not in `render.yaml`); never a value in git |
 
+**Claude through the native Anthropic API** (prompt caching, quick replies on the fast model): `ANUM_MODEL_PROVIDER=anthropic` and `ANUM_MODEL_API_KEY` (added in the Dashboard as above). Leave `ANUM_MODEL_NAME` and `ANUM_MODEL_BASE_URL` at their `render.yaml` values: the provider then uses `https://api.anthropic.com`, `claude-haiku-5-5` for chat and voice and `claude-sonnet-5-5` for planning. `ANUM_MODEL_FAST_NAME`, `ANUM_MODEL_CAPABLE_NAME` and the two effort settings change that ([Model routing](model-gateway.md#model-routing)).
+
 Set monthly budgets through the owner screens or `/api/v1/model-budgets` ([Model gateway](model-gateway.md#monthly-budgets)). Workspace owners can also save their own provider and key per workspace; those keys are encrypted with `ANUM_SECRETS_KEY`.
 
 **An external Ollama.** Ollama on your Windows PC is not reachable from Render (no tunnel or VPN is set up here, and exposing a home PC is not recommended). Options that work:

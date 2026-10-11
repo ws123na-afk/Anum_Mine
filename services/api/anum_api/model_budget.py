@@ -45,9 +45,11 @@ from .model_gateway import (
     EmbeddingResponse,
     ModelGateway,
     ModelResponse,
+    ModelRoute,
     ModelUsage,
     StructuredModel,
     UsageCallback,
+    route_gateway,
 )
 from .repository import AnumRepository
 from .schemas import TenantContext, new_id
@@ -397,6 +399,11 @@ class BudgetedModelGateway:
         self.inner = inner
         self.context = context
         self._clock = clock
+
+    def for_route(self, route: ModelRoute) -> BudgetedModelGateway:
+        """The routed inner gateway, still behind this workspace's budget."""
+        routed = route_gateway(self.inner, route)
+        return self if routed is self.inner else BudgetedModelGateway(routed, self.context, clock=self._clock)
 
     def __getattr__(self, name: str) -> Any:
         # provider, model, base_url ... of the wrapped gateway (voice checks `provider`).

@@ -24,7 +24,7 @@ from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxR
 from .agent_tools import ToolRegistry, default_tool_registry
 from .durable_runs import AgentRunActivities
 from .integration_tools import configured_external_handler
-from .model_gateway import ModelGateway, build_model_gateway
+from .model_gateway import ModelGateway, build_default_model_gateway
 from .repository import AnumRepository
 from .runtime import AgentRuntime
 from .schemas import TenantContext
@@ -51,12 +51,7 @@ def build_activities(
 ) -> AgentRunActivities:
     from .onboarding import budgeted_model_gateway
 
-    gateway = model_gateway or build_model_gateway(
-        config.model_provider,
-        api_key=config.model_api_key,
-        model=config.model_name,
-        base_url=config.model_base_url,
-    )
+    gateway = model_gateway or build_default_model_gateway(config)
     registry = tools or default_tool_registry(configured_external_handler(config))
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:

@@ -122,10 +122,18 @@ config:
   ANUM_S3_SERVER_SIDE_ENCRYPTION: AES256
   ANUM_S3_CREATE_BUCKET: "false"
 
-  # Model gateway. mock is refused when ANUM_ENVIRONMENT=production.
+  # Model gateway. mock is refused when ANUM_ENVIRONMENT=production. anthropic uses the
+  # native Messages API with prompt caching (base URL defaults to api.anthropic.com).
   ANUM_MODEL_PROVIDER: openai-compatible
   ANUM_MODEL_NAME: gpt-4.1-mini
   ANUM_MODEL_BASE_URL: https://api.openai.com/v1
+  # Model routing (docs/model-gateway.md#model-routing): empty names use
+  # ANUM_MODEL_NAME (anthropic: claude-haiku-5-5 fast, claude-sonnet-5-5 capable).
+  ANUM_MODEL_FAST_NAME: ""
+  ANUM_MODEL_CAPABLE_NAME: ""
+  # anthropic only: output_config.effort per route (low|medium|high|xhigh|max or "").
+  ANUM_MODEL_FAST_EFFORT: low
+  ANUM_MODEL_CAPABLE_EFFORT: ""
   ANUM_MODEL_TIMEOUT_SECONDS: "60"
   ANUM_MODEL_MAX_ATTEMPTS: "3"
   ANUM_MODEL_RETRY_BASE_SECONDS: "0.5"

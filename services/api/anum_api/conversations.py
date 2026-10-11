@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field
 from .authorization import Permission
 from .dependencies import require_permission, tenant_context
 from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
-from .model_gateway import ChatMessage, ModelGateway
+from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
@@ -281,7 +281,8 @@ async def stream_reply(
     outcome = TurnStatus.FAILED
     error: tuple[str, str] | None = None
     try:
-        async for chunk in gateway.stream_chat(messages):
+        # A chat reply is a quick reply: the fast model (docs/model-gateway.md#model-routing).
+        async for chunk in route_gateway(gateway, ModelRoute.FAST).stream_chat(messages):
             parts.append(chunk)
             yield sse("delta", {"text": chunk})
         outcome = TurnStatus.COMPLETE

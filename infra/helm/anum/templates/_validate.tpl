@@ -63,6 +63,11 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if and (eq $env "production") (eq (toString $c.ANUM_MODEL_PROVIDER) "mock") -}}
 {{- fail "ANUM_MODEL_PROVIDER=mock is a release blocker in production" -}}
 {{- end -}}
+{{- range $key := list "ANUM_MODEL_FAST_EFFORT" "ANUM_MODEL_CAPABLE_EFFORT" -}}
+{{- if not (regexMatch "^(|low|medium|high|xhigh|max)$" (toString (index $c $key | default ""))) -}}
+{{- fail (printf "config.%s must be low, medium, high, xhigh, max or empty (the API refuses other values at startup)" $key) -}}
+{{- end -}}
+{{- end -}}
 {{- if ne (lower (toString $c.ANUM_RATE_LIMIT_ENABLED)) "true" -}}
 {{- fail "config.ANUM_RATE_LIMIT_ENABLED must stay true outside local" -}}
 {{- end -}}
