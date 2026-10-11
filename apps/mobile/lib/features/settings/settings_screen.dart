@@ -162,7 +162,18 @@ class _Content extends StatelessWidget {
                                       onPressed: controller.testModel,
                                       icon: const Icon(Icons.network_check),
                                       label: const Text('Test connection')),
-                                ]))
+                                ])),
+                        if (controller.modelError != null)
+                          Padding(
+                              padding: const EdgeInsetsDirectional.fromSTEB(
+                                  16, 0, 16, 12),
+                              child: Semantics(
+                                  liveRegion: true,
+                                  child: Text(controller.modelError!,
+                                      style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .error)))),
                       ])),
             _Heading('Notifications'),
             _NotificationCard(controller: controller),
@@ -466,6 +477,8 @@ class _ModelSheetState extends State<_ModelSheet> {
   String? error;
 
   bool get _claudeSaved => widget.current?.provider == 'anthropic';
+  SavedKeyState get _keyState =>
+      savedKeyState(provider, url.text, widget.current);
   bool get _claude => provider == 'anthropic';
 
   static String? _normalise(String? value) {
@@ -505,6 +518,7 @@ class _ModelSheetState extends State<_ModelSheet> {
         // Claude's planning model is the workspace's default model.
         model: _claude ? capableModel.text.trim() : model.text.trim(),
         baseUrl: url.text.trim(),
+        // Empty keeps the saved key (same provider and base URL only).
         apiKey: providerNeedsKey(provider) ? key.text.trim() : null,
         routing: _claude
             ? ModelRouting(
@@ -562,6 +576,8 @@ class _ModelSheetState extends State<_ModelSheet> {
                     controller: url,
                     textDirection: TextDirection.ltr,
                     keyboardType: TextInputType.url,
+                    // The key field's hint depends on the address.
+                    onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
                         labelText: _claude ? 'Base URL (optional)' : 'Base URL',
                         helperMaxLines: 3,
@@ -581,15 +597,19 @@ class _ModelSheetState extends State<_ModelSheet> {
                           labelText:
                               _claude ? 'Anthropic API key' : 'API key',
                           helperMaxLines: 3,
-                          helperText: widget.current?.credentialConfigured ==
-                                      true &&
-                                  widget.current?.provider == provider
-                              ? 'The saved key (${widget.current?.credentialHint ?? 'hidden'}) '
-                                  'is never shown. Paste it again, or a new one.'
-                              : 'Stored encrypted; never shown again.'),
-                      validator: (v) => (v ?? '').trim().isEmpty
-                          ? 'Enter the API key'
-                          : null),
+                          helperText: switch (_keyState) {
+                            SavedKeyState.keep =>
+                              'Leave empty to keep the saved key '
+                                  '(${widget.current?.credentialHint ?? 'hidden'}). '
+                                  'Paste a new key to replace it.',
+                            SavedKeyState.moved =>
+                              'The base URL changed: enter the key for this '
+                                  'address. The saved key is only used with '
+                                  'the address it was saved for.',
+                            SavedKeyState.none =>
+                              'Stored encrypted; never shown again.',
+                          }),
+                      validator: (v) => validateApiKey(v, _keyState)),
                 ],
                 if (_claude) ...[
                   const SizedBox(height: AnumSpacing.sm),
@@ -605,9 +625,11 @@ class _ModelSheetState extends State<_ModelSheet> {
                 ],
                 if (error != null) ...[
                   const SizedBox(height: AnumSpacing.sm),
-                  Text(error!,
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
+                  Semantics(
+                      liveRegion: true,
+                      child: Text(error!,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error))),
                 ],
                 const SizedBox(height: AnumSpacing.md),
                 FilledButton.icon(

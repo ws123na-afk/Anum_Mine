@@ -18,6 +18,7 @@ import {
   presetDraft,
   providerLabel,
   routeSummary,
+  savedKeyState,
   validateDraft,
   type DraftField,
   type ModelConfig,
@@ -120,9 +121,12 @@ export function ModelGatewaySettings({ onboarded }: { onboarded: boolean | null 
     } finally { setBusy(null); }
   };
 
-  const keyHint = config?.credential_configured && config.provider === draft.provider
-    ? `Saved key ${config.credential_hint ?? ''} is never shown. Paste it again (or a new one) to save changes.`
-    : isClaude ? 'Create one in the Anthropic Console (API keys). It is stored encrypted and never shown again.' : undefined;
+  const keyState = savedKeyState(draft, config);
+  const keyHint = keyState === 'keep'
+    ? `Leave empty to keep the saved key (${config?.credential_hint ?? 'hidden'}); it is never shown. Paste a new key to replace it.`
+    : keyState === 'moved'
+      ? `The base URL changed: paste the key for this address. The saved key (${config?.credential_hint ?? 'hidden'}) is only used with the address it was saved for.`
+      : isClaude ? 'Create one in the Anthropic Console (API keys). It is stored encrypted and never shown again.' : undefined;
   const effortSelect = (value: ModelEffort, onChange: (next: ModelEffort) => void) => (props: { id: string }) =>
     <select {...props} value={value} onChange={(event) => onChange(event.target.value as ModelEffort)}>{EFFORTS.map((item) => <option key={item.value || 'default'} value={item.value}>{item.label}</option>)}</select>;
 
@@ -156,7 +160,7 @@ export function ModelGatewaySettings({ onboarded }: { onboarded: boolean | null 
           <input {...props} value={draft.baseUrl} placeholder={isClaude ? ANTHROPIC_BASE_URL : undefined} onChange={(event) => set({ baseUrl: event.target.value })} autoComplete="off" inputMode="url" />}</Field>}
         {draft.provider && draft.provider !== 'mock' && <Field label={isClaude ? 'Anthropic API key' : 'API key'} error={errors.apiKey} hint={keyHint}>{(props) =>
           <input {...props} type="password" value={draft.apiKey} onChange={(event) => set({ apiKey: event.target.value })} autoComplete="new-password" spellCheck={false}
-            placeholder={draft.provider === 'ollama' ? 'Optional for local models' : isClaude ? 'sk-ant-...' : 'Required for external providers'} />}</Field>}
+            placeholder={keyState === 'keep' ? 'Leave empty to keep the saved key' : draft.provider === 'ollama' ? 'Optional for local models' : isClaude ? 'sk-ant-...' : 'Required for external providers'} />}</Field>}
       </div>
       {isClaude && <fieldset className="modelRoutes">
         <legend>Model routing</legend>

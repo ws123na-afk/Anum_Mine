@@ -2,15 +2,43 @@ import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_models.dart';
 import 'package:anum_mobile/data/session_store.dart';
 import 'package:anum_mobile/features/auth/auth_repository.dart';
+import 'package:anum_mobile/features/settings/model_choice.dart';
 import 'package:anum_mobile/features/settings/settings_controller.dart';
 import 'package:anum_mobile/features/settings/settings_screen.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _forbidden = ApiResponse(statusCode: 403, body: {
+  'error': {
+    'code': 'forbidden',
+    'message': 'permission_denied: organization:manage',
+  }
+});
+
+const _savedClaude = <String, Object?>{
+  'provider': 'anthropic',
+  'model': 'claude-sonnet-5-5',
+  'base_url': 'https://api.anthropic.com',
+  'fast_model': 'claude-haiku-5-5',
+  'capable_model': 'claude-sonnet-5-5',
+  'fast_effort': 'low',
+  'capable_effort': null,
+  'credential_configured': true,
+  'credential_hint': '...mple',
+  'updated_at': '2026-10-06T10:00:00Z',
+};
+
 class _ModelTransport implements ApiTransport {
-  _ModelTransport({this.reachable = true});
+  _ModelTransport(
+      {this.reachable = true,
+      this.saved,
+      this.saveForbidden = false,
+      this.testForbidden = false});
   final bool reachable;
+  final Map<String, Object?>? saved;
+  final bool saveForbidden;
+  final bool testForbidden;
   final List<ApiRequest> requests = [];
 
   @override
@@ -18,7 +46,9 @@ class _ModelTransport implements ApiTransport {
     requests.add(request);
     final path = request.uri.path;
     if (path.endsWith('/model-config') && request.method == 'PUT') {
+      if (saveForbidden) return _forbidden;
       final body = request.body!;
+      final kept = body['api_key'] == null && saved != null;
       return ApiResponse(statusCode: 200, body: {
         'provider': body['provider'],
         'model': body['model'],
@@ -27,11 +57,13 @@ class _ModelTransport implements ApiTransport {
         'capable_model': body['capable_model'],
         'fast_effort': body['fast_effort'],
         'capable_effort': body['capable_effort'],
-        'credential_configured': body['api_key'] != null,
+        'credential_configured': body['api_key'] != null || kept,
+        'credential_hint': kept ? saved!['credential_hint'] : null,
         'updated_at': '2026-10-06T10:00:00Z',
       });
     }
     if (path.endsWith('/model-config/test')) {
+      if (testForbidden) return _forbidden;
       return reachable
           ? const ApiResponse(
               statusCode: 200,
@@ -51,8 +83,11 @@ class _ModelTransport implements ApiTransport {
       });
     }
     if (path.endsWith('/model-config') && request.method == 'GET') {
-      return const ApiResponse(
-          statusCode: 404, body: {'detail': 'Model configuration not found'});
+      return saved != null
+          ? ApiResponse(statusCode: 200, body: saved)
+          : const ApiResponse(
+              statusCode: 404,
+              body: {'detail': 'Model configuration not found'});
     }
     return const ApiResponse(statusCode: 204);
   }
@@ -192,6 +227,113 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  test('a 403 on save stays in the model sheet and says who can do it',
+      () async {
+    final controller =
+        await _controller(_ModelTransport(saveForbidden: true));
+    await controller.load();
+
+    final ok = await controller.changeModel(
+        provider: 'ollama',
+        model: 'llama3.2',
+        baseUrl: 'http://localhost:11434/v1');
+
+    expect(ok, isFalse);
+    expect(controller.phase, SettingsPhase.ready);
+    expect(controller.message, contains('Your role cannot change the model'));
+    expect(controller.message, contains('owner role'));
+  });
+
+  test('a 403 on the card\'s connection test is shown in the card', () async {
+    final controller = await _controller(
+        _ModelTransport(saved: _savedClaude, testForbidden: true));
+    await controller.load();
+
+    final ok = await controller.testModel();
+
+    expect(ok, isFalse);
+    expect(controller.phase, SettingsPhase.ready);
+    expect(controller.modelError,
+        contains('Your role cannot test the model connection'));
+  });
+
+  test('the key field keeps the saved key only for the same address', () {
+    final saved = ModelConfiguration.fromJson(_savedClaude);
+    expect(savedKeyState('anthropic', 'https://api.anthropic.com', saved),
+        SavedKeyState.keep);
+    expect(savedKeyState('anthropic', '', saved), SavedKeyState.keep);
+    expect(savedKeyState('anthropic', 'https://api.anthropic.com/v1/', saved),
+        SavedKeyState.keep);
+    expect(savedKeyState('anthropic', 'https://claude-proxy.example', saved),
+        SavedKeyState.moved);
+    expect(savedKeyState('openai_compatible', 'https://api.anthropic.com', saved),
+        SavedKeyState.none);
+    expect(validateApiKey('', SavedKeyState.keep), isNull);
+    expect(validateApiKey('', SavedKeyState.moved), contains('base URL changed'));
+    expect(validateApiKey('', SavedKeyState.none), 'Enter the API key');
+    expect(validateApiKey('sk-ant-example', SavedKeyState.moved), isNull);
+  });
+
+  testWidgets(
+      'a routing change saves from the sheet without re-entering the key',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final transport = _ModelTransport(saved: _savedClaude);
+    final controller = await _controller(transport);
+    await tester.pumpWidget(MaterialApp(
+        theme: AnumTheme.dark(), home: SettingsScreen(controller: controller)));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Change model'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Change model'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Leave empty to keep the saved key (...mple)'),
+        findsOneWidget);
+
+    final save = find.text('Save and test');
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    final put = transport.requests.firstWhere((r) => r.method == 'PUT');
+    expect(put.body!.containsKey('api_key'), isFalse);
+    expect(put.body!['fast_model'], 'claude-haiku-5-5');
+    expect(find.text('Save and test'), findsNothing); // the sheet closed
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a 403 when saving keeps Settings and explains it in the sheet',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final controller = await _controller(
+        _ModelTransport(saved: _savedClaude, saveForbidden: true));
+    await tester.pumpWidget(MaterialApp(
+        theme: AnumTheme.dark(), home: SettingsScreen(controller: controller)));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Change model'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Change model'));
+    await tester.pumpAndSettle();
+    final save = find.text('Save and test');
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Save and test'), findsOneWidget); // still in the sheet
+    expect(find.textContaining('Your role cannot change the model'),
+        findsWidgets);
+    expect(find.text('Permission required'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   test('other providers never send routing fields', () async {
     final transport = _ModelTransport();

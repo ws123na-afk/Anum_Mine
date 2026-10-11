@@ -117,6 +117,54 @@ def test_invalid_workspace_model_configs_are_refused(payload: dict[str, object],
     assert API_KEY not in response.text
 
 
+def test_a_routing_change_without_a_key_keeps_the_saved_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _claude(monkeypatch)
+    assert client.put("/api/v1/model-config", headers=HEADERS, json=CLAUDE).status_code == 200
+    # No api_key at all; the OpenAI-style base URL normalizes to the saved one.
+    rerouted = {name: value for name, value in CLAUDE.items() if name != "api_key"}
+    rerouted.update(fast_effort="medium", base_url="https://api.anthropic.com/v1/")
+
+    saved = client.put("/api/v1/model-config", headers=HEADERS, json=rerouted)
+    tested = client.post("/api/v1/model-config/test", headers=HEADERS)
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["fast_effort"] == "medium"
+    assert saved.json()["credential_configured"] is True and saved.json()["credential_hint"] == "...wxyz"
+    assert tested.status_code == 200, tested.text
+    assert seen and all(request.headers["x-api-key"] == API_KEY for request in seen)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"base_url": "https://claude-proxy.example"},
+        {"provider": "openai_compatible", "base_url": "https://api.anthropic.com", "fast_model": None,
+         "capable_model": None, "fast_effort": None, "capable_effort": None},
+    ],
+)
+def test_a_new_provider_or_base_url_needs_the_key_again(change: dict[str, object]) -> None:
+    assert client.put("/api/v1/model-config", headers=HEADERS, json=CLAUDE).status_code == 200
+
+    response = client.put("/api/v1/model-config", headers=HEADERS, json={**CLAUDE, "api_key": None, **change})
+
+    assert response.status_code == 422, response.text
+    assert "provider or base URL changed" in response.text
+    stored = client.get("/api/v1/model-config", headers=HEADERS).json()
+    assert stored["provider"] == "anthropic" and stored["base_url"] == "https://api.anthropic.com"
+    assert stored["fast_effort"] == "low"
+
+
+def test_a_key_dropped_by_a_keyless_provider_is_not_brought_back() -> None:
+    assert client.put("/api/v1/model-config", headers=HEADERS, json=CLAUDE).status_code == 200
+    ollama = {"provider": "ollama", "model": "llama3.2", "base_url": "http://localhost:11434/v1"}
+    assert client.put("/api/v1/model-config", headers=HEADERS, json=ollama).status_code == 200
+
+    response = client.put("/api/v1/model-config", headers=HEADERS, json={**CLAUDE, "api_key": None})
+
+    assert response.status_code == 422
+    assert "no key is saved" in response.text
+
+
 def test_only_owners_may_save_or_test_a_model() -> None:
     member = {**HEADERS, "x-user-roles": "member"}
 

@@ -28,6 +28,25 @@ class WorkspaceNotProvisionedError(LookupError):
     """The workspace must exist (onboarding complete) before a model can be saved."""
 
 
+class StoredKeyNotReusableError(ValueError):
+    """A save asked to keep the saved API key (``keep_api_key``) but none may be reused.
+
+    ``reason`` is ``"missing"`` (no key is saved) or ``"changed"`` (the provider or base
+    URL differs from the saved one: the saved key is never sent to a new host).
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def check_key_reusable(*, saved_provider: str, saved_base_url: str, provider: str, base_url: str) -> None:
+    """Raise :class:`StoredKeyNotReusableError` unless a saved key may serve this save:
+    the provider and the (normalized) base URL are both unchanged."""
+    if saved_provider != provider or saved_base_url != base_url:
+        raise StoredKeyNotReusableError("changed")
+
+
 def credential_hint(secret: str | None) -> str | None:
     return f"...{secret[-4:]}" if secret else None
 
@@ -85,7 +104,12 @@ class ModelConfigStore(Protocol):
         api_key: str | None,
         updated_at: datetime,
         routing: ModelRouting | None = None,
-    ) -> StoredModelConfig: ...
+        keep_api_key: bool = False,
+    ) -> StoredModelConfig:
+        """Replace the workspace's config. With ``keep_api_key`` (and no ``api_key``) the
+        saved encrypted key is kept, only when provider and base URL are unchanged;
+        otherwise :class:`StoredKeyNotReusableError`."""
+        ...
 
 
 class InMemoryModelConfigStore:
@@ -110,6 +134,31 @@ class InMemoryModelConfigStore:
         api_key: str | None,
         updated_at: datetime,
         routing: ModelRouting | None = None,
+        keep_api_key: bool = False,
+    ) -> StoredModelConfig:
+        with self._lock:
+            if keep_api_key and not api_key:
+                saved = self._items.get((context.tenant_id, context.workspace_id))
+                if saved is None or saved.api_key is None:
+                    raise StoredKeyNotReusableError("missing")
+                check_key_reusable(
+                    saved_provider=saved.provider,
+                    saved_base_url=saved.base_url,
+                    provider=provider,
+                    base_url=base_url,
+                )
+                api_key = saved.api_key.get_secret_value()
+            return self._store(context, provider, model, base_url, api_key, updated_at, routing)
+
+    def _store(
+        self,
+        context: TenantContext,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key: str | None,
+        updated_at: datetime,
+        routing: ModelRouting | None,
     ) -> StoredModelConfig:
         config = StoredModelConfig(
             provider=provider,

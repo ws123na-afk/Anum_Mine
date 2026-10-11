@@ -120,6 +120,16 @@ The web app can report its own unhandled errors and unhandled promise rejections
 | `VITE_SENTRY_DSN` | empty (off) | The browser project's public DSN, `https://<public key>@<host>/<project id>`. Plain `http` is accepted only for `localhost`. A malformed value fails `vite build` (`apps/web/vite.config.ts`), and the error never echoes the key. The key is public by design: it is in the bundle every visitor downloads, and it can only submit events. |
 | `VITE_SENTRY_ENVIRONMENT` | `production` | The event's `environment` (the Oracle compose passes `ANUM_ENVIRONMENT`). |
 
+Every deploy path that builds the web image passes the DSN as an optional build argument; leaving it unset keeps reporting off:
+
+| Deploy path | Where the DSN comes from | Environment |
+|---|---|---|
+| Oracle VM | `ANUM_WEB_SENTRY_DSN` in `.env` ([monitoring](monitoring-oracle.md#web-errors)) | `ANUM_ENVIRONMENT` |
+| Render | `anum-web`'s `VITE_SENTRY_DSN` (`render.yaml`, `sync: false`; [Render](deploy-render.md)) | `staging` |
+| Helm staging and production (`deploy-staging.yml`, `deploy-production.yml`) | repository variables `STAGING_WEB_SENTRY_DSN`, `PRODUCTION_WEB_SENTRY_DSN` ([deployment](deployment.md)) | `staging`, `production` |
+
+The DSN is public (it ships in the bundle), so it is a variable, not a secret. Changing it needs a rebuild of the web image. `services/api/tests/test_render_blueprint.py` checks the Render and workflow wiring.
+
 The SDK reports errors only: no tracing, sessions, replay or user feedback. Console and DOM breadcrumbs are off, because console text and clicked element names can hold what someone typed. `apps/web/src/lib/errorReporting.ts` scrubs every event and breadcrumb (`beforeSend`, `beforeBreadcrumb`), with the same rules as the API. An event keeps:
 
 - the exception type and stack frames (file without query, function, line, column);

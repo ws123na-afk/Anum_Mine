@@ -24,6 +24,7 @@ from .identity import local_sessions, local_sessions_allowed
 from .model_config_store import (
     KEYLESS_PROVIDERS,
     ModelRouting,
+    StoredKeyNotReusableError,
     StoredModelConfig,
     WorkspaceNotProvisionedError,
     memory_model_config_store,
@@ -594,8 +595,9 @@ async def get_onboarding_status(
 @router.put("/model-config", response_model=ModelConfigView)
 async def set_model_config(payload: ModelConfigWrite, context: TenantContext = Depends(tenant_context)) -> ModelConfigView:
     require_permission(context, Permission.ORGANIZATION_MANAGE)
-    if payload.provider not in KEYLESS_PROVIDERS and payload.api_key is None:
-        raise HTTPException(status_code=422, detail="api_key is required for external providers")
+    # An external provider without a new key keeps the saved one, but only while the
+    # provider and base URL are unchanged: a saved key is never sent to a new host.
+    keep_api_key = payload.provider not in KEYLESS_PROVIDERS and payload.api_key is None
     if payload.base_url is None:  # set by ModelConfigWrite's validator; kept for typing
         raise HTTPException(status_code=422, detail="base_url is required for this provider")
     try:
@@ -612,7 +614,16 @@ async def set_model_config(payload: ModelConfigWrite, context: TenantContext = D
                 api_key=payload.api_key.get_secret_value() if payload.api_key else None,
                 updated_at=utc_now(),
                 routing=payload.routing(),
+                keep_api_key=keep_api_key,
             )
+    except StoredKeyNotReusableError as exc:
+        detail = (
+            "api_key is required: the provider or base URL changed, and a saved key is only "
+            "reused for the provider and base URL it was saved with"
+            if exc.reason == "changed"
+            else "api_key is required for external providers: no key is saved for this workspace"
+        )
+        raise HTTPException(status_code=422, detail=detail) from exc
     except WorkspaceNotProvisionedError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

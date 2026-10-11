@@ -8,7 +8,11 @@ from cryptography.fernet import Fernet
 from pydantic import SecretStr, ValidationError
 
 from anum_api import secret_box
-from anum_api.model_config_store import InMemoryModelConfigStore, open_model_config_store
+from anum_api.model_config_store import (
+    InMemoryModelConfigStore,
+    StoredKeyNotReusableError,
+    open_model_config_store,
+)
 from anum_api.schemas import TenantContext
 from anum_api.secret_box import (
     SecretCipher,
@@ -176,6 +180,46 @@ def test_keyless_providers_are_usable_without_a_credential() -> None:
     config = store.get(CONTEXT_A)
 
     assert config is not None and config.usable and not config.credential_configured
+
+
+def test_memory_store_keeps_the_saved_key_when_only_the_model_changes() -> None:
+    store = InMemoryModelConfigStore()
+    store.save(CONTEXT_A, provider="anthropic", model="a", base_url="https://api.anthropic.com", api_key="sk-abcd-1234", updated_at=NOW)
+
+    kept = store.save(
+        CONTEXT_A, provider="anthropic", model="b", base_url="https://api.anthropic.com", api_key=None, updated_at=NOW, keep_api_key=True
+    )
+
+    assert kept.model == "b" and kept.credential_hint == "...1234"
+    saved = store.get(CONTEXT_A)
+    assert saved is not None and saved.api_key is not None
+    assert saved.api_key.get_secret_value() == "sk-abcd-1234"
+
+
+@pytest.mark.parametrize(
+    ("provider", "base_url"),
+    [("anthropic", "https://claude-proxy.example"), ("openai_compatible", "https://api.anthropic.com")],
+)
+def test_memory_store_never_moves_a_saved_key_to_a_new_provider_or_host(provider: str, base_url: str) -> None:
+    store = InMemoryModelConfigStore()
+    store.save(CONTEXT_A, provider="anthropic", model="a", base_url="https://api.anthropic.com", api_key="sk-abcd-1234", updated_at=NOW)
+
+    with pytest.raises(StoredKeyNotReusableError) as raised:
+        store.save(CONTEXT_A, provider=provider, model="a", base_url=base_url, api_key=None, updated_at=NOW, keep_api_key=True)
+
+    assert raised.value.reason == "changed"
+    saved = store.get(CONTEXT_A)
+    assert saved is not None and saved.base_url == "https://api.anthropic.com" and saved.provider == "anthropic"
+
+
+def test_memory_store_refuses_to_keep_a_key_that_was_never_saved() -> None:
+    store = InMemoryModelConfigStore()
+
+    with pytest.raises(StoredKeyNotReusableError) as raised:
+        store.save(CONTEXT_A, provider="anthropic", model="a", base_url="https://api.anthropic.com", api_key=None, updated_at=NOW, keep_api_key=True)
+
+    assert raised.value.reason == "missing"
+    assert store.get(CONTEXT_A) is None
 
 
 def test_unsupported_backend_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:

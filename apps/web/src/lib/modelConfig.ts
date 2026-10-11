@@ -114,6 +114,26 @@ export function draftFromConfig(config: ModelConfig): ModelDraft {
   };
 }
 
+/** The base URL as the API stores it: no trailing slash; Claude's empty value is the default
+ *  endpoint and its OpenAI-style `/v1` suffix is dropped. */
+export function normalizedBaseUrl(provider: string, baseUrl: string): string {
+  let url = baseUrl.trim().replace(/\/+$/, '');
+  if (provider === 'anthropic') {
+    if (!url) url = ANTHROPIC_BASE_URL;
+    if (url.endsWith('/v1')) url = url.slice(0, -3);
+  }
+  return url;
+}
+
+/** What happens to the saved API key if the draft is saved with an empty key field:
+ *  `keep` (same provider and base URL: the API keeps it), `moved` (the base URL changed: a
+ *  saved key is never sent to a new address, so a key is needed) or `none` (no saved key for
+ *  this provider). */
+export function savedKeyState(draft: ModelDraft, saved: ModelConfig | null): 'keep' | 'moved' | 'none' {
+  if (!saved?.credential_configured || !draft.provider || saved.provider !== draft.provider) return 'none';
+  return normalizedBaseUrl(draft.provider, draft.baseUrl) === normalizedBaseUrl(saved.provider, saved.base_url) ? 'keep' : 'moved';
+}
+
 /** Problems that stop a save, by field; an empty object means the draft can be sent. */
 export function validateDraft(draft: ModelDraft, saved: ModelConfig | null): Partial<Record<DraftField, string>> {
   const errors: Partial<Record<DraftField, string>> = {};
@@ -125,9 +145,10 @@ export function validateDraft(draft: ModelDraft, saved: ModelConfig | null): Par
   const base = draft.baseUrl.trim();
   if (!base && option.value !== 'anthropic') errors.baseUrl = 'Enter the base URL.';
   else if (base && !/^https?:\/\/[^\s/]+/i.test(base)) errors.baseUrl = 'Enter a full URL starting with https://.';
-  if (option.keyRequired && !draft.apiKey.trim()) {
-    errors.apiKey = saved?.provider === draft.provider && saved.credential_configured
-      ? `The saved key (${saved.credential_hint ?? 'hidden'}) is never shown again: paste it, or a new one, to save changes.`
+  const keyState = savedKeyState(draft, saved);
+  if (option.keyRequired && !draft.apiKey.trim() && keyState !== 'keep') {
+    errors.apiKey = keyState === 'moved'
+      ? 'The base URL changed: paste the API key for this address. The saved key is only used with the address it was saved for.'
       : `Paste your ${option.value === 'anthropic' ? 'Anthropic' : 'provider'} API key.`;
   }
   return errors;

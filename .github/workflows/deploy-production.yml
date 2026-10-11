@@ -82,6 +82,8 @@ jobs:
           COMMIT: ${{ inputs.commit }}
           PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
           PRODUCTION_OIDC_ISSUER: ${{ vars.PRODUCTION_OIDC_ISSUER }}
+          # Optional browser error reporting (public DSN, a repository variable). Unset: off.
+          PRODUCTION_WEB_SENTRY_DSN: ${{ vars.PRODUCTION_WEB_SENTRY_DSN }}
         run: |
           if [ -z "$PRODUCTION_API_URL" ] || [ -z "$PRODUCTION_OIDC_ISSUER" ]; then
             echo "::error::Set PRODUCTION_API_URL and PRODUCTION_OIDC_ISSUER: the bundle must not fall back to local sessions."
@@ -92,6 +94,8 @@ jobs:
             --label "org.opencontainers.image.revision=${COMMIT}" \
             --build-arg "VITE_ANUM_API_URL=${PRODUCTION_API_URL}" \
             --build-arg "VITE_ANUM_OIDC_ISSUER=${PRODUCTION_OIDC_ISSUER}" \
+            --build-arg "VITE_SENTRY_DSN=${PRODUCTION_WEB_SENTRY_DSN:-}" \
+            --build-arg "VITE_SENTRY_ENVIRONMENT=production" \
             -f apps/web/Dockerfile -t "$IMAGE" .
       - uses: actions/setup-go@v7
         with:

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../data/api_models.dart';
 import '../../src/theme/anum_theme.dart';
 
 /// Model providers a workspace can choose (docs/model-gateway.md), shared by
@@ -44,6 +45,53 @@ List<DropdownMenuItem<String>> providerItems() => [
       for (final entry in modelProviderLabels.entries)
         DropdownMenuItem(value: entry.key, child: Text(entry.value)),
     ];
+
+/// The base URL as the API stores it: no trailing slash; for Claude an empty
+/// value is api.anthropic.com and an OpenAI-style `/v1` suffix is dropped.
+String normalizedBaseUrl(String provider, String baseUrl) {
+  var url = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+  if (provider == 'anthropic') {
+    if (url.isEmpty) url = anthropicBaseUrl;
+    if (url.endsWith('/v1')) url = url.substring(0, url.length - 3);
+  }
+  return url;
+}
+
+/// What an empty key field does to the saved key when the form is saved.
+enum SavedKeyState {
+  /// Same provider and base URL: the API keeps the saved key.
+  keep,
+
+  /// Same provider, new base URL: a saved key is never sent to a new
+  /// address, so a key is needed.
+  moved,
+
+  /// No saved key for this provider.
+  none,
+}
+
+SavedKeyState savedKeyState(
+    String provider, String baseUrl, ModelConfiguration? saved) {
+  if (saved == null ||
+      !saved.credentialConfigured ||
+      saved.provider != provider) {
+    return SavedKeyState.none;
+  }
+  return normalizedBaseUrl(provider, baseUrl) ==
+          normalizedBaseUrl(saved.provider, saved.baseUrl)
+      ? SavedKeyState.keep
+      : SavedKeyState.moved;
+}
+
+/// The key field's validator: empty is fine only while the saved key is kept.
+String? validateApiKey(String? value, SavedKeyState state) {
+  if ((value ?? '').trim().isNotEmpty || state == SavedKeyState.keep) {
+    return null;
+  }
+  return state == SavedKeyState.moved
+      ? 'The base URL changed: enter the API key for this address'
+      : 'Enter the API key';
+}
 
 /// The base URL is optional for Claude (empty means api.anthropic.com).
 String? validateBaseUrl(String provider, String? value) {

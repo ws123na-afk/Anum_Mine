@@ -12,6 +12,7 @@ import {
   presetDraft,
   providerLabel,
   routeSummary,
+  savedKeyState,
   validateDraft,
   type ModelConfig,
 } from '../src/lib/modelConfig.ts';
@@ -49,10 +50,26 @@ describe('model settings', () => {
     assert.match(validateDraft({ ...draft, apiKey: 'k', baseUrl: 'api.anthropic.com' }, null).baseUrl ?? '', /https:\/\//);
   });
 
-  test('the saved key is never shown and must be pasted again to save changes', () => {
+  test('the saved key is never shown, and an empty key field keeps it while the endpoint is unchanged', () => {
     const draft = draftFromConfig(saved());
     assert.equal(draft.apiKey, '');
-    assert.match(validateDraft(draft, saved()).apiKey ?? '', /\.\.\.wxyz.*never shown/);
+    assert.equal(savedKeyState(draft, saved()), 'keep');
+    assert.deepEqual(validateDraft({ ...draft, fastEffort: 'medium' }, saved()), {});
+    // The OpenAI-style form of the same endpoint, and Claude's empty default, are the same address.
+    assert.equal(savedKeyState({ ...draft, baseUrl: 'https://api.anthropic.com/v1/' }, saved()), 'keep');
+    assert.equal(savedKeyState({ ...draft, baseUrl: '' }, saved()), 'keep');
+    assert.equal(modelConfigBody({ ...draft, fastEffort: 'medium' }).api_key, null);
+  });
+
+  test('a new base URL or provider needs the key again: a saved key never goes to a new address', () => {
+    const moved = { ...draftFromConfig(saved()), baseUrl: 'https://claude-proxy.example' };
+    assert.equal(savedKeyState(moved, saved()), 'moved');
+    assert.match(validateDraft(moved, saved()).apiKey ?? '', /base URL changed/);
+    assert.deepEqual(validateDraft({ ...moved, apiKey: 'sk-ant-example' }, saved()), {});
+    const openai = presetDraft('openai_compatible');
+    assert.equal(savedKeyState(openai, saved()), 'none');
+    assert.match(validateDraft(openai, saved()).apiKey ?? '', /provider API key/);
+    assert.equal(savedKeyState(draftFromConfig(saved()), saved({ credential_configured: false, credential_hint: null })), 'none');
   });
 
   test('other providers still need a model and a base URL', () => {

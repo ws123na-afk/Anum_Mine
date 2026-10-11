@@ -31,6 +31,10 @@ class SettingsController extends ChangeNotifier {
   NotificationPreferences notifications = const NotificationPreferences();
   String? message;
 
+  /// Why the last connection test from the Model connection card failed,
+  /// shown in that card; Settings itself stays usable.
+  String? modelError;
+
   /// "Remember things from my chats"; null when it could not be loaded
   /// ([chatMemoryError] says why). Saved on its own, so a failure here never
   /// hides the rest of Settings.
@@ -141,6 +145,7 @@ class SettingsController extends ChangeNotifier {
   Future<bool> testModel() async {
     phase = SettingsPhase.saving;
     message = null;
+    modelError = null;
     notifyListeners();
     try {
       await repository.testModelConnection();
@@ -149,7 +154,12 @@ class SettingsController extends ChangeNotifier {
       notifyListeners();
       return true;
     } on Object catch (error) {
-      _fail(error);
+      // A failed test is about the model, not Settings: say why in the card.
+      phase = SettingsPhase.ready;
+      modelError = _isForbidden(error)
+          ? modelPermissionMessage('test the model connection')
+          : 'Connection failed. ${_describe(error)} '
+              'Change the model or its key, then test again.';
       notifyListeners();
       return false;
     }
@@ -174,7 +184,17 @@ class SettingsController extends ChangeNotifier {
           baseUrl: baseUrl,
           apiKey: apiKey,
           routing: routing);
-      await repository.testModelConnection();
+      modelError = null;
+      try {
+        await repository.testModelConnection();
+      } on Object catch (error) {
+        if (_isForbidden(error)) {
+          throw const _SettingsFailure(
+              'The model was saved, but your role cannot test the connection. '
+              'An organization owner can test it.');
+        }
+        rethrow;
+      }
       phase = SettingsPhase.ready;
       message = saved.provider == 'anthropic'
           ? 'Saved. ${saved.fastModel} answers chat and voice, '
@@ -183,6 +203,13 @@ class SettingsController extends ChangeNotifier {
       notifyListeners();
       return true;
     } on Object catch (error) {
+      if (_isForbidden(error)) {
+        // Shown in the sheet: who can change the model, not a locked screen.
+        phase = SettingsPhase.ready;
+        message = modelPermissionMessage('change the model');
+        notifyListeners();
+        return false;
+      }
       _fail(error);
       // A model that does not answer is something to fix in the form, not a
       // reason to hide the rest of Settings.
@@ -205,6 +232,15 @@ class SettingsController extends ChangeNotifier {
             : SettingsPhase.error;
   }
 }
+
+bool _isForbidden(Object error) =>
+    error is ApiException && error.isPermissionDenied;
+
+/// What a 403 on the model settings means and who can do it.
+String modelPermissionMessage(String action) =>
+    'Your role cannot $action. Choosing the model, saving its API key and '
+    'testing the connection need the owner role for this organization: ask '
+    'an owner to do it, or to change your role.';
 
 String _describe(Object error) {
   final text = error is ApiException ? error.message : error.toString();

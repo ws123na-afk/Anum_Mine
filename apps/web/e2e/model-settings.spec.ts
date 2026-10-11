@@ -50,10 +50,17 @@ async function mockApi(page: Page, options: Options = {}) {
       if (options.writesForbidden) return json(envelope('forbidden', 'permission_denied: organization:manage'), 403);
       const sent = body as Json;
       const key = String(sent.api_key ?? '');
+      const baseUrl = String(sent.base_url ?? 'https://api.anthropic.com');
+      // Like the API: no key keeps the saved one only for the same provider and base URL.
+      const keep = !key && config?.credential_configured && config.provider === sent.provider && config.base_url === baseUrl;
+      if (!key && !keep && sent.provider !== 'ollama' && sent.provider !== 'mock') {
+        return json(envelope('validation_error', 'api_key is required: the provider or base URL changed'), 422);
+      }
+      const hint = keep ? config?.credential_hint : key ? `...${key.slice(-4)}` : null;
       config = {
         provider: sent.provider, model: sent.model, base_url: sent.base_url ?? 'https://api.anthropic.com',
         fast_model: sent.fast_model ?? null, capable_model: sent.capable_model ?? null, fast_effort: sent.fast_effort ?? null, capable_effort: sent.capable_effort ?? null,
-        credential_configured: Boolean(key), credential_hint: key ? `...${key.slice(-4)}` : null, updated_at: now,
+        credential_configured: Boolean(hint), credential_hint: hint, updated_at: now,
       };
       return json(config);
     }
@@ -111,10 +118,32 @@ test('a saved Claude model loads into the form, the key stays hidden, and a fail
   await expect(panel.getByText('Saved: claude-haiku-5-5 answers chat, voice and memory; claude-sonnet-5-5 plans tasks.', { exact: false })).toBeVisible();
   await expect(panel.getByLabel('Provider')).toHaveValue('anthropic');
   await expect(panel.getByLabel('Anthropic API key')).toHaveValue('');
-  await expect(panel.getByText(/Saved key \.\.\.mple is never shown/)).toBeVisible();
+  await expect(panel.getByText(/Leave empty to keep the saved key \(\.\.\.mple\)/)).toBeVisible();
 
   await panel.getByRole('button', { name: 'Test connection' }).click();
   await expect(panel.getByRole('alert')).toContainText('Connection failed. Anthropic rejected the API key (HTTP 401). Create a key in the Anthropic Console and save it again.');
+});
+
+test('a routing change saves without re-pasting the key; a new base URL needs it again', async ({ page }) => {
+  const calls = await mockApi(page, { initial: savedClaude });
+  await page.goto('/#settings');
+
+  const panel = page.getByRole('region', { name: 'Model gateway' });
+  await expect(panel.getByLabel('Anthropic API key')).toHaveAttribute('placeholder', 'Leave empty to keep the saved key');
+  await panel.getByLabel('Quick replies effort').selectOption('medium');
+  await panel.getByRole('button', { name: 'Save model' }).click();
+  await expect(panel.getByText(/Saved\. Anthropic \(Claude\) now answers this workspace/)).toBeVisible();
+  await expect(panel.getByText('Anthropic (Claude) · key ...mple')).toBeVisible();
+  const put = calls.filter((c) => c.method === 'PUT');
+  expect(put).toHaveLength(1);
+  expect(put[0].body).toMatchObject({ api_key: null, fast_effort: 'medium', base_url: 'https://api.anthropic.com' });
+
+  await panel.getByLabel('Base URL (optional)').fill('https://claude-proxy.example');
+  await expect(panel.getByText(/The base URL changed: paste the key for this address/)).toBeVisible();
+  await panel.getByRole('button', { name: 'Save model' }).click();
+  await expect(panel.getByLabel('Anthropic API key')).toHaveAttribute('aria-invalid', 'true');
+  await expect(panel.getByText(/The base URL changed: paste the API key for this address/)).toBeVisible();
+  expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1);
 });
 
 test('members without organization:manage see who can change the model', async ({ page }) => {

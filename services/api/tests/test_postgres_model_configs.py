@@ -27,7 +27,7 @@ from anum_api import onboarding
 from anum_api.db import session as db_session
 from anum_api.db.model_config_repository import SqlAlchemyModelConfigStore
 from anum_api.main import app
-from anum_api.model_config_store import ModelRouting, WorkspaceNotProvisionedError
+from anum_api.model_config_store import ModelRouting, StoredKeyNotReusableError, WorkspaceNotProvisionedError
 from anum_api.model_gateway import MockModelGateway, OpenAICompatibleGateway
 from anum_api.secret_box import SecretCipher, reset_secret_cipher
 from anum_api.settings import settings
@@ -324,3 +324,91 @@ def test_workspace_gateway_is_built_from_the_persisted_config(
     replaced = onboarding.workspace_model_gateway(context, fallback)
     assert replaced is not gateway
     assert replaced.provider == "ollama"
+
+
+def test_store_keeps_the_encrypted_key_when_only_the_model_changes(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+    database_engine: Engine,
+) -> None:
+    with app_session(tenant_context(), commit=True) as session:
+        _save(session, tenant_context())
+    with database_engine.connect() as connection:
+        before = connection.execute(text("select api_key_ciphertext from workspace_model_configs")).scalar_one()
+
+    with app_session(tenant_context(), commit=True) as session:
+        kept = _store(session).save(
+            tenant_context(),
+            provider="openai_compatible",
+            model="gpt-4.1",
+            base_url="https://models.example/v1",
+            api_key=None,
+            updated_at=FIXED_NOW,
+            keep_api_key=True,
+        )
+
+    assert kept.credential_hint == "...4321" and kept.credential_configured is True
+    with database_engine.connect() as connection:
+        row = connection.execute(
+            text("select model, api_key_ciphertext, credential_hint from workspace_model_configs")
+        ).one()
+    assert row.model == "gpt-4.1"
+    assert row.api_key_ciphertext == before  # the same ciphertext, not re-encrypted
+    assert row.credential_hint == "...4321"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"base_url": "https://other-models.example/v1"}, {"provider": "anthropic", "base_url": "https://models.example/v1"}],
+)
+def test_store_never_moves_the_saved_key_to_a_new_provider_or_host(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+    change: dict[str, str],
+) -> None:
+    with app_session(tenant_context(), commit=True) as session:
+        _save(session, tenant_context())
+
+    with pytest.raises(StoredKeyNotReusableError) as raised:
+        with app_session(tenant_context(), commit=True) as session:
+            _save(session, tenant_context(), api_key=None, keep_api_key=True, **change)
+
+    assert raised.value.reason == "changed"
+    with app_session(tenant_context()) as session:
+        config = _store(session).get(tenant_context())
+    assert config is not None
+    assert (config.provider, config.base_url) == ("openai_compatible", "https://models.example/v1")
+    assert config.api_key is not None and config.api_key.get_secret_value() == API_KEY
+
+
+def test_api_save_without_a_key_keeps_it_only_for_the_same_endpoint(
+    postgres_backend: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[httpx.Request] = []
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={"model": "gpt-4.1", "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]},
+        )
+
+    monkeypatch.setattr(onboarding, "_test_client_factory", lambda: httpx.AsyncClient(transport=httpx.MockTransport(reply)))
+    client = TestClient(app)
+    config = {"provider": "openai_compatible", "model": "gpt-4.1-mini", "base_url": "https://models.example/v1"}
+    assert client.put("/api/v1/model-config", headers=HEADERS, json={**config, "api_key": API_KEY}).status_code == 200
+
+    kept = client.put("/api/v1/model-config", headers=HEADERS, json={**config, "model": "gpt-4.1"})
+    moved = client.put(
+        "/api/v1/model-config", headers=HEADERS, json={**config, "base_url": "https://other-models.example/v1"}
+    )
+    tested = client.post("/api/v1/model-config/test", headers=HEADERS)
+
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["model"] == "gpt-4.1" and kept.json()["credential_hint"] == "...4321"
+    assert moved.status_code == 422
+    assert "provider or base URL changed" in moved.text
+    assert tested.status_code == 200, tested.text
+    assert str(seen[-1].url).startswith("https://models.example/v1")
+    assert seen[-1].headers["authorization"] == f"Bearer {API_KEY}"
