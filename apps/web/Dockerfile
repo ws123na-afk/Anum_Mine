@@ -60,6 +60,7 @@ COPY --from=build /repo/csp-error-reporting-origin /tmp/csp-error-reporting-orig
 # only when VITE_SENTRY_DSN was set (the script printed a validated scheme://host[:port] or nothing).
 RUN origin="$(cat /tmp/csp-error-reporting-origin)" \
     && case "$origin" in ""|http://*|https://*) ;; *) echo "bad error-reporting origin" >&2; exit 1 ;; esac \
+    && mkdir -p /etc/nginx/templates \
     && sed "s|__ANUM_CSP_ERROR_REPORTING_SRC__|${origin}|" /tmp/default.conf.template > /etc/nginx/templates/default.conf.template \
     && rm /tmp/default.conf.template /tmp/csp-error-reporting-origin
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
