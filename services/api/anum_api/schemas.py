@@ -80,6 +80,10 @@ class Workspace(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime
+    # Archived workspaces stay readable (and restorable by an owner) but refuse every
+    # other write (docs/identity.md#workspace-lifecycle).
+    archived_at: datetime | None = None
+    archived_by: str | None = None
 
 
 class WorkspaceMembership(BaseModel):
@@ -104,6 +108,8 @@ class CallerMembership(BaseModel):
     workspace_name: str | None = None
     role: str
     status: str = "active"
+    # The workspace was archived by an owner: still listed so it can be opened and restored.
+    archived: bool = False
 
 
 class InvitationStatus(StrEnum):

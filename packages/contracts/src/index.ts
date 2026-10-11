@@ -144,6 +144,8 @@ export interface CallerMembership {
   workspaceName: string | null;
   role: string;
   status: 'active';
+  /** The workspace is archived (read-only until an owner restores it). */
+  archived?: boolean;
 }
 
 /** Per-workspace approval policy; only owners change it (docs/approvals-and-risk.md). */

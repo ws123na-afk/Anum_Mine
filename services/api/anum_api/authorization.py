@@ -40,6 +40,11 @@ class Permission(StrEnum):
     POLICY_READ = "policy:read"
     POLICY_MANAGE = "policy:manage"
     AUDIT_EXPORT = "audit:export"
+    # The in-app audit log (docs/governance-and-scale.md#audit-log). Owners hold it through
+    # their role; organization administrators read any workspace they are a member of.
+    AUDIT_READ = "audit:read"
+    # Rename, archive and restore the request's workspace (docs/identity.md#workspace-lifecycle).
+    WORKSPACE_MANAGE = "workspace:manage"
     GOVERNANCE_MANAGE = "governance:manage"
     AUTOMATION_READ = "automation:read"
     AUTOMATION_MANAGE = "automation:manage"

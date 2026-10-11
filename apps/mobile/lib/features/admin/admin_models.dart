@@ -28,6 +28,7 @@ class WorkspaceMember {
     required this.active,
     required this.createdAt,
     required this.updatedAt,
+    this.email,
   });
 
   factory WorkspaceMember.fromJson(JsonMap json, [String path = '']) {
@@ -39,10 +40,14 @@ class WorkspaceMember {
       active: r.optBool('active') ?? true,
       createdAt: r.date('created_at'),
       updatedAt: r.date('updated_at'),
+      email: r.optString('email'),
     );
   }
 
   final String userId, workspaceId, role;
+
+  /// Verified email of the invitation the member accepted, when there was one.
+  final String? email;
   final bool active;
   final DateTime createdAt, updatedAt;
 }
@@ -483,4 +488,124 @@ String limitText(num? value) {
     }
   }
   return (ModelBudgetLimits(costUsd: costValue, tokens: tokenValue), null);
+}
+
+/// Members whose user id or email contains [query] (case-insensitive).
+List<WorkspaceMember> filterMembers(
+    List<WorkspaceMember> members, String query) {
+  final needle = query.trim().toLowerCase();
+  if (needle.isEmpty) return members;
+  return members
+      .where((m) =>
+          m.userId.toLowerCase().contains(needle) ||
+          (m.email?.toLowerCase().contains(needle) ?? false))
+      .toList(growable: false);
+}
+
+/// What changing a member to [role] lets them do, for the confirmation.
+String roleEffect(String role) => switch (role) {
+      'owner' =>
+        'Owners manage members, invitations, policies, budgets and the audit log.',
+      'member' =>
+        'Members create and run tasks but cannot manage people or settings.',
+      'viewer' => 'Viewers can read but not create or run tasks.',
+      _ => '',
+    };
+
+// ------------------------------------------------------------------ audit log
+
+/// Shown when the API does not send its own retention text.
+const defaultAuditRetention =
+    'Audit records are kept for as long as the workspace exists. They are '
+    'append-only: nobody can edit or delete them.';
+
+/// One append-only audit record (docs/governance-and-scale.md#audit-log).
+class AuditRecord {
+  const AuditRecord({
+    required this.id,
+    required this.actor,
+    required this.action,
+    required this.target,
+    required this.outcome,
+    required this.correlationId,
+    required this.createdAt,
+    required this.workspaceId,
+    this.metadata = const {},
+  });
+
+  factory AuditRecord.fromJson(JsonMap json, [String path = '']) {
+    final r = JsonReader(json, path);
+    return AuditRecord(
+      id: r.string('id'),
+      actor: r.string('actor'),
+      action: r.string('action'),
+      target: r.string('target'),
+      outcome: r.string('outcome'),
+      correlationId: r.string('correlation_id'),
+      createdAt: r.date('created_at'),
+      workspaceId: r.string('workspace_id'),
+      metadata: r.optMap('metadata') ?? const {},
+    );
+  }
+
+  final String id, actor, action, target, outcome, correlationId, workspaceId;
+  final DateTime createdAt;
+  final Map<String, Object?> metadata;
+}
+
+class AuditPage {
+  const AuditPage(
+      {required this.items, required this.nextCursor, required this.retention});
+
+  factory AuditPage.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    final cursor = r.optString('next_cursor');
+    final retention = r.optString('retention')?.trim();
+    return AuditPage(
+      items: r.objects('items', (x) => AuditRecord.fromJson(x.json, x.path)),
+      nextCursor: cursor == null || cursor.isEmpty ? null : cursor,
+      retention: retention == null || retention.isEmpty
+          ? defaultAuditRetention
+          : retention,
+    );
+  }
+
+  final List<AuditRecord> items;
+  final String? nextCursor;
+  final String retention;
+}
+
+/// Audit log filters. `action` ending in `*` matches a prefix; [until] is
+/// exclusive, so a picked end day becomes the start of the next day.
+class AuditFilter {
+  const AuditFilter({this.text = '', this.action = '', this.since, this.until});
+  final String text, action;
+  final DateTime? since, until;
+
+  bool get isEmpty =>
+      text.trim().isEmpty && action.isEmpty && since == null && until == null;
+
+  Map<String, String> toQuery({String? cursor, int limit = 50}) => {
+        if (text.trim().isNotEmpty) 'q': text.trim(),
+        if (action.isNotEmpty) 'action': action,
+        if (since != null) 'since': since!.toUtc().toIso8601String(),
+        if (until != null) 'until': until!.toUtc().toIso8601String(),
+        'limit': '$limit',
+        if (cursor != null) 'cursor': cursor,
+      };
+}
+
+/// "workspace_member.role_change" -> "Workspace member role change".
+String auditActionLabel(String action) {
+  final words = action
+      .replaceAll(RegExp(r'\*$'), '')
+      .replaceAll(RegExp('[._]+'), ' ')
+      .trim();
+  return words.isEmpty ? action : words[0].toUpperCase() + words.substring(1);
+}
+
+/// Metadata as sorted rows; nested values as compact JSON-like text.
+List<(String, String)> auditMetadataRows(Map<String, Object?> metadata) {
+  final keys = metadata.keys.toList()..sort();
+  return [for (final key in keys) (key, '${metadata[key]}')];
 }

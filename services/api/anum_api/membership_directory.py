@@ -29,7 +29,7 @@ _SET_READER_ROLE = text("set local role anum_membership_reader")
 # The explicit tenant and user filters repeat what the role's policies already enforce.
 _CALLER_MEMBERSHIPS = text(
     """
-    select m.workspace_id, m.role, w.name
+    select m.workspace_id, m.role, w.name, w.archived_at
     from workspace_memberships m
     left join workspaces w on w.tenant_id = m.tenant_id and w.id = m.workspace_id
     where m.tenant_id = :tenant_id and m.user_id = :user_id and m.active
@@ -63,6 +63,7 @@ def list_caller_memberships(context: TenantContext) -> list[CallerMembership]:
                 workspace_id=row.workspace_id,
                 workspace_name=row.name,
                 role=row.role,
+                archived=row.archived_at is not None,
             )
             for row in rows
         ]

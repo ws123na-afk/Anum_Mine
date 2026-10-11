@@ -78,6 +78,11 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/privacy') return json(privacy);
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: now, updated_at: now });
     if (path === '/api/v1/me/workspace-memberships') return json([{ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'owner', active: true }]);
+    // Workspace lifecycle and the audit log (docs/identity.md#workspace-lifecycle, docs/governance-and-scale.md#audit-log).
+    if (path === '/api/v1/workspaces/current' && method === 'GET') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: now, updated_at: now, archived_at: null, archived_by: null });
+    if (path === '/api/v1/workspaces/current/permissions') return json({ workspace_id: 'workspace_foundation', role: 'owner', organization_admin: true, can_manage_workspace: true, can_create_workspace: true, can_manage_members: true, can_read_audit: true, can_export_audit: true });
+    if (path === '/api/v1/audit-records/actions') return json({ actions: ['policy_pack.created', 'workspace_member.role_change'] });
+    if (path === '/api/v1/audit-records') return json({ items: [{ id: 'audit_1', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', actor: 'user_local', action: 'workspace_member.role_change', target: 'user_member', outcome: 'success', correlation_id: 'corr_1', created_at: now, metadata: { role: 'viewer' } }], next_cursor: null, retention: 'Audit records are kept for as long as the workspace exists, including after it is archived. They are append-only: nobody can edit or delete them, owners included.' });
     return route.abort();
   });
 }

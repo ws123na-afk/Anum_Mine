@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from anum_api.governance import governance_store
 from anum_api.main import app
+from anum_api.store import store
 
 
 client = TestClient(app)
@@ -18,6 +19,8 @@ OTHER = {**OWNER, "x-tenant-id": "tenant_b", "x-workspace-id": "workspace_b"}
 
 def setup_function() -> None:
     governance_store.clear()
+    # Governance audit records share the in-memory audit store with every other change.
+    store.audit_records.clear()
 
 
 def policy(name: str = "External actions") -> dict:

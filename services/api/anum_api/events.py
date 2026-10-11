@@ -50,6 +50,11 @@ class CanonicalEventName(StrEnum):
     WORKSPACE_MEMBER_REACTIVATED = "workspace_member.reactivated"
     DEVELOPER_REQUEST_READY_FOR_REVIEW = "developer_request.ready_for_review"
     DEVELOPER_REQUEST_FAILED = "developer_request.failed"
+    WORKSPACE_INVITATION_RESENT = "workspace_invitation.resent"
+    WORKSPACE_CREATED = "workspace.created"
+    WORKSPACE_RENAMED = "workspace.renamed"
+    WORKSPACE_ARCHIVED = "workspace.archived"
+    WORKSPACE_RESTORED = "workspace.restored"
 
 
 class PublicationStatus(StrEnum):

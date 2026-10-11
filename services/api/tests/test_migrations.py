@@ -446,3 +446,22 @@ def test_push_devices_migration_is_expand_only_with_user_scoped_forced_rls() -> 
     assert "for select to anum_maintenance" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade
+
+
+def test_workspace_admin_migration_is_expand_only_and_concurrent() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0028_workspace_admin.py").read_text(encoding="utf-8")
+    assert 'revision = "0028_workspace_admin"' in revision_text
+    assert len("0028_workspace_admin") <= 32
+    assert 'down_revision = "0027_push_devices"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0028_workspace_admin.py"]
+    assert not [path for path in others if 'down_revision = "0027_push_devices"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Two nullable columns the previous release never writes.
+    assert upgrade.count("op.add_column(") == 2 and upgrade.count("nullable=true") == 2
+    # The directory role reads one more column, read-only; nothing else is granted.
+    assert upgrade.count("grant ") == 1
+    assert "grant select (archived_at) on workspaces to anum_membership_reader" in upgrade
+    assert "autocommit_block" in upgrade and upgrade.count("create index concurrently if not exists") == 2
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade

@@ -1,16 +1,15 @@
 // Owner screens: workspace members and invitations, monthly model budgets, and the approval policy.
 // Everything shown comes from the API. Who may manage is decided by the API (its 403, or the
 // caller's persisted membership role), never guessed from the token here.
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ArrowRightLeft, Ban, CircleDot, Copy, Gauge, KeyRound, Link2, Lock, MailPlus, RefreshCw, RotateCcw, Save, Scale, Search, ShieldCheck, Ticket, UserCheck, Users, XCircle } from 'lucide-react';
-import type { CreatedInvitation, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceApprovalPolicy, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowRightLeft, Ban, CircleDot, Copy, Gauge, KeyRound, Link2, Lock, MailPlus, RefreshCw, RotateCcw, Save, Scale, Search, Send, ShieldCheck, Ticket, UserCheck, Users, XCircle } from 'lucide-react';
+import type { CreatedInvitation, MembersSummary, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceApprovalPolicy, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
 import * as admin from './lib/adminApi';
 import { getCurrentMembership, rememberWorkspace } from './lib/api';
 import { POLICY_SWITCHES, policyChanged, policyDraft, policyUpdatedLabel, twoPersonWarning, type PolicyDraft } from './lib/policy';
 import {
   DEFAULT_TTL_HOURS,
   ROLES,
-  activeOwnerCount,
   budgetMeters,
   expiryLabel,
   formatResetDate,
@@ -18,14 +17,15 @@ import {
   invitationLink,
   invitationRequest,
   inviteeLabel,
-  isLastActiveOwner,
   limitDraft,
   parseInvitationInput,
   parseLimits,
-  sortMembers,
   type LimitDraft,
 } from './lib/admin';
 import { describeError, isPermissionDenied } from './lib/errors';
+import { isOnlyActiveOwner, type InvitationStatusFilter, type MemberStatusFilter } from './lib/audit';
+import { ConfirmDialog } from './Dialog';
+import { t, type MessageKey } from './lib/i18n';
 import { tenantWriteAccess } from './lib/governance';
 import './admin.css';
 
@@ -60,26 +60,69 @@ function takeInvitationFromLocation(): { token: string; workspaceId: string | nu
   return parsed;
 }
 
+type PendingChange =
+  | { kind: 'role'; member: WorkspaceMember; role: WorkspaceRole }
+  | { kind: 'deactivate'; member: WorkspaceMember }
+  | { kind: 'revoke'; invitation: WorkspaceInvitation }
+  | null;
+
+const INVITATION_FILTERS: InvitationStatusFilter[] = ['pending', 'expired', 'accepted', 'revoked', 'all'];
+const roleName = (role: WorkspaceRole) => t(`members.role.${role}` as MessageKey);
+
 export function MembersView({ workspaceId, onSwitchWorkspace }: { workspaceId: string; onSwitchWorkspace?: (workspaceId: string) => Promise<void> }) {
+  const [summary, setSummary] = useState<MembersSummary | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
+  const [invitationFilter, setInvitationFilter] = useState<InvitationStatusFilter>('pending');
+  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>('all');
+  const [roleFilter, setRoleFilter] = useState<WorkspaceRole | 'all'>('all');
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
+  const [listState, setListState] = useState<'idle' | 'loading' | 'more' | { error: string }>('idle');
   const [flash, setFlash] = useState<Flash>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedInvitation | null>(null);
+  const [pendingChange, setPendingChange] = useState<PendingChange>(null);
   const [linked] = useState(takeInvitationFromLocation);
+  const listRequest = useRef(0);
 
-  const refresh = useCallback(async () => {
+  // Debounced search: the API filters by user id and email.
+  useEffect(() => { const timer = setTimeout(() => setSearch(query), 300); return () => clearTimeout(timer); }, [query]);
+
+  const loadMembers = useCallback(async (append: string | null) => {
+    const id = ++listRequest.current;
+    setListState(append ? 'more' : 'loading');
     try {
-      const [nextMembers, nextInvitations] = await Promise.all([admin.getMembers(), admin.getInvitations()]);
-      setMembers(nextMembers);
-      setInvitations(nextInvitations);
+      const page = await admin.getMembersPage({ q: search, status: statusFilter, role: roleFilter, cursor: append });
+      if (id !== listRequest.current) return;
+      setMembers((current) => append ? [...current, ...page.items] : page.items);
+      setCursor(page.nextCursor);
+      setListState('idle');
       setLoad({ kind: 'ready' });
     } catch (error) {
-      setLoad(isPermissionDenied(error) ? { kind: 'forbidden', detail: describeError(error) } : { kind: 'error', detail: describeError(error) });
+      if (id !== listRequest.current) return;
+      if (isPermissionDenied(error)) setLoad({ kind: 'forbidden', detail: describeError(error) });
+      else if (append) setListState({ error: describeError(error) });
+      else setLoad({ kind: 'error', detail: describeError(error) });
     }
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
+  }, [search, statusFilter, roleFilter]);
+
+  const loadSide = useCallback(async () => {
+    try {
+      const [nextSummary, nextInvitations] = await Promise.all([admin.getMembersSummary(), admin.getInvitations(invitationFilter)]);
+      setSummary(nextSummary);
+      setInvitations(nextInvitations);
+    } catch (error) {
+      if (isPermissionDenied(error)) setLoad({ kind: 'forbidden', detail: describeError(error) });
+      else setFlash({ text: t('members.sideError', { message: describeError(error) }), error: true });
+    }
+  }, [invitationFilter]);
+
+  useEffect(() => { void loadMembers(null); }, [loadMembers]);
+  useEffect(() => { void loadSide(); }, [loadSide]);
+  const refresh = useCallback(async () => { await Promise.all([loadMembers(null), loadSide()]); }, [loadMembers, loadSide]);
 
   async function act(key: string, action: () => Promise<string>): Promise<boolean> {
     setBusy(key);
@@ -97,9 +140,21 @@ export function MembersView({ workspaceId, onSwitchWorkspace }: { workspaceId: s
     }
   }
 
-  const sorted = sortMembers(members);
-  const pending = invitations.filter((x) => x.status === 'pending');
-  const others = invitations.filter((x) => x.status !== 'pending');
+  function confirmChange() {
+    const change = pendingChange;
+    if (!change) return;
+    const done = () => setPendingChange(null);
+    if (change.kind === 'role') {
+      void act(`member:${change.member.userId}`, async () => { await admin.changeMemberRole(change.member.userId, change.role); return t('members.roleChanged', { user: change.member.userId, role: roleName(change.role) }); }).then(done);
+    } else if (change.kind === 'deactivate') {
+      void act(`member:${change.member.userId}`, async () => { await admin.setMemberActive(change.member.userId, false); return t('members.deactivated', { user: change.member.userId }); }).then(done);
+    } else {
+      void act(`invitation:${change.invitation.id}`, async () => { await admin.revokeInvitation(change.invitation.id); return t('members.revoked', { invitee: inviteeLabel(change.invitation) }); }).then(done);
+    }
+  }
+
+  const filtersActive = search.trim() !== '' || statusFilter !== 'all' || roleFilter !== 'all';
+  const clearFilters = () => { setQuery(''); setSearch(''); setStatusFilter('all'); setRoleFilter('all'); };
 
   return <>
     <section className="moduleIntro">
@@ -108,46 +163,62 @@ export function MembersView({ workspaceId, onSwitchWorkspace }: { workspaceId: s
     </section>
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
     {load.kind === 'loading' && <Notice>Loading members and invitations...</Notice>}
-    {load.kind === 'error' && <Notice error>Members could not be loaded. {load.detail}</Notice>}
+    {load.kind === 'error' && <section className="surface adminForbidden" aria-label={t('members.unavailable')}>
+      <span className="adminIcon"><Users aria-hidden="true" /></span>
+      <div><h3>{t('members.errorTitle')}</h3><p>{load.detail}</p><p className="muted">{t('audit.errorHelp')}</p>
+        <div className="actions"><button type="button" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></div>
+    </section>}
     {load.kind === 'forbidden' && <Forbidden title="Owner access required" detail={load.detail}>
       Listing members, changing roles and inviting people need the owner role in this workspace. Ask a workspace owner to change your role, or accept an invitation below.
     </Forbidden>}
     {load.kind === 'ready' && <>
       <section className="metrics">
-        <AdminMetric icon={<Users />} label="Active members" value={members.filter((m) => m.active).length} detail="Can use this workspace" />
-        <AdminMetric icon={<ShieldCheck />} label="Owners" value={activeOwnerCount(members)} detail="Active owners" />
-        <AdminMetric icon={<Ticket />} label="Pending invitations" value={pending.length} detail="Not yet accepted" />
-        <AdminMetric icon={<Ban />} label="Deactivated" value={members.filter((m) => !m.active).length} detail="Access refused (403)" />
+        <AdminMetric icon={<Users />} label="Active members" value={summary?.active ?? 0} detail="Can use this workspace" />
+        <AdminMetric icon={<ShieldCheck />} label="Owners" value={summary?.activeOwners ?? 0} detail="Active owners" />
+        <AdminMetric icon={<Ticket />} label="Pending invitations" value={summary?.pendingInvitations ?? 0} detail={t('members.pendingDetail')} />
+        <AdminMetric icon={<Ban />} label="Deactivated" value={summary?.deactivated ?? 0} detail="Access refused (403)" />
       </section>
       <section className="surface adminPanel" aria-label="Members">
-        <div className="sectionHeader"><div><p className="eyebrow">Memberships</p><h2>{members.length === 1 ? '1 member' : `${members.length} members`}</h2></div></div>
-        {!members.length && <Empty title="No members" text="This workspace has no memberships yet." />}
+        <div className="sectionHeader"><div><p className="eyebrow">Memberships</p><h2>{summary ? (summary.total === 1 ? '1 member' : `${summary.total} members`) : 'Members'}</h2></div></div>
+        <div className="memberFilters" role="search" aria-label={t('members.find')}>
+          <label className="field memberSearch"><span>{t('common.search')}</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('members.searchPlaceholder')} autoComplete="off" spellCheck={false} /></label>
+          <label className="field"><span>{t('members.status')}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as MemberStatusFilter)}><option value="all">{t('members.status.all')}</option><option value="active">{t('members.status.active')}</option><option value="deactivated">{t('members.status.deactivated')}</option></select></label>
+          <label className="field"><span>{t('members.roleFilter')}</span><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as WorkspaceRole | 'all')}><option value="all">{t('members.allRoles')}</option>{ROLES.map((r) => <option key={r} value={r}>{t(`members.roleOption.${r}` as MessageKey)}</option>)}</select></label>
+        </div>
+        {listState === 'loading' && <p className="muted" role="status">{t('members.searching')}</p>}
+        {!members.length && listState !== 'loading' && (filtersActive
+          ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('members.noMatchTitle')}</h3><p>{t('members.noMatchText')}</p><button type="button" className="secondary" onClick={clearFilters}>{t('members.clearFilters')}</button></div>
+          : <Empty title="No members" text="This workspace has no memberships yet. Invite someone below." />)}
         <div className="memberList">
-          {sorted.map((member) => {
-            const last = isLastActiveOwner(members, member);
+          {members.map((member) => {
+            const last = isOnlyActiveOwner(summary, member);
             const key = `member:${member.userId}`;
+            const hintId = `last-owner-${member.userId}`;
             return <article className={`memberRow ${member.active ? '' : 'inactive'}`} key={member.userId} aria-label={`Member ${member.userId}`}>
               <span className="adminAvatar" aria-hidden="true">{member.userId.slice(0, 2).toUpperCase()}</span>
               <div className="memberMain">
                 <strong>{member.userId}</strong>
+                {member.email && <small>{member.email}</small>}
                 <small>Joined {when(member.createdAt)} · updated {when(member.updatedAt)}</small>
-                {last && <small className="memberHint">Last active owner: the API refuses to demote or deactivate them.</small>}
+                {last && <small className="memberHint" id={hintId}>{t('members.lastOwner')}</small>}
               </div>
               <span className={`statusBadge ${member.active ? 'success' : 'neutral'}`}>{member.active ? 'active' : 'deactivated'}</span>
               <label className="memberRole"><span className="visuallyHidden">Role for {member.userId}</span>
-                <select aria-label={`Role for ${member.userId}`} value={member.role} disabled={busy !== null} onChange={(event) => {
+                <select aria-label={`Role for ${member.userId}`} aria-describedby={last ? hintId : undefined} value={member.role} disabled={busy !== null} onChange={(event) => {
                   const next = event.target.value as WorkspaceRole;
-                  void act(key, async () => { await admin.changeMemberRole(member.userId, next); return `${member.userId} is now ${roleLabel[next].toLowerCase()}.`; });
+                  if (next !== member.role) setPendingChange({ kind: 'role', member, role: next });
                 }}>
-                  {ROLES.map((role) => <option key={role} value={role}>{roleLabel[role]}</option>)}
+                  {ROLES.map((role) => <option key={role} value={role} disabled={last && role !== 'owner'}>{roleLabel[role]}</option>)}
                 </select>
               </label>
               {member.active
-                ? <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act(key, async () => { await admin.setMemberActive(member.userId, false); return `${member.userId} was deactivated.`; })}><Ban />Deactivate</button>
+                ? <button type="button" className="secondary" disabled={busy !== null || last} aria-describedby={last ? hintId : undefined} onClick={() => setPendingChange({ kind: 'deactivate', member })}><Ban />Deactivate</button>
                 : <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act(key, async () => { await admin.setMemberActive(member.userId, true); return `${member.userId} was reactivated.`; })}><RotateCcw />Reactivate</button>}
             </article>;
           })}
         </div>
+        {cursor && <div className="actions memberMore"><button type="button" className="secondary" disabled={listState === 'more'} onClick={() => void loadMembers(cursor)}>{listState === 'more' ? t('common.loading') : t('members.loadMore')}</button></div>}
+        {typeof listState === 'object' && <Notice error>{t('members.moreError', { message: listState.error })}</Notice>}
       </section>
       <div className="adminGrid">
         <InviteForm busy={busy !== null} onCreate={(request) => act('invite', async () => {
@@ -158,26 +229,52 @@ export function MembersView({ workspaceId, onSwitchWorkspace }: { workspaceId: s
         {created && <TokenReveal created={created} onDone={() => setCreated(null)} />}
       </div>
       <section className="surface adminPanel" aria-label="Invitations">
-        <div className="sectionHeader"><div><p className="eyebrow">Invitations</p><h2>{pending.length === 1 ? '1 pending' : `${pending.length} pending`}</h2></div></div>
-        {!invitations.length && <Empty title="No invitations" text="Invite someone above. Their invitation appears here until it is accepted, revoked or expires." />}
+        <div className="sectionHeader"><div><p className="eyebrow">Invitations</p><h2>Invitations</h2></div>
+          <div className="segmented" role="group" aria-label={t('members.showInvitations')}>
+            {INVITATION_FILTERS.map((option) => <button type="button" key={option} aria-pressed={invitationFilter === option} onClick={() => setInvitationFilter(option)}>{t(`members.invitations.${option}` as MessageKey)}</button>)}
+          </div>
+        </div>
+        {!invitations.length && <Empty title={invitationFilter === 'all' ? 'No invitations' : `No ${invitationFilter} invitations`} text={invitationFilter === 'pending' || invitationFilter === 'all' ? 'Invite someone above. Their invitation appears here until it is accepted, revoked or expires.' : 'Choose another filter to see the rest.'} />}
         <div className="memberList">
-          {[...pending, ...others].map((invitation) => <article className="memberRow invitationRow" key={invitation.id} aria-label={`Invitation for ${inviteeLabel(invitation)}`}>
-            <span className="adminIcon"><MailPlus /></span>
-            <div className="memberMain">
-              <strong>{inviteeLabel(invitation)}</strong>
-              <small>{roleLabel[invitation.role]} · created by {invitation.createdByUserId} · {invitation.status === 'pending' ? expiryLabel(invitation.expiresAt) : invitation.status === 'accepted' && invitation.acceptedAt ? `accepted ${when(invitation.acceptedAt)}${invitation.acceptedByUserId ? ` by ${invitation.acceptedByUserId}` : ''}` : invitation.status === 'revoked' && invitation.revokedAt ? `revoked ${when(invitation.revokedAt)}` : `expired ${when(invitation.expiresAt)}`}</small>
-            </div>
-            <span className={`statusBadge ${invitation.status === 'pending' ? 'warning' : invitation.status === 'accepted' ? 'success' : 'neutral'}`}>{invitation.status}</span>
-            {invitation.status === 'pending'
-              ? <button type="button" className="danger" disabled={busy !== null} onClick={() => void act(`invitation:${invitation.id}`, async () => { await admin.revokeInvitation(invitation.id); return `Invitation for ${inviteeLabel(invitation)} was revoked.`; })}><XCircle />Revoke</button>
-              : <span />}
-          </article>)}
+          {invitations.map((invitation) => {
+            const open = invitation.status === 'pending' || invitation.status === 'expired';
+            return <article className="memberRow invitationRow" key={invitation.id} aria-label={`Invitation for ${inviteeLabel(invitation)}`}>
+              <span className="adminIcon"><MailPlus /></span>
+              <div className="memberMain">
+                <strong>{inviteeLabel(invitation)}</strong>
+                <small>{roleLabel[invitation.role]} · created by {invitation.createdByUserId} · {invitation.status === 'pending' ? expiryLabel(invitation.expiresAt) : invitation.status === 'accepted' && invitation.acceptedAt ? `accepted ${when(invitation.acceptedAt)}${invitation.acceptedByUserId ? ` by ${invitation.acceptedByUserId}` : ''}` : invitation.status === 'revoked' && invitation.revokedAt ? `revoked ${when(invitation.revokedAt)}` : `expired ${when(invitation.expiresAt)}`}</small>
+              </div>
+              <span className={`statusBadge ${invitation.status === 'pending' ? 'warning' : invitation.status === 'accepted' ? 'success' : 'neutral'}`}>{invitation.status}</span>
+              {open
+                ? <div className="invitationActions">
+                    <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act(`invitation:${invitation.id}`, async () => {
+                      const result = await admin.resendInvitation(invitation.id);
+                      setCreated(result);
+                      return t('members.resent', { invitee: inviteeLabel(invitation) });
+                    })}><Send aria-hidden="true" />{invitation.status === 'expired' ? t('members.renew') : t('members.resend')}</button>
+                    {invitation.status === 'pending' && <button type="button" className="danger" disabled={busy !== null} onClick={() => setPendingChange({ kind: 'revoke', invitation })}><XCircle />Revoke</button>}
+                  </div>
+                : <span />}
+            </article>;
+          })}
         </div>
       </section>
     </>}
     <AcceptInvitation initial={linked} currentWorkspaceId={workspaceId} onAccepted={() => void refresh()} onSwitchWorkspace={onSwitchWorkspace} />
+    {pendingChange && <ConfirmDialog
+      title={pendingChange.kind === 'role' ? t('members.confirmRoleTitle', { user: pendingChange.member.userId, role: roleName(pendingChange.role) }, { isolate: false }) : pendingChange.kind === 'deactivate' ? t('members.confirmDeactivateTitle', { user: pendingChange.member.userId }, { isolate: false }) : t('members.confirmRevokeTitle', { invitee: inviteeLabel(pendingChange.invitation) }, { isolate: false })}
+      confirmLabel={pendingChange.kind === 'role' ? t('members.changeRole') : pendingChange.kind === 'deactivate' ? t('members.deactivate') : t('members.revokeInvitation')}
+      danger={pendingChange.kind !== 'role'}
+      busy={busy !== null}
+      onCancel={() => setPendingChange(null)}
+      onConfirm={confirmChange}>
+      {pendingChange.kind === 'role' && <p>{t('members.confirmRoleText', { from: roleName(pendingChange.member.role), to: roleName(pendingChange.role), effect: t(`members.effect.${pendingChange.role}` as MessageKey) })}</p>}
+      {pendingChange.kind === 'deactivate' && <p>{t('members.confirmDeactivateText')}</p>}
+      {pendingChange.kind === 'revoke' && <p>{t('members.confirmRevokeText')}</p>}
+    </ConfirmDialog>}
   </>;
 }
+
 
 function InviteForm({ busy, onCreate }: { busy: boolean; onCreate: (request: Parameters<typeof admin.createInvitation>[0]) => Promise<boolean> }) {
   const [role, setRole] = useState<WorkspaceRole>('member');

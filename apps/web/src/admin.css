@@ -25,6 +25,17 @@
 .memberMain .memberHint { color: var(--d-warn); }
 .memberRole select { padding: 7px 9px; }
 .memberRow > button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
+.memberFilters { display: grid; gap: 0 var(--d-s3); grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); }
+.memberFilters .field { margin-top: var(--d-s3); }
+.memberMore { justify-content: center; margin-top: var(--d-s3); }
+.invitationActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.invitationActions button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
+.invitationActions button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
+.invitationActions button:disabled, .memberRow > button:disabled { cursor: not-allowed; opacity: .55; }
+.segmented { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 12px; display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; }
+.segmented button { background: none; border: 0; border-radius: 9px; color: var(--d-muted); font-size: 13px; font-weight: 600; min-height: 36px; padding: 6px 12px; }
+.segmented button[aria-pressed="true"] { background: var(--d-glass-3); color: var(--d-text); }
+.segmented button:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 1px; }
 .tokenReveal { border-color: rgba(252, 211, 141, .45); box-shadow: var(--d-elev-2), 0 0 0 1px rgba(252, 211, 141, .15), 0 10px 40px rgba(252, 211, 141, .12); }
 .tokenWarning { align-items: flex-start; color: var(--d-warn); display: flex; font-size: 13px; gap: 8px; margin-top: 10px; }
 .tokenWarning svg { flex: none; height: 17px; margin-top: 2px; width: 17px; }
@@ -114,7 +125,9 @@
 @media (prefers-reduced-motion: reduce) { .meterTrack span { transition: none; } .policySwitch input[type="checkbox"], .policySwitch input[type="checkbox"]::after { transition: none; } }
 @media (max-width: 760px) {
   .memberRow, .memberRow.invitationRow { grid-template-columns: 40px minmax(0, 1fr); }
-  .memberRow > .statusBadge, .memberRow > .memberRole, .memberRow > button { grid-column: 2; justify-self: start; }
+  .memberRow > .statusBadge, .memberRow > .memberRole, .memberRow > button, .memberRow > .invitationActions { grid-column: 2; justify-self: start; }
+  .memberFilters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .memberFilters .memberSearch { grid-column: 1 / -1; }
   .memberRow > span:empty { display: none; }
   .adminFields .wide { grid-column: auto; }
   .budgetStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

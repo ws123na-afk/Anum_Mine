@@ -85,6 +85,7 @@ export interface ApiCallerMembership {
   workspace_name?: string | null;
   role: string;
   status: 'active';
+  archived?: boolean;
 }
 
 export interface ApiRunTaskResponse {

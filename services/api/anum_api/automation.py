@@ -287,6 +287,12 @@ def resume_state(run: WorkflowRun, workflow: WorkflowDefinition) -> WorkflowRun:
     return execute_run(run, workflow)
 
 
+def _archived(context: TenantContext) -> bool:
+    from .dependencies import workspace_archived
+
+    return workspace_archived(context)
+
+
 def scheduler_context(tenant_id: str, workspace_id: str, actor: str | None) -> TenantContext:
     """The explicit actor and tenant a scheduled run executes under."""
     return TenantContext(
@@ -514,7 +520,8 @@ class LocalAutomationEngine:
                         ),
                         None,
                     )
-                    if workflow is not None and workflow.status == WorkflowStatus.ACTIVE:
+                    # An archived workspace is read-only: its schedules advance without running.
+                    if workflow is not None and workflow.status == WorkflowStatus.ACTIVE and not _archived(context):
                         run = new_run(
                             context,
                             workflow,

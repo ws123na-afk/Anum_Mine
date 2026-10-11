@@ -397,7 +397,17 @@ class PostgresAutomationEngine:
             context = scheduler_context(tenant_id, workspace_id, claimed["created_by"])
             run: WorkflowRun | None = None
             workflow_record = session.get(AutomationWorkflowRecord, claimed["workflow_id"])
-            if workflow_record is not None and workflow_record.status == WorkflowStatus.ACTIVE.value:
+            # An archived workspace is read-only: its schedules advance without running
+            # (docs/identity.md#workspace-lifecycle).
+            archived = session.execute(
+                text("select archived_at from workspaces where tenant_id = :tenant_id and id = :workspace_id"),
+                {"tenant_id": tenant_id, "workspace_id": workspace_id},
+            ).scalar()
+            if (
+                archived is None
+                and workflow_record is not None
+                and workflow_record.status == WorkflowStatus.ACTIVE.value
+            ):
                 workflow = _workflow(workflow_record)
                 run = new_run(
                     context,

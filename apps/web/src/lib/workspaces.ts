@@ -8,6 +8,8 @@
 // switched to. Any other workspace can be typed in; the API's membership check in the target
 // workspace still decides before every switch.
 
+import { t } from './i18n.ts';
+
 /** Same pattern the API enforces for `x-workspace-id` (`is_valid_scope_id`). */
 export const WORKSPACE_ID_PATTERN = /^[A-Za-z0-9_-]{3,80}$/;
 const MAX_KNOWN = 20;
@@ -95,6 +97,8 @@ export interface WorkspaceOption {
   /** Workspace name and the caller's role, when the API's membership list provided them. */
   name?: string | null;
   role?: string;
+  /** The workspace is archived: read-only until an owner restores it. */
+  archived?: boolean;
 }
 
 /** One of the caller's memberships as the switcher uses it (`GET /api/v1/me/workspace-memberships`). */
@@ -102,13 +106,14 @@ export interface MembershipEntry {
   workspaceId: string;
   workspaceName: string | null;
   role: string;
+  archived?: boolean;
 }
 
 /** Map the API rows; rows with a malformed id are dropped rather than offered. */
-export function membershipEntries(rows: readonly { workspace_id: string; workspace_name?: string | null; role: string }[]): MembershipEntry[] {
+export function membershipEntries(rows: readonly { workspace_id: string; workspace_name?: string | null; role: string; archived?: boolean }[]): MembershipEntry[] {
   return rows
     .filter((row) => typeof row.workspace_id === 'string' && isWorkspaceId(row.workspace_id))
-    .map((row) => ({ workspaceId: row.workspace_id, workspaceName: row.workspace_name?.trim() || null, role: row.role }));
+    .map((row) => ({ workspaceId: row.workspace_id, workspaceName: row.workspace_name?.trim() || null, role: row.role, ...(row.archived === true ? { archived: true } : {}) }));
 }
 
 /**
@@ -123,7 +128,7 @@ export function workspaceOptions(current: string, defaults: (string | null | und
     if (!id || !isWorkspaceId(id) || seen.has(id)) return;
     seen.add(id);
     const entry = byId.get(id);
-    options.push(entry ? { id, current: id === current, source: 'member', name: entry.workspaceName, role: entry.role } : { id, current: id === current, source });
+    options.push(entry ? { id, current: id === current, source: 'member', name: entry.workspaceName, role: entry.role, ...(entry.archived ? { archived: true } : {}) } : { id, current: id === current, source });
   };
   add(current, defaults.includes(current) ? 'default' : 'remembered');
   for (const entry of memberships ?? []) add(entry.workspaceId, 'member');
@@ -135,6 +140,6 @@ export function workspaceOptions(current: string, defaults: (string | null | und
 /** Second line of an option: its name (when different from the id) and the caller's role. */
 export function membershipLabel(option: WorkspaceOption): string | null {
   if (option.source !== 'member') return null;
-  const parts = [option.name && option.name !== option.id ? option.name : null, option.role ? `your role: ${option.role}` : null].filter(Boolean);
-  return parts.length ? parts.join(' · ') : 'Your membership';
+  const parts = [option.name && option.name !== option.id ? option.name : null, option.role ? t('switcher.yourRole', { role: option.role }) : null, option.archived ? t('switcher.archived') : null].filter(Boolean);
+  return parts.length ? parts.join(' · ') : t('switcher.source.member');
 }

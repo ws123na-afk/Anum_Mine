@@ -206,6 +206,21 @@ def test_disabled_and_updated_schedules(engine: PostgresAutomationEngine, databa
     assert enabled.next_run_at is not None and (enabled.next_run_at.hour, enabled.next_run_at.minute) == (6, 30)
 
 
+def test_schedules_of_an_archived_workspace_advance_without_running(
+    engine: PostgresAutomationEngine, database_engine: Engine
+) -> None:
+    created = engine.create_workflow(tenant_context(), workflow())
+    schedule = engine.create_schedule(tenant_context(), ScheduleCreate(workflow_id=created.id, name="Hourly", cron="0 * * * *"))
+    _make_due(database_engine, schedule.id)
+    with database_engine.begin() as connection:
+        fire_at = connection.execute(text("select next_run_at from automation_schedules")).scalar_one()
+        connection.execute(text("update workspaces set archived_at = now() where id = :id"), {"id": WORKSPACE_A})
+
+    assert engine.run_due_schedules() == []
+    assert engine.list_runs(tenant_context()) == []
+    assert engine.get_schedule(tenant_context(), schedule.id).next_run_at > fire_at
+
+
 def test_maintenance_role_discovers_due_schedule_ids_only(
     engine: PostgresAutomationEngine, database_engine: Engine
 ) -> None:

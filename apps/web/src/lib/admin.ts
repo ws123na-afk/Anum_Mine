@@ -22,7 +22,7 @@ export const MAX_TTL_HOURS = 720;
 
 // ------------------------------------------------------------------ wire shapes
 
-export interface ApiMember { tenant_id: string; workspace_id: string; user_id: string; role: string; active: boolean; created_at: string; updated_at: string }
+export interface ApiMember { tenant_id: string; workspace_id: string; user_id: string; role: string; active: boolean; created_at: string; updated_at: string; email?: string | null }
 export interface ApiInvitation {
   id: string; tenant_id: string; workspace_id: string; role: string;
   invitee_user_id: string | null; invitee_email: string | null; status: string;
@@ -43,7 +43,7 @@ export interface ApiBudgetOverview { period_start: string; resets_on: string; te
 const role = (value: string): WorkspaceRole => (ROLES as readonly string[]).includes(value) ? value as WorkspaceRole : 'viewer';
 
 export function mapMember(value: ApiMember): WorkspaceMember {
-  return { tenantId: value.tenant_id, workspaceId: value.workspace_id, userId: value.user_id, role: role(value.role), active: value.active, createdAt: value.created_at, updatedAt: value.updated_at };
+  return { tenantId: value.tenant_id, workspaceId: value.workspace_id, userId: value.user_id, role: role(value.role), active: value.active, createdAt: value.created_at, updatedAt: value.updated_at, email: value.email ?? null };
 }
 
 export function mapInvitation(value: ApiInvitation): WorkspaceInvitation {

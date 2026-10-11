@@ -1,6 +1,12 @@
 from typing import Protocol
 
-from .audit import AuditRecord, DuplicateAuditRecordError
+from .audit import (
+    AuditCursor,
+    AuditFilter,
+    AuditRecord,
+    DuplicateAuditRecordError,
+    newest_first_page,
+)
 from .schemas import (
     AgentRun,
     Approval,
@@ -50,6 +56,17 @@ class AnumRepository(Protocol):
     def list_invitations(self, context: TenantContext) -> list[WorkspaceInvitation]: ...
     def record_audit(self, record: AuditRecord) -> AuditRecord: ...
     def list_audit_records(self, context: TenantContext) -> list[AuditRecord]: ...
+    def list_audit_page(
+        self,
+        context: TenantContext,
+        audit_filter: AuditFilter,
+        *,
+        limit: int,
+        after: AuditCursor | None = None,
+    ) -> list[AuditRecord]: ...
+    def get_audit_record(self, record_id: str, context: TenantContext) -> AuditRecord | None: ...
+    def list_audit_actions(self, context: TenantContext) -> list[str]: ...
+    def save_workspace(self, workspace: Workspace) -> Workspace: ...
     def create_task(self, task: Task) -> Task: ...
     def list_tasks(
         self,
@@ -232,6 +249,29 @@ class InMemoryRepository:
             ),
             key=lambda record: (record.created_at, record.id),
         )
+
+    def list_audit_page(
+        self,
+        context: TenantContext,
+        audit_filter: AuditFilter,
+        *,
+        limit: int,
+        after: AuditCursor | None = None,
+    ) -> list[AuditRecord]:
+        return newest_first_page(self.list_audit_records(context), audit_filter, limit=limit, after=after)
+
+    def get_audit_record(self, record_id: str, context: TenantContext) -> AuditRecord | None:
+        return next((record for record in self.list_audit_records(context) if record.id == record_id), None)
+
+    def list_audit_actions(self, context: TenantContext) -> list[str]:
+        return sorted({record.action for record in self.list_audit_records(context)})
+
+    def save_workspace(self, workspace: Workspace) -> Workspace:
+        current = self.store.workspaces.get(workspace.id)
+        if current is None or current.tenant_id != workspace.tenant_id:
+            raise ValueError(f"Workspace does not exist: {workspace.id}")
+        self.store.workspaces[workspace.id] = workspace
+        return workspace
 
     def create_task(self, task: Task) -> Task:
         return self.save_task(task)
@@ -453,13 +493,14 @@ class InMemoryRepository:
             if tenant_id != context.tenant_id or user_id != context.user_id or not membership.active:
                 continue
             workspace = self.store.workspaces.get(workspace_id)
-            name = workspace.name if workspace is not None and workspace.tenant_id == tenant_id else None
+            readable = workspace is not None and workspace.tenant_id == tenant_id
             found.append(
                 CallerMembership(
                     tenant_id=tenant_id,
                     workspace_id=workspace_id,
-                    workspace_name=name,
+                    workspace_name=workspace.name if readable else None,
                     role=membership.role,
+                    archived=readable and workspace.archived_at is not None,
                 )
             )
         return sorted(found, key=lambda item: ((item.workspace_name or "").casefold(), item.workspace_id))

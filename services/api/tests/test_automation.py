@@ -215,3 +215,26 @@ def test_scheduler_is_off_unless_enabled() -> None:
         Settings(_env_file=None, automation_scheduler_enabled=True, automation_scheduler_poll_seconds=5)
     )
     assert enabled is not None and enabled.poll_interval == 5
+
+
+def test_schedules_of_an_archived_workspace_advance_without_running(tmp_path: Path) -> None:
+    from anum_api.dependencies import memory_repository
+    from anum_api.schemas import Tenant, Workspace, utc_now
+    from anum_api.store import store
+
+    now = utc_now()
+    store.tenants.setdefault("tenant_a", Tenant(id="tenant_a", name="A", created_at=now, updated_at=now))
+    store.workspaces["workspace_a"] = Workspace(
+        id="workspace_a", tenant_id="tenant_a", name="A", created_at=now, updated_at=now,
+        archived_at=now, archived_by="user_a",
+    )
+    try:
+        engine = LocalAutomationEngine(str(tmp_path / "automation.db"))
+        created = engine.create_workflow(context(), workflow())
+        schedule = engine.create_schedule(context(), ScheduleCreate(workflow_id=created.id, name="Hourly", cron="0 * * * *"))
+        fire_at = _due(engine, schedule.id)
+        assert engine.run_due_schedules(now=fire_at) == []
+        assert _due(engine, schedule.id) == fire_at + timedelta(hours=1)
+        assert memory_repository.get_workspace("workspace_a", context()).archived_at is not None
+    finally:
+        store.workspaces.pop("workspace_a", None)

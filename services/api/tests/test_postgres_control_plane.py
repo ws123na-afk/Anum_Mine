@@ -199,15 +199,17 @@ def test_governance_and_its_audit_trail_survive_a_restart(client: TestClient, da
     assert client.get("/api/v1/policy-packs", headers=B).json() == []
 
     # Audit records are append-only rows in audit_records, scoped to the acting workspace.
+    # The export is newest first and does not include its own audit.export record.
     exported = client.get("/api/v1/audit/export", headers=A).json()
     assert [row["action"] for row in exported] == [
-        "policy_pack.created", "policy_pack.created", "role_template.created",
-        "approval_rule.created", "memory_governance.updated", "policy_pack.activated",
+        "policy_pack.activated", "memory_governance.updated", "approval_rule.created",
+        "role_template.created", "policy_pack.created", "policy_pack.created",
     ]
     assert {row["tenant_id"] for row in exported} == {TENANT_A}
     assert client.get("/api/v1/audit/export", headers=A2).json() == []
     assert client.get("/api/v1/audit/export", headers=B).json() == []
-    assert _count(database_engine, "audit_records") == 6
+    # Six changes plus one audit.export record per export above.
+    assert _count(database_engine, "audit_records") == 9
 
 
 def test_a_workspace_owner_without_org_admin_writes_no_tenant_policy(

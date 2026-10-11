@@ -101,3 +101,17 @@ test('the Assistant, Approvals, Memory, Notifications and Privacy read in Arabic
   await expect(page.getByText('اكتب DELETE MY DATA للتأكيد')).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
+
+test('the audit log and this workspace read in Arabic, right to left, without horizontal overflow', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await useSavedLocale(page, 'ar');
+  await page.goto('/#audit');
+  await expect(page.getByRole('heading', { level: 1, name: 'سجل التدقيق' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'سجل واحد' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'تطبيق عوامل التصفية' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+  await page.goto('/#settings');
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'مساحة العمل هذه' }).getByRole('heading', { name: 'مساحة العمل هذه' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});

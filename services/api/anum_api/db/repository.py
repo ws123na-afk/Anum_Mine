@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
-from anum_api.audit import AuditRecord, DuplicateAuditRecordError
+from anum_api.audit import AuditCursor, AuditFilter, AuditRecord, DuplicateAuditRecordError
 from anum_api.repository import AnumRepository, UnknownCursorError
 from anum_api.schemas import (
     AgentRun,
@@ -97,6 +97,21 @@ class SqlAlchemyRepository(AnumRepository):
             updated_at=workspace.updated_at,
         )
         self.session.add(record)
+        self.session.flush()
+        return self._workspace_from_record(record)
+
+    def save_workspace(self, workspace: Workspace) -> Workspace:
+        record = self.session.scalar(
+            select(WorkspaceRecord)
+            .where(WorkspaceRecord.id == workspace.id, WorkspaceRecord.tenant_id == workspace.tenant_id)
+            .with_for_update()
+        )
+        if record is None:
+            raise ValueError(f"Workspace does not exist: {workspace.id}")
+        record.name = workspace.name
+        record.archived_at = workspace.archived_at
+        record.archived_by = workspace.archived_by
+        record.updated_at = workspace.updated_at
         self.session.flush()
         return self._workspace_from_record(record)
 
@@ -207,6 +222,7 @@ class SqlAlchemyRepository(AnumRepository):
             or record.workspace_id != invitation.workspace_id
         ):
             raise ValueError(f"Invitation {invitation.id!r} cannot be moved between scopes")
+        record.token_hash = invitation.token_hash
         record.role = invitation.role
         record.invitee_user_id = invitation.invitee_user_id
         record.invitee_email = invitation.invitee_email
@@ -291,21 +307,93 @@ class SqlAlchemyRepository(AnumRepository):
             )
             .order_by(AuditRecordRow.created_at, AuditRecordRow.id)
         ).all()
-        return [
-            AuditRecord(
-                id=row.id,
-                tenant_id=row.tenant_id,
-                workspace_id=row.workspace_id,
-                actor=row.actor,
-                action=row.action,
-                target=row.target,
-                outcome=row.outcome,
-                correlation_id=row.correlation_id,
-                created_at=row.created_at,
-                metadata=dict(row.record_metadata or {}),
+        return [self._audit_from_row(row) for row in rows]
+
+    def list_audit_page(
+        self,
+        context: TenantContext,
+        audit_filter: AuditFilter,
+        *,
+        limit: int,
+        after: AuditCursor | None = None,
+    ) -> list[AuditRecord]:
+        """One keyset page, newest first, inside the request's RLS scope."""
+        query = select(AuditRecordRow).where(
+            AuditRecordRow.tenant_id == context.tenant_id,
+            AuditRecordRow.workspace_id == context.workspace_id,
+        )
+        if audit_filter.actor is not None:
+            query = query.where(AuditRecordRow.actor == audit_filter.actor)
+        if audit_filter.action is not None:
+            if audit_filter.action.endswith("*"):
+                query = query.where(
+                    AuditRecordRow.action.startswith(audit_filter.action[:-1], autoescape=True)
+                )
+            else:
+                query = query.where(AuditRecordRow.action == audit_filter.action)
+        if audit_filter.target is not None:
+            query = query.where(AuditRecordRow.target == audit_filter.target)
+        if audit_filter.outcome is not None:
+            query = query.where(AuditRecordRow.outcome == audit_filter.outcome)
+        if audit_filter.correlation_id is not None:
+            query = query.where(AuditRecordRow.correlation_id == audit_filter.correlation_id)
+        if audit_filter.since is not None:
+            query = query.where(AuditRecordRow.created_at >= audit_filter.since)
+        if audit_filter.until is not None:
+            query = query.where(AuditRecordRow.created_at < audit_filter.until)
+        if audit_filter.text:
+            query = query.where(
+                or_(
+                    AuditRecordRow.actor.icontains(audit_filter.text, autoescape=True),
+                    AuditRecordRow.action.icontains(audit_filter.text, autoescape=True),
+                    AuditRecordRow.target.icontains(audit_filter.text, autoescape=True),
+                )
             )
-            for row in rows
-        ]
+        if after is not None:
+            query = query.where(tuple_(AuditRecordRow.created_at, AuditRecordRow.id) < tuple_(*after))
+        rows = self.session.scalars(
+            query.order_by(AuditRecordRow.created_at.desc(), AuditRecordRow.id.desc()).limit(limit)
+        ).all()
+        return [self._audit_from_row(row) for row in rows]
+
+    def get_audit_record(self, record_id: str, context: TenantContext) -> AuditRecord | None:
+        row = self.session.scalar(
+            select(AuditRecordRow).where(
+                AuditRecordRow.id == record_id,
+                AuditRecordRow.tenant_id == context.tenant_id,
+                AuditRecordRow.workspace_id == context.workspace_id,
+            )
+        )
+        return None if row is None else self._audit_from_row(row)
+
+    def list_audit_actions(self, context: TenantContext) -> list[str]:
+        return list(
+            self.session.scalars(
+                select(AuditRecordRow.action)
+                .where(
+                    AuditRecordRow.tenant_id == context.tenant_id,
+                    AuditRecordRow.workspace_id == context.workspace_id,
+                )
+                .group_by(AuditRecordRow.action)
+                .order_by(AuditRecordRow.action)
+                .limit(500)
+            ).all()
+        )
+
+    @staticmethod
+    def _audit_from_row(row: AuditRecordRow) -> AuditRecord:
+        return AuditRecord(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            workspace_id=row.workspace_id,
+            actor=row.actor,
+            action=row.action,
+            target=row.target,
+            outcome=row.outcome,
+            correlation_id=row.correlation_id,
+            created_at=row.created_at,
+            metadata=dict(row.record_metadata or {}),
+        )
 
     def create_task(self, task: Task) -> Task:
         record = self.session.get(TaskRecord, task.id)
@@ -933,6 +1021,8 @@ class SqlAlchemyRepository(AnumRepository):
             name=record.name,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            archived_at=record.archived_at,
+            archived_by=record.archived_by,
         )
 
     @staticmethod

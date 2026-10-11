@@ -92,6 +92,86 @@ class AuditRecord:
         object.__setattr__(self, "metadata", redact_metadata(self.metadata))
 
 
+@dataclass(frozen=True, slots=True)
+class AuditFilter:
+    """Filters for the audit log (docs/governance-and-scale.md#audit-log).
+
+    ``action`` matches exactly, or as a prefix when it ends with ``*``
+    (``workspace_member.*``). ``since`` is inclusive and ``until`` exclusive. ``text``
+    matches actor, action or target case-insensitively as a substring.
+    """
+
+    actor: str | None = None
+    action: str | None = None
+    target: str | None = None
+    outcome: str | None = None
+    correlation_id: str | None = None
+    since: datetime | None = None
+    until: datetime | None = None
+    text: str | None = None
+
+    def matches(self, record: "AuditRecord") -> bool:
+        if self.actor is not None and record.actor != self.actor:
+            return False
+        if self.action is not None:
+            if self.action.endswith("*"):
+                if not record.action.startswith(self.action[:-1]):
+                    return False
+            elif record.action != self.action:
+                return False
+        if self.target is not None and record.target != self.target:
+            return False
+        if self.outcome is not None and record.outcome != self.outcome:
+            return False
+        if self.correlation_id is not None and record.correlation_id != self.correlation_id:
+            return False
+        if self.since is not None and record.created_at < self.since:
+            return False
+        if self.until is not None and record.created_at >= self.until:
+            return False
+        if self.text:
+            needle = self.text.casefold()
+            if not any(needle in value.casefold() for value in (record.actor, record.action, record.target)):
+                return False
+        return True
+
+    def as_metadata(self) -> dict[str, str]:
+        """The filters that are set, as strings (for the export's own audit record)."""
+        values = {
+            "actor": self.actor,
+            "action": self.action,
+            "target": self.target,
+            "outcome": self.outcome,
+            "correlation_id": self.correlation_id,
+            "since": self.since.isoformat() if self.since else None,
+            "until": self.until.isoformat() if self.until else None,
+            "text": self.text,
+        }
+        return {key: value for key, value in values.items() if value is not None}
+
+
+# Newest first: (created_at, id) descending. A cursor is the last row's key.
+AuditCursor = tuple[datetime, str]
+
+
+def newest_first_page(
+    records: "list[AuditRecord] | tuple[AuditRecord, ...]",
+    audit_filter: AuditFilter,
+    *,
+    limit: int,
+    after: AuditCursor | None,
+) -> "list[AuditRecord]":
+    """Filter, order newest first and cut one keyset page (the in-memory backends)."""
+    ordered = sorted(
+        (record for record in records if audit_filter.matches(record)),
+        key=lambda record: (record.created_at, record.id),
+        reverse=True,
+    )
+    if after is not None:
+        ordered = [record for record in ordered if (record.created_at, record.id) < after]
+    return ordered[:limit]
+
+
 class AuditQuery(Protocol):
     def query(
         self,

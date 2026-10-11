@@ -118,6 +118,8 @@ from .model_budget import ModelBudgetExceededError, check_model_budget, router a
 from .onboarding import budgeted_model_gateway, router as onboarding_router
 from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
+from .audit_log import router as audit_log_router
+from .workspace_admin import router as workspace_admin_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
@@ -170,7 +172,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    # PATCH: renaming a workspace and toggling a skill installation.
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
         "content-type",
         "authorization",
@@ -182,8 +185,9 @@ app.add_middleware(
         "idempotency-key",
         CORRELATION_ID_HEADER,
     ],
-    # Content-Disposition: the file name of a download (GET /api/v1/privacy/export).
-    expose_headers=[CORRELATION_ID_HEADER, "Retry-After", "Content-Disposition"],
+    # Content-Disposition: the file name of a download (privacy and audit exports).
+    # X-Next-Cursor: the next page of GET /api/v1/workspace-members?limit=.
+    expose_headers=[CORRELATION_ID_HEADER, "Retry-After", "Content-Disposition", "X-Next-Cursor"],
 )
 # Outermost ANUM middleware, so 413/429 answers and CORS preflights are counted too.
 app.add_middleware(HttpMetricsMiddleware)
@@ -214,6 +218,8 @@ app.include_router(skills_router)
 app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
+app.include_router(audit_log_router)
+app.include_router(workspace_admin_router)
 app.include_router(model_budget_router)
 app.include_router(developer_router)
 app.include_router(user_preferences_router)

@@ -51,7 +51,7 @@ Format `anum.privacy-export/v1`, sections in this order:
 
 **Files are linked, not embedded.** File bytes can be up to 25 MiB each and are workspace records; embedding them would make the export unbounded. The signed-in user downloads each file from its `download_path` (the Files page does the same).
 
-Not included: audit records (the workspace's security log, ids and counts only; owners export it with `audit:export`), other users' data, data in other workspaces, and the sign-in account itself (name, email, password, two-factor), which lives in Keycloak.
+Not included: audit records (the workspace's security log, ids and counts only; owners and organization administrators read and export it, [Audit log](governance-and-scale.md#audit-log)), other users' data, data in other workspaces, and the sign-in account itself (name, email, password, two-factor), which lives in Keycloak.
 
 **Size cap.** The export is built in memory, section by section, and refused with `413` once it passes `ANUM_PRIVACY_EXPORT_MAX_BYTES` (default 25 MiB, between 64 KiB and 512 MiB). It is never truncated: a partial export would look complete. The `413` message says how to fix it (delete old conversations, or the administrator raises the limit).
 

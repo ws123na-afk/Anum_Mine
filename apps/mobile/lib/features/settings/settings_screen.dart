@@ -710,6 +710,14 @@ class _AdminCard extends StatelessWidget {
                     repository: repository,
                     currentWorkspaceId: workspaceId))),
         ListTile(
+            leading: const Icon(Icons.receipt_long_outlined),
+            title: const Text('Audit log'),
+            subtitle: const Text(
+                'Who changed what, and when. Owners and organization administrators.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _push(context, () => AuditLogController(repository),
+                (c) => AuditLogScreen(controller: c))),
+        ListTile(
             leading: const Icon(Icons.speed_outlined),
             title: const Text('Model budgets'),
             subtitle: const Text('Monthly cost and token limits with usage.'),

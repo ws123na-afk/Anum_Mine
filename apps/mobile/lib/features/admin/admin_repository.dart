@@ -12,6 +12,14 @@ abstract interface class AdminRepository {
   Future<List<WorkspaceInvitation>> invitations();
   Future<CreatedInvitation> createInvitation(InvitationDraft draft);
   Future<WorkspaceInvitation> revokeInvitation(String id);
+
+  /// A new token for a pending or expired invitation; the old one stops working.
+  Future<CreatedInvitation> resendInvitation(String id);
+
+  /// One page of the audit log, newest first (owners and organization
+  /// administrators; everyone else gets 403).
+  Future<AuditPage> auditPage(AuditFilter filter, {String? cursor});
+  Future<List<String>> auditActions();
   Future<AcceptedInvitation> acceptInvitation(String token,
       {String? workspaceId});
   Future<BudgetOverview> budgets();
@@ -72,6 +80,32 @@ class ApiAdminRepository implements AdminRepository {
   Future<WorkspaceInvitation> revokeInvitation(String id) async =>
       WorkspaceInvitation.fromJson(await api.request(
           'POST', '/api/v1/workspace-invitations/${_id(id)}/revoke'));
+
+  @override
+  Future<CreatedInvitation> resendInvitation(String id) async {
+    final value = JsonReader(await api.request(
+        'POST', '/api/v1/workspace-invitations/${_id(id)}/resend',
+        body: const {}));
+    final invitation = value.object('invitation');
+    return CreatedInvitation(
+      invitation:
+          WorkspaceInvitation.fromJson(invitation.json, invitation.path),
+      token: value.string('token'),
+    );
+  }
+
+  @override
+  Future<AuditPage> auditPage(AuditFilter filter, {String? cursor}) async {
+    final query = Uri(queryParameters: filter.toQuery(cursor: cursor)).query;
+    return AuditPage.fromJson(
+        await api.request('GET', '/api/v1/audit-records?$query'));
+  }
+
+  @override
+  Future<List<String>> auditActions() async =>
+      JsonReader(await api.request('GET', '/api/v1/audit-records/actions'))
+          .optStrings('actions') ??
+      const [];
 
   /// The API accepts into the workspace named by `x-workspace-id`, so a
   /// link's workspace overrides the session's.

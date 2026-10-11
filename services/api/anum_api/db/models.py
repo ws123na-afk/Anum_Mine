@@ -66,6 +66,9 @@ class Workspace(Base, TimestampMixin, TenantScopedMixin):
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
+    # Migration 0026: an archived workspace refuses writes until an owner restores it.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
     tenant: Mapped[Tenant] = relationship(back_populates="workspaces")
     tasks: Mapped[list["TaskRecord"]] = relationship(back_populates="workspace")
@@ -474,6 +477,9 @@ class AuditRecordRow(Base, WorkspaceScopedMixin):
             name="fk_audit_records_workspace",
         ),
         Index("ix_audit_records_scope_created", "tenant_id", "workspace_id", "created_at"),
+        # Migration 0026: the audit log's actor and action filters, newest first.
+        Index("ix_audit_records_scope_actor", "tenant_id", "workspace_id", "actor", "created_at"),
+        Index("ix_audit_records_scope_action", "tenant_id", "workspace_id", "action", "created_at"),
     )
 
 

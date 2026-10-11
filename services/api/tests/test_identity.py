@@ -509,7 +509,7 @@ def test_header_mode_runtime_guard_refuses_non_local_environment(monkeypatch) ->
     with pytest.raises(RuntimeError, match="local/test"):
         asyncio.run(
             dependencies.tenant_context(
-                authorization=None, x_tenant_id="t_1", x_workspace_id="w_1",
+                request=None, authorization=None, x_tenant_id="t_1", x_workspace_id="w_1",
                 x_user_id="u_1", x_user_roles="owner",
             )
         )

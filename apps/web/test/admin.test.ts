@@ -85,7 +85,8 @@ describe('API errors', () => {
 describe('members', () => {
   test('maps the wire membership and treats unknown roles as viewer', () => {
     const mapped = mapMember({ tenant_id: 't', workspace_id: 'w', user_id: 'u', role: 'auditor', active: false, created_at: 'c', updated_at: 'u2' });
-    assert.deepEqual(mapped, { tenantId: 't', workspaceId: 'w', userId: 'u', role: 'viewer', active: false, createdAt: 'c', updatedAt: 'u2' });
+    assert.deepEqual(mapped, { tenantId: 't', workspaceId: 'w', userId: 'u', role: 'viewer', active: false, createdAt: 'c', updatedAt: 'u2', email: null });
+    assert.equal(mapMember({ tenant_id: 't', workspace_id: 'w', user_id: 'u', role: 'member', active: true, created_at: 'c', updated_at: 'u', email: 'u@example.com' }).email, 'u@example.com');
   });
 
   test('flags only the single active owner as last owner', () => {
