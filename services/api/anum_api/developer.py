@@ -16,7 +16,7 @@ Deployment-level configuration (``ANUM_DEVELOPER_*``) names the one tenant (opti
 one workspace) allowed to use developer mode, the GitHub API address, the limits, and
 optionally a token covering selected repositories (``ANUM_DEVELOPER_GITHUB_TOKEN``).
 ``ANUM_DEVELOPER_GITHUB_REPO`` is the pre-projects single repository: migration
-``0031_developer_projects`` turned it into the first project, and requests stored
+``0032_developer_projects`` turned it into the first project, and requests stored
 without a project still resolve to it. Requests are stored per tenant and workspace
 under forced RLS (migration ``0022_developer_requests``); the in-memory stores serve
 ``ANUM_REPOSITORY_BACKEND=memory``.
@@ -118,7 +118,7 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 class DeveloperSettings(BaseSettings):
     """``ANUM_DEVELOPER_*``. Nothing here is required: missing values show the setup state."""
 
-    # Before projects: the single repository (now the first project, made by migration 0031)
+    # Before projects: the single repository (now the first project, made by migration 0032)
     # and the token used by projects whose token source is "environment".
     github_repo: str = ""
     github_token: SecretStr | None = None

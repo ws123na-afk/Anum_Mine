@@ -1,4 +1,4 @@
-"""PostgreSQL developer mode: requests (migrations 0022, 0023, 0031) and projects (0031_developer_projects).
+"""PostgreSQL developer mode: requests (migrations 0022, 0023, 0031) and projects (0032_developer_projects).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); the
 queries filter on the scope explicitly as well. Rows are shared by the workspace's owners.

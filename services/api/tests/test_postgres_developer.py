@@ -1,4 +1,4 @@
-"""Developer mode in PostgreSQL (migrations 0022, 0023 and 0031_developer_projects).
+"""Developer mode in PostgreSQL (migrations 0022, 0023 and 0032_developer_projects).
 
 The API runs as the non-owner ``anum_test_app`` role against a fake GitHub. Projects and
 requests are scoped to their tenant and workspace by forced RLS; "restart" clears the
@@ -389,7 +389,7 @@ def test_projects_migration_turns_the_configured_repository_into_the_first_proje
     monkeypatch.setenv("ANUM_DEVELOPER_BASE_BRANCH", "develop")
     monkeypatch.delenv("ANUM_DEVELOPER_WORKSPACE_ID", raising=False)
     try:
-        run_migration(test_database_url, "downgrade", "0030_integration_health")
+        run_migration(test_database_url, "downgrade", "0031_automation_policy")
         _insert_old_requests(
             database_engine,
             (("dev_a", WORKSPACE_A, "merged", "2026-10-01T10:00:00Z"), ("dev_a2", WORKSPACE_A2, "queued", "2026-10-01T10:00:00Z")),
@@ -421,7 +421,7 @@ def test_projects_migration_honours_the_workspace_setting_and_skips_without_sett
     monkeypatch.setenv("ANUM_DEVELOPER_TENANT_ID", TENANT_A)
     monkeypatch.setenv("ANUM_DEVELOPER_WORKSPACE_ID", WORKSPACE_A2)
     try:
-        run_migration(test_database_url, "downgrade", "0030_integration_health")
+        run_migration(test_database_url, "downgrade", "0031_automation_policy")
     finally:
         run_migration(test_database_url, "upgrade", "head")
         grant_app_role(database_engine)
@@ -429,7 +429,7 @@ def test_projects_migration_honours_the_workspace_setting_and_skips_without_sett
         assert list(connection.execute(text("select workspace_id from developer_projects")).scalars()) == [WORKSPACE_A2]
     monkeypatch.delenv("ANUM_DEVELOPER_GITHUB_REPO")
     try:
-        run_migration(test_database_url, "downgrade", "0030_integration_health")
+        run_migration(test_database_url, "downgrade", "0031_automation_policy")
     finally:
         run_migration(test_database_url, "upgrade", "head")
         grant_app_role(database_engine)

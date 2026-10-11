@@ -8,7 +8,7 @@ No code runs on the ANUM servers (or the Oracle VM). Coding runs in each reposit
 
 ## Projects
 
-A project (`developer_projects`, migration `0031_developer_projects`) holds:
+A project (`developer_projects`, migration `0032_developer_projects`) holds:
 
 | Field | Meaning |
 |---|---|
@@ -122,7 +122,7 @@ Missing or invalid settings never stop the API; the Developer view shows the set
 
 ### Upgrading from one repository
 
-When migration `0031_developer_projects` runs with `ANUM_DEVELOPER_GITHUB_REPO` and `ANUM_DEVELOPER_TENANT_ID` in its environment (the migration runs with the API's environment on Render, Helm and the Oracle stack), that repository becomes a project in every workspace of that tenant (only `ANUM_DEVELOPER_WORKSPACE_ID` when set), named after the repository, using the API's token (no token is copied), and existing requests are attached to it. It runs inside each tenant and workspace's RLS context and inserts nothing twice. If the migration ran without those settings, add the project in Projects and choose "The API's token". The ANUM repository's own workflow keeps working unchanged.
+When migration `0032_developer_projects` runs with `ANUM_DEVELOPER_GITHUB_REPO` and `ANUM_DEVELOPER_TENANT_ID` in its environment (the migration runs with the API's environment on Render, Helm and the Oracle stack), that repository becomes a project in every workspace of that tenant (only `ANUM_DEVELOPER_WORKSPACE_ID` when set), named after the repository, using the API's token (no token is copied), and existing requests are attached to it. It runs inside each tenant and workspace's RLS context and inserts nothing twice. If the migration ran without those settings, add the project in Projects and choose "The API's token". The ANUM repository's own workflow keeps working unchanged.
 
 ## Threat model
 
@@ -140,7 +140,7 @@ When migration `0031_developer_projects` runs with `ANUM_DEVELOPER_GITHUB_REPO` 
 
 - `developer_requests` (migration `0022_developer_requests`, expand-only): request text and source, status, branch, run and pull request ids and links, head SHA, CI summary (JSONB), failure and merge errors, merge approval and task ids, merge commit, timestamps; since `0031`, `project_id`, `project_name` and `repository`. Forced RLS on `anum.tenant_id` and `anum.workspace_id`.
 - `0023_developer_one_active` built the per-workspace one-active index after failing all but the newest active request per workspace; `0031` replaced it with the per-project index (built and dropped `CONCURRENTLY`). The previous release keeps working: its admission takes the same lock and is stricter.
-- `developer_projects` (migration `0031_developer_projects`): the fields above, `token_ciphertext`, `last_check` (JSONB), the install pull request; unique name and repository per workspace; forced RLS; `anum_maintenance` may select `id`, `tenant_id` and `workspace_id` of rows with a ciphertext (key rotation discovery) and nothing else.
+- `developer_projects` (migration `0032_developer_projects`): the fields above, `token_ciphertext`, `last_check` (JSONB), the install pull request; unique name and repository per workspace; forced RLS; `anum_maintenance` may select `id`, `tenant_id` and `workspace_id` of rows with a ciphertext (key rotation discovery) and nothing else.
 
 ## Not covered yet
 

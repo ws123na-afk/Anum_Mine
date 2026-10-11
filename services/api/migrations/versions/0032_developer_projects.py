@@ -36,7 +36,7 @@ release keeps working against this schema: it still admits under the same adviso
 and its own check stays per workspace (stricter), so it never relied on the dropped index
 to function. Everything else is expand only.
 
-Chained after ``0030_integration_health``.
+Chained after ``0031_automation_policy``.
 """
 
 import hashlib
@@ -47,8 +47,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0031_developer_projects"
-down_revision = "0030_integration_health"
+revision = "0032_developer_projects"
+down_revision = "0031_automation_policy"
 branch_labels = None
 depends_on = None
 

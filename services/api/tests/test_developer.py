@@ -1199,13 +1199,13 @@ def test_migration_is_expand_only_with_forced_rls() -> None:
     assert "drop " not in upgrade
 
 
-def test_projects_migration_chains_after_integration_health_with_forced_rls_and_a_discovery_only_grant() -> None:
+def test_projects_migration_chains_after_automation_policy_with_forced_rls_and_a_discovery_only_grant() -> None:
     versions = ROOT / "services" / "api" / "migrations" / "versions"
-    source = (versions / "0031_developer_projects.py").read_text(encoding="utf-8")
-    assert 'revision = "0031_developer_projects"' in source and len("0031_developer_projects") <= 32
-    assert 'down_revision = "0030_integration_health"' in source
-    others = [path for path in versions.glob("*.py") if path.name != "0031_developer_projects.py"]
-    assert not [path for path in others if 'down_revision = "0030_integration_health"' in path.read_text(encoding="utf-8")]
+    source = (versions / "0032_developer_projects.py").read_text(encoding="utf-8")
+    assert 'revision = "0032_developer_projects"' in source and len("0032_developer_projects") <= 32
+    assert 'down_revision = "0031_automation_policy"' in source
+    others = [path for path in versions.glob("*.py") if path.name != "0032_developer_projects.py"]
+    assert not [path for path in others if 'down_revision = "0031_automation_policy"' in path.read_text(encoding="utf-8")]
     upgrade = source.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert "enable row level security" in upgrade and "force row level security" in upgrade
     assert "no force row level security" not in upgrade  # the data step runs inside RLS context

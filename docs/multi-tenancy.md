@@ -57,7 +57,7 @@ Some jobs must find work in every tenant:
 - the voice transcript purge (expired 30-day transcripts, [Voice](voice.md#storage-and-retention));
 - the retrieval index purge (index rows of expired memories, [Memory](memory.md#retention); migration `0015_retrieval_retention`);
 - the conversation retention purge (conversations idle past `ANUM_CONVERSATION_RETENTION_DAYS`, [Conversations](conversations.md#retention); migration `0019_conversation_retention`);
-- `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, and developer projects with an encrypted token: `id`, `tenant_id` and `workspace_id` only, migration `0031_developer_projects`; [Runbooks](runbooks.md#rotating-anum_secrets_key)).
+- `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, and developer projects with an encrypted token: `id`, `tenant_id` and `workspace_id` only, migration `0032_developer_projects`; [Runbooks](runbooks.md#rotating-anum_secrets_key)).
 - the developer watcher (developer requests still in progress, refreshed so phone push can announce a ready pull request, [Notifications](notifications.md#developer-mode); migration `0027_push_devices`).
 
 They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automation`):

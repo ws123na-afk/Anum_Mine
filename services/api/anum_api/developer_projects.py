@@ -3,7 +3,7 @@
 A project names one GitHub repository (``owner/repo``), the branch requests build on, a
 short description that routes spoken and typed requests ("build X in TyrePulse"), an
 enabled switch and optional extra protected paths. Projects belong to a tenant and
-workspace (forced RLS, migration ``0031_developer_projects``) and only owners manage them.
+workspace (forced RLS, migration ``0032_developer_projects``) and only owners manage them.
 
 The GitHub token is per project (stored Fernet-encrypted with ``ANUM_SECRETS_KEY``, the
 same cipher as model provider keys) or the deployment's ``ANUM_DEVELOPER_GITHUB_TOKEN``

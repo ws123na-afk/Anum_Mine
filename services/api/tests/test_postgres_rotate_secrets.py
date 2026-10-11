@@ -213,7 +213,7 @@ def test_maintenance_grant_without_inherit_keeps_the_app_role_in_one_workspace(
             connection.execute(text(f"revoke anum_maintenance from {APP_ROLE}"))
 
 
-# -- developer-mode project tokens (migration 0031_developer_projects) ---------------------
+# -- developer-mode project tokens (migration 0032_developer_projects) ---------------------
 
 PROJECT_TOKENS = {
     (TENANT_A, WORKSPACE_A, "devproj_a1"): "example-project-token-a1",
