@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 // One mocked workspace with something on every main view (Assistant, Tasks, Approvals, Memory,
-// Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise), for the accessibility and localization specs. Every request the views make
+// Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
 // is answered; anything else is aborted so a new, unmocked call shows up as a failure.
 const now = new Date().toISOString();
 const later = new Date(Date.now() + 5 * 3600_000).toISOString();
@@ -79,6 +79,20 @@ const automationRun = {
   retry_of: null, schedule_id: 'schedule_1', current_step: 0, created_at: now, updated_at: now, created_by: 'user_local', error: 'Upstream down',
   steps: [{ id: 'make', name: 'Create digest', action: 'task.create', status: 'failed', attempt: 1, input: {}, output: {}, error: 'Upstream down' }],
 };
+const soon = new Date(Date.now() + 10 * 60_000).toISOString();
+const autonomyAction = {
+  id: 'auto_1', task_id: 'task_done', tool: 'email.archive', category: 'email', action_kind: 'archive', level: 'act_and_notify', pattern_key: 'email.archive',
+  template: null, summary: 'Archived the supplier newsletter', target: null, status: 'done', requested_by: 'user_local', created_at: now, reversible: true,
+  undo_available: true, undo_expires_at: soon, undo_token: 'undo_example', can_undo: true, undone_by: null, undone_at: null, undo_error: null, pattern_level: null,
+};
+const autonomyOverview = {
+  settings: { category_levels: {}, amount_threshold: 0, recipients_threshold: 5, price_change_percent_threshold: 0, daily_caps: {}, quiet_hours: null, blocked_recipients: [], blocked_domains: [], approved_templates: ['order_status'], proposal_after: 3, updated_by: null, updated_at: null },
+  guardrails: { spending_limit: null, max_auto_amount: null, max_auto_recipients: null, max_auto_price_change_percent: null, category_ceilings: {}, daily_caps: {}, quiet_hours: null, blocked_recipients: [], blocked_domains: [] },
+  categories: ['email', 'whatsapp', 'commerce', 'developer', 'files', 'tasks', 'general'].map((category) => ({ category, level: 'act_silently', ceiling: null, effective: 'act_silently' })),
+  recommendations: [{ kind: 'price_change', recommended: 'ask_always', protected: true, note: '' }, { kind: 'delete', recommended: 'ask_always', protected: true, note: '' }],
+  pending_proposals: 1, can_manage_workspace: true, can_manage_guardrails: false, can_tighten: true,
+};
+const autonomyProposal = { id: 'aprop_1', pattern_key: 'whatsapp.send_template|template=shipping', tool: 'whatsapp.send_template', template: 'shipping', category: 'whatsapp', action_kind: 'send', proposed_level: 'act_and_notify', approvals: 3, status: 'pending', created_at: now };
 
 export async function mockWorkspaceApi(page: Page): Promise<void> {
   await page.route('http://localhost:8000/**', async (route) => {
@@ -127,6 +141,10 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/automation/workflows/wf_digest') return json(automation);
     if (path === '/api/v1/automation/schedules') return json([automationSchedule]);
     if (path === '/api/v1/automation/runs') return json([automationRun]);
+    if (path === '/api/v1/autonomy/actions') return json({ items: [autonomyAction], next_cursor: null });
+    if (path === '/api/v1/autonomy/settings') return json(autonomyOverview);
+    if (path === '/api/v1/autonomy/proposals') return json([autonomyProposal]);
+    if (path === '/api/v1/autonomy/rules') return json([]);
     if (path === '/api/v1/me/workspace-memberships') return json([{ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'owner', active: true }]);
     // Workspace lifecycle and the audit log (docs/identity.md#workspace-lifecycle, docs/governance-and-scale.md#audit-log).
     if (path === '/api/v1/workspaces/current' && method === 'GET') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: now, updated_at: now, archived_at: null, archived_by: null });

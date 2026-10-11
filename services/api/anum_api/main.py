@@ -117,6 +117,7 @@ from .whatsapp import register_whatsapp_tools, router as whatsapp_router
 from .user_preferences import router as user_preferences_router
 from .push import push_dispatcher, router as push_router
 from .developer_watch import build_developer_watcher
+from .autonomy_api import router as autonomy_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -239,6 +240,7 @@ app.include_router(whatsapp_router)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 event_runtime.add_listener(push_dispatcher.submit)
+app.include_router(autonomy_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -252,6 +254,8 @@ configure_tool_catalog(tool_registry.definition)
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)
 run_dispatcher = build_run_dispatcher(settings)
+# The autonomy routes run undo actions through the same registry (docs/autonomy.md).
+app.state.tool_registry = tool_registry
 
 
 @asynccontextmanager

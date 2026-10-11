@@ -900,6 +900,12 @@ class SqlAlchemyRepository(AnumRepository):
             )
         return result
 
+    def autonomy_store(self):  # type: ignore[no-untyped-def]
+        """The workspace autonomy data in this session's unit of work and RLS scope."""
+        from .autonomy_repository import SqlAlchemyAutonomyStore
+
+        return SqlAlchemyAutonomyStore(self.session)
+
     def get_tool_governance(self, context: TenantContext) -> ToolGovernance:
         """Enabled approval rules and active policy packs of the caller's tenant.
 

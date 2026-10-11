@@ -244,6 +244,8 @@ class RunCheckpoint(BaseModel):
     tool_call: dict[str, Any] | None = None
     approval_id: str | None = None
     last_step_id: str | None = None
+    # The autonomy decision for the checkpointed call (docs/autonomy.md); None before it.
+    autonomy: dict[str, Any] | None = None
 
 
 class AgentRun(BaseModel):

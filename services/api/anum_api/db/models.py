@@ -981,3 +981,124 @@ class ConversationTurnRecord(Base, WorkspaceScopedMixin):
             ondelete="CASCADE",
         ),
     )
+
+
+class AutonomyGuardrailsRecord(Base):
+    """The organization's autonomy floors (migration ``0031_autonomy``, docs/autonomy.md)."""
+
+    __tablename__ = "autonomy_guardrails"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_tenant_fk("autonomy_guardrails"),)
+
+
+class WorkspaceAutonomyRecord(Base):
+    """One workspace's autonomy settings (migration ``0031_autonomy``)."""
+
+    __tablename__ = "workspace_autonomy_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("workspace_autonomy_settings"),)
+
+
+class AutonomyRuleRecord(Base):
+    __tablename__ = "autonomy_rules"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    pattern_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    tool: Mapped[str] = mapped_column(String(160), nullable=False)
+    template: Mapped[str | None] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    action_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    level: Mapped[str] = mapped_column(String(20), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("autonomy_rules"),
+        UniqueConstraint("tenant_id", "workspace_id", "pattern_key", name="uq_autonomy_rules_pattern"),
+    )
+
+
+class AutonomyProposalRecord(Base):
+    __tablename__ = "autonomy_proposals"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    pattern_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    tool: Mapped[str] = mapped_column(String(160), nullable=False)
+    template: Mapped[str | None] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    action_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    proposed_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    approvals: Mapped[int] = mapped_column(nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    last_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(160))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("autonomy_proposals"),
+        UniqueConstraint("tenant_id", "workspace_id", "pattern_key", name="uq_autonomy_proposals_pattern"),
+    )
+
+
+class AutonomousActionRecord(Base):
+    __tablename__ = "autonomy_actions"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    tool: Mapped[str] = mapped_column(String(160), nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    action_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    level: Mapped[str] = mapped_column(String(20), nullable=False)
+    pattern_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    template: Mapped[str | None] = mapped_column(String(120))
+    summary: Mapped[str] = mapped_column(String(500), nullable=False)
+    target: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    undo_tool: Mapped[str | None] = mapped_column(String(160))
+    undo_arguments: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    undo_token: Mapped[str | None] = mapped_column(String(80))
+    undo_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    undone_by: Mapped[str | None] = mapped_column(String(160))
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    undo_error: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("autonomy_actions"),
+        Index("ix_autonomy_actions_feed", "tenant_id", "workspace_id", "created_at", "id"),
+    )
+
+
+class AutonomyRecipientRecord(Base):
+    """A recipient already contacted in a category, stored only as a SHA-256 digest."""
+
+    __tablename__ = "autonomy_recipients"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    category: Mapped[str] = mapped_column(String(20), primary_key=True)
+    recipient_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("autonomy_recipients"),)

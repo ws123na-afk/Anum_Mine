@@ -131,6 +131,10 @@ When the matching enabled approval rules ask for more than two approvers (the la
 
 Tests: `services/api/tests/test_tool_governance.py` (matching, policy order, planning, execution, recovery, decision-time rules, approval chains, tenant isolation), `test_durable_runs.py` (a chain on the Temporal path signals the workflow only when complete), `test_postgres_approval_chains.py` (rows, audit and events in PostgreSQL as the app role, RLS and the scope-bound foreign key) and `test_postgres_tool_governance.py` (the same through PostgreSQL as the non-owner app role, and RLS on the rule reads). No migration was needed: the rules are read from the `approval_rules` and `policy_packs` tables of migration `0008_control_plane_stores`.
 
+## Autonomy
+
+The workspace autonomy policy ([Autonomy](autonomy.md)) is evaluated after `ToolPolicy`. It can let a call that needed approval only because of the platform's high-risk default act on its own (act and notify, with Undo where reversible) for patterns the policy allows, and it can make an allowed call ask (a level, a rule, a protected kind, a guardrail). It never unblocks, never lowers an approval an organization approval rule or policy pack requires, and never applies while the workspace's two-person rule or medium-risk approval switch asks. `ToolPolicyDecision.lowerable` marks the decisions it may lower. Blocked recipients and the organization's spending limit block even an approved call at execution. Approvals of the same pattern feed "ask once, remember" suggestions, which an owner must accept.
+
 ## Later
 
 Add delegated approvals, ordered (sequential) approval chains and per-step approver groups, policy-driven auto-approval, approval templates, mobile push approvals, emergency revocation, and simulations that explain why a policy allowed or blocked an action.

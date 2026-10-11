@@ -790,6 +790,8 @@ def merge_tool_definition(cfg: DeveloperSettings | None = None) -> ToolDefinitio
         required_roles=frozenset({"owner"}),
         timeout_seconds=60,
         target=api_host(cfg),
+        category="developer",
+        action_kind="merge_code",
     )
 
 

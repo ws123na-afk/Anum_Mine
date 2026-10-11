@@ -518,4 +518,24 @@ def test_whatsapp_migration_is_expand_only_with_forced_rls_and_narrow_routing() 
     assert "for select to anum_maintenance" in upgrade
     assert "ciphertext" not in grant
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_autonomy_migration_is_expand_only_with_forced_rls_on_every_table() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0031_autonomy.py").read_text(encoding="utf-8")
+    assert 'revision = "0031_autonomy"' in revision_text and len("0031_autonomy") <= 32
+    assert 'down_revision = "0030_integration_health"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0031_autonomy.py"]
+    assert not [path for path in others if 'down_revision = "0030_integration_health"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    for table in (
+        "autonomy_guardrails", "workspace_autonomy_settings", "autonomy_rules", "autonomy_proposals",
+        "autonomy_actions", "autonomy_recipients",
+    ):
+        assert f'"{table}"' in revision_text
+    assert '_force_rls("autonomy_guardrails", tenant_predicate)' in upgrade
+    assert "for table in workspace_tables:" in upgrade and "_force_rls(table, workspace_predicate)" in upgrade
+    assert "force row level security" in revision_text and "with check (" in revision_text
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade

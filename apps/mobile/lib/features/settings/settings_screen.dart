@@ -7,6 +7,9 @@ import 'settings_controller.dart';
 import '../../src/widgets/depth.dart';
 import '../auth/account_screens.dart';
 import '../admin/admin.dart';
+import '../autonomy/autonomy_controller.dart';
+import '../autonomy/autonomy_repository.dart';
+import '../autonomy/autonomy_screens.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
@@ -127,6 +130,10 @@ class _Content extends StatelessWidget {
                                 currentWorkspaceId: session.context.workspaceId,
                                 role: session.context.roles.join(', '),
                                 onSwitched: controller.load))))),
+            if (controller.autonomy != null) ...[
+              _Heading('Autonomy'),
+              _AutonomyCard(repository: controller.autonomy!),
+            ],
             if (controller.admin != null) ...[
               _Heading('Workspace administration'),
               _AdminCard(
@@ -675,6 +682,48 @@ class _ModelSheetState extends State<_ModelSheet> {
                         : const Icon(Icons.cable),
                     label: Text(saving ? 'Testing...' : 'Save and test')),
               ]))));
+}
+
+/// What ANUM did on its own, and when it may act without asking
+/// (docs/autonomy.md). Each pushed screen owns its controller.
+class _AutonomyCard extends StatelessWidget {
+  const _AutonomyCard({required this.repository});
+  final AutonomyRepository repository;
+
+  void _settings(BuildContext context) => Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+          builder: (_) => OwnedController<AutonomySettingsController>(
+              create: () => AutonomySettingsController(repository),
+              builder: (_, c) => AutonomySettingsScreen(controller: c))));
+
+  @override
+  Widget build(BuildContext context) => Card(
+          child: Column(children: [
+        ListTile(
+            key: const Key('open-activity'),
+            leading: const Icon(Icons.history),
+            title: const Text('Activity'),
+            subtitle: const Text(
+                'Everything ANUM did on its own, with Undo and suggestions.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => OwnedController<ActivityController>(
+                        create: () => ActivityController(repository),
+                        builder: (ctx, c) => ActivityScreen(
+                            controller: c,
+                            onOpenSettings: () => _settings(ctx)))))),
+        ListTile(
+            key: const Key('open-autonomy'),
+            leading: const Icon(Icons.tune),
+            title: const Text('Autonomy levels'),
+            subtitle: const Text(
+                'When ANUM may act without asking, by area and threshold.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _settings(context)),
+      ]));
 }
 
 /// Members, invitations, model budgets and the approval policy. Shown to

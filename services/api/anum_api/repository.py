@@ -1,4 +1,4 @@
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from .audit import (
     AuditCursor,
@@ -25,6 +25,9 @@ from .schemas import (
 from .store import InMemoryStore
 from .tasks import CREATORS_MAX, TaskFilters
 from .tool_governance import ToolGovernance, tool_governance_from
+
+if TYPE_CHECKING:
+    from .autonomy import AutonomyStore
 
 
 class UnknownCursorError(LookupError):
@@ -110,11 +113,18 @@ class AnumRepository(Protocol):
     def list_approval_approvers(
         self, approval_ids: list[str], context: TenantContext
     ) -> dict[str, list[ApprovalApproverRecord]]: ...
+    def autonomy_store(self) -> "AutonomyStore": ...
 
 
 class InMemoryRepository:
     def __init__(self, store: InMemoryStore) -> None:
         self.store = store
+
+    def autonomy_store(self) -> "AutonomyStore":
+        """The workspace autonomy data (docs/autonomy.md), in process."""
+        from .autonomy import autonomy_memory_store
+
+        return autonomy_memory_store
 
     def create_tenant(self, tenant: Tenant) -> Tenant:
         if tenant.id in self.store.tenants:

@@ -20,6 +20,16 @@ class ToolDefinition(BaseModel):
     # The configured integration target (host only: no scheme, credentials, port,
     # path or query), shown on approvals (threat model G2). None for internal tools.
     target: str | None = None
+    # Autonomy (docs/autonomy.md): the tool's category (email, whatsapp, commerce,
+    # developer, files, tasks, general) and kind of action (read, draft, reply, send,
+    # archive, pause, create, update, delete, price_change, stock_change, payment,
+    # merge_code, other). Undeclared values are guessed from the name, cautiously.
+    category: str | None = None
+    action_kind: str | None = None
+    # A reversible tool names its compensating tool; the result's ``output["undo"]``
+    # holds that tool's arguments, and the undo stays available this many seconds.
+    undo_tool: str | None = None
+    undo_window_seconds: int = Field(default=0, ge=0, le=7 * 24 * 3600)
 
 
 class ToolCall(BaseModel):
@@ -55,6 +65,11 @@ class ToolPolicyDecision(BaseModel):
     risk_level: RiskLevel
     # Governance rules (approval rules, policy pack versions) that shaped the decision.
     governance_rules: list[str] = Field(default_factory=list)
+    # True only when approval is required by the platform's high-risk default alone, so
+    # the workspace's autonomy policy may let the call act on its own (docs/autonomy.md).
+    lowerable: bool = False
+    # The autonomy decision applied by the runtime (``autonomy.AutonomyDecision``).
+    autonomy: dict[str, Any] | None = None
 
 
 ToolHandler = Callable[[ToolCall, TenantContext], Awaitable[ToolResult]]
@@ -146,6 +161,9 @@ class ToolPolicy:
                 reason="External or high-impact actions require explicit approval.",
                 risk_level=definition.risk_level,
                 governance_rules=match.approval_labels,
+                # An organization rule or a workspace two-person rule keeps it asking.
+                lowerable=not match.requires_approval
+                and not (workspace_policy is not None and workspace_policy.two_person_rule),
             )
         if match.requires_approval:
             return ToolPolicyDecision(
@@ -233,6 +251,8 @@ def default_tool_registry(
             description="Create an internal response without external side effects.",
             risk_level=RiskLevel.LOW,
             idempotent=True,
+            category="general",
+            action_kind="read",
         ),
         _respond,
     )
@@ -243,6 +263,8 @@ def default_tool_registry(
             risk_level=RiskLevel.HIGH,
             required_roles=frozenset({"owner", "member"}),
             target=getattr(external_handler, "target_host", None),
+            category="general",
+            action_kind="other",
         ),
         external_handler or _external_action,
     )
@@ -257,6 +279,8 @@ def default_tool_registry(
                 timeout_seconds=30,
                 idempotent=True,
                 target=getattr(web_search_handler, "target_host", None),
+                category="general",
+                action_kind="read",
             ),
             web_search_handler,
         )

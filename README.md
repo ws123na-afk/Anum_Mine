@@ -99,6 +99,7 @@ x-user-roles: owner,member
 - [Automation](docs/automation.md)
 - [Approvals and risk](docs/approvals-and-risk.md)
 - [Notifications and phone push](docs/notifications.md)
+- [Autonomy](docs/autonomy.md)
 - [Data architecture](docs/data-architecture.md)
 - [API contracts](docs/api-contracts.md)
 - [Events](docs/events.md)

@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../data/api_client.dart';
 import '../data/session_store.dart';
+import '../features/autonomy/autonomy_repository.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/automations/automation_repository.dart';
 import '../features/automations/automations_controller.dart';
@@ -155,6 +156,7 @@ class _AnumAppState extends State<AnumApp> {
         speech: DeviceSpeechService());
     settings = SettingsController(authRepository,
         admin: ApiAdminRepository(api),
+        autonomy: ApiAutonomyRepository(api),
         privacy:
             ApiPrivacyRepository(api, saver: const FilePickerExportSaver()),
         push: push);

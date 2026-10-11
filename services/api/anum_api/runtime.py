@@ -12,6 +12,16 @@ from .agent_tools import (
     default_tool_registry,
 )
 from .approval_integrity import display_arguments, is_expired, payload_hash
+from .autonomy import (
+    AutonomyEngine,
+    AutonomyMode,
+    apply_autonomy,
+    observe_approval,
+    profile_call,
+    recipient_hash,
+    record_autonomous_action,
+    store_of,
+)
 from .audit import AuditRecord
 from .events import CanonicalEventName, create_event
 from .model_gateway import ModelGateway
@@ -80,13 +90,36 @@ class AgentRuntime:
         caller's tenant scope. A failure to read them propagates: the call never runs
         on a guess.
         """
-        return self.tool_policy.evaluate(
+        definition = self.tools.definition(call.name)
+        decision = self.tool_policy.evaluate(
             call,
-            self.tools.definition(call.name),
+            definition,
             context,
             self.workspace_policy(context),
             self.repository.get_tool_governance(context),
         )
+        return self._with_autonomy(call, definition, decision, context)
+
+    def _with_autonomy(
+        self,
+        call: ToolCall,
+        definition: object,
+        decision: ToolPolicyDecision,
+        context: TenantContext,
+    ) -> ToolPolicyDecision:
+        """Apply the workspace's autonomy policy on top of the tool policy (docs/autonomy.md).
+
+        Read through the run's repository (same unit of work and RLS scope). A failure
+        to read it propagates like the governance rules: the call never runs on a guess.
+        """
+        store = store_of(self.repository)
+        if store is None or definition is None or decision.outcome == ToolPolicyOutcome.BLOCK:
+            return decision
+        profile = profile_call(call, definition)  # type: ignore[arg-type]
+        verdict = AutonomyEngine(store).evaluate(
+            profile, context, platform_allows=decision.outcome == ToolPolicyOutcome.ALLOW
+        )
+        return apply_autonomy(decision, profile, verdict)
 
     async def run_task(self, task: Task, context: TenantContext) -> tuple[AgentRun, Approval | None]:
         """Plan and, when policy allows, execute in one call (the inline backend)."""
@@ -135,9 +168,12 @@ class AgentRuntime:
                     "risk_level": decision.risk_level.value,
                     "policy_outcome": decision.outcome.value,
                     "governance_rules": list(decision.governance_rules),
+                    "autonomy_mode": (decision.autonomy or {}).get("mode"),
+                    "autonomy_reason": (decision.autonomy or {}).get("reason"),
                 },
             )
         run.steps.append(proposal_step)
+        run.checkpoint.autonomy = decision.autonomy
         run.checkpoint.phase = RunPhase.TOOL_READY
         run.checkpoint.version += 1
         run.checkpoint.selected_skills = list(planned.plan.skill_ids)
@@ -272,6 +308,7 @@ class AgentRuntime:
                 raise ValueError("Run has no executable checkpoint")
             call = ToolCall.model_validate(run.checkpoint.tool_call)
             decision = self.evaluate(call, context)
+            run.checkpoint.autonomy = decision.autonomy
             if decision.outcome == ToolPolicyOutcome.BLOCK:
                 self._fail(task, run, context, decision.reason)
                 return None
@@ -667,7 +704,107 @@ class AgentRuntime:
         if approval_id:
             payload["approval_id"] = approval_id
         self._record_event("agent_run.completed", context, run.id, payload, task.id)
+        self._after_success(task, run, context, result, approval_id)
         return run
+
+    def _after_success(
+        self,
+        task: Task,
+        run: AgentRun,
+        context: TenantContext,
+        result: ToolResult,
+        approval_id: str | None,
+    ) -> None:
+        """Autonomy bookkeeping for a completed call (docs/autonomy.md).
+
+        Recipients of the call become known. A call that ran on its own is recorded in
+        the activity feed (with its undo token when the tool reported how to reverse it)
+        and announced; an approved call counts towards proposing more autonomy for its
+        pattern, which is announced when it becomes a proposal. Never raises autonomy.
+        """
+        store = store_of(self.repository)
+        if store is None or not run.checkpoint.tool_call:
+            return
+        call = ToolCall.model_validate(run.checkpoint.tool_call)
+        definition = self.tools.definition(call.name)
+        profile = profile_call(call, definition)
+        now = utc_now()
+        if profile.recipients:
+            store.remember_recipients(
+                context,
+                profile.category.value,
+                [recipient_hash(context, profile.category.value, r) for r in profile.recipients],
+                now,
+            )
+        info = run.checkpoint.autonomy or {}
+        if approval_id is not None:
+            proposal = observe_approval(store, context, profile, info, now=now)
+            if proposal is not None:
+                self._record_event(
+                    "autonomy.proposal_created",
+                    context,
+                    proposal.id,
+                    {"pattern_key": proposal.pattern_key, "tool": proposal.tool, "approvals": str(proposal.approvals)},
+                    task.id,
+                )
+                self._audit(
+                    context,
+                    "autonomy.proposal_created",
+                    proposal.id,
+                    "success",
+                    task.id,
+                    {"pattern_key": proposal.pattern_key, "tool": proposal.tool, "approvals": proposal.approvals},
+                    actor="system",
+                )
+            return
+        mode = info.get("mode")
+        if mode not in {AutonomyMode.NOTIFY.value, AutonomyMode.SILENT.value}:
+            return
+        undo = result.output.get("undo") if isinstance(result.output, dict) else None
+        action = record_autonomous_action(
+            store,
+            context,
+            task_id=task.id,
+            run_id=run.id,
+            profile=profile,
+            decision=info,
+            summary=result.summary,
+            undo_tool=definition.undo_tool if definition is not None else None,
+            undo_arguments=undo if isinstance(undo, dict) else None,
+            undo_window_seconds=definition.undo_window_seconds if definition is not None else 0,
+            now=now,
+        )
+        if mode == AutonomyMode.NOTIFY.value:
+            # Silent actions are only listed in the activity feed; these are announced.
+            payload = {
+                "action_id": action.id,
+                "task_id": task.id,
+                "tool": action.tool,
+                "category": action.category.value,
+                "level": action.level.value,
+                "summary": action.summary[:200],
+            }
+            if action.undo_expires_at is not None:
+                payload["undo_until"] = action.undo_expires_at.isoformat()
+            self._record_event("autonomy.action_taken", context, action.id, payload, task.id)
+        self._audit(
+            context,
+            "autonomy.action_taken",
+            action.id,
+            "success",
+            task.id,
+            {
+                "task_id": task.id,
+                "run_id": run.id,
+                "tool": action.tool,
+                "category": action.category.value,
+                "action_kind": action.action_kind.value,
+                "level": action.level.value,
+                "pattern_key": action.pattern_key,
+                "rule_id": info.get("rule_id"),
+                "reversible": action.undo_tool is not None,
+            },
+        )
 
     def _fail(
         self,
