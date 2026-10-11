@@ -48,3 +48,7 @@ The TypeScript definitions in `packages/contracts/src/governance.ts` are transpo
 ## External Readiness Gates
 
 Production completion requires identity-provider administration, an object store with lifecycle policy, signing-key custody, at least two deployed regions, a replicated persistence design, provider credentials, production telemetry, alert delivery, and an approved incident/disaster-recovery process. Source code alone cannot satisfy these gates.
+
+## Web console
+
+The web app's Governance view lists every policy pack version with its status and lets owners activate or archive a version, create role templates and add organization approval rules. The Enterprise view reports regions from the configured routing targets only: with zero or one serving region it says so ("Single region", failover "Not applicable") instead of a pending failover. Owners create and edit routing targets (`PUT /routing/targets/{id}`); the API has no delete, so a target leaves routing by being set `offline`. The Integrations view gives owners a per-workspace configuration panel (enabled flag and endpoint) over `GET`/`PUT /integrations/{id}/configuration`. Health checks honor only the enabled flag: they always probe, and report, the operator-configured endpoint from Settings, never a workspace-saved one (SSRF).

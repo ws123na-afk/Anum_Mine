@@ -1,0 +1,25 @@
+/* Memory, Skills and Agents views. Uses the shared tokens from styles.css with fallbacks. */
+.featureSearch { display: grid; gap: 10px; padding: 16px; margin-bottom: 16px; }
+.featureSearch .actions { display: flex; gap: 8px; }
+.featureMeta { margin: 0; font-size: 0.82rem; color: var(--muted, #6b7280); }
+
+.featureChip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; text-transform: capitalize; background: rgba(107, 114, 128, 0.14); color: var(--muted, #6b7280); width: fit-content; }
+.featureChip svg { width: 14px; height: 14px; }
+.featureChip.indexed { background: rgba(22, 163, 74, 0.14); color: var(--d-ok); }
+.featureChip.failed { background: rgba(220, 38, 38, 0.14); color: var(--d-stop); }
+.featureChip.pending, .featureChip.skipped { background: rgba(217, 119, 6, 0.14); color: var(--d-warn); }
+
+.featureConfirm { display: inline-flex; gap: 6px; }
+.featureSkillActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
+
+.featureBackdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, 0.5); }
+.featureDialog { width: min(480px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 20px; display: grid; gap: 12px; }
+.featureDialog header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.featureDialog h3, .featureDialog h4, .featureDialog p { margin: 0; }
+.featureDialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.featureToolList { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+.featureDisabled { opacity: 0.7; }
+.featureLink { font-size: 0.85rem; }
+.featureToggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; }
+.featureToggle input { width: 18px; height: 18px; }

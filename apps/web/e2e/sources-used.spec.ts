@@ -20,6 +20,7 @@ async function mockRun(page: Page, retrievalStep: Record<string, unknown> | null
     ...(retrievalStep ? [retrievalStep] : []),
     { id: 'step_model', type: 'model_call', summary: 'Launch notes summarised.', created_at: now, metadata: {} },
   ];
+  await page.route('http://localhost:8000/api/v1/tasks/task_rag/latest-run', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"Agent run not found"}' }));
   await page.route('http://localhost:8000/api/v1/tasks/task_rag/run', (route) =>
     route.fulfill({
       contentType: 'application/json',

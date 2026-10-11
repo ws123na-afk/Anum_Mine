@@ -55,11 +55,18 @@ class MemoryCreate(BaseModel):
     retention: RetentionPolicy = Field(default_factory=RetentionPolicy)
 
 
+# GET /api/v1/memories returns at most this many notes (the newest), oldest first.
+MEMORY_LIST_DEFAULT_LIMIT = 200
+MEMORY_LIST_MAX_LIMIT = 500
+
+
 class MemoryListFilters(BaseModel):
     task_id: str | None = None
     query: str | None = None
     source_types: set[str] = Field(default_factory=set)
     include_expired: bool = False
+    # Keep only the newest ``limit`` matches (still returned oldest first); None = no bound.
+    limit: int | None = None
 
 
 class MemoryAccess(BaseModel):
@@ -116,7 +123,10 @@ class InMemoryMemoryRepository:
             if query_terms and not all(term in content for term in query_terms):
                 continue
             notes.append(note.model_copy(deep=True))
-        return sorted(notes, key=lambda note: (note.created_at, note.id))
+        notes.sort(key=lambda note: (note.created_at, note.id))
+        if filters.limit is not None:
+            notes = notes[-filters.limit :] if filters.limit > 0 else []
+        return notes
 
     def delete(self, note_id: str, context: TenantContext) -> bool:
         note = self._notes.get(note_id)

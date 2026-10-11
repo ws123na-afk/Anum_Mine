@@ -45,6 +45,14 @@ flutter run \
 
 When `ANUM_OIDC_ISSUER` is not defined the app keeps the local development sign-in (password, one-time code, password recovery), which requires an API in `ANUM_AUTH_MODE=headers`. Production builds must use HTTPS and OIDC; the local sign-in screen is not shown when an issuer is configured.
 
+### First Run
+
+After Keycloak sign-in the app reads `GET /api/v1/onboarding` and routes by its answer:
+
+- No tenant, workspace or membership yet: the onboarding screen calls `PUT /api/v1/onboarding`, which creates them and makes the caller the first owner. A workspace that already has members answers 403 "Ask a workspace owner to invite you"; the screen shows that message. An inactive membership answers 403 "Active workspace membership required" and shows as "Access denied".
+- No workspace model saved: "Connect a model" saves one, or "Skip and use the server's model" continues with the model the API server is configured with. Members who may not change the model configuration take the skip.
+- The Keycloak user needs the admin-set `tenant_id` attribute and, unless the build sets `ANUM_WORKSPACE_ID`, a `default_workspace_id` attribute ([Identity](identity.md)). Without a tenant the app says the account has no ANUM organization; without a workspace the API answers 400 "Select a workspace".
+
 ## Native Projects
 
 `android/` and `ios/` are committed; CI no longer runs `flutter create`. They were generated with
@@ -60,6 +68,7 @@ and `tool/configure_native.dart` applies everything ANUM changes, idempotently:
 - The `com.anum.app` OIDC redirect scheme: the `appAuthRedirectScheme` manifest placeholder on Android and `CFBundleURLTypes` on iOS.
 - Microphone, Bluetooth and recognition-service declarations on Android; `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription` on iOS; `PERMISSION_MICROPHONE` and `PERMISSION_SPEECH_RECOGNIZER` in `ios/Podfile`, without which `permission_handler` compiles the microphone request out.
 - Cleartext HTTP in debug and profile builds only; `android/app/src/release/AndroidManifest.xml` turns it off for release.
+- `android:allowBackup="false"` and `android:fullBackupContent="false"`, so sessions and tokens in app storage stay out of Android backups.
 - The release signing configuration (see [Release builds](#release-builds)) and `compileSdk = 37`.
 
 To regenerate (for example after a Flutter template change), delete the folders, run the two commands above, and commit the result. `test/configure_native_test.dart` fails when a committed file differs from what the tool would write, so hand edits to these files belong in the tool. Build outputs, `local.properties`, Gradle wrapper binaries, generated plugin registrants, keystores, `key.properties`, `google-services.json` and `GoogleService-Info.plist` are gitignored.
@@ -79,6 +88,8 @@ Production configuration is passed at build time; there are no flavours. Keep th
   "ANUM_WEB_APP_URL": "https://app.example.com/"
 }
 ```
+
+A release build whose `ANUM_API_URL` is not an `https://` address starts on an error screen naming the problem and creates no API client.
 
 ```bash
 flutter build appbundle --release --dart-define-from-file=production.json
@@ -286,6 +297,7 @@ Voice
 - [ ] English and Arabic recognition each produce an editable transcript; nothing runs before the user confirms.
 - [ ] Wake-by-name, push-to-talk and spoken confirmation work with the phone speaker, wired headphones and a Bluetooth headset (on Android 12+ check whether the nearby-devices permission is requested and what happens when it is denied).
 - [ ] An incoming call or another app taking audio focus stops listening cleanly.
+- [ ] Backgrounding the app or pressing back out of the workspace stops listening immediately (the microphone indicator goes off).
 
 Platform behaviour
 - [ ] Deep links to task URLs open the right task after sign-in; process death and restore keep the current destination.

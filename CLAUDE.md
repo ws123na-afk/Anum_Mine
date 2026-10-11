@@ -10,6 +10,13 @@ ANUM is a monorepo: FastAPI API (`services/api`), React/Vite web (`apps/web`), T
 - Never mark a check `continue-on-error`, skip, or delete a test to get CI green.
 - `docs/production-plan.md` is the ordered path to production; check it before picking up new work.
 
+## Responsive UI quality gate
+For every web or Flutter UI change, a passing build is not proof the UI is right:
+- Render the affected pages in a real browser (`vite preview` + Playwright with `executablePath: '/opt/pw-browsers/chromium'`, API mocked at `http://localhost:8000/**` as the e2e specs do) at least at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844; check width and height.
+- No horizontal overflow, no clipped controls; check the shared sidebar/header after page-specific changes.
+- Content-driven heights: no fixed heights or full-viewport min-heights for normal sections, no stacked padding from parent and child; spacing from the shared tokens, not one-off magic numbers.
+- Desktop must use vertical space efficiently; compare before/after screenshots for significant visual changes.
+
 ## Skills in this repo
 - `anum-verify` — run the right local checks for what you changed.
 - `steward` — how to drive a red PR or `main` back to green.

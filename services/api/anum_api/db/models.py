@@ -115,6 +115,14 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
         ),
         UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_tasks_scope_id"),
         Index("ix_tasks_tenant_workspace_status", "tenant_id", "workspace_id", "status"),
+        # Keyset paging of GET /api/v1/tasks (migration 0017_tasks_scope_created).
+        Index(
+            "ix_tasks_scope_created",
+            "tenant_id",
+            "workspace_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
     )
 
 

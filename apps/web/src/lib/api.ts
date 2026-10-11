@@ -4,8 +4,10 @@ import { decisionBody } from './approvals';
 import { apiErrorFromResponse } from './errors';
 import type { ApiCurrentMembership } from './policy';
 import * as workspaces from './workspaces';
+import * as capabilities from './capabilities';
 
-const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
+// The one API base URL for every module. Deployments compile VITE_ANUM_API_URL in (apps/web/Dockerfile, infra/oracle/compose.yaml).
+export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
 export const defaultTenantContext: TenantContext = {
   tenantId: 'tenant_local',
@@ -153,6 +155,13 @@ export async function saveNotificationPreferences(value: NotificationPreferences
 
 export async function getTasks(): Promise<Task[]> { return (await request<ApiTask[]>('/api/v1/tasks', { method: 'GET' })).map(mapTask); }
 export async function getApprovals(): Promise<Approval[]> { return (await request<ApiApproval[]>('/api/v1/approvals', { method: 'GET' })).map(mapApproval); }
+/** One page of `GET /api/v1/tasks` after `cursor` (the last task id already shown; the API answers 400 for an unknown one), newest first. */
+export async function getTaskPage(cursor: string, limit = 50): Promise<Task[]> {
+  const query = new URLSearchParams({ limit: String(limit), cursor });
+  return (await request<ApiTask[]>(`/api/v1/tasks?${query}`, { method: 'GET' })).map(mapTask);
+}
+/** The task's most recent agent run (`GET /api/v1/tasks/{id}/latest-run`); 404 when it never ran. */
+export async function getLatestRun(taskId: string): Promise<AgentRun> { return mapRun(await request<ApiAgentRun>(`/api/v1/tasks/${encodeURIComponent(taskId)}/latest-run`, { method: 'GET' })); }
 export async function getRun(runId: string): Promise<AgentRun> { return mapRun(await request<ApiAgentRun>(`/api/v1/agent-runs/${runId}`, { method: 'GET' })); }
 export async function resumeRun(runId: string): Promise<RunTaskResult> {
   const result = await request<ApiRunTaskResponse>(`/api/v1/agent-runs/${runId}/resume`, { method: 'POST' });
@@ -175,6 +184,11 @@ export async function downloadFile(id: string, name: string): Promise<void> {
 export async function getSkillVersions(): Promise<SkillVersion[]> { return request('/api/v1/skills/versions', { method: 'GET' }); }
 export async function getSkillInstallations(): Promise<SkillInstallation[]> { return request('/api/v1/skills/installations', { method: 'GET' }); }
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
+export async function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }); }
+export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }
+export async function searchMemories(query: string): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query), { method: 'GET' }); }
+export async function getRetrievalStatus(): Promise<capabilities.RetrievalIndexStatus> { return request('/api/v1/retrieval/status', { method: 'GET' }); }
+export async function reindexRetrieval(): Promise<capabilities.ReindexResult> { return request('/api/v1/retrieval/index', { method: 'POST' }); }
 export async function getCurrentWorkspace(): Promise<WorkspaceInfo> { return request('/api/v1/workspaces/current', { method: 'GET' }); }
 
 export interface IntegrationHealth {
@@ -202,9 +216,12 @@ export interface AutomationRun { id: string; workflow_id: string; status: string
 
 export async function getAutomationWorkflows(): Promise<AutomationWorkflow[]> { return request('/api/v1/automation/workflows', { method: 'GET' }); }
 export async function getAutomationRuns(): Promise<AutomationRun[]> { return request('/api/v1/automation/runs', { method: 'GET' }); }
-export async function createAutomationWorkflow(name: string, action: string): Promise<AutomationWorkflow> {
-  return request('/api/v1/automation/workflows', { method: 'POST', body: JSON.stringify({ name, description: 'Created from the resumable agent workbench', steps: [{ id: 'execute', name: 'Execute work', action, input: {}, max_attempts: 3 }] }) });
-}
+export async function createAutomationWorkflow(body: { name: string; description: string; steps: AutomationWorkflow['steps'] }): Promise<AutomationWorkflow> { return request('/api/v1/automation/workflows', { method: 'POST', body: JSON.stringify(body) }); }
+export interface AutomationSchedule { id: string; workflow_id: string; name: string; cron: string; timezone: string; enabled: boolean; next_run_at: string | null; last_run_at: string | null; created_by: string | null; created_at: string; updated_at: string; }
+export async function getAutomationSchedules(): Promise<AutomationSchedule[]> { return request('/api/v1/automation/schedules', { method: 'GET' }); }
+export async function createAutomationSchedule(body: { workflow_id: string; name: string; cron: string; timezone: string; enabled: boolean }): Promise<AutomationSchedule> { return request('/api/v1/automation/schedules', { method: 'POST', body: JSON.stringify(body) }); }
+export async function toggleAutomationSchedule(scheduleId: string, action: 'enable' | 'disable'): Promise<AutomationSchedule> { return request(`/api/v1/automation/schedules/${scheduleId}/${action}`, { method: 'POST' }); }
+export async function deleteAutomationSchedule(scheduleId: string): Promise<void> { return requestVoid(`/api/v1/automation/schedules/${scheduleId}`, { method: 'DELETE' }); }
 export async function startAutomationRun(workflowId: string, idempotencyKey: string): Promise<AutomationRun> { return request(`/api/v1/automation/workflows/${workflowId}/runs`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } }); }
 export async function transitionAutomationRun(runId: string, action: 'cancel' | 'resume' | 'retry'): Promise<AutomationRun> { return request(`/api/v1/automation/runs/${runId}/${action}`, { method: 'POST' }); }
 

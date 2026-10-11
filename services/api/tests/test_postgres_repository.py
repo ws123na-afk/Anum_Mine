@@ -5,6 +5,8 @@ from datetime import timedelta
 
 import pytest
 
+from anum_api.repository import UnknownCursorError
+
 from anum_api.db.repository import SqlAlchemyRepository
 from anum_api.schemas import (
     AgentRun,
@@ -244,3 +246,42 @@ def test_events_are_deterministically_ordered_and_workspace_scoped(
 
     with repository_factory(tenant_context(TENANT_A, WORKSPACE_A2)) as repository:
         assert repository.list_events(tenant_context(TENANT_A, WORKSPACE_A2)) == []
+
+
+def test_list_tasks_is_keyset_paged_newest_first(
+    seed_scopes: None,
+    repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],
+) -> None:
+    context = tenant_context()
+    tasks = []
+    for index in range(5):
+        task = make_task(f"task_page_{index}")
+        # Two tasks share a timestamp so the id breaks the tie.
+        task.created_at = FIXED_NOW + timedelta(minutes=min(index, 3))
+        tasks.append(task)
+    hidden = make_task("task_page_hidden", TENANT_A, WORKSPACE_A2)
+    with repository_factory(context, commit=True) as repository:
+        for task in tasks:
+            repository.create_task(task)
+    with repository_factory(tenant_context(TENANT_A, WORKSPACE_A2), commit=True) as repository:
+        repository.create_task(hidden)
+
+    expected = [
+        task.id for task in sorted(tasks, key=lambda t: (t.created_at, t.id), reverse=True)
+    ]
+    with repository_factory(context) as repository:
+        assert [t.id for t in repository.list_tasks(context)] == expected
+        seen: list[str] = []
+        after = None
+        while True:
+            page = repository.list_tasks(context, limit=2, after=after)
+            if not page:
+                break
+            seen.extend(t.id for t in page)
+            after = page[-1].id
+        assert seen == expected
+        with pytest.raises(UnknownCursorError):
+            repository.list_tasks(context, limit=2, after="task_missing")
+        # A task in another workspace is not a valid cursor here.
+        with pytest.raises(UnknownCursorError):
+            repository.list_tasks(context, limit=2, after=hidden.id)

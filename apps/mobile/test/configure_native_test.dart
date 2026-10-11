@@ -57,6 +57,8 @@ void main() {
     final value = configureAndroidManifest(manifest);
     expect(value, contains('android.permission.RECORD_AUDIO'));
     expect(value, contains('android:usesCleartextTraffic="true"'));
+    expect(value, contains('android:allowBackup="false"'));
+    expect(value, contains('android:fullBackupContent="false"'));
     expect(configureAndroidManifest(value), value);
   });
 

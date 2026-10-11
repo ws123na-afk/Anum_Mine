@@ -66,3 +66,41 @@ def test_memory_round_trip_is_scoped_and_durable(
             other_workspace,
             MemoryAccess(can_read_all_workspace_tasks=True),
         ) == []
+
+
+def test_memory_list_limit_keeps_the_newest_notes(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    context = tenant_context()
+    with app_session(context, commit=True) as session:
+        SqlAlchemyRepository(session).create_task(
+            Task(
+                id="task_repo_a",
+                title="Memory task",
+                prompt="Remember this",
+                status=TaskStatus.CREATED,
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                created_at=FIXED_NOW,
+                updated_at=FIXED_NOW,
+            )
+        )
+        created = []
+        for index in range(4):
+            service = MemoryService(
+                SqlAlchemyMemoryRepository(session),
+                clock=lambda index=index: FIXED_NOW + timedelta(minutes=index),
+            )
+            created.append(
+                service.create(
+                    context,
+                    MemoryCreate(task_id="task_repo_a", content=f"note {index}", source_type="user_note"),
+                ).id
+            )
+
+    with app_session(context) as session:
+        repository = SqlAlchemyMemoryRepository(session)
+        now = FIXED_NOW + timedelta(hours=1)
+        assert [n.id for n in repository.list(context, MemoryListFilters(limit=2), now)] == created[2:]
+        assert [n.id for n in repository.list(context, MemoryListFilters(), now)] == created

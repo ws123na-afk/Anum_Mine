@@ -4,39 +4,32 @@ export type PolicyDecision = 'allowed' | 'denied' | 'approval_required';
 export type ExportStatus = 'queued' | 'running' | 'completed' | 'failed' | 'expired';
 export type RegionHealth = 'healthy' | 'degraded' | 'unavailable';
 
+// Wire shapes of /api/v1/role-templates and /api/v1/policy-packs
+// (services/api/anum_api/governance.py: RoleTemplate, PolicyRule, PolicyPack), snake_case.
 export interface OrganizationRoleTemplate {
   id: string;
-  tenantId: string;
+  tenant_id: string;
   name: string;
-  description: string;
   permissions: string[];
-  version: number;
-  status: LifecycleStatus;
-  createdAt: string;
-  updatedAt: string;
+  created_at: string;
 }
 
 export interface PolicyRule {
-  id: string;
-  description: string;
+  action: string;
   effect: PolicyEffect;
-  actions: string[];
-  resourceTypes: string[];
   conditions: Record<string, unknown>;
-  priority: number;
 }
 
 export interface PolicyPack {
   id: string;
-  tenantId: string;
+  tenant_id: string;
   name: string;
+  description: string;
   version: number;
-  status: LifecycleStatus;
+  active: boolean;
   rules: PolicyRule[];
-  checksum: string;
-  createdBy: string;
-  createdAt: string;
-  publishedAt?: string;
+  created_by: string;
+  created_at: string;
 }
 
 export interface PolicyEvaluation {

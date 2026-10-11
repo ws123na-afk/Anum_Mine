@@ -144,6 +144,16 @@ class AuthController extends ChangeNotifier {
     });
   }
 
+  /// Continues without a workspace model: the API then answers with the
+  /// server's configured model (docs/mobile.md#first-run). Members who may not
+  /// change the model configuration take this path too.
+  void useServerModel() {
+    message = null;
+    issue = AuthIssue.none;
+    phase = AuthPhase.ready;
+    notifyListeners();
+  }
+
   Future<void> signOut() async {
     await repository.signOut();
     onboarding = null;

@@ -97,3 +97,41 @@ def test_mcp_adapter_propagates_scoped_context() -> None:
     result = asyncio.run(adapter(ToolCall(name="mcp.publish", arguments={"id": "doc_1"}), context()))
 
     assert result.output == {"published": True}
+
+
+def test_default_registry_reports_unused_event_bus_and_workflow_engine_as_disabled() -> None:
+    # The memory event bus and the inline runtime never reach NATS or Temporal: probing
+    # them only reported a false outage (a refused localhost connection).
+    from anum_api.integrations import default_integration_registry
+    from anum_api.settings import Settings
+
+    registry = default_integration_registry(Settings(event_bus="memory", runtime_backend="inline"))
+    statuses = {item.id: item.status for item in asyncio.run(registry.health())}
+    assert statuses["nats"] == IntegrationStatus.DISABLED
+    assert statuses["temporal"] == IntegrationStatus.DISABLED
+
+
+def test_health_never_probes_a_tenant_saved_endpoint(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # A workspace can save any endpoint; the health probe still connects only to the
+    # operator-configured one, never to (for example) the cloud metadata address.
+    from anum_api import integrations
+    from anum_api.integrations import IntegrationConfiguration, default_integration_registry
+    from anum_api.settings import Settings
+
+    probed: list[str] = []
+
+    async def record(host: str, port: int, payload: bytes | None = None) -> None:
+        probed.append(host)
+
+    monkeypatch.setattr(integrations, "tcp_probe", record)
+    settings = Settings(valkey_url="redis://valkey.internal:6379")
+    registry = default_integration_registry(settings)
+    registry.configure("valkey", context(), IntegrationConfiguration(enabled=True, endpoint="redis://169.254.169.254:6379"))
+    registry.configure("minio", context(), IntegrationConfiguration(enabled=False, endpoint="http://169.254.169.254"))
+
+    health = {item.id: item for item in asyncio.run(registry.health(context()))}
+    assert "169.254.169.254" not in probed
+    assert "valkey.internal" in probed
+    assert health["valkey"].status == IntegrationStatus.CONNECTED
+    assert health["valkey"].endpoint == settings.valkey_url
+    assert health["minio"].status == IntegrationStatus.DISABLED

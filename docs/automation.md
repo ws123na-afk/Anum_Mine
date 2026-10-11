@@ -26,6 +26,8 @@ Automations must run under an explicit actor and tenant context. They should hav
 
 `/api/v1/automation` manages workflows, schedules and runs (`anum_api/automation.py`). Runs can be started (optionally with an `Idempotency-Key` header, at most 200 characters), paused by a `pause` step, resumed, cancelled and retried.
 
+The web Workbench (`apps/web/src/AutomationWorkbench.tsx`) composes multi-step workflows (add, remove and reorder steps; per-step id, name, action, JSON input and max attempts). Workflows have no update endpoint, so "Edit copy" loads an existing workflow into the composer and saves it as a new workflow. Its Schedules section lists, creates (preset, every-N-minutes or raw cron, all sent as five-field cron), pauses/resumes (`/enable`, `/disable`) and deletes schedules for the selected workflow and shows `next_run_at` as a relative time. Each run expands to show its steps' status, attempt, output and error.
+
 ### Storage
 
 | `ANUM_REPOSITORY_BACKEND` | Engine | Where |

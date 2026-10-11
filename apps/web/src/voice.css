@@ -1,0 +1,120 @@
+/* Voice assistant: one central orb, a greeting by name, a live caption, the conversation underneath
+   and a dock that stays in reach. Uses the shared tokens from styles.css. */
+.voiceConsole {
+  --v-orb-gap: clamp(12px, 2.4vh, 24px);
+  display: grid; gap: clamp(16px, 3vh, 28px); margin: 0 auto; max-width: 760px; position: relative;
+}
+.voiceTopline { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.voiceConsoleMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.voiceBadge, .voicePill {
+  align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted);
+  display: inline-flex; font-size: 13px; font-weight: 600; gap: 6px; min-height: 40px; padding: 6px 14px;
+}
+.voicePill { cursor: pointer; transition: background 160ms var(--d-ease), border-color 160ms var(--d-ease); }
+.voicePill:hover { background: var(--d-glass-2); color: var(--d-text); }
+.voicePill.on { background: rgba(167, 139, 250, .14); border-color: rgba(167, 139, 250, .5); color: var(--d-text); }
+.voicePill.on svg { color: var(--d-violet); }
+.voiceIconButton {
+  align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-text);
+  display: inline-grid; height: 44px; place-items: center; width: 44px;
+}
+.voiceIconButton[aria-pressed="true"] { border-color: rgba(253, 164, 175, .5); color: var(--d-stop); }
+
+/* Stage */
+.voiceStage { align-items: center; display: flex; flex-direction: column; text-align: center; }
+.voiceOrb {
+  background: transparent; border: 0; border-radius: 50%; cursor: pointer; flex: none; margin-bottom: var(--v-orb-gap);
+  max-width: 72vw; padding: 0; position: relative; transition: transform 120ms ease-out;
+}
+.voiceOrb:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 10px; }
+.voiceOrb:disabled { cursor: progress; opacity: 1; }
+.voiceOrbHalo { border: 1px solid rgba(167, 139, 250, .22); border-radius: 50%; inset: -14px; position: absolute; }
+.voiceOrbGlow { background: radial-gradient(circle, rgba(167, 139, 250, .32), transparent 65%); border-radius: 50%; filter: blur(22px); inset: -36px; opacity: .55; position: absolute; transition: opacity 400ms ease; }
+.voiceOrbBlob { border-radius: 50%; filter: blur(2px); inset: 18px; mix-blend-mode: screen; opacity: .85; position: absolute; }
+.voiceOrbBlob.b1 { animation: voiceDrift 9s ease-in-out infinite; background: radial-gradient(circle at 35% 35%, var(--d-sky), transparent 62%); }
+.voiceOrbBlob.b2 { animation: voiceDrift 11s ease-in-out -3s infinite reverse; background: radial-gradient(circle at 65% 40%, var(--d-violet), transparent 60%); }
+.voiceOrbBlob.b3 { animation: voiceDrift 13s ease-in-out -6s infinite; background: radial-gradient(circle at 50% 70%, var(--d-rose), transparent 58%); }
+.orb3d { inset: 0; position: absolute; }
+.orb3d canvas { display: block; height: 100% !important; width: 100% !important; }
+.voiceOrbIcon { color: #fff; display: grid; inset: 0; opacity: 0; place-items: center; position: absolute; transition: opacity 160ms var(--d-ease); }
+.voiceOrbIcon svg { filter: drop-shadow(0 1px 8px rgba(11, 16, 32, .6)); }
+/* The icon shows on hover, focus and while listening; idle, the orb itself is the invitation. */
+.voiceOrb:hover .voiceOrbIcon, .voiceOrb:focus-visible .voiceOrbIcon,
+.voiceConsole[data-state="listening"] .voiceOrbIcon { opacity: .95; }
+@media (hover: none) { .voiceOrbIcon { opacity: .9; } }
+.voiceConsole[data-state="listening"] .voiceOrbGlow { opacity: 1; }
+.voiceConsole[data-state="listening"] .voiceOrbHalo { animation: voiceRing 1.8s ease-out infinite; border-color: rgba(125, 211, 252, .55); }
+.voiceConsole[data-state="listening"] .voiceOrbBlob { animation-duration: 2.4s, 2.8s, 3.2s; }
+.voiceConsole[data-state="thinking"] .voiceOrbHalo { animation: voiceSpin 1.4s linear infinite; border-color: transparent; border-top-color: var(--d-violet); }
+.voiceConsole[data-state="thinking"] .voiceOrbBlob { animation-duration: 1.6s; filter: blur(4px) saturate(.8); }
+.voiceConsole[data-state="speaking"] .voiceOrbGlow { animation: voiceBreathe 1.6s ease-in-out infinite; opacity: .9; }
+@keyframes voiceDrift { 0%, 100% { transform: translate(0, 0) scale(1); } 33% { transform: translate(6px, -8px) scale(1.04); } 66% { transform: translate(-7px, 5px) scale(.97); } }
+@keyframes voiceRing { from { opacity: 1; transform: scale(.96); } to { opacity: 0; transform: scale(1.18); } }
+@keyframes voiceSpin { to { transform: rotate(360deg); } }
+@keyframes voiceBreathe { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+
+.voiceGreeting { font-size: clamp(24px, 3.4vw, 34px); font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
+.voiceStateLabel { color: var(--d-sky); font-size: 15px; font-weight: 600; margin-top: var(--d-s2); }
+.voiceCaption { color: var(--d-muted); font-size: 16px; line-height: 1.5; margin-top: var(--d-s1); max-width: 52ch; min-height: 24px; overflow-wrap: anywhere; }
+.voiceCaption.live { color: var(--d-text); font-size: 18px; }
+.voiceStageActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: center; margin-top: var(--d-s3); }
+.voiceStageActions:empty { display: none; }
+.voiceAllowMic, .voiceScope {
+  align-items: center; border-radius: 999px; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 8px 18px;
+}
+.voiceAllowMic { background: var(--d-text); border: 0; color: var(--d-bg); }
+.voiceAllowMic:hover { background: #fff; }
+.voiceScope { background: rgba(252, 211, 141, .1); border: 1px solid rgba(252, 211, 141, .4); color: var(--d-warn); }
+
+/* Conversation */
+.voiceLog { display: flex; flex-direction: column; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.voiceLogEnd { height: 1px; }
+.voiceEmpty { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 14px; gap: var(--d-s2); justify-content: center; }
+.voiceEmptyLead { color: var(--d-faint); flex-basis: 100%; text-align: center; }
+.voiceEmpty > span:not(.voiceEmptyLead) { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; padding: 6px 14px; }
+.voiceTurn { border-radius: 18px; max-width: min(88%, 60ch); padding: var(--d-s3) var(--d-s4); }
+.voiceTurn.you { align-self: flex-end; background: rgba(125, 211, 252, .12); border: 1px solid rgba(125, 211, 252, .2); border-end-end-radius: 6px; }
+.voiceTurn.assistant { align-self: flex-start; background: var(--d-surface-2); border: 1px solid var(--d-line); border-end-start-radius: 6px; }
+.voiceTurn p { font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; }
+.voiceSpeaker { color: var(--d-violet); display: block; font-size: 13px; font-weight: 650; margin-bottom: 2px; }
+.voiceTier { border-radius: 999px; display: inline-block; font-size: 12px; font-weight: 650; margin-top: var(--d-s2); padding: 2px 10px; }
+.voiceTier.confirm { background: rgba(252, 211, 141, .12); color: var(--d-warn); }
+.voiceTier.visual_only { background: rgba(253, 164, 175, .12); color: var(--d-stop); }
+.voiceConfirm { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s3); }
+.voiceConfirm button { align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: 999px; color: #fff; display: inline-flex; font-weight: 650; gap: 6px; min-height: 44px; padding: 8px 16px; }
+.voiceConfirm button:hover { background: var(--d-primary-hover); }
+.voiceConfirm button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
+.voiceResolved { color: var(--d-ok); display: inline-block; font-size: 13px; font-weight: 650; margin-top: var(--d-s2); }
+
+/* Dock: stays in reach at the bottom of the viewport while the conversation scrolls. */
+.voiceDock {
+  align-items: end; background: rgba(23, 32, 54, .92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--d-line-strong); border-radius: 26px; bottom: var(--d-s4); box-shadow: var(--d-elev-2);
+  display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto; padding: 6px; position: sticky; z-index: 5;
+}
+.voiceDock:focus-within { border-color: var(--d-sky); outline: 2px solid var(--d-sky); outline-offset: 2px; }
+.voiceDockMic, .voiceAsk { align-items: center; border-radius: 50%; display: inline-grid; flex: none; height: 44px; place-items: center; width: 44px; }
+.voiceDockMic { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
+.voiceConsole[data-state="listening"] .voiceDockMic { background: rgba(125, 211, 252, .18); border-color: var(--d-sky); }
+.voiceAsk { background: var(--d-text); border: 0; color: var(--d-bg); }
+.voiceAsk:disabled { opacity: .3; }
+.voiceDraft { min-width: 0; }
+.voiceDraft textarea { background: transparent; border: 0; box-shadow: none; color: var(--d-text); font-size: 16px; max-height: 160px; min-height: 44px; padding: 10px 4px; resize: none; }
+.voiceDraft textarea:focus-visible { outline: none; }
+
+/* Settings */
+.voiceSettings { border-top: 1px solid var(--d-line); color: var(--d-muted); font-size: 14px; padding-top: var(--d-s2); }
+.voiceSettings summary { align-items: center; border-radius: var(--d-r-control); cursor: pointer; display: inline-flex; font-weight: 600; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s2); }
+.voiceSettings summary:hover { color: var(--d-text); }
+.voiceSettingsGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.voiceSettings .muted { margin: var(--d-s3) 0 0; }
+.voiceSettings button.secondary { border-radius: 999px; margin-top: var(--d-s3); min-height: 44px; padding: 8px 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .voiceOrb, .voiceOrbBlob, .voiceOrbGlow, .voiceOrbHalo { animation: none !important; transition: none !important; }
+}
+@media (prefers-reduced-transparency: reduce) { .voiceDock { backdrop-filter: none; background: var(--d-surface-2); } }
+@media (max-width: 760px) {
+  .voiceTurn { max-width: 94%; }
+  .voiceDock { bottom: var(--d-s3); }
+}

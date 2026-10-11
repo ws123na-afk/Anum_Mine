@@ -82,6 +82,14 @@ String configureAndroidManifest(String manifest) {
       '<application android:usesCleartextTraffic="true"',
     );
   }
+  // Sessions and tokens live in app storage: keep them out of Android backups.
+  if (!value.contains('android:allowBackup')) {
+    value = value.replaceFirst(
+      '<application',
+      '<application android:allowBackup="false" '
+          'android:fullBackupContent="false"',
+    );
+  }
   return value.replaceFirst(
     RegExp(r'android:label="[^"]*"'),
     'android:label="$displayName"',

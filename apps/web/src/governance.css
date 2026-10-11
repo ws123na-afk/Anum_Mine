@@ -1,0 +1,24 @@
+/* Governance, enterprise routing and integration configuration (EnterpriseViews.tsx, IntegrationsView.tsx). */
+.govSection { margin-top: 14px; padding: 18px; }
+.govRow { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: 12px; grid-template-columns: 22px 1fr auto auto; padding: 12px 0; }
+.govRow:first-of-type { border-top: 0; }
+.govRow > svg { color: var(--d-violet); height: 20px; width: 20px; }
+.govRow p, .govItem p { color: var(--d-muted); font-size: 12px; margin: 4px 0 0; }
+.govVersion { background: var(--d-glass-2); border-radius: 999px; color: var(--d-muted); font-size: 11px; font-weight: 700; margin-left: 6px; padding: 2px 6px; }
+.govItem { border-top: 1px solid var(--d-line); padding: 10px 0; }
+.govColumns { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.govForm .actions { margin-top: 14px; }
+.govForm input, .govForm select, .integrationConfig input[type="text"], .integrationConfig input:not([type]) { width: 100%; }
+.govPermissions { border: 1px solid var(--d-line); border-radius: 6px; display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; padding: 10px; }
+.govPermissions legend { color: var(--d-muted); font-size: 12px; font-weight: 700; padding: 0 4px; }
+.govPermissions label { align-items: center; display: flex; font-size: 12px; gap: 6px; }
+.govGrid { display: grid; gap: 0 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.govTarget { grid-template-columns: 42px 1fr auto auto; }
+.integrationCard { grid-template-columns: 42px 1fr auto; }
+.integrationActions { align-items: center; display: flex; gap: 8px; }
+.integrationConfig { border-top: 1px solid var(--d-line); grid-column: 1 / -1; padding-top: 10px; }
+.integrationToggle { align-items: center; display: flex; font-size: 13px; gap: 8px; }
+@media (max-width: 900px) {
+  .govColumns, .govGrid, .govPermissions { grid-template-columns: 1fr; }
+  .govRow { grid-template-columns: 22px 1fr; }
+}

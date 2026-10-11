@@ -10,8 +10,11 @@ anyone but Caddy, or carry a value the API refuses at startup. No network, no Do
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
+import shutil
 import stat
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -592,3 +595,19 @@ def test_keycloak_starts_after_the_bootstrap_admin_is_emptied() -> None:
     assert "unset KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD" in entrypoint[2]
     assert 'exec /opt/keycloak/bin/kc.sh "$$@"' in entrypoint[2]
     assert service["command"] == ["start", "--optimized", "--import-realm"]
+
+
+def test_install_runs_owner_commands_when_started_with_sudo() -> None:
+    # `sudo bash install.sh` leaves SUDO empty; run_as_owner must not run a bare `-u`.
+    install = (ORACLE / "install.sh").read_text(encoding="utf-8")
+    start = install.index("run_as_owner() {")
+    function = install[start : install.index("\n}\n", start) + 3]
+    assert 'elif [ -z "$SUDO" ]; then runuser -u "$OWNER" -- "$@"' in function
+    if os.geteuid() != 0 or shutil.which("runuser") is None:
+        return
+    script = f'SUDO=""; OWNER=nobody\n{function}run_as_owner id -un\n'
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "nobody"
