@@ -44,6 +44,13 @@
 
 {$ANUM_API_HOST} {
 	import common
+	# WhatsApp Cloud API webhook (docs/whatsapp.md#webhook): public on purpose. Meta calls
+	# it without ANUM credentials; the API verifies X-Hub-Signature-256 with the workspace's
+	# app secret before storing anything. Bodies are small JSON, so cap them here as well.
+	@whatsapp_webhook path /api/v1/whatsapp/webhook
+	request_body @whatsapp_webhook {
+		max_size 256KB
+	}
 	# Streams (SSE) are passed through unbuffered.
 	reverse_proxy api:8000 {
 		import upstream_headers

@@ -12,6 +12,8 @@ import '../governance/governance_screen.dart';
 import '../developer/developer_assist.dart';
 import '../developer/developer_controller.dart';
 import '../developer/developer_screen.dart';
+import '../whatsapp/whatsapp_controller.dart';
+import '../whatsapp/whatsapp_screen.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../automations/automation_repository.dart';
@@ -36,6 +38,7 @@ class WorkspaceHome extends StatefulWidget {
       this.developerController,
       this.automationsController,
       this.chatDeveloper,
+      this.whatsappController,
       this.workspaceName,
       this.initialIndex = 0});
   final WorkspaceController controller;
@@ -54,6 +57,10 @@ class WorkspaceHome extends StatefulWidget {
 
   /// "build ..." in the Assistant; the voice one lives on the voice controller.
   final DeveloperAssist? chatDeveloper;
+
+  /// The WhatsApp inbox (docs/whatsapp.md), opened as its own page from the
+  /// app bar (wide layouts) or the More sheet (phones).
+  final WhatsAppController? whatsappController;
   final String? workspaceName;
   final int initialIndex;
   @override
@@ -118,6 +125,12 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
             child: shell!);
       },
       child: _buildShell(context));
+
+  void _openWhatsApp(BuildContext context) => Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+          builder: (_) =>
+              WhatsAppScreen(controller: widget.whatsappController!)));
 
   void _openSettings(BuildContext context) => Navigator.push(
       context,
@@ -263,6 +276,11 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                                         value: 'ar', child: Text(l.t('arabic')))
                                   ],
                               icon: const Icon(Icons.language)),
+                          if (widget.whatsappController != null)
+                            IconButton(
+                                onPressed: () => _openWhatsApp(context),
+                                tooltip: l.t('whatsapp'),
+                                icon: const Icon(Icons.forum_outlined)),
                           IconButton(
                               onPressed: () => Navigator.push(
                                   context,
@@ -366,6 +384,14 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         builder: (context) => SafeArea(
                 child: SingleChildScrollView(
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
+              if (widget.whatsappController != null)
+                ListTile(
+                    leading: const Icon(Icons.forum_outlined),
+                    title: Text(context.anum.t('whatsapp')),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _openWhatsApp(context);
+                    }),
               ListTile(
                   leading: const Icon(Icons.mic),
                   title: const Text('Voice'),

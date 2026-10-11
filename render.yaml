@@ -131,6 +131,11 @@ services:
       # bootstrap (WITH INHERIT FALSE, SET TRUE).
       - key: ANUM_AUTOMATION_SCHEDULER_ENABLED
         value: "true"
+      # WhatsApp Cloud API (docs/whatsapp.md): the webhook /api/v1/whatsapp/webhook is
+      # public on the API service and routed by phone number id through anum_maintenance.
+      # Credentials are per workspace (encrypted), never environment variables.
+      - key: ANUM_WHATSAPP_GRAPH_API_VERSION
+        value: "v23.0"
 
   # --- Web client (Vite bundle on unprivileged nginx) -------------------------------
   - type: web

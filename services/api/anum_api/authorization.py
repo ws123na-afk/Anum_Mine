@@ -60,6 +60,11 @@ class Permission(StrEnum):
     # Developer mode (docs/developer-mode.md): workspace owners only (not
     # granted to members or viewers below).
     DEVELOPER_MANAGE = "developer:manage"
+    # WhatsApp inbox (docs/whatsapp.md): customer conversations are not for viewers.
+    # Members read and ask to send (sends still need approval); owners connect the number.
+    WHATSAPP_READ = "whatsapp:read"
+    WHATSAPP_REPLY = "whatsapp:reply"
+    WHATSAPP_MANAGE = "whatsapp:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -126,6 +131,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.MEMORY_DELETE,
             Permission.FILE_UPLOAD,
             Permission.AUTOMATION_MANAGE,
+            Permission.WHATSAPP_READ,
+            Permission.WHATSAPP_REPLY,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

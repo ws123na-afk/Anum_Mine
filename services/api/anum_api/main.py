@@ -113,6 +113,7 @@ from .voice import router as voice_router
 from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
+from .whatsapp import register_whatsapp_tools, router as whatsapp_router
 from .user_preferences import router as user_preferences_router
 from .push import push_dispatcher, router as push_router
 from .developer_watch import build_developer_watcher
@@ -234,16 +235,17 @@ app.include_router(audit_log_router)
 app.include_router(workspace_admin_router)
 app.include_router(model_budget_router)
 app.include_router(developer_router)
+app.include_router(whatsapp_router)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 event_runtime.add_listener(push_dispatcher.submit)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_developer_tools(default_tool_registry(
+tool_registry = register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
-))
+)))
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).
 configure_tool_catalog(tool_registry.definition)
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,

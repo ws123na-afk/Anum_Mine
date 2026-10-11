@@ -15,6 +15,8 @@ import '../features/chat/chat_repository.dart';
 import '../features/developer/developer_assist.dart';
 import '../features/developer/developer_controller.dart';
 import '../features/developer/developer_repository.dart';
+import '../features/whatsapp/whatsapp_controller.dart';
+import '../features/whatsapp/whatsapp_repository.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/workspace/destinations.dart';
 import '../features/workspace/files_repository.dart';
@@ -91,6 +93,7 @@ class _AnumAppState extends State<AnumApp> {
   /// widget's context.
   final _navigator = GlobalKey<NavigatorState>();
   final _messenger = GlobalKey<ScaffoldMessengerState>();
+  late final WhatsAppController whatsapp;
 
   /// Set when the build's configuration is unsafe; the app then shows only
   /// this message and creates no clients.
@@ -175,6 +178,8 @@ class _AnumAppState extends State<AnumApp> {
         isOwner: developer.ensureOwner);
     voiceDeveloper.announce = (text) => voice.sayLocal(text);
     voice.developer = voiceDeveloper;
+    // WhatsApp inbox (docs/whatsapp.md): owners and members; owners approve.
+    whatsapp = WhatsAppController(ApiWhatsAppRepository(api));
     locale = LocaleController()..restore();
     auth.addListener(_onAuthChanged);
     auth.restore();
@@ -203,6 +208,7 @@ class _AnumAppState extends State<AnumApp> {
       developer.reset();
       chatDeveloper.reset();
       voiceDeveloper.reset();
+      whatsapp.reset();
     }
     if (auth.phase == AuthPhase.ready && workspace.currentUserId == null) {
       _rememberUser();
@@ -279,6 +285,7 @@ class _AnumAppState extends State<AnumApp> {
     push.dispose();
     chatDeveloper.dispose();
     voiceDeveloper.dispose();
+    whatsapp.dispose();
     locale.dispose();
     super.dispose();
   }
@@ -337,6 +344,7 @@ class _AnumAppState extends State<AnumApp> {
                       developerController: developer,
                       automationsController: automations,
                       chatDeveloper: chatDeveloper,
+                      whatsappController: whatsapp,
                       workspaceName: auth.workspaceName,
                     )
                   : AuthFlow(controller: auth),
@@ -397,6 +405,7 @@ class _AnumAppState extends State<AnumApp> {
         developerController: developer,
         automationsController: automations,
         chatDeveloper: chatDeveloper,
+        whatsappController: whatsapp,
         workspaceName: auth.workspaceName,
         initialIndex: index,
       );

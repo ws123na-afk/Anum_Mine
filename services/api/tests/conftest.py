@@ -30,6 +30,10 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "whatsapp_messages",
+    "whatsapp_conversations",
+    "whatsapp_contacts",
+    "whatsapp_accounts",
     "retrieval_chunks",
     "retrieval_sources",
     "conversation_turns",

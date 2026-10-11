@@ -63,6 +63,14 @@ def default_skill_registry() -> SkillRegistry:
                 required_tools=frozenset({"web_search"}),
             ),
             SkillManifest(
+                id="anum.whatsapp-inbox",
+                version="1.0.0",
+                name="WhatsApp inbox",
+                description="Reads the workspace's WhatsApp conversations; replies are drafted and sent from the inbox with approval.",
+                triggers=frozenset({"whatsapp"}),
+                required_tools=frozenset({"list_whatsapp_conversations"}),
+            ),
+            SkillManifest(
                 id="anum.external-action",
                 version="1.0.0",
                 name="External action",

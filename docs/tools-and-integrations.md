@@ -46,6 +46,10 @@ Integrations are defined by the operator's Settings; this deployment has exactly
 - **SearXNG itself** (`infra/searxng/settings.yml`): JSON format on, bot limiter off (it serves the API alone on an internal network and would otherwise need Valkey), no public-instance mode, no image proxy, metrics off, engine timeouts below the API deadline. The secret key comes from `SEARXNG_SECRET` (generated into `infra/oracle/.env`; a development placeholder locally). No published port and no Caddy route; 512 MB memory limit.
 - **Clients.** The web Integrations page shows the `searxng` card with its health and whether "Agent tool web_search" is available, degraded or unavailable; owners switch it per workspace there (`apps/web/src/IntegrationsView.tsx`, `apps/web/e2e/integrations.spec.ts`). Tests: `services/api/tests/test_web_search.py`.
 
+## WhatsApp Business
+
+The WhatsApp inbox is a per-workspace integration with Meta's WhatsApp Cloud API: an inbound webhook verified with the app secret, encrypted per-workspace credentials, and five governed agent tools (`list_whatsapp_conversations`, `read_whatsapp`, `draft_whatsapp_reply`, `send_whatsapp`, `send_whatsapp_template`). Sending is always a tool call through `ToolPolicy` and approvals by risk. See [WhatsApp Business inbox](whatsapp.md).
+
 ## MCP Strategy
 
 MCP should be supported as an integration protocol, not as the entire runtime. ANUM can call MCP servers through mediated adapters while still applying tenant policy, approvals, audit logging, and tool schemas.

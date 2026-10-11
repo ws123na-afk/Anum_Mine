@@ -56,14 +56,15 @@ def build_activities(
 
     gateway = model_gateway or build_default_model_gateway(config)
     from .developer import register_developer_tools
+    from .whatsapp import register_whatsapp_tools
 
     integrations = default_integration_registry(config)
-    registry = tools or register_developer_tools(
+    registry = tools or register_whatsapp_tools(register_developer_tools(
         default_tool_registry(
             configured_external_handler(config, integrations),
             configured_web_search_handler(config, integrations.workspace_enabled(SEARXNG_INTEGRATION_ID)),
         )
-    )
+    ))
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
         from .retrieval_api import retriever_for

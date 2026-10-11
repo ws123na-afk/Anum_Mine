@@ -70,6 +70,15 @@ class AgentPlanner:
         skills: list[SkillManifest],
         response: ModelResponse,
     ) -> ToolCall:
+        if any(skill.id == "anum.whatsapp-inbox" for skill in skills):
+            # Read-only: which conversations need attention. Replies are drafted and sent
+            # from the inbox, where a person approves them (docs/whatsapp.md#agent-tools).
+            words = set(prompt.lower().split())
+            waiting = bool(words & {"reply", "replies", "unanswered", "answer", "waiting"})
+            return ToolCall(
+                name="list_whatsapp_conversations",
+                arguments={"filter": "needs_reply" if waiting else "all", "limit": 20},
+            )
         if any(skill.id == "anum.external-action" for skill in skills):
             return ToolCall(
                 name="external.action",

@@ -159,6 +159,15 @@ config:
   ANUM_AUTOMATION_SCHEDULER_POLL_SECONDS: "30"
   ANUM_AUTOMATION_SCHEDULER_BATCH_SIZE: "100"
 
+  # WhatsApp Cloud API (docs/whatsapp.md). Credentials are per workspace (encrypted in
+  # the database), never here. The webhook is /api/v1/whatsapp/webhook on the API host.
+  ANUM_WHATSAPP_GRAPH_API_URL: https://graph.facebook.com
+  ANUM_WHATSAPP_GRAPH_API_VERSION: v23.0
+  ANUM_WHATSAPP_WEBHOOK_MAX_BODY_BYTES: "262144"
+  ANUM_WHATSAPP_MEDIA_MAX_BYTES: "16777216"
+  ANUM_WHATSAPP_REPLAY_WINDOW_HOURS: "168"
+  ANUM_WHATSAPP_TRIAGE_ON_ARRIVAL: "true"
+
   # Conversations with no activity for this many days are deleted with their turns
   # by the voiceRetention CronJob (docs/conversations.md#retention). Whole days,
   # 0 to 3650; 0 keeps conversations until their user deletes them.

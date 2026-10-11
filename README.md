@@ -88,6 +88,7 @@ x-user-roles: owner,member
 - [Model gateway](docs/model-gateway.md)
 - [Conversations](docs/conversations.md)
 - [Developer mode](docs/developer-mode.md)
+- [WhatsApp Business inbox](docs/whatsapp.md)
 - [Memory](docs/memory.md)
 - [Privacy: download and delete my data](docs/privacy.md)
 - [Privacy policy template](docs/privacy-policy.md)

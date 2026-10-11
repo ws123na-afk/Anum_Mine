@@ -24,6 +24,10 @@ pytestmark = pytest.mark.database
 
 TENANT_TABLES = {
     "tenants",
+    "whatsapp_accounts",
+    "whatsapp_contacts",
+    "whatsapp_conversations",
+    "whatsapp_messages",
     "retrieval_sources",
     "retrieval_chunks",
     "conversations",

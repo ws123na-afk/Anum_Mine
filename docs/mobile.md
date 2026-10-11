@@ -118,6 +118,9 @@ Do these once; nothing here is committed. File and secret names only.
 4. **Server.** In Google Cloud IAM, create a service account with the **Firebase Cloud Messaging API Admin** role, create a JSON key and put the whole file on one line into the API's `ANUM_FCM_SERVICE_ACCOUNT_JSON` secret (Helm: the `anum-app` Secret; Render: the dashboard; Oracle: `infra/oracle/.env`, [Phone push](deploy-oracle.md#phone-push)). Delete the downloaded key file afterwards.
 5. **CI release builds.** To ship push in store builds, the release workflow must write the two files before building, from repository secrets you create (suggested names `ANUM_GOOGLE_SERVICES_JSON` and `ANUM_GOOGLE_SERVICE_INFO_PLIST`). That workflow step is not written yet: until it is, release builds from CI have push off.
 6. Check on a real phone (the Real-Device Test Checklist below): sign in, **Turn on notifications**, ask for something that needs approval from another device, lock the phone, and tap the push.
+## WhatsApp inbox
+
+`lib/features/whatsapp/` mirrors the web inbox for owners and members ([WhatsApp](whatsapp.md)): conversations with filters, search and paging; a thread with the 24-hour window, the suggested reply with its provenance label, a reply sent for approval, and Approve & send / Reject for owners (the payload hash is sent back). It opens from the app bar on wide layouts and from More on phones. Connecting the number and template replies stay on the web. Tests: `test/whatsapp/whatsapp_test.dart` (320 to 1440 px, 200% text, English and Arabic).
 
 ## Dependencies
 
