@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
+import 'files_models.dart';
 import 'task_management.dart';
 import 'workspace_models.dart';
 import 'workspace_repository.dart';
@@ -295,12 +296,7 @@ class ApiWorkspaceRepository
         stepCount: j.optList('steps')?.length ?? 0);
   }
 
-  WorkspaceFile _file(JsonReader j) => WorkspaceFile(
-      id: j.string('id'),
-      name: j.string('name'),
-      contentType: j.string('content_type'),
-      sizeBytes: j.integer('size_bytes'),
-      createdAt: _date(j, 'created_at'));
+  WorkspaceFile _file(JsonReader j) => parseWorkspaceFile(j);
   WorkspaceMemory _memory(JsonReader j) => WorkspaceMemory(
       id: j.string('id'),
       taskId: j.string('task_id'),

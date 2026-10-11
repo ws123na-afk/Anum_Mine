@@ -15,6 +15,7 @@ import '../features/developer/developer_controller.dart';
 import '../features/developer/developer_repository.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/workspace/destinations.dart';
+import '../features/workspace/files_repository.dart';
 import '../features/workspace/workspace_controller.dart';
 import '../features/workspace/workspace_home.dart';
 import '../features/workspace/tasks_screen.dart';
@@ -130,13 +131,14 @@ class _AnumAppState extends State<AnumApp> {
         workspacePreferences: SecureWorkspacePreferenceStore(),
         sessionListener: push);
     auth = AuthController(authRepository);
-    workspace = WorkspaceController(ApiWorkspaceRepository(
-      api,
-      fileTransfer: HttpWorkspaceFileTransfer(
-        baseUri: Uri.parse(configuredUrl),
-        sessions: sessions,
-      ),
-    ));
+    final fileTransfer = HttpWorkspaceFileTransfer(
+      baseUri: Uri.parse(configuredUrl),
+      sessions: sessions,
+    );
+    workspace = WorkspaceController(
+      ApiWorkspaceRepository(api, fileTransfer: fileTransfer),
+      files: ApiFilesRepository(api, transfer: fileTransfer),
+    );
     // Streamed replies for the Assistant and voice (docs/conversations.md).
     final events = HttpEventStreamClient(
         baseUri: Uri.parse(configuredUrl), sessions: sessions);

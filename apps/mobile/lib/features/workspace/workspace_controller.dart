@@ -1,12 +1,22 @@
 import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
+import 'files_controller.dart';
+import 'files_repository.dart';
 import 'task_management.dart';
 import 'workspace_models.dart';
 import 'workspace_repository.dart';
 
 class WorkspaceController extends ChangeNotifier {
-  WorkspaceController(this.repository);
+  WorkspaceController(this.repository, {FilesRepository? files}) {
+    if (files != null) {
+      filesController = FilesController(files, onChanged: load);
+    }
+  }
   final WorkspaceRepository repository;
+
+  /// The Files tab (docs/files.md#mobile): paged list, uploads with progress,
+  /// previews and per-role actions. Null when the app wires no file API.
+  FilesController? filesController;
   LoadPhase phase = LoadPhase.initial;
   WorkspaceSnapshot? snapshot;
   String? message;

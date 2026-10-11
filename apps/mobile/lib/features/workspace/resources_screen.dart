@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../src/localization/anum_localizations.dart';
@@ -7,7 +6,7 @@ import '../../src/widgets/depth.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
-import 'workspace_sheets.dart';
+import 'files_screen.dart';
 
 /// Files, memory, skills and integrations: the workspace's resources.
 class ResourcesScreen extends StatefulWidget {
@@ -53,7 +52,9 @@ class _ResourcesScreenState extends State<ResourcesScreen>
                     eyebrow: 'Workspace',
                     title: 'Resources',
                     subtitle: [
-                      _plural(c.files.length, 'file'),
+                      _plural(
+                          c.filesController?.usage?.fileCount ?? c.files.length,
+                          'file'),
                       _plural(c.memories.length, 'memory', 'memories'),
                       _plural(c.skills.length, 'skill'),
                       _plural(c.integrations.length, 'service'),
@@ -112,75 +113,22 @@ class _FilesTab extends StatelessWidget {
   const _FilesTab({required this.controller});
   final WorkspaceController controller;
 
-  Future<void> _upload(BuildContext context) async {
-    final picked = await FilePicker.platform.pickFiles(withData: false);
-    final path = picked?.files.single.path;
-    if (path == null) return;
-    await controller.uploadFile(path);
-  }
-
-  IconData _icon(String type) {
-    if (type.startsWith('image/')) return Icons.image_outlined;
-    if (type.contains('pdf')) return Icons.picture_as_pdf_outlined;
-    if (type.startsWith('text/') || type.contains('json')) {
-      return Icons.description_outlined;
-    }
-    if (type.startsWith('audio/')) return Icons.audio_file_outlined;
-    return Icons.insert_drive_file_outlined;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final files = [...controller.files]
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final total = files.fold<int>(0, (sum, f) => sum + f.sizeBytes);
-    return _tabList(context, controller.load, [
-      AnumSurface(
-        child: Row(children: [
-          Expanded(
-            child: AnumHeader(
-              title: '${files.length} files',
-              subtitle:
-                  '${formatBytes(total)} stored · checksum verified on upload',
-            ),
-          ),
-          FilledButton.icon(
-            onPressed: controller.mutating ? null : () => _upload(context),
-            icon: const Icon(Icons.upload_rounded),
-            label: const Text('Upload'),
-          ),
-        ]),
-      ),
-      if (files.isEmpty)
-        const AnumSurface(
-          child: AnumEmpty(
-            icon: Icons.folder_open,
-            title: 'No files yet',
-            message: 'Upload documents your agents can read in this workspace.',
-          ),
-        )
-      else
+    final files = controller.filesController;
+    if (files == null) {
+      return _tabList(context, controller.load, const [
         AnumSurface(
-          child: Column(children: [
-            for (final f in files)
-              AnumRow(
-                icon: _icon(f.contentType),
-                title: f.name,
-                subtitle: '${f.contentType} · ${formatBytes(f.sizeBytes)}',
-                detail: 'Added ${exactTime(f.createdAt)}',
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => showModalBottomSheet<void>(
-                  context: context,
-                  builder: (_) => FileDetailSheet(
-                    file: f,
-                    onDownload: () => controller.repository.downloadFile(f),
-                    onDelete: () => controller.deleteFile(f.id),
-                  ),
-                ),
-              ),
-          ]),
+          child: AnumEmpty(
+            icon: Icons.folder_off_outlined,
+            title: 'Files are not available',
+            message:
+                'This build of the app has no connection to the files API.',
+          ),
         ),
-    ]);
+      ]);
+    }
+    return FilesTab(controller: files, currentUserId: controller.currentUserId);
   }
 }
 

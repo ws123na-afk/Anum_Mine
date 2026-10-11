@@ -284,10 +284,38 @@ class WorkspaceFile {
       required this.name,
       required this.contentType,
       required this.sizeBytes,
-      required this.createdAt});
+      required this.createdAt,
+      this.createdBy = '',
+      this.updatedAt,
+      this.kind,
+      this.previewable = false,
+      this.canManage = false,
+      this.index});
   final String id, name, contentType;
   final int sizeBytes;
   final DateTime createdAt;
+
+  /// Who uploaded it (a user id) and when it was last renamed.
+  final String createdBy;
+  final DateTime? updatedAt;
+
+  /// `text`, `markdown`, `data`, `image`, `pdf`, `document` or `archive`
+  /// (docs/files.md); null for a type uploaded before the allow-list.
+  final String? kind;
+  final bool previewable;
+
+  /// Whether the caller may rename and delete it (uploader or owner).
+  final bool canManage;
+  final FileIndexState? index;
+}
+
+/// Retrieval index state of a file: `indexed`, `stale`, `failed`, `skipped`
+/// or `pending`, with the reason for a skip or failure.
+class FileIndexState {
+  const FileIndexState({required this.status, this.error, this.chunkCount = 0});
+  final String status;
+  final String? error;
+  final int chunkCount;
 }
 
 class WorkspaceMemory {
