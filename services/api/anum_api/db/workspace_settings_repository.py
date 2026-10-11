@@ -8,18 +8,104 @@ also filter on the scope explicitly.
 from sqlalchemy import delete, func, select, text, tuple_
 from sqlalchemy.orm import Session
 
+from anum_api.audit import AuditRecord
 from anum_api.files import FilePageQuery, FileRecord, FileSort, FileUsage, StorageQuotaExceeded
-from anum_api.integrations import IntegrationConfiguration
+from anum_api.integrations import IntegrationCheck, IntegrationConfiguration, IntegrationStatus, StoredCredential
 from anum_api.onboarding import NotificationPreferences
 from anum_api.schemas import TenantContext, utc_now
 
-from .models import IntegrationConfigurationRecord, NotificationPreferenceRecord, WorkspaceFileRecord
+from .models import (
+    IntegrationConfigurationRecord,
+    IntegrationCredentialRecord,
+    IntegrationHealthCheckRecord,
+    NotificationPreferenceRecord,
+    WorkspaceFileRecord,
+)
 from .scope import require_workspace
 
 
 class SqlAlchemyIntegrationConfigurationStore:
+    """Switches, health history and encrypted workspace credentials; audits in the same transaction."""
+
     def __init__(self, session: Session) -> None:
+        from .repository import SqlAlchemyRepository
+
         self.session = session
+        self._audit = SqlAlchemyRepository(session)
+
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        return self._audit.record_audit(record)
+
+    def list_checks(self, context: TenantContext) -> dict[str, IntegrationCheck]:
+        records = self.session.scalars(
+            select(IntegrationHealthCheckRecord).where(
+                IntegrationHealthCheckRecord.tenant_id == context.tenant_id,
+                IntegrationHealthCheckRecord.workspace_id == context.workspace_id,
+            )
+        ).all()
+        return {record.integration_id: _check(record) for record in records}
+
+    def save_check(self, context: TenantContext, integration_id: str, check: IntegrationCheck) -> IntegrationCheck:
+        require_workspace(self.session, context.tenant_id, context.workspace_id)
+        key = (context.tenant_id, context.workspace_id, integration_id)
+        record = self.session.get(IntegrationHealthCheckRecord, key)
+        if record is None:
+            record = IntegrationHealthCheckRecord(
+                tenant_id=context.tenant_id, workspace_id=context.workspace_id, integration_id=integration_id
+            )
+            self.session.add(record)
+        record.status = check.status.value
+        record.detail = check.detail
+        record.latency_ms = check.latency_ms
+        record.checked_by = check.checked_by
+        record.checked_at = check.checked_at
+        record.last_error = check.last_error
+        record.last_error_at = check.last_error_at
+        self.session.flush()
+        return check
+
+    def list_credentials(self, context: TenantContext) -> dict[str, StoredCredential]:
+        records = self.session.scalars(
+            select(IntegrationCredentialRecord).where(
+                IntegrationCredentialRecord.tenant_id == context.tenant_id,
+                IntegrationCredentialRecord.workspace_id == context.workspace_id,
+            )
+        ).all()
+        return {record.integration_id: _credential(record) for record in records}
+
+    def get_credential(self, context: TenantContext, integration_id: str) -> StoredCredential | None:
+        record = self.session.get(
+            IntegrationCredentialRecord, (context.tenant_id, context.workspace_id, integration_id)
+        )
+        return None if record is None else _credential(record)
+
+    def save_credential(
+        self, context: TenantContext, integration_id: str, credential: StoredCredential
+    ) -> StoredCredential:
+        require_workspace(self.session, context.tenant_id, context.workspace_id)
+        key = (context.tenant_id, context.workspace_id, integration_id)
+        record = self.session.get(IntegrationCredentialRecord, key)
+        if record is None:
+            record = IntegrationCredentialRecord(
+                tenant_id=context.tenant_id, workspace_id=context.workspace_id, integration_id=integration_id
+            )
+            self.session.add(record)
+        record.ciphertext = credential.ciphertext
+        record.credential_hint = credential.hint
+        record.updated_by = credential.updated_by
+        record.updated_at = credential.updated_at
+        self.session.flush()
+        return credential
+
+    def delete_credential(self, context: TenantContext, integration_id: str) -> bool:
+        result = self.session.execute(
+            delete(IntegrationCredentialRecord).where(
+                IntegrationCredentialRecord.tenant_id == context.tenant_id,
+                IntegrationCredentialRecord.workspace_id == context.workspace_id,
+                IntegrationCredentialRecord.integration_id == integration_id,
+            )
+        )
+        return bool(result.rowcount)
 
     def list_configurations(self, context: TenantContext) -> dict[str, IntegrationConfiguration]:
         records = self.session.scalars(
@@ -214,6 +300,27 @@ class SqlAlchemyNotificationPreferenceStore:
 
 def _configuration(record: IntegrationConfigurationRecord) -> IntegrationConfiguration:
     return IntegrationConfiguration(enabled=record.enabled, endpoint=record.endpoint)
+
+
+def _check(record: IntegrationHealthCheckRecord) -> IntegrationCheck:
+    return IntegrationCheck(
+        status=IntegrationStatus(record.status),
+        detail=record.detail,
+        latency_ms=record.latency_ms,
+        checked_by=record.checked_by,
+        checked_at=record.checked_at,
+        last_error=record.last_error,
+        last_error_at=record.last_error_at,
+    )
+
+
+def _credential(record: IntegrationCredentialRecord) -> StoredCredential:
+    return StoredCredential(
+        ciphertext=record.ciphertext,
+        hint=record.credential_hint,
+        updated_by=record.updated_by,
+        updated_at=record.updated_at,
+    )
 
 
 def _file(row: WorkspaceFileRecord) -> FileRecord:

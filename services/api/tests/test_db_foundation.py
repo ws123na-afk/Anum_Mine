@@ -22,6 +22,8 @@ def test_tenant_scoped_tables_include_tenant_id() -> None:
         "marketplace_installs",
         "routing_targets",
         "integration_configurations",
+    "integration_health_checks",
+    "integration_credentials",
         "workspace_files",
         "notification_preferences",
         "user_preferences",

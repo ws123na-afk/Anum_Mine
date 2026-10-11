@@ -1,0 +1,91 @@
+/* Integrations, Skills and the marketplace (IntegrationsView.tsx, SkillsView.tsx, MarketplaceCatalog.tsx).
+   Shared tokens from styles.css only. */
+
+/* Buttons inside cards, rows and empty states share the primary look of .actions buttons. */
+:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .emptyState, .enterpriseCatalog .sectionHeader, .marketActions, .catalogMore) button:not(.iconButton) {
+  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control);
+  color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center;
+  min-height: 44px; padding: var(--d-s2) var(--d-s4); white-space: nowrap;
+}
+:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .emptyState, .enterpriseCatalog .sectionHeader, .marketActions, .catalogMore) button.secondary {
+  background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text);
+}
+:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .marketActions) button.danger { background: #be123c; }
+:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .marketActions) button svg { height: 16px; width: 16px; }
+
+.catalogSummary { color: var(--d-muted); font-size: 13px; margin: var(--d-s4) 0 var(--d-s3); }
+
+/* Integration cards: name, endpoint and status on top; everything else spans the whole card. */
+.integration.integrationCard { align-items: start; }
+.integrationCard > .integrationBody { display: grid; gap: 2px; grid-column: 1 / -1; min-width: 0; }
+.integrationCard > .integrationBody small { margin-top: 0; overflow-wrap: anywhere; }
+.integrationCard > .integrationBody,
+.integrationCard > .integrationFix, .integrationCard > .integrationCredentialLine,
+.integrationCard > .integrationOwnerRow, .integrationCard > .integrationFlash { grid-column: 1 / -1; margin: 0; }
+.featureDialog .featureChip { text-transform: none; width: auto; }
+/* Beats the shared narrow-screen rule that moves a card's last child into column 2. */
+.integration.integrationCard > :is(.integrationBody, .integrationFix, .integrationCredentialLine, .integrationOwnerRow, .integrationFlash, .integrationConfig):not(:nth-child(2)) { grid-column: 1 / -1; justify-self: stretch; }
+.catalogRow .marketActions button.iconButton { background: var(--d-glass-1); border: 1px solid var(--d-line); box-shadow: none; color: var(--d-text); height: 44px; padding: 0; width: 44px; }
+.catalogRow .marketActions button.iconButton:hover { background: var(--d-glass-2); }
+.integrationFix, .integrationCredentialLine { align-items: flex-start; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s2); overflow-wrap: anywhere; }
+.integrationFix { background: rgba(252, 211, 141, .07); border: 1px solid rgba(252, 211, 141, .2); border-radius: var(--d-r-control); color: var(--d-text); padding: var(--d-s2) var(--d-s3); }
+.integrationFix svg, .integrationCredentialLine svg { color: var(--d-warn); flex: none; height: 16px; margin-top: 2px; width: 16px; }
+.integrationCredentialLine svg { color: var(--d-violet); }
+.integration small.integrationLastError { color: var(--d-warn); overflow-wrap: anywhere; }
+.integrationOwnerRow { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.integrationFlash .notice { margin-top: 0; }
+.integrationConfig { display: grid; gap: var(--d-s3); }
+.integrationConfig .actions { margin-top: var(--d-s3); }
+.integrationCredential { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
+.integrationCredential .field { margin-top: 0; }
+.integrationCredential .featureMeta { margin-top: var(--d-s2); }
+
+/* Search and filter bars. */
+.catalogToolbar { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s4); margin: var(--d-s4) 0; padding: var(--d-s4); }
+.catalogToolbar .field { flex: 1 1 240px; margin-top: 0; }
+.catalogToolbar > .featureMeta { flex: 1 1 100%; }
+.catalogToolbarFlat { padding: 0; }
+.catalogToolbarFlat .field:nth-of-type(2) { flex: 0 1 180px; }
+.catalogToolbar .integrationToggle { min-height: 44px; }
+.catalogSegments { border: 0; display: flex; flex-wrap: wrap; gap: 0 var(--d-s4); margin: 0; min-width: 0; padding: 0; }
+.catalogSegments legend { color: var(--d-muted); font-size: 13px; font-weight: 600; margin-bottom: var(--d-s2); padding: 0; }
+.catalogSegments label { align-items: center; cursor: pointer; display: inline-flex; font-size: 14px; gap: var(--d-s2); min-height: 44px; }
+.catalogSegments input { accent-color: var(--d-violet); height: 18px; margin: 0; min-height: 0; width: 18px; }
+
+/* Skill cards: actions get their own row so several buttons never squeeze the text. */
+.integration.catalogCard { align-items: start; grid-template-columns: 44px minmax(0, 1fr); }
+.integration.catalogCard > .featureSkillActions { grid-column: 1 / -1; justify-content: flex-start; }
+.integration.catalogCard h3 small { color: var(--d-faint); display: inline; font-size: 13px; font-weight: 600; margin-left: var(--d-s1); }
+.catalogMore { display: flex; justify-content: center; margin-top: var(--d-s4); }
+
+/* Dialogs. */
+.featureDialog.catalogDialogWide { width: min(720px, 100%); }
+.featureDialog section { display: grid; gap: var(--d-s2); }
+.featureDialog h4 { align-items: center; display: flex; gap: var(--d-s2); }
+.catalogToolList, .catalogVersionList, .catalogHistory { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.catalogToolList li { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); padding: var(--d-s2) var(--d-s3); }
+.catalogToolList code { font-family: var(--d-mono); font-size: 13px; overflow-wrap: anywhere; }
+.catalogToolList small { color: var(--d-muted); flex: 1 1 100%; font-size: 12px; }
+.catalogVersionList li { align-items: center; border-top: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; padding-top: var(--d-s2); }
+.catalogVersionList li > div:first-child { align-items: center; display: flex; flex: 1 1 260px; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); min-width: 0; }
+.catalogVersionList small, .catalogHistory small { color: var(--d-muted); flex: 1 1 100%; font-size: 12px; }
+.catalogVersionActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.catalogHistory li { border-left: 2px solid var(--d-line-strong); display: grid; gap: 2px; padding-left: var(--d-s3); }
+.catalogForm { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.catalogForm .field input, .catalogForm .field select, .catalogForm .field textarea { width: 100%; }
+.catalogForm .integrationToggle { margin-top: var(--d-s4); min-height: 44px; }
+.catalogFormWide { grid-column: 1 / -1; }
+.catalogForm > .actions { justify-content: flex-end; }
+
+/* Marketplace rows. */
+.catalogRow.marketRow { grid-template-columns: 24px minmax(0, 1fr) auto; }
+.marketRow strong { margin-right: var(--d-s1); }
+.marketRow .statusBadge { gap: 4px; margin-right: var(--d-s1); vertical-align: middle; }
+.marketActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+
+@media (max-width: 640px) {
+  .catalogForm { grid-template-columns: minmax(0, 1fr); }
+  .catalogRow.marketRow { grid-template-columns: 24px minmax(0, 1fr); }
+  .marketRow > .marketActions { grid-column: 2; justify-content: flex-start; }
+  .catalogToolbarFlat .field:nth-of-type(2) { flex-basis: 100%; }
+}

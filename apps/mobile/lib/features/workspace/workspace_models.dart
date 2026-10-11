@@ -259,10 +259,21 @@ class WorkspaceSkill {
       required this.description,
       required this.risk,
       required this.tools,
-      required this.installed});
+      required this.installed,
+      this.installedVersion,
+      this.enabled = false});
   final String id, skillId, name, version, description, risk;
   final List<String> tools;
+
+  /// This version is the one installed in the workspace.
   final bool installed;
+
+  /// The version of this skill installed in the workspace, if any.
+  final String? installedVersion;
+
+  /// Whether the installation is enabled (agents may use it).
+  final bool enabled;
+  bool get hasInstall => installedVersion != null;
 }
 
 class WorkspaceIntegration {
@@ -273,9 +284,19 @@ class WorkspaceIntegration {
       required this.status,
       required this.endpoint,
       required this.detail,
-      this.latencyMs});
+      this.latencyMs,
+      this.remediation,
+      this.lastError,
+      this.lastErrorAt});
   final String id, name, kind, status, endpoint, detail;
   final int? latencyMs;
+
+  /// How to fix a degraded or unused integration, from the API.
+  final String? remediation;
+
+  /// The latest failed health check, kept after the service recovers.
+  final String? lastError;
+  final DateTime? lastErrorAt;
 }
 
 class WorkspaceFile {

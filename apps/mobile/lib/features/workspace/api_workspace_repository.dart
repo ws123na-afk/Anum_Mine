@@ -253,6 +253,19 @@ class ApiWorkspaceRepository
     });
   }
 
+  @override
+  Future<void> setSkillEnabled(String skillId, bool enabled) async {
+    await api.request(
+        'PATCH', '/api/v1/skills/installations/${Uri.encodeComponent(skillId)}',
+        body: {'enabled': enabled});
+  }
+
+  @override
+  Future<void> uninstallSkill(String skillId) async {
+    await api.request('DELETE',
+        '/api/v1/skills/installations/${Uri.encodeComponent(skillId)}');
+  }
+
   WorkspaceTask _task(JsonReader j, {JsonReader? run, JsonReader? approval}) =>
       WorkspaceTask(
         id: j.string('id'),
@@ -319,17 +332,22 @@ class ApiWorkspaceRepository
       cron: j.string('cron'),
       timezone: j.string('timezone'),
       enabled: j.boolean('enabled'));
-  WorkspaceSkill _skill(JsonReader j, List<JsonReader> installs) =>
-      WorkspaceSkill(
-          id: j.string('id'),
-          skillId: j.string('skill_id'),
-          name: j.string('name'),
-          version: j.string('version'),
-          description: j.string('description'),
-          risk: j.string('risk_level'),
-          tools: j.optStrings('required_tools') ?? const [],
-          installed: installs.any((x) =>
-              x['skill_id'] == j['skill_id'] && x['version'] == j['version']));
+  WorkspaceSkill _skill(JsonReader j, List<JsonReader> installs) {
+    final install =
+        installs.where((x) => x['skill_id'] == j['skill_id']).firstOrNull;
+    return WorkspaceSkill(
+        id: j.string('id'),
+        skillId: j.string('skill_id'),
+        name: j.string('name'),
+        version: j.string('version'),
+        description: j.string('description'),
+        risk: j.string('risk_level'),
+        tools: j.optStrings('required_tools') ?? const [],
+        installed: install != null && install['version'] == j['version'],
+        installedVersion: install?.optString('version'),
+        enabled: install?.optBool('enabled') ?? false);
+  }
+
   WorkspaceIntegration _integration(JsonReader j) => WorkspaceIntegration(
       id: j.string('id'),
       name: j.string('name'),
@@ -337,7 +355,12 @@ class ApiWorkspaceRepository
       status: j.string('status'),
       endpoint: j.string('endpoint'),
       detail: j.string('detail'),
-      latencyMs: j.optInt('latency_ms'));
+      latencyMs: j.optInt('latency_ms'),
+      remediation: j.optString('remediation'),
+      lastError: j.optString('last_error'),
+      lastErrorAt: j['last_error_at'] == null
+          ? null
+          : j.date('last_error_at').toLocal());
   DateTime _date(JsonReader j, String key) => j.date(key).toLocal();
 
   /// `updated_at`, or `created_at` for records that were never updated.

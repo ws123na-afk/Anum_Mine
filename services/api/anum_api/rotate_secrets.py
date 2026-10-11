@@ -4,7 +4,8 @@
     python -m anum_api.rotate_secrets             # re-encrypt and audit
 
 Covers every workspace model provider key (``workspace_model_configs.api_key_ciphertext``)
-in every tenant. See docs/runbooks.md#rotating-anum_secrets_key.
+and every workspace integration credential (``integration_credentials.ciphertext``,
+migration 0026) in every tenant. See docs/runbooks.md#rotating-anum_secrets_key.
 
 How it crosses tenants without bypassing RLS (migration 0009, ``anum_api.maintenance``):
 
@@ -85,7 +86,45 @@ class RotationReport:
     failures: list[dict[str, str]] = field(default_factory=list)
 
 
-def _audit(session, tenant_id: str, workspace_id: str, correlation_id: str, outcome: str, result: str) -> None:  # type: ignore[no-untyped-def]
+# Integration credentials: one row per workspace and integration.
+_DISCOVER_CREDENTIALS = text(
+    """
+    select tenant_id, workspace_id, integration_id
+    from integration_credentials
+    where (tenant_id, workspace_id, integration_id) > (:after_tenant, :after_workspace, :after_integration)
+    order by tenant_id, workspace_id, integration_id
+    limit :limit
+    """
+)
+_LOCK_CREDENTIAL = text(
+    """
+    select ciphertext
+    from integration_credentials
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and integration_id = :integration_id
+    for update
+    """
+)
+_REWRITE_CREDENTIAL = text(
+    """
+    update integration_credentials
+    set ciphertext = :new
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and integration_id = :integration_id
+      and ciphertext = :old
+    """
+)
+
+
+def _audit(  # type: ignore[no-untyped-def]
+    session,
+    tenant_id: str,
+    workspace_id: str,
+    correlation_id: str,
+    outcome: str,
+    result: str,
+    *,
+    store: str = "workspace_model_configs",
+    target: str | None = None,
+) -> None:
     from .db.repository import SqlAlchemyRepository
 
     SqlAlchemyRepository(session, created_by_user_id=ACTOR).record_audit(
@@ -95,11 +134,11 @@ def _audit(session, tenant_id: str, workspace_id: str, correlation_id: str, outc
             workspace_id=workspace_id,
             actor=ACTOR,
             action=ACTION,
-            target=f"workspace_model_config:{workspace_id}",
+            target=target or f"workspace_model_config:{workspace_id}",
             outcome=outcome,
             correlation_id=correlation_id,
             created_at=utc_now(),
-            metadata={"store": "workspace_model_configs", "result": result},
+            metadata={"store": store, "result": result},
         )
     )
 
@@ -139,6 +178,69 @@ def _rotate_one(
         report.rotated += 1
 
 
+def _rotate_credential(
+    session_factory: SessionFactory,
+    cipher: SecretCipher,
+    tenant_id: str,
+    workspace_id: str,
+    integration_id: str,
+    report: RotationReport,
+) -> None:
+    scope = {"tenant_id": tenant_id, "workspace_id": workspace_id, "integration_id": integration_id}
+    audit = {"store": "integration_credentials", "target": f"integration:{integration_id}"}
+    with scoped_unit(session_factory, tenant_id, workspace_id) as session:
+        ciphertext = session.execute(_LOCK_CREDENTIAL, scope).scalar_one_or_none()
+        if ciphertext is None:
+            report.changed_concurrently += 1  # removed since discovery
+            return
+        if cipher.is_current(ciphertext):
+            report.already_current += 1
+            return
+        try:
+            rotated = cipher.rotate(ciphertext)
+        except SecretDecryptionError:
+            report.failed += 1
+            report.failures.append({"tenant_id": tenant_id, "workspace_id": workspace_id, "integration_id": integration_id})
+            if not report.dry_run:
+                _audit(session, tenant_id, workspace_id, report.correlation_id, "failed", "undecryptable", **audit)
+            return
+        if report.dry_run:
+            report.rotated += 1
+            session.rollback()
+            return
+        if session.execute(_REWRITE_CREDENTIAL, {**scope, "new": rotated, "old": ciphertext}).rowcount != 1:
+            report.changed_concurrently += 1
+            return
+        _audit(session, tenant_id, workspace_id, report.correlation_id, "succeeded", "re-encrypted", **audit)
+        report.rotated += 1
+
+
+def rotate_integration_credentials(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    report: RotationReport | None = None,
+) -> RotationReport:
+    """Re-encrypt every workspace integration credential; adds to ``report`` when given."""
+    report = report or RotationReport(dry_run=dry_run, correlation_id=new_id("rotate_secrets"))
+    after = ("", "", "")
+    while True:
+        rows = discover(
+            maintenance_session_factory or session_factory,
+            _DISCOVER_CREDENTIALS,
+            {"after_tenant": after[0], "after_workspace": after[1], "after_integration": after[2], "limit": batch_size},
+        )
+        for row in rows:
+            report.scanned += 1
+            _rotate_credential(session_factory, cipher, row.tenant_id, row.workspace_id, row.integration_id, report)
+        if len(rows) < batch_size:
+            return report
+        after = (rows[-1].tenant_id, rows[-1].workspace_id, rows[-1].integration_id)
+
+
 def rotate_model_config_keys(
     cipher: SecretCipher,
     *,
@@ -174,7 +276,7 @@ def _configuration_problem() -> str | None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m anum_api.rotate_secrets",
-        description="Re-encrypt stored provider keys with the first key in ANUM_SECRETS_KEY.",
+        description="Re-encrypt stored provider keys and integration credentials with the first key in ANUM_SECRETS_KEY.",
     )
     parser.add_argument("--dry-run", action="store_true", help="report what would change and write nothing")
     parser.add_argument("--batch-size", type=int, default=200, help="workspaces discovered per query")
@@ -186,7 +288,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if problem:
         print(json.dumps({"error": problem}), file=sys.stderr)
         return 2
-    report = rotate_model_config_keys(SecretCipher.from_settings(), dry_run=args.dry_run, batch_size=args.batch_size)
+    cipher = SecretCipher.from_settings()
+    report = rotate_model_config_keys(cipher, dry_run=args.dry_run, batch_size=args.batch_size)
+    rotate_integration_credentials(cipher, dry_run=args.dry_run, batch_size=args.batch_size, report=report)
     print(json.dumps(asdict(report), indent=2))
     return 1 if report.failed else 0
 

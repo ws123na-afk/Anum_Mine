@@ -43,6 +43,8 @@ TENANT_TABLES = {
     "marketplace_installs",
     "routing_targets",
     "integration_configurations",
+    "integration_health_checks",
+    "integration_credentials",
     "workspace_files",
     "notification_preferences",
     "user_preferences",

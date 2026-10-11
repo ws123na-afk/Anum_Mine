@@ -326,13 +326,21 @@ class _SkillsTab extends StatelessWidget {
     final skills = controller.skills;
     final p = context.palette;
     return _tabList(context, controller.load, [
+      if (controller.skillNotice != null)
+        AnumSurface(
+          child: Semantics(
+            liveRegion: true,
+            child: Text(controller.skillNotice!,
+                style: TextStyle(color: p.text, fontSize: 13.5)),
+          ),
+        ),
       if (skills.isEmpty)
         const AnumSurface(
           child: AnumEmpty(
             icon: Icons.extension_outlined,
             title: 'No skills published',
             message:
-                'Skills are reviewed capability packs. Published versions will appear here to install.',
+                'An organization administrator publishes skills for every workspace. Ask one to publish the skill you need; it then appears here to install.',
           ),
         )
       else
@@ -354,9 +362,12 @@ class _SkillsTab extends StatelessWidget {
                                 fontWeight: FontWeight.w700)),
                         Text('v${s.version} · ${s.skillId}',
                             style: TextStyle(color: p.faint, fontSize: 12)),
+                        const SizedBox(height: 6),
+                        // Under the name so it never squeezes it on narrow screens.
+                        AnumPill(
+                            label: '${s.risk} risk', tone: riskTone(s.risk)),
                       ]),
                 ),
-                AnumPill(label: '${s.risk} risk', tone: riskTone(s.risk)),
               ]),
               const SizedBox(height: 10),
               Text(s.description,
@@ -371,23 +382,65 @@ class _SkillsTab extends StatelessWidget {
                 ]),
               ],
               const SizedBox(height: 12),
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: s.installed
-                    ? const AnumPill(
-                        label: 'Installed',
-                        tone: AnumTone.ok,
-                        icon: Icons.check)
-                    : FilledButton(
-                        onPressed: controller.mutating
-                            ? null
-                            : () => controller.installSkill(s),
-                        child: const Text('Install'),
-                      ),
+              Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (s.installed) ...[
+                    AnumPill(
+                        label: s.enabled ? 'Installed' : 'Disabled',
+                        tone: s.enabled ? AnumTone.ok : AnumTone.warn,
+                        icon: s.enabled ? Icons.check : Icons.pause),
+                    OutlinedButton(
+                      onPressed: controller.mutating
+                          ? null
+                          : () => controller.setSkillEnabled(s, !s.enabled),
+                      child: Text(s.enabled ? 'Disable' : 'Enable'),
+                    ),
+                    TextButton(
+                      onPressed: controller.mutating
+                          ? null
+                          : () => _confirmUninstall(context, s),
+                      child: const Text('Uninstall'),
+                    ),
+                  ] else ...[
+                    if (s.hasInstall)
+                      AnumPill(label: 'v${s.installedVersion} installed'),
+                    FilledButton(
+                      onPressed: controller.mutating
+                          ? null
+                          : () => controller.installSkill(s),
+                      child: Text(
+                          s.hasInstall ? 'Install v${s.version}' : 'Install'),
+                    ),
+                  ],
+                ],
               ),
             ]),
           ),
     ]);
+  }
+
+  Future<void> _confirmUninstall(BuildContext context, WorkspaceSkill s) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Uninstall ${s.name}?'),
+        content: const Text(
+            'Agents in this workspace stop using it and its tool grants are removed. The change is audited.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Uninstall')),
+        ],
+      ),
+    );
+    if (yes == true) await controller.uninstallSkill(s);
   }
 }
 
@@ -411,17 +464,41 @@ class _ServicesTab extends StatelessWidget {
         AnumSurface(
           child: Column(children: [
             for (final x in items)
-              AnumRow(
-                icon: _icon(x.kind),
-                tone: integrationTone(x.status),
-                title: x.name,
-                subtitle: x.detail,
-                detail:
-                    '${x.endpoint}${x.latencyMs == null ? '' : ' · ${x.latencyMs} ms'}',
-                trailing: AnumPill(
-                    label: integrationLabel(x.status),
-                    tone: integrationTone(x.status)),
-              ),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                AnumRow(
+                  icon: _icon(x.kind),
+                  tone: integrationTone(x.status),
+                  title: x.name,
+                  subtitle: x.detail,
+                  detail:
+                      '${x.endpoint}${x.latencyMs == null ? '' : ' · ${x.latencyMs} ms'}',
+                ),
+                // The status sits under the text so it never squeezes it
+                // (narrow phones, large text).
+                Padding(
+                  padding:
+                      const EdgeInsetsDirectional.only(start: 52, bottom: 10),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AnumPill(
+                            label: integrationLabel(x.status),
+                            tone: integrationTone(x.status)),
+                        if (x.remediation != null) ...[
+                          const SizedBox(height: 6),
+                          Text('How to fix: ${x.remediation}',
+                              style: TextStyle(
+                                  color: context.palette.text, fontSize: 13)),
+                        ],
+                        if (x.lastError != null && x.lastError != x.detail) ...[
+                          const SizedBox(height: 4),
+                          Text('Last error: ${x.lastError}',
+                              style: TextStyle(
+                                  color: context.palette.warn, fontSize: 12)),
+                        ],
+                      ]),
+                ),
+              ]),
           ]),
         ),
     ]);

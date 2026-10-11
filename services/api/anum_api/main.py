@@ -26,7 +26,15 @@ from .approval_integrity import as_viewed
 from .audit import AuditRecord
 from .errors import ApplicationError, ErrorCode, application_error_handler, error_response, register_exception_handlers
 from .events import CanonicalEventName, create_event
-from .integrations import IntegrationConfiguration, IntegrationConfigurationView, IntegrationHealth, default_integration_registry
+from .integrations import (
+    CredentialNotAcceptedError,
+    IntegrationConfiguration,
+    IntegrationConfigurationView,
+    IntegrationCredentialUpdate,
+    IntegrationHealth,
+    WorkspaceCredentialView,
+    default_integration_registry,
+)
 from .integration_tools import configured_external_handler
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
 from .model_gateway import build_default_model_gateway
@@ -113,7 +121,7 @@ from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
 from .files import router as files_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
-from .skills_api import router as skills_router
+from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
 from .workspace_members import router as workspace_members_router
@@ -232,9 +240,11 @@ repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
 tool_registry = register_developer_tools(default_tool_registry(
-    configured_external_handler(settings),
+    configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 ))
+# Skill details describe required tools as this runtime would treat them (docs/skills.md).
+configure_tool_catalog(tool_registry.definition)
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)
@@ -406,6 +416,44 @@ async def configure_integration(integration_id: str, payload: IntegrationConfigu
         return integration_registry.configure(integration_id, context, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Integration not found") from exc
+
+
+@app.post("/api/v1/integrations/{integration_id}/test", response_model=IntegrationHealth)
+async def test_integration(integration_id: str, context: TenantContext = Depends(tenant_context)) -> IntegrationHealth:
+    """Probe one integration now; the result and its failure (if any) are recorded and audited."""
+    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    try:
+        return await integration_registry.test(integration_id, context)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Integration not found") from exc
+
+
+@app.put("/api/v1/integrations/{integration_id}/credential", response_model=WorkspaceCredentialView)
+def set_integration_credential(
+    integration_id: str, payload: IntegrationCredentialUpdate, context: TenantContext = Depends(tenant_context)
+) -> WorkspaceCredentialView:
+    """Store this workspace's own credential, encrypted at rest; it is never returned."""
+    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    try:
+        return integration_registry.set_credential(integration_id, context, payload.secret)
+    except CredentialNotAcceptedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Integration not found") from exc
+
+
+@app.delete("/api/v1/integrations/{integration_id}/credential", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_integration_credential(integration_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    try:
+        removed = integration_registry.delete_credential(integration_id, context)
+    except CredentialNotAcceptedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Integration not found") from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="No workspace credential is stored for this integration")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/api/v1/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)

@@ -12,6 +12,7 @@ from anum_api.phase5 import (
     new_package_install,
     merge_targets,
 )
+from anum_api.audit import AuditRecord
 from anum_api.schemas import TenantContext, utc_now
 
 from .models import MarketplaceInstallRecord, MarketplacePackageRecord, RoutingTargetRecord
@@ -26,7 +27,13 @@ class SqlAlchemyScaleStore:
     """
 
     def __init__(self, session: Session) -> None:
+        from .repository import SqlAlchemyRepository
+
         self.session = session
+        self._audit = SqlAlchemyRepository(session)
+
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        return self._audit.record_audit(record)
 
     def catalog(self, context: TenantContext) -> list[MarketplacePackage]:
         records = self.session.scalars(

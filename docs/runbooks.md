@@ -168,7 +168,7 @@ Measured locally (PostgreSQL 16.15 with pgvector, synthetic data: 3 tenants, 60,
    ```
 
    - Use an operator login with the application login's table grants, subject to RLS like it, and a member of `anum_maintenance`. Never use a superuser or a `BYPASSRLS` login.
-   - It prints a JSON report: `scanned`, `rotated` (would rotate), `already_current`, `failed`, `failures` (tenant and workspace ids only) and a `correlation_id`. It writes nothing.
+   - It covers workspace model provider keys and workspace integration credentials (`integration_credentials`, the external REST webhook token). It prints one JSON report for both: `scanned`, `rotated` (would rotate), `already_current`, `failed`, `failures` (tenant, workspace and, for a credential, integration ids only) and a `correlation_id`. It writes nothing.
 4. **Re-encrypt:** `python -m anum_api.rotate_secrets`.
    - For each workspace it decrypts with any configured key, encrypts with the first key, and writes the ciphertext.
    - It writes an `audit_records` row (`action` `secrets.rotated`, `actor` `system:rotate-secrets`, the report's `correlation_id`) in the same transaction, inside that tenant's RLS context ([Multi-tenancy](multi-tenancy.md#maintenance-role)).

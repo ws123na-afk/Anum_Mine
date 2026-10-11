@@ -86,7 +86,7 @@ test('an owner switches web search off for the workspace and the card says why',
   await toggle.uncheck();
   await form.getByRole('button', { name: 'Save configuration' }).click();
 
-  await expect(form.getByText(/SearXNG web search turned off for workspace workspace_foundation/)).toBeVisible();
+  await expect(card.getByText(/SearXNG web search turned off for workspace workspace_foundation/)).toBeVisible();
   await expect(card.getByText('Not used')).toBeVisible();
   await expect(card.getByText('Turned off for this workspace by an owner.')).toBeVisible();
   await expect(card.getByText('Agent tool web_search: unavailable here.')).toBeVisible();

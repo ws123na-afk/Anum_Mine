@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Archive, CircleDot, Download, PackageCheck, Pencil, Plus, RefreshCw, Route, ShieldCheck, Undo2 } from 'lucide-react';
-import { apiRequest, authHeaders } from './lib/api';
+import { Archive, CircleDot, Download, Pencil, Plus, RefreshCw, Route, ShieldCheck, Undo2 } from 'lucide-react';
+import { authHeaders } from './lib/api';
+import { MarketplaceCatalog } from './MarketplaceCatalog';
 import { useIsOwner } from './useIsOwner';
 import { apiErrorFromResponse, describeError, isPermissionDenied } from './lib/errors';
 import * as gov from './lib/governanceApi';
@@ -12,7 +13,6 @@ import './governance.css';
 
 const base = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
-type MarketPackage = { id: string; name: string; kind: string; version: string; verified: boolean; permissions: string[] };
 type Flash = { text: string; error?: boolean } | null;
 
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
@@ -143,7 +143,6 @@ function ApprovalRules({ rules, canManage, busy, act }: { rules: ApprovalRule[] 
 
 export function EnterpriseView() {
   const [ops, setOps] = useState<EnterpriseOperations | null>(null);
-  const [packages, setPackages] = useState<MarketPackage[]>([]);
   const [targets, setTargets] = useState<RoutingTarget[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -160,8 +159,8 @@ export function EnterpriseView() {
       .then((s) => { setSummary(s); setCapabilityError(null); })
       .catch((error: unknown) => { setSummary(null); setCapabilityError(failure(error)); });
     try {
-      const [o, p, t] = await Promise.all([gov.getEnterpriseOperations(), apiRequest<MarketPackage[]>('/api/v1/marketplace/packages', { method: 'GET' }), gov.getRoutingTargets()]);
-      setOps(o); setPackages(p); setTargets(t); setLoadError(null);
+      const [o, t] = await Promise.all([gov.getEnterpriseOperations(), gov.getRoutingTargets()]);
+      setOps(o); setTargets(t); setLoadError(null);
     } catch (error) { setLoadError(failure(error)); } finally { await capability; setLoaded(true); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -199,7 +198,7 @@ export function EnterpriseView() {
     </form>}
     {loaded && targets.length === 0 && <p className="muted">No routing targets are configured. This deployment runs in a single region on the workspace model configuration.</p>}
     <div className="integrationGrid govTargets">{targets.map((target) => <article className="surface integration govTarget" key={target.id}><div className="integrationIcon"><Route /></div><div><h3>{target.id}</h3><p>{target.region} · {target.provider}/{target.model}</p><small>{target.status === 'unverified' ? 'Cost and latency not measured yet' : `$${target.cost_per_1k_tokens}/1k · ${target.latency_ms} ms`}</small></div><div className="govTargetMeta"><span className={`statusBadge ${target.status === 'healthy' ? 'success' : target.status === 'offline' ? 'neutral' : 'warning'}`}>{target.status}</span>{canManage && <button type="button" className="iconButton" aria-label={`Edit ${target.id}`} title="Edit" onClick={() => { setFormError(null); setEditing({ draft: targetDraft(target), isNew: false }); }}><Pencil aria-hidden="true" /></button>}</div></article>)}</div>
-    <section className="surface approvalTable enterpriseCatalog"><div className="sectionHeader"><div><p className="eyebrow">Verified distribution</p><h2>Marketplace catalog</h2></div></div>{packages.length === 0 && <p className="muted">No packages have been published to this marketplace yet. An organization administrator publishes packages for every workspace through the marketplace API.</p>}{packages.map((item) => <div className="catalogRow" key={item.id}><PackageCheck /><div><strong>{item.name}</strong><p>{item.kind} · v{item.version} · {item.permissions.join(', ')}</p></div>{owner && <button type="button" disabled={busy !== null} aria-label={`Install ${item.name}`} onClick={() => void act(`install-${item.id}`, async () => { await apiRequest(`/api/v1/marketplace/packages/${encodeURIComponent(item.id)}/install`, { method: 'POST', body: '{}' }); return `${item.name} installed.`; })}>Install</button>}</div>)}{owner === false && packages.length > 0 && <p className="muted">Only workspace owners can install packages into this workspace.</p>}</section>
+    <MarketplaceCatalog owner={owner} canManage={canManage} onChanged={() => void load()} />
   </>;
 }
 

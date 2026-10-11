@@ -26,6 +26,8 @@ abstract interface class WorkspaceRepository {
       {required String taskId, required String content});
   Future<void> deleteMemory(String memoryId);
   Future<void> installSkill(WorkspaceSkill skill);
+  Future<void> setSkillEnabled(String skillId, bool enabled);
+  Future<void> uninstallSkill(String skillId);
 }
 
 class WorkspaceOfflineException implements Exception {

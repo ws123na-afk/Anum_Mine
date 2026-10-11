@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Protocol
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -20,6 +21,9 @@ import httpx
 from .agent_tools import ToolCall, ToolHandler, ToolResult
 from .schemas import TenantContext
 from .settings import Settings
+
+if TYPE_CHECKING:
+    from .integrations import IntegrationRegistry
 
 DEFAULT_TOOL_RESPONSE_MAX_BYTES = 256 * 1024
 DEFAULT_TOOL_TIMEOUT_SECONDS = 30.0
@@ -42,6 +46,33 @@ class EnvironmentCredentialProvider:
         if not value:
             raise PermissionError(f"Credential is not configured: {reference}")
         return value
+
+
+class WorkspaceFirstCredentialProvider:
+    """The caller's workspace credential (stored encrypted by an owner), else the operator's.
+
+    ``resolve`` returns an empty string when neither exists: the endpoint is then called
+    without an ``Authorization`` header, as before workspace credentials existed.
+    """
+
+    def __init__(
+        self,
+        workspace_lookup: Callable[[TenantContext], str | None],
+        fallback: CredentialProvider | None = None,
+    ) -> None:
+        self._workspace_lookup = workspace_lookup
+        self._fallback = fallback
+
+    def resolve(self, reference: str, context: TenantContext) -> str:
+        value = self._workspace_lookup(context)
+        if value:
+            return value
+        if self._fallback is None:
+            return ""
+        try:
+            return self._fallback.resolve(reference, context)
+        except PermissionError:
+            return ""
 
 
 async def read_capped(response: httpx.Response, max_bytes: int) -> tuple[bytes, bool]:
@@ -87,6 +118,7 @@ class RestToolAdapter:
         client: httpx.AsyncClient | None = None,
         max_response_bytes: int = DEFAULT_TOOL_RESPONSE_MAX_BYTES,
         timeout_seconds: float = DEFAULT_TOOL_TIMEOUT_SECONDS,
+        enabled: Callable[[TenantContext], bool] | None = None,
     ) -> None:
         host = urlparse(endpoint).hostname
         if not host or host not in allowed_hosts:
@@ -100,8 +132,15 @@ class RestToolAdapter:
         self.max_response_bytes = max_response_bytes
         self.timeout_seconds = timeout_seconds
         self._client = client
+        self._enabled = enabled
 
     async def __call__(self, call: ToolCall, context: TenantContext) -> ToolResult:
+        if self._enabled is not None and not await asyncio.to_thread(self._enabled, context):
+            return ToolResult(
+                status="blocked",
+                summary="The external REST webhook is turned off for this workspace (Integrations > External REST webhook).",
+                audit_metadata={"tool": call.name, "target": self.target_host, "outcome": "workspace_disabled"},
+            )
         headers = {
             "content-type": "application/json",
             # A compressed body could expand far beyond the cap; ask for none.
@@ -112,9 +151,10 @@ class RestToolAdapter:
         if self.credential_reference:
             if not self.credentials:
                 raise PermissionError("Credential provider is unavailable")
-            headers["authorization"] = (
-                f"Bearer {self.credentials.resolve(self.credential_reference, context)}"
-            )
+            # Resolving may read the workspace's encrypted credential from the database.
+            token = await asyncio.to_thread(self.credentials.resolve, self.credential_reference, context)
+            if token:
+                headers["authorization"] = f"Bearer {token}"
         client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds)
         owns_client = self._client is None
         try:
@@ -181,19 +221,40 @@ class McpToolAdapter:
         return ToolResult(status="succeeded", summary=summary, output=output, truncated=truncated)
 
 
-def configured_external_handler(settings: Settings) -> ToolHandler | None:
+def configured_external_handler(
+    settings: Settings, integrations: IntegrationRegistry | None = None
+) -> ToolHandler | None:
+    """The ``external.action`` handler for ``ANUM_EXTERNAL_WEBHOOK_URL``, or None (mock).
+
+    With ``integrations`` the call honours the workspace's switch for the
+    ``external-webhook`` integration and prefers the workspace's own stored token over
+    ``ANUM_EXTERNAL_WEBHOOK_API_KEY`` (docs/tools-and-integrations.md#workspace-credentials).
+    """
     if not settings.external_webhook_url:
         return None
     host = urlparse(settings.external_webhook_url).hostname
     if not host:
         raise ValueError("ANUM_EXTERNAL_WEBHOOK_URL must be an absolute URL")
-    provider = EnvironmentCredentialProvider(
+    environment = EnvironmentCredentialProvider(
         {"external-webhook": settings.external_webhook_api_key}
     )
+    if integrations is None:
+        return RestToolAdapter(
+            endpoint=settings.external_webhook_url,
+            allowed_hosts={host},
+            credential_reference="external-webhook" if settings.external_webhook_api_key else None,
+            credentials=environment,
+            max_response_bytes=settings.tool_response_max_bytes,
+        )
+    from .integrations import EXTERNAL_WEBHOOK_INTEGRATION_ID
+
     return RestToolAdapter(
         endpoint=settings.external_webhook_url,
         allowed_hosts={host},
-        credential_reference="external-webhook" if settings.external_webhook_api_key else None,
-        credentials=provider,
+        credential_reference="external-webhook",
+        credentials=WorkspaceFirstCredentialProvider(
+            integrations.workspace_credential(EXTERNAL_WEBHOOK_INTEGRATION_ID), environment
+        ),
         max_response_bytes=settings.tool_response_max_bytes,
+        enabled=integrations.workspace_enabled(EXTERNAL_WEBHOOK_INTEGRATION_ID),
     )

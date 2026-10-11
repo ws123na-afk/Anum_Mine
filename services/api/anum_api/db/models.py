@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Identity,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -677,6 +678,41 @@ class IntegrationConfigurationRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("integration_configurations"),)
+
+
+class IntegrationHealthCheckRecord(Base):
+    """The latest health check of one integration in one workspace, and its latest failure."""
+
+    __tablename__ = "integration_health_checks"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    detail: Mapped[str] = mapped_column(String(500), nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    checked_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (_workspace_fk("integration_health_checks"),)
+
+
+class IntegrationCredentialRecord(Base):
+    """A workspace's own credential for an integration; Fernet ciphertext only (``secret_box``)."""
+
+    __tablename__ = "integration_credentials"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    credential_hint: Mapped[str] = mapped_column(String(16), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("integration_credentials"),)
 
 
 class WorkspaceFileRecord(Base, WorkspaceScopedMixin):

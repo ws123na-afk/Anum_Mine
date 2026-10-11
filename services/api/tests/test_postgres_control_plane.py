@@ -310,7 +310,10 @@ def test_a_workspace_owner_without_org_admin_writes_no_tenant_catalog_routing_or
     assert _count(database_engine, "marketplace_packages") == 1
     assert _count(database_engine, "routing_targets") == 0
     assert _count(database_engine, "skill_versions") == 0
-    assert _count(database_engine, "audit_records") == 0
+    # Only the org admin's publish is audited; the refused attempts left no record.
+    with database_engine.connect() as connection:
+        actions = connection.execute(text("select action from audit_records")).scalars().all()
+    assert actions == ["marketplace.package_published"]
     # The workspace-scoped actions stay with the workspace owner.
     assert client.post(f"/api/v1/marketplace/packages/{PACKAGE['id']}/install", headers=workspace_owner,
                        json={}).status_code == 201

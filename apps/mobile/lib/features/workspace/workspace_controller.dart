@@ -225,8 +225,31 @@ class WorkspaceController extends ChangeNotifier {
     await _mutate(() => repository.deleteMemory(id));
   }
 
+  /// Why the last skill change was refused (403/409), in words that say who can.
+  String? skillNotice;
+
+  static const skillOwnersOnly =
+      'Only workspace owners can install, enable, disable or uninstall skills. Ask an owner of this workspace.';
+
+  void _skillRefused(String message) =>
+      skillNotice = 'Not allowed: $message $skillOwnersOnly';
+
   Future<void> installSkill(WorkspaceSkill skill) async {
-    await _mutate(() => repository.installSkill(skill));
+    skillNotice = null;
+    await _mutate(() => repository.installSkill(skill),
+        onRefused: _skillRefused);
+  }
+
+  Future<void> setSkillEnabled(WorkspaceSkill skill, bool enabled) async {
+    skillNotice = null;
+    await _mutate(() => repository.setSkillEnabled(skill.skillId, enabled),
+        onRefused: _skillRefused);
+  }
+
+  Future<void> uninstallSkill(WorkspaceSkill skill) async {
+    skillNotice = null;
+    await _mutate(() => repository.uninstallSkill(skill.skillId),
+        onRefused: _skillRefused);
   }
 
   Future<T?> _mutate<T>(Future<T> Function() operation,

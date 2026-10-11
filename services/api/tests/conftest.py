@@ -46,6 +46,8 @@ TABLES_IN_DELETE_ORDER = (
     "push_devices",
     "user_preferences",
     "workspace_files",
+    "integration_credentials",
+    "integration_health_checks",
     "integration_configurations",
     "routing_targets",
     "marketplace_installs",
