@@ -5,7 +5,7 @@ import { useIsOwner } from './useIsOwner';
 import { apiErrorFromResponse, describeError, isPermissionDenied } from './lib/errors';
 import * as gov from './lib/governanceApi';
 import {
-  ROLE_TEMPLATE_PERMISSIONS, approvalRuleBody, emptyTargetDraft, organizationPolicyAccess, packState, regionSummary, roleTemplateBody, routingTargetBody, sortPacks, targetDraft,
+  ROLE_TEMPLATE_PERMISSIONS, approvalRuleBody, emptyTargetDraft, enterpriseWriteAccess, organizationPolicyAccess, packState, regionSummary, roleTemplateBody, routingTargetBody, sortPacks, targetDraft,
   type ApprovalRule, type EnterpriseOperations, type GovernanceSummary, type PolicyPack, type RegionStatus, type RoleTemplate, type RoutingTarget, type TargetDraft,
 } from './lib/governance';
 import './governance.css';
@@ -149,15 +149,24 @@ export function EnterpriseView() {
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<{ draft: TargetDraft; isNew: boolean } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<GovernanceSummary | null>(null);
+  const [capabilityError, setCapabilityError] = useState<string | null>(null);
+  // Installing a catalog package is a workspace-owner action; the catalog and routing
+  // targets themselves are tenant-wide and need the organization administrator role.
   const owner = useIsOwner();
   const load = useCallback(async () => {
+    // The capability check is separate so a failure there still shows the data, read only.
+    const capability = gov.getGovernanceSummary()
+      .then((s) => { setSummary(s); setCapabilityError(null); })
+      .catch((error: unknown) => { setSummary(null); setCapabilityError(failure(error)); });
     try {
       const [o, p, t] = await Promise.all([gov.getEnterpriseOperations(), apiRequest<MarketPackage[]>('/api/v1/marketplace/packages', { method: 'GET' }), gov.getRoutingTargets()]);
       setOps(o); setPackages(p); setTargets(t); setLoadError(null);
-    } catch (error) { setLoadError(failure(error)); } finally { setLoaded(true); }
+    } catch (error) { setLoadError(failure(error)); } finally { await capability; setLoaded(true); }
   }, []);
   useEffect(() => { void load(); }, [load]);
   const { busy, flash, act } = useAction(load);
+  const { canManage, notice: readOnlyNotice } = enterpriseWriteAccess(summary);
   const regions = regionSummary(ops, targets);
   const save = async () => {
     if (!editing) return;
@@ -171,11 +180,13 @@ export function EnterpriseView() {
   const input = (key: Exclude<keyof TargetDraft, 'status'>, label: string, disabled = false) => <label className="field"><span>{label}</span><input value={editing?.draft[key] ?? ''} disabled={disabled} onChange={(e) => set(key, e.target.value)} /></label>;
   return <>
     <section className="metrics"><Metric label="Regions" value={regions.regions} /><Metric label="Healthy targets" value={String(ops?.healthy_targets ?? 0)} /><Metric label="Installed packages" value={String(ops?.installed_packages ?? 0)} /><Metric label="Failover" value={regions.failover} detail={regions.detail} /></section>
-    <section className="moduleIntro"><div><p className="eyebrow">Scale and ecosystem</p><h2>Enterprise operations</h2><p>Marketplace distribution, regional placement and constrained routing. ANUM reports only the regions you configure.</p></div><div className="actions">{owner && <button type="button" onClick={() => { setFormError(null); setEditing({ draft: emptyTargetDraft(), isNew: true }); }}><Plus size={17} />Add routing target</button>}<button type="button" className="secondary" onClick={() => void load()}><RefreshCw size={17} />Refresh</button></div></section>
+    <section className="moduleIntro"><div><p className="eyebrow">Scale and ecosystem</p><h2>Enterprise operations</h2><p>Marketplace distribution, regional placement and constrained routing. ANUM reports only the regions you configure.</p></div><div className="actions">{canManage && <button type="button" onClick={() => { setFormError(null); setEditing({ draft: emptyTargetDraft(), isNew: true }); }}><Plus size={17} />Add routing target</button>}<button type="button" className="secondary" onClick={() => void load()}><RefreshCw size={17} />Refresh</button></div></section>
     {!loaded && <Notice>Loading enterprise control plane...</Notice>}
     {loadError && <Notice error>{loadError}</Notice>}
+    {capabilityError && <Notice error>Could not check whether you may change routing targets, so they are shown read only. {capabilityError} Use Refresh to try again.</Notice>}
+    {readOnlyNotice && <Notice>{readOnlyNotice}</Notice>}
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-    {editing && <form className="surface govSection govForm" aria-label="Routing target" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+    {editing && canManage && <form className="surface govSection govForm" aria-label="Routing target" onSubmit={(e) => { e.preventDefault(); void save(); }}>
       <div className="sectionHeader"><div><p className="eyebrow">Routing</p><h2>{editing.isNew ? 'New routing target' : `Edit ${editing.draft.id}`}</h2></div></div>
       <div className="govGrid">
         {input('id', 'Target id', !editing.isNew)}{input('region', 'Region')}{input('provider', 'Provider')}{input('model', 'Model')}
@@ -187,8 +198,8 @@ export function EnterpriseView() {
       <div className="actions"><button type="submit" disabled={busy !== null}>Save target</button><button type="button" className="secondary" onClick={() => setEditing(null)}>Cancel</button></div>
     </form>}
     {loaded && targets.length === 0 && <p className="muted">No routing targets are configured. This deployment runs in a single region on the workspace model configuration.</p>}
-    <div className="integrationGrid">{targets.map((target) => <article className="surface integration govTarget" key={target.id}><div className="integrationIcon"><Route /></div><div><h3>{target.id}</h3><p>{target.region} · {target.provider}/{target.model}</p><small>{target.status === 'unverified' ? 'Cost and latency not measured yet' : `$${target.cost_per_1k_tokens}/1k · ${target.latency_ms} ms`}</small></div><span className={`statusBadge ${target.status === 'healthy' ? 'success' : target.status === 'offline' ? 'neutral' : 'warning'}`}>{target.status}</span>{owner && <button type="button" className="secondary" aria-label={`Edit ${target.id}`} onClick={() => { setFormError(null); setEditing({ draft: targetDraft(target), isNew: false }); }}><Pencil size={15} /></button>}</article>)}</div>
-    <section className="surface approvalTable enterpriseCatalog"><div className="sectionHeader"><div><p className="eyebrow">Verified distribution</p><h2>Marketplace catalog</h2></div></div>{packages.length === 0 && <p className="muted">No packages have been published to this marketplace yet.</p>}{packages.map((item) => <div className="catalogRow" key={item.id}><PackageCheck /><div><strong>{item.name}</strong><p>{item.kind} · v{item.version} · {item.permissions.join(', ')}</p></div><button type="button" disabled={busy !== null} onClick={() => void act(`install-${item.id}`, async () => { await apiRequest(`/api/v1/marketplace/packages/${encodeURIComponent(item.id)}/install`, { method: 'POST', body: '{}' }); return `${item.name} installed.`; })}>Install</button></div>)}</section>
+    <div className="integrationGrid govTargets">{targets.map((target) => <article className="surface integration govTarget" key={target.id}><div className="integrationIcon"><Route /></div><div><h3>{target.id}</h3><p>{target.region} · {target.provider}/{target.model}</p><small>{target.status === 'unverified' ? 'Cost and latency not measured yet' : `$${target.cost_per_1k_tokens}/1k · ${target.latency_ms} ms`}</small></div><span className={`statusBadge ${target.status === 'healthy' ? 'success' : target.status === 'offline' ? 'neutral' : 'warning'}`}>{target.status}</span>{canManage && <button type="button" className="secondary" aria-label={`Edit ${target.id}`} onClick={() => { setFormError(null); setEditing({ draft: targetDraft(target), isNew: false }); }}><Pencil size={15} /></button>}</article>)}</div>
+    <section className="surface approvalTable enterpriseCatalog"><div className="sectionHeader"><div><p className="eyebrow">Verified distribution</p><h2>Marketplace catalog</h2></div></div>{packages.length === 0 && <p className="muted">No packages have been published to this marketplace yet. An organization administrator publishes packages for every workspace through the marketplace API.</p>}{packages.map((item) => <div className="catalogRow" key={item.id}><PackageCheck /><div><strong>{item.name}</strong><p>{item.kind} · v{item.version} · {item.permissions.join(', ')}</p></div>{owner && <button type="button" disabled={busy !== null} aria-label={`Install ${item.name}`} onClick={() => void act(`install-${item.id}`, async () => { await apiRequest(`/api/v1/marketplace/packages/${encodeURIComponent(item.id)}/install`, { method: 'POST', body: '{}' }); return `${item.name} installed.`; })}>Install</button>}</div>)}{owner === false && packages.length > 0 && <p className="muted">Only workspace owners can install packages into this workspace.</p>}</section>
   </>;
 }
 

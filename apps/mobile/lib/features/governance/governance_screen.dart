@@ -125,6 +125,26 @@ class _GovernanceState extends State<GovernanceScreen>
       );
 }
 
+/// The read-only notice for callers who are not organization administrators.
+class _ReadOnlyNotice extends StatelessWidget {
+  const _ReadOnlyNotice();
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return AnumSurface(
+      key: const Key('organization-read-only'),
+      accent: p.sky,
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.lock_outline, color: p.sky),
+        const SizedBox(width: 10),
+        Expanded(
+            child: Text(organizationReadOnlyNotice,
+                style: TextStyle(color: p.text, fontSize: 13.5))),
+      ]),
+    );
+  }
+}
+
 Widget _list(Future<void> Function() refresh, List<Widget> children) =>
     RefreshIndicator(
       onRefresh: refresh,
@@ -149,7 +169,9 @@ class _PoliciesTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = snapshot;
     final p = context.palette;
+    final canManage = s.summary.canManageOrganizationPolicy;
     return _list(controller.load, [
+      if (!canManage) const _ReadOnlyNotice(),
       AnumMetricGrid(children: [
         AnumMetric(
             label: 'Policy packs',
@@ -173,15 +195,17 @@ class _PoliciesTab extends StatelessWidget {
           child: AnumEmpty(
             icon: Icons.policy_outlined,
             title: 'No policy packs yet',
-            message:
-                'A baseline pack sets the default rules every agent must follow.',
-            action: 'Add baseline policy',
-            onAction: controller.mutating
+            message: canManage
+                ? 'A baseline pack sets the default rules every agent must follow.'
+                : 'An organization administrator adds the baseline pack that sets the default rules every agent must follow.',
+            action: canManage ? 'Add baseline policy' : null,
+            onAction: !canManage || controller.mutating
                 ? null
                 : () => controller.baseline('Organization baseline'),
           ),
         )
       else ...[
+        if (canManage)
         Align(
           alignment: AlignmentDirectional.centerEnd,
           child: TextButton.icon(
@@ -219,13 +243,18 @@ class _PoliciesTab extends StatelessWidget {
                             style: TextStyle(color: p.faint, fontSize: 12)),
                       ]),
                 ),
-                Switch(
-                  value: policy.active,
-                  onChanged: controller.mutating
-                      ? null
-                      : (value) =>
-                          controller.setPolicyActive(policy.id, active: value),
-                ),
+                if (canManage)
+                  Switch(
+                    value: policy.active,
+                    onChanged: controller.mutating
+                        ? null
+                        : (value) => controller.setPolicyActive(policy.id,
+                            active: value),
+                  )
+                else
+                  AnumPill(
+                      label: policy.active ? 'Active' : 'Archived',
+                      tone: policy.active ? AnumTone.ok : AnumTone.neutral),
               ]),
               if (policy.rules.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -376,7 +405,9 @@ class _RoutingTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final ops = snapshot.operations;
+    final canManage = snapshot.summary.canManageOrganizationPolicy;
     return _list(controller.load, [
+      if (!canManage) const _ReadOnlyNotice(),
       AnumMetricGrid(children: [
         AnumMetric(
             label: 'Active regions',
@@ -403,10 +434,12 @@ class _RoutingTab extends StatelessWidget {
       ]),
       AnumSurface(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const AnumHeader(
+          AnumHeader(
             eyebrow: 'Model routing',
             title: 'Where AI requests go',
-            subtitle: 'Owners can mark a target healthy, degraded or offline.',
+            subtitle: canManage
+                ? 'Mark a target healthy, degraded or offline for every workspace.'
+                : 'Organization administrators mark targets healthy, degraded or offline.',
           ),
           const SizedBox(height: 6),
           if (snapshot.targets.isEmpty)
@@ -426,7 +459,9 @@ class _RoutingTab extends StatelessWidget {
                 detail: x.status == 'unverified'
                     ? 'Cost and latency not measured yet'
                     : '${x.latencyMs} ms · \$${x.cost.toStringAsFixed(3)} per 1k tokens',
-                trailing: PopupMenuButton<String>(
+                trailing: !canManage
+                    ? AnumPill(label: _label(x.status), tone: _tone(x.status))
+                    : PopupMenuButton<String>(
                   tooltip: 'Change status',
                   onSelected: (status) => controller.updateTarget(RoutingTarget(
                     id: x.id,

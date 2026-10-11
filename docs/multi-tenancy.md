@@ -25,7 +25,7 @@ Their RLS policies and grants cover nothing else.
 - RLS prevents data access outside the active tenant context.
 - Tool policy limits what agents can do even after a user starts a task.
 
-Tenant-wide policy (policy packs, role templates, organization approval rules, memory governance) is a separate, tenant-level permission, `organization_policy:manage`, held only by the organization administrator role `org_admin`; a workspace owner does not have it ([Governance](governance-and-scale.md#who-may-change-what)).
+Tenant-wide policy (policy packs, role templates, organization approval rules, memory governance, the organization model budget, routing targets, the marketplace catalog and skill version publishing) is a separate, tenant-level permission, `organization_policy:manage`, held only by the organization administrator role `org_admin`; a workspace owner does not have it ([Governance](governance-and-scale.md#who-may-change-what)).
 
 Workspace owners add people with invitations and manage roles and deactivation; the last active owner is protected ([Identity](identity.md#invitations-and-membership-management)). In `ANUM_AUTH_MODE=oidc` the tenant comes from the token's IdP-managed `tenant_id` claim, the workspace from `x-workspace-id` (or the token's default `workspace_id`), and the persisted membership supplies the role. See [Identity and sign-in](identity.md#tenant-and-workspace-resolution).
 

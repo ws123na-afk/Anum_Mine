@@ -55,6 +55,11 @@ def _headers(workspace: str = WORKSPACE, role: str = "owner") -> dict[str, str]:
     }
 
 
+def _org_admin(workspace: str = WORKSPACE) -> dict[str, str]:
+    """A workspace owner who is also the organization administrator (the tenant budget needs it)."""
+    return _headers(workspace, role="owner,org_admin")
+
+
 @pytest.fixture(autouse=True)
 def _clean() -> Iterator[None]:
     memory_model_budget_store.clear()
@@ -285,7 +290,7 @@ def test_owners_set_and_read_budgets_and_every_change_is_audited() -> None:
         json={"monthly_cost_limit_usd": 25.5, "monthly_token_limit": 2_000_000},
     )
     tenant = client.put(
-        "/api/v1/model-budgets/tenant", headers=_headers(), json={"monthly_cost_limit_usd": 100}
+        "/api/v1/model-budgets/tenant", headers=_org_admin(), json={"monthly_cost_limit_usd": 100}
     )
     record_model_usage(
         _context(), ModelUsage(input_tokens=10, output_tokens=5, provider="p", model="m", estimated_cost_usd=0.25)
@@ -303,6 +308,10 @@ def test_owners_set_and_read_budgets_and_every_change_is_audited() -> None:
     assert body["workspace"]["total_tokens"] == 15
     assert body["workspace"]["exceeded"] is False
     assert body["resets_on"] > body["period_start"]
+    # A workspace owner without org_admin reads the overview but is told it cannot change
+    # the organization budget.
+    assert body["can_manage_tenant_budget"] is False
+    assert client.get("/api/v1/model-budgets", headers=_org_admin()).json()["can_manage_tenant_budget"] is True
 
     audits = [record for record in store.audit_records[before:] if record.action == "model_budget.update"]
     assert [record.target for record in audits] == [
@@ -321,6 +330,28 @@ def test_budget_api_is_owner_only_and_validated() -> None:
     assert client.put("/api/v1/model-budgets/workspace", headers=_headers(), json={"monthly_token_limit": -1}).status_code == 422
     assert client.put("/api/v1/model-budgets/workspace", headers=_headers(), json={"monthly_cost_limit_usd": -0.5}).status_code == 422
     assert client.put("/api/v1/model-budgets/galaxy", headers=_headers(), json={}).status_code == 422
+
+
+def test_only_an_org_admin_changes_the_organization_budget() -> None:
+    before = len(store.audit_records)
+
+    refused = client.put("/api/v1/model-budgets/tenant", headers=_headers(), json={"monthly_cost_limit_usd": 1})
+    member_admin = client.put(
+        "/api/v1/model-budgets/tenant", headers=_headers(role="member,org_admin"), json={"monthly_token_limit": 5}
+    )
+
+    assert refused.status_code == 403
+    assert refused.json()["error"]["message"].startswith("Organization administrator role required")
+    # The organization role decides, not the workspace role: a member who is org admin may.
+    assert member_admin.status_code == 200, member_admin.text
+    assert member_admin.json()["tenant"]["budget"]["monthly_token_limit"] == 5
+    assert member_admin.json()["tenant"]["budget"]["monthly_cost_limit_usd"] is None
+    # The refused write left no budget change and no audit row behind.
+    targets = [r.target for r in store.audit_records[before:] if r.action == "model_budget.update"]
+    assert targets == [f"model_budget:tenant:{TENANT}"]
+    # The workspace budget stays with the workspace owner; org_admin alone does not grant it.
+    assert client.put("/api/v1/model-budgets/workspace", headers=_headers(role="member,org_admin"), json={"monthly_token_limit": 1}).status_code == 403
+    assert client.put("/api/v1/model-budgets/workspace", headers=_headers(), json={"monthly_token_limit": 1}).status_code == 200
 
 
 def test_task_runs_are_refused_with_402_when_the_budget_is_used_up() -> None:

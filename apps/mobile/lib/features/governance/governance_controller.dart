@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../data/api_client.dart';
 import 'governance_models.dart';
 import 'governance_repository.dart';
 
@@ -46,6 +47,10 @@ class GovernanceController extends ChangeNotifier {
     try {
       await action();
       if (reload) await load();
+    } on ApiException catch (e) {
+      // A refused change (403) keeps the data on screen with the API's sentence.
+      message = e.statusCode == 403 ? 'Not allowed: ${e.message}' : e.message;
+      phase = GovernancePhase.error;
     } catch (e) {
       message = e.toString();
       phase = GovernancePhase.error;

@@ -159,7 +159,9 @@ _RISK_ORDER = {RiskLevel.LOW: 0, RiskLevel.MEDIUM: 1, RiskLevel.HIGH: 2, RiskLev
 
 @router.post("/skills/versions", response_model=SkillVersion, status_code=status.HTTP_201_CREATED)
 def publish_skill(payload: SkillVersionCreate, context: TenantContext = Depends(tenant_context)) -> SkillVersion:
-    require_permission(context, Permission.POLICY_MANAGE)
+    # A published version is tenant-owned and installable in every workspace, so publishing
+    # needs the organization administrator role; installing stays a workspace-owner action.
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
     version = SkillVersion(id=new_id("skill_version"), publisher_tenant_id=context.tenant_id,
                            created_by=context.user_id, created_at=utc_now(),
                            **payload.model_dump())

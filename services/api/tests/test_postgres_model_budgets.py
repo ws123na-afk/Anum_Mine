@@ -187,7 +187,9 @@ def postgres_backend(database_engine: Engine, seed_scopes: None, monkeypatch: py
     yield
 
 
-HEADERS = {"x-tenant-id": TENANT_A, "x-workspace-id": WORKSPACE_A, "x-user-id": "user_test", "x-user-roles": "owner"}
+# Workspace owner and organization administrator: the tenant budget needs org_admin.
+HEADERS = {"x-tenant-id": TENANT_A, "x-workspace-id": WORKSPACE_A, "x-user-id": "user_test", "x-user-roles": "owner,org_admin"}
+WORKSPACE_OWNER = {**HEADERS, "x-user-roles": "owner"}
 
 
 class FixedGateway:
@@ -242,3 +244,27 @@ def test_api_sets_budgets_audits_changes_and_the_gateway_enforces_them(
         json={"monthly_token_limit": 1},
     )
     assert refused.status_code == 409
+
+
+def test_a_workspace_owner_without_org_admin_cannot_change_the_tenant_budget(
+    postgres_backend: None, database_engine: Engine
+) -> None:
+    client = TestClient(app)
+
+    refused = client.put("/api/v1/model-budgets/tenant", headers=WORKSPACE_OWNER, json={"monthly_token_limit": 1})
+
+    assert refused.status_code == 403
+    assert refused.json()["error"]["message"].startswith("Organization administrator role required")
+    with database_engine.connect() as connection:
+        budgets = connection.execute(text("select count(*) from model_budgets")).scalar_one()
+        audits = connection.execute(
+            text("select count(*) from audit_records where action = 'model_budget.update'")
+        ).scalar_one()
+    assert (budgets, audits) == (0, 0)
+    overview = client.get("/api/v1/model-budgets", headers=WORKSPACE_OWNER)
+    assert overview.status_code == 200
+    assert overview.json()["can_manage_tenant_budget"] is False
+    assert overview.json()["tenant"]["budget"] is None
+    # The workspace's own budget stays with its owner.
+    saved = client.put("/api/v1/model-budgets/workspace", headers=WORKSPACE_OWNER, json={"monthly_token_limit": 9})
+    assert saved.status_code == 200, saved.text

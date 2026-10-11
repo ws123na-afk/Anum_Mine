@@ -46,7 +46,7 @@ Workspace owners choose the model `base_url` the server calls. Outside `local`/`
 
 The `web_search` tool calls only the operator's `ANUM_SEARXNG_URL` (a private SearXNG on the compose network); no tenant input, tool argument or saved integration endpoint changes the address, redirects are not followed, only `http`/`https` result links are returned, and the audit log keeps the query length and result count, never the query or results ([Web search](tools-and-integrations.md#web-search)).
 
-Owners can set monthly estimated-cost and token budgets for the organization and per workspace (`/api/v1/model-budgets`, audited); model calls are refused with `402 model_budget_exceeded` once a budget is used up ([Model gateway](model-gateway.md#monthly-budgets)).
+Organization administrators (`org_admin`) can set a monthly estimated-cost and token budget for the organization and workspace owners one per workspace (`/api/v1/model-budgets`, audited); model calls are refused with `402 model_budget_exceeded` once a budget is used up ([Model gateway](model-gateway.md#monthly-budgets)).
 
 ### Startup policy
 

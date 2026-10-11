@@ -26,6 +26,7 @@ import {
   type LimitDraft,
 } from './lib/admin';
 import { describeError, isPermissionDenied } from './lib/errors';
+import { tenantWriteAccess } from './lib/governance';
 import './admin.css';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
@@ -285,6 +286,9 @@ export function BudgetsView() {
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
   const exceeded = overview && (overview.tenant.exceeded || overview.workspace.exceeded);
+  // The organization budget caps every workspace: only an organization administrator may
+  // change it (the API's `can_manage_tenant_budget`, never guessed from the workspace role).
+  const tenantAccess = tenantWriteAccess(overview ? overview.canManageTenantBudget : null, 'organization model budgets');
   return <>
     <section className="moduleIntro">
       <div><p className="eyebrow">Model spend</p><h2>Monthly model budgets</h2><p>{overview ? `Usage this UTC month, since ${formatResetDate(overview.periodStart).replace(' (UTC)', '')}. It resets on ${formatResetDate(overview.resetsOn)}.` : 'Estimated cost and token limits per UTC calendar month, for the organization and this workspace.'}</p></div>
@@ -298,14 +302,14 @@ export function BudgetsView() {
     {overview && load.kind !== 'forbidden' && <>
       {exceeded && <Notice error>A monthly budget is used up: task runs are refused (402) and voice answers say so until {formatResetDate(overview.resetsOn)} or until an owner raises the limit.</Notice>}
       <div className="budgetGrid">
-        <BudgetCard scope="tenant" title="Organization" subtitle="All workspaces in this organization together" view={overview.tenant} onSaved={setOverview} />
+        <BudgetCard scope="tenant" title="Organization" subtitle="All workspaces in this organization together" view={overview.tenant} onSaved={setOverview} readOnlyNotice={tenantAccess.notice} />
         <BudgetCard scope="workspace" title="This workspace" subtitle="Task planning and voice answers here" view={overview.workspace} onSaved={setOverview} />
       </div>
     </>}
   </>;
 }
 
-function BudgetCard({ scope, title, subtitle, view, onSaved }: { scope: BudgetScope; title: string; subtitle: string; view: ModelBudgetScopeView; onSaved: (next: ModelBudgetOverview) => void }) {
+function BudgetCard({ scope, title, subtitle, view, onSaved, readOnlyNotice = null }: { scope: BudgetScope; title: string; subtitle: string; view: ModelBudgetScopeView; onSaved: (next: ModelBudgetOverview) => void; readOnlyNotice?: string | null }) {
   const [draft, setDraft] = useState<LimitDraft>(() => limitDraft(view.budget));
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<Flash>(null);
@@ -317,7 +321,7 @@ function BudgetCard({ scope, title, subtitle, view, onSaved }: { scope: BudgetSc
     setBusy(true);
     setFlash(null);
     void admin.setModelBudget(scope, parsed.value).then((next) => { onSaved(next); setFlash({ text: 'Budget saved.' }); })
-      .catch((error: unknown) => setFlash({ text: isPermissionDenied(error) ? `Only owners can change budgets. ${describeError(error)}` : describeError(error), error: true }))
+      .catch((error: unknown) => setFlash({ text: isPermissionDenied(error) ? `Not allowed: ${describeError(error)}` : describeError(error), error: true }))
       .finally(() => setBusy(false));
   };
   return <section className={`surface budgetCard ${view.exceeded ? 'exceeded' : ''}`} aria-label={`${title} budget`}>
@@ -338,7 +342,7 @@ function BudgetCard({ scope, title, subtitle, view, onSaved }: { scope: BudgetSc
     </dl>
     {view.usage.unpricedCalls > 0 && <p className="muted">Unpriced calls add tokens but no cost: set a token limit too.</p>}
     {view.budget && <p className="muted">Last changed {when(view.budget.updatedAt)} by {view.budget.updatedBy}.</p>}
-    <form className="budgetForm" aria-label={`Edit ${title.toLowerCase()} limits`} onSubmit={(event) => { event.preventDefault(); save(draft); }}>
+    {readOnlyNotice ? <Notice>{readOnlyNotice}</Notice> : <form className="budgetForm" aria-label={`Edit ${title.toLowerCase()} limits`} onSubmit={(event) => { event.preventDefault(); save(draft); }}>
       <label className="field"><span>Monthly cost limit (USD)</span><input inputMode="decimal" value={draft.cost} onChange={(event) => setDraft({ ...draft, cost: event.target.value })} placeholder="No limit" /></label>
       <label className="field"><span>Monthly token limit</span><input inputMode="numeric" value={draft.tokens} onChange={(event) => setDraft({ ...draft, tokens: event.target.value })} placeholder="No limit" /></label>
       {flash && <Notice error={flash.error}>{flash.text}</Notice>}
@@ -347,7 +351,7 @@ function BudgetCard({ scope, title, subtitle, view, onSaved }: { scope: BudgetSc
         <button type="submit" disabled={busy}><Save />{busy ? 'Saving...' : 'Save limits'}</button>
         {view.budget && <button type="button" className="secondary" disabled={busy} onClick={() => save({ cost: '', tokens: '' })}><XCircle />Remove limits</button>}
       </div>
-    </form>
+    </form>}
   </section>;
 }
 

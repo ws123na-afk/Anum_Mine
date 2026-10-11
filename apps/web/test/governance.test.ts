@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  approvalRuleBody, emptyTargetDraft, integrationBadge, integrationConfigBody, integrationToolNote, organizationPolicyAccess, packState, parseList, regionSummary,
-  roleTemplateBody, routingTargetBody, sortPacks, targetDraft, type PolicyPack, type RoutingTarget,
+  approvalRuleBody, emptyTargetDraft, enterpriseWriteAccess, integrationBadge, integrationConfigBody, integrationToolNote, organizationPolicyAccess, packState, parseList, regionSummary,
+  roleTemplateBody, routingTargetBody, sortPacks, targetDraft, tenantWriteAccess, type PolicyPack, type RoutingTarget,
 } from '../src/lib/governance.ts';
 
 const pack = (name: string, version: number, active: boolean): PolicyPack => ({ id: `${name}-${version}`, name, description: '', version, active, rules: [], created_by: 'u', created_at: '2026-10-01T00:00:00Z' });
@@ -112,5 +112,24 @@ describe('organization policy access', () => {
       assert.match(access.notice ?? '', /keycloak-2fa\.sh grant-org-admin <your username>/);
       assert.match(access.notice ?? '', /sign out and sign in again/);
     }
+  });
+});
+
+describe('tenant-wide write access', () => {
+  test('follows the API flag only, with nothing explained before it loads', () => {
+    assert.deepEqual(tenantWriteAccess(null, 'routing targets'), { canManage: false, notice: null });
+    assert.deepEqual(tenantWriteAccess(true, 'routing targets'), { canManage: true, notice: null });
+    const denied = tenantWriteAccess(false, 'organization model budgets');
+    assert.equal(denied.canManage, false);
+    assert.match(denied.notice ?? '', /^Read only: organization model budgets apply to every workspace in this organization/);
+    assert.match(denied.notice ?? '', /org_admin role/);
+  });
+  test('routing targets and the catalog take the governance summary flag', () => {
+    assert.deepEqual(enterpriseWriteAccess(null), { canManage: false, notice: null });
+    assert.equal(enterpriseWriteAccess({ can_manage_organization_policy: true }).canManage, true);
+    const denied = enterpriseWriteAccess({});
+    assert.equal(denied.canManage, false);
+    assert.match(denied.notice ?? '', /routing targets and the marketplace catalog/);
+    assert.match(denied.notice ?? '', /Owning this workspace is not enough/);
   });
 });

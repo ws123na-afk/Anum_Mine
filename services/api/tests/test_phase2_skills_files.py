@@ -14,6 +14,8 @@ client = TestClient(app)
 OWNER = {"x-tenant-id": "tenant_a", "x-workspace-id": "workspace_a",
          "x-user-id": "owner_a", "x-user-roles": "owner"}
 OTHER_WORKSPACE = {**OWNER, "x-workspace-id": "workspace_b"}
+# Publishing a skill version is tenant-wide: it needs the organization administrator role.
+ORG_ADMIN = {**OWNER, "x-user-roles": "owner,org_admin"}
 
 
 def setup_function() -> None:
@@ -28,8 +30,8 @@ def _skill(risk: str = "medium") -> dict:
 
 
 def test_skill_versions_installations_and_resolution_are_governed() -> None:
-    assert client.post("/api/v1/skills/versions", headers=OWNER, json=_skill()).status_code == 201
-    assert client.post("/api/v1/skills/versions", headers=OWNER, json=_skill()).status_code == 409
+    assert client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=_skill()).status_code == 201
+    assert client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=_skill()).status_code == 409
     installed = client.post("/api/v1/skills/installations", headers=OWNER, json={
         "skill_id": "acme.research", "version": "1.0.0", "approved_tools": ["web.search"]})
     assert installed.status_code == 201
@@ -39,8 +41,23 @@ def test_skill_versions_installations_and_resolution_are_governed() -> None:
     assert resolved.json()["granted_tools"] == ["web.search"]
 
 
+def test_only_an_org_admin_publishes_skill_versions() -> None:
+    refused = client.post("/api/v1/skills/versions", headers=OWNER, json=_skill())
+
+    assert refused.status_code == 403
+    assert refused.json()["detail"].startswith("Organization administrator role required")
+    # Nothing was published; every role can still read the (empty) list.
+    assert client.get("/api/v1/skills/versions", headers=OWNER).json() == []
+    member_admin = {**OWNER, "x-user-id": "member_a", "x-user-roles": "member,org_admin"}
+    assert client.post("/api/v1/skills/versions", headers=member_admin, json=_skill()).status_code == 201
+    # Installing stays a workspace-owner action: org_admin alone does not grant it.
+    install = {"skill_id": "acme.research", "version": "1.0.0", "approved_tools": []}
+    assert client.post("/api/v1/skills/installations", headers=member_admin, json=install).status_code == 403
+    assert client.post("/api/v1/skills/installations", headers=OWNER, json=install).status_code == 201
+
+
 def test_skill_resolution_enforces_scope_tools_and_risk() -> None:
-    client.post("/api/v1/skills/versions", headers=OWNER, json=_skill("high"))
+    client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=_skill("high"))
     client.post("/api/v1/skills/installations", headers=OWNER, json={
         "skill_id": "acme.research", "version": "1.0.0", "approved_tools": ["web.search"]})
     assert client.post("/api/v1/skills/resolve", headers=OWNER, json={

@@ -91,9 +91,9 @@ class EnterpriseOperations(BaseModel):
     generated_at: datetime
 
 
-# The marketplace starts empty. Packages appear only when an owner publishes one to the
-# tenant's catalog (PUT /marketplace/packages/{id}); ANUM never shows invented listings,
-# and one tenant's packages are never visible to another.
+# The marketplace starts empty. Packages appear only when an organization administrator
+# publishes one to the tenant's catalog (PUT /marketplace/packages/{id}); ANUM never shows
+# invented listings, and one tenant's packages are never visible to another.
 
 
 def configured_targets() -> tuple[RoutingTarget, ...]:
@@ -102,8 +102,8 @@ def configured_targets() -> tuple[RoutingTarget, ...]:
     Cost and latency are not measured here, so they carry placeholder minimums
     (0 cost, 1 ms) and the target is reported as ``unverified`` (except the
     built-in mock, which always answers). Clients must show unverified targets
-    as "not measured", never as real numbers. Owners add real regional targets
-    with PUT /routing/targets/{id}.
+    as "not measured", never as real numbers. Organization administrators add
+    real regional targets with PUT /routing/targets/{id}.
     """
     provider = settings.model_provider
     return (
@@ -265,7 +265,9 @@ async def list_packages(
 
 @router.put("/marketplace/packages/{package_id}", response_model=MarketplacePackage)
 async def upsert_package(package_id: str, payload: MarketplacePackage, context: TenantContext = Depends(tenant_context)) -> MarketplacePackage:
-    require_permission(context, Permission.MARKETPLACE_MANAGE)
+    # The catalog is the tenant's: every workspace sees it, so publishing needs the
+    # organization administrator role (docs/governance-and-scale.md#who-may-change-what).
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
     if payload.id != package_id:
         raise HTTPException(status_code=422, detail="Marketplace package id does not match path")
     with open_scale_store(context) as scoped:
@@ -274,7 +276,7 @@ async def upsert_package(package_id: str, payload: MarketplacePackage, context: 
 
 @router.delete("/marketplace/packages/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_package(package_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
-    require_permission(context, Permission.MARKETPLACE_MANAGE)
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
     try:
         with open_scale_store(context) as scoped:
             deleted = scoped.delete_package(context, package_id)
@@ -339,7 +341,8 @@ async def configure_target(
     target: RoutingTarget,
     context: TenantContext = Depends(tenant_context),
 ) -> RoutingTarget:
-    require_permission(context, Permission.ROUTING_MANAGE)
+    # Routing targets are tenant-wide: every workspace's model calls route through them.
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
     if target.id != target_id:
         raise HTTPException(status_code=422, detail="Routing target id does not match path")
     with open_scale_store(context) as scoped:

@@ -170,6 +170,12 @@ describe('model budgets', () => {
     assert.equal(tenantCost.tone, 'none');
   });
 
+  test('the organization budget is editable only when the API says so', () => {
+    assert.equal(mapBudgetOverview(overview).canManageTenantBudget, false);
+    assert.equal(mapBudgetOverview({ ...overview, can_manage_tenant_budget: false }).canManageTenantBudget, false);
+    assert.equal(mapBudgetOverview({ ...overview, can_manage_tenant_budget: true }).canManageTenantBudget, true);
+  });
+
   test('percent caps the bar but not the text; a zero limit reads as used up', () => {
     assert.equal(usagePercent(5, null), null);
     assert.equal(usagePercent(0, 0), 100);

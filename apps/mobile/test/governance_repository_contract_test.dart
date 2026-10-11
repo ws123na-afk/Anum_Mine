@@ -79,6 +79,8 @@ void main() {
         auditExporter: exporter);
     final snapshot = await repo.load();
     expect(snapshot.operations.failoverReady, isTrue);
+    // No `can_manage_organization_policy` in the summary: read only.
+    expect(snapshot.summary.canManageOrganizationPolicy, isFalse);
     await repo.setPolicyActive('policy_1', active: true);
     expect(transport.requests.last.uri.path,
         '/api/v1/policy-packs/policy_1/activate');

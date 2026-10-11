@@ -89,6 +89,11 @@ export interface ModelBudgetOverview {
   resetsOn: string;
   tenant: ModelBudgetScopeView;
   workspace: ModelBudgetScopeView;
+  /**
+   * Whether the caller may change the organization (tenant) budget: the organization
+   * administrator role `org_admin` (docs/governance-and-scale.md#who-may-change-what).
+   */
+  canManageTenantBudget: boolean;
 }
 
 /** Stable error codes of the API's error envelope `{ error: { code, message, correlation_id } }`. */

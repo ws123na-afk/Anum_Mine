@@ -214,7 +214,7 @@ class BudgetsController extends ChangeNotifier {
     } on Object catch (e) {
       failedScopes.add(scope);
       notices[scope] = e is ApiException && e.isPermissionDenied
-          ? 'Only owners can change budgets. ${e.message}'
+          ? 'Not allowed: ${e.message}'
           : describeAdminError(e);
       return false;
     } finally {

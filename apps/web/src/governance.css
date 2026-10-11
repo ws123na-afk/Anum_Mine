@@ -3,15 +3,19 @@
 .govRow { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: 12px; grid-template-columns: 22px 1fr auto auto; padding: 12px 0; }
 .govRow:first-of-type { border-top: 0; }
 .govRow > svg { color: var(--d-violet); height: 20px; width: 20px; }
+/* The row's activate/archive control: a compact button sized by its label, never by the grid. */
+.govRow > button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: var(--d-s2) var(--d-s3); white-space: nowrap; }
 .govRow p, .govItem p { color: var(--d-muted); font-size: 12px; margin: 4px 0 0; }
 .govVersion { background: var(--d-glass-2); border-radius: 999px; color: var(--d-muted); font-size: 11px; font-weight: 700; margin-left: 6px; padding: 2px 6px; }
 .govItem { border-top: 1px solid var(--d-line); padding: 10px 0; }
 .govColumns { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .govForm .actions { margin-top: 14px; }
-.govForm input, .govForm select, .integrationConfig input[type="text"], .integrationConfig input:not([type]) { width: 100%; }
-.govPermissions { border: 1px solid var(--d-line); border-radius: 6px; display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; padding: 10px; }
+.govForm input:not([type="checkbox"]), .govForm select, .integrationConfig input[type="text"], .integrationConfig input:not([type]) { width: 100%; }
+.govPermissions { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); margin: var(--d-s4) 0 0; min-width: 0; padding: var(--d-s3); }
 .govPermissions legend { color: var(--d-muted); font-size: 12px; font-weight: 700; padding: 0 4px; }
-.govPermissions label { align-items: center; display: flex; font-size: 12px; gap: 6px; }
+.govPermissions label { align-items: center; cursor: pointer; display: flex; font-size: 13px; gap: var(--d-s2); min-height: 32px; min-width: 0; overflow-wrap: anywhere; }
+/* The global input rule makes inputs full width; a checkbox keeps its own size. */
+.govPermissions input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
 .govGrid { display: grid; gap: 0 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .govTarget { grid-template-columns: 42px 1fr auto auto; }
 .integrationCard { grid-template-columns: 42px 1fr auto; }
@@ -29,6 +33,10 @@
 .integrationToggle { align-items: center; display: flex; font-size: 13px; gap: 8px; }
 .integrationToggle input { accent-color: var(--d-violet); flex: none; height: 20px; min-height: 0; padding: 0; width: 20px; }
 @media (max-width: 900px) {
-  .govColumns, .govGrid, .govPermissions { grid-template-columns: 1fr; }
-  .govRow { grid-template-columns: 22px 1fr; }
+  .govColumns, .govGrid { grid-template-columns: 1fr; }
+  /* Icon, text and badge on the first line; the action sits under the text at its own width. */
+  .govRow { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .govRow > button { grid-column: 2 / -1; justify-self: start; }
 }
+/* Notices and the open target form carry only a top margin: keep the same gap before the cards. */
+.notice + .govTargets, .govForm + .govTargets, .muted + .govTargets { margin-top: var(--d-s4); }

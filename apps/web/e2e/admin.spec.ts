@@ -22,7 +22,7 @@ function invitationRow(overrides: Json = {}): Json {
   };
 }
 
-interface MockOptions { forbidden?: boolean; runStatus?: number }
+interface MockOptions { forbidden?: boolean; runStatus?: number; /** The API's `can_manage_tenant_budget` for the caller (org_admin). */ orgAdmin?: boolean }
 
 async function mockApi(page: Page, options: MockOptions = {}) {
   const calls: { method: string; path: string; body: unknown; workspace: string | undefined }[] = [];
@@ -38,6 +38,7 @@ async function mockApi(page: Page, options: MockOptions = {}) {
       total_tokens: 2000,
       exceeded: true,
     },
+    can_manage_tenant_budget: options.orgAdmin ?? false,
   };
   const forbidden = (route: Route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify(envelope('forbidden', 'permission_denied: membership:manage')) });
 
@@ -96,6 +97,12 @@ async function mockApi(page: Page, options: MockOptions = {}) {
       const limits = body as Json;
       const workspace = budgets.workspace as Json;
       budgets = { ...budgets, workspace: { ...workspace, budget: { scope: 'workspace', ...limits, updated_at: now, updated_by: 'user_local' }, exceeded: false } };
+      return json(budgets);
+    }
+    if (path === '/api/v1/model-budgets/tenant' && method === 'PUT') {
+      if (!options.orgAdmin) return json(envelope('forbidden', 'Organization administrator role required: this setting applies to every workspace in the organization'), 403);
+      const tenant = budgets.tenant as Json;
+      budgets = { ...budgets, tenant: { ...tenant, budget: { scope: 'tenant', ...(body as Json), updated_at: now, updated_by: 'user_local' } } };
       return json(budgets);
     }
     return route.abort();
@@ -215,6 +222,37 @@ test('budgets show usage against limits, the reset date, and save new limits', a
   await expect(workspace.getByText('Budget saved.')).toBeVisible();
   await expect(workspace.getByText('limited', { exact: true })).toBeVisible();
   expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ monthly_cost_limit_usd: 25, monthly_token_limit: 5_000_000 });
+});
+
+test('a workspace owner who is not an organization administrator reads the organization budget', async ({ page }) => {
+  const calls = await mockApi(page, { orgAdmin: false });
+  await page.goto('/#budgets');
+
+  const tenant = page.getByRole('region', { name: 'Organization budget' });
+  await expect(tenant.getByText(/Read only: organization model budgets apply to every workspace in this organization/)).toBeVisible();
+  await expect(tenant.getByText(/Owning this workspace is not enough/)).toBeVisible();
+  // The numbers are still shown; only the controls are gone.
+  await expect(tenant.getByRole('progressbar', { name: 'Organization estimated cost used' })).toBeVisible();
+  await expect(tenant.getByRole('button', { name: 'Save limits' })).toHaveCount(0);
+  await expect(tenant.getByLabel('Monthly cost limit (USD)')).toHaveCount(0);
+  // This workspace's own budget stays editable for its owner.
+  const workspace = page.getByRole('region', { name: 'This workspace budget' });
+  await expect(workspace.getByRole('button', { name: 'Save limits' })).toBeVisible();
+  await expect(workspace.getByText(/Read only:/)).toHaveCount(0);
+  expect(calls.some((c) => c.method === 'PUT' && c.path === '/api/v1/model-budgets/tenant')).toBe(false);
+});
+
+test('an organization administrator sets the organization budget', async ({ page }) => {
+  const calls = await mockApi(page, { orgAdmin: true });
+  await page.goto('/#budgets');
+
+  const tenant = page.getByRole('region', { name: 'Organization budget' });
+  await expect(tenant.getByText(/Read only:/)).toHaveCount(0);
+  await tenant.getByLabel('Monthly token limit').fill('9000');
+  await tenant.getByRole('button', { name: 'Save limits' }).click();
+  await expect(tenant.getByText('Budget saved.')).toBeVisible();
+  await expect(tenant.getByText('limited', { exact: true })).toBeVisible();
+  expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/model-budgets/tenant')?.body).toEqual({ monthly_cost_limit_usd: null, monthly_token_limit: 9000 });
 });
 
 test('budgets are owner-only: a 403 shows the API answer instead of numbers', async ({ page }) => {
