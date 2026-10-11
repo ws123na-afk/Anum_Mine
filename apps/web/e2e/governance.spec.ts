@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 const now = new Date().toISOString();
 type Json = Record<string, unknown>;
 const envelope = (code: string, message: string) => ({ error: { code, message, correlation_id: 'corr_e2e', details: [] } });
-const orgAdminRequired = 'Organization administrator role required: this setting applies to every workspace in the organization';
+const orgAdminRequired = 'Organization administrator role required: this setting applies to every workspace in the organization, so owning a workspace is not enough. Ask the administrator of your ANUM sign-in (Keycloak) to assign you the realm role org_admin (on a self-hosted server: infra/oracle/keycloak-2fa.sh grant-org-admin <your username>), then sign out and sign in again';
 
 interface Options {
   /** What the summary reports for the caller. */
@@ -64,6 +64,7 @@ test('a workspace owner who is not an organization administrator reads tenant-wi
   await expect(page.getByRole('heading', { name: 'Governance center' })).toBeVisible();
   await expect(page.getByText(/Read only: policy packs, role templates and approval rules apply to every workspace in this organization/)).toBeVisible();
   await expect(page.getByText(/Owning this workspace is not enough/)).toBeVisible();
+  await expect(page.getByText(/assign you the realm role org_admin/)).toBeVisible();
   // Everything is still listed.
   await expect(page.getByText('Organization baseline')).toBeVisible();
   await expect(page.getByText('Operator')).toBeVisible();

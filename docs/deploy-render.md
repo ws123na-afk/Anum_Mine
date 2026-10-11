@@ -213,8 +213,21 @@ Create ANUM users (realm **anum** → **Users** → **Add user**):
 - Username and e-mail; **Attributes** (admin-only in the user profile): `tenant_id` (for example `tenant_acme`, letters, digits, `_` or `-`, 3 to 80 characters) and optionally `default_workspace_id` (for example `workspace_main`).
 - **Role mapping**: realm role `owner` for the first person of a tenant (it lets them create the tenant and workspace through onboarding); everyone else joins through an invitation from inside ANUM.
 - **Credentials**: a temporary password, sent to the person out of band.
+- **Organization administrator**: whoever may change the organization's policy (policy packs, role templates, approval rules, memory governance) also needs the realm role `org_admin` (**Role mapping** → **Assign role** → filter by realm roles → `org_admin`). Nobody has it by default, not even the tenant's first owner ([Organization administrators](#organization-administrators)).
 
 Check the realm after the first start: realm **anum** → **Clients** → `anum-web` → **Valid redirect URIs** must show `<WEB>/*`. If it still shows `${ANUM_WEB_ORIGIN}/*`, the variable was empty at the first start: correct it there by hand.
+
+### Organization administrators
+
+Changing tenant-wide policy needs the Keycloak realm role `org_admin`; owning a workspace is not enough ([Governance: Who may change what](governance-and-scale.md#who-may-change-what)). Without it the Governance page is read-only and every change answers `403`, with these instructions in the message.
+
+**Upgrading an existing Keycloak.** Keycloak imports the realm only on its first start, so an `anum-keycloak` whose realm was created before the role existed does not get it from a redeploy, and after the upgrade nobody, the owner included, can change policy packs, role templates, organization approval rules or memory governance. The Render image has no Python for `infra/keycloak/realm_roles.py` (the script the Oracle VM uses), so do it once in the admin console, `<AUTH>/admin/` as your master-realm admin, realm **anum**:
+
+1. **Realm roles**: if `org_admin` is not listed, **Create role** → Role name `org_admin`, Description `ANUM organization administrator for the user's tenant_id: may change tenant-wide policy (policy packs, role templates, approval rules, memory governance). Authoritative; grant it only to the tenant's administrators.` → **Save**.
+2. **Users** → your own ANUM user (and anyone else who administers an organization) → **Attributes**: `tenant_id` must be set, since the role applies to that tenant only → **Role mapping** → **Assign role** → filter by realm roles → `org_admin` → **Assign**.
+3. Sign out of ANUM and sign in again: the role is in the next token, not in the one an open session holds. The Governance page then shows its controls without the read-only notice.
+
+Do not add `org_admin` to the realm's default roles: every new user would then administer their organization. To take it away: the user's **Role mapping** → `org_admin` → **Unassign**. A fresh Blueprint imports the role with the realm, but nobody holds it until step 2. Background: [Identity: Organization administrators](identity.md#organization-administrators).
 
 ## Custom Domains
 

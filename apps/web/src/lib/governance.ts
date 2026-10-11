@@ -32,7 +32,7 @@ export function organizationPolicyAccess(summary: Pick<GovernanceSummary, 'can_m
   if (summary.can_manage_organization_policy) return { canManage: true, notice: null };
   return {
     canManage: false,
-    notice: 'Read only: policy packs, role templates and approval rules apply to every workspace in this organization, so only an organization administrator can change them. Owning this workspace is not enough. Ask your organization administrator to make the change, or to have the org_admin role granted to you in your identity provider.',
+    notice: 'Read only: policy packs, role templates and approval rules apply to every workspace in this organization, so only an organization administrator can change them. Owning this workspace is not enough. To become one, ask the administrator of your ANUM sign-in (Keycloak) to assign you the realm role org_admin (on a self-hosted server they run: infra/oracle/keycloak-2fa.sh grant-org-admin <your username>), then sign out and sign in again. Until then, an organization administrator can make the change for you.',
   };
 }
 

@@ -9,7 +9,9 @@
 # images re-pulled for security fixes), run db-init and the migrations as one-shots
 # (the running API keeps serving: migrations are expand/contract), recreate what
 # changed, wait for the API to be healthy, then prune dangling images and old build
-# cache. A failed migration stops here, before any service is replaced.
+# cache. A failed migration stops here, before any service is replaced. At the end it
+# prints a notice when no user of the Keycloak realm `anum` holds the org_admin role
+# (docs/deploy-oracle.md#organization-administrators); it never grants it.
 set -euo pipefail
 
 ORACLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,3 +87,30 @@ dc ps
 log "Pruning dangling images and build cache older than a week"
 docker image prune -f >/dev/null
 docker builder prune -f --filter until=168h >/dev/null
+
+# Who may change tenant-wide policy. Keycloak imports the realm only on its first start,
+# so a realm from before the org_admin role existed lacks it, and then every change to
+# policy packs, role templates, approval rules or memory governance answers 403, owners
+# included. A read-only look at Keycloak's own tables needs no Keycloak admin: the
+# postgres container's peer-authenticated superuser, in a read-only transaction. It
+# prints "<realms> <roles> <holders>"; when Keycloak has not imported the realm yet or
+# the query fails (a schema change), nothing is printed and so is no notice.
+org_admin_counts() {
+  dc exec -T -u postgres -e PGOPTIONS='-c default_transaction_read_only=on' postgres \
+    psql -X -q -t -A -v ON_ERROR_STOP=1 --dbname=keycloak -c "
+      with realm_anum as (select id from realm where name = 'anum'),
+           org_admin as (select r.id from keycloak_role r join realm_anum m
+                           on m.id in (r.realm_id, r.client_realm_constraint)
+                         where r.name = 'org_admin' and not r.client_role)
+      select (select count(*) from realm_anum) || ' ' || (select count(*) from org_admin) || ' ' ||
+             ((select count(*) from user_role_mapping where role_id in (select id from org_admin))
+              + (select count(*) from group_role_mapping where role_id in (select id from org_admin)))" \
+    2>/dev/null || true
+}
+read -r realms roles holders <<<"$(org_admin_counts)" || true
+grant_hint="bash $ORACLE_DIR/keycloak-2fa.sh grant-org-admin <your ANUM username> (docs/deploy-oracle.md#organization-administrators)"
+if [ "${realms:-}" = 1 ] && [ "${roles:-}" = 0 ]; then
+  log "NOTICE: Keycloak realm anum has no org_admin role yet, so nobody can change policy packs, role templates, approval rules or memory governance. Create and grant it: $grant_hint"
+elif [ "${realms:-}" = 1 ] && [ "${roles:-}" = 1 ] && [ "${holders:-}" = 0 ]; then
+  log "NOTICE: nobody in Keycloak realm anum holds org_admin, so nobody can change policy packs, role templates, approval rules or memory governance. Grant it: $grant_hint"
+fi

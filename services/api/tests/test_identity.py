@@ -293,7 +293,12 @@ def test_oidc_workspace_owner_without_org_admin_cannot_change_tenant_policy(oidc
     summary = client.get("/api/v1/organization/governance", headers=bearer(token))
 
     assert denied.status_code == 403
-    assert denied.json()["error"]["message"].startswith("Organization administrator role required")
+    message = denied.json()["error"]["message"]
+    assert message.startswith("Organization administrator role required")
+    # The refusal says how to get the role (an upgraded realm may have nobody holding it).
+    assert "realm role org_admin" in message
+    assert "keycloak-2fa.sh grant-org-admin <your username>" in message
+    assert "sign out and sign in again" in message
     assert summary.status_code == 200
     assert summary.json()["can_manage_organization_policy"] is False
 

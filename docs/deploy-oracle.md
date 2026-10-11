@@ -240,7 +240,7 @@ Before anyone else uses it:
 5. On the VM, empty both bootstrap values in `.env` (keep the lines, so `update.sh` does not add them again): `KC_BOOTSTRAP_ADMIN_USERNAME=` and `KC_BOOTSTRAP_ADMIN_PASSWORD=`; then `cd ~/anum/infra/oracle && docker compose up -d keycloak`. Keycloak only creates the bootstrap admin against an empty database, so this only removes the password from the container.
 6. Realm **anum** → **Realm settings**: "User registration" stays off; set up e-mail if you want password-reset mail. Then **Clients** → `anum-web` → **Valid redirect URIs** must show `https://<WEB>/*`.
 
-Create ANUM users as on Render: realm **anum** → **Users** → **Add user**, attribute `tenant_id` (and optionally `default_workspace_id`), realm role `owner` for a tenant's first person, a temporary password sent out of band. At their first sign-in they set a new password and an authenticator app.
+Create ANUM users as on Render: realm **anum** → **Users** → **Add user**, attribute `tenant_id` (and optionally `default_workspace_id`), realm role `owner` for a tenant's first person, a temporary password sent out of band. At their first sign-in they set a new password and an authenticator app. Whoever may change the organization's policy (policy packs, role templates, approval rules, memory governance) also needs the realm role `org_admin`; nobody gets it by default ([Organization administrators](#organization-administrators)).
 
 ### Two-factor sign-in
 
@@ -259,6 +259,20 @@ It signs in to Keycloak as a master-realm admin: the bootstrap admin from `.env`
 What existing users see (for example `shahzeb`): after the password, a page "Mobile Authenticator Setup" with a QR code. Scan it with an authenticator app, enter the six-digit code, and the sign-in completes. From then on every password sign-in asks for a code. Add a passkey (phone, laptop fingerprint or a security key) or recovery codes in the account console, `https://<AUTH>/realms/anum/account` → Account security → Signing in; print or store the recovery codes in the password manager.
 
 **Someone lost their phone:** `bash ~/anum/infra/oracle/keycloak-2fa.sh reset-user <username>` (add `--temporary-admin` if your admin has OTP) removes their app and recovery codes and lifts a lockout; they set up a new app at the next sign-in. The same in the console, the break-glass path when you cannot reach the console yourself, and lost passkeys: [Identity: Resetting a user's second factor](identity.md#resetting-a-users-second-factor).
+
+### Organization administrators
+
+Changing tenant-wide policy (policy packs, role templates, organization approval rules, memory governance) needs the Keycloak realm role `org_admin`; owning a workspace is not enough ([Governance: Who may change what](governance-and-scale.md#who-may-change-what)). Nobody holds it until you assign it, and a realm created before the role existed does not even have it: Keycloak imports the realm only on its first start. Without it the Governance page is read-only and every change answers `403` with the instructions below.
+
+Give it to yourself (and to whoever else administers an organization), on the VM as `ubuntu`, no sudo:
+
+```bash
+bash ~/anum/infra/oracle/keycloak-2fa.sh grant-org-admin <your ANUM username>
+```
+
+It signs in to Keycloak exactly as the two-factor script does (add `--temporary-admin` if your master-realm admin has OTP), creates the `org_admin` role if the realm lacks it, and assigns it to that user of realm `anum`. The user must exist and have a `tenant_id` attribute; the role applies to that tenant only. Running it again changes nothing. Then sign out of ANUM and sign in again: the role is in the next token, not in the one an open session holds. Check who holds it with `keycloak-2fa.sh status`; `keycloak-2fa.sh ensure-roles` only creates missing roles (the plain `keycloak-2fa.sh` does that too). To take it away: admin console, realm **anum** → **Users** → the user → **Role mapping** → `org_admin` → **Unassign**. Details: [Identity: Organization administrators](identity.md#organization-administrators).
+
+It is never granted automatically, not even to the first owner: the role lets its holder change policy for every workspace of the tenant, and only you know who should have that. Instead, `update.sh` (and so `install.sh`) ends with a one-line `NOTICE` while realm `anum` has no `org_admin` role or nobody holds it (directly or through a group). It reads Keycloak's own tables in a read-only transaction as the PostgreSQL container's local superuser, so it needs no Keycloak admin; when Keycloak has not imported the realm yet (the first minute of a fresh install) or the query fails, it prints nothing. The query was written against Keycloak's documented table layout (`realm`, `keycloak_role`, `user_role_mapping`, `group_role_mapping`) and has not been run against a live Keycloak database.
 
 ## AI Model
 
@@ -376,6 +390,8 @@ cd ~/anum && sudo infra/oracle/update.sh
 `update.sh` runs `git pull --ff-only` (as the repository's owner), adds any new variables from `.env.example` to `.env` (generating new secrets, never touching existing values; it stops if a new owner value is needed), builds the images with fresh base images, starts PostgreSQL and Valkey, runs `db-init` and the migrations as one-shots (the running API keeps serving; a failed migration stops the update before anything is replaced), recreates what changed, waits for the API to be healthy, and prunes dangling images and old build cache. Migrations are expand/contract ([Migrations](deployment.md#migrations)), so going back means checking out the previous commit and running `update.sh --no-pull`; a rollback never reverses migrations.
 
 Before building, `update.sh` runs `configure_env.py --check`: duplicate or invalid host names, or a malformed admin allow-list, stop the update (a world-open allow-list is only a warning there, so a scheduled update never stops on it). The migrations are `alembic upgrade head` in the `migrate` one-shot as `anum_migrator`, run **before** any service is recreated; `update.sh` then prints the revision the database is at (for example `0018_conversations (head)`), and the API container also waits for `migrate` to have succeeded on every `docker compose up`. Run `bash infra/oracle/smoke.sh` after an update by hand.
+
+**Upgrading from a version before the `org_admin` role** (before the release that added organization administrators): after `update.sh`, policy packs, role templates, approval rules and memory governance are read-only for everyone, owners included, and `update.sh` ends with a `NOTICE` saying so. Run `bash ~/anum/infra/oracle/keycloak-2fa.sh grant-org-admin <your ANUM username>` once for your own user (and for anyone else who administers an organization), then sign out of ANUM and in again ([Organization administrators](#organization-administrators)).
 
 `ANUM_AUTO_UPDATE=true` in `.env` (then `install.sh` again) runs it daily at 04:05 UTC from `anum-update.timer`: convenient for staging; for production update by hand after staging has run the same commit. Check the last run with `journalctl -u anum-update --since today`.
 

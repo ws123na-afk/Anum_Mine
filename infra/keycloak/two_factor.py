@@ -187,6 +187,10 @@ class Kcadm:
     def create(self, path: str, body: Any) -> str:
         return self._run(["create", path, "-i"], body).strip()
 
+    def add(self, path: str, body: Any) -> None:
+        """POST without reading back an id (role mappings answer 204 with no Location)."""
+        self._run(["create", path], body)
+
     def update(self, path: str, body: Any) -> None:
         self._run(["update", path], body)
 

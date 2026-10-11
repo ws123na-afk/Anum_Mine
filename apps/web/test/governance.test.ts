@@ -107,6 +107,10 @@ describe('organization policy access', () => {
       assert.match(access.notice ?? '', /every workspace in this organization/);
       assert.match(access.notice ?? '', /organization administrator/);
       assert.match(access.notice ?? '', /Owning this workspace is not enough/);
+      // How to get the role, not just that it is missing (an upgraded realm may have nobody holding it).
+      assert.match(access.notice ?? '', /realm role org_admin/);
+      assert.match(access.notice ?? '', /keycloak-2fa\.sh grant-org-admin <your username>/);
+      assert.match(access.notice ?? '', /sign out and sign in again/);
     }
   });
 });

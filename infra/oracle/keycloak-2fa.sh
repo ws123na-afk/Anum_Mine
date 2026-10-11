@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Two-factor sign-in for the `anum` realm (docs/deploy-oracle.md#two-factor-sign-in,
-# docs/identity.md#two-factor-sign-in). Keycloak imports the realm only on its first
-# start, so this script is how a running server gets the change. Run it on the VM as the
-# user who ran install.sh (docker group, no sudo), from anywhere:
+# Two-factor sign-in and the ANUM realm roles for the `anum` realm
+# (docs/deploy-oracle.md#two-factor-sign-in, docs/deploy-oracle.md#organization-administrators).
+# Keycloak imports the realm only on its first start, so this script is how a running
+# server gets later realm changes. Run it on the VM as the user who ran install.sh
+# (docker group, no sudo), from anywhere:
 #
 #   keycloak-2fa.sh                      apply: bind the anum-browser-2fa flow, OTP and
-#                                        passkey policies, required actions (idempotent)
-#   keycloak-2fa.sh status               show the browser flow and the policies
+#                                        passkey policies, required actions, and create
+#                                        missing realm roles such as org_admin (idempotent)
+#   keycloak-2fa.sh status               show the browser flow, the policies and org_admin
 #   keycloak-2fa.sh reset-user <name>    remove a user's authenticator app and recovery
 #                                        codes and lift a sign-in lockout (they set up a
 #                                        new app at the next sign-in)
+#   keycloak-2fa.sh ensure-roles         create missing realm roles only (org_admin ...)
+#   keycloak-2fa.sh grant-org-admin <name>
+#                                        give that user the org_admin realm role: they
+#                                        may change tenant-wide policy for their tenant_id
 #
 #   --temporary-admin   sign in with a temporary master-realm service account created by
 #                       `kc.sh bootstrap-admin service` inside the container, deleted again
@@ -25,11 +31,12 @@ set -euo pipefail
 
 ORACLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TWO_FACTOR="$ORACLE_DIR/../keycloak/two_factor.py"
+REALM_ROLES="$ORACLE_DIR/../keycloak/realm_roles.py"
 ENV_FILE="$ORACLE_DIR/.env"
 dc() { docker compose --project-directory "$ORACLE_DIR" -f "$ORACLE_DIR/compose.yaml" "$@"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^'\(.*\)'$/\1/"; }
-usage() { sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 TEMPORARY_ADMIN=false
 ARGS=()
@@ -42,13 +49,14 @@ for argument in "$@"; do
 done
 ACTION="${ARGS[0]:-apply}"
 case "$ACTION" in
-  apply|status) [ "${#ARGS[@]}" -le 1 ] || usage ;;
-  reset-user) [ "${#ARGS[@]}" -eq 2 ] || usage; RESET_USERNAME="${ARGS[1]}" ;;
+  apply|status|ensure-roles) [ "${#ARGS[@]}" -le 1 ] || usage ;;
+  reset-user|grant-org-admin) [ "${#ARGS[@]}" -eq 2 ] || usage; TARGET_USERNAME="${ARGS[1]}" ;;
   *) usage ;;
 esac
 
 [ -r "$ENV_FILE" ] || die "cannot read $ENV_FILE; run this as the user who ran install.sh"
 [ -f "$TWO_FACTOR" ] || die "$TWO_FACTOR is missing; update the checkout (update.sh)"
+[ -f "$REALM_ROLES" ] || die "$REALM_ROLES is missing; update the checkout (update.sh)"
 command -v python3 >/dev/null || die "python3 is missing"
 AUTH_HOST="$(env_value ANUM_AUTH_HOST)"
 [ -n "$AUTH_HOST" ] || die "ANUM_AUTH_HOST is not set in $ENV_FILE"
@@ -117,9 +125,16 @@ fi
 case "$ACTION" in
   apply)
     python3 "$TWO_FACTOR" apply --rp-id "$AUTH_HOST" --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    python3 "$REALM_ROLES" ensure-roles --config "$KCADM_CONFIG" -- "${KCADM[@]}"
     echo
     python3 "$TWO_FACTOR" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    python3 "$REALM_ROLES" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
     ;;
-  status) python3 "$TWO_FACTOR" status --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;
-  reset-user) python3 "$TWO_FACTOR" reset-user --username "$RESET_USERNAME" --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;
+  status)
+    python3 "$TWO_FACTOR" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    python3 "$REALM_ROLES" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    ;;
+  reset-user) python3 "$TWO_FACTOR" reset-user --username "$TARGET_USERNAME" --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;
+  ensure-roles) python3 "$REALM_ROLES" ensure-roles --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;
+  grant-org-admin) python3 "$REALM_ROLES" grant-org-admin --username "$TARGET_USERNAME" --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;
 esac
