@@ -191,7 +191,7 @@ The scheme must be `postgresql+psycopg://` (the API's driver); a plain `postgres
 
 The cron job's `ANUM_DATABASE_URL` and `ANUM_SECRETS_KEY` are `fromService` references to `anum-api`. Render refreshes such a reference when the Blueprint syncs, not when the API's value changes in the Dashboard, so after this edit the cron job still holds the `pending` placeholder. Refresh it: Dashboard → **Blueprints** → `anum-staging` → **Manual Sync** (Render documents this button together with the Blueprint's **Auto Sync** setting; if your Blueprint page does not show it, use the fallback below). Then open `anum-voice-retention` → **Environment** and check that `ANUM_DATABASE_URL` is the `anum_app` URL; if it still is not, edit it there to the same value. Finally `anum-voice-retention` → **Trigger Run** once and check its **Logs**: a JSON report of counts, not a connection error.
 
-Watch `anum-api` → **Events** / **Logs**: the pre-deploy step prints `Running upgrade ... -> 0017_tasks_scope_created` (or the newest revision), then the new instance passes `/health` and takes traffic. If the pre-deploy step fails, the deploy is cancelled and the message names the problem (a missing `ANUM_MIGRATION_DATABASE_URL` stops it before Alembic runs).
+Watch `anum-api` → **Events** / **Logs**: the pre-deploy step prints `Running upgrade ... -> 0018_conversations` (or the newest revision), then the new instance passes `/health` and takes traffic. If the pre-deploy step fails, the deploy is cancelled and the message names the problem (a missing `ANUM_MIGRATION_DATABASE_URL` stops it before Alembic runs).
 
 Copy the passwords into your password manager if you have not, then close the PowerShell window.
 

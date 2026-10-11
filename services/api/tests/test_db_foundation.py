@@ -5,6 +5,8 @@ from anum_api.db.models import Base
 
 def test_tenant_scoped_tables_include_tenant_id() -> None:
     tenant_scoped_tables = {
+        "conversations",
+        "conversation_turns",
         "voice_sessions",
         "voice_transcript_segments",
         "automation_workflows",

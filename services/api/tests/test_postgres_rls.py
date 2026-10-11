@@ -25,6 +25,8 @@ pytestmark = pytest.mark.database
 TENANT_TABLES = {
     "retrieval_sources",
     "retrieval_chunks",
+    "conversations",
+    "conversation_turns",
     "voice_sessions",
     "voice_transcript_segments",
     "automation_workflows",

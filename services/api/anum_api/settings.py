@@ -63,6 +63,19 @@ class Settings(BaseSettings):
     model_retry_base_seconds: float = Field(default=0.5, ge=0)
     model_retry_max_seconds: float = Field(default=8.0, ge=0)
     model_retry_after_max_seconds: float = Field(default=30.0, ge=0)
+    # Upper bound on generated tokens per text call (``max_tokens``); conversational
+    # replies are short, and an unbounded reply is what makes a slow model feel hung.
+    # Structured (JSON) planning calls are not capped by it: a cut-off plan is invalid.
+    model_max_output_tokens: int = Field(default=1024, ge=16, le=32768)
+    # Streaming (chat, voice): each attempt must produce its first token within
+    # ``model_first_token_timeout_seconds``; the whole stream, retries included, ends
+    # after ``model_stream_timeout_seconds``. Nothing is retried once text has streamed.
+    model_first_token_timeout_seconds: float = Field(default=20.0, gt=0)
+    model_stream_timeout_seconds: float = Field(default=120.0, gt=0)
+    # Conversations (anum_api/conversations.py): how many earlier turns go back to the
+    # model with each question, and the character budget those turns may use.
+    conversation_history_turns: int = Field(default=12, ge=0, le=50)
+    conversation_history_chars: int = Field(default=24000, ge=1000, le=200000)
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))

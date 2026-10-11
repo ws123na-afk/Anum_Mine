@@ -66,6 +66,39 @@ class EmbeddingResponse(BaseModel):
 
 
 StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
+T = TypeVar("T")
+
+# One chat message as the OpenAI-compatible API takes it: {"role": ..., "content": ...}
+# with role "system", "user" or "assistant".
+ChatMessage = dict[str, str]
+UsageCallback = Callable[[ModelUsage], None]
+CHAT_ROLES = frozenset({"system", "user", "assistant"})
+
+
+class ModelStreamTimeout(httpx.TimeoutException):
+    """A stream produced no first token, or did not finish, within its time budget."""
+
+
+class ModelStreamError(RuntimeError):
+    """The provider reported an error inside an already-open stream."""
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token count (about four characters per token) for providers that do not
+    report stream usage; budgets are metered with it rather than not at all."""
+    return max(1, math.ceil(len(text) / 4)) if text else 0
+
+
+def validate_messages(messages: list[ChatMessage]) -> list[ChatMessage]:
+    if not messages:
+        raise ValueError("a chat needs at least one message")
+    clean: list[ChatMessage] = []
+    for message in messages:
+        role, content = message.get("role"), message.get("content")
+        if role not in CHAT_ROLES or not isinstance(content, str):
+            raise ValueError("chat messages need a system, user or assistant role and text content")
+        clean.append({"role": role, "content": content})
+    return clean
 
 # Deterministic local embedder (docs/memory.md#embeddings). Feature hashing of word
 # tokens into a fixed number of signed buckets, L2-normalised: no model server, no
@@ -118,6 +151,14 @@ class ModelGateway(Protocol):
 
     def stream_text(self, prompt: str) -> AsyncIterator[str]: ...
 
+    def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        *,
+        max_tokens: int | None = None,
+        on_usage: UsageCallback | None = None,
+    ) -> AsyncIterator[str]: ...
+
 
 class MockModelGateway:
     provider = "mock"
@@ -161,6 +202,36 @@ class MockModelGateway:
         response = await self.generate_text(prompt)
         for word in response.text.split():
             yield f"{word} "
+
+    async def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        *,
+        max_tokens: int | None = None,
+        on_usage: UsageCallback | None = None,
+    ) -> AsyncIterator[str]:
+        """A deterministic streamed reply that names the last user message."""
+        messages = validate_messages(messages)
+        question = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        words = question.split()
+        summary = " ".join(words[:18]) if words else "your message"
+        earlier = sum(1 for m in messages if m["role"] == "user") - 1
+        reply = f"Mock reply to: {summary}."
+        if earlier > 0:
+            reply += f" I can see {earlier} earlier question{'s' if earlier != 1 else ''} in this conversation."
+        reply += " Connect a model in Settings for real answers."
+        for index, word in enumerate(reply.split()):
+            yield word if index == 0 else f" {word}"
+        if on_usage is not None:
+            on_usage(
+                ModelUsage(
+                    input_tokens=sum(estimate_tokens(m["content"]) for m in messages),
+                    output_tokens=estimate_tokens(reply),
+                    provider=self.provider,
+                    model=self.model,
+                    estimated_cost_usd=0,
+                )
+            )
 
     async def embed(self, texts: list[str], *, model: str | None = None) -> EmbeddingResponse:
         """The mock provider embeds with the deterministic local embedder."""
@@ -278,6 +349,10 @@ class OpenAICompatibleGateway:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         jitter: Callable[[], float] = random.random,
         egress_guard: bool = False,
+        max_output_tokens: int | None = None,
+        first_token_timeout_seconds: float | None = None,
+        stream_timeout_seconds: float | None = None,
+        clock: Callable[[], float] = perf_counter,
     ) -> None:
         key = (api_key or "").strip()
         if require_api_key and not key:
@@ -296,6 +371,12 @@ class OpenAICompatibleGateway:
         # Workspace-configured endpoints go through the SSRF guard (model_egress.py);
         # the operator's ANUM_MODEL_BASE_URL default is trusted configuration.
         self.egress_guard = egress_guard
+        self.max_output_tokens = max_output_tokens or settings.model_max_output_tokens
+        self.first_token_timeout_seconds = (
+            first_token_timeout_seconds or settings.model_first_token_timeout_seconds
+        )
+        self.stream_timeout_seconds = stream_timeout_seconds or settings.model_stream_timeout_seconds
+        self._clock = clock
 
     def _new_client(self) -> httpx.AsyncClient:
         if self.egress_guard:
@@ -306,7 +387,11 @@ class OpenAICompatibleGateway:
         with model_call_span(self.provider, self.model, "generate_text"):
             payload, response, state, started = await self._complete(
                 "generate_text",
-                {"model": self.model, "messages": [{"role": "user", "content": prompt}]},
+                {
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": self.max_output_tokens,
+                },
             )
             choice = payload["choices"][0]
             normalized = self._normalize(
@@ -344,11 +429,56 @@ class OpenAICompatibleGateway:
         return response_model.model_validate_json(text), normalized
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
+        async for chunk in self.stream_chat([{"role": "user", "content": prompt}]):
+            yield chunk
+
+    async def _within(self, awaitable: Awaitable[T], until: float) -> T:
+        remaining = until - self._clock()
+        if remaining <= 0:
+            if asyncio.iscoroutine(awaitable):
+                awaitable.close()
+            raise ModelStreamTimeout("model stream timed out")
+        try:
+            return await asyncio.wait_for(awaitable, remaining)
+        except TimeoutError as exc:
+            raise ModelStreamTimeout("model stream timed out") from exc
+
+    async def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        *,
+        max_tokens: int | None = None,
+        on_usage: UsageCallback | None = None,
+    ) -> AsyncIterator[str]:
+        """Stream a chat completion (``stream: true`` server-sent events).
+
+        Each attempt must deliver its first token within ``first_token_timeout_seconds``
+        and the whole call (retries included) ends after ``stream_timeout_seconds``.
+        Failures before the first token follow the retry policy; once text reached the
+        caller nothing is retried, because a retry would repeat it. Closing the iterator
+        (the client went away) closes the provider connection, which stops generation.
+
+        ``on_usage`` receives the call's usage once: the provider's own figures when it
+        reports them (``stream_options.include_usage``), else an estimate from the text,
+        also when the stream fails or is closed after text was produced.
+        """
+        messages = validate_messages(messages)
+        body: dict[str, object] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            "max_tokens": max_tokens or self.max_output_tokens,
+        }
         client = self._client or self._new_client()
         owns_client = self._client is None
         state = _CallState()
-        started = perf_counter()
-        yielded = False
+        log_started = perf_counter()
+        deadline = self._clock() + self.stream_timeout_seconds
+        produced: list[str] = []
+        usage: ModelUsage | None = None
+        reported_model = self.model
+        finished = False
         # Not made current: an async generator resumes in its consumer's context, so a
         # current span would leak into (or be detached from) unrelated code.
         span = telemetry.tracer.start_span(
@@ -366,60 +496,114 @@ class OpenAICompatibleGateway:
             while True:
                 state.attempts += 1
                 delay: float | None = None
+                first_deadline = min(self._clock() + self.first_token_timeout_seconds, deadline)
+                response: httpx.Response | None = None
                 try:
-                    async with client.stream(
-                        "POST",
-                        f"{self.base_url}/chat/completions",
-                        headers=self._headers,
-                        json={
-                            "model": self.model,
-                            "messages": [{"role": "user", "content": prompt}],
-                            "stream": True,
-                        },
-                    ) as response:
-                        state.http_status = response.status_code
-                        if is_retryable_status(response.status_code):
-                            delay = self.retry_policy.delay_before_retry(
-                                state.attempts,
-                                parse_retry_after(response.headers.get("retry-after")),
-                                self._jitter,
+                    request = client.build_request(
+                        "POST", f"{self.base_url}/chat/completions", headers=self._headers, json=body
+                    )
+                    response = await self._within(client.send(request, stream=True), first_deadline)
+                    state.http_status = response.status_code
+                    if is_retryable_status(response.status_code):
+                        delay = self.retry_policy.delay_before_retry(
+                            state.attempts,
+                            parse_retry_after(response.headers.get("retry-after")),
+                            self._jitter,
+                        )
+                    if delay is None:
+                        response.raise_for_status()
+                        lines = response.aiter_lines()
+                        while True:
+                            line = await self._within(
+                                anext(lines, None), deadline if produced else first_deadline
                             )
-                        if delay is None:
-                            response.raise_for_status()
-                            async for line in response.aiter_lines():
-                                if not line.startswith("data: ") or line == "data: [DONE]":
-                                    continue
-                                data = json.loads(line[6:])
-                                content = data["choices"][0].get("delta", {}).get("content")
+                            if line is None:
+                                break
+                            line = line.strip()
+                            if not line.startswith("data:"):
+                                continue
+                            data_text = line[5:].strip()
+                            if data_text == "[DONE]":
+                                break
+                            data = json.loads(data_text)
+                            if not isinstance(data, dict):
+                                continue
+                            if data.get("error"):
+                                raise ModelStreamError("model provider reported a stream error")
+                            reported_model = data.get("model") or reported_model
+                            if data.get("usage"):
+                                usage = self._stream_usage(data["usage"], reported_model)
+                            for choice in data.get("choices") or []:
+                                content = (choice.get("delta") or {}).get("content")
                                 if content:
-                                    yielded = True
+                                    produced.append(content)
                                     yield content
-                            self._log_call("stream_text", started, state, "ok", span=span)
-                            return
+                        finished = True
+                        usage = usage or self._estimated_usage(messages, produced, reported_model)
+                        self._log_call("stream_text", log_started, state, "ok", usage=usage, span=span)
+                        return
                 except _RETRYABLE_EXCEPTIONS as exc:
                     # Once text reached the caller a retry would duplicate it.
                     delay = (
                         None
-                        if yielded
+                        if produced
                         else self.retry_policy.delay_before_retry(state.attempts, None, self._jitter)
                     )
+                    if delay is not None and self._clock() + delay >= deadline:
+                        delay = None
                     if delay is None:
-                        self._log_call(
-                            "stream_text", started, state, "error", error=exc, span=span
-                        )
+                        self._log_call("stream_text", log_started, state, "error", error=exc, span=span)
                         raise
                     self._log_retry("stream_text", state, type(exc).__name__, delay)
                     await self._sleep(delay)
                     continue
                 except Exception as exc:
-                    self._log_call("stream_text", started, state, "error", error=exc, span=span)
+                    self._log_call("stream_text", log_started, state, "error", error=exc, span=span)
                     raise
+                finally:
+                    if response is not None:
+                        await response.aclose()
+                if self._clock() + delay >= deadline:
+                    timeout = ModelStreamTimeout("model stream timed out")
+                    self._log_call("stream_text", log_started, state, "error", error=timeout, span=span)
+                    raise timeout
                 self._log_retry("stream_text", state, f"http_{state.http_status}", delay)
                 await self._sleep(delay)
         finally:
             span.end()
+            if on_usage is not None and (finished or produced):
+                try:
+                    on_usage(usage or self._estimated_usage(messages, produced, reported_model))
+                except Exception as exc:  # metering never breaks the caller's stream
+                    logger.warning("model_stream_usage_failed error_class=%s", type(exc).__name__)
             if owns_client:
                 await client.aclose()
+
+    def _stream_usage(self, payload: Mapping[str, Any], model: str) -> ModelUsage:
+        input_tokens = int(payload.get("prompt_tokens") or payload.get("input_tokens") or 0)
+        output_tokens = int(payload.get("completion_tokens") or payload.get("output_tokens") or 0)
+        return ModelUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            provider=self.provider,
+            model=model,
+            estimated_cost_usd=estimate_cost_usd(
+                self.provider, model, input_tokens, output_tokens, self.prices
+            ),
+        )
+
+    def _estimated_usage(self, messages: list[ChatMessage], produced: list[str], model: str) -> ModelUsage:
+        input_tokens = sum(estimate_tokens(m["content"]) for m in messages)
+        output_tokens = estimate_tokens("".join(produced))
+        return ModelUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            provider=self.provider,
+            model=model,
+            estimated_cost_usd=estimate_cost_usd(
+                self.provider, model, input_tokens, output_tokens, self.prices
+            ),
+        )
 
     @property
     def default_embedding_model(self) -> str:

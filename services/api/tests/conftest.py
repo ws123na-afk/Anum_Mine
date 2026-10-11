@@ -32,6 +32,8 @@ WORKSPACE_B = "workspace_test_b"
 TABLES_IN_DELETE_ORDER = (
     "retrieval_chunks",
     "retrieval_sources",
+    "conversation_turns",
+    "conversations",
     "voice_transcript_segments",
     "voice_sessions",
     "automation_runs",

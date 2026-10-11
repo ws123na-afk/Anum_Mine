@@ -289,3 +289,68 @@ def test_permanent_transcript_outlives_completion() -> None:
     assert [item["text"] for item in client.get(
         f"/api/v1/voice/sessions/{session_id}/transcript", headers=headers
     ).json()] == ["remember the dentist"]
+
+
+def _stream_ask(session_id: str, text: str, sequence: int) -> list[tuple[str, dict]]:
+    import json
+
+    segment_id = client.post(
+        f"/api/v1/voice/sessions/{session_id}/transcript",
+        headers=headers,
+        json={"text": text, "is_final": True, "client_sequence": sequence},
+    ).json()["id"]
+    response = client.post(
+        f"/api/v1/voice/sessions/{session_id}/ask/stream",
+        headers=headers,
+        json={"transcript_segment_id": segment_id},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    frames = []
+    for frame in response.text.strip().split("\n\n"):
+        lines = dict(line.split(": ", 1) for line in frame.splitlines())
+        frames.append((lines["event"], json.loads(lines["data"])))
+    return frames
+
+
+def test_streamed_ask_keeps_intents_and_stores_the_reply() -> None:
+    session_id = client.post("/api/v1/voice/sessions", headers=headers, json={}).json()["id"]
+    frames = _stream_ask(session_id, "Approve all pending actions", 0)
+    assert [kind for kind, _ in frames] == ["meta", "delta", "done"]
+    assert frames[0][1]["risk_tier"] == "visual_only"
+    reply = frames[1][1]["text"]
+    assert frames[2][1]["assistant_segment"]["text"] == reply
+
+    frames = _stream_ask(session_id, "Why is the sky blue?", 1)
+    assert frames[0][1]["intent"] == "question"
+    assert "connect a free local model" in "".join(d["text"] for k, d in frames if k == "delta")
+    transcript = client.get(f"/api/v1/voice/sessions/{session_id}/transcript", headers=headers).json()
+    assert [item["role"] for item in transcript] == ["user", "assistant", "user", "assistant"]
+
+
+def test_streamed_ask_sends_recent_spoken_turns_to_the_model() -> None:
+    from anum_api.voice import voice_model_gateway
+
+    seen: list[list[dict[str, str]]] = []
+
+    class RecordingGateway:
+        provider = "test"
+
+        async def stream_chat(self, messages, *, max_tokens=None, on_usage=None):  # type: ignore[no-untyped-def]
+            seen.append(messages)
+            assert max_tokens == 400
+            yield "It is "
+            yield "Rayleigh scattering."
+
+    app.dependency_overrides[voice_model_gateway] = lambda: RecordingGateway()
+    try:
+        session_id = client.post("/api/v1/voice/sessions", headers=headers, json={}).json()["id"]
+        _stream_ask(session_id, "Why is the sky blue?", 0)
+        frames = _stream_ask(session_id, "And at sunset?", 1)
+    finally:
+        app.dependency_overrides.clear()
+    assert "".join(d["text"] for k, d in frames if k == "delta") == "It is Rayleigh scattering."
+    roles = [m["role"] for m in seen[1]]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert "Why is the sky blue?" in seen[1][1]["content"]
+    assert "And at sunset?" in seen[1][-1]["content"]

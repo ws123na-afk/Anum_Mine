@@ -14,14 +14,18 @@ tables under tenant, workspace and user RLS (migration 0009,
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+import logging
+from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from threading import RLock
 from typing import Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .authorization import Permission
@@ -33,7 +37,9 @@ from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
+from .sse import SSE_HEADERS, sse
 from .voice_assistant import (
+    MAX_REPLY_CHARS,
     SMALL_TALK,
     VoiceIntent,
     VoiceRiskTier,
@@ -41,14 +47,20 @@ from .voice_assistant import (
     answer_question,
     classify,
     confirm_reply,
+    mock_answer,
     snapshot,
+    voice_messages,
     status_reply,
     small_talk_reply,
     strip_wake_word,
     visual_only_reply,
 )
 
+logger = logging.getLogger("anum.voice")
+
 MAX_ASKS_PER_SESSION = 60
+# Spoken replies are two or three sentences; the cap keeps a slow model from rambling.
+VOICE_MAX_TOKENS = 400
 TRANSCRIPT_RETENTION_DAYS = 30
 
 
@@ -435,12 +447,61 @@ async def ask_voice_assistant(
     gateway: ModelGateway = Depends(voice_model_gateway),
 ) -> VoiceAskResult:
     """Answer a spoken question. Read-only: it never changes tasks or approvals."""
+    asked = _prepare_ask(session_id, payload, context, repository)
+    reply = asked.reply
+    if reply is None:
+        try:
+            reply = await answer_question(gateway, asked.text, asked.facts, asked.name, asked.arabic)
+        except ModelBudgetExceededError as exc:
+            # Said aloud instead of an error: the monthly model budget is used up.
+            reply = exc.spoken(asked.arabic)
+
+    assistant_segment = _store_voice_reply(context, session_id, reply, asked.segment.client_sequence)
+    if assistant_segment is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
+    return VoiceAskResult(
+        intent=asked.intent,
+        risk_tier=asked.tier,
+        reply=reply,
+        proposed_task=asked.proposal,
+        workspace=asked.facts,
+        assistant_segment=assistant_segment,
+    )
+
+
+@dataclass
+class _PreparedAsk:
+    session: VoiceSession
+    segment: TranscriptSegment
+    history: list[tuple[str, str]]
+    facts: WorkspaceSnapshot
+    text: str
+    name: str
+    arabic: bool
+    intent: VoiceIntent
+    tier: VoiceRiskTier
+    proposal: str | None
+    # A fixed reply (status, small talk, refusals); None when the model must answer.
+    reply: str | None
+
+
+def _prepare_ask(
+    session_id: str,
+    payload: VoiceAskCreate,
+    context: TenantContext,
+    repository: AnumRepository,
+) -> _PreparedAsk:
     require_permission(context, Permission.TASK_READ)
     # No transaction stays open while the model answers: the checks and the counter
     # commit first, the reply is stored in a second unit of work.
     with open_voice_store(context) as store:
         session = _session_or_404(store, session_id, context, active=True)
         segment = _final_user_segment(store, session, payload.transcript_segment_id)
+        history = [
+            (item.role.value, item.text)
+            for item in store.list_transcript(session)
+            if item.is_final and item.client_sequence < segment.client_sequence
+        ]
         # Atomic per-session counter (a single UPDATE in PostgreSQL), shared by replicas.
         asked = store.count_ask(session.id)
     if asked > MAX_ASKS_PER_SESSION:
@@ -454,34 +515,108 @@ async def ask_voice_assistant(
     )
     text = strip_wake_word(segment.text, name)
     intent, proposal = classify(text, name)
+    reply: str | None = None
+    tier = VoiceRiskTier.READ
     if intent == VoiceIntent.VISUAL_ONLY:
         tier, reply = VoiceRiskTier.VISUAL_ONLY, visual_only_reply(arabic)
     elif intent == VoiceIntent.CREATE_TASK:
         tier, reply = VoiceRiskTier.CONFIRM, confirm_reply(proposal, arabic)
     elif intent == VoiceIntent.STATUS:
-        tier, reply = VoiceRiskTier.READ, status_reply(facts, arabic)
+        reply = status_reply(facts, arabic)
     elif intent in SMALL_TALK:
-        tier, reply = VoiceRiskTier.READ, small_talk_reply(intent, name, facts, arabic)
-    else:
-        try:
-            reply = await answer_question(gateway, text, facts, name, arabic)
-        except ModelBudgetExceededError as exc:
-            # Said aloud instead of an error: the monthly model budget is used up.
-            reply = exc.spoken(arabic)
-        tier = VoiceRiskTier.READ
-
-    with open_voice_store(context) as store:
-        # Closed while the model was answering: a session-only transcript is already
-        # erased, so the reply must not be written back into it.
-        session = _session_or_404(store, session_id, context, active=True, lock=True)
-        assistant_segment = store.add_assistant_reply(session, reply, segment.client_sequence)
-    return VoiceAskResult(
+        reply = small_talk_reply(intent, name, facts, arabic)
+    return _PreparedAsk(
+        session=session,
+        segment=segment,
+        history=history,
+        facts=facts,
+        text=text,
+        name=name,
+        arabic=arabic,
         intent=intent,
-        risk_tier=tier,
+        tier=tier,
+        proposal=proposal,
         reply=reply,
-        proposed_task=proposal,
-        workspace=facts,
-        assistant_segment=assistant_segment,
+    )
+
+
+def _store_voice_reply(
+    context: TenantContext, session_id: str, reply: str, sequence: int
+) -> TranscriptSegment | None:
+    """Store the reply in its own unit of work; None when the session closed meanwhile
+    (a session-only transcript is already erased, so nothing is written back)."""
+    with open_voice_store(context) as store:
+        session = store.get_session(session_id, context, lock=True)
+        if session is None or session.status != VoiceSessionStatus.ACTIVE:
+            return None
+        return store.add_assistant_reply(session, reply, sequence)
+
+
+@router.post("/sessions/{session_id}/ask/stream")
+async def stream_voice_assistant(
+    session_id: str,
+    payload: VoiceAskCreate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+    gateway: ModelGateway = Depends(voice_model_gateway),
+) -> StreamingResponse:
+    """The same answer as ``/ask``, streamed as server-sent events so speech can start
+    with the first sentence: ``meta`` (intent, risk tier, proposal, workspace), ``delta``
+    (reply text), then ``done`` (the stored assistant segment). Read-only, like ``/ask``.
+
+    The body reads nothing through the request's repository session: everything it
+    needs is gathered before the response starts and the reply is stored in its own
+    unit of work (a partial reply too, when the client stops listening).
+    """
+    asked = _prepare_ask(session_id, payload, context, repository)
+    sequence = asked.segment.client_sequence
+
+    async def body() -> AsyncIterator[str]:
+        yield sse(
+            "meta",
+            {
+                "intent": asked.intent.value,
+                "risk_tier": asked.tier.value,
+                "proposed_task": asked.proposal,
+                "workspace": asked.facts.model_dump(mode="json"),
+            },
+        )
+        fixed = asked.reply
+        if fixed is None and getattr(gateway, "provider", "") == "mock":
+            fixed = mock_answer(asked.facts, asked.arabic)
+        parts: list[str] = []
+        if fixed is not None:
+            parts.append(fixed)
+            yield sse("delta", {"text": fixed})
+        else:
+            try:
+                messages = voice_messages(asked.text, asked.facts, asked.name, asked.history)
+                async for chunk in gateway.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS):
+                    room = MAX_REPLY_CHARS - sum(len(part) for part in parts)
+                    if room <= 0:
+                        break
+                    parts.append(chunk[:room])
+                    yield sse("delta", {"text": chunk[:room]})
+            except (asyncio.CancelledError, GeneratorExit):
+                if parts:
+                    _store_voice_reply(context, session_id, "".join(parts).strip(), sequence)
+                raise
+            except ModelBudgetExceededError as exc:
+                spoken = exc.spoken(asked.arabic)
+                parts.append(spoken)
+                yield sse("delta", {"text": spoken})
+            except Exception as exc:  # only the class name is logged
+                logger.warning("voice_stream_failed error_class=%s", type(exc).__name__)
+                if not parts:
+                    yield sse("error", {"code": "model_unavailable", "message": "I could not answer. Try again in a moment."})
+                    return
+        segment = _store_voice_reply(context, session_id, "".join(parts).strip(), sequence)
+        yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None})
+
+    return StreamingResponse(
+        body(),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
     )
 
 

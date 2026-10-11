@@ -40,7 +40,15 @@ from pydantic import BaseModel, Field
 from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
-from .model_gateway import EmbeddingResponse, ModelGateway, ModelResponse, ModelUsage, StructuredModel
+from .model_gateway import (
+    ChatMessage,
+    EmbeddingResponse,
+    ModelGateway,
+    ModelResponse,
+    ModelUsage,
+    StructuredModel,
+    UsageCallback,
+)
 from .repository import AnumRepository
 from .schemas import TenantContext, new_id
 from .scoped_store import open_scoped_store
@@ -431,9 +439,26 @@ class BudgetedModelGateway:
         return response
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
-        # Checked, but not metered: the gateway does not report usage for streams yet.
+        async for chunk in self.stream_chat([{"role": "user", "content": prompt}]):
+            yield chunk
+
+    async def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        *,
+        max_tokens: int | None = None,
+        on_usage: UsageCallback | None = None,
+    ) -> AsyncIterator[str]:
+        """Checked before the call; metered with the stream's usage when it ends (the
+        provider's figures, or an estimate when it reports none or the stream stopped)."""
         check_model_budget(self.context, now=self._clock())
-        async for chunk in self.inner.stream_text(prompt):
+
+        def record(usage: ModelUsage) -> None:
+            self._record(ModelResponse(text="", usage=usage))
+            if on_usage is not None:
+                on_usage(usage)
+
+        async for chunk in self.inner.stream_chat(messages, max_tokens=max_tokens, on_usage=record):
             yield chunk
 
 
