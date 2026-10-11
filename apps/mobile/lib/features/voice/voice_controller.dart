@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/sse.dart';
+import '../developer/developer_assist.dart';
 import 'sentences.dart';
 import 'speech_service.dart';
 import 'voice_models.dart';
@@ -29,6 +30,11 @@ class VoiceController extends ChangeNotifier {
   final VoiceRepository repository;
   final SpeechService speech;
   final VoicePreferences preferences;
+
+  /// Developer mode by voice (docs/developer-mode.md): "developer, ..." is
+  /// answered here with "Start?" and never reaches the voice API. It never
+  /// merges: "approve" only opens the approval with its hash on screen.
+  DeveloperAssist? developer;
 
   /// Pause between background listening sessions while waiting for the name.
   final Duration restartDelay;
@@ -256,6 +262,22 @@ class VoiceController extends ChangeNotifier {
           id: 'you_${_turnCounter++}', speaker: VoiceSpeaker.you, text: clean),
     ];
     _notify();
+    final developer = this.developer;
+    if (developer != null) {
+      String? local;
+      try {
+        local = await developer.intercept(clean);
+      } on Object {
+        local = null;
+      }
+      if (_disposed) return;
+      if (local != null) {
+        state = VoiceState.idle;
+        // A question ("Start?") is answered without saying the name again.
+        await sayLocal(local, listenAfter: developer.awaitingAnswer);
+        return;
+      }
+    }
     try {
       final active = await _ensureSession();
       final segment = await repository.appendFinalTranscript(
@@ -449,6 +471,49 @@ class VoiceController extends ChangeNotifier {
       }
       if (speakToken == _speakToken) await _interruptSpeaking();
       rethrow;
+    }
+  }
+
+  /// Shows and speaks a reply that did not come from the voice API (the
+  /// developer's questions and announcements). While the user is talking or
+  /// waiting for an answer it is only shown. With [listenAfter] it listens
+  /// once for the answer without the name.
+  Future<void> sayLocal(String text, {bool listenAfter = false}) async {
+    if (_disposed || text.trim().isEmpty) return;
+    turns = [
+      ...turns,
+      VoiceTurn(
+          id: 'local_${_turnCounter++}',
+          speaker: VoiceSpeaker.assistant,
+          text: text),
+    ];
+    if (state != VoiceState.idle || muted || !_visible) {
+      _notify();
+      if (state == VoiceState.idle) _maybeListenForWake();
+      return;
+    }
+    if (wakeListening) {
+      _invalidateListening();
+      await speech.cancel();
+    }
+    state = VoiceState.speaking;
+    _notify();
+    final token = ++_speakToken;
+    try {
+      await speech.speak(text, locale).timeout(
+          Duration(milliseconds: math.min(30000, 4000 + text.length * 80)));
+    } on Object {
+      // Speaking is best effort; the reply is on screen.
+    }
+    if (_disposed || token != _speakToken || state != VoiceState.speaking) {
+      return;
+    }
+    state = VoiceState.idle;
+    _notify();
+    if (listenAfter && wakeEnabled && _visible) {
+      await startCapture(followUp: true);
+    } else {
+      _maybeListenForWake();
     }
   }
 

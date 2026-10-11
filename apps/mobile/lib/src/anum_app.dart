@@ -10,6 +10,9 @@ import '../features/auth/auth_screens.dart';
 import '../features/auth/oidc.dart';
 import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_repository.dart';
+import '../features/developer/developer_assist.dart';
+import '../features/developer/developer_controller.dart';
+import '../features/developer/developer_repository.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/workspace/destinations.dart';
 import '../features/workspace/workspace_controller.dart';
@@ -41,6 +44,7 @@ abstract final class AnumRoutes {
   static const automations = '/automations';
   static const files = '/files';
   static const voice = '/voice';
+  static const developer = '/developer';
 }
 
 /// Why [apiUrl] cannot be used by a release build, or null when it can.
@@ -69,6 +73,9 @@ class _AnumAppState extends State<AnumApp> {
   late final SettingsController settings;
   late final GovernanceController governance;
   late final LocaleController locale;
+  late final DeveloperController developer;
+  late final DeveloperAssist chatDeveloper;
+  late final DeveloperAssist voiceDeveloper;
 
   /// Set when the build's configuration is unsafe; the app then shows only
   /// this message and creates no clients.
@@ -124,6 +131,20 @@ class _AnumAppState extends State<AnumApp> {
       auditExporter: HttpAuditExporter(
           baseUri: Uri.parse(configuredUrl), sessions: sessions),
     ));
+    // Developer mode (docs/developer-mode.md): the screen, plus "build ..." in
+    // the Assistant and "developer, ..." by voice. The role is checked once.
+    final developerRepository = ApiDeveloperRepository(api);
+    developer = DeveloperController(developerRepository);
+    chatDeveloper = DeveloperAssist(
+        repository: developerRepository,
+        source: 'text',
+        isOwner: developer.ensureOwner);
+    voiceDeveloper = DeveloperAssist(
+        repository: developerRepository,
+        source: 'voice',
+        isOwner: developer.ensureOwner);
+    voiceDeveloper.announce = (text) => voice.sayLocal(text);
+    voice.developer = voiceDeveloper;
     locale = LocaleController()..restore();
     auth.addListener(_onAuthChanged);
     auth.restore();
@@ -137,6 +158,9 @@ class _AnumAppState extends State<AnumApp> {
       workspace.currentUserId = null;
       // The next person to sign in never sees these conversations.
       chat.reset();
+      developer.reset();
+      chatDeveloper.reset();
+      voiceDeveloper.reset();
     }
     if (auth.phase == AuthPhase.ready && workspace.currentUserId == null) {
       _rememberUser();
@@ -166,6 +190,9 @@ class _AnumAppState extends State<AnumApp> {
     voice.dispose();
     settings.dispose();
     governance.dispose();
+    developer.dispose();
+    chatDeveloper.dispose();
+    voiceDeveloper.dispose();
     locale.dispose();
     super.dispose();
   }
@@ -219,6 +246,8 @@ class _AnumAppState extends State<AnumApp> {
                       settingsController: settings,
                       governanceController: governance,
                       localeController: locale,
+                      developerController: developer,
+                      chatDeveloper: chatDeveloper,
                       workspaceName: auth.workspaceName,
                     )
                   : AuthFlow(controller: auth),
@@ -244,6 +273,7 @@ class _AnumAppState extends State<AnumApp> {
       AnumRoutes.approvals => WorkspaceDestination.approvals,
       AnumRoutes.automations => WorkspaceDestination.automations,
       AnumRoutes.files => WorkspaceDestination.resources,
+      AnumRoutes.developer => WorkspaceDestination.developer,
       _ => null,
     };
     if (index != null) {
@@ -275,6 +305,8 @@ class _AnumAppState extends State<AnumApp> {
         settingsController: settings,
         governanceController: governance,
         localeController: locale,
+        developerController: developer,
+        chatDeveloper: chatDeveloper,
         workspaceName: auth.workspaceName,
         initialIndex: index,
       );

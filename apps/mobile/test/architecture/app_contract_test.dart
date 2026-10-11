@@ -23,6 +23,7 @@ void main() {
       '/approvals',
       '/automations',
       '/files',
+      '/developer',
     ]) {
       expect(source, contains(route), reason: 'Missing required route $route');
     }

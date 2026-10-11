@@ -48,6 +48,10 @@ A request never returns to `queued` or `coding` once it left them (a pull reques
 - **Web:** the Developer view (owners only; hidden in the navigation for everyone else, and an explanation if opened by link) lists requests with the status timeline, pull request and run links, CI summary, Approve & merge (opens the approval with its payload hash, then Confirm merge), Cancel, search and paging. It shows the setup state with the missing setting names, and an empty state with example requests. It refreshes every 20 s while something is moving.
 - **Chat:** the Assistant intercepts developer commands before they reach the model and shows the confirmation card.
 - **Voice:** the same commands, confirmed by "yes"/"start". When a pull request becomes ready ANUM says "The change is ready for review: …. Say approve to merge." Saying "approve" opens the merge approval with its hash on screen; the merge still needs a tap on Confirm merge. Voice never approves by itself.
+- **Flutter (Android, iOS, tablets):** the same three surfaces, over the same routes ([Mobile](mobile.md#developer-mode)).
+  - *Developer screen* (`lib/features/developer/`): listed in the navigation only for an active owner (`GET /api/v1/workspace-memberships/current` says `owner`; last in the rail, under More on phones); a deep link (`/developer`) for anyone else, or a `403` from the API, explains what it is and who can use it. It shows the setup state with the missing setting names (never values), the request form (the protected-topics tick, today's use, one request at a time), search (`q`) and keyset paging (Load older requests), and an empty state with example requests. A request opens a detail page with the timeline, the one-line summary, the CI summary, failure and merge errors, Pull request and Coding run links (opened in the browser through `url_launcher`; only `https` links), Check now, Cancel (after a confirmation) and Approve & merge. Approve & merge only calls `merge-approval` and shows the approval: tool, arguments, target and the full payload hash; the merge happens only on Confirm merge, which sends `POST /api/v1/approvals/{id}/approve` with `{"payload_hash": …}` exactly as the Approvals screen does, then refreshes the request. It refreshes every 20 s while something is moving and every 60 s while a merge waits, only while it is on screen.
+  - *Assistant:* the composer sends "build …", "developer, …" and "Anum build …" to developer mode instead of the model and shows the "Start?" card above the composer (Start or Cancel). Non-owners get the polite refusal; nothing is sent.
+  - *Voice:* the answer to "Start?" is spoken and, with wake by name on, the app listens once for "yes"/"no" without the name. A ready pull request is announced while Voice is on screen; "approve" opens the approval with its payload hash on screen, and only a tap on Confirm merge approves it.
 
 ## Setup (one time, owner)
 
@@ -86,6 +90,5 @@ Missing or invalid settings never stop the API; the Developer view shows the set
 
 ## Not covered yet
 
-- The Flutter app has no Developer screen; owners use the web app or voice there.
 - Requests started from GitHub issues are not tracked in ANUM.
 - Deploy after merge is the repository's existing pipeline; ANUM does not report deploy progress.

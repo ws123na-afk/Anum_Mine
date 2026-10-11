@@ -23,6 +23,7 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 - A wake-by-name voice assistant with a 3D orb, and Home, Tasks, Approvals, Automations, Resources and Governance screens that show only live workspace data, with honest empty states instead of samples. The Governance (Organization) screen reads `can_manage_organization_policy` from `GET /organization/governance`: without it, policy packs and routing targets are shown read-only with a notice that only an organization administrator can change them, and package installs stay with workspace owners ([Governance](governance-and-scale.md#who-may-change-what)).
 - Owner screens under Settings › Workspace administration: members and invitations (roles, deactivation, a one-time invitation token with copy, plus the web invitation link when `ANUM_WEB_APP_URL` is defined), accepting an invitation by token or link, monthly model budgets with usage, and the workspace approval policy (two-person rule, approval for medium risk); non-owners see the API's `403` explanation, workspace owners who are not organization administrators see the organization budget read-only (`can_manage_tenant_budget`), and members see the approval policy read-only ([Identity](identity.md#client-screens), [Model gateway](model-gateway.md#monthly-budgets), [Approvals and risk](approvals-and-risk.md#policy-screens)). Each of these screens owns its controller and disposes it when closed. A task run refused for a used-up budget (`402`) shows the budget message on Tasks; an approval refused with `403` (for example the two-person rule) shows the API's sentence on that approval's card.
 - Settings › Chat memory: the user's own **Remember things from my chats** switch (saved at once; a failed save keeps the previous choice and says why), what the current state means and who can change it when it is off for the server, the organization or the role, and **Delete memories from my chats** behind a confirmation ([Memory](memory.md#per-user-switch)).
+- **Developer mode** for owners ([Developer mode](developer-mode.md#clients)), at parity with the web; see [Developer mode](#developer-mode) below.
 - Loading, empty, error, offline, permission-denied, expired-session, and responsive phone/tablet components.
 - Widget and architecture tests for compact layout, accessibility semantics, route coverage, and embedded-secret detection.
 
@@ -84,7 +85,19 @@ and `tool/configure_native.dart` applies everything ANUM changes, idempotently:
 
 To regenerate (for example after a Flutter template change), delete the folders, run the two commands above, and commit the result. `test/configure_native_test.dart` fails when a committed file differs from what the tool would write, so hand edits to these files belong in the tool. Build outputs, `local.properties`, Gradle wrapper binaries, generated plugin registrants, keystores, `key.properties`, `google-services.json` and `GoogleService-Info.plist` are gitignored.
 
+## Developer mode
+
+`lib/features/developer/` implements [Developer mode](developer-mode.md) over the same `/api/v1/developer` routes as the web:
+
+- `DeveloperController` checks the caller's role once per workspace (`GET /api/v1/workspace-memberships/current`; it checks again after a workspace switch) and drives the Developer screen: setup, the request list (20 per page, `before` paging, `q` search), create, Check now, Cancel, Approve & merge and Confirm merge. `WorkspaceHome` lists Developer (`WorkspaceDestination.developer`, last, so the other positions never move) only for an owner; `/developer` opens it by link, where anyone else gets the explanation.
+- `DeveloperAssist` is the chat and voice side (one instance each, `source` `text` and `voice`): it intercepts the developer commands, asks "I'll ask the developer to: … Start?", refuses non-owners, polls while its screen is on screen and announces ready pull requests. "approve" only opens the merge approval; `confirmMerge` (a tap) is the only call that approves. `VoiceController.developer` and `VoiceController.sayLocal` speak these replies and listen once for the answer.
+- Every state is covered: checking the role, owner-only (and `403`), role check failed, loading, load failed with Try again, setup incomplete with the setting names, empty with example requests, no search matches with Clear search, a failed refresh that keeps the list, `402` with Open Settings, `409`/`429`/`422`/`502` with the API's sentence, a refused merge (two-person rule) and a link that cannot be opened.
+- Tests: `test/developer/` covers the helpers, the controller, the chat and voice confirmation flows (voice never approves), the navigation (owners only, More on phones, Arabic label, deep link), and layouts at 320x568, 390x844, 768x1024, 1024x768 and 1440x900, at 200 percent text and right to left, including the open merge approval and the confirmation card in the Assistant and Voice.
+- Making the voice header and the Assistant's notices fit a short phone at 200 percent text (the voice controls wrap under the name; the notices, including the developer card, get only the height the header and composer leave) came with this change.
+
 ## Dependencies
+
+`url_launcher` opens pull request and run links in the browser. `url_launcher_android` is held at 6.3.29, the last release written in Java: 6.3.30 and later rely on AGP 9 built-in Kotlin like `file_picker` 11 (below) and would not compile while `android.builtInKotlin=false`. `AndroidManifest.xml` declares the `https` VIEW intent in `<queries>` for Android 11 package visibility.
 
 `file_picker` is held at 10.3.10. Version 11 applies no Kotlin plugin under AGP 9 and relies on AGP's built-in Kotlin, but `android/gradle.properties` sets `android.builtInKotlin=false` because `flutter_tts` still applies the Kotlin Gradle Plugin itself; with both, 11's Kotlin sources are never compiled and the debug build fails with `cannot find symbol FilePickerPlugin`. Upgrade once every plugin builds with built-in Kotlin (then set `android.builtInKotlin=true`). 11.0.2 fixes an Android path traversal (CWE-22) when resolving paths from external content providers, so this is the first follow-up once `flutter_tts` supports built-in Kotlin.
 
@@ -334,6 +347,7 @@ Voice
 
 Platform behaviour
 - [ ] Deep links to task URLs open the right task after sign-in; process death and restore keep the current destination.
+- [ ] As an owner, Developer › a request › Pull request and Coding run open in the system browser (not inside the app); as a member, Developer is not in the navigation.
 - [ ] File upload uses the system picker; download uses the save picker; both work with large files on mobile data.
 - [ ] Tablets switch to the navigation rail at 840 logical pixels in both orientations; iPad split view and Android multi-window do not break layout.
 - [ ] Safe areas: nothing is hidden under the notch, Dynamic Island, gesture bar or keyboard.

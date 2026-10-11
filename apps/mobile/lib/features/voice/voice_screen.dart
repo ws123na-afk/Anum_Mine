@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import '../developer/developer_assist_panel.dart';
+import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
 import 'voice_controller.dart';
 import 'voice_models.dart';
 import 'voice_orb.dart';
@@ -11,10 +13,16 @@ class VoiceScreen extends StatefulWidget {
   const VoiceScreen({
     required this.controller,
     this.onOpenApprovals,
+    this.onOpenDeveloper,
+    this.openLink = openInBrowser,
     super.key,
   });
 
   final VoiceController controller;
+
+  /// Opens the Developer screen from the developer card.
+  final VoidCallback? onOpenDeveloper;
+  final LinkOpener openLink;
 
   /// Opens the Approvals tab. Voice never approves anything itself.
   final VoidCallback? onOpenApprovals;
@@ -68,7 +76,10 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
   void _syncVisibility() {
     final visible = _onScreen && _resumed;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) controller.setVisible(visible);
+      if (!mounted) return;
+      controller.setVisible(visible);
+      // Ready pull requests are announced only while Voice is on screen.
+      controller.developer?.setActive(visible);
     });
   }
 
@@ -99,7 +110,10 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_onControllerChanged);
     final voice = controller;
-    Future.microtask(() => voice.setVisible(false));
+    Future.microtask(() {
+      voice.setVisible(false);
+      voice.developer?.setActive(false);
+    });
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -114,9 +128,10 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: controller,
+        listenable: Listenable.merge([controller, controller.developer]),
         builder: (context, _) {
           final width = MediaQuery.sizeOf(context).width;
+          final developer = controller.developer;
           final gutter = width < AnumBreakpoints.compact ? 16.0 : 28.0;
           return AnumBackdrop(
             child: SafeArea(
@@ -148,6 +163,14 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
                                 controller: controller,
                                 onOpenApprovals: widget.onOpenApprovals,
                               ),
+                              if (developer != null && developer.hasPanel) ...[
+                                const SizedBox(height: AnumSpacing.sm),
+                                DeveloperAssistPanel(
+                                  assist: developer,
+                                  onOpenDeveloper: widget.onOpenDeveloper,
+                                  openLink: widget.openLink,
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -177,7 +200,7 @@ class _VoiceHeader extends StatelessWidget {
     final p = context.palette;
     final name = controller.assistantName;
     final arabic = controller.isArabic;
-    return Row(children: [
+    final identity = <Widget>[
       ExcludeSemantics(
         child: Container(
           width: 40,
@@ -214,6 +237,8 @@ class _VoiceHeader extends StatelessWidget {
               style: TextStyle(color: p.muted, fontSize: 12.5)),
         ]),
       ),
+    ];
+    final actions = <Widget>[
       _WakeToggle(controller: controller),
       IconButton(
         tooltip:
@@ -230,7 +255,24 @@ class _VoiceHeader extends StatelessWidget {
         color: p.muted,
         icon: const Icon(Icons.tune_rounded),
       ),
-    ]);
+    ];
+    // A narrow phone at large text cannot fit the name and the controls on
+    // one line: the controls move under the name instead of squeezing it.
+    return LayoutBuilder(builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context).scale(1);
+      if (constraints.maxWidth / scale >= 280) {
+        return Row(children: [...identity, ...actions]);
+      }
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: identity),
+        const SizedBox(height: AnumSpacing.xxs),
+        Wrap(
+          alignment: WrapAlignment.end,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: actions,
+        ),
+      ]);
+    });
   }
 }
 
