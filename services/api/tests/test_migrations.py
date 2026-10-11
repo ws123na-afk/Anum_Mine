@@ -542,12 +542,12 @@ def test_autonomy_migration_is_expand_only_with_forced_rls_on_every_table() -> N
 
 def test_email_inbox_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0031_email_inbox.py").read_text(encoding="utf-8")
-    assert 'revision = "0031_email_inbox"' in revision_text
-    assert len("0031_email_inbox") <= 32
-    assert 'down_revision = "0030_integration_health"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0031_email_inbox.py"]
-    assert not [path for path in others if 'down_revision = "0030_integration_health"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0035_email_inbox.py").read_text(encoding="utf-8")
+    assert 'revision = "0035_email_inbox"' in revision_text
+    assert len("0035_email_inbox") <= 32
+    assert 'down_revision = "0034_autonomy"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0035_email_inbox.py"]
+    assert not [path for path in others if 'down_revision = "0034_autonomy"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 4
     assert "enable row level security" in upgrade and "force row level security" in upgrade

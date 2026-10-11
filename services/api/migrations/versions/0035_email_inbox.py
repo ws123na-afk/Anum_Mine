@@ -17,15 +17,15 @@ Grant ``anum_maintenance`` to the API login ``WITH INHERIT FALSE, SET TRUE`` (as
 
 Expand only: four new tables; the previous release ignores them.
 
-Chained after ``0030_integration_health``.
+Chained after ``0034_autonomy``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0031_email_inbox"
-down_revision = "0030_integration_health"
+revision = "0035_email_inbox"
+down_revision = "0034_autonomy"
 branch_labels = None
 depends_on = None
 

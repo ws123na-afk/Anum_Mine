@@ -1,4 +1,4 @@
-"""Unified inbox in PostgreSQL (migration 0031_email_inbox, docs/email.md).
+"""Unified inbox in PostgreSQL (migration 0035_email_inbox, docs/email.md).
 
 The API runs as the non-owner ``anum_test_app`` role against fake mail providers.
 Mailboxes, messages, drafts and pending connections are scoped to their tenant and

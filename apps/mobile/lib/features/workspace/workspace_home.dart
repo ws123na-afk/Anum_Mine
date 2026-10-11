@@ -64,6 +64,7 @@ class WorkspaceHome extends StatefulWidget {
   /// The WhatsApp inbox (docs/whatsapp.md), opened as its own page from the
   /// app bar (wide layouts) or the More sheet (phones).
   final WhatsAppController? whatsappController;
+
   /// The unified inbox (docs/email.md), opened from the app bar or More.
   final EmailController? emailController;
   final String? workspaceName;

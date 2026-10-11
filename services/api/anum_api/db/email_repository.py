@@ -1,4 +1,4 @@
-"""PostgreSQL store of the unified inbox (migration 0031_email_inbox, docs/email.md).
+"""PostgreSQL store of the unified inbox (migration 0035_email_inbox, docs/email.md).
 
 Every table is scoped to a tenant and workspace under forced RLS; the session already
 carries that context (``open_scoped_store``) and every query filters on it as well. Who
