@@ -556,6 +556,79 @@ def test_memory_and_file_indexing_status_run_sources_and_deletion_through_the_ap
     assert after["indexed"] == 0
 
 
+def test_source_names_resolve_a_runs_sources_in_one_bounded_scoped_lookup() -> None:
+    headers = _headers()
+    task_id = _create_task(headers)
+    memory = client.post(
+        "/api/v1/memories",
+        headers=headers,
+        json={"task_id": task_id, "content": "\n  Launch notes: ship on Friday.\nSecond line stays out.", "source_type": "note"},
+    ).json()
+    upload = client.post(
+        "/api/v1/files",
+        headers={**headers, "x-file-name": "notes.md", "content-type": "text/markdown"},
+        content=b"# Notes",
+    ).json()
+    stored = memory_note_repository.get(memory["id"], _context())
+    assert stored is not None
+    expired_id = "memory_expired"
+    expired_retention = {"kind": "expires_at", "expires_at": datetime.now(timezone.utc) - timedelta(days=1)}
+    memory_note_repository.create(
+        stored.model_copy(update={"id": expired_id, "retention": stored.retention.model_validate(expired_retention)})
+    )
+    memory_note_repository.create(
+        stored.model_copy(update={"id": "memory_private", "task_id": None, "owner_user_id": "user_other"})
+    )
+
+    query = (
+        f"memory_id={memory['id']}&memory_id=memory_gone&memory_id={expired_id}&memory_id=memory_private"
+        f"&memory_id={memory['id']}&file_id={upload['id']}&file_id=file_gone"
+    )
+    response = client.get(f"/api/v1/retrieval/sources?{query}", headers=headers)
+    assert response.status_code == 200
+    sources = response.json()["sources"]
+    assert len(sources) == 6  # the repeated memory id collapses
+    by_id = {entry["source_id"]: entry for entry in sources}
+    assert by_id[memory["id"]] == {
+        "source_type": "memory",
+        "source_id": memory["id"],
+        "found": True,
+        "title": "Launch notes: ship on Friday.",
+        "kind": "task_note",
+        "task_id": task_id,
+        "size_bytes": None,
+    }
+    assert (by_id[upload["id"]]["title"], by_id[upload["id"]]["kind"], by_id[upload["id"]]["size_bytes"]) == (
+        "notes.md",
+        "text/markdown",
+        7,
+    )
+    # Gone, expired and another user's private memory all read as not found, with no name.
+    for missing in ("memory_gone", expired_id, "memory_private", "file_gone"):
+        assert by_id[missing]["found"] is False
+        assert by_id[missing]["title"] is None
+
+    # Another workspace or tenant sees none of these sources.
+    for other in (_headers("workspace_other"), _headers(tenant="tenant_other")):
+        names = client.get(f"/api/v1/retrieval/sources?{query}", headers=other).json()["sources"]
+        assert not any(entry["found"] for entry in names)
+
+    assert client.get(f"/api/v1/retrieval/sources?{query}", headers=_headers(role="stranger")).status_code == 403
+    too_many = "&".join(f"memory_id=memory_{index}" for index in range(51))
+    assert client.get(f"/api/v1/retrieval/sources?{too_many}", headers=headers).status_code == 422
+    assert client.get("/api/v1/retrieval/sources", headers=headers).json() == {"sources": []}
+
+
+def test_memory_title_is_the_first_line_shortened() -> None:
+    from anum_api.retrieval_api import memory_title
+
+    assert memory_title("\n\n  First  \nsecond") == "First"
+    assert memory_title("   ") == ""
+    long = memory_title("x" * 400)
+    assert len(long) == 160
+    assert long.endswith("\u2026")
+
+
 def test_reindex_backfills_and_removes_orphans_and_needs_create_permission() -> None:
     headers = _headers()
     task_id = _create_task(headers)

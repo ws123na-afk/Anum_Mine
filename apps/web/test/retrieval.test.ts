@@ -3,7 +3,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { AgentRun } from '@anum/contracts';
-import { groupSources, runSources, scoreLabel, sourceLabel, sourcesNote } from '../src/lib/retrieval.ts';
+import {
+  groupSources, MAX_SOURCE_LOOKUP, parseSourceNames, runSources, scoreLabel, sourceDisplay, sourceKindLabel, sourceLabel, sourceNameMap,
+  sourceNamesPath, sourcesNote,
+} from '../src/lib/retrieval.ts';
 
 const at = '2026-10-06T12:00:00Z';
 
@@ -88,5 +91,57 @@ describe('presentation helpers', () => {
     assert.equal(sourcesNote({ ...base, state: 'ok', reason: null }), '');
     assert.match(sourcesNote({ ...base, state: 'ok', reason: null, truncated: true }), /shortened/);
     assert.match(sourcesNote({ ...base, state: 'unavailable', reason: null }), /without workspace context/);
+  });
+});
+
+describe('source names', () => {
+  test('one bounded lookup path names every distinct source once, memories and files apart', () => {
+    assert.equal(sourceNamesPath([]), null);
+    assert.equal(
+      sourceNamesPath([{ sourceType: 'memory', sourceId: 'memory_1' }, { sourceType: 'file', sourceId: 'file 2&x' }]),
+      '/api/v1/retrieval/sources?memory_id=memory_1&file_id=file+2%26x',
+    );
+    const many = Array.from({ length: MAX_SOURCE_LOOKUP + 5 }, (_, index) => ({ sourceType: 'memory' as const, sourceId: `memory_${index}` }));
+    assert.equal(new URL(sourceNamesPath(many)!, 'http://x').searchParams.getAll('memory_id').length, MAX_SOURCE_LOOKUP);
+  });
+
+  test('parses the lookup and drops malformed entries', () => {
+    const names = parseSourceNames({
+      sources: [
+        { source_type: 'memory', source_id: 'memory_1', found: true, title: 'Launch notes', kind: 'task_note', size_bytes: null },
+        { source_type: 'file', source_id: 'file_1', found: false, title: null, kind: null },
+        { source_type: 'agent', source_id: 'x', found: true },
+        { source_type: 'file' },
+        'junk',
+      ],
+    });
+    assert.deepEqual(names.map((name) => [name.sourceId, name.found, name.title]), [['memory_1', true, 'Launch notes'], ['file_1', false, null]]);
+    assert.deepEqual(parseSourceNames(null), []);
+    assert.deepEqual(parseSourceNames({ sources: 'no' }), []);
+  });
+
+  test('kinds read as a person would say them', () => {
+    assert.equal(sourceKindLabel({ sourceType: 'memory', kind: 'task_note' }), 'Task memory');
+    assert.equal(sourceKindLabel({ sourceType: 'memory', kind: 'chat' }), 'Memory from your chats');
+    assert.equal(sourceKindLabel({ sourceType: 'file', kind: 'text/markdown' }), 'Markdown file');
+    assert.equal(sourceKindLabel({ sourceType: 'file', kind: 'application/pdf' }), 'PDF file');
+    assert.equal(sourceKindLabel({ sourceType: 'file', kind: 'application/vnd.ms-excel' }), 'MS-EXCEL file');
+    assert.equal(sourceKindLabel({ sourceType: 'file', kind: 'application/ld+json' }), 'LD file');
+    assert.equal(sourceKindLabel({ sourceType: 'file', kind: null }), 'File');
+  });
+
+  test('a row shows the name when found, else the id and that it is gone', () => {
+    const names = sourceNameMap(parseSourceNames({ sources: [
+      { source_type: 'memory', source_id: 'memory_1', found: true, title: 'Launch notes', kind: 'task_note' },
+      { source_type: 'file', source_id: 'file_gone', found: false },
+      { source_type: 'file', source_id: 'file_untitled', found: true, title: null, kind: 'text/plain' },
+    ] }));
+    assert.deepEqual(sourceDisplay({ sourceType: 'memory', sourceId: 'memory_1' }, names), { title: 'Launch notes', kind: 'Task memory', found: true, resolved: true });
+    assert.deepEqual(sourceDisplay({ sourceType: 'file', sourceId: 'file_gone' }, names), { title: 'file_gone', kind: 'File no longer available', found: false, resolved: true });
+    assert.deepEqual(sourceDisplay({ sourceType: 'file', sourceId: 'file_untitled' }, names), { title: 'file_untitled', kind: 'Text file', found: true, resolved: true });
+    // Before the lookup answers (or when it failed) the id shows, not as a link.
+    assert.deepEqual(sourceDisplay({ sourceType: 'memory', sourceId: 'memory_1' }, null), { title: 'memory_1', kind: 'Memory', found: false, resolved: false });
+    // A memory id and a file id that happen to match are told apart.
+    assert.equal(sourceDisplay({ sourceType: 'file', sourceId: 'memory_1' }, names).found, false);
   });
 });

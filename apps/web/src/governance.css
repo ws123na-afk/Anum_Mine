@@ -17,7 +17,11 @@
 /* The global input rule makes inputs full width; a checkbox keeps its own size. */
 .govPermissions input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
 .govGrid { display: grid; gap: 0 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.govTarget { grid-template-columns: 42px 1fr auto auto; }
+/* A routing target card: icon beside the name and placement, which get the card's full text width;
+   status and edit sit on their own line under the text, so the text never shares a row with them. */
+.integration.govTarget { align-items: start; grid-template-columns: 44px minmax(0, 1fr); grid-template-rows: 1fr auto; row-gap: var(--d-s3); }
+.govTarget h3 { overflow-wrap: anywhere; }
+.govTargets > .integration.govTarget > .govTargetMeta { align-items: center; display: flex; gap: var(--d-s3); grid-column: 2; justify-content: space-between; justify-self: stretch; min-width: 0; }
 .integrationCard { grid-template-columns: 42px 1fr auto; }
 .integrationActions { align-items: center; display: flex; gap: 8px; }
 .integrationTool { color: var(--d-muted); display: block; margin-top: var(--d-s1); }

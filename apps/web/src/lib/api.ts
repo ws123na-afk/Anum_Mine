@@ -7,6 +7,7 @@ import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
 import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
 import * as chatMemory from './chatMemory';
+import { parseSourceNames, type SourceName } from './retrieval';
 
 // The one API base URL for every module. Deployments compile VITE_ANUM_API_URL in (apps/web/Dockerfile, infra/oracle/compose.yaml).
 export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
@@ -176,6 +177,9 @@ export async function getMemories(): Promise<MemoryNote[]> { return request('/ap
 export async function createMemory(taskId: string, content: string): Promise<MemoryNote> { return request('/api/v1/memories', { method: 'POST', body: JSON.stringify({ task_id: taskId, content, source_type: 'user', retention: { kind: 'task' } }) }); }
 export async function deleteMemory(id: string): Promise<void> { await requestVoid(`/api/v1/memories/${id}`, { method: 'DELETE' }); }
 export async function getFiles(): Promise<FileRecord[]> { return request('/api/v1/files', { method: 'GET' }); }
+export async function getFile(id: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}`, { method: 'GET' }); }
+/** Names of a run's sources in one bounded lookup (`path` from retrieval.sourceNamesPath). */
+export async function getSourceNames(path: string): Promise<SourceName[]> { return parseSourceNames(await request<unknown>(path, { method: 'GET' })); }
 export async function uploadFile(file: File): Promise<FileRecord> {
   return request('/api/v1/files', { method: 'POST', body: file, headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': file.name } });
 }

@@ -183,3 +183,28 @@ test('enterprise: if the capability check fails the targets are still shown, rea
   await expect(page.getByRole('heading', { name: 'configured-model' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add routing target' })).toHaveCount(0);
 });
+
+// Routing target cards: the name and placement get the card's text width; status and edit sit on
+// their own line under them (they used to share one row and squeeze the text at 1024px).
+for (const size of [
+  { width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 },
+]) {
+  test(`enterprise: routing target cards are readable at ${size.width}x${size.height}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await mockApi(page, { canManage: true });
+    await page.goto('/#enterprise');
+    const card = page.locator('.govTarget').first();
+    const heading = card.getByRole('heading', { name: 'configured-model' });
+    await expect(heading).toBeVisible();
+    const cardBox = (await card.boundingBox())!;
+    const textBox = (await heading.locator('..').boundingBox())!;
+    const edit = (await card.getByRole('button', { name: 'Edit configured-model' }).boundingBox())!;
+    // The text column takes most of the card, and the controls sit below the text, inside the card.
+    expect(textBox.width).toBeGreaterThan(cardBox.width * 0.6);
+    expect(edit.y).toBeGreaterThanOrEqual(textBox.y + textBox.height);
+    expect(edit.x + edit.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(size.width);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+}

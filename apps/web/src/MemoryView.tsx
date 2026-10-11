@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Brain, CircleDot, FileText, MessageSquare, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Brain, CircleDot, FileText, Link2, MessageSquare, RefreshCw, Search, Trash2 } from 'lucide-react';
 import type { Task } from '@anum/contracts';
 import * as api from './lib/api';
 import { indexSummary, memoryIndexState, memorySource, type RetrievalIndexStatus } from './lib/capabilities';
 import { deletedMessage } from './lib/chatMemory';
 import { describeError } from './lib/errors';
 import { ChatMemorySetting } from './ChatMemorySetting';
+import type { MemoryTarget } from './SourcesUsed';
 import './features.css';
 
 // A memory added here belongs to a task (POST /api/v1/memories needs task_id) and has no update
 // endpoint, so it is changed by deleting and re-adding it. Memories the Assistant remembered from
 // the caller's own chats have no task: they link back to their conversation (docs/memory.md#from-conversations).
-export function MemoryView({ tasks, onOpenConversation, initialOnlyChats = false }: { tasks: Task[]; onOpenConversation: (conversationId: string) => void; initialOnlyChats?: boolean }) {
+// `focus` is a memory a run used ("Sources used" on a task): the view scrolls to it and marks it.
+export function MemoryView({ tasks, onOpenConversation, initialOnlyChats = false, focus = null }: { tasks: Task[]; onOpenConversation: (conversationId: string) => void; initialOnlyChats?: boolean; focus?: MemoryTarget | null }) {
   const [items, setItems] = useState<api.MemoryNote[]>([]);
   const [index, setIndex] = useState<RetrievalIndexStatus | null>(null);
   const [query, setQuery] = useState(''), [applied, setApplied] = useState('');
@@ -21,6 +23,7 @@ export function MemoryView({ tasks, onOpenConversation, initialOnlyChats = false
   const [confirming, setConfirming] = useState<string | null>(null);
   // "From my chats" keeps the caller's own memories remembered from their chats (source_type=conversation).
   const [onlyChats, setOnlyChats] = useState(initialOnlyChats), [confirmAll, setConfirmAll] = useState(false);
+  const focusedRow = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async (q: string, chats: boolean) => {
     setLoading(true);
@@ -31,6 +34,11 @@ export function MemoryView({ tasks, onOpenConversation, initialOnlyChats = false
   }, []);
   useEffect(() => { void load(applied, onlyChats); }, [load, applied, onlyChats]);
   useEffect(() => { if (!taskId && tasks[0]) setTaskId(tasks[0].id); }, [tasks, taskId]);
+  const focusListed = !!focus && items.some(x => x.id === focus.id);
+  // The lookup shortens long first lines with an ellipsis, which the text search would not match.
+  const focusSearch = (focus?.title ?? '').replace(/\u2026$/, '').trim();
+  // Bring the memory the run used into view once the list holds it, and move focus to it.
+  useEffect(() => { if (focusListed && !loading) { focusedRow.current?.scrollIntoView({ block: 'center' }); focusedRow.current?.focus({ preventScroll: true }); } }, [focusListed, loading]);
 
   async function act(fn: () => Promise<void>) {
     setBusy(true); setError(null); setNote(null);
@@ -65,6 +73,9 @@ export function MemoryView({ tasks, onOpenConversation, initialOnlyChats = false
     {error && <p className="notice errorNotice" role="alert"><CircleDot />{error}</p>}
     {note && <p className="notice" role="status"><CircleDot />{note}</p>}
     {loading && <p className="notice"><CircleDot />Loading memory...</p>}
+    {focus && !focusListed && !loading && !error && <div className="notice memoryFocusMissing" role="status"><Link2 aria-hidden="true" />
+      <span>{applied ? `The memory the run used does not match “${applied}”.` : 'The memory the run used is not in this list: it may have been deleted or expired, or be older than the newest memories shown.'}</span>
+      {focusSearch && applied !== focusSearch && <button type="button" className="secondary" onClick={() => { setQuery(focusSearch); setApplied(focusSearch); showChats(false); }}><Search aria-hidden="true" />Search for it</button>}</div>}
     {onlyChats && !loading && !error && chatCount > 0 && <div className="memoryBulk" role="group" aria-label="Delete memories from my chats">
       <p className="featureMeta">{applied ? 'Deleting removes every memory from your chats in this workspace, not only the ones matching your search.' : 'Only you can see these. Deleting them also removes them from search and from the Assistant\'s answers.'}</p>
       <div className="actions">{confirmAll
@@ -73,8 +84,9 @@ export function MemoryView({ tasks, onOpenConversation, initialOnlyChats = false
     </div>}
     <section className="surface memoryTable" id="memory-list" aria-label={onlyChats ? 'Memories from my chats' : 'Memories'}>{items.map(x => {
       const idx = memoryIndexState(index, x.id), source = memorySource(x);
-      return <div className="memoryRow" key={x.id}>
-        <div><span className="typeIcon">{source.kind === 'chat' ? <MessageSquare /> : <FileText />}</span><div><strong>{source.label}</strong><p>{x.content}</p>
+      const focused = focus?.id === x.id;
+      return <div className={`memoryRow ${focused ? 'focusedRow' : ''}`} key={x.id} id={`memory-${x.id}`} ref={focused ? focusedRow : undefined} tabIndex={focused ? -1 : undefined} aria-current={focused ? 'true' : undefined} aria-describedby={focused ? 'memory-focus-label' : undefined}>
+        <div><span className="typeIcon">{source.kind === 'chat' ? <MessageSquare /> : <FileText />}</span><div>{focused && <span className="featureChip focusChip" id="memory-focus-label"><Link2 aria-hidden="true" />Used by the run you came from</span>}<strong>{source.label}</strong><p>{x.content}</p>
           {source.kind === 'chat' && <small className="memorySource">Private to you · from “{source.title}”</small>}</div></div>
         <span className={`featureChip ${idx.state}`} title={idx.error ?? undefined}>{idx.state.replace('_', ' ')}</span>
         {source.kind === 'chat'
