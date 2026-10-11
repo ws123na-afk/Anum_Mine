@@ -142,6 +142,53 @@ def test_health_checks() -> None:
     assert "--port 8000" in services["anum-api"]["dockerCommand"]
     assert _env(services["anum-web"])["PORT"]["value"] == "8080"
     assert _env(services["anum-keycloak"])["PORT"]["value"] == "8080"
+    nginx = (REPO_ROOT / "apps" / "web" / "nginx" / "default.conf.template").read_text(encoding="utf-8")
+    assert "listen 8080;" in nginx
+    assert "location = /healthz" in nginx
+
+
+def test_keycloak_image_serves_plain_http_behind_renders_tls_proxy() -> None:
+    """Render ends TLS and routes to PORT; Keycloak must listen there and trust the proxy."""
+    dockerfile = (REPO_ROOT / "infra" / "render" / "keycloak.Dockerfile").read_text(encoding="utf-8")
+    runtime = dockerfile[dockerfile.index("AS runtime") :]
+    for setting in ("KC_HTTP_ENABLED=true", "KC_HTTP_PORT=8080", "KC_PROXY_HEADERS=xforwarded"):
+        assert setting in runtime, setting
+    assert 'CMD ["start", "--optimized", "--import-realm"]' in runtime
+    # The database options the Blueprint wires are the ones Keycloak reads (db-url-host, ...).
+    keycloak = _env(_services()["anum-keycloak"])
+    for key, prop in {
+        "KC_DB_URL_HOST": "host",
+        "KC_DB_URL_PORT": "port",
+        "KC_DB_URL_DATABASE": "database",
+        "KC_DB_USERNAME": "user",
+        "KC_DB_PASSWORD": "password",
+    }.items():
+        assert keycloak[key]["fromDatabase"] == {"name": "anum-keycloak-db", "property": prop}, key
+
+
+def test_cron_environment_alone_is_enough_for_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The cron job has only four variables; Settings must not demand the API's others."""
+    import os
+
+    for key in list(os.environ):
+        if key.startswith("ANUM_") or key in KEYCLOAK_ADMIN_VARS:
+            monkeypatch.delenv(key, raising=False)
+    for key, entry in _env(_services()["anum-voice-retention"]).items():
+        if "value" in entry:
+            monkeypatch.setenv(key, str(entry["value"]))
+        elif key == "ANUM_SECRETS_KEY":
+            monkeypatch.setenv(key, Fernet.generate_key().decode())
+        else:
+            monkeypatch.setenv(key, OWNER_VALUES[key])
+    settings = Settings(_env_file=None)
+    assert settings.environment == "staging"
+    assert settings.repository_backend == "postgresql"
+    assert settings.database_url == OWNER_VALUES["ANUM_DATABASE_URL"]
+    # voice_retention never applies the API's startup policy (CORS, OIDC), which the cron
+    # environment would fail.
+    source = (REPO_ROOT / "services" / "api" / "anum_api" / "voice_retention.py").read_text(encoding="utf-8")
+    assert "enforce_startup_policy" not in source
+    assert not re.search(r"from \.main import|from anum_api\.main import|import anum_api\.main\b", source)
 
 
 def test_no_literal_secret_values() -> None:

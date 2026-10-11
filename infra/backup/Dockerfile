@@ -24,7 +24,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY --from=python /usr/local/bin/python3.13 /usr/local/bin/python3.13
 COPY --from=python /usr/local/lib/python3.13 /usr/local/lib/python3.13
 COPY --from=python /usr/local/lib/libpython3.13.so.1.0 /usr/local/lib/libpython3.13.so.1.0
-RUN ln -s python3.13 /usr/local/bin/python \
+# gosu is the base image's setuid helper for its docker-entrypoint.sh, which this image
+# never runs (own ENTRYPOINT, fixed non-root USER). It is a Go binary whose bundled Go
+# runtime carries HIGH/CRITICAL CVEs that fail the Trivy scan, so it is removed.
+RUN rm -f /usr/local/bin/gosu \
+    && ln -s python3.13 /usr/local/bin/python \
     && ldconfig \
     && python -c "import psycopg, hashlib, json, ssl; print(psycopg.__version__)" \
     && groupadd --system --gid 10001 anum \

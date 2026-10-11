@@ -246,6 +246,10 @@ jobs:
         run: docker build -t anum-api:ci services/api
       - name: Build web image
         run: docker build -f apps/web/Dockerfile -t anum-web:ci .
+      - name: Build backup image
+        # Scanned here as well, so a finding in the backup image fails the PR, not the
+        # staging deploy after merge.
+        run: docker build -t anum-backup:ci infra/backup
       - name: Scan images (Trivy)
         # Fails on high or critical vulnerabilities that have a fixed version, and on
         # secrets baked into a layer. Fix by bumping the base image or upgrading packages
@@ -253,7 +257,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.cache/trivy"
           # The checkout is mounted as the working directory so a .trivyignore is read.
-          for image in anum-api:ci anum-web:ci; do
+          for image in anum-api:ci anum-web:ci anum-backup:ci; do
             docker run --rm \
               -v /var/run/docker.sock:/var/run/docker.sock \
               -v "$HOME/.cache/trivy:/root/.cache/trivy" \

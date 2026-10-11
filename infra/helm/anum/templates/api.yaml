@@ -72,6 +72,12 @@ spec:
             periodSeconds: {{ $v.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ $v.probes.liveness.timeoutSeconds }}
             failureThreshold: {{ $v.probes.liveness.failureThreshold }}
+          # Keep serving while the endpoint removal reaches every node, so a rolling
+          # update or rollback drops no connections (uvicorn stops accepting on SIGTERM).
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "{{ $v.preStopSleepSeconds }}"]
           readinessProbe:
             httpGet:
               path: /health

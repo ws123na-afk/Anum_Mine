@@ -187,6 +187,9 @@ api:
       cpu: "1"
       memory: 768Mi
   terminationGracePeriodSeconds: 30
+  # Seconds a stopping pod keeps serving before SIGTERM, while its endpoint is removed.
+  # Must stay below terminationGracePeriodSeconds.
+  preStopSleepSeconds: 5
   probes:
     startup:
       periodSeconds: 5
@@ -259,6 +262,8 @@ web:
     limits:
       cpu: 500m
       memory: 128Mi
+  # As api.preStopSleepSeconds (the default 30 s grace period leaves room).
+  preStopSleepSeconds: 5
   service:
     type: ClusterIP
     port: 8080
