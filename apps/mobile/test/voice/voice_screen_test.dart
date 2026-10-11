@@ -118,11 +118,16 @@ void main() {
     await tester.pump();
     expect(controller.state, VoiceState.listening);
 
+    // The framework only accepts real transitions: resumed, inactive, hidden, paused.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     expect(controller.state, VoiceState.idle);
     await tester.pump();
     expect(speech.cancels, greaterThan(0));
 
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(const SizedBox());
   });
