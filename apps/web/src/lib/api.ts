@@ -4,6 +4,7 @@ import { decisionBody } from './approvals';
 import { apiErrorFromResponse } from './errors';
 import type { ApiCurrentMembership } from './policy';
 import * as workspaces from './workspaces';
+import * as capabilities from './capabilities';
 
 // The one API base URL for every module. Deployments compile VITE_ANUM_API_URL in (apps/web/Dockerfile, infra/oracle/compose.yaml).
 export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
@@ -176,6 +177,11 @@ export async function downloadFile(id: string, name: string): Promise<void> {
 export async function getSkillVersions(): Promise<SkillVersion[]> { return request('/api/v1/skills/versions', { method: 'GET' }); }
 export async function getSkillInstallations(): Promise<SkillInstallation[]> { return request('/api/v1/skills/installations', { method: 'GET' }); }
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
+export async function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }); }
+export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }
+export async function searchMemories(query: string): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query), { method: 'GET' }); }
+export async function getRetrievalStatus(): Promise<capabilities.RetrievalIndexStatus> { return request('/api/v1/retrieval/status', { method: 'GET' }); }
+export async function reindexRetrieval(): Promise<capabilities.ReindexResult> { return request('/api/v1/retrieval/index', { method: 'POST' }); }
 export async function getCurrentWorkspace(): Promise<WorkspaceInfo> { return request('/api/v1/workspaces/current', { method: 'GET' }); }
 
 export interface IntegrationHealth {

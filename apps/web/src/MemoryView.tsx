@@ -1,0 +1,67 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Brain, CircleDot, FileText, RefreshCw, Search, Trash2 } from 'lucide-react';
+import type { Task } from '@anum/contracts';
+import * as api from './lib/api';
+import { indexSummary, memoryIndexState, type RetrievalIndexStatus } from './lib/capabilities';
+import { describeError } from './lib/errors';
+import './features.css';
+
+// The API requires every memory to belong to a task (POST /api/v1/memories needs task_id) and has
+// no update endpoint, so a memory is added under a task and changed by deleting and re-adding it.
+export function MemoryView({ tasks }: { tasks: Task[] }) {
+  const [items, setItems] = useState<api.MemoryNote[]>([]);
+  const [index, setIndex] = useState<RetrievalIndexStatus | null>(null);
+  const [query, setQuery] = useState(''), [applied, setApplied] = useState('');
+  const [content, setContent] = useState(''), [taskId, setTaskId] = useState('');
+  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  const load = useCallback(async (q: string) => {
+    setLoading(true);
+    try {
+      const [notes, status] = await Promise.all([api.searchMemories(q), api.getRetrievalStatus().catch(() => null)]);
+      setItems(notes); setIndex(status); setError(null);
+    } catch (e) { setError(describeError(e)); } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(applied); }, [load, applied]);
+  useEffect(() => { if (!taskId && tasks[0]) setTaskId(tasks[0].id); }, [tasks, taskId]);
+
+  async function act(fn: () => Promise<void>) {
+    setBusy(true); setError(null); setNote(null);
+    try { await fn(); } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
+  }
+  const add = () => act(async () => { await api.createMemory(taskId, content.trim()); setContent(''); setNote('Memory added.'); await load(applied); });
+  const remove = (id: string) => act(async () => { await api.deleteMemory(id); setConfirming(null); setNote('Memory deleted.'); await load(applied); });
+  const reindex = () => act(async () => { const r = await api.reindexRetrieval(); setIndex(r.status); setNote(`Reindexed: ${r.indexed} indexed, ${r.reused} unchanged${r.failed ? `, ${r.failed} failed` : ''}.`); });
+
+  return <>
+    <section className="moduleIntro"><div><p className="eyebrow">Workspace knowledge</p><h2>Agent memory</h2><p>Live notes with provenance and retention, indexed for retrieval.</p></div>
+      <button disabled={busy} onClick={() => void reindex()}><RefreshCw />Reindex</button></section>
+    <form className="surface featureSearch" role="search" onSubmit={e => { e.preventDefault(); setApplied(query.trim()); }}>
+      <label className="field"><span>Search memory</span><input aria-label="Search memory" value={query} onChange={e => setQuery(e.target.value)} placeholder="Find notes by text" /></label>
+      <div className="actions"><button type="submit"><Search />Search</button>{applied && <button type="button" className="secondary" onClick={() => { setQuery(''); setApplied(''); }}>Clear</button>}</div>
+      <p className="featureMeta">{indexSummary(index)}</p>
+    </form>
+    <section className="surface composerSurface"><div className="formGrid">
+      <label className="field"><span>Task</span><select value={taskId} onChange={e => setTaskId(e.target.value)}><option value="">Select task</option>{tasks.map(t => <option value={t.id} key={t.id}>{t.title}</option>)}</select></label>
+      <label className="field"><span>Memory</span><input value={content} onChange={e => setContent(e.target.value)} placeholder="Add durable context" maxLength={16000} /></label>
+    </div><p className="featureMeta">Memories belong to a task; the API does not accept workspace-wide notes or edits.</p>
+      <div className="actions"><button disabled={busy || !taskId || !content.trim()} onClick={() => void add()}><Brain />Add memory</button></div></section>
+    {error && <p className="notice errorNotice" role="alert"><CircleDot />{error}</p>}
+    {note && <p className="notice" role="status"><CircleDot />{note}</p>}
+    {loading && <p className="notice"><CircleDot />Loading memory...</p>}
+    <section className="surface memoryTable">{items.map(x => {
+      const idx = memoryIndexState(index, x.id);
+      return <div className="memoryRow" key={x.id}>
+        <div><span className="typeIcon"><FileText /></span><div><strong>{x.provenance.source_type}</strong><p>{x.content}</p></div></div>
+        <span className={`featureChip ${idx.state}`} title={idx.error ?? undefined}>{idx.state.replace('_', ' ')}</span>
+        <code>{x.task_id}</code>
+        {confirming === x.id
+          ? <span className="featureConfirm"><button className="danger" disabled={busy} onClick={() => void remove(x.id)}>Delete</button><button className="secondary" onClick={() => setConfirming(null)}>Cancel</button></span>
+          : <button className="iconButton" aria-label="Delete memory" onClick={() => setConfirming(x.id)}><Trash2 /></button>}
+      </div>;
+    })}</section>
+    {!loading && !error && !items.length && <div className="emptyState"><Search /><h3>{applied ? 'No matching memories' : 'No memories'}</h3><p>{applied ? `Nothing matched “${applied}”.` : 'Add context associated with a task.'}</p></div>}
+  </>;
+}
