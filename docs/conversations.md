@@ -19,6 +19,9 @@ remembers what was said. It is the main Ask experience in the web console (the
   starting at a question. Failed replies (no text) are left out and consecutive turns of
   one role are joined, so roles always alternate. A conversation holds at most 400 turns;
   then the API asks for a new conversation (`409`).
+- **Remembers.** Durable facts the user states ("my name is Sam", "I prefer short
+  answers") are remembered as private memories after the reply, and the nearest memories
+  are recalled into later questions in any conversation ([Long-term memory](#long-term-memory)).
 
 ## API
 
@@ -46,7 +49,7 @@ before anything is stored: when it is used up the ask answers `402`
 
 | Event | Data |
 | --- | --- |
-| `turn` | `{"user_turn": turn}` once the question is stored |
+| `turn` | `{"user_turn": turn, "memories_used": [memory id, ...]}` once the question is stored; the ids of the memories recalled into this question (empty when none) |
 | `delta` | `{"text": "..."}` for each piece of the reply as the model produces it |
 | `done` | `{"assistant_turn": turn}` when the reply is complete and stored |
 | `error` | `{"code", "message", "assistant_turn"}`: `model_unavailable` (generic message; only the error class is logged) or `model_budget_exceeded` |
@@ -67,6 +70,31 @@ Usage up to that point is still metered (estimated when the provider reported no
 whole stream ends after `ANUM_MODEL_STREAM_TIMEOUT_SECONDS` (default 120). Nothing is
 retried once text has been shown, so a slow model can no longer hang the UI for three
 minutes of hidden retries.
+
+## Long-term memory
+
+Details, privacy rules and settings: [Memory: from conversations](memory.md#from-conversations).
+
+- **Recall, before the reply.** The question is embedded (budgeted) and the nearest
+  memories the user may read (their own private memories and the workspace's shared
+  notes, never files or another user's) go into the system message as labeled,
+  untrusted blocks, at most `ANUM_CONVERSATION_MEMORY_RECALL_K` (4) memories and
+  `ANUM_CONVERSATION_MEMORY_RECALL_CHARS` (2000) characters. Recall that fails, finds
+  the budget used up or takes longer than `ANUM_CONVERSATION_MEMORY_RECALL_TIMEOUT_SECONDS`
+  (3) is skipped; the question is answered without it.
+- **Remember, after the reply.** Once a reply is `complete` and stored, and after the
+  whole stream has been sent, one small non-streaming model call
+  (`ANUM_CONVERSATION_MEMORY_MAX_TOKENS`, 256) extracts the facts, which are added to or
+  update (when similar enough) the user's memories with `source_type = conversation` and
+  `source_id` = this conversation. It counts against the monthly model budget. A
+  `cancelled` or `failed` reply is never mined. Nothing about this pass can fail or delay
+  the chat: errors are logged with their class name only.
+- **Off switches.** `ANUM_CONVERSATION_MEMORY_ENABLED=false` turns recall and remembering
+  off for the server (default `true`); a tenant turns remembering off with memory
+  governance (`allowed_source_types` without `conversation`). Viewers cannot ask, and a
+  caller without memory create permission is never remembered from.
+- Deleting a conversation keeps the memories drawn from it; the user deletes them in the
+  Memory view.
 
 ## Storage
 

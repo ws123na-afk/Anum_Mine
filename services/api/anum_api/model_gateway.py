@@ -255,6 +255,20 @@ class MockModelGateway:
                 )
             )
 
+    async def complete_chat(
+        self, messages: list[ChatMessage], *, max_tokens: int | None = None
+    ) -> ModelResponse:
+        """The streamed mock reply, returned in one piece."""
+        parts: list[str] = []
+        usage: list[ModelUsage] = []
+        async for chunk in self.stream_chat(messages, max_tokens=max_tokens, on_usage=usage.append):
+            parts.append(chunk)
+        return ModelResponse(
+            text="".join(parts),
+            usage=usage[-1],
+            metadata=ModelCallMetadata(latency_ms=0, finish_reason="stop"),
+        )
+
     async def embed(self, texts: list[str], *, model: str | None = None) -> EmbeddingResponse:
         """The mock provider embeds with the deterministic local embedder."""
         return local_embedding_response(list(texts))
@@ -452,6 +466,29 @@ class OpenAICompatibleGateway:
                 choice["message"]["content"] or "", payload, response, state, started
             )
             self._log_call("generate_text", started, state, "ok", usage=normalized.usage)
+            return normalized
+
+    async def complete_chat(
+        self, messages: list[ChatMessage], *, max_tokens: int | None = None
+    ) -> ModelResponse:
+        """A non-streaming chat completion of at most ``max_tokens`` (background work
+        such as conversation memory extraction). Same retries, logging and pricing as
+        :meth:`generate_text`."""
+        messages = validate_messages(messages)
+        with model_call_span(self.provider, self.model, "complete_chat"):
+            payload, response, state, started = await self._complete(
+                "complete_chat",
+                {
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": max_tokens or self.max_output_tokens,
+                },
+            )
+            choice = payload["choices"][0]
+            normalized = self._normalize(
+                (choice.get("message") or {}).get("content") or "", payload, response, state, started
+            )
+            self._log_call("complete_chat", started, state, "ok", usage=normalized.usage)
             return normalized
 
     async def generate_structured(

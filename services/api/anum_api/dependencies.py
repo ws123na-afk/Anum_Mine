@@ -465,7 +465,9 @@ async def memory_repository_context(
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        # The user too: private memories (from the caller's conversations) are visible
+        # only under their owner's anum.user_id (migration 0021).
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
         from .db.repository import SqlAlchemyRepository
 
         _require_persisted_membership(
@@ -479,6 +481,25 @@ async def memory_repository_context(
         raise
     finally:
         session.close()
+
+
+@contextmanager
+def open_memory_repository(context: TenantContext) -> Iterator[MemoryRepository]:
+    """A memory store for one unit of work outside a request (conversation memory).
+
+    The caller already checked the membership and permission in its request. With
+    PostgreSQL the session carries the tenant, workspace and user RLS context, commits
+    when the block ends normally and rolls back otherwise.
+    """
+    from .scoped_store import open_scoped_store
+
+    def sql_store(session):  # type: ignore[no-untyped-def]
+        from .db.memory_repository import SqlAlchemyMemoryRepository
+
+        return SqlAlchemyMemoryRepository(session)
+
+    with open_scoped_store(context, memory_note_repository, sql_store, user_scoped=True) as repository:
+        yield repository
 
 
 async def provisioning_repository_context(

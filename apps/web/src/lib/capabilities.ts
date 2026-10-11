@@ -26,6 +26,28 @@ export function memoryIndexState(status: RetrievalIndexStatus | null, memoryId: 
   return { state: known.includes(source.status as IndexState) ? (source.status as IndexState) : 'pending', error: source.error };
 }
 
+/** What the Memory view needs to label where a memory came from. */
+export interface MemoryLike { task_id: string | null; provenance: { source_type: string; source_id: string | null; metadata?: Record<string, unknown> } }
+export type MemorySource =
+  | { kind: 'chat'; label: string; title: string; conversationId: string }
+  | { kind: 'task'; label: string; taskId: string }
+  | { kind: 'other'; label: string };
+
+/**
+ * A memory remembered from an Assistant chat (source_type "conversation", docs/memory.md#from-conversations)
+ * links back to its conversation; a task note names its task; anything else shows its source type.
+ */
+export function memorySource(note: MemoryLike): MemorySource {
+  const { source_type: type, source_id: id, metadata } = note.provenance;
+  if (type === 'conversation' && id) {
+    const raw = metadata?.conversation_title;
+    const title = typeof raw === 'string' && raw.trim() ? raw.trim() : 'Untitled chat';
+    return { kind: 'chat', label: 'From chat', title, conversationId: id };
+  }
+  const label = type.replace(/_/g, ' ').trim() || 'note';
+  return note.task_id ? { kind: 'task', label, taskId: note.task_id } : { kind: 'other', label };
+}
+
 export function indexSummary(status: RetrievalIndexStatus | null): string {
   if (!status) return 'Retrieval index status unavailable.';
   const parts = [`${status.indexed} indexed`, `${status.chunks} chunks`];

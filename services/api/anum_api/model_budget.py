@@ -50,6 +50,7 @@ from .model_gateway import (
     StructuredModel,
     UsageCallback,
     route_gateway,
+    estimate_tokens,
 )
 from .repository import AnumRepository
 from .schemas import TenantContext, new_id
@@ -432,6 +433,37 @@ class BudgetedModelGateway:
         parsed, response = await self.inner.generate_structured(prompt, response_model)
         self._record(response)
         return parsed, response
+
+    async def complete_chat(
+        self, messages: list[ChatMessage], *, max_tokens: int | None = None
+    ) -> ModelResponse:
+        """A non-streaming chat call, checked before and metered after like the others.
+
+        Gateways without ``complete_chat`` answer through ``stream_chat``, collected.
+        """
+        check_model_budget(self.context, now=self._clock())
+        complete = getattr(self.inner, "complete_chat", None)
+        if complete is not None:
+            response: ModelResponse = await complete(messages, max_tokens=max_tokens)
+        else:
+            parts: list[str] = []
+            usage: list[ModelUsage] = []
+            async for chunk in self.inner.stream_chat(messages, max_tokens=max_tokens, on_usage=usage.append):
+                parts.append(chunk)
+            text = "".join(parts)
+            response = ModelResponse(
+                text=text,
+                usage=usage[-1]
+                if usage
+                else ModelUsage(
+                    input_tokens=sum(estimate_tokens(m["content"]) for m in messages),
+                    output_tokens=estimate_tokens(text),
+                    provider=str(getattr(self.inner, "provider", "unknown")),
+                    model=str(getattr(self.inner, "model", "unknown")),
+                ),
+            )
+        self._record(response)
+        return response
 
     async def embed(self, texts: list[str], *, model: str | None = None) -> EmbeddingResponse:
         """Embeddings for retrieval count against the same monthly budget."""

@@ -23,3 +23,12 @@
 .featureLink { font-size: 0.85rem; }
 .featureToggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; }
 .featureToggle input { width: 18px; height: 18px; }
+
+/* Memory view: a memory remembered from a chat links back to its conversation. One row per memory
+   on wider screens (text, index state, source, delete); stacked below 760px like the shared rule. */
+@media (min-width: 761px) {
+  .memoryTable .memoryRow { grid-template-columns: minmax(0, 1fr) auto minmax(0, max-content) auto; }
+}
+.memorySource { color: var(--d-faint); display: block; font-size: 12px; margin-top: var(--d-s1); overflow-wrap: anywhere; }
+.memoryChatLink { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13px; gap: var(--d-s1); min-height: 44px; padding: 0 var(--d-s3); white-space: nowrap; width: fit-content; }
+.memoryChatLink svg { height: 16px; width: 16px; }

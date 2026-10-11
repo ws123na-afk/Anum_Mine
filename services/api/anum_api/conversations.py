@@ -20,13 +20,17 @@ The stream body never reads through the request's repository session (it is clos
 once the response starts): each write opens its own unit of work. When the client
 disconnects the body is cancelled, the provider stream is closed (which stops
 generation) and the partial reply is stored with status ``cancelled``.
+
+Long-term memory (``anum_api.conversation_memory``): each ask recalls the user's
+relevant memories into the system prompt, and once a reply is complete a background
+pass, run after the whole body has been sent, remembers durable facts the user stated.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from enum import StrEnum
@@ -36,11 +40,20 @@ from typing import Protocol
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from .authorization import Permission
+from .conversation_memory import (
+    RECALL_PREFACE,
+    CompletedReply,
+    extraction_enabled,
+    recall_memories,
+    remember_after_reply,
+)
 from .dependencies import require_permission, tenant_context
 from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
+from .prompt_provenance import with_untrusted_rules
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
@@ -237,12 +250,15 @@ def build_messages(
     *,
     max_turns: int | None = None,
     max_chars: int | None = None,
+    memory_blocks: Sequence[str] = (),
 ) -> list[ChatMessage]:
     """The system prompt, the most recent earlier turns that fit, then the question.
 
     Bounded twice: at most ``max_turns`` earlier turns and at most ``max_chars`` of their
     text, newest kept first. Failed replies carry no text and are left out; consecutive
     turns of one role are joined so the roles alternate as every provider expects.
+    Recalled memories (already labeled untrusted and bounded by the recall budget) follow
+    the system prompt, after the untrusted-data rules.
     """
     max_turns = settings.conversation_history_turns if max_turns is None else max_turns
     max_chars = settings.conversation_history_chars if max_chars is None else max_chars
@@ -258,7 +274,10 @@ def build_messages(
     # The model's context starts with a question, never with an orphan reply.
     while kept and kept[0].role != TurnRole.USER:
         kept.pop(0)
-    messages: list[ChatMessage] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    system = (
+        with_untrusted_rules(f"{SYSTEM_PROMPT}\n\n{RECALL_PREFACE}", *memory_blocks) if memory_blocks else SYSTEM_PROMPT
+    )
+    messages: list[ChatMessage] = [{"role": "system", "content": system}]
     for role, content in [(turn.role.value, turn.content) for turn in kept] + [("user", question)]:
         if messages[-1]["role"] == role:
             messages[-1] = {"role": role, "content": f"{messages[-1]['content']}\n\n{content}"}
@@ -274,9 +293,15 @@ async def stream_reply(
     user_turn: ConversationTurn,
     messages: list[ChatMessage],
     gateway: ModelGateway,
+    completed: CompletedReply | None = None,
+    memories_used: Sequence[str] = (),
 ) -> AsyncIterator[str]:
-    """The ``ask`` response body. Writes go through fresh units of work only."""
-    yield sse("turn", {"user_turn": user_turn.model_dump(mode="json")})
+    """The ``ask`` response body. Writes go through fresh units of work only.
+
+    ``completed`` is filled when the reply is complete and stored, for the memory pass
+    that runs after the body.
+    """
+    yield sse("turn", {"user_turn": user_turn.model_dump(mode="json"), "memories_used": list(memories_used)})
     parts: list[str] = []
     outcome = TurnStatus.FAILED
     error: tuple[str, str] | None = None
@@ -301,6 +326,9 @@ async def stream_reply(
         )
         error = ("model_unavailable", "The model did not answer. Try again in a moment.")
     assistant_turn = _store_reply(context, conversation, "".join(parts), outcome)
+    if outcome == TurnStatus.COMPLETE and assistant_turn is not None and completed is not None:
+        completed.text = assistant_turn.content
+        completed.complete = True
     if outcome == TurnStatus.COMPLETE:
         yield sse("done", {"assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None})
     else:
@@ -426,7 +454,23 @@ async def ask_in_conversation(
             user_turn = store.add_turn(conversation, TurnRole.USER, question, TurnStatus.COMPLETE)
             if not conversation.title:
                 store.set_title(conversation, title_from(question))
-    messages = build_messages(history, user_turn.content)
+    recall = await recall_memories(context, user_turn.content)
+    messages = build_messages(history, user_turn.content, memory_blocks=recall.blocks)
+    completed = CompletedReply()
+    # Runs after the whole body has been sent: it never delays or fails the stream.
+    background = (
+        BackgroundTask(
+            remember_after_reply,
+            context=context,
+            conversation_id=conversation.id,
+            conversation_title=conversation.title or title_from(user_turn.content),
+            question=user_turn.content,
+            reply=completed,
+            gateway=gateway,
+        )
+        if extraction_enabled(context)
+        else None
+    )
     return StreamingResponse(
         stream_reply(
             context=context,
@@ -434,7 +478,10 @@ async def ask_in_conversation(
             user_turn=user_turn,
             messages=messages,
             gateway=gateway,
+            completed=completed,
+            memories_used=recall.memory_ids,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
+        background=background,
     )

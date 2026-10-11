@@ -6,7 +6,7 @@ import {
   type Conversation, type UiTurn,
 } from './lib/chat';
 import { askInConversation, createConversation, deleteConversation, getConversation, listConversations, type AskBody } from './lib/chatApi';
-import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
+import { ApiError, budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
 import { parseAnswer } from './lib/tasks';
 import './chat.css';
 
@@ -24,7 +24,7 @@ function explain(error: unknown, action: string): string {
  * Replies render through the safe answer renderer (text nodes only); Stop aborts the request,
  * which stops the model on the server.
  */
-export function ChatView({ onOpenBudgets }: { onOpenBudgets: () => void }) {
+export function ChatView({ onOpenBudgets, initialConversationId = null }: { onOpenBudgets: () => void; initialConversationId?: string | null }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [turns, setTurns] = useState<UiTurn[]>([]);
@@ -51,18 +51,27 @@ export function ChatView({ onOpenBudgets }: { onOpenBudgets: () => void }) {
     if (!id) { setTurns([]); return; }
     setOpening(true);
     try { setTurns(fromStored((await getConversation(id)).turns)); }
-    catch (e) { setTurns([]); setNotice(explain(e, 'This conversation could not be loaded')); }
+    catch (e) {
+      setTurns([]);
+      if (e instanceof ApiError && e.status === 404) {
+        // A link from the Memory view to a chat that was deleted since: its memories stay.
+        setActiveId(null);
+        setNotice('That chat was deleted. Memories remembered from it stay in Memory until you delete them there.');
+      } else setNotice(explain(e, 'This conversation could not be loaded'));
+    }
     finally { setOpening(false); }
   }, []);
 
-  const loadList = useCallback(async (openFirst: boolean) => {
+  const loadList = useCallback(async (openFirst: boolean, target: string | null = null) => {
     setListState('loading');
     setListError(null);
     try {
       const items = await listConversations();
       setConversations(items);
       setListState('ready');
-      if (openFirst && items[0]) await open(items[0].id);
+      // Opened from the Memory view: that conversation, even when it is older than the list.
+      if (target) await open(target);
+      else if (openFirst && items[0]) await open(items[0].id);
     } catch (e) {
       setListState('error');
       setListError(explain(e, 'Conversations could not be loaded'));
@@ -70,9 +79,9 @@ export function ChatView({ onOpenBudgets }: { onOpenBudgets: () => void }) {
   }, [open]);
 
   useEffect(() => {
-    void loadList(true);
+    void loadList(true, initialConversationId);
     return () => controller.current?.abort();
-  }, [loadList]);
+  }, [loadList, initialConversationId]);
 
   // Follow the reply only while the reader is at the bottom; scrolling up to read stops it.
   useLayoutEffect(() => {

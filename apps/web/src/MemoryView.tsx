@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Brain, CircleDot, FileText, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Brain, CircleDot, FileText, MessageSquare, RefreshCw, Search, Trash2 } from 'lucide-react';
 import type { Task } from '@anum/contracts';
 import * as api from './lib/api';
-import { indexSummary, memoryIndexState, type RetrievalIndexStatus } from './lib/capabilities';
+import { indexSummary, memoryIndexState, memorySource, type RetrievalIndexStatus } from './lib/capabilities';
 import { describeError } from './lib/errors';
 import './features.css';
 
-// The API requires every memory to belong to a task (POST /api/v1/memories needs task_id) and has
-// no update endpoint, so a memory is added under a task and changed by deleting and re-adding it.
-export function MemoryView({ tasks }: { tasks: Task[] }) {
+// A memory added here belongs to a task (POST /api/v1/memories needs task_id) and has no update
+// endpoint, so it is changed by deleting and re-adding it. Memories the Assistant remembered from
+// the caller's own chats have no task: they link back to their conversation (docs/memory.md#from-conversations).
+export function MemoryView({ tasks, onOpenConversation }: { tasks: Task[]; onOpenConversation: (conversationId: string) => void }) {
   const [items, setItems] = useState<api.MemoryNote[]>([]);
   const [index, setIndex] = useState<RetrievalIndexStatus | null>(null);
   const [query, setQuery] = useState(''), [applied, setApplied] = useState('');
@@ -52,16 +53,19 @@ export function MemoryView({ tasks }: { tasks: Task[] }) {
     {note && <p className="notice" role="status"><CircleDot />{note}</p>}
     {loading && <p className="notice"><CircleDot />Loading memory...</p>}
     <section className="surface memoryTable">{items.map(x => {
-      const idx = memoryIndexState(index, x.id);
+      const idx = memoryIndexState(index, x.id), source = memorySource(x);
       return <div className="memoryRow" key={x.id}>
-        <div><span className="typeIcon"><FileText /></span><div><strong>{x.provenance.source_type}</strong><p>{x.content}</p></div></div>
+        <div><span className="typeIcon">{source.kind === 'chat' ? <MessageSquare /> : <FileText />}</span><div><strong>{source.label}</strong><p>{x.content}</p>
+          {source.kind === 'chat' && <small className="memorySource">Private to you · from “{source.title}”</small>}</div></div>
         <span className={`featureChip ${idx.state}`} title={idx.error ?? undefined}>{idx.state.replace('_', ' ')}</span>
-        <code>{x.task_id}</code>
+        {source.kind === 'chat'
+          ? <button type="button" className="secondary memoryChatLink" onClick={() => onOpenConversation(source.conversationId)} aria-label={`Open chat ${source.title}`}><MessageSquare />Open chat</button>
+          : <code>{source.kind === 'task' ? source.taskId : ''}</code>}
         {confirming === x.id
           ? <span className="featureConfirm"><button className="danger" disabled={busy} onClick={() => void remove(x.id)}>Delete</button><button className="secondary" onClick={() => setConfirming(null)}>Cancel</button></span>
           : <button className="iconButton" aria-label="Delete memory" onClick={() => setConfirming(x.id)}><Trash2 /></button>}
       </div>;
     })}</section>
-    {!loading && !error && !items.length && <div className="emptyState"><Search /><h3>{applied ? 'No matching memories' : 'No memories'}</h3><p>{applied ? `Nothing matched “${applied}”.` : 'Add context associated with a task.'}</p></div>}
+    {!loading && !error && !items.length && <div className="emptyState"><Search /><h3>{applied ? 'No matching memories' : 'No memories'}</h3><p>{applied ? `Nothing matched “${applied}”.` : 'Add context associated with a task, or tell the Assistant about yourself: facts you state in a chat are remembered here.'}</p></div>}
   </>;
 }

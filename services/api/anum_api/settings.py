@@ -118,6 +118,23 @@ class Settings(BaseSettings):
     # same 30 days as voice transcripts by default; 0 keeps them until the user deletes
     # them. Migration 0019 lets discovery see only conversations idle for a day or more.
     conversation_retention_days: int = Field(default=30, ge=0, le=3650)
+    # Conversation memory (anum_api/conversation_memory.py, docs/memory.md#from-conversations).
+    # After a reply completes, a small background model call (at most
+    # ``conversation_memory_max_tokens``, metered against the budget) extracts durable
+    # facts the user stated; they become private memories, deduplicated against the
+    # user's earlier ones (cosine >= ``conversation_memory_dedupe_threshold`` updates
+    # instead of adding). Each ask recalls the ``conversation_memory_recall_k`` nearest
+    # memories, at most ``conversation_memory_recall_chars`` of text, into the system
+    # prompt. ``false`` turns both off; a tenant also turns extraction off by leaving
+    # "conversation" out of its memory governance ``allowed_source_types``.
+    conversation_memory_enabled: bool = True
+    conversation_memory_max_tokens: int = Field(default=256, ge=32, le=2048)
+    conversation_memory_max_facts: int = Field(default=5, ge=1, le=20)
+    conversation_memory_dedupe_threshold: float = Field(default=0.85, gt=0, le=1)
+    conversation_memory_timeout_seconds: float = Field(default=60.0, gt=0)
+    conversation_memory_recall_k: int = Field(default=4, ge=0, le=20)
+    conversation_memory_recall_chars: int = Field(default=2000, ge=0, le=20_000)
+    conversation_memory_recall_timeout_seconds: float = Field(default=3.0, gt=0)
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))

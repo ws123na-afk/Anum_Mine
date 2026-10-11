@@ -29,6 +29,7 @@ from .dependencies import memory_repository_context, require_permission, tenant_
 from .memory import MemoryListFilters, MemoryRepository
 from .model_gateway import ModelGateway, build_default_model_gateway
 from .retrieval import (
+    Embedder,
     IndexOutcome,
     IndexStatus,
     RetrievalIndexer,
@@ -88,13 +89,15 @@ def _log_hook_failure(action: str, exc: BaseException) -> None:
     )
 
 
-async def index_memory_note(context: TenantContext, note: Any, memories: MemoryRepository) -> IndexOutcome | None:
+async def index_memory_note(
+    context: TenantContext, note: Any, memories: MemoryRepository, *, embedder: Embedder | None = None
+) -> IndexOutcome | None:
     """Index a just-created memory in the memory route's own transaction (best effort)."""
     session = getattr(memories, "session", None)
     try:
         with _savepoint(session):
             indexer = RetrievalIndexer(
-                retrieval_store_for_session(session), build_embedder(context, default_model_gateway())
+                retrieval_store_for_session(session), embedder or build_embedder(context, default_model_gateway())
             )
             return await indexer.index_memory(context, note)
     except Exception as exc:

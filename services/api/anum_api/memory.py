@@ -27,15 +27,24 @@ class RetentionPolicy(BaseModel):
     expires_at: datetime | None = None
 
 
+# Memories remembered from a user's conversations (anum_api/conversation_memory.py).
+CONVERSATION_SOURCE_TYPE = "conversation"
+
+
 class MemoryNote(BaseModel):
     id: str
     tenant_id: str
     workspace_id: str
-    task_id: str
+    # The task a note belongs to; None for memories remembered from a conversation.
+    task_id: str | None
     content: str
     provenance: MemoryProvenance
     retention: RetentionPolicy
     created_at: datetime
+    # Set for a private memory only its owner sees (facts from that user's chats);
+    # None for workspace-shared notes. Enforced by the stores and by RLS (0021).
+    owner_user_id: str | None = None
+    updated_at: datetime | None = None
 
     def is_expired(self, now: datetime) -> bool:
         expires_at = self.retention.expires_at
@@ -74,7 +83,11 @@ class MemoryAccess(BaseModel):
     can_read_all_workspace_tasks: bool = False
     can_delete_any: bool = False
 
-    def can_read(self, task_id: str) -> bool:
+    def can_read(self, task_id: str | None) -> bool:
+        # A memory without a task (from a conversation) is private to its owner, which
+        # the store already enforces: nothing else gates it.
+        if task_id is None:
+            return True
         return self.can_read_all_workspace_tasks or task_id in self.readable_task_ids
 
 
@@ -88,6 +101,17 @@ class MemoryRepository(Protocol):
     ) -> list[MemoryNote]: ...
 
     def delete(self, note_id: str, context: TenantContext) -> bool: ...
+
+    def update_content(
+        self,
+        note_id: str,
+        context: TenantContext,
+        content: str,
+        provenance: MemoryProvenance,
+        now: datetime,
+    ) -> MemoryNote | None:
+        """Replace a visible note's text and provenance (conversation dedupe)."""
+        ...
 
 
 class InMemoryMemoryRepository:
@@ -134,6 +158,22 @@ class InMemoryMemoryRepository:
             return False
         del self._notes[note_id]
         return True
+
+    def update_content(
+        self,
+        note_id: str,
+        context: TenantContext,
+        content: str,
+        provenance: MemoryProvenance,
+        now: datetime,
+    ) -> MemoryNote | None:
+        note = self._notes.get(note_id)
+        if note is None or not _in_scope(note, context):
+            return None
+        note.content = content
+        note.provenance = provenance.model_copy(deep=True)
+        note.updated_at = now
+        return note.model_copy(deep=True)
 
 
 class MemoryService:
@@ -195,6 +235,7 @@ def _in_scope(note: MemoryNote, context: TenantContext) -> bool:
     return (
         note.tenant_id == context.tenant_id
         and note.workspace_id == context.workspace_id
+        and (note.owner_user_id is None or note.owner_user_id == context.user_id)
     )
 
 

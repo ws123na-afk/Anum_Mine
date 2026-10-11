@@ -360,3 +360,26 @@ def test_tenants_rls_migration_forces_rls_on_tenants_and_grants_nothing() -> Non
     # Expand only, and no role gets a way around the policy.
     assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_memory_sources_migration_is_expand_only_with_owner_scoped_restrictive_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0021_memory_sources.py").read_text(encoding="utf-8")
+    assert 'revision = "0021_memory_sources"' in revision_text
+    assert len("0021_memory_sources") <= 32
+    assert 'down_revision = "0020_tenants_rls"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0021_memory_sources.py"]
+    assert not [path for path in others if 'down_revision = "0020_tenants_rls"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Two nullable owner columns: the previous release never writes them.
+    assert upgrade.count("op.add_column(") == 2
+    assert upgrade.count("nullable=true") == 2
+    assert '"memories"' in upgrade and '"retrieval_sources"' in upgrade
+    # Owned rows: AND-ed with tenant isolation, visible only to the owner's user context.
+    assert "as restrictive" in upgrade and "with check" in upgrade
+    assert "current_setting('anum.user_id', true)" in revision_text
+    assert "create index concurrently if not exists ix_memories_owner" in upgrade
+    assert "autocommit_block" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "grant " not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade

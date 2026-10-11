@@ -1,7 +1,7 @@
 // Unit tests for the Memory, Skills and Agents helpers in src/lib/capabilities.ts.
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { agentRows, indexSummary, isActiveOwner, installReview, memoryIndexState, memorySearchPath, skillAnchor, skillInstallState, type RetrievalIndexStatus } from '../src/lib/capabilities.ts';
+import { agentRows, indexSummary, isActiveOwner, installReview, memoryIndexState, memorySearchPath, memorySource, skillAnchor, skillInstallState, type RetrievalIndexStatus } from '../src/lib/capabilities.ts';
 
 const at = '2026-10-06T12:00:00Z';
 const skill = (over: Partial<{ skill_id: string; version: string; name: string; required_tools: string[]; risk_level: string }> = {}) => ({ skill_id: 'research', version: '1.0.0', name: 'Research', description: 'Finds things.', required_tools: ['web.search', 'files.read'], risk_level: 'low', ...over });
@@ -80,5 +80,24 @@ describe('isActiveOwner', () => {
     assert.equal(isActiveOwner({ role: 'member', active: true }), false);
     assert.equal(isActiveOwner({ role: 'viewer', active: true }), false);
     assert.equal(isActiveOwner(null), false);
+  });
+});
+
+describe('memorySource', () => {
+  const note = (over: Partial<{ task_id: string | null; source_type: string; source_id: string | null; metadata: Record<string, unknown> }> = {}) => ({
+    task_id: 'task_id' in over ? over.task_id ?? null : null,
+    provenance: { source_type: over.source_type ?? 'conversation', source_id: 'source_id' in over ? over.source_id ?? null : 'conv_1', metadata: over.metadata },
+  });
+  test('links a memory from a chat to its conversation, with its title', () => {
+    assert.deepEqual(memorySource(note({ metadata: { conversation_title: '  Trip planning ' } })), { kind: 'chat', label: 'From chat', title: 'Trip planning', conversationId: 'conv_1' });
+  });
+  test('falls back to a generic title when the chat has none', () => {
+    assert.equal((memorySource(note({ metadata: { conversation_title: 7 } })) as { title: string }).title, 'Untitled chat');
+    assert.equal((memorySource(note()) as { title: string }).title, 'Untitled chat');
+  });
+  test('task notes name their task and other sources their type', () => {
+    assert.deepEqual(memorySource(note({ task_id: 'task_1', source_type: 'task_message', source_id: 'm1' })), { kind: 'task', label: 'task message', taskId: 'task_1' });
+    assert.deepEqual(memorySource(note({ source_type: 'user', source_id: null })), { kind: 'other', label: 'user' });
+    assert.equal(memorySource(note({ source_id: null })).kind, 'other');
   });
 });
