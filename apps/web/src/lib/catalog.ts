@@ -2,6 +2,8 @@
 // API response in services/api (anum_api/integrations.py, skills_api.py, phase5.py);
 // docs/tools-and-integrations.md, docs/skills.md, docs/governance-and-scale.md.
 
+import { joinList, t } from './i18n.ts';
+
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
 // --------------------------------------------------------------------------- integrations
@@ -51,25 +53,25 @@ export function canSwitchIntegration(item: IntegrationState): boolean {
 /** The "last error" line, shown only when it is not the failure the card already reports. */
 export function lastErrorNote(item: IntegrationState, format: (iso: string) => string): string | null {
   if (!item.last_error || !item.last_error_at) return null;
-  if (item.status === 'degraded' && item.detail === item.last_error) return `Failing since the check at ${format(item.last_error_at)}.`;
-  return `Last error ${format(item.last_error_at)}: ${item.last_error}`;
+  if (item.status === 'degraded' && item.detail === item.last_error) return t('integrations.lastErrorFailing', { time: format(item.last_error_at) });
+  return t('integrations.lastError', { time: format(item.last_error_at), error: item.last_error });
 }
 
 /** Where a credential comes from, in words. */
 export function credentialSource(item: IntegrationState): string {
   const stored = item.workspace_credential;
-  if (stored?.configured) return `Workspace token ${stored.hint ?? ''} stored encrypted${stored.updated_by ? ` by ${stored.updated_by}` : ''}.`.replace('  ', ' ');
-  if (item.credentials.configured && item.credentials.source === 'environment') return 'Uses the token the operator configured for this deployment.';
-  return 'No token: calls are sent without an Authorization header.';
+  if (stored?.configured) return stored.updated_by ? t('integrations.credWorkspace', { hint: stored.hint ?? '', user: stored.updated_by }) : t('integrations.credWorkspaceNoUser', { hint: stored.hint ?? '' });
+  if (item.credentials.configured && item.credentials.source === 'environment') return t('integrations.credOperator');
+  return t('integrations.credNone');
 }
 
 /** Mirrors the API: 12 to 4096 printable ASCII characters without spaces (a bearer token). */
 export function credentialBody(secret: string): Result<{ secret: string }> {
-  if (!secret) return { ok: false, error: 'Paste the token to store.' };
-  if (/\s/.test(secret)) return { ok: false, error: 'The token cannot contain spaces or line breaks.' };
-  if (!/^[\x21-\x7e]+$/.test(secret)) return { ok: false, error: 'The token can only use printable ASCII characters.' };
-  if (secret.length < 12) return { ok: false, error: 'The token is at least 12 characters.' };
-  if (secret.length > 4096) return { ok: false, error: 'The token is at most 4096 characters.' };
+  if (!secret) return { ok: false, error: t('integrations.tokenEmpty') };
+  if (/\s/.test(secret)) return { ok: false, error: t('integrations.tokenSpaces') };
+  if (!/^[\x21-\x7e]+$/.test(secret)) return { ok: false, error: t('integrations.tokenAscii') };
+  if (secret.length < 12) return { ok: false, error: t('integrations.tokenShort') };
+  if (secret.length > 4096) return { ok: false, error: t('integrations.tokenLong') };
   return { ok: true, value: { secret } };
 }
 
@@ -152,18 +154,18 @@ export interface SkillDetail {
   history: SkillHistoryEntry[]; can_manage: boolean; can_rollback: boolean;
 }
 
-const HISTORY_LABELS: Record<string, string> = {
-  'skill.published': 'Published', 'skill.installed': 'Installed', 'skill.enabled': 'Enabled', 'skill.disabled': 'Disabled',
-  'skill.uninstalled': 'Uninstalled', 'skill.rolled_back': 'Rolled back',
-};
+const HISTORY_KEYS = {
+  'skill.published': 'skills.history.published', 'skill.installed': 'skills.history.installed', 'skill.enabled': 'skills.history.enabled',
+  'skill.disabled': 'skills.history.disabled', 'skill.uninstalled': 'skills.history.uninstalled',
+} as const;
 
 /** A history row in words: "Rolled back 2.0.0 → 1.0.0", "Installed 1.2.0", "Published 1.0.0". */
 export function historyLabel(entry: SkillHistoryEntry): string {
-  const label = HISTORY_LABELS[entry.action] ?? entry.action;
   const m = entry.metadata ?? {};
-  if (entry.action === 'skill.rolled_back') return `${label} ${String(m.from_version ?? '?')} → ${String(m.to_version ?? '?')}`;
-  if (entry.action === 'skill.installed' && m.previous_version) return `${label} ${String(m.version)} (was ${String(m.previous_version)})`;
-  return m.version ? `${label} ${String(m.version)}` : label;
+  if (entry.action === 'skill.rolled_back') return t('skills.history.rolledBack', { from: String(m.from_version ?? '?'), to: String(m.to_version ?? '?') });
+  if (entry.action === 'skill.installed' && m.previous_version) return t('skills.history.installedFrom', { version: String(m.version), previous: String(m.previous_version) });
+  const key = HISTORY_KEYS[entry.action as keyof typeof HISTORY_KEYS];
+  return key ? t(key, { version: m.version ? String(m.version) : '' }).trim() : entry.action;
 }
 
 /** Badge tone for a tool's approval need. */
@@ -180,16 +182,16 @@ export const emptyPublishDraft = (): PublishDraft => ({ skillId: '', version: '1
 /** The `POST /skills/versions` body, validated as the API does. */
 export function publishBody(d: PublishDraft): Result<{ skill_id: string; version: string; name: string; description: string; instructions: string; required_tools: string[]; risk_level: string }> {
   const skillId = d.skillId.trim();
-  if (!/^[a-z0-9][a-z0-9_.-]{2,127}$/.test(skillId)) return { ok: false, error: 'Skill id: 3 to 128 lowercase letters, digits, dots, dashes or underscores (for example acme.release-notes).' };
+  if (!/^[a-z0-9][a-z0-9_.-]{2,127}$/.test(skillId)) return { ok: false, error: t('skills.err.id') };
   const version = d.version.trim();
-  if (!/^\d+\.\d+\.\d+$/.test(version)) return { ok: false, error: 'Version is major.minor.patch, for example 1.0.0.' };
+  if (!/^\d+\.\d+\.\d+$/.test(version)) return { ok: false, error: t('skills.err.version') };
   const name = d.name.trim(), description = d.description.trim(), instructions = d.instructions.trim();
-  if (!name || name.length > 160) return { ok: false, error: 'Give the skill a name (at most 160 characters).' };
-  if (!description || description.length > 2000) return { ok: false, error: 'Describe what the skill does (at most 2000 characters).' };
-  if (!instructions || instructions.length > 50000) return { ok: false, error: 'Write the instructions agents follow (at most 50000 characters).' };
-  const tools = [...new Set(d.tools.split(/[,\n]/).map((t) => t.trim()).filter(Boolean))];
-  if (tools.length > 100) return { ok: false, error: 'A skill requires at most 100 tools.' };
-  if (!['low', 'medium', 'high', 'blocked'].includes(d.risk)) return { ok: false, error: 'Choose a risk level.' };
+  if (!name || name.length > 160) return { ok: false, error: t('skills.err.name') };
+  if (!description || description.length > 2000) return { ok: false, error: t('skills.err.description') };
+  if (!instructions || instructions.length > 50000) return { ok: false, error: t('skills.err.instructions') };
+  const tools = [...new Set(d.tools.split(/[,\n]/).map((x) => x.trim()).filter(Boolean))];
+  if (tools.length > 100) return { ok: false, error: t('skills.err.tools') };
+  if (!['low', 'medium', 'high', 'blocked'].includes(d.risk)) return { ok: false, error: t('skills.err.risk') };
   return { ok: true, value: { skill_id: skillId, version, name, description, instructions, required_tools: tools, risk_level: d.risk } };
 }
 
@@ -213,11 +215,11 @@ export function filterPackages(items: MarketPackage[], installs: PackageInstall[
 /** What an owner reads before installing: who published it, whether it is verified, what it may do. */
 export function installSummary(p: MarketPackage): { lines: string[]; warning: string | null } {
   const lines = [
-    `${p.kind === 'skill' ? 'Skill' : 'Integration'} ${p.name} v${p.version} from ${p.publisher}.`,
-    p.permissions.length ? `Requests ${p.permissions.length} permission${p.permissions.length === 1 ? '' : 's'} in this workspace.` : 'Requests no permissions.',
-    p.regions.length ? `Published for ${p.regions.join(', ')}.` : 'No region restriction declared.',
+    t(p.kind === 'skill' ? 'market.summary.skill' : 'market.summary.integration', { name: p.name, version: p.version, publisher: p.publisher }),
+    t('market.summary.permissions', { count: p.permissions.length }),
+    p.regions.length ? t('market.summary.regions', { regions: joinList(p.regions) }) : t('market.summary.noRegions'),
   ];
-  const warning = p.verified ? null : 'Not verified: your organization administrator has not marked this publisher as verified. Install only if you trust it.';
+  const warning = p.verified ? null : t('market.summary.unverified');
   return { lines, warning };
 }
 
@@ -230,13 +232,13 @@ const list = (value: string) => [...new Set(value.split(/[,\n]/).map((x) => x.tr
 /** The `PUT /marketplace/packages/{id}` body, validated as the API does. */
 export function packageBody(d: PackageDraft): Result<MarketPackage> {
   const id = d.id.trim();
-  if (!/^[a-z0-9][a-z0-9_.-]{1,79}$/.test(id)) return { ok: false, error: 'Package id: 2 to 80 lowercase letters, digits, dots, dashes or underscores.' };
-  if (!/^\d+\.\d+\.\d+$/.test(d.version.trim())) return { ok: false, error: 'Version is major.minor.patch, for example 1.0.0.' };
+  if (!/^[a-z0-9][a-z0-9_.-]{1,79}$/.test(id)) return { ok: false, error: t('market.err.id') };
+  if (!/^\d+\.\d+\.\d+$/.test(d.version.trim())) return { ok: false, error: t('market.err.version') };
   const name = d.name.trim(), publisher = d.publisher.trim();
-  if (!name || name.length > 160) return { ok: false, error: 'Give the package a name (at most 160 characters).' };
-  if (!publisher || publisher.length > 160) return { ok: false, error: 'Name the publisher (at most 160 characters).' };
+  if (!name || name.length > 160) return { ok: false, error: t('market.err.name') };
+  if (!publisher || publisher.length > 160) return { ok: false, error: t('market.err.publisher') };
   const permissions = list(d.permissions), regions = list(d.regions);
-  if (permissions.length > 50) return { ok: false, error: 'At most 50 permissions.' };
-  if (regions.length > 20) return { ok: false, error: 'At most 20 regions.' };
+  if (permissions.length > 50) return { ok: false, error: t('market.err.permissions') };
+  if (regions.length > 20) return { ok: false, error: t('market.err.regions') };
   return { ok: true, value: { id, name, kind: d.kind, version: d.version.trim(), publisher, verified: d.verified, permissions, regions } };
 }

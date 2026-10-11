@@ -55,7 +55,7 @@
 /* Skill cards: actions get their own row so several buttons never squeeze the text. */
 .integration.catalogCard { align-items: start; grid-template-columns: 44px minmax(0, 1fr); }
 .integration.catalogCard > .featureSkillActions { grid-column: 1 / -1; justify-content: flex-start; }
-.integration.catalogCard h3 small { color: var(--d-faint); display: inline; font-size: 13px; font-weight: 600; margin-left: var(--d-s1); }
+.integration.catalogCard h3 small { color: var(--d-faint); display: inline; font-size: 13px; font-weight: 600; margin-inline-start: var(--d-s1); }
 .catalogMore { display: flex; justify-content: center; margin-top: var(--d-s4); }
 
 /* Dialogs. */
@@ -70,7 +70,7 @@
 .catalogVersionList li > div:first-child { align-items: center; display: flex; flex: 1 1 260px; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); min-width: 0; }
 .catalogVersionList small, .catalogHistory small { color: var(--d-muted); flex: 1 1 100%; font-size: 12px; }
 .catalogVersionActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.catalogHistory li { border-left: 2px solid var(--d-line-strong); display: grid; gap: 2px; padding-left: var(--d-s3); }
+.catalogHistory li { border-inline-start: 2px solid var(--d-line-strong); display: grid; gap: 2px; padding-inline-start: var(--d-s3); }
 .catalogForm { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .catalogForm .field input, .catalogForm .field select, .catalogForm .field textarea { width: 100%; }
 .catalogForm .integrationToggle { margin-top: var(--d-s4); min-height: 44px; }
@@ -79,8 +79,8 @@
 
 /* Marketplace rows. */
 .catalogRow.marketRow { grid-template-columns: 24px minmax(0, 1fr) auto; }
-.marketRow strong { margin-right: var(--d-s1); }
-.marketRow .statusBadge { gap: 4px; margin-right: var(--d-s1); vertical-align: middle; }
+.marketRow strong { margin-inline-end: var(--d-s1); }
+.marketRow .statusBadge { gap: 4px; margin-inline-end: var(--d-s1); vertical-align: middle; }
 .marketActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
 
 @media (max-width: 640px) {

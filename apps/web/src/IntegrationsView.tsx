@@ -5,16 +5,17 @@ import { integrationBadge, integrationToolNote } from './lib/governance';
 import { getIntegrationConfiguration, saveIntegrationConfiguration } from './lib/governanceApi';
 import { canSwitchIntegration, credentialBody, credentialSource, integrationCounts, lastErrorNote, sortIntegrations, type IntegrationState } from './lib/catalog';
 import * as catalog from './lib/catalogApi';
+import { formatDateTime, t } from './lib/i18n';
 import { useIsOwner } from './useIsOwner';
 import './governance.css';
 import './catalog.css';
 
 const icons: Record<string, ReactNode> = { postgresql: <Database />, keycloak: <KeyRound />, nats: <GitBranch />, temporal: <Workflow />, valkey: <MemoryStick />, minio: <FileText />, s3: <FileText />, searxng: <Search />, 'external-webhook': <Webhook /> };
-const failure = (error: unknown) => isPermissionDenied(error) ? `Not allowed: ${describeError(error)} Only workspace owners can change integrations.` : describeError(error);
-const when = (iso: string) => new Date(iso).toLocaleString();
+const failure = (error: unknown) => isPermissionDenied(error) ? t('integrations.notAllowed', { error: describeError(error) }) : describeError(error);
+const when = (iso: string) => formatDateTime(iso);
 
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
-  return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot />{children}</p>;
+  return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>;
 }
 
 /** Live integration health with its history, and per-workspace controls for owners. */
@@ -29,7 +30,7 @@ export function IntegrationsView() {
   const load = useCallback(async () => {
     setLoading(true);
     try { setItems(await catalog.getIntegrationStates()); setLoadError(null); }
-    catch (e) { setLoadError(`Could not load integrations: ${failure(e)} Check that the API is reachable, then Refresh.`); }
+    catch (e) { setLoadError(t('integrations.loadFailed', { error: failure(e) })); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -39,37 +40,40 @@ export function IntegrationsView() {
     try {
       const result = await catalog.testIntegration(item.id);
       replace(result);
-      setFlash({ id: item.id, text: result.status === 'connected' ? `Connection to ${item.name} works (${result.latency_ms ?? 0} ms).` : result.status === 'degraded' ? `${item.name} did not answer: ${result.detail}` : `${item.name} is not in use here: ${result.detail}`, error: result.status === 'degraded' });
+      const text = result.status === 'connected' ? t('integrations.testOk', { name: item.name, ms: result.latency_ms ?? 0 })
+        : result.status === 'degraded' ? t('integrations.testDegraded', { name: item.name, detail: result.detail })
+          : t('integrations.testUnused', { name: item.name, detail: result.detail });
+      setFlash({ id: item.id, text, error: result.status === 'degraded' });
     } catch (e) { setFlash({ id: item.id, text: failure(e), error: true }); } finally { setTesting(null); }
   };
   const counts = integrationCounts(items);
   return <>
-    <section className="moduleIntro"><div><p className="eyebrow">Connected systems</p><h2>Integrations</h2><p>Live health of the services this deployment uses. Owners test a connection, turn an integration off for this workspace and store the workspace's own token where an integration accepts one. ANUM always connects to the endpoint the operator configured.</p></div><button type="button" onClick={() => void load()} disabled={loading}><RefreshCw />Refresh</button></section>
-    {loading && !items.length && <Notice>Loading integrations...</Notice>}
+    <section className="moduleIntro"><div><p className="eyebrow">{t('integrations.eyebrow')}</p><h2>{t('integrations.title')}</h2><p>{t('integrations.intro')}</p></div><button type="button" onClick={() => void load()} disabled={loading}><RefreshCw aria-hidden="true" />{t('integrations.refresh')}</button></section>
+    {loading && !items.length && <Notice>{t('integrations.loading')}</Notice>}
     {loadError && <Notice error>{loadError}</Notice>}
-    {owner === false && <Notice>You can see health here. Only workspace owners can test connections, turn integrations off or store credentials; ask an owner of this workspace.</Notice>}
-    {items.length > 0 && <p className="catalogSummary" aria-live="polite">{counts.connected} connected · {counts.degraded} need attention · {counts.unused} not used</p>}
-    {!loading && !loadError && !items.length && <div className="emptyState"><Plug /><h3>No integrations reported</h3><p>The API returned no integrations. Check the API version, then Refresh.</p></div>}
+    {owner === false && <Notice>{t('integrations.memberNotice')}</Notice>}
+    {items.length > 0 && <p className="catalogSummary" aria-live="polite">{t('integrations.summary', counts)}</p>}
+    {!loading && !loadError && !items.length && <div className="emptyState"><Plug aria-hidden="true" /><h3>{t('integrations.emptyTitle')}</h3><p>{t('integrations.emptyText')}</p></div>}
     <div className="integrationGrid">{sortIntegrations(items).map((x) => {
       const badge = integrationBadge(x.status);
       const tool = integrationToolNote(x.kind, x.status);
       const last = lastErrorNote(x, when);
       return <article className="surface integration integrationCard" key={x.id} aria-labelledby={`integration-${x.id}`}>
-        <div className="integrationIcon">{icons[x.id] ?? <Plug />}</div>
+        <div className="integrationIcon" aria-hidden="true">{icons[x.id] ?? <Plug />}</div>
         <div>
           <h3 id={`integration-${x.id}`}>{x.name}</h3>
-          <p>{x.endpoint}</p>
+          <p dir="ltr" className="catalogLtr">{x.endpoint}</p>
         </div>
-        <div className="integrationActions"><span className={`statusBadge ${badge.tone}`}>{badge.label}</span>{owner && <button type="button" className="secondary" aria-expanded={open === x.id} aria-label={`Configure ${x.name}`} onClick={() => setOpen(open === x.id ? null : x.id)}><Settings size={15} /></button>}</div>
+        <div className="integrationActions"><span className={`statusBadge ${badge.tone}`}>{badge.label}</span>{owner && <button type="button" className="secondary" aria-expanded={open === x.id} aria-label={t('integrations.configure', { name: x.name })} onClick={() => setOpen(open === x.id ? null : x.id)}><Settings size={15} aria-hidden="true" /></button>}</div>
         <div className="integrationBody">
-          <small>{x.detail}{x.latency_ms !== null ? ` · ${x.latency_ms} ms` : ''}</small>
+          <small dir="auto">{x.latency_ms !== null ? t('integrations.latency', { detail: x.detail, ms: x.latency_ms }) : x.detail}</small>
           {tool && <small className={`integrationTool ${tool.available ? 'available' : ''}`}>{tool.text}</small>}
-          {x.checked_at && <small>Checked {when(x.checked_at)}</small>}
+          {x.checked_at && <small>{t('integrations.checked', { time: when(x.checked_at) })}</small>}
           {last && <small className="integrationLastError">{last}</small>}
         </div>
-        {x.remediation && <p className="integrationFix"><Wrench aria-hidden="true" /><span><strong>How to fix: </strong>{x.remediation}</span></p>}
+        {x.remediation && <p className="integrationFix"><Wrench aria-hidden="true" /><span><strong>{t('integrations.howToFix')}</strong><span dir="auto">{x.remediation}</span></span></p>}
         {x.accepts_workspace_credential && <p className="integrationCredentialLine"><KeyRound aria-hidden="true" />{credentialSource(x)}</p>}
-        {owner && <div className="integrationOwnerRow"><button type="button" className="secondary" disabled={testing !== null || x.status === 'disabled'} title={x.status === 'disabled' ? 'Not in use, so there is nothing to test' : undefined} onClick={() => void test(x)}><Activity size={15} />{testing === x.id ? 'Testing...' : 'Test connection'}</button></div>}
+        {owner && <div className="integrationOwnerRow"><button type="button" className="secondary" disabled={testing !== null || x.status === 'disabled'} title={x.status === 'disabled' ? t('integrations.testDisabled') : undefined} onClick={() => void test(x)}><Activity size={15} aria-hidden="true" />{testing === x.id ? t('integrations.testing') : t('integrations.test')}</button></div>}
         {flash?.id === x.id && <div className="integrationFlash"><Notice error={flash.error}>{flash.text}</Notice></div>}
         {owner && open === x.id && <ConfigurePanel integration={x} onChanged={() => void load()} />}
       </article>;
@@ -100,30 +104,30 @@ function ConfigurePanel({ integration, onChanged }: { integration: IntegrationSt
   const save = () => run(async () => {
     // The endpoint is kept as stored: it is informational and never connected to.
     const saved = await saveIntegrationConfiguration(integration.id, { enabled, endpoint });
-    return `${integration.name} ${saved.enabled ? 'enabled' : 'turned off'} for workspace ${saved.workspace_id}.`;
+    return t(saved.enabled ? 'integrations.saved.on' : 'integrations.saved.off', { name: integration.name, workspace: saved.workspace_id });
   });
   const storeSecret = () => {
     const body = credentialBody(secret);
     if (!body.ok) { setFlash({ text: body.error, error: true }); return; }
-    void run(async () => { const saved = await catalog.saveIntegrationCredential(integration.id, body.value.secret); setSecret(''); return `Token ${saved.hint ?? ''} stored encrypted for this workspace.`; });
+    void run(async () => { const saved = await catalog.saveIntegrationCredential(integration.id, body.value.secret); setSecret(''); return t('integrations.tokenStored', { hint: saved.hint ?? '' }); });
   };
-  const removeSecret = () => void run(async () => { await catalog.deleteIntegrationCredential(integration.id); setConfirmRemove(false); return 'Workspace token removed; the operator token (if any) applies again.'; });
+  const removeSecret = () => void run(async () => { await catalog.deleteIntegrationCredential(integration.id); setConfirmRemove(false); return t('integrations.tokenRemoved'); });
   const stored = integration.workspace_credential?.configured;
   return <div className="integrationConfig">
-    <form aria-label={`${integration.name} configuration`} onSubmit={(e) => { e.preventDefault(); void save(); }}>
+    <form aria-label={t('integrations.configLabel', { name: integration.name })} onSubmit={(e) => { e.preventDefault(); void save(); }}>
       {switchable
-        ? <label className="integrationToggle"><input type="checkbox" checked={enabled} disabled={!ready} onChange={(e) => setEnabled(e.target.checked)} />Use {integration.name} in this workspace</label>
-        : <p className="featureMeta">Not configured for this deployment, so there is nothing to switch here. {integration.environment_variable ? `The operator sets ${integration.environment_variable}.` : ''}</p>}
-      {switchable && <div className="actions"><button type="submit" disabled={!ready || busy}>Save configuration</button></div>}
+        ? <label className="integrationToggle"><input type="checkbox" checked={enabled} disabled={!ready} onChange={(e) => setEnabled(e.target.checked)} />{t('integrations.useIn', { name: integration.name })}</label>
+        : <p className="featureMeta">{integration.environment_variable ? t('integrations.notConfiguredSetting', { setting: integration.environment_variable }) : t('integrations.notConfigured')}</p>}
+      {switchable && <div className="actions"><button type="submit" disabled={!ready || busy}>{t('integrations.save')}</button></div>}
     </form>
-    {integration.accepts_workspace_credential && <form className="integrationCredential" aria-label={`${integration.name} token`} onSubmit={(e) => { e.preventDefault(); storeSecret(); }}>
-      <label className="field"><span>{stored ? 'Replace the workspace token' : 'Workspace token (sent as a bearer token)'}</span><input type="password" autoComplete="off" spellCheck={false} value={secret} maxLength={4096} onChange={(e) => setSecret(e.target.value)} aria-describedby={`token-help-${integration.id}`} /></label>
-      <p className="featureMeta" id={`token-help-${integration.id}`}>Stored encrypted and never shown again; only its last four characters are displayed. Agents never see it.</p>
+    {integration.accepts_workspace_credential && <form className="integrationCredential" aria-label={t('integrations.tokenForm', { name: integration.name })} onSubmit={(e) => { e.preventDefault(); storeSecret(); }}>
+      <label className="field"><span>{stored ? t('integrations.tokenReplace') : t('integrations.tokenNew')}</span><input type="password" dir="ltr" autoComplete="off" spellCheck={false} value={secret} maxLength={4096} onChange={(e) => setSecret(e.target.value)} aria-describedby={`token-help-${integration.id}`} /></label>
+      <p className="featureMeta" id={`token-help-${integration.id}`}>{t('integrations.tokenHelp')}</p>
       <div className="actions">
-        <button type="submit" disabled={busy || !secret}>{stored ? 'Replace token' : 'Store token'}</button>
+        <button type="submit" disabled={busy || !secret}>{stored ? t('integrations.tokenReplaceButton') : t('integrations.tokenStore')}</button>
         {stored && (confirmRemove
-          ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={removeSecret}>Remove token</button><button type="button" className="secondary" onClick={() => setConfirmRemove(false)}>Cancel</button></span>
-          : <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmRemove(true)}>Remove token...</button>)}
+          ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={removeSecret}>{t('integrations.tokenRemove')}</button><button type="button" className="secondary" onClick={() => setConfirmRemove(false)}>{t('common.cancel')}</button></span>
+          : <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmRemove(true)}>{t('integrations.tokenRemoveAsk')}</button>)}
       </div>
     </form>}
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}

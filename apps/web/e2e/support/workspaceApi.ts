@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 // One mocked workspace with something on every main view (Assistant, Tasks, Approvals, Memory,
-// Files, Settings, Notifications, Privacy), for the accessibility and localization specs. Every request the views make
+// Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise), for the accessibility and localization specs. Every request the views make
 // is answered; anything else is aborted so a new, unmocked call shows up as a failure.
 const now = new Date().toISOString();
 const later = new Date(Date.now() + 5 * 3600_000).toISOString();
@@ -45,6 +45,25 @@ const files = [
   { id: 'file_logo', name: 'logo.png', content_type: 'image/png', kind: 'image', previewable: true, can_manage: false, size_bytes: 512, sha256: 'ef'.repeat(32), created_by: 'user_owner', created_at: now, updated_by: null, updated_at: null, index: { ...fileIndex, status: 'skipped', error: 'not_text', chunk_count: 0 } },
 ];
 const fileUsage = { used_bytes: 2560, file_count: 2, quota_bytes: 2147483648, max_upload_bytes: 26214400, link_ttl_seconds: 300, accepted: 'text, images, PDF, Office files and .zip', accepted_extensions: ['.md', '.pdf', '.png', '.txt'], can_upload: true, can_manage_all: true };
+const health = (id: string, name: string, kind: string, status: string, extra: Record<string, unknown> = {}) => ({
+  id, name, kind, status, endpoint: `${kind}://${id}:1234`, latency_ms: status === 'disabled' ? null : 3,
+  detail: status === 'degraded' ? 'Health check failed: ConnectionRefusedError' : status === 'disabled' ? 'Not used: events stay in the API process.' : 'Health check passed.',
+  credentials: { configured: true, source: 'environment', scopes: [], expires_at: null }, enabled: true, available: status !== 'disabled', checked_at: now,
+  remediation: status === 'degraded' ? 'Check that Valkey at ANUM_VALKEY_URL is running and reachable from the API.' : null, environment_variable: 'ANUM_VALKEY_URL',
+  last_error: status === 'degraded' ? 'Health check failed: ConnectionRefusedError' : null, last_error_at: status === 'degraded' ? now : null,
+  accepts_workspace_credential: false, workspace_credential: null, ...extra,
+});
+const integrations = [
+  health('valkey', 'Valkey', 'cache', 'degraded'), health('postgresql', 'PostgreSQL + pgvector', 'database', 'connected'), health('nats', 'NATS JetStream', 'event_bus', 'disabled'),
+  health('external-webhook', 'External REST webhook', 'tool', 'connected', { accepts_workspace_credential: true, workspace_credential: { integration_id: 'external-webhook', configured: true, hint: '…abcd', updated_by: 'user_local', updated_at: now } }),
+];
+const skillVersion = (version: string, tools: string[]) => ({ id: `sv_${version}`, skill_id: 'acme.release-notes', version, name: 'Release notes', description: 'Drafts release notes from merged work.', instructions: 'Summarize.', required_tools: tools, risk_level: 'medium', publisher_tenant_id: 'tenant_local', created_by: 'user_local', created_at: now });
+const skillVersions = [skillVersion('1.0.0', ['anum.respond']), skillVersion('2.0.0', ['anum.respond', 'external.action']), { ...skillVersion('1.0.0', ['web_search']), id: 'sv_search', skill_id: 'acme.search', name: 'Web research' }];
+const skillInstall = { id: 'si_1', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', skill_version_id: 'sv_1.0.0', skill_id: 'acme.release-notes', version: '1.0.0', approved_tools: ['anum.respond'], enabled: true, installed_by: 'user_local', installed_at: now };
+const packages = [
+  { id: 'acme.crm-sync', name: 'CRM sync', kind: 'integration', version: '1.2.0', publisher: 'Acme', verified: true, permissions: ['integration:read'], regions: ['eu-west'] },
+  { id: 'beta.notes', name: 'Meeting notes', kind: 'skill', version: '0.3.0', publisher: 'Beta', verified: false, permissions: [], regions: [] },
+];
 
 export async function mockWorkspaceApi(page: Page): Promise<void> {
   await page.route('http://localhost:8000/**', async (route) => {
@@ -94,6 +113,24 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/workspaces/current/permissions') return json({ workspace_id: 'workspace_foundation', role: 'owner', organization_admin: true, can_manage_workspace: true, can_create_workspace: true, can_manage_members: true, can_read_audit: true, can_export_audit: true });
     if (path === '/api/v1/audit-records/actions') return json({ actions: ['policy_pack.created', 'workspace_member.role_change'] });
     if (path === '/api/v1/audit-records') return json({ items: [{ id: 'audit_1', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', actor: 'user_local', action: 'workspace_member.role_change', target: 'user_member', outcome: 'success', correlation_id: 'corr_1', created_at: now, metadata: { role: 'viewer' } }], next_cursor: null, retention: 'Audit records are kept for as long as the workspace exists, including after it is archived. They are append-only: nobody can edit or delete them, owners included.' });
+    // Integrations, Skills, Agents and Enterprise (docs/tools-and-integrations.md, docs/skills.md).
+    if (path === '/api/v1/integrations') return json(integrations);
+    if (path === '/api/v1/skills/versions') return json(skillVersions);
+    if (path === '/api/v1/skills/installations') return json([skillInstall]);
+    if (path === '/api/v1/skills/acme.release-notes') {
+      return json({
+        skill_id: 'acme.release-notes', name: 'Release notes', description: 'Drafts release notes from merged work.', latest_version: '2.0.0',
+        versions: [skillVersions[1], skillVersions[0]], installation: skillInstall, tools_version: '1.0.0',
+        tools: [{ name: 'anum.respond', registered: true, description: 'Create an internal response.', risk_level: 'low', approval: 'rule', approval_text: 'Runs without approval unless an organization approval rule or policy pack asks for one.', target: null, granted: true }],
+        history: [{ id: 'audit_1', action: 'skill.installed', actor: 'user_local', outcome: 'success', created_at: now, metadata: { version: '1.0.0' } }],
+        can_manage: true, can_rollback: true,
+      });
+    }
+    if (path === '/api/v1/organization/governance') return json({ tenant_id: 'tenant_local', policy_packs: 0, active_policy_packs: 0, role_templates: 0, approval_rules: 0, memory_governance_configured: false, can_manage_organization_policy: true });
+    if (path === '/api/v1/enterprise/operations') return json({ tenant_id: 'tenant_local', active_regions: 1, healthy_targets: 1, degraded_targets: 0, installed_packages: 1, failover_ready: false, generated_at: now });
+    if (path === '/api/v1/routing/targets') return json([{ id: 'configured-model', region: 'local', provider: 'anthropic', model: 'claude', status: 'unverified', modalities: ['text'], sensitivity: ['standard'], cost_per_1k_tokens: 0, latency_ms: 1 }]);
+    if (path === '/api/v1/marketplace/packages') return json(packages);
+    if (path === '/api/v1/marketplace/installs') return json([{ package_id: 'acme.crm-sync', version: '1.2.0', enabled: true, installed_by: 'user_local', installed_at: now }]);
     return route.abort();
   });
 }

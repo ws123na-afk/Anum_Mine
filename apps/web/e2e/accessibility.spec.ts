@@ -16,6 +16,10 @@ const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'language', ready: (page) => expect(page.locator('.languageChoices')).toBeVisible() },
   { hash: 'privacy', ready: (page) => expect(page.locator('#privacy-stored')).toBeVisible() },
   { hash: 'audit', ready: (page) => expect(page.locator('.auditTable')).toBeVisible() },
+  { hash: 'integrations', ready: (page) => expect(page.locator('.integrationFix').first()).toBeVisible() },
+  { hash: 'skills', ready: (page) => expect(page.locator('article.catalogCard').first()).toBeVisible() },
+  { hash: 'agents', ready: (page) => expect(page.locator('.agentRow').first()).toBeVisible() },
+  { hash: 'enterprise', ready: (page) => expect(page.locator('.marketRow').first()).toBeVisible() },
 ];
 
 async function seriousViolations(page: Page): Promise<string[]> {

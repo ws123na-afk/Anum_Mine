@@ -5,15 +5,17 @@ import { describeError, isPermissionDenied } from './lib/errors';
 import { approvalTone, emptyPublishDraft, filterSkills, groupSkills, historyLabel, pageOf, publishBody, rollbackTargets, type PublishDraft, type SkillDetail, type SkillFilter, type SkillGroup, type SkillVersionLike } from './lib/catalog';
 import * as catalog from './lib/catalogApi';
 import { getGovernanceSummary } from './lib/governanceApi';
+import { formatDateTime, t } from './lib/i18n';
+import { riskLabel } from './lib/labels';
 import { useIsOwner } from './useIsOwner';
 import './features.css';
 import './catalog.css';
 
 const PAGE = 12;
-const when = (iso: string) => new Date(iso).toLocaleString();
-const failure = (e: unknown, who: string) => isPermissionDenied(e) ? `Not allowed: ${describeError(e)} ${who}` : describeError(e);
-const OWNER_ONLY = 'Only workspace owners can install, enable, disable or uninstall skills.';
-const ADMIN_ONLY = 'Only organization administrators can publish versions or roll an installation back.';
+const when = (iso: string) => formatDateTime(iso);
+const failure = (e: unknown, who: string) => isPermissionDenied(e) ? t('skills.notAllowed', { error: describeError(e), who }) : describeError(e);
+const ownersOnly = () => t('skills.ownersOnly');
+const adminsOnly = () => t('skills.adminsOnly');
 
 /** Published versions and this workspace's installations, shared by the Skills and Agents views. */
 export function useSkills() {
@@ -24,22 +26,22 @@ export function useSkills() {
   const load = useCallback(async () => {
     setLoading(true);
     try { const [v, i] = await Promise.all([api.getSkillVersions(), api.getSkillInstallations()]); setVersions(v); setInstalls(i); setError(null); }
-    catch (e) { setError(`Could not load skills: ${describeError(e)} Check that the API is reachable, then Refresh.`); } finally { setLoading(false); }
+    catch (e) { setError(t('skills.loadFailed', { error: describeError(e) })); } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  const act = useCallback(async (fn: () => Promise<string>, who = OWNER_ONLY) => {
+  const act = useCallback(async (fn: () => Promise<string>, who: () => string = ownersOnly) => {
     setBusy(true); setError(null); setNote(null);
-    try { setNote(await fn()); await load(); return true; } catch (e) { setError(failure(e, who)); return false; } finally { setBusy(false); }
+    try { setNote(await fn()); await load(); return true; } catch (e) { setError(failure(e, who())); return false; } finally { setBusy(false); }
   }, [load]);
-  const toggle = (skillId: string, enabled: boolean) => act(async () => { await api.setSkillEnabled(skillId, enabled); return enabled ? 'Skill enabled.' : 'Skill disabled.'; });
+  const toggle = (skillId: string, enabled: boolean) => act(async () => { await api.setSkillEnabled(skillId, enabled); return enabled ? t('skills.enabled') : t('skills.disabled'); });
   return { versions, installs, loading, busy, error, note, load, act, toggle };
 }
 
 export function Feedback({ error, note, loading, label }: { error: string | null; note: string | null; loading: boolean; label: string }) {
   return <>
-    {error && <p className="notice errorNotice" role="alert"><CircleDot />{error}</p>}
-    {note && <p className="notice" role="status"><CircleDot />{note}</p>}
-    {loading && <p className="notice" role="status"><CircleDot />Loading {label}...</p>}
+    {error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{error}</p>}
+    {note && <p className="notice" role="status"><CircleDot aria-hidden="true" />{note}</p>}
+    {loading && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('skills.loading', { label })}</p>}
   </>;
 }
 
@@ -63,10 +65,10 @@ export function Dialog({ title, onClose, children, wide }: { title: string; onCl
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
   }, []);
-  const id = `dialog-${title.replace(/[^A-Za-z0-9]+/g, '-')}`;
+  const id = useRef(`dialog-${Math.random().toString(36).slice(2)}`).current;
   return <div className="featureBackdrop" onClick={onClose}>
     <section ref={ref} className={`surface featureDialog ${wide ? 'catalogDialogWide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={id} onClick={(e) => e.stopPropagation()}>
-      <header><h3 id={id}>{title}</h3><button type="button" className="iconButton" aria-label="Close" onClick={onClose}><X /></button></header>
+      <header><h3 id={id}>{title}</h3><button type="button" className="iconButton" aria-label={t('skills.close')} onClick={onClose}><X aria-hidden="true" /></button></header>
       {children}
     </section>
   </div>;
@@ -78,20 +80,21 @@ function InstallDialog({ group, version, busy, onConfirm, onCancel }: { group: S
   useEffect(() => { void catalog.getSkillDetail(group.skillId, version.version).then(setDetail).catch((e) => setError(describeError(e))); }, [group.skillId, version.version]);
   const tools = [...new Set(version.required_tools)].sort();
   const replacing = group.install && group.install.version !== version.version ? group.install.version : null;
-  return <Dialog title={`Install ${version.name} ${version.version}?`} onClose={onCancel}>
-    <p>{version.description}</p>
-    {replacing && <p className="featureMeta">Replaces the installed version {replacing} in this workspace.</p>}
-    <p className={`featureChip ${['high', 'blocked'].includes(version.risk_level) ? 'failed' : 'indexed'}`}>{['high', 'blocked'].includes(version.risk_level) && <ShieldAlert />}Skill risk: {version.risk_level}</p>
+  const high = ['high', 'blocked'].includes(version.risk_level);
+  return <Dialog title={t('skills.installTitle', { name: version.name, version: version.version })} onClose={onCancel}>
+    <p dir="auto">{version.description}</p>
+    {replacing && <p className="featureMeta">{t('skills.replaces', { version: replacing })}</p>}
+    <p className={`featureChip ${high ? 'failed' : 'indexed'}`}>{high && <ShieldAlert aria-hidden="true" />}{t('skills.skillRisk', { risk: riskLabel(version.risk_level) })}</p>
     {tools.length ? <>
-      <h4>Tools granted to agents in this workspace</h4>
-      {error && <p className="notice errorNotice" role="alert"><CircleDot />Could not load tool details: {error}</p>}
+      <h4>{t('skills.toolsGranted')}</h4>
+      {error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{t('skills.toolsFailed', { error })}</p>}
       <ul className="catalogToolList">{tools.map((name) => {
-        const t = detail?.tools.find((x) => x.name === name);
-        return <li key={name}><code>{name}</code>{t ? <><span className={`statusBadge ${approvalTone(t.approval)}`}>{t.risk_level ?? 'unavailable'}</span><small>{t.approval_text}</small></> : !error && <small>Loading risk...</small>}</li>;
+        const tool = detail?.tools.find((x) => x.name === name);
+        return <li key={name}><code dir="ltr">{name}</code>{tool ? <><span className={`statusBadge ${approvalTone(tool.approval)}`}>{tool.risk_level ? riskLabel(tool.risk_level) : t('skills.unavailable')}</span><small dir="auto">{tool.approval_text}</small></> : !error && <small>{t('skills.loadingRisk')}</small>}</li>;
       })}</ul>
-    </> : <p className="featureMeta">This skill requests no tools.</p>}
-    <p className="featureMeta">Tool calls stay mediated by the runtime and workspace policy; approvals still apply. The install is recorded in the audit log.</p>
-    <div className="actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="button" autoFocus disabled={busy} onClick={() => onConfirm(tools)}><PackageCheck />Install and grant</button></div>
+    </> : <p className="featureMeta">{t('skills.noTools')}</p>}
+    <p className="featureMeta">{t('skills.installNote')}</p>
+    <div className="actions"><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button><button type="button" autoFocus disabled={busy} onClick={() => onConfirm(tools)}><PackageCheck aria-hidden="true" />{t('skills.installGrant')}</button></div>
   </Dialog>;
 }
 
@@ -105,37 +108,39 @@ function DetailDialog({ skillId, owner, onInstall, onChanged, onClose }: { skill
   useEffect(() => { void load(); }, [load]);
   const rollback = async (version: string) => {
     setBusy(true); setFlash(null);
-    try { await catalog.rollbackSkill(skillId, version); setFlash({ text: `Rolled back to ${version}. Grants not declared by ${version} were removed.` }); setConfirm(null); await load(); onChanged(); }
-    catch (e) { setFlash({ text: failure(e, ADMIN_ONLY), error: true }); } finally { setBusy(false); }
+    try { await catalog.rollbackSkill(skillId, version); setFlash({ text: t('skills.rolledBack', { version }) }); setConfirm(null); await load(); onChanged(); }
+    catch (e) { setFlash({ text: failure(e, adminsOnly()), error: true }); } finally { setBusy(false); }
   };
   const targets = detail ? rollbackTargets(detail.versions, detail.installation?.version) : [];
-  return <Dialog title={detail ? `${detail.name}` : 'Skill details'} onClose={onClose} wide>
-    {!detail && !error && <p className="notice" role="status"><CircleDot />Loading skill details...</p>}
-    {error && <p className="notice errorNotice" role="alert"><CircleDot />Could not load the skill: {error}</p>}
+  return <Dialog title={detail ? detail.name : t('skills.detailsTitle')} onClose={onClose} wide>
+    {!detail && !error && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('skills.detailsLoading')}</p>}
+    {error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{t('skills.detailsFailed', { error })}</p>}
     {detail && <>
-      <p>{detail.description}</p>
-      <p className="featureMeta"><code>{detail.skill_id}</code> · latest {detail.latest_version} · {detail.installation ? `installed ${detail.installation.version} (${detail.installation.enabled ? 'enabled' : 'disabled'})` : 'not installed in this workspace'}</p>
-      <section aria-labelledby="skill-tools"><h4 id="skill-tools">Tools in {detail.tools_version}</h4>
-        {detail.tools.length === 0 ? <p className="featureMeta">This version requests no tools.</p> :
-          <ul className="catalogToolList">{detail.tools.map((t) => <li key={t.name}><code>{t.name}</code><span className={`statusBadge ${approvalTone(t.approval)}`}>{t.risk_level ?? 'unavailable'}</span>{detail.installation && <span className={`statusBadge ${t.granted ? 'success' : 'neutral'}`}>{t.granted ? 'granted' : 'not granted'}</span>}<small>{t.description ? `${t.description} ` : ''}{t.approval_text}{t.target ? ` Contacts ${t.target}.` : ''}</small></li>)}</ul>}
+      <p dir="auto">{detail.description}</p>
+      <p className="featureMeta"><code dir="ltr">{detail.skill_id}</code> · {detail.installation
+        ? t('skills.metaInstalled', { latest: detail.latest_version, version: detail.installation.version, state: detail.installation.enabled ? t('skills.state.installed') : t('skills.state.disabled') })
+        : t('skills.metaNotInstalled', { latest: detail.latest_version })}</p>
+      <section aria-labelledby="skill-tools"><h4 id="skill-tools">{t('skills.toolsIn', { version: detail.tools_version })}</h4>
+        {detail.tools.length === 0 ? <p className="featureMeta">{t('skills.versionNoTools')}</p> :
+          <ul className="catalogToolList">{detail.tools.map((tool) => <li key={tool.name}><code dir="ltr">{tool.name}</code><span className={`statusBadge ${approvalTone(tool.approval)}`}>{tool.risk_level ? riskLabel(tool.risk_level) : t('skills.unavailable')}</span>{detail.installation && <span className={`statusBadge ${tool.granted ? 'success' : 'neutral'}`}>{tool.granted ? t('skills.granted') : t('skills.notGranted')}</span>}<small dir="auto">{tool.description ? `${tool.description} ` : ''}{tool.approval_text}{tool.target ? ` ${t('skills.contacts', { host: tool.target })}` : ''}</small></li>)}</ul>}
       </section>
-      <section aria-labelledby="skill-versions"><h4 id="skill-versions">Versions</h4>
+      <section aria-labelledby="skill-versions"><h4 id="skill-versions">{t('skills.versionsTitle')}</h4>
         <ul className="catalogVersionList">{detail.versions.map((v) => {
           const installed = detail.installation?.version === v.version;
-          return <li key={v.id}><div><strong>{v.version}</strong>{installed && <span className="statusBadge success">installed</span>}<small>Published {when(v.created_at)} by {v.created_by} · risk {v.risk_level} · {v.required_tools.length} tool{v.required_tools.length === 1 ? '' : 's'}</small></div>
+          return <li key={v.id}><div><strong>{v.version}</strong>{installed && <span className="statusBadge success">{t('skills.state.installed')}</span>}<small>{t('skills.publishedBy', { time: when(v.created_at), user: v.created_by, risk: riskLabel(v.risk_level), tools: t('skills.tools', { count: v.required_tools.length }) })}</small></div>
             <div className="catalogVersionActions">
-              {!installed && owner && (!detail.installation || !targets.includes(v.version)) && <button type="button" className="secondary" onClick={() => onInstall(v)}>{detail.installation ? 'Install this version' : 'Install'}</button>}
+              {!installed && owner && (!detail.installation || !targets.includes(v.version)) && <button type="button" className="secondary" onClick={() => onInstall(v)}>{detail.installation ? t('skills.installVersion') : t('skills.install')}</button>}
               {detail.can_rollback && targets.includes(v.version) && (confirm === v.version
-                ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={() => void rollback(v.version)}>Confirm rollback</button><button type="button" className="secondary" onClick={() => setConfirm(null)}>Cancel</button></span>
-                : <button type="button" className="secondary" onClick={() => setConfirm(v.version)}><Undo2 size={15} />Roll back to {v.version}</button>)}
+                ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={() => void rollback(v.version)}>{t('skills.confirmRollback')}</button><button type="button" className="secondary" onClick={() => setConfirm(null)}>{t('common.cancel')}</button></span>
+                : <button type="button" className="secondary" onClick={() => setConfirm(v.version)}><Undo2 size={15} aria-hidden="true" />{t('skills.rollbackTo', { version: v.version })}</button>)}
             </div></li>;
         })}</ul>
-        {detail.installation && targets.length > 0 && !detail.can_rollback && <p className="featureMeta">{ADMIN_ONLY}</p>}
+        {detail.installation && targets.length > 0 && !detail.can_rollback && <p className="featureMeta">{adminsOnly()}</p>}
       </section>
-      {flash && <p className={`notice ${flash.error ? 'errorNotice' : ''}`} role={flash.error ? 'alert' : 'status'}><CircleDot />{flash.text}</p>}
-      <section aria-labelledby="skill-history"><h4 id="skill-history"><History size={16} aria-hidden="true" /> History in this workspace</h4>
-        {detail.history.length === 0 ? <p className="featureMeta">No changes recorded in this workspace yet.</p> :
-          <ol className="catalogHistory">{detail.history.map((h) => <li key={h.id}><span>{historyLabel(h)}</span><small>{h.actor} · {when(h.created_at)}</small></li>)}</ol>}
+      {flash && <p className={`notice ${flash.error ? 'errorNotice' : ''}`} role={flash.error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{flash.text}</p>}
+      <section aria-labelledby="skill-history"><h4 id="skill-history"><History size={16} aria-hidden="true" /> {t('skills.historyTitle')}</h4>
+        {detail.history.length === 0 ? <p className="featureMeta">{t('skills.historyEmpty')}</p> :
+          <ol className="catalogHistory">{detail.history.map((h) => <li key={h.id}><span>{historyLabel(h)}</span><small>{t('skills.historyBy', { user: h.actor, time: when(h.created_at) })}</small></li>)}</ol>}
       </section>
     </>}
   </Dialog>;
@@ -150,21 +155,21 @@ function PublishDialog({ onClose, onPublished }: { onClose(): void; onPublished(
     const body = publishBody(draft);
     if (!body.ok) { setError(body.error); return; }
     setBusy(true); setError(null);
-    try { const v = await catalog.publishSkillVersion(body.value); onPublished(`${v.name} ${v.version} published to every workspace of the organization.`); }
-    catch (e) { setError(failure(e, ADMIN_ONLY)); } finally { setBusy(false); }
+    try { const v = await catalog.publishSkillVersion(body.value); onPublished(t('skills.published', { name: v.name, version: v.version })); }
+    catch (e) { setError(failure(e, adminsOnly())); } finally { setBusy(false); }
   };
-  return <Dialog title="Publish a skill version" onClose={onClose} wide>
+  return <Dialog title={t('skills.publishTitle')} onClose={onClose} wide>
     <form className="catalogForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <label className="field"><span>Skill id</span><input value={draft.skillId} onChange={set('skillId')} placeholder="acme.release-notes" /></label>
-      <label className="field"><span>Version</span><input value={draft.version} onChange={set('version')} /></label>
-      <label className="field"><span>Name</span><input value={draft.name} maxLength={160} onChange={set('name')} /></label>
-      <label className="field"><span>Risk level</span><select value={draft.risk} onChange={set('risk')}>{['low', 'medium', 'high', 'blocked'].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
-      <label className="field catalogFormWide"><span>Description</span><input value={draft.description} maxLength={2000} onChange={set('description')} /></label>
-      <label className="field catalogFormWide"><span>Required tools (comma separated, for example web_search)</span><input value={draft.tools} onChange={set('tools')} /></label>
-      <label className="field catalogFormWide"><span>Instructions agents follow</span><textarea rows={5} value={draft.instructions} maxLength={50000} onChange={set('instructions')} /></label>
-      <p className="featureMeta catalogFormWide">Versions are immutable: publish a new version to change one. Instructions never grant tools; owners approve tools when they install.</p>
-      {error && <p className="notice errorNotice catalogFormWide" role="alert"><CircleDot />{error}</p>}
-      <div className="actions catalogFormWide"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit" disabled={busy}><Plus />Publish</button></div>
+      <label className="field"><span>{t('skills.field.id')}</span><input dir="ltr" value={draft.skillId} onChange={set('skillId')} placeholder="acme.release-notes" /></label>
+      <label className="field"><span>{t('skills.field.version')}</span><input dir="ltr" value={draft.version} onChange={set('version')} /></label>
+      <label className="field"><span>{t('skills.field.name')}</span><input dir="auto" value={draft.name} maxLength={160} onChange={set('name')} /></label>
+      <label className="field"><span>{t('skills.field.risk')}</span><select value={draft.risk} onChange={set('risk')}>{['low', 'medium', 'high', 'blocked'].map((r) => <option key={r} value={r}>{riskLabel(r)}</option>)}</select></label>
+      <label className="field catalogFormWide"><span>{t('skills.field.description')}</span><input dir="auto" value={draft.description} maxLength={2000} onChange={set('description')} /></label>
+      <label className="field catalogFormWide"><span>{t('skills.field.tools')}</span><input dir="ltr" value={draft.tools} onChange={set('tools')} /></label>
+      <label className="field catalogFormWide"><span>{t('skills.field.instructions')}</span><textarea dir="auto" rows={5} value={draft.instructions} maxLength={50000} onChange={set('instructions')} /></label>
+      <p className="featureMeta catalogFormWide">{t('skills.publishNote')}</p>
+      {error && <p className="notice errorNotice catalogFormWide" role="alert"><CircleDot aria-hidden="true" />{error}</p>}
+      <div className="actions catalogFormWide"><button type="button" className="secondary" onClick={onClose}>{t('common.cancel')}</button><button type="submit" disabled={busy}><Plus aria-hidden="true" />{t('skills.publishButton')}</button></div>
     </form>
   </Dialog>;
 }
@@ -185,47 +190,52 @@ export function SkillsView() {
   const { shown, remaining } = pageOf(filtered, pages, PAGE);
   useEffect(() => setPages(1), [query, filter]);
   const install = async (group: SkillGroup, version: SkillVersionLike, tools: string[]) => {
-    if (await s.act(async () => { await api.installSkill(group.skillId, version.version, tools); return `${version.name} ${version.version} installed.`; })) { setInstalling(null); setDetails(null); }
+    if (await s.act(async () => { await api.installSkill(group.skillId, version.version, tools); return t('skills.installed', { name: version.name, version: version.version }); })) { setInstalling(null); setDetails(null); }
   };
-  const uninstall = (skillId: string) => void s.act(async () => { await api.uninstallSkill(skillId); setConfirmRemove(null); return 'Skill uninstalled.'; });
+  const uninstall = (skillId: string) => void s.act(async () => { await api.uninstallSkill(skillId); setConfirmRemove(null); return t('skills.uninstalled'); });
+  const stateLabel = (g: SkillGroup) => g.state === 'available' ? t('skills.state.available') : g.state === 'installed' ? t('skills.state.installed') : t('skills.state.disabled');
   return <>
-    <section className="moduleIntro"><div><p className="eyebrow">Governed capabilities</p><h2>Skills</h2><p>Reviewed instructions for agents, with the tools each one needs, their risk and when they wait for approval.</p></div>
-      <div className="actions">{admin && <button type="button" onClick={() => setPublishing(true)}><Plus />Publish version</button>}<button type="button" className="secondary" onClick={() => void s.load()} disabled={s.loading}><RefreshCw />Refresh</button></div></section>
-    <Feedback error={s.error} note={s.note} loading={s.loading && !groups.length} label="skills" />
-    {owner === false && <p className="notice" role="status"><CircleDot />{OWNER_ONLY} Ask an owner of this workspace.</p>}
+    <section className="moduleIntro"><div><p className="eyebrow">{t('skills.eyebrow')}</p><h2>{t('skills.title')}</h2><p>{t('skills.intro')}</p></div>
+      <div className="actions">{admin && <button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button>}<button type="button" className="secondary" onClick={() => void s.load()} disabled={s.loading}><RefreshCw aria-hidden="true" />{t('skills.refresh')}</button></div></section>
+    <Feedback error={s.error} note={s.note} loading={s.loading && !groups.length} label={t('skills.loadingLabel')} />
+    {owner === false && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('skills.ownersOnlyAsk')}</p>}
     {groups.length > 0 && <div className="surface catalogToolbar" role="search">
-      <label className="field"><span>Search skills</span><input type="search" value={query} placeholder="Name, id, description or tool" onChange={(e) => setQuery(e.target.value)} /></label>
-      <fieldset className="catalogSegments"><legend>Show</legend>{(['all', 'installed', 'available'] as const).map((f) => <label key={f}><input type="radio" name="skill-filter" checked={filter === f} onChange={() => setFilter(f)} />{f === 'all' ? 'All' : f === 'installed' ? 'Installed' : 'Not installed'}</label>)}</fieldset>
-      <p className="featureMeta" aria-live="polite">{filtered.length} of {groups.length} skill{groups.length === 1 ? '' : 's'}</p>
+      <label className="field"><span>{t('skills.search')}</span><input type="search" value={query} placeholder={t('skills.searchPlaceholder')} onChange={(e) => setQuery(e.target.value)} /></label>
+      <fieldset className="catalogSegments"><legend>{t('skills.show')}</legend>{(['all', 'installed', 'available'] as const).map((f) => <label key={f}><input type="radio" name="skill-filter" checked={filter === f} onChange={() => setFilter(f)} />{t(`skills.filter.${f}`)}</label>)}</fieldset>
+      <p className="featureMeta" aria-live="polite">{t('skills.count', { shown: filtered.length, count: groups.length })}</p>
     </div>}
-    <div className="integrationGrid">{shown.map((g) => <article className="surface integration catalogCard" key={g.skillId} id={`skill-${g.skillId.replace(/[^A-Za-z0-9_-]/g, '-')}`} aria-labelledby={`skill-title-${g.skillId}`}>
-      <div className="integrationIcon"><PackageCheck /></div>
-      <div>
-        <h3 id={`skill-title-${g.skillId}`}>{g.name} <small>{g.install ? g.install.version : g.latest.version}</small></h3>
-        <p>{g.description}</p>
-        <div className="tagRow">{(g.install ? g.versions.find((v) => v.version === g.install!.version) ?? g.latest : g.latest).required_tools.map((x) => <span key={x}>{x}</span>)}</div>
-        <small>{g.versions.length} version{g.versions.length === 1 ? '' : 's'} · risk {g.latest.risk_level}{g.upgrade ? ` · ${g.upgrade.version} available` : ''}</small>
-      </div>
-      <div className="featureSkillActions">
-        <span className={`statusBadge ${g.state === 'installed' ? 'success' : g.state === 'disabled' ? 'warning' : 'neutral'}`}>{g.state === 'available' ? 'not installed' : g.state}</span>
-        <button type="button" className="secondary" onClick={() => setDetails(g.skillId)}><Info size={15} />Details</button>
-        {owner && !g.install && <button type="button" disabled={s.busy} onClick={() => setInstalling({ group: g, version: g.latest })}>Install</button>}
-        {owner && g.upgrade && <button type="button" className="secondary" disabled={s.busy} onClick={() => setInstalling({ group: g, version: g.upgrade! })}>Upgrade to {g.upgrade.version}</button>}
-        {owner && g.install && <>
-          <button type="button" className="secondary" disabled={s.busy} onClick={() => void s.toggle(g.skillId, g.state === 'disabled')}>{g.state === 'installed' ? <><PauseCircle />Disable</> : <><PlayCircle />Enable</>}</button>
-          {confirmRemove === g.skillId
-            ? <span className="featureConfirm"><button type="button" className="danger" disabled={s.busy} onClick={() => uninstall(g.skillId)}>Uninstall</button><button type="button" className="secondary" onClick={() => setConfirmRemove(null)}>Cancel</button></span>
-            : <button type="button" className="iconButton" aria-label={`Uninstall ${g.name}`} onClick={() => setConfirmRemove(g.skillId)}><Trash2 /></button>}
-        </>}
-      </div>
-    </article>)}</div>
-    {remaining > 0 && <div className="catalogMore"><button type="button" className="secondary" onClick={() => setPages(pages + 1)}>Show {Math.min(remaining, PAGE)} more</button></div>}
-    {!s.loading && !s.error && !groups.length && <div className="emptyState"><Search /><h3>No published skills</h3>
-      {admin ? <><p>Publish the first skill version; every workspace of the organization can then install it.</p><button type="button" onClick={() => setPublishing(true)}><Plus />Publish version</button></>
-        : <p>An organization administrator publishes skills for every workspace. Ask one to publish the skill you need.</p>}</div>}
-    {groups.length > 0 && !filtered.length && <div className="emptyState"><Search /><h3>No skills match</h3><p>Nothing matches “{query}” in this view.</p><button type="button" className="secondary" onClick={() => { setQuery(''); setFilter('all'); }}>Clear search</button></div>}
+    <div className="integrationGrid">{shown.map((g) => {
+      const toolsOf = (g.install ? g.versions.find((v) => v.version === g.install!.version) ?? g.latest : g.latest).required_tools;
+      const versions = t('skills.versions', { count: g.versions.length });
+      return <article className="surface integration catalogCard" key={g.skillId} id={`skill-${g.skillId.replace(/[^A-Za-z0-9_-]/g, '-')}`} aria-labelledby={`skill-title-${g.skillId}`}>
+        <div className="integrationIcon" aria-hidden="true"><PackageCheck /></div>
+        <div>
+          <h3 id={`skill-title-${g.skillId}`}>{g.name} <small>{g.install ? g.install.version : g.latest.version}</small></h3>
+          <p dir="auto">{g.description}</p>
+          <div className="tagRow">{toolsOf.map((x) => <span key={x} dir="ltr">{x}</span>)}</div>
+          <small>{g.upgrade ? t('skills.cardMetaUpgrade', { versions, risk: riskLabel(g.latest.risk_level), version: g.upgrade.version }) : t('skills.cardMeta', { versions, risk: riskLabel(g.latest.risk_level) })}</small>
+        </div>
+        <div className="featureSkillActions">
+          <span className={`statusBadge ${g.state === 'installed' ? 'success' : g.state === 'disabled' ? 'warning' : 'neutral'}`}>{stateLabel(g)}</span>
+          <button type="button" className="secondary" onClick={() => setDetails(g.skillId)}><Info size={15} aria-hidden="true" />{t('skills.details')}</button>
+          {owner && !g.install && <button type="button" disabled={s.busy} onClick={() => setInstalling({ group: g, version: g.latest })}>{t('skills.install')}</button>}
+          {owner && g.upgrade && <button type="button" className="secondary" disabled={s.busy} onClick={() => setInstalling({ group: g, version: g.upgrade! })}>{t('skills.upgrade', { version: g.upgrade.version })}</button>}
+          {owner && g.install && <>
+            <button type="button" className="secondary" disabled={s.busy} onClick={() => void s.toggle(g.skillId, g.state === 'disabled')}>{g.state === 'installed' ? <><PauseCircle aria-hidden="true" />{t('skills.disable')}</> : <><PlayCircle aria-hidden="true" />{t('skills.enable')}</>}</button>
+            {confirmRemove === g.skillId
+              ? <span className="featureConfirm"><button type="button" className="danger" disabled={s.busy} onClick={() => uninstall(g.skillId)}>{t('skills.uninstall')}</button><button type="button" className="secondary" onClick={() => setConfirmRemove(null)}>{t('common.cancel')}</button></span>
+              : <button type="button" className="iconButton" aria-label={t('skills.uninstallNamed', { name: g.name })} onClick={() => setConfirmRemove(g.skillId)}><Trash2 aria-hidden="true" /></button>}
+          </>}
+        </div>
+      </article>;
+    })}</div>
+    {remaining > 0 && <div className="catalogMore"><button type="button" className="secondary" onClick={() => setPages(pages + 1)}>{t('skills.showMore', { count: Math.min(remaining, PAGE) })}</button></div>}
+    {!s.loading && !s.error && !groups.length && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('skills.emptyTitle')}</h3>
+      {admin ? <><p>{t('skills.emptyAdmin')}</p><button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button></>
+        : <p>{t('skills.emptyOther')}</p>}</div>}
+    {groups.length > 0 && !filtered.length && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('skills.noMatchTitle')}</h3><p>{t('skills.noMatchText', { query })}</p><button type="button" className="secondary" onClick={() => { setQuery(''); setFilter('all'); }}>{t('skills.clearSearch')}</button></div>}
     {installing && <InstallDialog group={installing.group} version={installing.version} busy={s.busy} onCancel={() => setInstalling(null)} onConfirm={(tools) => void install(installing.group, installing.version, tools)} />}
     {details && !installing && <DetailDialog skillId={details} owner={owner} onClose={() => setDetails(null)} onChanged={() => void s.load()} onInstall={(v) => { const g = groups.find((x) => x.skillId === details); if (g) setInstalling({ group: g, version: v }); }} />}
-    {publishing && <PublishDialog onClose={() => setPublishing(false)} onPublished={(text) => { setPublishing(false); void s.act(async () => text, ADMIN_ONLY); }} />}
+    {publishing && <PublishDialog onClose={() => setPublishing(false)} onPublished={(text) => { setPublishing(false); void s.act(async () => text, adminsOnly); }} />}
   </>;
 }

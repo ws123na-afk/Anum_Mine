@@ -2,6 +2,7 @@
 // and the plain-words state the web views show. Pure functions, so
 // `pnpm --filter @anum/web test:unit` can exercise them without a DOM.
 // docs/governance-and-scale.md, docs/tools-and-integrations.md.
+import { t } from './i18n.ts';
 
 export interface PolicyRule { action: string; effect: string; conditions?: Record<string, unknown> }
 export interface PolicyPack { id: string; name: string; description: string; version: number; active: boolean; rules: PolicyRule[]; created_by: string; created_at: string }
@@ -143,15 +144,15 @@ export function integrationConfigBody(enabled: boolean, endpoint: string): Resul
  */
 export function integrationToolNote(kind: string, status: string): { text: string; available: boolean } | null {
   if (kind !== 'search') return null;
-  if (status === 'connected') return { text: 'Agent tool web_search: available.', available: true };
-  if (status === 'degraded') return { text: 'Agent tool web_search: calls fail until search answers.', available: false };
-  return { text: 'Agent tool web_search: unavailable here.', available: false };
+  if (status === 'connected') return { text: t('integrations.tool.available'), available: true };
+  if (status === 'degraded') return { text: t('integrations.tool.degraded'), available: false };
+  return { text: t('integrations.tool.unavailable'), available: false };
 }
 
 /** Badge for an integration's health; a disabled integration is "Not used", not a failure. */
 export function integrationBadge(status: string): { label: string; tone: 'success' | 'dangerTone' | 'neutral' } {
-  if (status === 'disabled') return { label: 'Not used', tone: 'neutral' };
-  if (status === 'connected') return { label: 'connected', tone: 'success' };
-  if (status === 'degraded') return { label: 'degraded', tone: 'dangerTone' };
+  if (status === 'disabled') return { label: t('integrations.badge.unused'), tone: 'neutral' };
+  if (status === 'connected') return { label: t('integrations.badge.connected'), tone: 'success' };
+  if (status === 'degraded') return { label: t('integrations.badge.degraded'), tone: 'dangerTone' };
   return { label: status, tone: 'neutral' };
 }

@@ -127,5 +127,29 @@ test('Files reads in Arabic, right to left, with Arabic plurals', async ({ page 
   const detail = page.locator('.fileDetail');
   await expect(detail.getByText('تستطيع المهام استخدام هذا الملف (3 مقاطع).')).toBeVisible();
   await expect(detail.getByRole('region', { name: 'معاينة' }).getByRole('heading', { name: 'Release notes' })).toBeVisible();
+
+test('Integrations, Skills and the marketplace read in Arabic, right to left, without overflow', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await useSavedLocale(page, 'ar');
+
+  await page.goto('/#integrations');
+  await expect(page.getByRole('heading', { level: 2, name: 'التكاملات' })).toBeVisible();
+  await expect(page.getByText('طريقة الإصلاح:')).toBeVisible();
+  await expect(page.getByText(/2 متصلة · 1 تحتاج إلى انتباه · 1 غير مستخدمة/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'اختبار الاتصال' }).first()).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+
+  await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'المهارات' }).click();
+  await expect(page.getByLabel('البحث في المهارات')).toBeVisible();
+  // Arabic plural forms: two skills uses the dual.
+  await expect(page.getByText('2 من مهارتين')).toBeVisible();
+  await page.locator('#skill-acme-release-notes').getByRole('button', { name: 'التفاصيل' }).click();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'الإصدارات' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'المؤسسة' }).click();
+  await expect(page.getByRole('heading', { name: 'كتالوج السوق' })).toBeVisible();
+  await expect(page.getByText(/2 من حزمتين · 1 مثبّتة/)).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });

@@ -3,13 +3,14 @@ import { BadgeCheck, CircleDot, PackageCheck, Pencil, Plus, ShieldAlert, Store, 
 import { describeError, isPermissionDenied } from './lib/errors';
 import { emptyMarketFilter, emptyPackageDraft, filterPackages, installSummary, packageBody, packageDraft, pageOf, type MarketFilter, type MarketPackage, type PackageDraft, type PackageInstall } from './lib/catalog';
 import * as catalog from './lib/catalogApi';
+import { joinList, t } from './lib/i18n';
 import { Dialog } from './SkillsView';
 import './catalog.css';
 
 const PAGE = 20;
-const failure = (e: unknown, who: string) => isPermissionDenied(e) ? `Not allowed: ${describeError(e)} ${who}` : describeError(e);
-const OWNER_ONLY = 'Only workspace owners can install or uninstall packages.';
-const ADMIN_ONLY = 'Only organization administrators can publish, edit or delete catalog packages.';
+const failure = (e: unknown, who: string) => isPermissionDenied(e) ? t('market.notAllowed', { error: describeError(e), who }) : describeError(e);
+const ownersOnly = () => t('market.ownersOnly');
+const adminsOnly = () => t('market.adminsOnly');
 
 /**
  * The tenant's marketplace: browse with search and filters, install with a permission summary,
@@ -30,7 +31,7 @@ export function MarketplaceCatalog({ owner, canManage, onChanged }: { owner: boo
   const load = useCallback(async () => {
     setLoading(true);
     try { const [p, i] = await Promise.all([catalog.getPackages(), catalog.getPackageInstalls()]); setPackages(p); setInstalls(i); setLoadError(null); }
-    catch (e) { setLoadError(`Could not load the marketplace: ${describeError(e)} Check that the API is reachable, then Refresh.`); }
+    catch (e) { setLoadError(t('market.loadFailed', { error: describeError(e) })); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -45,79 +46,79 @@ export function MarketplaceCatalog({ owner, canManage, onChanged }: { owner: boo
   const { shown, remaining } = pageOf(filtered, pages, PAGE);
   const set = <K extends keyof MarketFilter>(key: K, value: MarketFilter[K]) => setFilter({ ...filter, [key]: value });
   return <section className="surface approvalTable enterpriseCatalog" aria-labelledby="marketplace-title">
-    <div className="sectionHeader"><div><p className="eyebrow">Verified distribution</p><h2 id="marketplace-title">Marketplace catalog</h2></div>
-      {canManage && <button type="button" onClick={() => setEditing({ draft: emptyPackageDraft(), isNew: true })}><Plus size={16} />Publish package</button>}</div>
-    {loading && !packages.length && <p className="notice" role="status"><CircleDot />Loading the marketplace...</p>}
-    {loadError && <p className="notice errorNotice" role="alert"><CircleDot />{loadError}</p>}
-    {owner === false && packages.length > 0 && <p className="featureMeta">{OWNER_ONLY} Ask an owner of this workspace.</p>}
-    {flash && <p className={`notice ${flash.error ? 'errorNotice' : ''}`} role={flash.error ? 'alert' : 'status'}><CircleDot />{flash.text}</p>}
+    <div className="sectionHeader"><div><p className="eyebrow">{t('market.eyebrow')}</p><h2 id="marketplace-title">{t('market.title')}</h2></div>
+      {canManage && <button type="button" onClick={() => setEditing({ draft: emptyPackageDraft(), isNew: true })}><Plus size={16} aria-hidden="true" />{t('market.publish')}</button>}</div>
+    {loading && !packages.length && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('market.loading')}</p>}
+    {loadError && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{loadError}</p>}
+    {owner === false && packages.length > 0 && <p className="featureMeta">{t('market.ownersOnlyAsk')}</p>}
+    {flash && <p className={`notice ${flash.error ? 'errorNotice' : ''}`} role={flash.error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{flash.text}</p>}
     {packages.length > 0 && <div className="catalogToolbar catalogToolbarFlat" role="search">
-      <label className="field"><span>Search packages</span><input type="search" value={filter.query} placeholder="Name, publisher or permission" onChange={(e) => set('query', e.target.value)} /></label>
-      <label className="field"><span>Kind</span><select value={filter.kind} onChange={(e) => set('kind', e.target.value as MarketFilter['kind'])}><option value="all">All kinds</option><option value="integration">Integrations</option><option value="skill">Skills</option></select></label>
-      <label className="integrationToggle"><input type="checkbox" checked={filter.verifiedOnly} onChange={(e) => set('verifiedOnly', e.target.checked)} />Verified only</label>
-      <label className="integrationToggle"><input type="checkbox" checked={filter.installedOnly} onChange={(e) => set('installedOnly', e.target.checked)} />Installed here</label>
-      <p className="featureMeta" aria-live="polite">{filtered.length} of {packages.length} package{packages.length === 1 ? '' : 's'} · {installs.length} installed</p>
+      <label className="field"><span>{t('market.search')}</span><input type="search" value={filter.query} placeholder={t('market.searchPlaceholder')} onChange={(e) => set('query', e.target.value)} /></label>
+      <label className="field"><span>{t('market.kind')}</span><select value={filter.kind} onChange={(e) => set('kind', e.target.value as MarketFilter['kind'])}><option value="all">{t('market.kind.all')}</option><option value="integration">{t('market.kind.integration')}</option><option value="skill">{t('market.kind.skill')}</option></select></label>
+      <label className="integrationToggle"><input type="checkbox" checked={filter.verifiedOnly} onChange={(e) => set('verifiedOnly', e.target.checked)} />{t('market.verifiedOnly')}</label>
+      <label className="integrationToggle"><input type="checkbox" checked={filter.installedOnly} onChange={(e) => set('installedOnly', e.target.checked)} />{t('market.installedHere')}</label>
+      <p className="featureMeta" aria-live="polite">{t('market.count', { shown: filtered.length, count: packages.length, installed: installs.length })}</p>
     </div>}
-    {!loading && !loadError && packages.length === 0 && <div className="emptyState"><Store /><h3>No packages yet</h3>
-      {canManage ? <><p>Publish the first package; every workspace of the organization will see it.</p><button type="button" onClick={() => setEditing({ draft: emptyPackageDraft(), isNew: true })}><Plus size={16} />Publish package</button></>
-        : <p>No packages have been published to this marketplace yet. An organization administrator publishes packages for every workspace.</p>}</div>}
-    {packages.length > 0 && filtered.length === 0 && <div className="emptyState"><Store /><h3>No packages match</h3><button type="button" className="secondary" onClick={() => setFilter(emptyMarketFilter())}>Clear filters</button></div>}
+    {!loading && !loadError && packages.length === 0 && <div className="emptyState"><Store aria-hidden="true" /><h3>{t('market.emptyTitle')}</h3>
+      {canManage ? <><p>{t('market.emptyAdmin')}</p><button type="button" onClick={() => setEditing({ draft: emptyPackageDraft(), isNew: true })}><Plus size={16} aria-hidden="true" />{t('market.publish')}</button></>
+        : <p>{t('market.emptyOther')}</p>}</div>}
+    {packages.length > 0 && filtered.length === 0 && <div className="emptyState"><Store aria-hidden="true" /><h3>{t('market.noMatch')}</h3><button type="button" className="secondary" onClick={() => setFilter(emptyMarketFilter())}>{t('market.clearFilters')}</button></div>}
     {shown.map((item) => {
       const installed = installedIds.has(item.id);
       return <div className="catalogRow marketRow" key={item.id}>
         <PackageCheck aria-hidden="true" />
-        <div><strong>{item.name}</strong> {item.verified ? <span className="statusBadge success"><BadgeCheck size={13} aria-hidden="true" />verified</span> : <span className="statusBadge warning">unverified</span>} {installed && <span className="statusBadge success">installed</span>}
-          <p>{item.kind} · v{item.version} · {item.publisher} · {item.permissions.length ? item.permissions.join(', ') : 'no permissions'}</p></div>
+        <div><strong>{item.name}</strong> {item.verified ? <span className="statusBadge success"><BadgeCheck size={13} aria-hidden="true" />{t('market.verified')}</span> : <span className="statusBadge warning">{t('market.unverified')}</span>} {installed && <span className="statusBadge success">{t('market.installed')}</span>}
+          <p>{t('market.rowMeta', { kind: t(`market.kindName.${item.kind}`), version: item.version, publisher: item.publisher, permissions: item.permissions.length ? joinList(item.permissions) : t('market.noPermissions') })}</p></div>
         <div className="marketActions">
-          {owner && !installed && <button type="button" disabled={busy} aria-label={`Install ${item.name}`} onClick={() => setReviewing(item)}>Install</button>}
+          {owner && !installed && <button type="button" disabled={busy} aria-label={t('market.installNamed', { name: item.name })} onClick={() => setReviewing(item)}>{t('market.install')}</button>}
           {owner && installed && (confirm === `uninstall-${item.id}`
-            ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={() => void act(async () => { await catalog.uninstallPackage(item.id); setConfirm(null); return `${item.name} uninstalled from this workspace.`; }, OWNER_ONLY)}>Uninstall</button><button type="button" className="secondary" onClick={() => setConfirm(null)}>Cancel</button></span>
-            : <button type="button" className="secondary" disabled={busy} onClick={() => setConfirm(`uninstall-${item.id}`)}>Uninstall</button>)}
-          {canManage && <button type="button" className="iconButton" aria-label={`Edit ${item.name}`} onClick={() => setEditing({ draft: packageDraft(item), isNew: false })}><Pencil /></button>}
+            ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={() => void act(async () => { await catalog.uninstallPackage(item.id); setConfirm(null); return t('market.uninstalled', { name: item.name }); }, ownersOnly())}>{t('market.uninstall')}</button><button type="button" className="secondary" onClick={() => setConfirm(null)}>{t('market.cancel')}</button></span>
+            : <button type="button" className="secondary" disabled={busy} onClick={() => setConfirm(`uninstall-${item.id}`)}>{t('market.uninstall')}</button>)}
+          {canManage && <button type="button" className="iconButton" aria-label={t('market.editNamed', { name: item.name })} onClick={() => setEditing({ draft: packageDraft(item), isNew: false })}><Pencil aria-hidden="true" /></button>}
           {canManage && (confirm === `delete-${item.id}`
-            ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={() => void act(async () => { await catalog.deletePackage(item.id); setConfirm(null); return `${item.name} removed from the catalog.`; }, ADMIN_ONLY)}>Delete</button><button type="button" className="secondary" onClick={() => setConfirm(null)}>Cancel</button></span>
-            : <button type="button" className="iconButton" aria-label={`Delete ${item.name}`} onClick={() => setConfirm(`delete-${item.id}`)}><Trash2 /></button>)}
+            ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={() => void act(async () => { await catalog.deletePackage(item.id); setConfirm(null); return t('market.deleted', { name: item.name }); }, adminsOnly())}>{t('market.delete')}</button><button type="button" className="secondary" onClick={() => setConfirm(null)}>{t('market.cancel')}</button></span>
+            : <button type="button" className="iconButton" aria-label={t('market.deleteNamed', { name: item.name })} onClick={() => setConfirm(`delete-${item.id}`)}><Trash2 aria-hidden="true" /></button>)}
         </div>
       </div>;
     })}
-    {remaining > 0 && <div className="catalogMore"><button type="button" className="secondary" onClick={() => setPages(pages + 1)}>Show {Math.min(remaining, PAGE)} more</button></div>}
-    {reviewing && <InstallReview item={reviewing} busy={busy} onCancel={() => setReviewing(null)} onConfirm={() => void act(async () => { await catalog.installPackage(reviewing.id, reviewing.version); setReviewing(null); return `${reviewing.name} installed in this workspace.`; }, OWNER_ONLY)} />}
-    {editing && <PackageForm draft={editing.draft} isNew={editing.isNew} existing={packages} onClose={() => setEditing(null)} onSave={(pkg) => act(async () => { const saved = await catalog.savePackage(pkg); setEditing(null); return `${saved.name} v${saved.version} ${editing.isNew ? 'published' : 'updated'}.`; }, ADMIN_ONLY)} />}
+    {remaining > 0 && <div className="catalogMore"><button type="button" className="secondary" onClick={() => setPages(pages + 1)}>{t('skills.showMore', { count: Math.min(remaining, PAGE) })}</button></div>}
+    {reviewing && <InstallReview item={reviewing} busy={busy} onCancel={() => setReviewing(null)} onConfirm={() => void act(async () => { await catalog.installPackage(reviewing.id, reviewing.version); setReviewing(null); return t('market.installedDone', { name: reviewing.name }); }, ownersOnly())} />}
+    {editing && <PackageForm draft={editing.draft} isNew={editing.isNew} existing={packages} onClose={() => setEditing(null)} onSave={(pkg) => act(async () => { const saved = await catalog.savePackage(pkg); setEditing(null); return t(editing.isNew ? 'market.savedPublished' : 'market.savedUpdated', { name: saved.name, version: saved.version }); }, adminsOnly())} />}
   </section>;
 }
 
 function InstallReview({ item, busy, onConfirm, onCancel }: { item: MarketPackage; busy: boolean; onConfirm(): void; onCancel(): void }) {
   const summary = installSummary(item);
-  return <Dialog title={`Install ${item.name}?`} onClose={onCancel}>
+  return <Dialog title={t('market.installTitle', { name: item.name })} onClose={onCancel}>
     {summary.lines.map((line) => <p key={line}>{line}</p>)}
-    {summary.warning && <p className="featureChip failed"><ShieldAlert />{summary.warning}</p>}
-    {item.permissions.length > 0 && <><h4>Permissions granted in this workspace</h4><ul className="catalogToolList">{item.permissions.map((p) => <li key={p}><code>{p}</code></li>)}</ul></>}
-    <p className="featureMeta">The install is recorded in the audit log. Agent tool calls stay mediated by the runtime and approvals still apply.</p>
-    <div className="actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="button" autoFocus disabled={busy} onClick={onConfirm}><PackageCheck />Install</button></div>
+    {summary.warning && <p className="featureChip failed"><ShieldAlert aria-hidden="true" />{summary.warning}</p>}
+    {item.permissions.length > 0 && <><h4>{t('market.permissionsTitle')}</h4><ul className="catalogToolList">{item.permissions.map((p) => <li key={p}><code dir="ltr">{p}</code></li>)}</ul></>}
+    <p className="featureMeta">{t('market.installNote')}</p>
+    <div className="actions"><button type="button" className="secondary" onClick={onCancel}>{t('market.cancel')}</button><button type="button" autoFocus disabled={busy} onClick={onConfirm}><PackageCheck aria-hidden="true" />{t('market.install')}</button></div>
   </Dialog>;
 }
 
 function PackageForm({ draft: initial, isNew, existing, onClose, onSave }: { draft: PackageDraft; isNew: boolean; existing: MarketPackage[]; onClose(): void; onSave(pkg: MarketPackage): Promise<boolean> }) {
   const [draft, setDraft] = useState(initial);
   const [error, setError] = useState<string | null>(null);
-  const text = (key: 'id' | 'name' | 'version' | 'publisher' | 'permissions' | 'regions', label: string, disabled = false) =>
-    <label className="field"><span>{label}</span><input value={draft[key]} disabled={disabled} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} /></label>;
+  const text = (key: 'id' | 'name' | 'version' | 'publisher' | 'permissions' | 'regions', disabled = false, dir: 'ltr' | 'auto' = 'auto') =>
+    <label className="field"><span>{t(`market.field.${key}`)}</span><input dir={dir} value={draft[key]} disabled={disabled} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} /></label>;
   const submit = async () => {
     const body = packageBody(draft);
     if (!body.ok) { setError(body.error); return; }
-    if (isNew && existing.some((p) => p.id === body.value.id)) { setError(`A package with id ${body.value.id} already exists; edit it instead.`); return; }
+    if (isNew && existing.some((p) => p.id === body.value.id)) { setError(t('market.exists', { id: body.value.id })); return; }
     setError(null);
     await onSave(body.value);
   };
-  return <Dialog title={isNew ? 'Publish a package' : `Edit ${initial.name}`} onClose={onClose} wide>
+  return <Dialog title={isNew ? t('market.publishTitle') : t('market.editTitle', { name: initial.name })} onClose={onClose} wide>
     <form className="catalogForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      {text('id', 'Package id', !isNew)}{text('name', 'Name')}{text('version', 'Version')}{text('publisher', 'Publisher')}
-      <label className="field"><span>Kind</span><select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as PackageDraft['kind'] })}><option value="integration">Integration</option><option value="skill">Skill</option></select></label>
-      <label className="integrationToggle"><input type="checkbox" checked={draft.verified} onChange={(e) => setDraft({ ...draft, verified: e.target.checked })} />Publisher verified by the organization</label>
-      <div className="catalogFormWide">{text('permissions', 'Permissions it requests (comma separated)')}</div>
-      <div className="catalogFormWide">{text('regions', 'Regions (comma separated)')}</div>
-      {error && <p className="notice errorNotice catalogFormWide" role="alert"><CircleDot />{error}</p>}
-      <div className="actions catalogFormWide"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit">{isNew ? 'Publish' : 'Save'}</button></div>
+      {text('id', !isNew, 'ltr')}{text('name')}{text('version', false, 'ltr')}{text('publisher')}
+      <label className="field"><span>{t('market.field.kind')}</span><select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as PackageDraft['kind'] })}><option value="integration">{t('market.kindOption.integration')}</option><option value="skill">{t('market.kindOption.skill')}</option></select></label>
+      <label className="integrationToggle"><input type="checkbox" checked={draft.verified} onChange={(e) => setDraft({ ...draft, verified: e.target.checked })} />{t('market.field.verified')}</label>
+      <div className="catalogFormWide">{text('permissions', false, 'ltr')}</div>
+      <div className="catalogFormWide">{text('regions', false, 'ltr')}</div>
+      {error && <p className="notice errorNotice catalogFormWide" role="alert"><CircleDot aria-hidden="true" />{error}</p>}
+      <div className="actions catalogFormWide"><button type="button" className="secondary" onClick={onClose}>{t('market.cancel')}</button><button type="submit">{isNew ? t('market.publishButton') : t('market.saveButton')}</button></div>
     </form>
   </Dialog>;
 }
