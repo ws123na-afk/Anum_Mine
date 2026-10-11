@@ -574,3 +574,10 @@ def test_scripts_are_strict_and_units_point_at_existing_files() -> None:
     assert "ufw enable" not in install
     update = (ORACLE / "update.sh").read_text(encoding="utf-8")
     assert update.index("run --rm --no-deps migrate") < update.index("up -d --remove-orphans")
+
+
+def test_install_does_not_ask_for_a_password_with_nopasswd_sudo() -> None:
+    # Oracle's ubuntu user has no password: a bare `sudo -v` prompts even under NOPASSWD.
+    install = (ORACLE / "install.sh").read_text(encoding="utf-8")
+    assert "sudo -n true 2>/dev/null || sudo -v" in install
+    assert not [line for line in install.splitlines() if line.strip() == "sudo -v"]
