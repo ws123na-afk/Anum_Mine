@@ -4,6 +4,7 @@ import { apiErrorFromResponse } from './errors';
 import { matchWakeWord } from './wake';
 
 export { defaultAssistantName, greeting, matchWakeWord, sanitizeAssistantName } from './wake';
+import { postSse } from './chatApi';
 
 
 export type TranscriptRetention = 'session' | '30_days' | 'permanent';
@@ -95,6 +96,61 @@ export async function askVoiceAssistant(sessionId: string, transcriptSegmentId: 
   return voiceRequest(`/api/v1/voice/sessions/${sessionId}/ask`, {
     method: 'POST',
     body: JSON.stringify({ transcript_segment_id: transcriptSegmentId }),
+  });
+}
+
+export interface VoiceStreamHandlers {
+  /** Intent, risk tier and proposal, before any reply text. */
+  onMeta?: (meta: Omit<VoiceAskResult, 'reply' | 'assistant_segment'>) => void;
+  /** Each piece of the reply as it streams. */
+  onText?: (text: string) => void;
+}
+
+/**
+ * The same answer as askVoiceAssistant, streamed (`/ask/stream`), so speech can start with
+ * the first sentence. Resolves with the whole result once the reply is stored.
+ */
+export async function streamVoiceAssistant(
+  sessionId: string,
+  transcriptSegmentId: string,
+  signal: AbortSignal,
+  handlers: VoiceStreamHandlers = {},
+): Promise<VoiceAskResult> {
+  let meta: Omit<VoiceAskResult, 'reply' | 'assistant_segment'> | null = null;
+  let reply = '';
+  let segment: TranscriptSegment | null = null;
+  let failure: string | null = null;
+  await postSse(`/api/v1/voice/sessions/${sessionId}/ask/stream`, { transcript_segment_id: transcriptSegmentId }, signal, (event) => {
+    const data = (event.data ?? {}) as Record<string, unknown>;
+    if (event.event === 'meta') {
+      meta = data as unknown as Omit<VoiceAskResult, 'reply' | 'assistant_segment'>;
+      handlers.onMeta?.(meta);
+    } else if (event.event === 'delta' && typeof data.text === 'string') {
+      reply += data.text;
+      handlers.onText?.(data.text);
+    } else if (event.event === 'done') {
+      segment = (data.assistant_segment as TranscriptSegment | null) ?? null;
+    } else if (event.event === 'error') {
+      failure = typeof data.message === 'string' ? data.message : 'I could not answer.';
+    }
+  });
+  if (failure) throw new Error(failure);
+  if (!meta) throw new Error('The voice answer ended early. Try again.');
+  const now = new Date().toISOString();
+  return {
+    ...(meta as Omit<VoiceAskResult, 'reply' | 'assistant_segment'>),
+    reply: reply.trim(),
+    assistant_segment: segment ?? { id: `assistant-${now}`, session_id: sessionId, role: 'assistant', text: reply.trim(), is_final: true, client_sequence: 0, created_at: now },
+  };
+}
+
+/** Speak and resolve when the speech ends (or a length-based fallback fires: some browsers never report the end). */
+export function speakAndWait(text: string, options: SpeakOptions): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; window.clearTimeout(fallback); options.onEnd?.(); resolve(); } };
+    const fallback = window.setTimeout(finish, Math.min(30000, 4000 + text.length * 80));
+    void speak(text, { ...options, onEnd: finish }).catch(finish);
   });
 }
 

@@ -94,5 +94,13 @@ The **Assistant** view (default view, first in the navigation) is a chat panel:
 - `Enter` sends, `Shift+Enter` adds a line; a `402` shows the budget message with a way
   to Budgets.
 
+States: loading the list and the messages is announced; an empty workspace explains what
+the assistant does and offers three starter questions; a list that fails to load says so
+with **Try again**; a failed reply says what failed and offers **Retry**; a `403` explains
+that a workspace owner or admin must give the member role; a question the server never
+stored is marked "Not sent"; a stopped reply is marked "Stopped" (with "before any
+answer" when nothing had arrived); a long history opens scrolled to the newest message.
+The view loads on first visit like the other views and uses the shared theme tokens only.
+
 Voice streams too: `POST /api/v1/voice/sessions/{id}/ask/stream` ([Voice](voice.md#web-voice-assistant))
 and the Voice view speaks each sentence as soon as it is complete.

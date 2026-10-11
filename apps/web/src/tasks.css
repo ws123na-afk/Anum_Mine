@@ -11,16 +11,6 @@
 .taskMeta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
 .taskSubheading { color: var(--d-muted); font-size: 12px; font-weight: 700; margin: 18px 0 6px; }
 .taskInstructions { background: var(--d-glass-1); border-radius: 6px; margin: 0; overflow-wrap: anywhere; padding: 10px 12px; white-space: pre-wrap; }
-.answerBody { color: var(--d-text); font-size: 14px; line-height: 1.6; margin-top: 10px; max-width: 75ch; overflow-wrap: anywhere; }
-.answerBody > * { margin: 0; }
-.answerBody > * + * { margin-top: 10px; }
-.answerBody ul, .answerBody ol { padding-left: 22px; }
-.answerBody li + li { margin-top: 4px; }
-.answerBody h3 { font-size: 16px; }
-.answerBody h4 { font-size: 14px; }
-.answerBody code { background: var(--d-glass-2); border-radius: 4px; font-size: 12.5px; padding: 1px 4px; }
-.answerBody pre { background: rgba(2, 6, 23, .55); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); overflow-x: auto; padding: 12px; }
-.answerBody pre code { background: none; color: inherit; padding: 0; }
 .taskApprovals { display: grid; gap: 6px; list-style: none; margin: 12px 0 0; padding: 0; }
 .taskApprovals li { align-items: center; background: var(--d-glass-1); border-radius: 5px; display: flex; gap: 10px; justify-content: space-between; padding: 9px; }
 .taskApprovals li > span { min-width: 0; }

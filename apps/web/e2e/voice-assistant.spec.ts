@@ -20,7 +20,7 @@ async function mockVoiceApi(page: Page) {
       texts.set(id, body.text);
       return json({ id, session_id: 'voice_e2e', role: 'user', text: body.text, is_final: true, client_sequence: sequence, created_at: now });
     }
-    if (path.endsWith('/ask')) {
+    if (path.endsWith('/ask') || path.endsWith('/ask/stream')) {
       const { transcript_segment_id: id } = route.request().postDataJSON() as { transcript_segment_id: string };
       const text = texts.get(id) ?? '';
       const reply = /your name/i.test(text)
@@ -30,7 +30,17 @@ async function mockVoiceApi(page: Page) {
         : text.startsWith('Approve')
           ? { intent: 'visual_only', risk_tier: 'visual_only', reply: 'For your safety, approvals are never done by voice.', proposed_task: null }
           : { intent: 'status', risk_tier: 'read', reply: 'You have 2 tasks. 1 running.', proposed_task: null };
-      return json({ ...reply, workspace, assistant_segment: { id: `assistant_${id}`, session_id: 'voice_e2e', role: 'assistant', text: reply.reply, is_final: true, client_sequence: 0, created_at: now } });
+      const assistantSegment = { id: `assistant_${id}`, session_id: 'voice_e2e', role: 'assistant', text: reply.reply, is_final: true, client_sequence: 0, created_at: now };
+      if (path.endsWith('/ask/stream')) {
+        // The streamed form the Voice view uses: meta, the reply in pieces, then the stored segment.
+        const frame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+        const words = reply.reply.split(/(?<= )/);
+        const body = frame('meta', { intent: reply.intent, risk_tier: reply.risk_tier, proposed_task: reply.proposed_task, workspace })
+          + words.map((word) => frame('delta', { text: word })).join('')
+          + frame('done', { assistant_segment: assistantSegment });
+        return route.fulfill({ contentType: 'text/event-stream', body });
+      }
+      return json({ ...reply, workspace, assistant_segment: assistantSegment });
     }
     if (path.endsWith('/commands')) {
       const { transcript_segment_id: id } = route.request().postDataJSON() as { transcript_segment_id: string };
