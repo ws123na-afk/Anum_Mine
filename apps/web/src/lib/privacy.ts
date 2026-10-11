@@ -1,55 +1,13 @@
 // Privacy page helpers (docs/privacy.md): what ANUM stores about the caller, retention,
 // "Download my data" and "Delete my data". Pure, so `pnpm --filter @anum/web test:unit`
 // exercises it without a browser; the requests live in privacyApi.ts.
+import type { PrivacyDeleteResult, PrivacyPrivateCounts, PrivacySharedCounts, PrivacySummary } from '@anum/contracts';
 
-export interface PrivateCounts {
-  conversations: number;
-  conversation_turns: number;
-  private_memories: number;
-  retrieval_index_entries: number;
-  voice_sessions: number;
-  voice_transcript_segments: number;
-  notification_preferences: number;
-  /** Tenant-wide (every workspace of the organization). */
-  user_preferences?: number;
-}
-
-export interface SharedCounts {
-  tasks_created: number;
-  approvals_decided: number;
-  shared_memories_created: number;
-  files_uploaded: number;
-}
-
-export interface PrivacySummary {
-  tenant_id: string;
-  workspace_id: string;
-  user_id: string;
-  role: string | null;
-  private: PrivateCounts;
-  shared: SharedCounts;
-  retention: {
-    conversation_days: number;
-    voice_transcript_days: number;
-    voice_transcript_choices: string[];
-    private_memories: string;
-    task_memories: string;
-    audit_records: string;
-  };
-  model_provider: { deployment: string; workspace: string | null; conversation_memory_enabled: boolean };
-  privacy_policy_url: string | null;
-  delete_confirmation: string;
-  export_max_bytes: number;
-  account_note: string;
-  shared_note: string;
-}
-
-export interface DeleteResult {
-  deleted: PrivateCounts;
-  kept: SharedCounts;
-  account_note: string;
-  shared_note: string;
-}
+// The wire shapes are the API's own (packages/contracts/src/account.ts).
+export type PrivateCounts = PrivacyPrivateCounts;
+export type SharedCounts = PrivacySharedCounts;
+export type DeleteResult = PrivacyDeleteResult;
+export type { PrivacySummary };
 
 export interface CountRow { key: string; label: string; value: number }
 
@@ -148,7 +106,7 @@ export const PERMISSION_MESSAGE = 'Only active members of this workspace can see
 
 interface StatusError { status: number; detail?: string | null; message?: string }
 
-// Duck-typed (ApiError from errors.ts has these fields) so this module stays import-free.
+// Duck-typed (ApiError from errors.ts has these fields) so this module imports types only.
 function asStatusError(error: unknown): StatusError | null {
   return typeof error === 'object' && error !== null && typeof (error as StatusError).status === 'number' ? error as StatusError : null;
 }

@@ -189,6 +189,37 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
     assert summary["shared"]["tasks_created"] == 1
 
 
+def test_export_in_each_workspace_of_one_tenant_holds_only_that_workspace(
+    client: TestClient, app_factory: sessionmaker[Session]
+) -> None:
+    """The same user in two workspaces of one tenant: each export and summary covers its own
+    workspace only; the tenant-wide user preference appears in both."""
+    first = _seed(client, app_factory, ME, "alpha")
+    second = _seed(client, app_factory, OTHER_WORKSPACE, "bravo")
+
+    for hdrs, mine, theirs, other_label in ((ME, first, second, "bravo"), (OTHER_WORKSPACE, second, first, "alpha")):
+        response = client.get("/api/v1/privacy/export", headers=hdrs)
+        assert response.status_code == 200, response.text
+        export = json.loads(response.content)
+        assert export["identity"]["workspace_id"] == hdrs["x-workspace-id"]
+        assert [c["id"] for c in export["conversations"]] == [mine["conversation"]]
+        assert [m["id"] for m in export["memories"]["private"]] == [mine["memory"]]
+        assert [v["id"] for v in export["voice_sessions"]] == [mine["voice"]]
+        assert [t["id"] for t in export["tasks_created"]] == [mine["task"]]
+        assert export["notification_preferences"]["email_enabled"] is True
+        # Tenant-wide: "Remember things from my chats" is one row for every workspace.
+        assert export["user_preferences"]["remember_conversations"] is False
+        text_body = response.content.decode()
+        assert other_label not in text_body
+        assert not any(value in text_body for value in theirs.values())
+
+        summary = client.get("/api/v1/privacy", headers=hdrs).json()
+        assert summary["workspace_id"] == hdrs["x-workspace-id"]
+        assert (summary["private"]["conversations"], summary["private"]["private_memories"]) == (1, 1)
+        assert (summary["private"]["retrieval_index_entries"], summary["private"]["user_preferences"]) == (1, 1)
+        assert summary["shared"]["tasks_created"] == 1
+
+
 def test_the_store_needs_the_user_context_to_see_private_rows(client: TestClient, app_factory: sessionmaker[Session]) -> None:
     _seed(client, app_factory, ME, "mine")
     with app_factory() as session:

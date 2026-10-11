@@ -135,3 +135,4 @@ export interface DomainEvent<TPayload = Record<string, unknown>> {
 export * from './governance.js';
 export * from './phase2.js';
 export * from './admin.js';
+export * from './account.js';

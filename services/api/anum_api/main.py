@@ -750,7 +750,10 @@ async def delete_my_conversation_memories(
             detail="Only memories from your chats can be deleted together (source_type=conversation)",
         )
     deleted = 0
-    filters = MemoryListFilters(source_types={CONVERSATION_SOURCE_TYPE}, include_expired=True, limit=MEMORY_LIST_MAX_LIMIT)
+    # owner_only: shared notes never fill a page, so a page shorter than the limit is the last.
+    filters = MemoryListFilters(
+        source_types={CONVERSATION_SOURCE_TYPE}, include_expired=True, limit=MEMORY_LIST_MAX_LIMIT, owner_only=True
+    )
     while True:
         own = [note for note in memories.list(context, filters, utc_now()) if note.owner_user_id == context.user_id]
         removed = 0

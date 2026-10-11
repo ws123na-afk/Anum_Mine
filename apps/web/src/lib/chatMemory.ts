@@ -2,14 +2,12 @@
 // (GET/PUT /api/v1/me/preferences, docs/memory.md#from-conversations). Pure, so the unit tests
 // run without a browser.
 
-/** Whether the Assistant remembers from and recalls into the caller's chats, and if not, why. */
-export type ConversationMemoryState = 'on' | 'off_by_user' | 'off_on_server' | 'off_for_organization' | 'not_for_role';
+import type { ConversationMemoryState, UserPreferencesView } from '@anum/contracts';
 
-export interface UserPreferences {
-  remember_conversations: boolean;
-  updated_at: string | null;
-  conversation_memory: ConversationMemoryState;
-}
+/** Whether the Assistant remembers from and recalls into the caller's chats, and if not, why. */
+export type { ConversationMemoryState };
+/** `GET`/`PUT /api/v1/me/preferences` (packages/contracts/src/account.ts). */
+export type UserPreferences = UserPreferencesView;
 
 export const PREFERENCES_PATH = '/api/v1/me/preferences';
 /** DELETE: every memory remembered from the caller's own chats in this workspace; answers `{deleted}`. */

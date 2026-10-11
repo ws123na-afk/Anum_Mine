@@ -128,10 +128,10 @@ class _Content extends StatelessWidget {
                     : Column(children: [
                         ListTile(
                             leading: const Icon(Icons.smart_toy_outlined),
-                            title: Text(controller.model!.provider ==
-                                    'anthropic'
-                                ? providerLabel('anthropic')
-                                : controller.model!.model),
+                            title: Text(
+                                controller.model!.provider == 'anthropic'
+                                    ? providerLabel('anthropic')
+                                    : controller.model!.model),
                             subtitle: Text(
                                 controller.model!.provider == 'anthropic'
                                     ? 'Chat and voice: ${controller.model!.fastModel}\n'
@@ -468,7 +468,8 @@ class _ModelSheetState extends State<_ModelSheet> {
           ? (widget.current!.routing.fastModel ?? '')
           : anthropicFastModel);
   late final capableModel = TextEditingController(
-      text: _claudeSaved ? widget.current!.capableModel : anthropicCapableModel);
+      text:
+          _claudeSaved ? widget.current!.capableModel : anthropicCapableModel);
   late String fastEffort =
       _claudeSaved ? (widget.current!.routing.fastEffort ?? '') : 'low';
   late String capableEffort =
@@ -543,9 +544,9 @@ class _ModelSheetState extends State<_ModelSheet> {
           key: form,
           child: SingleChildScrollView(
               child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                 Text('Change model',
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 4),
@@ -594,8 +595,7 @@ class _ModelSheetState extends State<_ModelSheet> {
                       obscureText: true,
                       textDirection: TextDirection.ltr,
                       decoration: InputDecoration(
-                          labelText:
-                              _claude ? 'Anthropic API key' : 'API key',
+                          labelText: _claude ? 'Anthropic API key' : 'API key',
                           helperMaxLines: 3,
                           helperText: switch (_keyState) {
                             SavedKeyState.keep =>

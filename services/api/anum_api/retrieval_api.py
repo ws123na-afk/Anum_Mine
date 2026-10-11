@@ -306,7 +306,9 @@ async def source_names(
         if note is None or note.is_expired(now):
             names.append(SourceName(source_type=SourceType.MEMORY, source_id=note_id, found=False))
             continue
-        chat = note.provenance.source_type == CONVERSATION_SOURCE_TYPE
+        # Private (owned) memories are the ones remembered from the caller's chats; a shared
+        # note is a task note whatever source label it was saved with.
+        chat = note.owner_user_id is not None and note.provenance.source_type == CONVERSATION_SOURCE_TYPE
         names.append(
             SourceName(
                 source_type=SourceType.MEMORY,

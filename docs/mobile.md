@@ -301,6 +301,8 @@ flutter test
 flutter build apk --debug
 ```
 
+Run `dart format` after `flutter pub get`: the formatter takes its language version, and so its style, from the pubspec's SDK constraint (`>=3.4.0`, the short style). Without resolved packages it falls back to the newest language version and rewrites almost every file. CI's "Flutter mobile" job runs the same check.
+
 `analysis_options.yaml` turns on the analyzer's `strict-casts`, `strict-inference` and `strict-raw-types` modes, so `flutter analyze` rejects implicit downcasts from `dynamic` (decoded JSON is read through the [typed helpers](#typed-json-parsing), not casts), generic calls whose type arguments cannot be inferred (page routes are `MaterialPageRoute<void>`, empty literals carry their element types) and raw generic types. Keep them on; do not silence a finding with `as dynamic` or an `// ignore:`.
 
 `test/oidc_session_test.dart` covers token-to-session mapping, refresh (including rotation, rejection and offline failures), workspace headers, sign-out and the controller flow with a fake authenticator; `test/configure_native_test.dart` covers the native configuration and checks that the committed projects match it. CI runs format, analyze and the tests, builds a debug APK and a (debug-signed) release app bundle, and compiles the iOS app (debug, unsigned) on macOS. A real browser round trip against Keycloak, secure storage, notifications, microphone handling and file transfer still need the device checklist below before release.

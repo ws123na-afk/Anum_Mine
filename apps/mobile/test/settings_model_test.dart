@@ -230,8 +230,7 @@ void main() {
 
   test('a 403 on save stays in the model sheet and says who can do it',
       () async {
-    final controller =
-        await _controller(_ModelTransport(saveForbidden: true));
+    final controller = await _controller(_ModelTransport(saveForbidden: true));
     await controller.load();
 
     final ok = await controller.changeModel(
@@ -267,10 +266,12 @@ void main() {
         SavedKeyState.keep);
     expect(savedKeyState('anthropic', 'https://claude-proxy.example', saved),
         SavedKeyState.moved);
-    expect(savedKeyState('openai_compatible', 'https://api.anthropic.com', saved),
+    expect(
+        savedKeyState('openai_compatible', 'https://api.anthropic.com', saved),
         SavedKeyState.none);
     expect(validateApiKey('', SavedKeyState.keep), isNull);
-    expect(validateApiKey('', SavedKeyState.moved), contains('base URL changed'));
+    expect(
+        validateApiKey('', SavedKeyState.moved), contains('base URL changed'));
     expect(validateApiKey('', SavedKeyState.none), 'Enter the API key');
     expect(validateApiKey('sk-ant-example', SavedKeyState.moved), isNull);
   });
@@ -329,8 +330,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Save and test'), findsOneWidget); // still in the sheet
-    expect(find.textContaining('Your role cannot change the model'),
-        findsWidgets);
+    expect(
+        find.textContaining('Your role cannot change the model'), findsWidgets);
     expect(find.text('Permission required'), findsNothing);
     expect(tester.takeException(), isNull);
   });

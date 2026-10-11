@@ -1,7 +1,7 @@
 // "Sources used" on a run: read from the run's `retrieval` step, which the API records
 // with chunk ids, source ids and scores only (never the retrieved text). Nothing here
 // invents data: a run without a retrieval step shows nothing.
-import type { AgentRun, RetrievedSourceUsed } from '@anum/contracts';
+import type { AgentRun, RetrievalSourceName, RetrievedSourceUsed } from '@anum/contracts';
 
 export type RetrievalState = 'ok' | 'no_results' | 'skipped' | 'unavailable';
 
@@ -87,16 +87,8 @@ export function scoreLabel(score: number): string {
 
 export type SourceGroup = ReturnType<typeof groupSources>[number];
 
-export interface SourceName {
-  sourceType: 'memory' | 'file';
-  sourceId: string;
-  found: boolean;
-  /** A memory's first line or a file's name. */
-  title: string | null;
-  /** `task_note` or `chat` for a memory; the content type for a file. */
-  kind: string | null;
-  sizeBytes: number | null;
-}
+/** One resolved source (packages/contracts/src/account.ts). */
+export type SourceName = RetrievalSourceName;
 
 /** The API refuses more than this many ids in one lookup; a run lists at most 20 passages. */
 export const MAX_SOURCE_LOOKUP = 50;

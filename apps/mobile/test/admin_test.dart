@@ -563,7 +563,8 @@ void main() {
       expect(find.text('Save limits'), findsOneWidget);
       expect(
           transport.requests.any((r) =>
-              r.method == 'PUT' && r.uri.path.endsWith('/model-budgets/tenant')),
+              r.method == 'PUT' &&
+              r.uri.path.endsWith('/model-budgets/tenant')),
           isFalse);
     });
 

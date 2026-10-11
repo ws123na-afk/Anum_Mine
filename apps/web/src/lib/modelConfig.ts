@@ -1,37 +1,17 @@
 // Per-workspace model settings (docs/model-gateway.md, Per-workspace model configuration
 // and Model routing). Pure, so `pnpm --filter @anum/web test:unit` can exercise it.
 
-export type ModelProvider = 'mock' | 'ollama' | 'openai_compatible' | 'anthropic';
+import type { ModelConnectionTest, WorkspaceModelConfig, WorkspaceModelConfigWrite, WorkspaceModelProvider } from '@anum/contracts';
+
+export type ModelProvider = WorkspaceModelProvider;
 export type ModelEffort = '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** `GET /api/v1/model-config`; the key itself is never returned, only its last four characters. */
-export interface ModelConfig {
-  provider: string;
-  model: string;
-  base_url: string;
-  fast_model?: string | null;
-  capable_model?: string | null;
-  fast_effort?: string | null;
-  capable_effort?: string | null;
-  credential_configured: boolean;
-  credential_hint: string | null;
-  updated_at: string;
-}
-
-/** `POST /api/v1/model-config/test`. `models` lists every model the test called. */
-export interface ModelConnectionTest { provider: string; model: string; models?: string[]; latency_ms: number; status: string }
-
+export type ModelConfig = WorkspaceModelConfig;
+/** `POST /api/v1/model-config/test`. */
+export type { ModelConnectionTest };
 /** The `PUT /api/v1/model-config` body. */
-export interface ModelConfigBody {
-  provider: ModelProvider;
-  model: string;
-  base_url?: string;
-  api_key: string | null;
-  fast_model?: string | null;
-  capable_model?: string | null;
-  fast_effort?: string | null;
-  capable_effort?: string | null;
-}
+export type ModelConfigBody = WorkspaceModelConfigWrite;
 
 export interface ModelDraft {
   provider: ModelProvider | '';

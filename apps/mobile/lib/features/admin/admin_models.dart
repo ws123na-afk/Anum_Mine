@@ -366,7 +366,6 @@ const tenantBudgetReadOnlyNotice =
     'this workspace is not enough. Ask your organization administrator to make the '
     'change, or to have the org_admin role granted to you in your identity provider.';
 
-
 enum MeterTone { none, ok, warn, stop }
 
 class BudgetMeter {

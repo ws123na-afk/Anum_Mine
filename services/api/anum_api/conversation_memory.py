@@ -353,7 +353,9 @@ async def remember_facts(
             note
             for note in repository.list(
                 context,
-                MemoryListFilters(source_types={CONVERSATION_SOURCE_TYPE}, include_expired=True, limit=DEDUPE_CANDIDATES),
+                MemoryListFilters(
+                    source_types={CONVERSATION_SOURCE_TYPE}, include_expired=True, limit=DEDUPE_CANDIDATES, owner_only=True
+                ),
                 now,
             )
             if note.owner_user_id == context.user_id

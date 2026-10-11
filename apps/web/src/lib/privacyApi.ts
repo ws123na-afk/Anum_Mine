@@ -1,4 +1,5 @@
 // Privacy API (docs/privacy.md): GET /api/v1/privacy, GET /api/v1/privacy/export, POST /api/v1/privacy/delete.
+import type { PrivacyDeleteRequest } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
 import { exportFileName, type DeleteResult, type PrivacySummary } from './privacy';
@@ -22,5 +23,5 @@ export async function downloadMyData(): Promise<{ name: string; bytes: number }>
 }
 
 export function deleteMyData(confirm: string): Promise<DeleteResult> {
-  return apiRequest<DeleteResult>('/api/v1/privacy/delete', { method: 'POST', body: JSON.stringify({ confirm }) });
+  return apiRequest<DeleteResult>('/api/v1/privacy/delete', { method: 'POST', body: JSON.stringify({ confirm } satisfies PrivacyDeleteRequest) });
 }

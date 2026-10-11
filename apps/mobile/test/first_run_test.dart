@@ -119,13 +119,15 @@ class _Api implements ApiTransport {
     if (path == '/api/v1/model-config' && request.method == 'PUT') {
       final body = request.body!;
       modelConfigured = true;
-      return ApiResponse(statusCode: 200, body: {
-        ...body,
-        'base_url': body['base_url'] ?? 'https://api.anthropic.com',
-        'credential_configured': body['api_key'] != null,
-        'credential_hint': '...mple',
-        'updated_at': '2026-10-11T10:00:00Z',
-      }..remove('api_key'));
+      return ApiResponse(
+          statusCode: 200,
+          body: {
+            ...body,
+            'base_url': body['base_url'] ?? 'https://api.anthropic.com',
+            'credential_configured': body['api_key'] != null,
+            'credential_hint': '...mple',
+            'updated_at': '2026-10-11T10:00:00Z',
+          }..remove('api_key'));
     }
     if (path == '/api/v1/model-config/test') {
       return const ApiResponse(statusCode: 200, body: {

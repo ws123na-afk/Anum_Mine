@@ -1,4 +1,4 @@
-import type { AgentRun, Approval, DomainEvent, TenantContext, Task } from '@anum/contracts';
+import type { AgentRun, Approval, DomainEvent, TenantContext, Task, UserPreferencesUpdate } from '@anum/contracts';
 import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
 import { apiErrorFromResponse } from './errors';
@@ -198,7 +198,7 @@ export async function uninstallSkill(skillId: string): Promise<void> { await req
 export async function searchMemories(query: string, onlyChats = false): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query, undefined, onlyChats), { method: 'GET' }); }
 /** The caller's own preferences, including "Remember things from my chats". */
 export async function getMyPreferences(): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'GET' }); }
-export async function saveMyPreferences(rememberConversations: boolean): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'PUT', body: JSON.stringify({ remember_conversations: rememberConversations }) }); }
+export async function saveMyPreferences(rememberConversations: boolean): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'PUT', body: JSON.stringify({ remember_conversations: rememberConversations } satisfies UserPreferencesUpdate) }); }
 /** Deletes every memory remembered from the caller's own chats in this workspace. */
 export async function deleteMyChatMemories(): Promise<{ deleted: number }> { return request(chatMemory.CHAT_MEMORIES_PATH, { method: 'DELETE' }); }
 export async function getRetrievalStatus(): Promise<capabilities.RetrievalIndexStatus> { return request('/api/v1/retrieval/status', { method: 'GET' }); }

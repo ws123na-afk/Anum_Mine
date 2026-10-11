@@ -91,6 +91,8 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
             *_visible(context),
             MemoryRecord.kind.in_(LISTED_KINDS),
         )
+        if filters.owner_only:
+            statement = statement.where(MemoryRecord.owner_user_id == context.user_id)
         if filters.task_id is not None:
             statement = statement.where(MemoryRecord.source_task_id == filters.task_id)
         if filters.source_types:
