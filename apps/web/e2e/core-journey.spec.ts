@@ -25,6 +25,8 @@ async function mockApi(page: Page) {
   await page.route('http://localhost:8000/api/v1/approvals', async (route) => {
     await route.fulfill({ contentType: 'application/json', body: '[]' });
   });
+  // The detail panel refetches the selected task's latest run; the run response is the newest here.
+  await page.route('http://localhost:8000/api/v1/tasks/task_e2e/latest-run', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"Agent run not found"}' }));
   await page.route('http://localhost:8000/api/v1/tasks/task_e2e/run', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
@@ -50,6 +52,20 @@ test('primary task journey reaches a completed real API result', async ({ page }
   await expect(page.getByText('Workspace state is current.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Web task' })).toBeVisible();
   await expect(page.getByText('Release reviewed.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Answer' }).getByText('Done')).toBeVisible();
+  // The stream mock answers 204 without a body, so the badge reports the stream as offline.
+  await expect(page.getByText('Updates offline')).toBeVisible();
+});
+
+test('task history filters by status and search', async ({ page }) => {
+  await page.getByLabel('Task instructions').fill('Review the release');
+  await page.getByRole('button', { name: 'Run task' }).click();
+  await expect(page.getByText('1 of 1 tasks')).toBeVisible();
+  await page.getByLabel('Status').selectOption('failed');
+  await expect(page.getByRole('heading', { name: 'No matching tasks' })).toBeVisible();
+  await page.getByLabel('Status').selectOption('all');
+  await page.getByLabel('Search tasks').fill('release');
+  await expect(page.getByText('1 of 1 tasks')).toBeVisible();
 });
 
 test('navigation exposes the operational workbench and approvals', async ({ page }) => {

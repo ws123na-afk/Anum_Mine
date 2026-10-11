@@ -1,0 +1,29 @@
+/* Tasks view (TasksView.tsx): filters, paging, task detail and the rendered answer. */
+.taskFilters { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) minmax(0, 150px); }
+.taskFilters .field { margin-top: 12px; }
+.taskList { max-height: 420px; }
+.taskList .recordButton { gap: 10px; }
+.taskList .recordButton > span { min-width: 0; }
+.taskPromptPreview { color: #5d6f75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskDetail, .taskAnswer { margin-top: 16px; }
+.taskMeta { display: grid; gap: 10px 18px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 14px 0 0; }
+.taskMeta dt { color: #52666e; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.taskMeta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.taskSubheading { color: #52666e; font-size: 12px; font-weight: 700; margin: 18px 0 6px; }
+.taskInstructions { background: #f7f9f9; border-radius: 6px; margin: 0; overflow-wrap: anywhere; padding: 10px 12px; white-space: pre-wrap; }
+.answerBody { color: #172026; font-size: 14px; line-height: 1.6; margin-top: 10px; max-width: 75ch; overflow-wrap: anywhere; }
+.answerBody > * { margin: 0; }
+.answerBody > * + * { margin-top: 10px; }
+.answerBody ul, .answerBody ol { padding-left: 22px; }
+.answerBody li + li { margin-top: 4px; }
+.answerBody h3 { font-size: 16px; }
+.answerBody h4 { font-size: 14px; }
+.answerBody code { background: #eef3f4; border-radius: 4px; font-size: 12.5px; padding: 1px 4px; }
+.answerBody pre { background: #172026; border-radius: 6px; color: #e6eef0; overflow-x: auto; padding: 12px; }
+.answerBody pre code { background: none; color: inherit; padding: 0; }
+.taskApprovals { display: grid; gap: 6px; list-style: none; margin: 12px 0 0; padding: 0; }
+.taskApprovals li { align-items: center; background: #f7f9f9; border-radius: 5px; display: flex; gap: 10px; justify-content: space-between; padding: 9px; }
+.taskApprovals li > span { min-width: 0; }
+.taskApprovals strong, .taskApprovals small { display: block; overflow-wrap: anywhere; }
+.taskApprovals small { color: #5d6f75; }
+@media (max-width: 640px) { .taskFilters { grid-template-columns: 1fr; } }

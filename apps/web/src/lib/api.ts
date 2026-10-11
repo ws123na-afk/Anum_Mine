@@ -155,6 +155,13 @@ export async function saveNotificationPreferences(value: NotificationPreferences
 
 export async function getTasks(): Promise<Task[]> { return (await request<ApiTask[]>('/api/v1/tasks', { method: 'GET' })).map(mapTask); }
 export async function getApprovals(): Promise<Approval[]> { return (await request<ApiApproval[]>('/api/v1/approvals', { method: 'GET' })).map(mapApproval); }
+/** One page of `GET /api/v1/tasks` after `cursor` (the last task id already shown); the API pages by id, newest first. */
+export async function getTaskPage(cursor: string, limit = 50): Promise<Task[]> {
+  const query = new URLSearchParams({ limit: String(limit), cursor });
+  return (await request<ApiTask[]>(`/api/v1/tasks?${query}`, { method: 'GET' })).map(mapTask);
+}
+/** The task's most recent agent run (`GET /api/v1/tasks/{id}/latest-run`); 404 when it never ran. */
+export async function getLatestRun(taskId: string): Promise<AgentRun> { return mapRun(await request<ApiAgentRun>(`/api/v1/tasks/${encodeURIComponent(taskId)}/latest-run`, { method: 'GET' })); }
 export async function getRun(runId: string): Promise<AgentRun> { return mapRun(await request<ApiAgentRun>(`/api/v1/agent-runs/${runId}`, { method: 'GET' })); }
 export async function resumeRun(runId: string): Promise<RunTaskResult> {
   const result = await request<ApiRunTaskResponse>(`/api/v1/agent-runs/${runId}/resume`, { method: 'POST' });
