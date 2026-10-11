@@ -198,7 +198,8 @@ app.add_middleware(
     ],
     # Content-Disposition: the file name of a download (privacy and audit exports).
     # X-Next-Cursor: the next page of GET /api/v1/workspace-members?limit=.
-    expose_headers=[CORRELATION_ID_HEADER, "Retry-After", "Content-Disposition", "X-Next-Cursor"],
+    # X-Total-Count: the total behind a page of /api/v1/automation lists.
+    expose_headers=[CORRELATION_ID_HEADER, "Retry-After", "Content-Disposition", "X-Next-Cursor", "X-Total-Count"],
 )
 # Outermost ANUM middleware, so 413/429 answers and CORS preflights are counted too.
 app.add_middleware(HttpMetricsMiddleware)

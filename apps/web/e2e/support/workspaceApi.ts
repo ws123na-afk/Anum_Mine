@@ -64,6 +64,21 @@ const packages = [
   { id: 'acme.crm-sync', name: 'CRM sync', kind: 'integration', version: '1.2.0', publisher: 'Acme', verified: true, permissions: ['integration:read'], regions: ['eu-west'] },
   { id: 'beta.notes', name: 'Meeting notes', kind: 'skill', version: '0.3.0', publisher: 'Beta', verified: false, permissions: [], regions: [] },
 ];
+const automation = {
+  id: 'wf_digest', name: 'Weekly digest', description: 'Summarises the week', status: 'active', version: 2, overlap_policy: 'skip',
+  created_at: now, updated_at: now, created_by: 'user_local', updated_by: null, last_run_at: now, last_run_status: 'failed', next_run_at: now,
+  active_runs: 0, run_count: 1, schedule_count: 1,
+  steps: [{ id: 'make', name: 'Create digest', action: 'task.create', input: { title: 'Digest', prompt: 'Summarise' }, max_attempts: 3 }],
+};
+const automationSchedule = {
+  id: 'schedule_1', workflow_id: 'wf_digest', name: 'Weekday mornings', cron: '0 9 * * 1-5', cron_description: 'At 09:00, Monday through Friday', timezone: 'Asia/Riyadh',
+  enabled: true, next_run_at: now, last_run_at: now, last_outcome: 'fired', created_by: 'user_local', created_at: now, updated_at: now,
+};
+const automationRun = {
+  id: 'automation_run_1', workflow_id: 'wf_digest', workflow_name: 'Weekly digest', workflow_version: 2, status: 'failed', trigger: 'schedule', idempotency_key: null,
+  retry_of: null, schedule_id: 'schedule_1', current_step: 0, created_at: now, updated_at: now, created_by: 'user_local', error: 'Upstream down',
+  steps: [{ id: 'make', name: 'Create digest', action: 'task.create', status: 'failed', attempt: 1, input: {}, output: {}, error: 'Upstream down' }],
+};
 
 export async function mockWorkspaceApi(page: Page): Promise<void> {
   await page.route('http://localhost:8000/**', async (route) => {
@@ -107,6 +122,11 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/files/file_notes') return json(files[0]);
     if (path === '/api/v1/files/file_notes/preview') return json({ kind: 'markdown', text: '# Release notes\n\n- Faster exports', truncated: false, size_bytes: 2048 });
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: now, updated_at: now });
+    // Automations (docs/automation.md): one automation with a schedule and a failed run.
+    if (path === '/api/v1/automation/workflows' && method === 'GET') return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'X-Total-Count': '1', 'Access-Control-Expose-Headers': 'X-Total-Count' }, body: JSON.stringify([automation]) });
+    if (path === '/api/v1/automation/workflows/wf_digest') return json(automation);
+    if (path === '/api/v1/automation/schedules') return json([automationSchedule]);
+    if (path === '/api/v1/automation/runs') return json([automationRun]);
     if (path === '/api/v1/me/workspace-memberships') return json([{ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'owner', active: true }]);
     // Workspace lifecycle and the audit log (docs/identity.md#workspace-lifecycle, docs/governance-and-scale.md#audit-log).
     if (path === '/api/v1/workspaces/current' && method === 'GET') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: now, updated_at: now, archived_at: null, archived_by: null });

@@ -27,7 +27,8 @@ abstract interface class ApiTransport {
 }
 
 class ApiException implements Exception {
-  const ApiException(this.statusCode, this.message, {this.code});
+  const ApiException(this.statusCode, this.message,
+      {this.code, this.details = const []});
 
   /// Reads the API's error envelope (`{"error": {"code", "message"}}`) or
   /// FastAPI's `{"detail": ...}`, keeping the stable code when there is one.
@@ -44,7 +45,18 @@ class ApiException implements Exception {
       {'code': final String value} => value,
       _ => null,
     };
-    return ApiException(response.statusCode, message, code: code);
+    // A 422's per-field messages (`error.details[].message`), which say how to
+    // fix the request ("Hour field: 25 is outside 0-23.").
+    final details = switch (envelope) {
+      {'details': final List<Object?> items} => [
+          for (final item in items)
+            if (item case {'message': final String text})
+              text.replaceFirst('Value error, ', '')
+        ],
+      _ => const <String>[],
+    };
+    return ApiException(response.statusCode, message,
+        code: code, details: details);
   }
 
   final int statusCode;
@@ -52,6 +64,12 @@ class ApiException implements Exception {
 
   /// The envelope's stable error code, e.g. `model_budget_exceeded`.
   final String? code;
+
+  /// Validation problems of a 422, one sentence each.
+  final List<String> details;
+
+  /// The sentence to show a person: field problems first, else the message.
+  String get readable => details.isNotEmpty ? details.join(' ') : message;
 
   /// HTTP 402: the tenant's or workspace's monthly model budget is used up.
   bool get isBudgetExceeded =>

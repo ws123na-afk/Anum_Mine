@@ -188,26 +188,6 @@ class WorkspaceController extends ChangeNotifier {
     if (decided) onApprovalDecided?.call();
   }
 
-  Future<void> startAutomation(String id) async {
-    await _mutate(() => repository.startAutomation(id));
-  }
-
-  Future<void> createAutomation(
-      String name, String description, String action) async {
-    await _mutate(() => repository.createAutomation(
-        name: name, description: description, action: action));
-  }
-
-  Future<void> createSchedule(
-      String workflowId, String name, String cron, String timezone) async {
-    await _mutate(() => repository.createSchedule(
-        workflowId: workflowId, name: name, cron: cron, timezone: timezone));
-  }
-
-  Future<void> transitionAutomation(String id, String action) async {
-    await _mutate(() => repository.transitionAutomation(id, action));
-  }
-
   Future<void> uploadFile(String path) async {
     await _mutate(() => repository.uploadFile(path));
   }

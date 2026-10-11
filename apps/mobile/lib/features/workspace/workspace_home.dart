@@ -14,6 +14,9 @@ import '../developer/developer_controller.dart';
 import '../developer/developer_screen.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
+import '../automations/automation_repository.dart';
+import '../automations/automations_controller.dart';
+import 'api_workspace_repository.dart';
 import 'approvals_screen.dart';
 import 'automations_screen.dart';
 import 'destinations.dart';
@@ -31,6 +34,7 @@ class WorkspaceHome extends StatefulWidget {
       required this.governanceController,
       required this.localeController,
       this.developerController,
+      this.automationsController,
       this.chatDeveloper,
       this.workspaceName,
       this.initialIndex = 0});
@@ -44,6 +48,10 @@ class WorkspaceHome extends StatefulWidget {
   /// Developer mode (owners only). Without it the destination is absent.
   final DeveloperController? developerController;
 
+  /// Automations (search, paging, schedules, runs). Built from the workspace
+  /// repository's API client when not given.
+  final AutomationsController? automationsController;
+
   /// "build ..." in the Assistant; the voice one lives on the voice controller.
   final DeveloperAssist? chatDeveloper;
   final String? workspaceName;
@@ -53,6 +61,18 @@ class WorkspaceHome extends StatefulWidget {
 }
 
 class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
+  late final AutomationsController _automations =
+      widget.automationsController ?? _ownAutomations();
+  bool _ownsAutomations = false;
+
+  AutomationsController _ownAutomations() {
+    _ownsAutomations = true;
+    final repository = widget.controller.repository;
+    return AutomationsController(repository is ApiWorkspaceRepository
+        ? ApiAutomationRepository(repository.api)
+        : const UnavailableAutomationRepository());
+  }
+
   late final RestorableInt _index;
   int get index => _index.value;
   @override
@@ -135,7 +155,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 onOpenApprovals: () => _select(WorkspaceDestination.approvals),
                 onOpenDeveloper: openDeveloper),
             ApprovalsScreen(controller: widget.controller),
-            AutomationsScreen(controller: widget.controller),
+            AutomationsScreen(automations: _automations),
             ResourcesScreen(controller: widget.controller),
             if (developer != null)
               DeveloperScreen(
@@ -422,6 +442,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   @override
   void dispose() {
     _index.dispose();
+    if (_ownsAutomations) _automations.dispose();
     super.dispose();
   }
 }

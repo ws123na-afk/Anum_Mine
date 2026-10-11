@@ -64,7 +64,7 @@ def test_paused_run_can_resume_after_external_signal(tmp_path: Path) -> None:
     assert run.status == RunStatus.PAUSED
     resumed = engine.resume(context(), run.id)
     assert resumed.status == RunStatus.COMPLETED
-    assert resumed.steps[0].output == {"resumed": True}
+    assert resumed.steps[0].output == {"resumed": True, "resumed_by": "user_a"}
 
 
 def test_cancel_and_retry_preserve_lineage(tmp_path: Path) -> None:

@@ -55,6 +55,12 @@ class CanonicalEventName(StrEnum):
     WORKSPACE_RENAMED = "workspace.renamed"
     WORKSPACE_ARCHIVED = "workspace.archived"
     WORKSPACE_RESTORED = "workspace.restored"
+    # Automation runs (docs/automation.md#events-and-notifications).
+    AUTOMATION_RUN_COMPLETED = "automation_run.completed"
+    AUTOMATION_RUN_PAUSED = "automation_run.paused"
+    AUTOMATION_RUN_FAILED = "automation_run.failed"
+    AUTOMATION_RUN_CANCELLED = "automation_run.cancelled"
+    AUTOMATION_NOTIFICATION = "automation.notification"
 
 
 class PublicationStatus(StrEnum):

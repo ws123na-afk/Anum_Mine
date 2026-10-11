@@ -5,6 +5,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import '../data/api_client.dart';
 import '../data/session_store.dart';
 import '../features/auth/auth_controller.dart';
+import '../features/automations/automation_repository.dart';
+import '../features/automations/automations_controller.dart';
 import '../features/auth/auth_repository.dart';
 import '../features/auth/auth_screens.dart';
 import '../features/auth/oidc.dart';
@@ -74,6 +76,7 @@ class AnumApp extends StatefulWidget {
 class _AnumAppState extends State<AnumApp> {
   late final AuthController auth;
   late final WorkspaceController workspace;
+  late final AutomationsController automations;
   late final ChatController chat;
   late final VoiceController voice;
   late final SettingsController settings;
@@ -131,6 +134,7 @@ class _AnumAppState extends State<AnumApp> {
         workspacePreferences: SecureWorkspacePreferenceStore(),
         sessionListener: push);
     auth = AuthController(authRepository);
+    automations = AutomationsController(ApiAutomationRepository(api));
     final fileTransfer = HttpWorkspaceFileTransfer(
       baseUri: Uri.parse(configuredUrl),
       sessions: sessions,
@@ -195,6 +199,7 @@ class _AnumAppState extends State<AnumApp> {
       workspace.currentUserId = null;
       // The next person to sign in never sees these conversations.
       chat.reset();
+      automations.reset();
       developer.reset();
       chatDeveloper.reset();
       voiceDeveloper.reset();
@@ -265,6 +270,7 @@ class _AnumAppState extends State<AnumApp> {
     auth.removeListener(_onAuthChanged);
     auth.dispose();
     workspace.dispose();
+    automations.dispose();
     chat.dispose();
     voice.dispose();
     settings.dispose();
@@ -329,6 +335,7 @@ class _AnumAppState extends State<AnumApp> {
                       governanceController: governance,
                       localeController: locale,
                       developerController: developer,
+                      automationsController: automations,
                       chatDeveloper: chatDeveloper,
                       workspaceName: auth.workspaceName,
                     )
@@ -388,6 +395,7 @@ class _AnumAppState extends State<AnumApp> {
         governanceController: governance,
         localeController: locale,
         developerController: developer,
+        automationsController: automations,
         chatDeveloper: chatDeveloper,
         workspaceName: auth.workspaceName,
         initialIndex: index,

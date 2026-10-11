@@ -10,16 +10,21 @@ export class ApiError extends Error {
   /** The API's own message, without the status prefix. */
   readonly detail: string | null;
   readonly correlationId: string | null;
+  /** Per-field problems of a 422 (`error.details`): where (e.g. `body.cron`) and what is wrong. */
+  readonly details: ApiErrorDetail[];
 
-  constructor(status: number, code: ApiErrorCode | null, detail: string | null, correlationId: string | null = null, prefix = 'ANUM API request failed') {
+  constructor(status: number, code: ApiErrorCode | null, detail: string | null, correlationId: string | null = null, prefix = 'ANUM API request failed', details: ApiErrorDetail[] = []) {
     super(detail ? `${prefix}: ${status}: ${detail}` : `${prefix}: ${status}`);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.detail = detail;
     this.correlationId = correlationId;
+    this.details = details;
   }
 }
+
+export interface ApiErrorDetail { location: string | null; message: string }
 
 /** Build an ApiError from a status and a parsed JSON body (`{ error: {...} }` or FastAPI's `{ detail }`). */
 export function apiErrorFrom(status: number, body: unknown, prefix?: string): ApiError {
@@ -29,7 +34,10 @@ export function apiErrorFrom(status: number, body: unknown, prefix?: string): Ap
     : isRecord(body) && typeof body.detail === 'string' && body.detail ? body.detail : null;
   const code = envelope && typeof envelope.code === 'string' ? envelope.code as ApiErrorCode : null;
   const correlation = envelope && typeof envelope.correlation_id === 'string' ? envelope.correlation_id : null;
-  return new ApiError(status, code, message, correlation, prefix);
+  const details = envelope && Array.isArray(envelope.details)
+    ? envelope.details.filter(isRecord).filter((d) => typeof d.message === 'string').map((d) => ({ location: typeof d.location === 'string' ? d.location : null, message: d.message as string }))
+    : [];
+  return new ApiError(status, code, message, correlation, prefix, details);
 }
 
 /** Read a failed fetch Response into an ApiError; a body that is not JSON keeps only the status. */

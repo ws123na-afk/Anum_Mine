@@ -470,3 +470,21 @@ code { unicode-bidi: isolate; }
   .catalogRow { grid-template-columns: 24px minmax(0, 1fr); }
   .catalogRow button { grid-column: 2; justify-self: start; }
 }
+
+/* ---------- Automation alerts (AutomationAlerts.tsx): in the page flow under the top bar, never over content ---------- */
+.autoAlerts { display: grid; gap: var(--d-s2); margin-bottom: var(--d-s4); }
+.autoAlert {
+  align-items: flex-start; background: rgba(125, 211, 252, .07); border: 1px solid rgba(125, 211, 252, .25); border-radius: var(--d-r-control);
+  display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; padding: var(--d-s3) var(--d-s4);
+}
+.autoAlert.failed { background: rgba(253, 164, 175, .09); border-color: rgba(253, 164, 175, .32); }
+.autoAlert > svg { color: var(--d-sky); height: 20px; margin-top: 2px; width: 20px; }
+.autoAlert.failed > svg { color: var(--d-stop); }
+.autoAlert p { color: var(--d-muted); font-size: 14px; margin: 2px 0 0; overflow-wrap: anywhere; }
+.autoAlert strong { overflow-wrap: anywhere; }
+.autoAlertActions { align-items: center; display: flex; gap: var(--d-s2); }
+.autoAlertActions button.secondary { border-radius: var(--d-r-control); min-height: 40px; padding: 0 var(--d-s3); }
+@media (max-width: 480px) {
+  .autoAlert { grid-template-columns: auto minmax(0, 1fr); }
+  .autoAlertActions { grid-column: 1 / -1; }
+}

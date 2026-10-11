@@ -867,6 +867,11 @@ class AutomationWorkflowRecord(Base, WorkspaceScopedMixin):
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     version: Mapped[int] = mapped_column(nullable=False)
+    # Migration 0031: allow | skip | cancel_previous, and the last editor.
+    overlap_policy: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="allow", server_default=text("'allow'")
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(160))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -900,6 +905,8 @@ class AutomationScheduleRecord(Base, WorkspaceScopedMixin):
     enabled: Mapped[bool] = mapped_column(nullable=False)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Migration 0031: what the scheduler did at the last fire time.
+    last_outcome: Mapped[str | None] = mapped_column(String(40))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -918,11 +925,17 @@ class AutomationRunRecord(Base, WorkspaceScopedMixin):
     retry_of: Mapped[str | None] = mapped_column(String(80))
     current_step: Mapped[int] = mapped_column(nullable=False, default=0)
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    # Migration 0031: the workflow version the run executed (null for older runs).
+    workflow_version: Mapped[int | None] = mapped_column()
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (_workspace_fk("automation_runs"), _workflow_fk("automation_runs"))
+    __table_args__ = (
+        _workspace_fk("automation_runs"),
+        _workflow_fk("automation_runs"),
+        Index("ix_automation_runs_workflow", "tenant_id", "workspace_id", "workflow_id", "created_at"),
+    )
 
 
 class ConversationRecord(Base, WorkspaceScopedMixin):

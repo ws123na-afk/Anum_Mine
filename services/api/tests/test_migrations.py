@@ -482,3 +482,20 @@ def test_file_management_migration_is_expand_only() -> None:
     assert "autocommit_block" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
+
+
+def test_automation_policy_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0031_automation_policy.py").read_text(encoding="utf-8")
+    assert 'revision = "0031_automation_policy"' in revision_text
+    assert len("0031_automation_policy") <= 32
+    assert 'down_revision = "0030_integration_health"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0031_automation_policy.py"]
+    assert not [path for path in others if 'down_revision = "0030_integration_health"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # New columns are nullable or carry a server default, so the previous release keeps inserting.
+    assert upgrade.count("op.add_column(") == 4
+    assert "server_default=\"allow\"" in upgrade
+    assert "create index concurrently if not exists ix_automation_runs_workflow" in upgrade and "autocommit_block" in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade

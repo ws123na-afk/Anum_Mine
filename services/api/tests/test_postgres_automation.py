@@ -22,7 +22,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from anum_api import automation as automation_module
 from anum_api.automation import (
+    AutomationConflict,
     AutomationScheduler,
+    OverlapPolicy,
     RunStatus,
     ScheduleCreate,
     ScheduleUpdate,
@@ -33,6 +35,7 @@ from anum_api.automation import (
 from anum_api.db import session as db_session
 from anum_api.db.automation_repository import PostgresAutomationEngine
 from anum_api.main import app
+from anum_api.schemas import TenantContext
 from anum_api.settings import settings
 
 pytestmark = pytest.mark.database
@@ -105,7 +108,7 @@ def test_api_persists_workflows_schedules_and_runs(app_factory: sessionmaker[Ses
             _count(database_engine, "automation_runs")) == (1, 1, 1)
     with database_engine.connect() as connection:
         steps = connection.execute(text("select steps from automation_runs")).scalar_one()
-    assert steps[0]["output"] == {"resumed": True}
+    assert steps[0]["output"] == {"resumed": True, "resumed_by": "user_test"}
 
     disabled = client.post(f"/api/v1/automation/schedules/{schedule.json()['id']}/disable", headers=A)
     assert disabled.json()["enabled"] is False and disabled.json()["next_run_at"] is None
@@ -277,3 +280,133 @@ def test_scheduler_loop_on_postgres_stops_without_leaving_a_transaction(
             )
         ).scalar_one()
     assert lingering == 0
+
+
+
+# Management, effects and overlap (migration 0031) -----------------------------------------
+
+
+def _as(user: str, role: str = "member") -> TenantContext:
+    return TenantContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A, user_id=user, roles=[role])
+
+
+def test_step_effects_commit_with_the_run_and_failures_notify_by_preference(
+    engine: PostgresAutomationEngine, database_engine: Engine
+) -> None:
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "insert into notification_preferences (tenant_id, workspace_id, user_id, task_completed, approval_required, "
+                "run_failed, automation_failed, email_enabled, desktop_enabled) values (:t, :w, 'quiet_user', true, true, true, "
+                "false, false, true)"
+            ),
+            {"t": TENANT_A, "w": WORKSPACE_A},
+        )
+    created = engine.create_workflow(
+        _as("creator_user"),
+        WorkflowCreate(
+            name="Digest",
+            steps=[
+                WorkflowStep(id="task", name="Create digest", action="task.create", input={"title": "Digest", "prompt": "Summarise"}),
+                WorkflowStep(id="stop", name="Stop", action="fail", input={"message": "Upstream down"}),
+            ],
+        ),
+    )
+    run = engine.start(_as("quiet_user"), created.id)
+    assert run.status == RunStatus.FAILED and run.error == "Upstream down" and run.workflow_version == 1
+
+    task_id = run.steps[0].output["task_id"]
+    with database_engine.connect() as connection:
+        task = connection.execute(text("select title, created_by_user_id from tasks where id = :id"), {"id": task_id}).one()
+        events = dict(
+            connection.execute(
+                text("select type, payload from domain_events where subject in (:run, :task)"), {"run": run.id, "task": task_id}
+            ).all()
+        )
+        audits = connection.execute(text("select action from audit_records where target = :id"), {"id": created.id}).scalars().all()
+    assert tuple(task) == ("Digest", "quiet_user")
+    assert set(events) == {"task.created", "automation_run.failed"}
+    assert events["automation_run.failed"]["notify_user_ids"] == ["creator_user"]  # quiet_user opted out
+    assert list(audits) == ["automation.workflow.created"]
+
+
+def test_effects_roll_back_with_a_refused_run(engine: PostgresAutomationEngine, database_engine: Engine) -> None:
+    created = engine.create_workflow(tenant_context(), WorkflowCreate(
+        name="Once", overlap_policy=OverlapPolicy.SKIP,
+        steps=[WorkflowStep(id="t", name="T", action="task.create", input={"title": "T", "prompt": "P"}),
+               WorkflowStep(id="w", name="Wait", action="pause")]))
+    engine.start(tenant_context(), created.id)
+    with pytest.raises(AutomationConflict, match="overlap policy is skip"):
+        engine.start(tenant_context(), created.id)
+    assert _count(database_engine, "tasks") == 1 and _count(database_engine, "automation_runs") == 1
+
+
+def test_skip_policy_holds_across_concurrent_starts(engine: PostgresAutomationEngine) -> None:
+    created = engine.create_workflow(tenant_context(), WorkflowCreate(
+        name="Single", overlap_policy=OverlapPolicy.SKIP, steps=[WorkflowStep(id="w", name="Wait", action="pause")]))
+    barrier = threading.Barrier(6)
+
+    def start(_: int) -> str:
+        barrier.wait()
+        try:
+            return engine.start(tenant_context(), created.id).id
+        except AutomationConflict:
+            return "refused"
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(start, range(6)))
+    assert results.count("refused") == 5
+    assert len(engine.list_runs(tenant_context())) == 1
+
+
+def test_cancel_previous_and_scheduled_skip(engine: PostgresAutomationEngine, database_engine: Engine) -> None:
+    replace = engine.create_workflow(tenant_context(), WorkflowCreate(
+        name="Replace", overlap_policy=OverlapPolicy.CANCEL_PREVIOUS, steps=[WorkflowStep(id="w", name="Wait", action="pause")]))
+    first = engine.start(tenant_context(), replace.id)
+    engine.start(tenant_context(), replace.id)
+    assert engine.get_run(tenant_context(), first.id).status == RunStatus.CANCELLED
+
+    single = engine.create_workflow(tenant_context(), WorkflowCreate(
+        name="Single", overlap_policy=OverlapPolicy.SKIP, steps=[WorkflowStep(id="w", name="Wait", action="pause")]))
+    engine.start(tenant_context(), single.id)
+    schedule = engine.create_schedule(tenant_context(), ScheduleCreate(workflow_id=single.id, name="Hourly", cron="0 * * * *"))
+    _make_due(database_engine, schedule.id)
+    assert engine.run_due_schedules() == []
+    after = engine.get_schedule(tenant_context(), schedule.id)
+    assert after.last_outcome == "skipped_overlap" and after.next_run_at is not None
+
+
+def test_edit_pause_page_and_delete_over_the_api(app_factory: sessionmaker[Session], database_engine: Engine) -> None:
+    client = TestClient(app)
+    ids = [
+        client.post("/api/v1/automation/workflows", headers=A, json={
+            "name": name, "steps": [{"id": "one", "name": "One", "action": "notify"}]}).json()["id"]
+        for name in ("Invoice 100% sweep", "Weekly report", "Backup check")
+    ]
+    page = client.get("/api/v1/automation/workflows?limit=2", headers=A)
+    assert page.headers["X-Total-Count"] == "3" and len(page.json()) == 2
+    # LIKE wildcards in the search are literal.
+    assert [w["name"] for w in client.get("/api/v1/automation/workflows?query=100%25", headers=A).json()] == ["Invoice 100% sweep"]
+    assert client.get("/api/v1/automation/workflows?query=_", headers=A).json() == []
+
+    edited = client.put(f"/api/v1/automation/workflows/{ids[1]}", headers=A, json={
+        "name": "Weekly report v2", "overlap_policy": "skip", "steps": [{"id": "w", "name": "Wait", "action": "pause"}]})
+    assert edited.status_code == 200, edited.text
+    assert (edited.json()["version"], edited.json()["overlap_policy"], edited.json()["updated_by"]) == (2, "skip", "user_test")
+
+    run = client.post(f"/api/v1/automation/workflows/{ids[1]}/runs", headers=A).json()
+    summary = client.get(f"/api/v1/automation/workflows/{ids[1]}", headers=A).json()
+    assert (summary["run_count"], summary["active_runs"], summary["last_run_status"]) == (1, 1, "paused")
+    history = client.get(f"/api/v1/automation/runs?workflow_id={ids[1]}", headers=A)
+    assert history.headers["X-Total-Count"] == "1" and history.json()[0]["workflow_name"] == "Weekly report v2"
+
+    assert client.delete(f"/api/v1/automation/workflows/{ids[1]}", headers=A).status_code == 409
+    client.post(f"/api/v1/automation/runs/{run['id']}/cancel", headers=A)
+    assert client.post(f"/api/v1/automation/workflows/{ids[1]}/disable", headers=A).json()["status"] == "disabled"
+    assert client.post(f"/api/v1/automation/workflows/{ids[1]}/runs", headers=A).status_code == 409
+    assert client.delete(f"/api/v1/automation/workflows/{ids[1]}", headers=A).status_code == 204
+    assert _count(database_engine, "automation_workflows") == 2 and _count(database_engine, "automation_runs") == 0
+    member = {**A, "x-user-id": "someone_else", "x-user-roles": "member"}
+    refused = client.put(f"/api/v1/automation/workflows/{ids[0]}", headers=member, json={
+        "name": "Mine now", "steps": [{"id": "one", "name": "One", "action": "notify"}]})
+    assert refused.status_code == 403 and "workspace owner" in refused.json()["error"]["message"]

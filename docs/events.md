@@ -82,6 +82,9 @@ A refresh of a developer-mode request (when someone views it, or the developer w
 ## In-process Consumers
 
 `EventBusRuntime.add_listener` registers a callback that receives every committed batch in the process that committed it, next to the outbox hand-off: the API request path, `tenant_unit_of_work` and the worker. Listeners must only queue work and never raise; phone push is the one listener today ([Notifications](notifications.md#delivery)). They see each event once per committing process, not once per cluster, and nothing is replayed after a restart.
+## Automation Events
+
+Automation runs publish `automation_run.completed`, `automation_run.paused`, `automation_run.failed` and `automation_run.cancelled`, and a `notify` step publishes `automation.notification` ([Automation](automation.md#events-and-notifications)). They are written in the automation engine's transaction. Failure and notification payloads carry `notify_user_ids`, the users the clients alert (for failures only those whose "automation failed" notification preference is on); payloads never carry step inputs or task prompts.
 
 ## Membership Events
 

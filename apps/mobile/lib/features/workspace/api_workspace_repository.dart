@@ -173,52 +173,6 @@ class ApiWorkspaceRepository
   }
 
   @override
-  Future<WorkspaceAutomation> startAutomation(String automationId) async =>
-      _automation(JsonReader(await api.request(
-          'POST', '/api/v1/automation/workflows/$automationId/runs')));
-
-  @override
-  Future<AutomationDefinition> createAutomation(
-          {required String name,
-          required String description,
-          required String action}) async =>
-      _workflow(JsonReader(
-          await api.request('POST', '/api/v1/automation/workflows', body: {
-        'name': name,
-        'description': description,
-        'steps': [
-          {
-            'id': 'execute',
-            'name': 'Execute work',
-            'action': action,
-            'input': <String, Object?>{},
-            'max_attempts': 3
-          }
-        ]
-      })));
-
-  @override
-  Future<AutomationSchedule> createSchedule(
-          {required String workflowId,
-          required String name,
-          required String cron,
-          required String timezone}) async =>
-      _schedule(JsonReader(
-          await api.request('POST', '/api/v1/automation/schedules', body: {
-        'workflow_id': workflowId,
-        'name': name,
-        'cron': cron,
-        'timezone': timezone,
-        'enabled': true
-      })));
-
-  @override
-  Future<WorkspaceAutomation> transitionAutomation(
-          String runId, String action) async =>
-      _automation(JsonReader(
-          await api.request('POST', '/api/v1/automation/runs/$runId/$action')));
-
-  @override
   Future<WorkspaceFile> uploadFile(String path) async =>
       _file(JsonReader(await fileTransfer.upload(path)));
 

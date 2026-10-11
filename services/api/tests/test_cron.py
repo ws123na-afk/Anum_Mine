@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from anum_api.cron import CronError, CronExpression, validate
+from anum_api.cron import CronError, CronExpression, describe, upcoming, validate
 
 
 def utc(*args: int) -> datetime:
@@ -65,3 +65,47 @@ def test_expressions_that_never_fire_and_unknown_zones_are_rejected() -> None:
         validate("0 0 30 2 *")
     with pytest.raises(CronError, match="time zone"):
         validate("0 8 * * *", "Mars/Olympus")
+
+
+@pytest.mark.parametrize(
+    ("expression", "message"),
+    [
+        ("* * * *", "five fields; this one has 4"),
+        ("60 * * * *", "Minute field: 60 is outside 0-59"),
+        ("* 24 * * *", "Hour field: 24 is outside 0-23"),
+        ("5-1 * * * *", "Minute field: range '5-1' runs backwards"),
+        ("*/0 * * * *", "Minute field: invalid step"),
+        ("* * * FOO *", "Month field: 'FOO' is not a number"),
+    ],
+)
+def test_errors_name_the_field_and_the_fix(expression: str, message: str) -> None:
+    with pytest.raises(CronError, match=message):
+        CronExpression.parse(expression)
+
+
+@pytest.mark.parametrize(
+    ("expression", "words"),
+    [
+        ("* * * * *", "Every minute"),
+        ("*/15 * * * *", "Every 15 minutes"),
+        ("0 * * * *", "Every hour, on the hour"),
+        ("0 9 * * *", "At 09:00, every day"),
+        ("0 9 * * 1-5", "At 09:00, Monday through Friday"),
+        ("0 9,17 * * 1,3", "At 09:00 and 17:00, on Monday and Wednesday"),
+        ("*/5 9-17 * * 1-5", "Every 5 minutes, between 09:00 and 17:59, Monday through Friday"),
+        ("0 0 1 1 *", "At 00:00, on day 1 of the month, in January"),
+        ("0 0 13 * 5", "At 00:00, on day 13 of the month or on Friday"),
+        ("0 */2 * * *", "Every 2 hours, on the hour"),
+    ],
+)
+def test_describe_reads_expressions_in_plain_english(expression: str, words: str) -> None:
+    assert describe(expression) == words
+
+
+def test_upcoming_lists_the_next_fire_times_in_utc() -> None:
+    # Friday 10:00 in Riyadh: the next weekday 09:00 there is Monday, 06:00 UTC.
+    assert upcoming("0 9 * * 1-5", "Asia/Riyadh", count=3, after=utc(2026, 10, 9, 7, 0)) == [
+        utc(2026, 10, 12, 6, 0),
+        utc(2026, 10, 13, 6, 0),
+        utc(2026, 10, 14, 6, 0),
+    ]
