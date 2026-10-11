@@ -106,6 +106,17 @@ export function integrationConfigBody(enabled: boolean, endpoint: string): Resul
   return { ok: true, value: { enabled, endpoint: value || null } };
 }
 
+/**
+ * What an integration's health means for the agent tool it backs (only `search` backs
+ * one today: SearXNG and the `web_search` tool). Null for infrastructure integrations.
+ */
+export function integrationToolNote(kind: string, status: string): { text: string; available: boolean } | null {
+  if (kind !== 'search') return null;
+  if (status === 'connected') return { text: 'Agent tool web_search: available.', available: true };
+  if (status === 'degraded') return { text: 'Agent tool web_search: calls fail until search answers.', available: false };
+  return { text: 'Agent tool web_search: unavailable here.', available: false };
+}
+
 /** Badge for an integration's health; a disabled integration is "Not used", not a failure. */
 export function integrationBadge(status: string): { label: string; tone: 'success' | 'dangerTone' | 'neutral' } {
   if (status === 'disabled') return { label: 'Not used', tone: 'neutral' };

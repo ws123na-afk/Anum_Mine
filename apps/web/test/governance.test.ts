@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  approvalRuleBody, emptyTargetDraft, integrationBadge, integrationConfigBody, packState, parseList, regionSummary,
+  approvalRuleBody, emptyTargetDraft, integrationBadge, integrationConfigBody, integrationToolNote, packState, parseList, regionSummary,
   roleTemplateBody, routingTargetBody, sortPacks, targetDraft, type PolicyPack, type RoutingTarget,
 } from '../src/lib/governance.ts';
 
@@ -84,5 +84,11 @@ describe('integrations', () => {
     assert.deepEqual(integrationBadge('disabled'), { label: 'Not used', tone: 'neutral' });
     assert.equal(integrationBadge('connected').tone, 'success');
     assert.equal(integrationBadge('degraded').tone, 'dangerTone');
+  });
+  test('the search integration says whether agents can use web_search', () => {
+    assert.equal(integrationToolNote('cache', 'connected'), null);
+    assert.equal(integrationToolNote('search', 'connected')?.available, true);
+    assert.match(integrationToolNote('search', 'degraded')?.text ?? '', /calls fail until search answers/);
+    assert.deepEqual(integrationToolNote('search', 'disabled'), { text: 'Agent tool web_search: unavailable here.', available: false });
   });
 });

@@ -47,7 +47,7 @@ KEYCLOAK_ADMIN_VARS = {
     "KC_BOOTSTRAP_ADMIN_USERNAME",
     "KC_BOOTSTRAP_ADMIN_PASSWORD",
 }
-LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama"}
+LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng"}
 ONE_SHOT = {"db-init", "migrate", "retention", "backup", "restore-tools", "backup-upload", "ollama-pull"}
 API_REQUIRED = {
     "ANUM_ENVIRONMENT",
@@ -294,6 +294,7 @@ def test_env_example_holds_placeholders_only() -> None:
         "ANUM_SECRETS_KEY",
         "KC_BOOTSTRAP_ADMIN_PASSWORD",
         "ANUM_BACKUP_ENCRYPTION_PASSPHRASE",
+        "SEARXNG_SECRET",
     }
     owner = {key for key, value in example.items() if OWNER_PLACEHOLDER in value}
     assert {"ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ACME_EMAIL"} <= owner
@@ -786,3 +787,21 @@ def test_install_runs_owner_commands_when_started_with_sudo() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "nobody"
+
+
+def test_searxng_is_private_and_only_the_api_uses_it() -> None:
+    services = _services()
+    searxng = services["searxng"]
+    # Reachable from the API on the internal network, never through Caddy.
+    assert set(searxng["networks"]) == {"backend", "egress"}
+    assert not searxng.get("ports") and not searxng.get("expose")
+    assert "searxng" not in CADDYFILE.read_text(encoding="utf-8").lower()
+    assert searxng["mem_limit"]
+    assert _env(searxng)["SEARXNG_SECRET"].startswith("${SEARXNG_SECRET:?")
+    assert any(str(volume).endswith("/etc/searxng/settings.yml:ro") for volume in searxng["volumes"])
+    assert _env(services["api"])["ANUM_SEARXNG_URL"] == "http://searxng:8080"
+    assert _services_referencing("SEARXNG_SECRET") == {"searxng"}
+    searxng_settings = yaml.safe_load((REPO_ROOT / "infra" / "searxng" / "settings.yml").read_text(encoding="utf-8"))
+    assert "json" in searxng_settings["search"]["formats"]
+    assert searxng_settings["server"]["limiter"] is False
+    assert searxng_settings["server"]["public_instance"] is False

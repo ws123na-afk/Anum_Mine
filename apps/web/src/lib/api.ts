@@ -194,7 +194,7 @@ export async function getCurrentWorkspace(): Promise<WorkspaceInfo> { return req
 export interface IntegrationHealth {
   id: string;
   name: string;
-  kind: 'database' | 'identity' | 'event_bus' | 'workflow' | 'cache' | 'object_storage';
+  kind: 'database' | 'identity' | 'event_bus' | 'workflow' | 'cache' | 'object_storage' | 'search';
   status: 'connected' | 'degraded' | 'configured' | 'disabled';
   endpoint: string;
   latency_ms: number | null;

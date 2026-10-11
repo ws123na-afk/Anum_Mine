@@ -63,4 +63,8 @@ class AgentPlanner:
                 name="external.action",
                 arguments={"action": prompt, "planned_response": response.text},
             )
+        if any(skill.id == "anum.web-search" for skill in skills):
+            # The query is the user's own prompt, never retrieved text or model output
+            # (threat model G5); the tool caps its length.
+            return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
         return ToolCall(name="anum.respond", arguments={"text": response.text})

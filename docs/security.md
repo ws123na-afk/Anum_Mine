@@ -44,6 +44,8 @@ Rate-limit state is in memory per process by default. `ANUM_RATE_LIMIT_BACKEND=v
 
 Workspace owners choose the model `base_url` the server calls. Outside `local`/`test` the outbound guard (`anum_api/model_egress.py`) only calls public HTTPS endpoints on port 443: it refuses credentials in the URL, non-canonical IP literals and hosts resolving to loopback, private, unique-local, link-local or cloud metadata, multicast, unspecified or reserved addresses, checks at save time and on every request, connects to the address it resolved (original Host and TLS name, so DNS rebinding cannot redirect a call), never follows redirects, and the connection test returns one generic error. `ANUM_MODEL_ALLOWED_HOSTS` (comma-separated `host` or `host:port`) is the explicit operator allow-list for a self-hosted model on a private network; metadata and link-local addresses stay refused for listed hosts too. Details in [Model gateway](model-gateway.md#outbound-guard-ssrf).
 
+The `web_search` tool calls only the operator's `ANUM_SEARXNG_URL` (a private SearXNG on the compose network); no tenant input, tool argument or saved integration endpoint changes the address, redirects are not followed, only `http`/`https` result links are returned, and the audit log keeps the query length and result count, never the query or results ([Web search](tools-and-integrations.md#web-search)).
+
 Owners can set monthly estimated-cost and token budgets for the organization and per workspace (`/api/v1/model-budgets`, audited); model calls are refused with `402 model_budget_exceeded` once a budget is used up ([Model gateway](model-gateway.md#monthly-budgets)).
 
 ### Startup policy

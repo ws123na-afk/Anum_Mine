@@ -24,6 +24,8 @@ from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxR
 from .agent_tools import ToolRegistry, default_tool_registry
 from .durable_runs import AgentRunActivities
 from .integration_tools import configured_external_handler
+from .integrations import default_integration_registry
+from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
 from .model_gateway import ModelGateway, build_default_model_gateway
 from .repository import AnumRepository
 from .runtime import AgentRuntime
@@ -52,7 +54,12 @@ def build_activities(
     from .onboarding import budgeted_model_gateway
 
     gateway = model_gateway or build_default_model_gateway(config)
-    registry = tools or default_tool_registry(configured_external_handler(config))
+    registry = tools or default_tool_registry(
+        configured_external_handler(config),
+        configured_web_search_handler(
+            config, default_integration_registry(config).workspace_enabled(SEARXNG_INTEGRATION_ID)
+        ),
+    )
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
         from .retrieval_api import retriever_for

@@ -180,6 +180,15 @@ class Settings(BaseSettings):
     # Integration tool responses (REST and MCP) are read up to this many bytes; the rest
     # is dropped and the result is marked truncated (threat model T7/G3).
     tool_response_max_bytes: int = Field(default=256 * 1024, ge=1024, le=16 * 1024 * 1024)
+    # Private web search (docs/tools-and-integrations.md#web-search): the base URL of a
+    # self-hosted SearXNG on the internal network, e.g. http://searxng:8080. Empty turns
+    # the `web_search` tool off (it is not registered). Operator configuration only:
+    # workspaces can switch the tool off but never point it somewhere else (SSRF).
+    searxng_url: str = ""
+    web_search_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
+    web_search_max_results: int = Field(default=5, ge=1, le=20)
+    # SearXNG safesearch level: 0 off, 1 moderate, 2 strict.
+    web_search_safe_search: int = Field(default=1, ge=0, le=2)
     # Automation (docs/automation.md): workflows, schedules and runs live in this SQLite
     # file with ANUM_REPOSITORY_BACKEND=memory and in PostgreSQL with postgresql.
     automation_database_path: str = ".anum/automation.db"

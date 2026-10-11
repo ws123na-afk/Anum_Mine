@@ -25,6 +25,7 @@ from .errors import ApplicationError, ErrorCode, application_error_handler, erro
 from .events import CanonicalEventName, create_event
 from .integrations import IntegrationConfiguration, IntegrationConfigurationView, IntegrationHealth, default_integration_registry
 from .integration_tools import configured_external_handler
+from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
 from .model_gateway import build_default_model_gateway
 from .memory import (
     MemoryAccess,
@@ -169,7 +170,10 @@ app.include_router(model_budget_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = default_tool_registry(configured_external_handler(settings))
+tool_registry = default_tool_registry(
+    configured_external_handler(settings),
+    configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
+)
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)

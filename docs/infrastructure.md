@@ -16,6 +16,8 @@ This serves the API on `http://localhost:8000` and the built web bundle on `http
 
 Valkey (`valkey-cli ping`) and S3 storage (`/healthz`) have compose health checks.
 
+The `app` profile also starts `searxng`, a private SearXNG for the agents' `web_search` tool (settings in `infra/searxng/settings.yml`, a development-only `SEARXNG_SECRET` default, 512 MB memory limit). It publishes no port: the compose `api` and `worker` reach it as `http://searxng:8080` (`ANUM_SEARXNG_URL`). An API run on the host with `uvicorn` leaves `ANUM_SEARXNG_URL` empty, so the tool is off there ([Web search](tools-and-integrations.md#web-search)).
+
 The compose `api` and `worker` export OpenTelemetry to the `otel-collector` (`ANUM_OTEL_EXPORTER_OTLP_ENDPOINT`). The `observability` profile adds Prometheus, Tempo, Loki and Grafana with provisioned dashboards and alert rules from `infra/observability`; start it with `ANUM_OTELCOL_OVERLAY=observability` so the collector forwards to them ([Observability](observability.md#local-stack)). Backups and the restore drill use `infra/backup/anum_backup.py` ([Runbooks](runbooks.md#backup-and-restore)).
 
 ## Container Images

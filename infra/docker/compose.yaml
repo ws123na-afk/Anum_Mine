@@ -165,6 +165,26 @@ services:
       - tempo
       - loki
 
+  # Private web search for the `web_search` tool (docs/tools-and-integrations.md#web-search).
+  # No published port: only the app-profile api and worker reach it, as http://searxng:8080.
+  # A host-run API cannot reach it; leave ANUM_SEARXNG_URL empty there (tool off).
+  searxng:
+    profiles: ["app"]
+    image: searxng/searxng:2026.10.4-d48c4b555
+    environment:
+      # DEV-ONLY placeholder; set SEARXNG_SECRET in your shell to override it.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-local-dev-only}
+      # settings.yml is mounted read-only: do not chown it.
+      FORCE_OWNERSHIP: "false"
+    volumes:
+      - ../searxng/settings.yml:/etc/searxng/settings.yml:ro
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "/usr/local/searxng/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   # Application containers. Opt in with `--profile app`; the default
   # `docker compose up` still starts infrastructure only (docs/infrastructure.md).
   api:
@@ -186,10 +206,12 @@ services:
       ANUM_RUNTIME_BACKEND: inline
       # Telemetry goes to the collector (docs/observability.md); unset to turn it off.
       ANUM_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      ANUM_SEARXNG_URL: http://searxng:8080
     ports:
       - "8000:8000"
     depends_on:
       - postgres
+      - searxng
 
   # Temporal worker for durable agent runs: same image, different command.
   worker:
@@ -207,6 +229,7 @@ services:
       ANUM_TEMPORAL_TASK_QUEUE: anum-agent-runs
       ANUM_S3_ENDPOINT: http://s3:9000
       ANUM_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      ANUM_SEARXNG_URL: http://searxng:8080
     # The image's HEALTHCHECK probes the API port, which the worker does not serve.
     healthcheck:
       disable: true

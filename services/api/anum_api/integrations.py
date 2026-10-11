@@ -30,6 +30,7 @@ class IntegrationKind(StrEnum):
     WORKFLOW = "workflow"
     CACHE = "cache"
     OBJECT_STORAGE = "object_storage"
+    SEARCH = "search"
 
 
 class CredentialMetadata(BaseModel):
@@ -61,6 +62,8 @@ class IntegrationDefinition(BaseModel):
     kind: IntegrationKind
     endpoint: str
     configured: bool = True
+    # Shown instead of the generic text when the operator has not configured it.
+    disabled_detail: str | None = None
     credentials: CredentialMetadata
     probe: Probe = Field(exclude=True)
 
@@ -178,14 +181,34 @@ class IntegrationRegistry:
     def _effective(definition: IntegrationDefinition, value: IntegrationConfiguration | None) -> IntegrationDefinition:
         # A workspace may only switch an integration on or off. Probes and the reported endpoint
         # always come from the operator's Settings: a tenant-saved endpoint is never connected to (SSRF).
-        return definition if value is None else definition.model_copy(update={"configured": value.enabled})
+        if value is None or (definition.disabled_detail and not definition.configured):
+            # Nothing to switch: no override, or the operator has not configured it at all.
+            return definition
+        if value.enabled:
+            return definition.model_copy(update={"configured": True})
+        return definition.model_copy(
+            update={"configured": False, "disabled_detail": "Turned off for this workspace by an owner."}
+        )
+
+    def workspace_enabled(self, integration_id: str) -> Callable[[TenantContext], bool]:
+        """A check for tools: is ``integration_id`` on for the caller's workspace?
+
+        Reads the workspace override in the caller's tenant scope; without one the
+        operator's setting applies. Only the enabled flag matters to tools: a saved
+        endpoint is never connected to (SSRF).
+        """
+
+        def check(context: TenantContext) -> bool:
+            return self.configuration(integration_id, context).enabled
+
+        return check
 
     async def _check(self, definition: IntegrationDefinition) -> IntegrationHealth:
         if not definition.configured:
             return self._result(
                 definition,
                 IntegrationStatus.DISABLED,
-                "Integration is not enabled for this environment.",
+                definition.disabled_detail or "Integration is not enabled for this environment.",
             )
         started = perf_counter()
         try:
@@ -298,7 +321,41 @@ def default_integration_registry(settings: Settings) -> IntegrationRegistry:
                 # Vendor-neutral: S3 has no standard health URL, so check the endpoint answers.
                 probe=lambda: tcp_probe(*_host_port(settings.s3_endpoint, 443 if settings.s3_endpoint.startswith("https") else 80)),
             ),
+            searxng_integration(settings),
         ]
+    )
+
+
+def searxng_integration(settings: Settings) -> IntegrationDefinition:
+    """Health of the private SearXNG behind the ``web_search`` tool (anum_api/web_search.py)."""
+    from .web_search import SEARXNG_INTEGRATION_ID, SearxngUrlError, normalize_searxng_url
+
+    raw = settings.searxng_url.strip()
+    base: str | None = None
+    problem = (
+        "Web search is off: set ANUM_SEARXNG_URL to the internal SearXNG address "
+        "(http://searxng:8080 in the compose stacks) to enable the web_search tool."
+    )
+    if raw:
+        try:
+            base = normalize_searxng_url(raw)
+        except SearxngUrlError as exc:
+            problem = f"Web search is off: {exc}."
+
+    async def probe() -> None:
+        if base is None:
+            raise RuntimeError("SearXNG is not configured")
+        await http_probe(f"{base}/healthz")
+
+    return IntegrationDefinition(
+        id=SEARXNG_INTEGRATION_ID,
+        name="SearXNG web search",
+        kind=IntegrationKind.SEARCH,
+        endpoint=base or "not configured",
+        configured=base is not None,
+        disabled_detail=None if base else problem,
+        credentials=CredentialMetadata(configured=base is not None, source="none", scopes=["web_search:read"]),
+        probe=probe,
     )
 
 
