@@ -216,9 +216,12 @@ export interface AutomationRun { id: string; workflow_id: string; status: string
 
 export async function getAutomationWorkflows(): Promise<AutomationWorkflow[]> { return request('/api/v1/automation/workflows', { method: 'GET' }); }
 export async function getAutomationRuns(): Promise<AutomationRun[]> { return request('/api/v1/automation/runs', { method: 'GET' }); }
-export async function createAutomationWorkflow(name: string, action: string): Promise<AutomationWorkflow> {
-  return request('/api/v1/automation/workflows', { method: 'POST', body: JSON.stringify({ name, description: 'Created from the resumable agent workbench', steps: [{ id: 'execute', name: 'Execute work', action, input: {}, max_attempts: 3 }] }) });
-}
+export async function createAutomationWorkflow(body: { name: string; description: string; steps: AutomationWorkflow['steps'] }): Promise<AutomationWorkflow> { return request('/api/v1/automation/workflows', { method: 'POST', body: JSON.stringify(body) }); }
+export interface AutomationSchedule { id: string; workflow_id: string; name: string; cron: string; timezone: string; enabled: boolean; next_run_at: string | null; last_run_at: string | null; created_by: string | null; created_at: string; updated_at: string; }
+export async function getAutomationSchedules(): Promise<AutomationSchedule[]> { return request('/api/v1/automation/schedules', { method: 'GET' }); }
+export async function createAutomationSchedule(body: { workflow_id: string; name: string; cron: string; timezone: string; enabled: boolean }): Promise<AutomationSchedule> { return request('/api/v1/automation/schedules', { method: 'POST', body: JSON.stringify(body) }); }
+export async function toggleAutomationSchedule(scheduleId: string, action: 'enable' | 'disable'): Promise<AutomationSchedule> { return request(`/api/v1/automation/schedules/${scheduleId}/${action}`, { method: 'POST' }); }
+export async function deleteAutomationSchedule(scheduleId: string): Promise<void> { return requestVoid(`/api/v1/automation/schedules/${scheduleId}`, { method: 'DELETE' }); }
 export async function startAutomationRun(workflowId: string, idempotencyKey: string): Promise<AutomationRun> { return request(`/api/v1/automation/workflows/${workflowId}/runs`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } }); }
 export async function transitionAutomationRun(runId: string, action: 'cancel' | 'resume' | 'retry'): Promise<AutomationRun> { return request(`/api/v1/automation/runs/${runId}/${action}`, { method: 'POST' }); }
 

@@ -1,0 +1,15 @@
+/* Minimal layout additions for the automation workbench; colours come from the shared tokens. */
+.wbSteps, .wbStepLog { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.wbStep, .wbStepLog > li { border: 1px solid var(--line, rgba(127, 127, 127, 0.25)); border-radius: 8px; padding: 10px; display: grid; gap: 6px; min-width: 0; }
+.wbStepHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.wbStepFields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 8px; }
+.wbScheduleForm { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 8px; align-items: end; margin-bottom: 12px; }
+.wbJson { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; width: 100%; box-sizing: border-box; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.wbRun { display: grid; }
+.wbStepLog { padding: 0 0 10px 24px; }
+.wbToggle { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; font: inherit; }
+.wbError { color: var(--danger, #b42318); margin: 0; }
+.wbMeta { margin: 0; overflow-wrap: anywhere; }
+.wbNotice { margin: 0; display: block; }
+.wbStep .field, .wbScheduleForm .field { min-width: 0; }
+.wbStep input, .wbStep select, .wbStep textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
