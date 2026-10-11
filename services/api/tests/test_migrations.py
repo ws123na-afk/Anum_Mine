@@ -503,11 +503,11 @@ def test_automation_policy_migration_is_expand_only() -> None:
 
 def test_whatsapp_migration_is_expand_only_with_forced_rls_and_narrow_routing() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0031_whatsapp.py").read_text(encoding="utf-8")
-    assert 'revision = "0031_whatsapp"' in revision_text and len("0031_whatsapp") <= 32
-    assert 'down_revision = "0030_integration_health"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0031_whatsapp.py"]
-    assert not [path for path in others if 'down_revision = "0030_integration_health"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0033_whatsapp.py").read_text(encoding="utf-8")
+    assert 'revision = "0033_whatsapp"' in revision_text and len("0033_whatsapp") <= 32
+    assert 'down_revision = "0032_developer_projects"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0033_whatsapp.py"]
+    assert not [path for path in others if 'down_revision = "0032_developer_projects"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 4
     assert "enable row level security" in upgrade and "force row level security" in upgrade

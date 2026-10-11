@@ -1,4 +1,4 @@
-"""WhatsApp inbox in PostgreSQL (migration 0031_whatsapp, docs/whatsapp.md#storage).
+"""WhatsApp inbox in PostgreSQL (migration 0033_whatsapp, docs/whatsapp.md#storage).
 
 The API runs as the non-owner ``anum_test_app`` role against a fake Meta. Rows are
 scoped by forced RLS; the webhook finds the owning workspace as ``anum_maintenance``,

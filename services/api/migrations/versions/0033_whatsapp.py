@@ -17,7 +17,7 @@ so it discovers the owning workspace as ``anum_maintenance``. That role may read
 ``whatsapp_accounts`` (column grants) and nothing else; it cannot write. Everything
 after the lookup runs as the application role inside that workspace's RLS context.
 
-Chained after ``0030_integration_health``.
+Chained after ``0032_developer_projects``.
 
 Expand only: four new tables, grants and policies; the previous release ignores them.
 """
@@ -26,8 +26,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0031_whatsapp"
-down_revision = "0030_integration_health"
+revision = "0033_whatsapp"
+down_revision = "0032_developer_projects"
 branch_labels = None
 depends_on = None
 

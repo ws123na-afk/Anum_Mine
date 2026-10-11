@@ -3,7 +3,7 @@
 One WhatsApp Cloud API account per workspace, and the workspace's contacts,
 conversations and messages. ``InMemoryWhatsAppStore`` serves
 ``ANUM_REPOSITORY_BACKEND=memory`` (local and tests); with PostgreSQL the rows live in
-forced-RLS tables (migration ``0031_whatsapp``, ``anum_api.db.whatsapp_repository``)
+forced-RLS tables (migration ``0033_whatsapp``, ``anum_api.db.whatsapp_repository``)
 with the access token and app secret encrypted with ``ANUM_SECRETS_KEY``.
 
 Every method works inside one tenant and workspace. The only cross-tenant reads are the

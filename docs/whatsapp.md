@@ -2,7 +2,7 @@
 
 ANUM connects a workspace to one WhatsApp Business number through Meta's official **WhatsApp Cloud API** (the Graph API). Customers' messages arrive in the WhatsApp inbox (web and Flutter), are sorted by topic, get a suggested reply, and every reply goes out as a governed tool call with an approval. Nothing here uses unofficial WhatsApp Web automation.
 
-Code: `services/api/anum_api/whatsapp.py` (routes, webhook, tools), `whatsapp_graph.py` (Meta calls), `whatsapp_store.py` and `db/whatsapp_repository.py` (storage), `whatsapp_triage.py` (sorting and drafts), migration `0031_whatsapp`; web `apps/web/src/WhatsAppView.tsx`; Flutter `apps/mobile/lib/features/whatsapp/`.
+Code: `services/api/anum_api/whatsapp.py` (routes, webhook, tools), `whatsapp_graph.py` (Meta calls), `whatsapp_store.py` and `db/whatsapp_repository.py` (storage), `whatsapp_triage.py` (sorting and drafts), migration `0033_whatsapp`; web `apps/web/src/WhatsAppView.tsx`; Flutter `apps/mobile/lib/features/whatsapp/`.
 
 ## Owner setup
 
@@ -48,7 +48,7 @@ Deployment: the API host already routes every path to the API (Caddy on Oracle, 
 
 ## Storage
 
-Migration `0031_whatsapp` adds four forced-RLS tables scoped to tenant and workspace:
+Migration `0033_whatsapp` adds four forced-RLS tables scoped to tenant and workspace:
 
 | Table | Holds |
 |---|---|

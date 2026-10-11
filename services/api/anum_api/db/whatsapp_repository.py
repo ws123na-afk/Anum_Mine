@@ -1,4 +1,4 @@
-"""PostgreSQL WhatsApp inbox (migration 0031_whatsapp, docs/whatsapp.md#storage).
+"""PostgreSQL WhatsApp inbox (migration 0033_whatsapp, docs/whatsapp.md#storage).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); the
 queries filter on the scope explicitly as well. The access token and the app secret are
