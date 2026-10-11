@@ -34,6 +34,8 @@ class AuthFlow extends StatelessWidget {
             AuthPhase.workspacePicker =>
               WorkspacePickerScreen(controller: controller),
             AuthPhase.noWorkspace => NoWorkspaceScreen(controller: controller),
+            AuthPhase.accountPending =>
+              PendingAccountScreen(controller: controller),
             AuthPhase.onboarding =>
               WorkspaceSetupScreen(controller: controller),
             AuthPhase.modelSetup =>

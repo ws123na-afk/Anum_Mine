@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../src/localization/anum_localizations.dart';
@@ -7,6 +9,7 @@ import '../../src/widgets/brand.dart';
 import '../../src/widgets/depth.dart';
 import 'auth_controller.dart';
 import 'oidc.dart';
+import 'sign_in_options.dart';
 
 /// Optional public addresses of the deployment's terms and privacy policy
 /// (`--dart-define=ANUM_TERMS_URL=...`, `ANUM_PRIVACY_POLICY_URL`), linked
@@ -317,10 +320,15 @@ class OidcSignInView extends StatefulWidget {
     this.termsUrl = configuredTermsUrl,
     this.privacyPolicyUrl = configuredPrivacyPolicyUrl,
     this.openUrl = openExternalUrl,
+    this.isIOS,
     super.key,
   });
 
   final AuthController controller;
+
+  /// Which platform rules apply (App Store Review Guideline 4.8 on iOS:
+  /// Google only together with Apple); null reads the running platform.
+  final bool? isIOS;
   final bool startWithRegistration;
   final String termsUrl, privacyPolicyUrl;
 
@@ -348,6 +356,37 @@ class _OidcSignInViewState extends State<OidcSignInView> {
   late bool _register = widget.startWithRegistration;
   bool _terms = false;
   bool _termsError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.controller.signInOptions == null) {
+      widget.controller.loadSignInOptions();
+    }
+  }
+
+  bool get _isIOS =>
+      widget.isIOS ?? defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// What the server offers (`GET /api/v1/auth/sign-in-options`); nothing
+  /// extra while it loads or when it cannot be read.
+  SignInOptions get _options =>
+      widget.controller.signInOptions ?? SignInOptions.none;
+
+  List<OidcIdentityProvider> get _providers => [
+        for (final id in _options.visibleProviders(isIOS: _isIOS))
+          for (final provider in OidcIdentityProvider.values)
+            if (provider.alias == id) provider
+      ];
+
+  /// The published privacy policy: the server's, else the build's.
+  String get _privacyUrl =>
+      _options.privacyPolicyUrl?.toString() ?? widget.privacyPolicyUrl;
+
+  /// Create account needs a privacy policy to accept and a way to create an
+  /// account: Keycloak's sign-up page or a Google or Apple sign-in.
+  bool get _canCreate =>
+      _privacyUrl.isNotEmpty && (_options.selfSignUp || _providers.isNotEmpty);
 
   @override
   void dispose() {
@@ -420,10 +459,19 @@ class _OidcSignInViewState extends State<OidcSignInView> {
               children: _register ? _signupFields(l) : _loginFields(l)),
         ),
         const SizedBox(height: AnumSpacing.lg),
-        AnumGradientButton(
-            key: const Key('auth-primary'),
-            label: l.t(_register ? 'signupCreate' : 'loginSignIn'),
-            onPressed: _start),
+        if (!_register || _options.selfSignUp)
+          AnumGradientButton(
+              key: const Key('auth-primary'),
+              label: l.t(_register ? 'signupCreate' : 'loginSignIn'),
+              onPressed: _start)
+        else
+          Text(
+              l.t(_providers.isEmpty
+                  ? 'signupUnavailable'
+                  : 'signupProvidersOnly'),
+              key: const Key('auth-signup-providers-only'),
+              textAlign: TextAlign.center,
+              style: text.bodyMedium?.copyWith(color: p.muted)),
         if (!_register)
           Align(
             alignment: AlignmentDirectional.centerEnd,
@@ -432,27 +480,40 @@ class _OidcSignInViewState extends State<OidcSignInView> {
                 onPressed: _forgot,
                 child: Text(l.t('loginForgot'))),
           ),
-        const SizedBox(height: AnumSpacing.sm),
-        Row(children: [
-          Expanded(child: Divider(color: p.line)),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AnumSpacing.sm),
-            child: Text(l.t('loginOr'), style: TextStyle(color: p.faint)),
-          ),
-          Expanded(child: Divider(color: p.line)),
-        ]),
-        const SizedBox(height: AnumSpacing.sm),
-        _SocialButton(
-            key: const Key('auth-google'),
-            label: l.t('loginGoogle'),
-            mark: const _GoogleMark(),
-            onPressed: () => _start(provider: OidcIdentityProvider.google)),
-        const SizedBox(height: AnumSpacing.sm),
-        _SocialButton(
-            key: const Key('auth-apple'),
-            label: l.t('loginApple'),
-            mark: const Icon(Icons.apple, size: 22, color: Colors.black),
-            onPressed: () => _start(provider: OidcIdentityProvider.apple)),
+        if (widget.controller.signInOptionsError != null) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          _Note(
+              icon: Icons.info_outline,
+              text: l.f('loginOptionsUnavailable',
+                  {'reason': widget.controller.signInOptionsError!})),
+        ],
+        if (_providers.isNotEmpty) ...[
+          const SizedBox(height: AnumSpacing.sm),
+          Row(children: [
+            Expanded(child: Divider(color: p.line)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AnumSpacing.sm),
+              child: Text(l.t('loginOr'), style: TextStyle(color: p.faint)),
+            ),
+            Expanded(child: Divider(color: p.line)),
+          ]),
+          const SizedBox(height: AnumSpacing.sm),
+          for (final provider in _providers) ...[
+            const SizedBox(height: AnumSpacing.sm),
+            if (provider == OidcIdentityProvider.google)
+              _SocialButton(
+                  key: const Key('auth-google'),
+                  label: l.t('loginGoogle'),
+                  mark: const _GoogleMark(),
+                  onPressed: () => _start(provider: provider))
+            else
+              _SocialButton(
+                  key: const Key('auth-apple'),
+                  label: l.t('loginApple'),
+                  mark: const Icon(Icons.apple, size: 22, color: Colors.black),
+                  onPressed: () => _start(provider: provider)),
+          ],
+        ],
         const SizedBox(height: AnumSpacing.md),
         if (_register) ...[
           Text(l.t('signupWorkspaceNote'),
@@ -473,7 +534,7 @@ class _OidcSignInViewState extends State<OidcSignInView> {
                         }),
                     child: Text(l.t('signupSignIn'))),
               ]),
-        ] else
+        ] else if (_canCreate)
           Center(
             child: TextButton(
                 key: const Key('auth-to-register'),
@@ -552,32 +613,15 @@ class _OidcSignInViewState extends State<OidcSignInView> {
   List<Widget> _signupFields(AnumLocalizations l) {
     final p = context.palette;
     final terms = Uri.tryParse(widget.termsUrl);
-    final privacy = Uri.tryParse(widget.privacyPolicyUrl);
+    final privacy = Uri.tryParse(_privacyUrl);
     return [
-      _emailField(l, helper: l.t('signupEmailHelper')),
-      const SizedBox(height: AnumSpacing.md),
-      AnumSurface(
-        padding: const EdgeInsets.all(AnumSpacing.sm),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(l.t('signupPasswordTitle'),
-              style: TextStyle(color: p.muted, fontSize: 13)),
-          const SizedBox(height: AnumSpacing.xs),
-          for (final rule in const [
-            'signupRuleLength',
-            'signupRuleUpper',
-            'signupRuleNumber',
-            'signupRuleSpecial'
-          ])
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(children: [
-                Icon(Icons.check_circle_outline, size: 18, color: p.ok),
-                const SizedBox(width: AnumSpacing.xs),
-                Expanded(child: Text(l.t(rule))),
-              ]),
-            ),
-        ]),
-      ),
+      // The email and password are for Keycloak's own sign-up page, which
+      // shows the realm's password rules live; Google and Apple need neither.
+      if (_options.selfSignUp) ...[
+        _emailField(l, helper: l.t('signupEmailHelper')),
+        const SizedBox(height: AnumSpacing.sm),
+        _Note(icon: Icons.lock_outline, text: l.t('signupPasswordNote')),
+      ],
       const SizedBox(height: AnumSpacing.sm),
       // Its own Material, so the tile's ink shows over the aurora.
       Material(
@@ -599,14 +643,15 @@ class _OidcSignInViewState extends State<OidcSignInView> {
                         style: TextStyle(color: p.stop)))
                 : null,
           )),
-      if (widget.termsUrl.isNotEmpty || widget.privacyPolicyUrl.isNotEmpty)
+      if (widget.termsUrl.isNotEmpty || _privacyUrl.isNotEmpty)
         Wrap(spacing: AnumSpacing.xs, children: [
           if (widget.termsUrl.isNotEmpty)
             TextButton(
                 onPressed: () => _open(terms),
                 child: Text(l.t('signupTermsLink'))),
-          if (widget.privacyPolicyUrl.isNotEmpty)
+          if (_privacyUrl.isNotEmpty)
             TextButton(
+                key: const Key('auth-privacy-link'),
                 onPressed: () => _open(privacy),
                 child: Text(l.t('signupPrivacyLink'))),
         ]),
@@ -686,4 +731,102 @@ class _GoogleMark extends StatelessWidget {
                 fontSize: 20,
                 fontWeight: FontWeight.w900)),
       );
+}
+
+/// Signed in, but the account belongs to no organization yet
+/// (docs/identity.md#pending-accounts): what an administrator needs to find
+/// it, "Check again" (a fresh token carries an assigned organization) and
+/// "Sign out".
+class PendingAccountScreen extends StatelessWidget {
+  const PendingAccountScreen({required this.controller, super.key});
+  final AuthController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+    final account = controller.pendingAccount;
+    final email = account?.email;
+    final subject = account?.subject;
+    final details = [
+      if (email != null) '${l.t('pendingEmail')}: $email',
+      if (subject != null) '${l.t('pendingAccountId')}: $subject',
+    ].join('\n');
+    return AuthFrame(children: [
+      const Center(child: AnumLogoMark(size: 56, semanticLabel: 'ANUM 360')),
+      const SizedBox(height: AnumSpacing.lg),
+      Text(l.t('pendingEyebrow').toUpperCase(),
+          style: text.labelMedium?.copyWith(color: p.sky)),
+      const SizedBox(height: AnumSpacing.xxs),
+      Semantics(
+        header: true,
+        child: Text(l.t('pendingTitle'),
+            style: text.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+      ),
+      const SizedBox(height: AnumSpacing.xs),
+      Text(l.t('pendingBody'),
+          style: text.bodyMedium?.copyWith(color: p.muted)),
+      const SizedBox(height: AnumSpacing.md),
+      AnumSurface(
+        padding: const EdgeInsets.all(AnumSpacing.sm),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(l.t('pendingEmail'),
+              style: TextStyle(color: p.muted, fontSize: 13)),
+          SelectableText(email ?? l.t('pendingNoEmail'),
+              key: const Key('pending-email'),
+              textDirection: TextDirection.ltr),
+          if (subject != null) ...[
+            const SizedBox(height: AnumSpacing.xs),
+            Text(l.t('pendingAccountId'),
+                style: TextStyle(color: p.muted, fontSize: 13)),
+            SelectableText(subject,
+                key: const Key('pending-subject'),
+                textDirection: TextDirection.ltr),
+          ],
+        ]),
+      ),
+      const SizedBox(height: AnumSpacing.sm),
+      _Note(icon: Icons.mail_outline, text: l.t('pendingNext')),
+      if (controller.stillPending || controller.pendingError != null) ...[
+        const SizedBox(height: AnumSpacing.sm),
+        Semantics(
+          liveRegion: true,
+          child: Text(
+              controller.pendingError != null
+                  ? l.f('pendingFailed', {'reason': controller.pendingError!})
+                  : l.t('pendingStill'),
+              key: const Key('pending-note'),
+              style: TextStyle(
+                  color: controller.pendingError != null ? p.stop : p.muted)),
+        ),
+      ],
+      const SizedBox(height: AnumSpacing.lg),
+      AnumGradientButton(
+          key: const Key('pending-check'),
+          label: l.t('pendingCheckAgain'),
+          icon: Icons.refresh,
+          onPressed:
+              controller.checkingPending ? null : controller.checkPendingAgain),
+      const SizedBox(height: AnumSpacing.sm),
+      OutlinedButton.icon(
+          key: const Key('pending-copy'),
+          onPressed: details.isEmpty
+              ? null
+              : () async {
+                  final messenger = ScaffoldMessenger.maybeOf(context);
+                  final copied = l.t('pendingCopied');
+                  await Clipboard.setData(ClipboardData(text: details));
+                  messenger?.showSnackBar(SnackBar(content: Text(copied)));
+                },
+          icon: const Icon(Icons.copy),
+          label: Text(l.t('pendingCopy'))),
+      const SizedBox(height: AnumSpacing.xs),
+      TextButton.icon(
+          key: const Key('pending-sign-out'),
+          onPressed: controller.signOutPending,
+          icon: const Icon(Icons.logout),
+          label: Text(l.t('pendingSignOut'))),
+    ]);
+  }
 }

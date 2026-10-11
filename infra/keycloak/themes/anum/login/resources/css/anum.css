@@ -1,0 +1,41 @@
+/* ANUM login theme additions to keycloak.v2 (theme.properties). */
+.anum-password-rules {
+  list-style: none;
+  margin: var(--pf-v5-global--spacer--xs, 4px) 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: var(--pf-v5-global--FontSize--sm, 0.875rem);
+  color: var(--pf-v5-global--Color--200, #6a6e73);
+}
+
+.anum-password-rules li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5ch;
+}
+
+/* The mark is decoration; the state is spoken by the visually hidden text. */
+.anum-password-rules li::before {
+  content: "\2022";
+  inline-size: 1.25ch;
+  flex: none;
+  text-align: center;
+}
+
+.anum-password-rules li.anum-rule-met {
+  color: var(--pf-v5-global--success-color--200, #1e4f18);
+}
+
+.anum-password-rules li.anum-rule-met::before {
+  content: "\2713";
+}
+
+.anum-visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

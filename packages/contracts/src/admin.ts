@@ -176,6 +176,8 @@ export type ApiErrorCode =
   | 'bad_request'
   | 'unauthorized'
   | 'forbidden'
+  /** A valid token without a tenant: a self sign-up nobody has assigned to an organization yet (403). */
+  | 'account_pending'
   | 'not_found'
   | 'conflict'
   | 'model_budget_exceeded'

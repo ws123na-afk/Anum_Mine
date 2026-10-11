@@ -137,6 +137,19 @@ export function oidcConfigFromEnv(
   return { issuer, clientId, redirectUri, postLogoutRedirectUri: appUrl, scope };
 }
 
+/** Extra authorization-request parameters for one sign-in (docs/identity.md#google-and-apple-sign-in). */
+export interface SignInRequestOptions {
+  /** Keycloak identity provider alias (`google`, `apple`): Keycloak skips its own page and goes there (`kc_idp_hint`). */
+  idpHint?: string;
+  /** Open Keycloak's registration page instead of the sign-in page (OIDC `prompt=create`). */
+  create?: boolean;
+}
+
+/** A Keycloak identity provider alias: lowercase letters, digits and dashes. */
+export function isIdpHint(value: string): boolean {
+  return /^[a-z0-9][a-z0-9-]{0,39}$/.test(value);
+}
+
 export class OidcClient {
   readonly config: OidcConfig;
   private readonly deps: OidcDependencies;
@@ -170,9 +183,12 @@ export class OidcClient {
    * configured redirect for this one request; the desktop shell passes its RFC 8252 loopback URI
    * (`http://127.0.0.1:<port>/callback`), which must be a loopback IP literal.
    */
-  async beginSignIn(returnTo = '', redirectUri?: string): Promise<string> {
+  async beginSignIn(returnTo = '', redirectUri?: string, options: SignInRequestOptions = {}): Promise<string> {
     if (redirectUri !== undefined && !isLoopbackRedirect(redirectUri)) {
       throw new OidcError('A redirect override must be an http://127.0.0.1 or http://[::1] loopback URI', 'invalid_redirect');
+    }
+    if (options.idpHint !== undefined && !isIdpHint(options.idpHint)) {
+      throw new OidcError('Unknown sign-in provider', 'invalid_idp_hint');
     }
     const metadata = await this.discover();
     const pending: PendingSignIn = {
@@ -194,6 +210,9 @@ export class OidcClient {
       nonce: pending.nonce,
       code_challenge: await pkceChallenge(pending.codeVerifier, this.deps.crypto),
       code_challenge_method: 'S256',
+      // The same code + PKCE request either way: these only pick Keycloak's next page.
+      ...(options.idpHint ? { kc_idp_hint: options.idpHint } : {}),
+      ...(options.create ? { prompt: 'create' } : {}),
     }).toString();
     return url.toString();
   }

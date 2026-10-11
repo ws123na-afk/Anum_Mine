@@ -1,4 +1,5 @@
-import type { AgentRun, Approval, DomainEvent, TenantContext, Task, UserPreferencesUpdate } from '@anum/contracts';
+import type { AgentRun, Approval, DomainEvent, SignInOptions, TenantContext, Task, UserPreferencesUpdate } from '@anum/contracts';
+import { parseSignInOptions } from './signIn';
 import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
 import { apiErrorFrom, apiErrorFromResponse } from './errors';
@@ -160,6 +161,12 @@ export async function ensureLocalSession(): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/api/v1/auth/local/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant_id: defaultTenantContext.tenantId, workspace_id: currentScope().workspaceId, user_id: defaultTenantContext.userId }) });
   if (!response.ok) return;
   const result = await response.json() as { access_token: string }; sessionStorage.setItem('anum_access_token', result.access_token);
+}
+/** `GET /api/v1/auth/sign-in-options`: public, sent without a token or workspace (docs/identity.md#google-and-apple-sign-in). */
+export async function getSignInOptions(): Promise<SignInOptions> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/sign-in-options`, { method: 'GET' });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return parseSignInOptions(await response.json());
 }
 export async function getOnboarding(): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'GET' }); }
 export async function completeOnboarding(organizationName: string, workspaceName: string): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'PUT', body: JSON.stringify({ organization_name: organizationName, workspace_name: workspaceName }) }); }

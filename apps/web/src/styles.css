@@ -440,6 +440,24 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
 .signInCard { display: grid; gap: var(--d-s3); padding: var(--d-s6); width: min(420px, 100%); }
 .signInCard .brand { padding: 0 0 var(--d-s3); }
 .signInCard h1 { font-size: 24px; margin: 0; }
+.signInCard p { margin: 0; }
+.signInCard .small { font-size: 13px; }
+.signInCard .actions { display: grid; gap: var(--d-s2); margin: 0; }
+.signInCard .actions button { width: 100%; }
+.providerMark { block-size: 18px; flex: none; inline-size: 18px; }
+.signInDivider { align-items: center; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s3); }
+.signInDivider::before, .signInDivider::after { border-top: 1px solid var(--d-line); content: ""; flex: 1; }
+.signInSwitch { color: var(--d-muted); font-size: 14px; text-align: center; }
+.linkButton { background: none; border: 0; box-shadow: none; color: var(--d-sky); cursor: pointer; display: inline-flex; font: inherit; font-weight: 600; gap: var(--d-s1); min-height: 0; padding: 0; text-decoration: underline; width: auto; }
+.linkButton svg { block-size: 16px; inline-size: 16px; }
+.consent { align-items: flex-start; display: flex; gap: var(--d-s2); font-size: 14px; }
+.consent input { accent-color: var(--d-violet); flex: none; height: 20px; margin: 0; min-height: 0; padding: 0; width: 20px; }
+.consent span { flex: 1; min-width: 0; }
+.consent a { color: var(--d-sky); display: inline; white-space: normal; }
+.pendingDetails { display: grid; gap: var(--d-s2); margin: 0; }
+.pendingDetails div { display: grid; gap: 2px; }
+.pendingDetails dt { color: var(--d-muted); font-size: 13px; }
+.pendingDetails dd { margin: 0; overflow-wrap: anywhere; }
 
 /* Approvals: exact arguments, payload hash, expiry and decision history */
 .approvalBody { min-width: 0; }

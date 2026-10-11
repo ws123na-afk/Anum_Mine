@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_models.dart';
 import 'auth_repository.dart';
 import 'oidc.dart';
+import 'sign_in_options.dart';
 import 'workspace_selection.dart';
 
 enum AuthPhase {
@@ -14,6 +15,10 @@ enum AuthPhase {
 
   /// Signed in, but a member of no workspace.
   noWorkspace,
+
+  /// Signed in, but the account belongs to no organization yet
+  /// (docs/identity.md#pending-accounts).
+  accountPending,
   onboarding,
   modelSetup,
   ready,
@@ -100,6 +105,35 @@ class AuthController extends ChangeNotifier {
   /// Keycloak's "Forgot password?" page, or null without OIDC.
   Uri? get passwordResetUri => repository.oidc?.config.passwordResetUri;
 
+  /// What the sign-in screens offer (`GET /api/v1/auth/sign-in-options`);
+  /// null while loading.
+  SignInOptions? signInOptions;
+
+  /// Why the options could not be loaded (the plain sign-in still works).
+  String? signInOptionsError;
+
+  Future<void> loadSignInOptions() async {
+    signInOptionsError = null;
+    try {
+      signInOptions = await repository.signInOptions();
+    } on Object catch (error) {
+      signInOptions = SignInOptions.none;
+      signInOptionsError = _describe(error);
+    }
+    notifyListeners();
+  }
+
+  /// The pending account while [phase] is [AuthPhase.accountPending].
+  PendingAccount? pendingAccount;
+  OidcTokens? _pendingTokens;
+  bool checkingPending = false;
+
+  /// The last "Check again" found no organization yet.
+  bool stillPending = false;
+
+  /// Why the last "Check again" failed, or null.
+  String? pendingError;
+
   /// Signs in through Keycloak in the system browser (authorization code +
   /// PKCE). [options] can prefill the username, go straight to Google or
   /// Apple, or open registration.
@@ -111,9 +145,61 @@ class AuthController extends ChangeNotifier {
       } on OidcCancelled {
         phase = AuthPhase.signedOut;
         return;
+      } on AccountPending catch (pending) {
+        _pend(pending);
+        return;
       }
       await _routeSignedIn();
     });
+  }
+
+  void _pend(AccountPending pending) {
+    _pendingTokens = pending.tokens;
+    pendingAccount = pending.account;
+    phase = AuthPhase.accountPending;
+  }
+
+  /// Fetches a fresh token: it names the organization once an administrator
+  /// assigned one.
+  Future<void> checkPendingAgain() async {
+    final tokens = _pendingTokens;
+    if (tokens == null) return;
+    checkingPending = true;
+    stillPending = false;
+    pendingError = null;
+    notifyListeners();
+    try {
+      await repository.recheckPending(tokens);
+      _pendingTokens = null;
+      pendingAccount = null;
+      checkingPending = false;
+      await _run(AuthPhase.signedOut, _routeSignedIn);
+      return;
+    } on AccountPending catch (pending) {
+      _pend(pending);
+      stillPending = true;
+    } on OidcRefreshRejected {
+      _pendingTokens = null;
+      pendingAccount = null;
+      phase = AuthPhase.signedOut;
+      message = 'Your session ended. Sign in again.';
+    } on Object catch (error) {
+      pendingError = _describe(error);
+    }
+    checkingPending = false;
+    notifyListeners();
+  }
+
+  /// Leaves the pending account (ends the Keycloak session in the browser).
+  Future<void> signOutPending() async {
+    final tokens = _pendingTokens;
+    _pendingTokens = null;
+    pendingAccount = null;
+    stillPending = false;
+    pendingError = null;
+    phase = AuthPhase.signedOut;
+    notifyListeners();
+    if (tokens != null) await repository.endPendingSession(tokens);
   }
 
   Future<void> completeExternalSignIn(Future<Object?> Function() action) async {

@@ -226,3 +226,20 @@ export interface ModelConnectionTest {
   latency_ms: number;
   status: string;
 }
+
+/** A Keycloak identity provider the sign-in screens offer; `id` is passed as `kc_idp_hint`. */
+export interface SignInProvider {
+  id: 'google' | 'apple';
+  label: string;
+}
+
+/**
+ * `GET /api/v1/auth/sign-in-options` (public, no token): which buttons the sign-in screens
+ * show. Deployment configuration only; Keycloak still decides every sign-in.
+ */
+export interface SignInOptions {
+  identity_providers: SignInProvider[];
+  /** Keycloak's registration page is on (`prompt=create`). */
+  self_sign_up: boolean;
+  privacy_policy_url: string | null;
+}

@@ -21,6 +21,9 @@ class ErrorCode(StrEnum):
     BAD_REQUEST = "bad_request"
     UNAUTHORIZED = "unauthorized"
     FORBIDDEN = "forbidden"
+    # A valid token without a tenant: a self sign-up (Google, Apple or email) that no
+    # administrator has assigned to an organization yet (docs/identity.md#pending-accounts).
+    ACCOUNT_PENDING = "account_pending"
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
     MODEL_BUDGET_EXCEEDED = "model_budget_exceeded"

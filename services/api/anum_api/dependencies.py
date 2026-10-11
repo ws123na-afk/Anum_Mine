@@ -23,7 +23,9 @@ from .settings import settings
 from .store import store
 from .error_reporting import tag_tenant
 from .telemetry import set_tenant_attributes
+from .errors import ApplicationError, ErrorCode
 from .identity import (
+    AccountPendingError,
     JwksUnavailableError,
     OidcClaims,
     OidcValidator,
@@ -193,6 +195,10 @@ async def _oidc_identity(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Identity provider is unavailable",
+        ) from exc
+    except AccountPendingError as exc:
+        raise ApplicationError(
+            ErrorCode.ACCOUNT_PENDING, exc.reason, status_code=status.HTTP_403_FORBIDDEN
         ) from exc
     except TokenValidationError as exc:
         raise _unauthorized(exc.reason, invalid_token=True) from exc

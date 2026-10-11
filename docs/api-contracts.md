@@ -49,7 +49,7 @@ List paging today:
 
 Errors should distinguish validation failure, authentication failure, authorization failure, missing resource, conflict, rate limit, policy block, approval required, upstream failure, and internal failure.
 
-Every error uses one envelope, `{"error": {"code", "message", "correlation_id", "details"}}`, with the codes in `services/api/anum_api/errors.py` (`model_budget_exceeded` is `402`). Clients keep the status and code instead of flattening them to text: the web client throws `ApiError` (`apps/web/src/lib/errors.ts`) and Flutter `ApiException` (`code`, `isBudgetExceeded`, `isPermissionDenied`), so screens can tell a permission refusal (`403`) or a used-up model budget (`402`) from other failures and show the API's own message.
+Every error uses one envelope, `{"error": {"code", "message", "correlation_id", "details"}}`, with the codes in `services/api/anum_api/errors.py` (`model_budget_exceeded` is `402`; `account_pending` is the `403` for a signed-in account without an organization, [Identity: Pending accounts](identity.md#pending-accounts)). Clients keep the status and code instead of flattening them to text: the web client throws `ApiError` (`apps/web/src/lib/errors.ts`) and Flutter `ApiException` (`code`, `isBudgetExceeded`, `isPermissionDenied`), so screens can tell a permission refusal (`403`) or a used-up model budget (`402`) from other failures and show the API's own message.
 
 ## Shared Types
 

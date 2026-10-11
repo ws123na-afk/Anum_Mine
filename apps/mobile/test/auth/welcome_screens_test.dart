@@ -8,6 +8,7 @@ import 'package:anum_mobile/features/auth/auth_repository.dart';
 import 'package:anum_mobile/features/auth/auth_screens.dart';
 import 'package:anum_mobile/features/auth/intro.dart';
 import 'package:anum_mobile/features/auth/oidc.dart';
+import 'package:anum_mobile/features/auth/sign_in_options.dart';
 import 'package:anum_mobile/features/auth/welcome_screens.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
@@ -31,6 +32,12 @@ class _Controller extends AuthController {
                 sessions: MemorySessionStore()),
             sessions: MemorySessionStore())) {
     phase = AuthPhase.signedOut;
+    // What GET /api/v1/auth/sign-in-options reports; social_sign_in_test.dart
+    // covers the screens with less offered.
+    signInOptions = SignInOptions(
+        providers: const ['google', 'apple'],
+        selfSignUp: true,
+        privacyPolicyUrl: Uri.parse('https://example.com/privacy'));
   }
   final bool oidc;
   final requests = <OidcSignInOptions>[];
@@ -151,7 +158,10 @@ void main() {
     await tester.tap(find.byKey(const Key('auth-to-register')));
     await tester.pump();
     expect(find.text('Create Your Account'), findsOneWidget);
-    expect(find.text('At least 8 characters'), findsOneWidget);
+    // Keycloak's sign-up page lists the realm's password rules live.
+    expect(find.text('At least 8 characters'), findsNothing);
+    expect(find.textContaining('shows the password rules as you type'),
+        findsOneWidget);
 
     await tester.enterText(
         find.byKey(const Key('auth-email')), 'new@example.com');

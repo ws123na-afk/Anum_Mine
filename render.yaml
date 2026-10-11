@@ -66,6 +66,15 @@ services:
       # JSON list of the exact https web origins, e.g. ["https://app.example.com"].
       - key: ANUM_CORS_ORIGINS
         sync: false
+      # Sign-in screens (docs/deploy-render.md#google-and-apple-sign-in): the Keycloak
+      # providers configured in realm anum ("google", "apple", "google,apple" or empty),
+      # whether Keycloak's sign-up page is on, and the https privacy policy.
+      - key: ANUM_SIGN_IN_PROVIDERS
+        value: ""
+      - key: ANUM_SELF_SIGN_UP
+        value: "false"
+      - key: ANUM_PRIVACY_POLICY_URL
+        value: ""
       - key: ANUM_REPOSITORY_BACKEND
         value: postgresql
       # postgresql+psycopg://anum_app:<password>@<internal host>:5432/anum
@@ -209,6 +218,12 @@ services:
       # The web client's origin, https://<web host>; fills ${ANUM_WEB_ORIGIN} in the realm.
       - key: ANUM_WEB_ORIGIN
         sync: false
+      # Optional "Sign in with Apple" extension, passed to the Docker build as build args:
+      # the release jar (https) and its SHA-256 (docs/identity.md#apple). Empty: no Apple.
+      - key: APPLE_PROVIDER_URL
+        value: ""
+      - key: APPLE_PROVIDER_SHA256
+        value: ""
       - key: KC_DB_URL_HOST
         fromDatabase:
           name: anum-keycloak-db

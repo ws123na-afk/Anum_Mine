@@ -114,6 +114,16 @@ class TokenValidationError(Exception):
         self.reason = reason
 
 
+class AccountPendingError(TokenValidationError):
+    """A correctly signed token for an account that has no ``tenant_id`` yet.
+
+    Self sign-ups (Google, Apple, Keycloak's registration page) start without one: the
+    account exists but belongs to no organization until an administrator assigns it
+    (docs/identity.md#pending-accounts). Refused with 403 ``account_pending``, not 401, so
+    clients show the pending screen instead of asking the person to sign in again.
+    """
+
+
 class JwksUnavailableError(TokenValidationError):
     """The issuer's key set could not be fetched and no cached keys exist."""
 
@@ -291,6 +301,11 @@ class OidcValidator:
             raise TokenValidationError("Bearer token signature or claims are invalid") from exc
 
         tenant_id = payload.get("tenant_id")
+        if tenant_id is None or tenant_id == "":
+            raise AccountPendingError(
+                "Your account is not part of an organization yet. An administrator assigns it "
+                "to your organization, then a workspace owner invites you."
+            )
         if not isinstance(tenant_id, str) or not is_valid_scope_id(tenant_id):
             raise TokenValidationError("Bearer token is missing a valid tenant_id claim")
         workspace_id = payload.get("workspace_id")

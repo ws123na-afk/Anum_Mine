@@ -144,6 +144,7 @@ from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .audit_log import router as audit_log_router
 from .workspace_admin import router as workspace_admin_router
+from .sign_in_options import router as sign_in_options_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
@@ -280,6 +281,7 @@ app.include_router(learning_router)
 app.include_router(meetings_router)
 # ANUM Command (docs/command.md): plan preview, command records, quick commands.
 app.include_router(commands_router)
+app.include_router(sign_in_options_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

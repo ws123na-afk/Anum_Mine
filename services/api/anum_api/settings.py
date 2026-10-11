@@ -45,6 +45,9 @@ DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
     "text-embedding-3-large": ModelPrice(input_per_million=0.13, output_per_million=0.0),
 }
 
+# Keycloak identity provider aliases ANUM's clients know how to offer (kc_idp_hint).
+SIGN_IN_PROVIDERS = ("google", "apple")
+
 
 class Settings(BaseSettings):
     app_name: str = "ANUM API"
@@ -147,6 +150,14 @@ class Settings(BaseSettings):
     # larger export is refused with 413 rather than truncated.
     privacy_policy_url: str = Field(default="", max_length=2048, pattern=r"^(|https?://\S+)$")
     privacy_export_max_bytes: int = Field(default=25 * 1024 * 1024, ge=64 * 1024, le=512 * 1024 * 1024)
+    # Sign-in options the clients offer before anyone is signed in
+    # (GET /api/v1/auth/sign-in-options, docs/identity.md#google-and-apple-sign-in):
+    # the Keycloak identity providers configured in realm anum ("google", "apple",
+    # comma-separated; infra/keycloak/social_login.py prints the value to set) and
+    # whether Keycloak's self sign-up page is on. They only decide which buttons the
+    # clients show; Keycloak is what accepts or refuses a sign-in.
+    sign_in_providers: str = ""
+    self_sign_up: bool = False
     # Conversation memory (anum_api/conversation_memory.py, docs/memory.md#from-conversations).
     # After a reply completes, a small background model call (at most
     # ``conversation_memory_max_tokens``, metered against the budget) extracts durable
@@ -353,6 +364,22 @@ class Settings(BaseSettings):
 
         parse_allowed_hosts(value)
         return value
+
+    @field_validator("sign_in_providers")
+    @classmethod
+    def _valid_sign_in_providers(cls, value: str) -> str:
+        names: list[str] = []
+        for raw in value.split(","):
+            name = raw.strip().lower()
+            if not name:
+                continue
+            if name not in SIGN_IN_PROVIDERS:
+                raise ValueError(
+                    f"ANUM_SIGN_IN_PROVIDERS lists {name!r}; allowed: {', '.join(SIGN_IN_PROVIDERS)}"
+                )
+            if name not in names:
+                names.append(name)
+        return ",".join(names)
 
     @field_validator("sentry_dsn")
     @classmethod

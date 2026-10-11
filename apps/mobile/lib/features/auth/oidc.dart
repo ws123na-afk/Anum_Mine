@@ -161,6 +161,41 @@ JsonMap decodeJwtClaims(String token) {
   }
 }
 
+/// A signed-in account that belongs to no organization yet: its token has no
+/// `tenant_id` (docs/identity.md#pending-accounts). The API answers it with
+/// 403 `account_pending`, so the app shows the pending screen instead.
+class PendingAccount {
+  const PendingAccount({this.email, this.subject});
+  final String? email;
+  final String? subject;
+}
+
+PendingAccount? pendingAccountOf(OidcTokens tokens) {
+  final claims = decodeJwtClaims(tokens.accessToken);
+  final tenant = claims['tenant_id'];
+  if (tenant is String && tenant.trim().isNotEmpty) return null;
+  return PendingAccount(
+    email: switch (claims['email']) {
+      final String e when e.isNotEmpty => e,
+      _ => null
+    },
+    subject: switch (claims['sub']) {
+      final String s when s.isNotEmpty => s,
+      _ => null
+    },
+  );
+}
+
+/// Sign-in finished, but the account is pending; [tokens] stay in memory only
+/// (to check again or end the session), never in storage.
+class AccountPending implements Exception {
+  const AccountPending(this.tokens, this.account);
+  final OidcTokens tokens;
+  final PendingAccount account;
+  @override
+  String toString() => 'Your account is not part of an organization yet';
+}
+
 const _anumRoles = {'owner', 'member', 'viewer'};
 
 /// Turns provider tokens into the session the API client uses. The tenant is

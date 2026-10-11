@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { CircleDot, LogIn, Search } from 'lucide-react';
+import { CircleDot, Search } from 'lucide-react';
 import type { AgentRun, Approval, Task } from '@anum/contracts';
 import * as api from './lib/api';
 import * as auth from './lib/auth';
@@ -8,11 +8,12 @@ import './styles.css';
 import { ApprovalsView } from './ApprovalsView';
 import { ApprovalPolicyView, BudgetExceededNotice, BudgetsView, MembersView } from './AdminViews';
 import { getCurrentWorkspace } from './lib/adminApi';
+import { PendingScreen, SignInScreen } from './SignInView';
 import { TasksView } from './TasksView';
 import type { MemoryTarget } from './SourcesUsed';
 import { isActiveOwner } from './lib/capabilities';
 import { CommandCenter } from './CommandCenter';
-import { AnumMark, CommandPalette, NotificationsMenu, Sidebar, TopBar, UserMenu, usePaletteShortcut } from './Shell';
+import { CommandPalette, NotificationsMenu, Sidebar, TopBar, UserMenu, usePaletteShortcut } from './Shell';
 import { OWN_HEADER, displayName, viewFromHash, viewLabel, visibleViews, type PaletteItem, type View } from './lib/shell';
 import { ModelGatewaySettings } from './ModelSettings';
 import { ChatMemorySetting } from './ChatMemorySetting';
@@ -112,9 +113,12 @@ function Notice({children,error}:{children:ReactNode;error?:boolean}){return <p 
 function Empty({title,text}:{title:string;text:string}){return <div className="emptyState"><Search aria-hidden="true"/><h3>{title}</h3><p>{text}</p></div>}
 const date=(v:string)=>formatDateTime(v);const time=(v:string)=>formatDateTime(v,{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 // Signs in through Keycloak when VITE_ANUM_OIDC_ISSUER is set; otherwise renders the app on the local development session.
-function AuthGate(){const [status,setStatus]=useState<auth.AuthStatus|null>(null),[busy,setBusy]=useState(false);useEffect(()=>{let live=true;const off=auth.onAuthChange(s=>{if(live)setStatus(s)});void auth.initAuth().then(s=>{if(live)setStatus(s)});return()=>{live=false;off()}},[]);
+function AuthGate(){const [status,setStatus]=useState<auth.AuthStatus|null>(null);useEffect(()=>{let live=true;const off=auth.onAuthChange(s=>{if(live)setStatus(s)});void auth.initAuth().then(s=>{if(live)setStatus(s)});return()=>{live=false;off()}},[]);
  if(!status)return <main className="signInShell" aria-busy="true"><section className="surface signInCard"><p className="eyebrow">ANUM</p><h1>{t('auth.restoring')}</h1></section></main>;
- if(status.kind==='signedOut')return <main className="signInShell"><section className="surface signInCard"><div className="brand"><AnumMark className="brandMark" size={36}/><div><span className="brandName">{t('brand.name')}</span><small>{t('brand.tagline')}</small></div></div><h1>{t('auth.signInTitle')}</h1><p className="muted">{t('auth.signInText')}</p>{status.message&&<Notice error>{status.message}</Notice>}<div className="actions"><button disabled={busy} onClick={()=>{setBusy(true);void auth.signIn().then(()=>{if(auth.browserSignIn)setBusy(false)}).catch(e=>{setBusy(false);setStatus({kind:'signedOut',message:err(e)})})}}><LogIn aria-hidden="true"/>{t('auth.signIn')}</button></div></section></main>;
+ // Google, Apple, email and create-account all start the same code + PKCE sign-in (SignInView.tsx).
+ if(status.kind==='signedOut')return <SignInScreen message={status.message} onSignIn={request=>auth.signIn(request)}/>;
+ // Signed in without an organization: nothing in the app would work, so say what happens next.
+ if(status.kind==='pending')return <PendingScreen account={status.account} onCheckAgain={async()=>{const next=await auth.checkAgain();if(next.kind!=='pending')setStatus(next);return next.kind==='pending'}} onSignOut={()=>void auth.signOut()}/>;
  return <SignedInApp/>}
 // The workspace is part of the app's identity: a confirmed switch remounts everything under the new one.
 function SignedInApp(){const [workspaceId,setWorkspaceId]=useState(()=>api.currentScope().workspaceId);return <App key={workspaceId} onSwitchWorkspace={async target=>{setWorkspaceId(await api.switchWorkspace(target))}}/>}

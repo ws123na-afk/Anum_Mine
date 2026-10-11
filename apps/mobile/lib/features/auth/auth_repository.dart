@@ -2,6 +2,7 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
 import 'oidc.dart';
+import 'sign_in_options.dart';
 import 'workspace_selection.dart';
 
 /// Told when the signed-in workspace is about to change and when it has
@@ -60,17 +61,56 @@ class AuthRepository {
   /// in platform secure storage.
   /// [options] carries Keycloak hints only (login hint, Google or Apple,
   /// registration); the password is always entered on Keycloak's page.
+  /// Throws [AccountPending] (nothing stored) when the account has no
+  /// organization yet.
   Future<LocalSession> signInWithOidc(
       [OidcSignInOptions options = const OidcSignInOptions()]) async {
     final authenticator = oidc;
     if (authenticator == null) {
       throw StateError('OIDC sign-in is not configured');
     }
-    final session = sessionFromOidcTokens(await authenticator.signIn(options),
-        defaultWorkspaceId: authenticator.config.defaultWorkspaceId);
+    return _accept(await authenticator.signIn(options));
+  }
+
+  Future<LocalSession> _accept(OidcTokens tokens) async {
+    final pending = pendingAccountOf(tokens);
+    if (pending != null) throw AccountPending(tokens, pending);
+    final session = sessionFromOidcTokens(tokens,
+        defaultWorkspaceId: oidc!.config.defaultWorkspaceId);
     await sessions.write(session);
     return session;
   }
+
+  /// "Check again" for a pending account: a refreshed token carries the
+  /// tenant an administrator assigned since. Throws [AccountPending] again
+  /// (with the new tokens) while there is none.
+  Future<LocalSession> recheckPending(OidcTokens tokens) async {
+    final authenticator = oidc;
+    final refreshToken = tokens.refreshToken;
+    if (authenticator == null || refreshToken == null) {
+      throw const OidcRefreshRejected();
+    }
+    final next = await authenticator.refresh(refreshToken);
+    return _accept(OidcTokens(
+        accessToken: next.accessToken,
+        expiresAt: next.expiresAt,
+        refreshToken: next.refreshToken ?? refreshToken,
+        idToken: next.idToken ?? tokens.idToken));
+  }
+
+  /// Ends the Keycloak session of a pending account (nothing was stored).
+  Future<void> endPendingSession(OidcTokens tokens) async {
+    try {
+      await oidc?.endSession(idToken: tokens.idToken);
+    } on OidcCancelled {
+      // The browser step was closed; nothing is stored locally anyway.
+    }
+  }
+
+  /// `GET /api/v1/auth/sign-in-options`, sent without a token.
+  Future<SignInOptions> signInOptions() async => SignInOptions.fromJson(
+      await api.request('GET', '/api/v1/auth/sign-in-options',
+          authenticated: false));
 
   Future<LocalSession> startLocalSession({
     required String tenantId,

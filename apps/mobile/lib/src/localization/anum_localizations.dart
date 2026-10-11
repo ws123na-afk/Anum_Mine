@@ -87,6 +87,25 @@ class AnumLocalizations {
     'loginForgot': 'Forgot password?',
     'loginForgotFailed': "Couldn't open the password reset page. Check your "
         'connection and try again.',
+    'loginOptionsUnavailable': "Other sign-in options couldn't be loaded "
+        '({reason}). You can still sign in.',
+    'pendingEyebrow': 'Almost there',
+    'pendingTitle': 'Your account is waiting for access',
+    'pendingBody': 'You are signed in, but your account does not belong to '
+        'an organization yet. ANUM gives access only by invitation.',
+    'pendingEmail': 'Email',
+    'pendingNoEmail': 'No email on this account',
+    'pendingAccountId': 'Account ID',
+    'pendingNext': "Ask your organization's administrator to add this "
+        'account, then ask a workspace owner to invite you. Then choose '
+        'Check again.',
+    'pendingStill': 'Still waiting: no organization has been assigned to '
+        'this account yet.',
+    'pendingFailed': "Couldn't check: {reason}",
+    'pendingCheckAgain': 'Check again',
+    'pendingCopy': 'Copy details',
+    'pendingCopied': 'Copied.',
+    'pendingSignOut': 'Sign out',
     'loginOr': 'or',
     'loginGoogle': 'Continue with Google',
     'loginApple': 'Continue with Apple',
@@ -94,12 +113,12 @@ class AnumLocalizations {
     'signupTitle': 'Create Your Account',
     'signupSubtitle': 'Get started with ANUM 360',
     'signupEmailHelper': 'You confirm it on the secure sign-up page.',
-    'signupPasswordTitle':
-        'You choose your password on the secure sign-up page. Use:',
-    'signupRuleLength': 'At least 8 characters',
-    'signupRuleUpper': 'One uppercase letter',
-    'signupRuleNumber': 'One number',
-    'signupRuleSpecial': 'One special character',
+    'signupPasswordNote': 'You choose your password on the secure sign-up '
+        'page, which shows the password rules as you type and asks you to '
+        'confirm your email.',
+    'signupProvidersOnly': 'Create your account with Google or Apple.',
+    'signupUnavailable': 'Creating an account is not available on this '
+        'server. Ask your organization for an invitation.',
     'signupTerms': 'I agree to the Terms & Privacy Policy',
     'signupTermsLink': 'Terms',
     'signupPrivacyLink': 'Privacy Policy',
@@ -591,6 +610,23 @@ class AnumLocalizations {
     'loginForgot': 'نسيت كلمة المرور؟',
     'loginForgotFailed': 'تعذّر فتح صفحة إعادة تعيين كلمة المرور. تحقّق من '
         'اتصالك وحاول مجددًا.',
+    'loginOptionsUnavailable': 'تعذّر تحميل خيارات تسجيل الدخول الأخرى '
+        '({reason}). ما زال بإمكانك تسجيل الدخول.',
+    'pendingEyebrow': 'اقتربت',
+    'pendingTitle': 'حسابك بانتظار منح الصلاحية',
+    'pendingBody': 'سجّلت الدخول، لكن حسابك لا ينتمي إلى أي مؤسسة بعد. '
+        'يمنح أنوم الصلاحية بالدعوة فقط.',
+    'pendingEmail': 'البريد الإلكتروني',
+    'pendingNoEmail': 'لا يوجد بريد إلكتروني لهذا الحساب',
+    'pendingAccountId': 'معرّف الحساب',
+    'pendingNext': 'اطلب من مسؤول مؤسستك إضافة هذا الحساب، ثم اطلب من مالك '
+        'مساحة العمل دعوتك. بعد ذلك اختر «تحقق مجددًا».',
+    'pendingStill': 'ما زال الحساب بانتظار تعيين مؤسسة.',
+    'pendingFailed': 'تعذّر التحقق: {reason}',
+    'pendingCheckAgain': 'تحقق مجددًا',
+    'pendingCopy': 'نسخ التفاصيل',
+    'pendingCopied': 'تم النسخ.',
+    'pendingSignOut': 'تسجيل الخروج',
     'loginOr': 'أو',
     'loginGoogle': 'المتابعة باستخدام Google',
     'loginApple': 'المتابعة باستخدام Apple',
@@ -598,11 +634,11 @@ class AnumLocalizations {
     'signupTitle': 'أنشئ حسابك',
     'signupSubtitle': 'ابدأ مع أنوم 360',
     'signupEmailHelper': 'تؤكده في صفحة التسجيل الآمنة.',
-    'signupPasswordTitle': 'تختار كلمة المرور في صفحة التسجيل الآمنة. استخدم:',
-    'signupRuleLength': '8 أحرف على الأقل',
-    'signupRuleUpper': 'حرفًا كبيرًا واحدًا',
-    'signupRuleNumber': 'رقمًا واحدًا',
-    'signupRuleSpecial': 'رمزًا خاصًا واحدًا',
+    'signupPasswordNote': 'تختار كلمة المرور في صفحة التسجيل الآمنة، التي '
+        'تعرض قواعدها أثناء الكتابة وتطلب تأكيد بريدك الإلكتروني.',
+    'signupProvidersOnly': 'أنشئ حسابك باستخدام Google أو Apple.',
+    'signupUnavailable': 'إنشاء حساب غير متاح على هذا الخادم. اطلب دعوة من '
+        'مؤسستك.',
     'signupTerms': 'أوافق على الشروط وسياسة الخصوصية',
     'signupTermsLink': 'الشروط',
     'signupPrivacyLink': 'سياسة الخصوصية',

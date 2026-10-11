@@ -99,6 +99,75 @@ On the Oracle VM the same without the console: `bash ~/anum/infra/oracle/keycloa
 
 **Break-glass** (the owner cannot reach the admin console, for example lost the master-realm admin's OTP): every `keycloak-2fa.sh` action takes `--temporary-admin`, which creates a temporary master-realm service account inside the Keycloak container with `kc.sh bootstrap-admin service`, uses it through `kcadm` and deletes it at the end. The secret is generated on the VM and reaches the container on stdin. To get back into the console itself, the same command creates a temporary user instead (it asks for the password): `cd ~/anum/infra/oracle && docker compose exec keycloak /opt/keycloak/bin/kc.sh bootstrap-admin user --optimized --username temporary-admin`, then sign in, fix the account (master realm → Users → your admin → Credentials → delete OTP; it asks for a new one at the next sign-in) and delete `temporary-admin`.
 
+## Google and Apple Sign-In
+
+"Continue with Google" and "Continue with Apple" are Keycloak identity brokering: the clients never talk to Google or Apple. Every button starts the same authorization code + PKCE (S256) request against realm `anum` as before, with one extra parameter, `kc_idp_hint=google` or `kc_idp_hint=apple`, which makes Keycloak skip its own page and send the person straight to the provider. The provider returns to Keycloak (`https://<AUTH>/realms/anum/broker/<google|apple>/endpoint`), Keycloak runs ANUM's flows below and issues the usual ANUM tokens. The API sees no difference: the token still has to carry `tenant_id`, and the membership still decides the role.
+
+| Piece | Where |
+| --- | --- |
+| Provider and flow setup | `infra/keycloak/social_login.py` through `kcadm` (Oracle: `keycloak-2fa.sh google`, `apple`, `remove-provider`, and its plain run converges the flows; Render: the admin console, [Deploying on Render](deploy-render.md#google-and-apple-sign-in)) |
+| Which buttons the clients show | `GET /api/v1/auth/sign-in-options` (public, no token): `identity_providers` from `ANUM_SIGN_IN_PROVIDERS` (`google`, `apple`; anything else refuses API startup), `self_sign_up` from `ANUM_SELF_SIGN_UP`, `privacy_policy_url` from `ANUM_PRIVACY_POLICY_URL`. Deployment configuration only, cached for 60 seconds; Keycloak still decides every sign-in, and a button for a provider Keycloak lacks just lands on Keycloak's own page. `social_login.py status` prints the values to set. |
+| Web | `src/SignInView.tsx`, `src/lib/signIn.ts`, `src/lib/oidc.ts` (`beginSignIn(..., { idpHint, create })`) |
+| Flutter | `lib/features/auth/welcome_screens.dart` (the Login and Create account screens, `OidcSignInView`, drawn from the options: only offered providers, Create account only with a privacy policy, the email sign-up only with self sign-up; and `PendingAccountScreen`), `sign_in_options.dart`, `oidc.dart` (`OidcSignInOptions`: `kc_idp_hint` as an additional parameter, `prompt=create` as a prompt value, `login_hint`; `pendingAccountOf`). English and Arabic. |
+
+**What Keycloak runs** (converged by `social_login.py apply`, rebuilt in place if someone edits it in the console, so the providers keep pointing at the same flows):
+
+```text
+anum-first-broker-login                        first sign-in of a Google or Apple identity
+  Review Profile                    REQUIRED   only fields the provider did not send
+  anum-broker-user                  REQUIRED
+    Create User If Unique           ALTERNATIVE   new email: a new account, with no tenant_id
+    anum-broker-existing            ALTERNATIVE   the email belongs to an account already
+      Confirm link existing account REQUIRED
+      anum-broker-verify            REQUIRED
+        Verify existing account by Email     ALTERNATIVE   a link to that account's address
+        anum-broker-reauth          ALTERNATIVE
+          Username Password Form    REQUIRED   that account's password
+          anum-broker-reauth-2fa    CONDITIONAL
+            Condition - user configured  REQUIRED
+            OTP Form / Recovery Authentication Code Form  ALTERNATIVE
+
+anum-post-broker-2fa                           after every Google or Apple sign-in
+  anum-broker-2fa-verify            CONDITIONAL
+    Condition - user configured     REQUIRED
+    OTP Form / Passkey (WebAuthn Passwordless) / Recovery Authentication Code Form  ALTERNATIVE
+  anum-broker-2fa-enrol             CONDITIONAL
+    Condition - sub-flow executed   REQUIRED   anum-broker-2fa-verify not executed
+    OTP Form                        REQUIRED   set up an authenticator app now
+```
+
+- **Linking by verified email.** Keycloak never links on the provider's word alone: Keycloak's "Automatically set existing user" is not in the flow (`apply` removes it if added). When the provider's email belongs to an existing ANUM account, the person confirms the link and proves they own that account, either through the link Keycloak emails to that account's address (when the realm has an email server) or with that account's password and its second factor. Providers are created with **Trust email** on (Google's `email_verified`; Apple only returns verified addresses), so a new account's email counts as verified and email-bound [invitations](#invitations-and-membership-management) work.
+- **Two-factor rule kept.** A Google or Apple sign-in is one factor as far as ANUM is concerned. The post-login flow asks for the person's authenticator app, passkey or a recovery code, and someone who has none sets up an authenticator app before the sign-in completes, the same rule as [Two-factor sign-in](#two-factor-sign-in).
+- **Provider settings.** Sync mode **Import** (the profile is copied on the first sign-in only, so the provider cannot later change the email), no stored provider tokens, Google with PKCE. Secrets reach Keycloak in a request body on `kcadm`'s stdin; the script reads them from its own stdin and never prints them; `GET` answers mask them.
+- **No tenant from a provider.** Nothing in either flow sets `tenant_id`, `default_workspace_id` or a role. The user profile keeps those attributes admin-only, so "Review Profile" cannot show them either.
+
+### Pending accounts
+
+A Google or Apple sign-in of a new email, and every [self sign-up](#self-sign-up), creates a Keycloak account **without** `tenant_id`. The decision: no self-created account reaches any company's data without an invitation, and ANUM does not invent personal tenants (a tenant per stranger would be an unbounded, unowned set of organizations).
+
+- **API.** A correctly signed token without `tenant_id` (absent or empty) is refused on every tenant-scoped route with `403` and code `account_pending` ("Your account is not part of an organization yet ..."), never `401`, so clients do not loop back to sign-in. A header cannot supply the tenant, and onboarding cannot create one for it. A malformed `tenant_id` stays a `401`.
+- **Clients.** Web and Flutter read the claim before calling the API and show "Your account is waiting for access" with the account's email and account ID (copyable, which is what an administrator needs), **Check again** (refreshes the token: Keycloak reads the attributes again, so an assignment shows at once) and **Sign out**. Flutter keeps a pending account's tokens in memory only and stores no session.
+- **Getting access.** An administrator lists such accounts with `keycloak-2fa.sh pending-users` and assigns one with `keycloak-2fa.sh assign-tenant <username> <tenant_id> [<workspace_id>]` (or the admin console: realm **anum** → **Users** → the user → **Attributes**: `tenant_id`, `default_workspace_id`). That grants nothing by itself: a workspace owner then invites the person in **Members** (bound to their email, which is verified for Google and Apple accounts, or to their account ID). `assign-tenant` refuses to move a user who already has another tenant; that stays a deliberate console change.
+
+### Self sign-up
+
+`keycloak-2fa.sh sign-up` (`social_login.py enable-sign-up --privacy-url ...`) turns on Keycloak's own registration page, which the clients open with `prompt=create` ("Sign up with email"):
+
+- email as username, **Verify email** on, duplicate emails refused; it refuses to run while the realm has no email server (realm settings, **Email**), since nobody could verify their address;
+- password policy `length(12) and maxLength(128) and lowerCase(1) and upperCase(1) and digits(1) and notUsername and notEmail and passwordHistory(3)`, enforced by Keycloak on submit;
+- the **ANUM login theme** (`infra/keycloak/themes/anum`, a child of Keycloak 26's `keycloak.v2`, installed by `infra/render/keycloak.Dockerfile`): under the password field of the sign-up and change-password pages it lists every rule of the realm's policy, read from the policy at render time, and ticks each one while the person types (each item also says "Met" or "Not met yet" to screen readers). English and Arabic texts;
+- the **Terms and Conditions** required action, enabled and a default action for every new account (sign-up, Google, Apple, or created by an admin): one page with a link to `ANUM_PRIVACY_POLICY_URL`, set as the realm's English and Arabic `termsText`; accepting records the time in the user's `terms_and_conditions` attribute; declining ends the sign-in.
+
+Mobile-number sign-up is not offered: Keycloak has no SMS sender, and adding one means choosing and paying for an SMS provider ([Production plan](production-plan.md)). `keycloak-2fa.sh sign-up-off` turns registration off again; accounts already created stay. The client screens are the in-app front door: "Create account" shows the providers and "Sign up with email" only after a required "I have read and accept the privacy policy" checkbox (the link opens `privacy_policy_url`), and only when the API reports a privacy policy and some way to create an account.
+
+### Apple
+
+Keycloak has no built-in Apple provider: Apple answers with `form_post` and wants a client secret that is a JWT signed with the team's key, which Keycloak's generic OIDC provider cannot do. ANUM uses a provider extension (provider id `apple`; configuration `clientId` = Services ID, `teamId`, `keyId`, `p8Content`), installed into the image only when `APPLE_PROVIDER_URL` (the extension's release jar, https) and `APPLE_PROVIDER_SHA256` are given as build arguments (Oracle: `ANUM_KEYCLOAK_APPLE_PROVIDER_URL` and `..._SHA256` in `.env`; Render: the `anum-keycloak` environment). The build refuses a URL without a checksum or a jar that does not match it. Without the extension `set-provider --provider apple` stops with that explanation and nothing changes. **Not verified here:** the extension's jar could not be downloaded in the environment this was built in, so the configuration keys come from the extension's documentation and the Apple path has not run against a real Keycloak; check the first Apple sign-in on staging.
+
+**App Store rule.** Apple's App Store Review Guideline 4.8 requires "Sign in with Apple" in an iOS app that offers another social sign-in. The Flutter app therefore hides "Continue with Google" on iOS unless Apple is offered too (`SignInOptions.visibleProviders`).
+
+**Tests.** `services/api/tests/test_keycloak_social_login.py` (flows, providers, secrets on stdin, sign-up, pending accounts, assignment, the theme's rule list and the image, against the stand-in of Keycloak's admin API), `test_sign_in_options.py` and `test_identity.py` (pending tokens), `apps/web/test/signIn.test.ts` (options, pending claims, `kc_idp_hint` and `prompt=create` on the PKCE request, the theme's rule checks), `apps/web/e2e/social-sign-in.spec.ts` (mocked Keycloak redirect: Google button, create account with consent, pending screen and Check again, options unavailable, axe and keyboard), `apps/mobile/test/social_sign_in_test.dart` (options, iOS rule, hints, create account, pending screen in English and Arabic, layouts at 320 to 1440 wide and 200% text) and `test/auth/welcome_screens_test.dart`. The script, both flows and the theme were also run against a real Keycloak 26.4.0: `apply` twice (second run reads only), Google provider creation (`kc_idp_hint=google` redirects to Google with the client ID and the broker endpoint), a second realm brokered as an OIDC provider standing in for Google (new account created without `tenant_id`, authenticator app enrolment, privacy policy page with its link, code on the next sign-in, linking an existing account only after its password), and the sign-up page's live rules at 1280 and 390 pixels wide.
+
 ## Token Contract
 
 The API accepts an access token only when all of these hold:
@@ -198,6 +267,7 @@ Implemented in `services/api/anum_api/workspace_admin.py`; `workspaces.archived_
 | `401 unauthorized` | Missing bearer token, malformed token, wrong algorithm, unknown `kid` (after the refresh), bad signature, wrong issuer or audience, expired, missing required claims, or an `anum_local_*` token in `oidc` mode. The response carries `WWW-Authenticate: Bearer realm="anum", error="invalid_token", error_description="..."`. |
 | `400 bad_request` | No workspace selected, or `x-workspace-id` is malformed. |
 | `403 forbidden` | `x-tenant-id` mismatch, missing or inactive membership, or a permission the membership role does not grant. |
+| `403 account_pending` | A valid token without `tenant_id`: a self sign-up or Google/Apple account no administrator has assigned yet ([Pending accounts](#pending-accounts)). |
 | `503 service_unavailable` | Keycloak's JWKS cannot be fetched and no keys are cached. |
 
 ## Client Sign-In
@@ -306,8 +376,8 @@ The API must allow the web origin (`ANUM_CORS_ORIGINS`) and run in `oidc` mode; 
 
 ## Now
 
-Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients (search, paging, confirmed role changes, resend, last-owner protection), the workspace lifecycle (create, rename, archive, restore) in the API and the web client, the caller's own memberships across the tenant's workspaces (`GET /api/v1/me/workspace-memberships`) listed by the web workspace switcher and the Flutter workspace picker, both checking the membership before switching, fail-fast refusal of development authentication outside local/test, two-factor sign-in on shared Keycloaks (authenticator app or recovery code for every password sign-in, passkeys, enrolment at the next sign-in; [Two-factor sign-in](#two-factor-sign-in)), and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
+Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients (search, paging, confirmed role changes, resend, last-owner protection), the workspace lifecycle (create, rename, archive, restore) in the API and the web client, the caller's own memberships across the tenant's workspaces (`GET /api/v1/me/workspace-memberships`) listed by the web workspace switcher and the Flutter workspace picker, both checking the membership before switching, fail-fast refusal of development authentication outside local/test, two-factor sign-in on shared Keycloaks (authenticator app or recovery code for every password sign-in, passkeys, enrolment at the next sign-in; [Two-factor sign-in](#two-factor-sign-in)), authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients, "Continue with Google / Apple" through Keycloak brokering with ANUM's first-login and post-login flows, self sign-up on Keycloak's page with live password rules and privacy-policy acceptance, and pending accounts that wait for an administrator and an invitation ([Google and Apple sign-in](#google-and-apple-sign-in)).
 
 ## Later
 
-the workspace lifecycle screens in Flutter (rename, archive, restore and create are web-only today); deleting a workspace; Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; federation policy; two-factor configuration as part of a declarative realm sync (today a one-time `keycloak-2fa.sh` run or console steps per Keycloak).
+the workspace lifecycle screens in Flutter (rename, archive, restore and create are web-only today); deleting a workspace; Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; federation policy; two-factor configuration as part of a declarative realm sync (today a one-time `keycloak-2fa.sh` run or console steps per Keycloak); assigning a pending account to an organization from inside ANUM (today `keycloak-2fa.sh assign-tenant` or the console, because the API holds no Keycloak admin credential); mobile-number sign-up (needs an SMS provider); a verified Apple extension pin in the image.
