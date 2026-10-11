@@ -1,9 +1,11 @@
 name: Release clients
 
 # Builds the store and desktop release artifacts (docs/mobile.md and docs/desktop.md, "Release
-# pipeline"). A `v*` tag builds everything for that version, uploads to the Play internal track and
-# TestFlight, and attaches the desktop installers and the updater manifest to a draft GitHub
-# release. A manual run builds the committed version and uploads to the stores only when asked.
+# pipeline"). A `v*` tag builds the mobile apps for that version and uploads them to the Play
+# internal track and TestFlight. A manual run builds the committed version and uploads to the
+# stores only when asked. The desktop installers (and the draft GitHub release that carries them)
+# are deferred by the owner: they build only when the ANUM_RELEASE_DESKTOP variable is `true`
+# (tags) or the `desktop` input is ticked (manual runs); otherwise those jobs are skipped.
 #
 # Signing material comes only from repository secrets and is decoded into $RUNNER_TEMP. Every
 # signing or upload step is gated on its secrets: without them a job builds what it can (or skips
@@ -17,6 +19,10 @@ on:
     inputs:
       upload:
         description: Upload to the Play internal track and TestFlight (needs the store secrets)
+        type: boolean
+        default: false
+      desktop:
+        description: Also build the desktop installers (deferred; needs the desktop secrets to sign)
         type: boolean
         default: false
 
@@ -35,12 +41,16 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       build_number: ${{ steps.version.outputs.build_number }}
       upload: ${{ steps.version.outputs.upload }}
+      desktop: ${{ steps.version.outputs.desktop }}
     steps:
       - uses: actions/checkout@v7
       - name: Version, build number and upload decision
         id: version
         env:
           UPLOAD_INPUT: ${{ inputs.upload }}
+          DESKTOP_INPUT: ${{ inputs.desktop }}
+          # Desktop releases are deferred; `true` builds them on tags as well.
+          DESKTOP_ON_TAGS: ${{ vars.ANUM_RELEASE_DESKTOP }}
           # Added to the run number so store build numbers can continue above a manual upload.
           BUILD_NUMBER_OFFSET: ${{ vars.ANUM_BUILD_NUMBER_OFFSET }}
         run: |
@@ -52,9 +62,16 @@ jobs:
             fi
             version="${BASH_REMATCH[1]}"
             upload=true
+            desktop="$([ "$DESKTOP_ON_TAGS" = "true" ] && echo true || echo false)"
           else
-            version="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+            # The X.Y.Z part of `version: X.Y.Z+N` in pubspec.yaml (the build number comes from the run).
+            version="$(sed -n 's/^version: *\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' apps/mobile/pubspec.yaml)"
+            if [ -z "$version" ]; then
+              echo "::error::apps/mobile/pubspec.yaml has no X.Y.Z version."
+              exit 1
+            fi
             upload="${UPLOAD_INPUT:-false}"
+            desktop="${DESKTOP_INPUT:-false}"
           fi
           offset="${BUILD_NUMBER_OFFSET:-0}"
           if ! [[ "$offset" =~ ^[0-9]+$ ]]; then
@@ -66,8 +83,12 @@ jobs:
             echo "version=$version"
             echo "build_number=$build_number"
             echo "upload=$upload"
+            echo "desktop=$desktop"
           } >> "$GITHUB_OUTPUT"
-          echo "### Release $version (build $build_number, store upload: $upload)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Release $version (build $build_number, store upload: $upload, desktop: $desktop)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$desktop" != "true" ]; then
+            echo "::notice title=Desktop release skipped::Desktop releases are deferred. Set the ANUM_RELEASE_DESKTOP variable to true (tags) or tick the desktop input (manual runs) to build them."
+          fi
 
   android:
     name: Android app bundle
@@ -94,8 +115,15 @@ jobs:
           for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
             [ -n "${!name}" ] || missing+=("ANUM_ANDROID_${name} (secret)")
           done
-          [[ "$PRODUCTION_API_URL" == https://* ]] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
-          [[ "$PRODUCTION_OIDC_ISSUER" == https://* ]] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
+          # A production URL that is set but not HTTPS is a mistake, not a missing credential: fail.
+          for name in PRODUCTION_API_URL PRODUCTION_OIDC_ISSUER PRODUCTION_WEB_APP_URL; do
+            if [ -n "${!name}" ] && [[ "${!name}" != https://* ]]; then
+              echo "::error::The ANUM_${name} variable must start with https:// (got ${!name})."
+              exit 1
+            fi
+          done
+          [ -n "$PRODUCTION_API_URL" ] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
+          [ -n "$PRODUCTION_OIDC_ISSUER" ] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "::notice title=Android release skipped::Not configured: ${missing[*]}. See docs/mobile.md, Release pipeline."
             echo "build=false" >> "$GITHUB_OUTPUT"
@@ -190,6 +218,7 @@ jobs:
       BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
       PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
       PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
     defaults:
       run:
         working-directory: apps/mobile
@@ -209,8 +238,15 @@ jobs:
           [ -n "$API_KEY_ID" ] || missing+=("APP_STORE_CONNECT_API_KEY_ID (secret)")
           [ -n "$API_ISSUER_ID" ] || missing+=("APP_STORE_CONNECT_API_ISSUER_ID (secret)")
           [ -n "$API_KEY_P8" ] || missing+=("APP_STORE_CONNECT_API_KEY_P8 (secret)")
-          [[ "$PRODUCTION_API_URL" == https://* ]] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
-          [[ "$PRODUCTION_OIDC_ISSUER" == https://* ]] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
+          # A production URL that is set but not HTTPS is a mistake, not a missing credential: fail.
+          for name in PRODUCTION_API_URL PRODUCTION_OIDC_ISSUER PRODUCTION_WEB_APP_URL; do
+            if [ -n "${!name}" ] && [[ "${!name}" != https://* ]]; then
+              echo "::error::The ANUM_${name} variable must start with https:// (got ${!name})."
+              exit 1
+            fi
+          done
+          [ -n "$PRODUCTION_API_URL" ] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
+          [ -n "$PRODUCTION_OIDC_ISSUER" ] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "::notice title=iOS signing skipped::Building without code signing as a compile check. Not configured: ${missing[*]}. See docs/mobile.md, Release pipeline."
             echo "signed=false" >> "$GITHUB_OUTPUT"
@@ -268,6 +304,7 @@ jobs:
             -c "Add :signingStyle string automatic" \
             -c "Add :destination string export" \
             -c "Add :uploadSymbols bool true" \
+            -c "Add :manageAppVersionAndBuildNumber bool false" \
             "$RUNNER_TEMP/ExportOptions.plist"
           xcodebuild -exportArchive -archivePath build/ios/archive/Runner.xcarchive \
             -exportPath build/ios/ipa -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" "${auth[@]}"
@@ -305,6 +342,8 @@ jobs:
   desktop:
     name: Desktop (${{ matrix.platform }})
     needs: version
+    # Deferred by the owner: skipped (not failed) unless asked for, see the version job.
+    if: needs.version.outputs.desktop == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -430,7 +469,8 @@ jobs:
   publish:
     name: Draft GitHub release
     needs: [version, desktop]
-    if: github.ref_type == 'tag'
+    # Carries only the desktop installers, so it is skipped with them.
+    if: github.ref_type == 'tag' && needs.version.outputs.desktop == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

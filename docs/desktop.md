@@ -57,12 +57,13 @@ Private material never reaches the repository or the overlay: the Tauri CLI read
 
 ## Release Pipeline
 
-`.github/workflows/release-clients.yml` builds the desktop installers on `windows-latest` (x86_64) and `macos-latest` (Apple silicon; Intel Macs are not built yet) with `pnpm --filter @anum/desktop build:release`, on every `v*` tag and on manual runs. The same workflow builds the mobile apps ([Flutter mobile](mobile.md#release-pipeline)). Each signing step runs only when its secrets exist; without them the build still runs unsigned and the job passes with a notice, so the workflow never fails for lack of the owner's credentials.
+`.github/workflows/release-clients.yml` builds the desktop installers on `windows-latest` (x86_64) and `macos-latest` (Apple silicon; Intel Macs are not built yet) with `pnpm --filter @anum/desktop build:release`. The same workflow builds the mobile apps ([Flutter mobile](mobile.md#release-pipeline)). Desktop releases are deferred by the owner, so the desktop jobs and the `publish` job are skipped (not failed) unless the repository variable `ANUM_RELEASE_DESKTOP` is `true` (then every `v*` tag builds them) or a manual run ticks the "desktop" input; a mobile release never waits on or fails for the desktop half. Each signing step runs only when its secrets exist; without them the build still runs unsigned and the job passes with a notice, so the workflow never fails for lack of the owner's credentials.
 
 Repository variables (Settings, Secrets and variables, Actions, Variables):
 
 | Variable | Value |
 | --- | --- |
+| `ANUM_RELEASE_DESKTOP` | `true` turns the desktop jobs on for tags. Unset while desktop releases are deferred. |
 | `ANUM_PRODUCTION_API_URL` | Production API origin (HTTPS), compiled into the web bundle and the CSP. Shared with the mobile build. |
 | `ANUM_PRODUCTION_OIDC_ISSUER` | Production Keycloak issuer (HTTPS). Shared with the mobile build. |
 | `ANUM_TAURI_UPDATER_PUBKEY` | Contents of the `.pub` file from `pnpm --filter @anum/desktop exec tauri signer generate -w anum-updater.key` (run outside the repository). |
@@ -89,7 +90,7 @@ Cutting a release:
 
 Rolling back: the updater never downgrades, so a bad desktop release is fixed forward. Unpublish or delete the bad GitHub release at once (the `latest` URL falls back to the previous published release, which stops further installs and updates to the bad version), then tag a new patch version with the fix or from the last good commit. Users who already installed the bad version move to the patch through the normal update prompt; installing the previous installer by hand also works.
 
-The pipeline has not run yet: it needs the variables and secrets above, and the signed and macOS paths cannot be exercised from a development container.
+The pipeline has not run yet: it needs the variables and secrets above, and the signed and macOS paths cannot be exercised from a development container. It stays off until the owner turns desktop releases on with `ANUM_RELEASE_DESKTOP`.
 
 ## Release Gate
 
