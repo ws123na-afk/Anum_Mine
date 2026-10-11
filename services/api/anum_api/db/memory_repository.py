@@ -85,9 +85,20 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
         if filters.query:
             for term in filters.query.casefold().split():
                 statement = statement.where(MemoryRecord.content.ilike(f"%{term}%"))
-        records = self.session.scalars(
-            statement.order_by(MemoryRecord.created_at, MemoryRecord.id)
-        ).all()
+        if filters.limit is not None:
+            records = list(
+                self.session.scalars(
+                    statement.order_by(MemoryRecord.created_at.desc(), MemoryRecord.id.desc())
+                    .limit(filters.limit)
+                ).all()
+            )
+            records.reverse()
+        else:
+            records = list(
+                self.session.scalars(
+                    statement.order_by(MemoryRecord.created_at, MemoryRecord.id)
+                ).all()
+            )
         return [self._from_record(record) for record in records]
 
     def delete(self, note_id: str, context: TenantContext) -> bool:

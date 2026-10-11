@@ -99,6 +99,33 @@ def test_list_tasks_is_tenant_scoped_and_cursor_paginated() -> None:
     }
 
 
+
+def test_list_tasks_rejects_an_unknown_cursor() -> None:
+    response = client.get(
+        "/api/v1/tasks", headers=headers, params={"limit": 2, "cursor": "task_does_not_exist"}
+    )
+    assert response.status_code == 400
+
+
+def test_memory_list_is_bounded_by_limit() -> None:
+    task_id = client.post(
+        "/api/v1/tasks", headers=headers, json={"title": "Bounded", "prompt": "Notes"}
+    ).json()["id"]
+    for index in range(3):
+        assert client.post(
+            "/api/v1/memories",
+            headers=headers,
+            json={"task_id": task_id, "content": f"bounded note {index}", "source_type": "user_note"},
+        ).status_code == 201
+    everything = client.get("/api/v1/memories", headers=headers, params={"task_id": task_id}).json()
+    limited = client.get(
+        "/api/v1/memories", headers=headers, params={"task_id": task_id, "limit": 2}
+    ).json()
+    assert len(everything) == 3
+    assert [note["id"] for note in limited] == [note["id"] for note in everything[-2:]]
+    too_many = client.get("/api/v1/memories", headers=headers, params={"limit": 501})
+    assert too_many.status_code == 422
+
 def test_cancel_created_task() -> None:
     created = client.post(
         "/api/v1/tasks",

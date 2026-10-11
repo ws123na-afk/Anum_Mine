@@ -289,3 +289,18 @@ def test_hnsw_migration_indexes_exactly_the_dimensions_search_uses() -> None:
     assert "create index concurrently if not exists" in upgrade and "using hnsw" in upgrade
     assert "where dimensions = {dims}" in upgrade and "vector_cosine_ops" in upgrade
     assert "drop " not in upgrade and "alter " not in upgrade
+
+
+def test_tasks_scope_created_migration_is_concurrent_and_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0017_tasks_scope_created.py").read_text(encoding="utf-8")
+    assert 'revision = "0017_tasks_scope_created"' in revision_text
+    assert 'down_revision = "0016_retrieval_hnsw"' in revision_text
+    assert len("0017_tasks_scope_created") <= 32
+    others = [path for path in versions.glob("*.py") if path.name != "0017_tasks_scope_created.py"]
+    assert not [path for path in others if 'down_revision = "0016_retrieval_hnsw"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    assert "autocommit_block" in upgrade
+    assert "create index concurrently if not exists ix_tasks_scope_created" in upgrade
+    assert "on tasks (tenant_id, workspace_id, created_at desc, id desc)" in upgrade
+    assert "drop " not in upgrade and "alter " not in upgrade

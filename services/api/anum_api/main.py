@@ -29,12 +29,14 @@ from .model_gateway import build_model_gateway
 from .memory import (
     MemoryAccess,
     MemoryCreate,
+    MEMORY_LIST_DEFAULT_LIMIT,
+    MEMORY_LIST_MAX_LIMIT,
     MemoryListFilters,
     MemoryNote,
     MemoryRepository,
     MemoryService,
 )
-from .repository import AnumRepository
+from .repository import AnumRepository, UnknownCursorError
 from .realtime import live_event_source
 from .runtime import AgentRuntime
 from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
@@ -380,11 +382,12 @@ async def list_tasks(
     repository: AnumRepository = Depends(repository_context),
 ) -> list[Task]:
     require_permission(context, Permission.TASK_READ)
-    tasks = repository.list_tasks(context)
-    if cursor:
-        cursor_index = next((index for index, task in enumerate(tasks) if task.id == cursor), None)
-        tasks = tasks[cursor_index + 1 :] if cursor_index is not None else []
-    return tasks[:limit]
+    try:
+        return repository.list_tasks(context, limit=limit, after=cursor or None)
+    except UnknownCursorError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown or invalid cursor"
+        ) from None
 
 
 @app.get("/api/v1/tasks/{task_id}", response_model=Task)
@@ -692,6 +695,7 @@ async def list_memories(
     query: str | None = None,
     source_type: list[str] = Query(default_factory=list),
     include_expired: bool = False,
+    limit: int = Query(default=MEMORY_LIST_DEFAULT_LIMIT, ge=1, le=MEMORY_LIST_MAX_LIMIT),
     context: TenantContext = Depends(tenant_context),
     memories: MemoryRepository = Depends(memory_repository_context),
 ) -> list[MemoryNote]:
@@ -704,6 +708,7 @@ async def list_memories(
             query=query,
             source_types=set(source_type),
             include_expired=include_expired,
+            limit=limit,
         ),
     )
 

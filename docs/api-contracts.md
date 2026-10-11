@@ -28,6 +28,11 @@ GET /v1/agent-runs/{run_id}/events
 
 Requests should use explicit JSON schemas, idempotency keys for mutating external actions, pagination for lists, stable error codes, and correlation IDs. Responses should avoid leaking internal provider payloads or secrets.
 
+List paging today:
+
+- `GET /api/v1/tasks?limit=&cursor=` returns tasks newest first (`limit` 1-100, default 50). `cursor` is opaque to clients: pass the `id` of the last task on the previous page. The server pages by keyset on `(created_at, id)` (index `ix_tasks_scope_created`, migration `0017_tasks_scope_created`); a cursor that names no task in the caller's workspace answers `400`, never an empty page.
+- `GET /api/v1/memories?limit=` returns at most `limit` notes (1-500, default 200): the newest matches, still ordered oldest first.
+
 ## Error Model
 
 Errors should distinguish validation failure, authentication failure, authorization failure, missing resource, conflict, rate limit, policy block, approval required, upstream failure, and internal failure.

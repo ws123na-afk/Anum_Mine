@@ -19,6 +19,10 @@ from .store import InMemoryStore
 from .tool_governance import ToolGovernance, tool_governance_from
 
 
+class UnknownCursorError(LookupError):
+    """A paging cursor that names no row in the caller's scope (the API answers 400)."""
+
+
 class AnumRepository(Protocol):
     def create_tenant(self, tenant: Tenant) -> Tenant: ...
     def get_tenant(self, tenant_id: str) -> Tenant | None: ...
@@ -45,7 +49,9 @@ class AnumRepository(Protocol):
     def record_audit(self, record: AuditRecord) -> AuditRecord: ...
     def list_audit_records(self, context: TenantContext) -> list[AuditRecord]: ...
     def create_task(self, task: Task) -> Task: ...
-    def list_tasks(self, context: TenantContext) -> list[Task]: ...
+    def list_tasks(
+        self, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[Task]: ...
     def save_task(self, task: Task) -> Task: ...
     def get_task(self, task_id: str, context: TenantContext) -> Task | None: ...
     def get_task_for_update(self, task_id: str, context: TenantContext) -> Task | None: ...
@@ -215,17 +221,23 @@ class InMemoryRepository:
     def create_task(self, task: Task) -> Task:
         return self.save_task(task)
 
-    def list_tasks(self, context: TenantContext) -> list[Task]:
-        return sorted(
-            (
-                task
-                for task in self.store.tasks.values()
-                if task.tenant_id == context.tenant_id
-                and task.workspace_id == context.workspace_id
-            ),
-            key=lambda task: (task.created_at, task.id),
-            reverse=True,
-        )
+    def list_tasks(
+        self, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[Task]:
+        """Newest first; ``after`` is the id of the last task already shown (keyset paging)."""
+        tasks = [
+            task
+            for task in self.store.tasks.values()
+            if task.tenant_id == context.tenant_id and task.workspace_id == context.workspace_id
+        ]
+        if after is not None:
+            anchor = next((task for task in tasks if task.id == after), None)
+            if anchor is None:
+                raise UnknownCursorError(after)
+            key = (anchor.created_at, anchor.id)
+            tasks = [task for task in tasks if (task.created_at, task.id) < key]
+        tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
+        return tasks if limit is None else tasks[:limit]
 
     def save_task(self, task: Task) -> Task:
         self.store.tasks[task.id] = task

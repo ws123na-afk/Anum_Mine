@@ -1,11 +1,11 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from anum_api.audit import AuditRecord, DuplicateAuditRecordError
-from anum_api.repository import AnumRepository
+from anum_api.repository import AnumRepository, UnknownCursorError
 from anum_api.schemas import (
     AgentRun,
     AgentRunStep,
@@ -329,15 +329,35 @@ class SqlAlchemyRepository(AnumRepository):
         self.session.flush()
         return self._task_from_record(record)
 
-    def list_tasks(self, context: TenantContext) -> list[Task]:
-        records = self.session.scalars(
-            select(TaskRecord)
-            .where(
-                TaskRecord.tenant_id == context.tenant_id,
-                TaskRecord.workspace_id == context.workspace_id,
+    def list_tasks(
+        self, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[Task]:
+        """Newest first, keyset-paged on ``(created_at, id)`` (``ix_tasks_scope_created``).
+
+        ``after`` is the id of the last task already shown; an id outside the caller's scope
+        raises :class:`UnknownCursorError` rather than returning an empty page.
+        """
+        statement = select(TaskRecord).where(
+            TaskRecord.tenant_id == context.tenant_id,
+            TaskRecord.workspace_id == context.workspace_id,
+        )
+        if after is not None:
+            anchor = self.session.execute(
+                select(TaskRecord.created_at, TaskRecord.id).where(
+                    TaskRecord.id == after,
+                    TaskRecord.tenant_id == context.tenant_id,
+                    TaskRecord.workspace_id == context.workspace_id,
+                )
+            ).first()
+            if anchor is None:
+                raise UnknownCursorError(after)
+            statement = statement.where(
+                tuple_(TaskRecord.created_at, TaskRecord.id) < tuple_(anchor[0], anchor[1])
             )
-            .order_by(TaskRecord.created_at.desc(), TaskRecord.id.desc())
-        ).all()
+        statement = statement.order_by(TaskRecord.created_at.desc(), TaskRecord.id.desc())
+        if limit is not None:
+            statement = statement.limit(limit)
+        records = self.session.scalars(statement).all()
         return [self._task_from_record(record) for record in records]
 
     def save_task(self, task: Task) -> Task:
