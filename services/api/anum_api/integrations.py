@@ -264,6 +264,8 @@ def default_integration_registry(settings: Settings) -> IntegrationRegistry:
                 name="NATS JetStream",
                 kind=IntegrationKind.EVENT_BUS,
                 endpoint=settings.nats_url,
+                # Probed only where the API publishes to it; otherwise it is reported as disabled.
+                configured=settings.event_bus == "nats",
                 credentials=CredentialMetadata(configured=bool(settings.nats_url), scopes=["events:publish"]),
                 probe=lambda: tcp_probe(*_host_port(settings.nats_url, 4222)),
             ),
@@ -272,6 +274,7 @@ def default_integration_registry(settings: Settings) -> IntegrationRegistry:
                 name="Temporal",
                 kind=IntegrationKind.WORKFLOW,
                 endpoint=settings.temporal_target,
+                configured=settings.runtime_backend == "temporal",
                 credentials=CredentialMetadata(configured=bool(settings.temporal_target), scopes=["workflow:execute"]),
                 probe=lambda: tcp_probe(*_host_port(settings.temporal_target, 7233)),
             ),

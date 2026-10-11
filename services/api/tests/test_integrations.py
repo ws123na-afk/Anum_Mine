@@ -97,3 +97,15 @@ def test_mcp_adapter_propagates_scoped_context() -> None:
     result = asyncio.run(adapter(ToolCall(name="mcp.publish", arguments={"id": "doc_1"}), context()))
 
     assert result.output == {"published": True}
+
+
+def test_default_registry_reports_unused_event_bus_and_workflow_engine_as_disabled() -> None:
+    # The memory event bus and the inline runtime never reach NATS or Temporal: probing
+    # them only reported a false outage (a refused localhost connection).
+    from anum_api.integrations import default_integration_registry
+    from anum_api.settings import Settings
+
+    registry = default_integration_registry(Settings(event_bus="memory", runtime_backend="inline"))
+    statuses = {item.id: item.status for item in asyncio.run(registry.health())}
+    assert statuses["nats"] == IntegrationStatus.DISABLED
+    assert statuses["temporal"] == IntegrationStatus.DISABLED
