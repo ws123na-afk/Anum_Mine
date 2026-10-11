@@ -73,6 +73,9 @@ refuses "Keycloak admin credential" --set config.KEYCLOAK_ADMIN_PASSWORD=admin
 refuses "Keycloak admin credential" --set extraEnv.KC_BOOTSTRAP_ADMIN_PASSWORD=admin
 refuses "worker.enabled must be true" --set worker.enabled=false
 refuses "backup.persistentVolumeClaim" --set backup.enabled=true
+refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=-1
+refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=3651
+refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=30d
 
 # ---------------------------------------------------------------------------
 # Admission policy chart (infra/helm/anum-admission, docs/deployment.md#admission-policy).

@@ -222,3 +222,28 @@ def test_the_main_app_serves_conversations() -> None:
 
     paths = main_app.openapi()["paths"]
     assert "/api/v1/conversations/{conversation_id}/ask" in paths
+
+
+def test_conversation_retention_defaults_to_30_days_and_zero_keeps_forever() -> None:
+    from pydantic import ValidationError
+
+    from anum_api.settings import Settings
+
+    assert Settings().conversation_retention_days == 30
+    assert Settings(conversation_retention_days=0).conversation_retention_days == 0
+    for invalid in (-1, 3651):
+        with pytest.raises(ValidationError):
+            Settings(conversation_retention_days=invalid)
+
+
+def test_conversation_retention_command_refuses_the_memory_backend(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from anum_api.conversation_retention import main
+    from anum_api.settings import settings
+
+    monkeypatch.setattr(settings, "repository_backend", "memory")
+    assert main([]) == 2
+    assert "needs ANUM_REPOSITORY_BACKEND=postgresql" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["--batch-size", "0"])

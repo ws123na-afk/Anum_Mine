@@ -71,6 +71,10 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if ne (lower (toString $c.ANUM_RATE_LIMIT_ENABLED)) "true" -}}
 {{- fail "config.ANUM_RATE_LIMIT_ENABLED must stay true outside local" -}}
 {{- end -}}
+{{- $retention := toString (default "30" $c.ANUM_CONVERSATION_RETENTION_DAYS) -}}
+{{- if or (not (regexMatch "^[0-9]{1,4}$" $retention)) (gt (atoi $retention) 3650) -}}
+{{- fail (printf "config.ANUM_CONVERSATION_RETENTION_DAYS=%q must be a whole number of days from 0 (keep forever) to 3650" $retention) -}}
+{{- end -}}
 {{- if not .Values.secrets.app.name -}}
 {{- fail "secrets.app.name is required (an existing Secret with ANUM_SECRETS_KEY and ANUM_DATABASE_URL)" -}}
 {{- end -}}

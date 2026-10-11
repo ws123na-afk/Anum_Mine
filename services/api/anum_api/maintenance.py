@@ -1,8 +1,9 @@
 """Cross-tenant maintenance without bypassing RLS.
 
-Four jobs have to find work in every tenant: the automation scheduler (due schedules),
+Five jobs have to find work in every tenant: the automation scheduler (due schedules),
 the voice retention purge (expired transcripts), the retrieval index purge (sources of
-expired memories, migration 0015) and ``python -m anum_api.rotate_secrets`` (stored
+expired memories, migration 0015), the conversation retention purge (idle
+conversations, migration 0021) and ``python -m anum_api.rotate_secrets`` (stored
 provider keys). They follow one pattern (migration 0011):
 
 1. **Discover** in a short read-only transaction that starts with

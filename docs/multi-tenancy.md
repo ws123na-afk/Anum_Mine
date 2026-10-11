@@ -46,6 +46,7 @@ Some jobs must find work in every tenant:
 - the automation scheduler (due schedules, [Automation](automation.md#scheduler));
 - the voice transcript purge (expired 30-day transcripts, [Voice](voice.md#storage-and-retention));
 - the retrieval index purge (index rows of expired memories, [Memory](memory.md#retention); migration `0015_retrieval_retention`);
+- the conversation retention purge (conversations idle past `ANUM_CONVERSATION_RETENTION_DAYS`, [Conversations](conversations.md#retention); migration `0021_conversation_retention`);
 - `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, [Runbooks](runbooks.md#rotating-anum_secrets_key)).
 
 They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automation`):
@@ -58,6 +59,7 @@ They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automa
    | `voice_sessions` | `id`, `tenant_id`, `workspace_id`, `user_id`, `expires_at` | `expires_at <= now() and transcript_purged_at is null` |
    | `workspace_model_configs` | `tenant_id`, `workspace_id` | `api_key_ciphertext is not null` |
    | `retrieval_sources` (`0015`) | `tenant_id`, `workspace_id`, `source_type`, `source_id`, `source_expires_at` | `source_type = 'memory' and source_expires_at <= now()` |
+   | `conversations` (`0021`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `updated_at` | `updated_at <= now() - interval '1 day'` (the purge then filters on the configured retention) |
 
 2. **Act.** Each discovered scope gets its own transaction as the application role, with that tenant, workspace (and user) set as RLS context. Every content read (transcript text, workflow steps, ciphertexts) and every write is checked by the normal tenant-isolation policies. Audit records are written there too.
 
@@ -69,7 +71,7 @@ Deployment:
 - Grant it to the operator login that runs the purge and rotation commands.
 - Like `anum_outbox_relay`, the role is cluster-wide and survives a downgrade.
 
-`tests/test_postgres_automation.py`, `tests/test_postgres_voice.py`, `tests/test_postgres_rotate_secrets.py` and `tests/test_postgres_retrieval.py` check that the role sees only those rows and columns and cannot write; the last two also check that a grant `WITH INHERIT FALSE` keeps the application role's own reads in one workspace while an inheriting grant would not.
+`tests/test_postgres_automation.py`, `tests/test_postgres_voice.py`, `tests/test_postgres_rotate_secrets.py`, `tests/test_postgres_retrieval.py` and `tests/test_postgres_conversations.py` check that the role sees only those rows and columns and cannot write; the last three also check that a grant `WITH INHERIT FALSE` keeps the application role's own reads in one workspace while an inheriting grant would not.
 
 ## Membership Directory Role
 

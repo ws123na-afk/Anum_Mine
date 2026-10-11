@@ -75,9 +75,39 @@ they live in `conversations` and `conversation_turns` (migration `0018_conversat
 under forced RLS whose policies check `anum.tenant_id`, `anum.workspace_id` and
 `anum.user_id`, like voice sessions. Turns reference their conversation by
 `(tenant_id, workspace_id, user_id, conversation_id)` with `ON DELETE CASCADE` and are
-ordered by an identity column. No other role is granted anything on these tables:
-nothing discovers conversations across tenants. Conversations are kept until the user
-deletes them or the workspace's data is deleted; there is no retention purge yet.
+ordered by an identity column. Only the retention purge looks across tenants, through
+the discovery-only maintenance role (below); no other role is granted anything on these
+tables.
+
+## Retention
+
+A conversation is deleted with all its turns once it has had no activity (its
+`updated_at`: creation or latest turn) for `ANUM_CONVERSATION_RETENTION_DAYS` days
+(default 30, the same as voice transcripts; `0` keeps conversations until their user
+deletes them or the workspace's data is deleted; at most 3650). Any new turn resets the
+clock, so a conversation in use is never purged.
+
+`python -m anum_api.conversation_retention [--dry-run]` runs the purge; the daily
+retention job `python -m anum_api.voice_retention` (the chart's `voiceRetention`
+CronJob, the Render cron job and the Oracle `retention` service) runs it too and reports
+it under `conversations` ([Runbooks](runbooks.md#voice-transcript-retention)). It follows
+the [maintenance pattern](multi-tenancy.md#maintenance-role):
+
+- **Discover.** Migration `0021_conversation_retention` grants `anum_maintenance` the
+  `id`, `tenant_id`, `workspace_id`, `user_id` and `updated_at` columns of
+  `conversations`, under a select-only policy that admits only conversations idle for at
+  least a day. It never sees a title or any turn, cannot write, and never sees a
+  conversation active within the last day whatever retention is configured. Discovery
+  pages by `(updated_at, id)`, so a dry run walks every batch.
+- **Act.** Each user's idle conversations are deleted in their own transaction as the
+  application role, with that tenant, workspace and user as RLS context; the idle check
+  is repeated there, so a turn added after discovery keeps the conversation. Turns go
+  with their conversation (`ON DELETE CASCADE`).
+
+Output: the retention in days and counts of conversations and turns, never text. The
+in-memory backend keeps nothing across restarts and has no purge; the command refuses
+it. The chart refuses a `config.ANUM_CONVERSATION_RETENTION_DAYS` that is not a whole
+number from 0 to 3650, as the API would at startup.
 
 ## Web
 
