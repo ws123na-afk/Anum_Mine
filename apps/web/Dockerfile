@@ -31,12 +31,20 @@ ARG VITE_ANUM_TTS_URL=
 ARG VITE_ANUM_OIDC_ISSUER=
 ARG VITE_ANUM_OIDC_CLIENT_ID=anum-web
 ARG VITE_ANUM_WORKSPACE_ID=
+# Optional browser error reporting (docs/observability.md#error-reporting): the public DSN of a
+# Sentry-compatible project (GlitchTip), https://<public key>@<host>/<project id>. Empty: off, and
+# the bundle contains no reporting code. Its origin is added to the CSP's connect-src below.
+ARG VITE_SENTRY_DSN=
+ARG VITE_SENTRY_ENVIRONMENT=production
 ENV VITE_ANUM_API_URL=$VITE_ANUM_API_URL \
     VITE_ANUM_TTS_URL=$VITE_ANUM_TTS_URL \
     VITE_ANUM_OIDC_ISSUER=$VITE_ANUM_OIDC_ISSUER \
     VITE_ANUM_OIDC_CLIENT_ID=$VITE_ANUM_OIDC_CLIENT_ID \
-    VITE_ANUM_WORKSPACE_ID=$VITE_ANUM_WORKSPACE_ID
-RUN pnpm --filter @anum/contracts build && pnpm --filter @anum/web build
+    VITE_ANUM_WORKSPACE_ID=$VITE_ANUM_WORKSPACE_ID \
+    VITE_SENTRY_DSN=$VITE_SENTRY_DSN \
+    VITE_SENTRY_ENVIRONMENT=$VITE_SENTRY_ENVIRONMENT
+RUN pnpm --filter @anum/contracts build && pnpm --filter @anum/web build \
+    && node --experimental-strip-types apps/web/scripts/sentry-csp-origin.ts > /repo/csp-error-reporting-origin
 
 FROM ${NGINX_IMAGE} AS runtime
 # Apply Alpine security updates published after the base image was built (image
@@ -46,7 +54,15 @@ RUN apk upgrade --no-cache
 # Origins the page may call besides itself (API, Keycloak issuer, optional voice server). Space-separated,
 # substituted into the Content-Security-Policy when the container starts.
 ENV ANUM_CSP_CONNECT_SRC="http://localhost:8000"
-COPY apps/web/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY apps/web/nginx/default.conf.template /tmp/default.conf.template
+COPY --from=build /repo/csp-error-reporting-origin /tmp/csp-error-reporting-origin
+# The error-reporting origin is fixed at build time, like the DSN in the bundle: connect-src names it
+# only when VITE_SENTRY_DSN was set (the script printed a validated scheme://host[:port] or nothing).
+RUN origin="$(cat /tmp/csp-error-reporting-origin)" \
+    && case "$origin" in ""|http://*|https://*) ;; *) echo "bad error-reporting origin" >&2; exit 1 ;; esac \
+    && mkdir -p /etc/nginx/templates \
+    && sed "s|__ANUM_CSP_ERROR_REPORTING_SRC__|${origin}|" /tmp/default.conf.template > /etc/nginx/templates/default.conf.template \
+    && rm /tmp/default.conf.template /tmp/csp-error-reporting-origin
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
 USER 101
 EXPOSE 8080

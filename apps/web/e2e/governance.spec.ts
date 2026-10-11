@@ -6,17 +6,25 @@ import { expect, test, type Page } from '@playwright/test';
 const now = new Date().toISOString();
 type Json = Record<string, unknown>;
 const envelope = (code: string, message: string) => ({ error: { code, message, correlation_id: 'corr_e2e', details: [] } });
-const orgAdminRequired = 'Organization administrator role required: this setting applies to every workspace in the organization';
+const orgAdminRequired = 'Organization administrator role required: this setting applies to every workspace in the organization, so owning a workspace is not enough. Ask the administrator of your ANUM sign-in (Keycloak) to assign you the realm role org_admin (on a self-hosted server: infra/oracle/keycloak-2fa.sh grant-org-admin <your username>), then sign out and sign in again';
 
 interface Options {
   /** What the summary reports for the caller. */
   canManage: boolean;
   /** Writes answer 403 even though the summary said the caller may manage. */
   writesForbidden?: boolean;
+  /** The caller's workspace role (installing a package needs owner). */
+  role?: 'owner' | 'member';
+  /** The governance summary (the capability check) fails with a 500. */
+  summaryFails?: boolean;
 }
 
 async function mockApi(page: Page, options: Options) {
   const calls: { method: string; path: string }[] = [];
+  const targets: Json[] = [{
+    id: 'configured-model', region: 'local', provider: 'ollama', model: 'llama3.2', status: 'unverified',
+    modalities: ['text'], sensitivity: ['standard'], cost_per_1k_tokens: 0, latency_ms: 1,
+  }];
   const packs: Json[] = [{
     id: 'policy_1', tenant_id: 'tenant_local', name: 'Organization baseline', description: 'Approval-first defaults', version: 1, active: true,
     rules: [{ action: 'integration.write', effect: 'require_approval', conditions: {} }], created_by: 'admin', created_at: now,
@@ -32,8 +40,9 @@ async function mockApi(page: Page, options: Options) {
     if (path === '/api/v1/auth/local/session') return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
     if (path === '/api/v1/tasks' || path === '/api/v1/approvals') return json([]);
     if (path === '/api/v1/workspace-memberships/current') {
-      return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: now, updated_at: now });
+      return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: options.role ?? 'owner', active: true, created_at: now, updated_at: now });
     }
+    if (path === '/api/v1/organization/governance' && options.summaryFails) return json(envelope('internal_error', 'Governance store unavailable'), 500);
     if (path === '/api/v1/organization/governance') {
       return json({
         tenant_id: 'tenant_local', policy_packs: packs.length, active_policy_packs: packs.filter((p) => p.active).length, role_templates: 1,
@@ -41,6 +50,20 @@ async function mockApi(page: Page, options: Options) {
       });
     }
     if (path === '/api/v1/policy-packs' && method === 'GET') return json(packs);
+    if (path === '/api/v1/enterprise/operations') {
+      return json({ tenant_id: 'tenant_local', active_regions: 1, healthy_targets: 0, degraded_targets: 0, installed_packages: 0, failover_ready: false, generated_at: now });
+    }
+    if (path === '/api/v1/marketplace/packages' && method === 'GET') {
+      return json([{ id: 'skill.research-core', name: 'Research Core', kind: 'skill', version: '1.0.0', publisher: 'ANUM', verified: true, permissions: ['memory:read'], regions: ['local'] }]);
+    }
+    if (path === '/api/v1/routing/targets' && method === 'GET') return json(targets);
+    if (path.startsWith('/api/v1/routing/targets/') && method === 'PUT') {
+      if (options.writesForbidden || !options.canManage) return json(envelope('forbidden', orgAdminRequired), 403);
+      const saved = request.postDataJSON() as Json;
+      const index = targets.findIndex((t) => t.id === saved.id);
+      if (index >= 0) targets[index] = saved; else targets.push(saved);
+      return json(saved);
+    }
     if (path === '/api/v1/role-templates' && method === 'GET') return json([{ id: 'role_1', tenant_id: 'tenant_local', name: 'Operator', permissions: ['task:read', 'task:run'], created_at: now }]);
     if (path === '/api/v1/organization/approval-rules' && method === 'GET') {
       return json([{ id: 'rule_1', tenant_id: 'tenant_local', name: 'Finance dual control', action_pattern: 'finance.*', minimum_approvers: 2, required_roles: ['owner'], enabled: true, created_at: now }]);
@@ -64,6 +87,7 @@ test('a workspace owner who is not an organization administrator reads tenant-wi
   await expect(page.getByRole('heading', { name: 'Governance center' })).toBeVisible();
   await expect(page.getByText(/Read only: policy packs, role templates and approval rules apply to every workspace in this organization/)).toBeVisible();
   await expect(page.getByText(/Owning this workspace is not enough/)).toBeVisible();
+  await expect(page.getByText(/assign you the realm role org_admin/)).toBeVisible();
   // Everything is still listed.
   await expect(page.getByText('Organization baseline')).toBeVisible();
   await expect(page.getByText('Operator')).toBeVisible();
@@ -101,3 +125,86 @@ test('a 403 on a change shows the API answer in place', async ({ page }) => {
   await expect(page.getByText(`Not allowed: ${orgAdminRequired}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Archive Organization baseline v1' })).toBeVisible();
 });
+
+test('enterprise: a workspace owner who is not an organization administrator reads routing targets with the reason', async ({ page }) => {
+  const calls = await mockApi(page, { canManage: false });
+  await page.goto('/#enterprise');
+
+  await expect(page.getByRole('heading', { name: 'Enterprise operations' })).toBeVisible();
+  await expect(page.getByText(/Read only: routing targets and the marketplace catalog apply to every workspace in this organization/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'configured-model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add routing target' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit configured-model' })).toHaveCount(0);
+  // Installing into this workspace is the workspace owner's call, not the organization's.
+  await expect(page.getByRole('button', { name: 'Install Research Core' })).toBeVisible();
+  expect(calls.some((c) => c.method === 'PUT' && c.path.startsWith('/api/v1/routing/targets/'))).toBe(false);
+});
+
+test('enterprise: a member sees neither routing edits nor installs, and why', async ({ page }) => {
+  await mockApi(page, { canManage: false, role: 'member' });
+  await page.goto('/#enterprise');
+
+  await expect(page.getByText('Research Core')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Install Research Core' })).toHaveCount(0);
+  await expect(page.getByText('Only workspace owners can install packages into this workspace.')).toBeVisible();
+});
+
+test('enterprise: an organization administrator adds a routing target', async ({ page }) => {
+  const calls = await mockApi(page, { canManage: true });
+  await page.goto('/#enterprise');
+
+  await expect(page.getByText(/Read only:/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add routing target' }).click();
+  const form = page.getByRole('form', { name: 'Routing target' });
+  await form.getByLabel('Target id').fill('eu-primary');
+  await form.getByLabel('Region').fill('eu-west');
+  await form.getByLabel('Provider').fill('openai-compatible');
+  await form.getByLabel('Model').fill('primary');
+  await form.getByRole('button', { name: 'Save target' }).click();
+  await expect(page.getByText('Routing target eu-primary saved.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'eu-primary' })).toBeVisible();
+  expect(calls.some((c) => c.method === 'PUT' && c.path === '/api/v1/routing/targets/eu-primary')).toBe(true);
+});
+
+test('enterprise: a 403 on saving a routing target shows the API answer in place', async ({ page }) => {
+  await mockApi(page, { canManage: true, writesForbidden: true });
+  await page.goto('/#enterprise');
+
+  await page.getByRole('button', { name: 'Edit configured-model' }).click();
+  await page.getByRole('form', { name: 'Routing target' }).getByRole('button', { name: 'Save target' }).click();
+  await expect(page.getByText(`Not allowed: ${orgAdminRequired}`)).toBeVisible();
+});
+
+test('enterprise: if the capability check fails the targets are still shown, read only, with the error', async ({ page }) => {
+  await mockApi(page, { canManage: true, summaryFails: true });
+  await page.goto('/#enterprise');
+
+  await expect(page.getByText(/Could not check whether you may change routing targets, so they are shown read only/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'configured-model' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add routing target' })).toHaveCount(0);
+});
+
+// Routing target cards: the name and placement get the card's text width; status and edit sit on
+// their own line under them (they used to share one row and squeeze the text at 1024px).
+for (const size of [
+  { width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 },
+]) {
+  test(`enterprise: routing target cards are readable at ${size.width}x${size.height}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await mockApi(page, { canManage: true });
+    await page.goto('/#enterprise');
+    const card = page.locator('.govTarget').first();
+    const heading = card.getByRole('heading', { name: 'configured-model' });
+    await expect(heading).toBeVisible();
+    const cardBox = (await card.boundingBox())!;
+    const textBox = (await heading.locator('..').boundingBox())!;
+    const edit = (await card.getByRole('button', { name: 'Edit configured-model' }).boundingBox())!;
+    // The text column takes most of the card, and the controls sit below the text, inside the card.
+    expect(textBox.width).toBeGreaterThan(cardBox.width * 0.6);
+    expect(edit.y).toBeGreaterThanOrEqual(textBox.y + textBox.height);
+    expect(edit.x + edit.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(size.width);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+}

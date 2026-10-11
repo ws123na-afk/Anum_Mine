@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'approvals_screen.dart';
-import 'retrieval_sources.dart';
 import 'sources_used.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
@@ -302,6 +301,10 @@ class _TaskDetailState extends State<TaskDetailScreen> {
   late WorkspaceTask task = widget.task;
   bool _busy = false;
 
+  /// The latest run is being fetched; [_runError] says why it failed.
+  bool _runLoading = true;
+  Object? _runError;
+
   @override
   void initState() {
     super.initState();
@@ -320,11 +323,30 @@ class _TaskDetailState extends State<TaskDetailScreen> {
   }
 
   Future<void> _refresh() async {
+    // initState starts with _runLoading set, where setState is not allowed.
+    if (!_runLoading || _runError != null) {
+      setState(() {
+        _runLoading = true;
+        _runError = null;
+      });
+    }
     try {
       final next = await widget.controller.loadTask(task.id);
-      if (mounted) setState(() => task = next);
-    } on Object {
-      // Keep showing the summary; pull to refresh can try again.
+      if (mounted) {
+        setState(() {
+          task = next;
+          _runLoading = false;
+        });
+      }
+    } on Object catch (error) {
+      // Keep showing the summary; the sources panel says what failed and
+      // offers a retry, as does pull to refresh.
+      if (mounted) {
+        setState(() {
+          _runLoading = false;
+          _runError = error;
+        });
+      }
     }
   }
 
@@ -446,9 +468,15 @@ class _TaskDetailState extends State<TaskDetailScreen> {
                             color: p.text, fontSize: 14.5, height: 1.5)),
                   ]),
             ),
-          // Only a run with a retrieval step has sources to show.
-          if (runSources(run) != null)
-            SourcesUsed(run: run, controller: widget.controller),
+          // Only a run with a retrieval step has sources to show; while the
+          // latest run loads, or if it failed to, the panel says so.
+          if (SourcesUsed.shows(run, loading: _runLoading, error: _runError))
+            SourcesUsed(
+                run: run,
+                controller: widget.controller,
+                loading: _runLoading,
+                error: _runError,
+                onRetry: _refresh),
           AnumSurface(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

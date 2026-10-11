@@ -69,12 +69,18 @@ jobs:
           STAGING_API_URL: ${{ vars.STAGING_API_URL }}
           # Staging Keycloak issuer (for example https://id.example.com/realms/anum).
           STAGING_OIDC_ISSUER: ${{ vars.STAGING_OIDC_ISSUER }}
+          # Optional browser error reporting: the public DSN of a Sentry-compatible project
+          # (a repository variable: the DSN is public, it ships in the bundle). Unset: the
+          # bundle has no reporting code (docs/observability.md#browser-errors-web-app).
+          STAGING_WEB_SENTRY_DSN: ${{ vars.STAGING_WEB_SENTRY_DSN }}
         run: |
           docker build \
             --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --build-arg "VITE_ANUM_API_URL=${STAGING_API_URL:-http://localhost:8000}" \
             --build-arg "VITE_ANUM_OIDC_ISSUER=${STAGING_OIDC_ISSUER:-}" \
+            --build-arg "VITE_SENTRY_DSN=${STAGING_WEB_SENTRY_DSN:-}" \
+            --build-arg "VITE_SENTRY_ENVIRONMENT=staging" \
             -f apps/web/Dockerfile -t "$IMAGE" .
       - name: Build backup image
         env:

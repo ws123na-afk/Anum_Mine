@@ -5,6 +5,9 @@ import { apiErrorFromResponse } from './errors';
 import type { ApiCurrentMembership } from './policy';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
+import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
+import * as chatMemory from './chatMemory';
+import { parseSourceNames, type SourceName } from './retrieval';
 
 // The one API base URL for every module. Deployments compile VITE_ANUM_API_URL in (apps/web/Dockerfile, infra/oracle/compose.yaml).
 export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
@@ -136,7 +139,7 @@ export interface SkillVersion { id: string; skill_id: string; version: string; n
 export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; }
 export interface WorkspaceInfo { id: string; tenant_id: string; name: string; created_at: string; updated_at: string; }
 export interface OnboardingStatus { complete: boolean; tenant: { id: string; name: string } | null; workspace: WorkspaceInfo | null; membership: { role: string } | null; model_configured: boolean; }
-export interface ModelConfig { provider: string; model: string; base_url: string; credential_configured: boolean; credential_hint: string | null; updated_at: string; }
+export type { ModelConfig, ModelConnectionTest } from './modelConfig';
 export interface NotificationPreferences { task_completed: boolean; approval_required: boolean; run_failed: boolean; automation_failed: boolean; email_enabled: boolean; desktop_enabled: boolean; }
 
 /** Local development session; a no-op when the app signs in through OIDC. */
@@ -150,8 +153,8 @@ export async function ensureLocalSession(): Promise<void> {
 export async function getOnboarding(): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'GET' }); }
 export async function completeOnboarding(organizationName: string, workspaceName: string): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'PUT', body: JSON.stringify({ organization_name: organizationName, workspace_name: workspaceName }) }); }
 export async function getModelConfig(): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'GET' }); }
-export async function saveModelConfig(provider: string, model: string, baseUrl: string, apiKey?: string): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify({ provider, model, base_url: baseUrl, api_key: apiKey || null }) }); }
-export interface ModelConnectionTest { provider: string; model: string; latency_ms: number; status: string }
+/** PUT /api/v1/model-config with a full body (Claude's routing fields included; src/lib/modelConfig.ts). */
+export async function saveModelConfigBody(body: ModelConfigBody): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify(body) }); }
 export async function testModelConfig(): Promise<ModelConnectionTest> { return request('/api/v1/model-config/test', { method: 'POST' }); }
 export async function getNotificationPreferences(): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'GET' }); }
 export async function saveNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'PUT', body: JSON.stringify(value) }); }
@@ -174,6 +177,9 @@ export async function getMemories(): Promise<MemoryNote[]> { return request('/ap
 export async function createMemory(taskId: string, content: string): Promise<MemoryNote> { return request('/api/v1/memories', { method: 'POST', body: JSON.stringify({ task_id: taskId, content, source_type: 'user', retention: { kind: 'task' } }) }); }
 export async function deleteMemory(id: string): Promise<void> { await requestVoid(`/api/v1/memories/${id}`, { method: 'DELETE' }); }
 export async function getFiles(): Promise<FileRecord[]> { return request('/api/v1/files', { method: 'GET' }); }
+export async function getFile(id: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}`, { method: 'GET' }); }
+/** Names of a run's sources in one bounded lookup (`path` from retrieval.sourceNamesPath). */
+export async function getSourceNames(path: string): Promise<SourceName[]> { return parseSourceNames(await request<unknown>(path, { method: 'GET' })); }
 export async function uploadFile(file: File): Promise<FileRecord> {
   return request('/api/v1/files', { method: 'POST', body: file, headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': file.name } });
 }
@@ -189,7 +195,12 @@ export async function getSkillInstallations(): Promise<SkillInstallation[]> { re
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
 export async function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }); }
 export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }
-export async function searchMemories(query: string): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query), { method: 'GET' }); }
+export async function searchMemories(query: string, onlyChats = false): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query, undefined, onlyChats), { method: 'GET' }); }
+/** The caller's own preferences, including "Remember things from my chats". */
+export async function getMyPreferences(): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'GET' }); }
+export async function saveMyPreferences(rememberConversations: boolean): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'PUT', body: JSON.stringify({ remember_conversations: rememberConversations }) }); }
+/** Deletes every memory remembered from the caller's own chats in this workspace. */
+export async function deleteMyChatMemories(): Promise<{ deleted: number }> { return request(chatMemory.CHAT_MEMORIES_PATH, { method: 'DELETE' }); }
 export async function getRetrievalStatus(): Promise<capabilities.RetrievalIndexStatus> { return request('/api/v1/retrieval/status', { method: 'GET' }); }
 export async function reindexRetrieval(): Promise<capabilities.ReindexResult> { return request('/api/v1/retrieval/index', { method: 'POST' }); }
 export async function getCurrentWorkspace(): Promise<WorkspaceInfo> { return request('/api/v1/workspaces/current', { method: 'GET' }); }

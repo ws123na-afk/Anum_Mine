@@ -211,29 +211,7 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
                 metadata: x.optMap('metadata') ?? const {})),
         result: j.optString('result'),
       );
-  WorkspaceApproval _approval(JsonReader j) => WorkspaceApproval(
-      id: j.string('id'),
-      taskId: j.string('task_id'),
-      action: j.string('action'),
-      reason: j.string('reason'),
-      risk: j.string('risk_level'),
-      status: j.string('status'),
-      createdAt: _date(j, 'created_at'),
-      arguments: j.optMap('arguments') ?? const {},
-      payloadHash: j.optString('payload_hash'),
-      expiresAt: j.optDate('expires_at')?.toLocal(),
-      decidedAt: j.optDate('decided_at')?.toLocal(),
-      decidedBy: j.optString('decided_by'),
-      decisionReason: j.optString('decision_reason'),
-      requestedBy: j.optString('requested_by'),
-      target: j.optString('target'),
-      requiredApprovals: j.optInt('required_approvals') ?? 1,
-      approvers: j.optObjects(
-          'approvers',
-          (a) => ApprovalApprover(
-              userId: a.string('user_id'),
-              approvedAt: _date(a, 'approved_at'),
-              reason: a.optString('reason'))));
+  WorkspaceApproval _approval(JsonReader j) => workspaceApprovalFromJson(j);
   WorkspaceAutomation _automation(JsonReader j,
       [List<JsonReader> workflows = const []]) {
     final workflowId = j.string('workflow_id');
@@ -310,3 +288,29 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
         _ => WorkStatus.created
       };
 }
+
+/// An API approval (`/api/v1/approvals`, a run response's `approval`, the
+/// developer merge approval) in the app's shape.
+WorkspaceApproval workspaceApprovalFromJson(JsonReader j) => WorkspaceApproval(
+    id: j.string('id'),
+    taskId: j.string('task_id'),
+    action: j.string('action'),
+    reason: j.string('reason'),
+    risk: j.string('risk_level'),
+    status: j.string('status'),
+    createdAt: j.date('created_at').toLocal(),
+    arguments: j.optMap('arguments') ?? const {},
+    payloadHash: j.optString('payload_hash'),
+    expiresAt: j.optDate('expires_at')?.toLocal(),
+    decidedAt: j.optDate('decided_at')?.toLocal(),
+    decidedBy: j.optString('decided_by'),
+    decisionReason: j.optString('decision_reason'),
+    requestedBy: j.optString('requested_by'),
+    target: j.optString('target'),
+    requiredApprovals: j.optInt('required_approvals') ?? 1,
+    approvers: j.optObjects(
+        'approvers',
+        (a) => ApprovalApprover(
+            userId: a.string('user_id'),
+            approvedAt: a.date('approved_at').toLocal(),
+            reason: a.optString('reason'))));

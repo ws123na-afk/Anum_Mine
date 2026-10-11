@@ -46,6 +46,25 @@ for name in values-staging values-production kind-values; do
   fi
 done
 
+# Secret-only settings reach the processes that read them: a key missing from
+# secrets.app.required/optional is silently never injected. ANUM_SENTRY_DSN (the error
+# reporting DSN carries an ingest key) must come from the anum-app Secret in the API and
+# the worker, and must not be rendered into the ConfigMap by default.
+secret_env_reaches() {
+  local key="$1" template="$2" rendered
+  rendered="$(helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" --show-only "templates/$template")"
+  grep -A5 -- "- name: $key\$" <<<"$rendered" | tr -d ' ' | tr '\n' '|' \
+    | grep -qF -- "-name:$key|valueFrom:|secretKeyRef:|name:anum-app|key:$key|optional:true|" \
+    || fail "$template: $key is not injected from the anum-app Secret"
+  log "$template: $key comes from the anum-app Secret"
+}
+for template in api.yaml worker.yaml; do
+  secret_env_reaches ANUM_SENTRY_DSN "$template"
+done
+if helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" --show-only templates/configmap.yaml | grep -q 'ANUM_SENTRY_DSN'; then
+  fail "configmap.yaml: ANUM_SENTRY_DSN must stay out of the ConfigMap unless config sets it"
+fi
+
 # The chart refuses what the API refuses (anum_api/hardening.py, identity.py), including
 # the Keycloak admin/admin default (any Keycloak admin credential in config or extraEnv).
 refuses() {

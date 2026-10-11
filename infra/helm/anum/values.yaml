@@ -47,6 +47,8 @@ secrets:
       - ANUM_DATABASE_URL
     # Keys read when present (secretKeyRef optional: true).
     # ANUM_OUTBOX_DATABASE_URL: a login granted only anum_outbox_relay.
+    # ANUM_SENTRY_DSN: the error-reporting DSN (it carries the project's ingest key);
+    # when the Secret has it, it wins over config.ANUM_SENTRY_DSN.
     optional:
       - ANUM_OUTBOX_DATABASE_URL
       - ANUM_VALKEY_URL
@@ -55,6 +57,8 @@ secrets:
       - ANUM_S3_SECRET_KEY
       - ANUM_EXTERNAL_WEBHOOK_URL
       - ANUM_EXTERNAL_WEBHOOK_API_KEY
+      - ANUM_SENTRY_DSN
+      - ANUM_SEARXNG_URL
   migration:
     # Secret with ANUM_DATABASE_URL for the migration login (owner of the schema,
     # see docs/deployment.md#database-roles). ANUM_SECRETS_KEY comes from secrets.app.
@@ -168,7 +172,9 @@ config:
   # https, or http to a service name without dots (http://<key>@glitchtip:8000/1);
   # the chart and the API refuse anything else. The DSN carries the project's ingest
   # key: to keep it out of the ConfigMap, leave this empty and put ANUM_SENTRY_DSN in
-  # secrets.app instead.
+  # the secrets.app Secret instead (listed in secrets.app.optional, injected into the
+  # API, the worker and the retention job). The chart cannot read a Secret: a DSN there
+  # is checked by the API at startup, which refuses the same values.
   ANUM_SENTRY_DSN: ""
   # Not set by the chart (development only): ANUM_APP_NAME, ANUM_AUTOMATION_DATABASE_PATH
   # (memory backend), ANUM_OBJECT_STORAGE_LOCAL_PATH (local file storage under

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@anum/contracts": "workspace:*",
+    "@sentry/browser": "10.75.3",
     "@vitejs/plugin-react": "latest",
     "kokoro-js": "1.2.1",
     "lucide-react": "latest",

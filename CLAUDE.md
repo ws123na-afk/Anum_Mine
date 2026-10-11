@@ -24,6 +24,11 @@ The owner wants finished features, not placeholders. Before calling any page or 
 - It passes the Responsive UI quality gate above, keyboard and screen-reader basics, and has unit plus e2e coverage of its main path.
 - Docs describe it. If something cannot be finished in the change, say so plainly and list it; never present a partial page as complete.
 
+## Working with the owner
+- Keep working until every module is enterprise-grade and complete (definition of done above, in depth); do not stop to ask whether to continue.
+- Messages to the owner are short: only what the owner must do (with exact steps), blockers, and decisions only the owner can make. Do not narrate progress, agent reports or test counts unless asked.
+- Merge PRs once CI is green; keep the next batch of work going.
+
 ## Skills in this repo
 - `anum-verify` — run the right local checks for what you changed.
 - `steward` — how to drive a red PR or `main` back to green.

@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import '../developer/developer_assist.dart';
+import '../developer/developer_assist_panel.dart';
+import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
 import 'chat_controller.dart';
 import 'chat_models.dart';
 
@@ -16,10 +20,19 @@ class AssistantScreen extends StatefulWidget {
     required this.controller,
     this.active = true,
     this.onOpenSettings,
+    this.developer,
+    this.onOpenDeveloper,
+    this.openLink = openInBrowser,
     super.key,
   });
 
   final ChatController controller;
+
+  /// "build ..." / "developer, ..." go to developer mode after a
+  /// confirmation instead of the model (docs/developer-mode.md).
+  final DeveloperAssist? developer;
+  final VoidCallback? onOpenDeveloper;
+  final LinkOpener openLink;
 
   /// The destination is the one on screen; loads on first show.
   final bool active;
@@ -53,7 +66,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
     super.initState();
     controller.addListener(_onChange);
     if (widget.active) _afterFrame(controller.ensureLoaded);
+    _syncDeveloper();
   }
+
+  /// The developer card polls for ready pull requests only while on screen.
+  void _syncDeveloper() => WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.developer?.setActive(widget.active);
+      });
 
   /// Loading notifies listeners, which must not happen while building.
   void _afterFrame(Future<void> Function() action) =>
@@ -68,6 +87,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
       oldWidget.controller.removeListener(_onChange);
       widget.controller.addListener(_onChange);
     }
+    if (oldWidget.developer != widget.developer) {
+      oldWidget.developer?.setActive(false);
+    }
+    _syncDeveloper();
     if (widget.active && !oldWidget.active) {
       _afterFrame(() async {
         await controller.ensureLoaded();
@@ -79,6 +102,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   void dispose() {
     controller.removeListener(_onChange);
+    widget.developer?.setActive(false);
     _draft.dispose();
     _scroll.dispose();
     _input.dispose();
@@ -151,7 +175,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final content = _draft.text.trim();
     if (content.isEmpty || controller.streaming) return;
     _draft.clear();
-    unawaited(controller.send(content));
+    final developer = widget.developer;
+    if (developer == null) {
+      unawaited(controller.send(content));
+      return;
+    }
+    unawaited(() async {
+      final handled = await developer.intercept(content);
+      if (handled == null) await controller.send(content);
+    }());
   }
 
   void _newConversation() {
@@ -190,7 +222,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
         child: SafeArea(
           bottom: false,
           child: ListenableBuilder(
-            listenable: Listenable.merge([controller, controller.listOpen]),
+            listenable: Listenable.merge(
+                [controller, controller.listOpen, widget.developer]),
             builder: (context, _) => LayoutBuilder(builder: (context, c) {
               final wide = c.maxWidth >= assistantTwoPaneWidth;
               if (wide && controller.listOpen.value) {
@@ -262,91 +295,105 @@ class _AssistantScreenState extends State<AssistantScreen> {
       if (controller.notice != null)
         _Notice(
             message: controller.notice!, onDismiss: controller.dismissNotice),
+      if (widget.developer case final developer? when developer.hasPanel)
+        DeveloperAssistPanel(
+          assist: developer,
+          onOpenDeveloper: widget.onOpenDeveloper,
+          openLink: widget.openLink,
+        ),
     ];
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _ChatHeader(
-        controller: controller,
-        compact: compact,
-        dense: dense,
-        onNew: _newConversation,
-      ),
-      const SizedBox(height: AnumSpacing.xs),
-      Expanded(
-        child: Stack(children: [
-          Positioned.fill(child: _messages()),
-          if (!_atBottom && controller.turns.isNotEmpty)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: AnumSpacing.xs,
-              child: Center(
-                child: FilledButton.tonalIcon(
-                  onPressed: _jumpToLatest,
-                  icon: const Icon(Icons.arrow_downward, size: 18),
-                  label: const Text('Jump to latest'),
+    // Header, messages, notices and composer, top to bottom. The notices get
+    // at most a third of the height and never more than the header and the
+    // composer leave (a short phone at large text), scrolling inside it.
+    return CustomMultiChildLayout(
+        delegate: _ChatColumnLayout(gap: AnumSpacing.xs),
+        children: [
+          LayoutId(
+            id: _ChatSlot.header,
+            child: _ChatHeader(
+              controller: controller,
+              compact: compact,
+              dense: dense,
+              onNew: _newConversation,
+            ),
+          ),
+          LayoutId(
+            id: _ChatSlot.messages,
+            child: Stack(children: [
+              Positioned.fill(child: _messages()),
+              if (!_atBottom && controller.turns.isNotEmpty)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: AnumSpacing.xs,
+                  child: Center(
+                    child: FilledButton.tonalIcon(
+                      onPressed: _jumpToLatest,
+                      icon: const Icon(Icons.arrow_downward, size: 18),
+                      label: const Text('Jump to latest'),
+                    ),
+                  ),
                 ),
+            ]),
+          ),
+          if (notices.isNotEmpty)
+            LayoutId(
+              id: _ChatSlot.notices,
+              child: SingleChildScrollView(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < notices.length; i++) ...[
+                        if (i > 0) const SizedBox(height: AnumSpacing.xs),
+                        notices[i],
+                      ],
+                    ]),
               ),
             ),
-        ]),
-      ),
-      if (notices.isNotEmpty) ...[
-        const SizedBox(height: AnumSpacing.xs),
-        ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: height / 3),
-          child: SingleChildScrollView(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (var i = 0; i < notices.length; i++) ...[
-                    if (i > 0) const SizedBox(height: AnumSpacing.xs),
-                    notices[i],
-                  ],
-                ]),
+          LayoutId(
+            id: _ChatSlot.composer,
+            child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Expanded(
+                child: TextField(
+                  key: const Key('chat-input'),
+                  controller: _draft,
+                  focusNode: _input,
+                  minLines: 1,
+                  maxLines: 5,
+                  maxLength: 8000,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    hintText: 'Ask the assistant…',
+                    counterText: '',
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AnumSpacing.md, vertical: AnumSpacing.sm),
+                    hintStyle: TextStyle(color: p.faint),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AnumSpacing.xs),
+              if (controller.streaming)
+                IconButton.filledTonal(
+                  key: const Key('chat-stop'),
+                  tooltip: 'Stop',
+                  onPressed: controller.stop,
+                  icon: const Icon(Icons.stop_rounded),
+                )
+              else
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _draft,
+                  builder: (context, value, _) => IconButton.filled(
+                    key: const Key('chat-send'),
+                    tooltip: 'Send',
+                    onPressed: value.text.trim().isEmpty ? null : _submit,
+                    icon: const Icon(Icons.arrow_upward),
+                  ),
+                ),
+            ]),
           ),
-        ),
-      ],
-      const SizedBox(height: AnumSpacing.xs),
-      Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Expanded(
-          child: TextField(
-            key: const Key('chat-input'),
-            controller: _draft,
-            focusNode: _input,
-            minLines: 1,
-            maxLines: 5,
-            maxLength: 8000,
-            keyboardType: TextInputType.multiline,
-            textInputAction: TextInputAction.newline,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: InputDecoration(
-              hintText: 'Ask the assistant…',
-              counterText: '',
-              contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AnumSpacing.md, vertical: AnumSpacing.sm),
-              hintStyle: TextStyle(color: p.faint),
-            ),
-          ),
-        ),
-        const SizedBox(width: AnumSpacing.xs),
-        if (controller.streaming)
-          IconButton.filledTonal(
-            key: const Key('chat-stop'),
-            tooltip: 'Stop',
-            onPressed: controller.stop,
-            icon: const Icon(Icons.stop_rounded),
-          )
-        else
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: _draft,
-            builder: (context, value, _) => IconButton.filled(
-              key: const Key('chat-send'),
-              tooltip: 'Send',
-              onPressed: value.text.trim().isEmpty ? null : _submit,
-              icon: const Icon(Icons.arrow_upward),
-            ),
-          ),
-      ]),
-    ]);
+        ]);
   }
 
   Widget _messages() {
@@ -420,6 +467,49 @@ class _AssistantScreenState extends State<AssistantScreen> {
       ),
     );
   }
+}
+
+enum _ChatSlot { header, messages, notices, composer }
+
+/// Lays out the chat column: the header and the composer at their natural
+/// height, the notices in at most a third of the height and only the space
+/// those two leave, and the messages in the rest.
+class _ChatColumnLayout extends MultiChildLayoutDelegate {
+  _ChatColumnLayout({required this.gap});
+  final double gap;
+
+  @override
+  void performLayout(Size size) {
+    final width = size.width;
+    BoxConstraints upTo(double height) => BoxConstraints(
+        minWidth: width, maxWidth: width, maxHeight: math.max(0, height));
+    // As in a Column: the header and the composer take their natural height.
+    final natural = BoxConstraints(minWidth: width, maxWidth: width);
+    final header = layoutChild(_ChatSlot.header, natural);
+    final composer = layoutChild(_ChatSlot.composer, natural);
+    var free = size.height - header.height - composer.height - 2 * gap;
+    var notices = Size.zero;
+    if (hasChild(_ChatSlot.notices)) {
+      notices = layoutChild(
+          _ChatSlot.notices, upTo(math.min(size.height / 3, free - gap)));
+      free -= notices.height + gap;
+    }
+    layoutChild(_ChatSlot.messages,
+        BoxConstraints.tightFor(width: width, height: math.max(0, free)));
+    var y = 0.0;
+    positionChild(_ChatSlot.header, Offset(0, y));
+    y += header.height + gap;
+    positionChild(_ChatSlot.messages, Offset(0, y));
+    y += math.max(0, free) + gap;
+    if (hasChild(_ChatSlot.notices)) {
+      positionChild(_ChatSlot.notices, Offset(0, y));
+      y += notices.height + gap;
+    }
+    positionChild(_ChatSlot.composer, Offset(0, y));
+  }
+
+  @override
+  bool shouldRelayout(_ChatColumnLayout oldDelegate) => oldDelegate.gap != gap;
 }
 
 class _ChatHeader extends StatelessWidget {

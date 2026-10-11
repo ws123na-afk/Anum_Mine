@@ -252,6 +252,46 @@ class ModelAvailability {
   bool get canSkip => workspaceConfigured || serverModel != null;
 }
 
+/// Model routing for the `anthropic` provider (docs/model-gateway.md#model-routing):
+/// quick replies (chat, voice, memory) use [fastModel], planning [capableModel].
+/// Null means not set: the saved model serves that route and no effort is sent.
+class ModelRouting {
+  const ModelRouting({
+    this.fastModel,
+    this.capableModel,
+    this.fastEffort,
+    this.capableEffort,
+  });
+
+  factory ModelRouting.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    return ModelRouting(
+      fastModel: r.optString('fast_model'),
+      capableModel: r.optString('capable_model'),
+      fastEffort: r.optString('fast_effort'),
+      capableEffort: r.optString('capable_effort'),
+    );
+  }
+
+  final String? fastModel;
+  final String? capableModel;
+  final String? fastEffort;
+  final String? capableEffort;
+
+  static String? _clean(String? value) {
+    final text = value?.trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  /// The PUT body fields; empty values are sent as null ("not set").
+  JsonMap toJson() => {
+        'fast_model': _clean(fastModel),
+        'capable_model': _clean(capableModel),
+        'fast_effort': _clean(fastEffort),
+        'capable_effort': _clean(capableEffort),
+      };
+}
+
 class ModelConfiguration {
   const ModelConfiguration({
     required this.provider,
@@ -260,6 +300,7 @@ class ModelConfiguration {
     required this.credentialConfigured,
     required this.updatedAt,
     this.credentialHint,
+    this.routing = const ModelRouting(),
   });
 
   factory ModelConfiguration.fromJson(JsonMap json) {
@@ -271,6 +312,7 @@ class ModelConfiguration {
       credentialConfigured: r.boolean('credential_configured'),
       credentialHint: r.optString('credential_hint'),
       updatedAt: r.date('updated_at').toUtc(),
+      routing: ModelRouting.fromJson(json),
     );
   }
 
@@ -280,6 +322,15 @@ class ModelConfiguration {
   final bool credentialConfigured;
   final String? credentialHint;
   final DateTime updatedAt;
+  final ModelRouting routing;
+
+  /// The model that answers chat, voice and memory.
+  String get fastModel =>
+      provider == 'anthropic' ? (routing.fastModel ?? model) : model;
+
+  /// The model that plans tasks and agent runs.
+  String get capableModel =>
+      provider == 'anthropic' ? (routing.capableModel ?? model) : model;
 }
 
 class NotificationPreferences {
@@ -318,5 +369,55 @@ class NotificationPreferences {
         'automation_failed': automationFailed,
         'email_enabled': emailEnabled,
         'desktop_enabled': desktopEnabled,
+      };
+}
+
+/// "Remember things from my chats" (`GET/PUT /api/v1/me/preferences`,
+/// docs/memory.md#from-conversations): the caller's own switch, and whether
+/// chat memory is on for them and, if not, why.
+class ChatMemoryPreference {
+  const ChatMemoryPreference(
+      {required this.rememberConversations, required this.state});
+
+  factory ChatMemoryPreference.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    return ChatMemoryPreference(
+      rememberConversations: r.boolean('remember_conversations'),
+      state: r.optString('conversation_memory') ?? 'unknown',
+    );
+  }
+
+  final bool rememberConversations;
+
+  /// `on`, `off_by_user`, `off_on_server`, `off_for_organization` or
+  /// `not_for_role`.
+  final String state;
+
+  static const _kept =
+      'Memories already saved from your chats stay until you delete them.';
+
+  /// Short status for the badge.
+  String get badge => switch (state) {
+        'on' => 'On',
+        'off_by_user' => 'Off',
+        'off_on_server' => 'Off on this server',
+        'off_for_organization' => 'Off for your organization',
+        'not_for_role' => 'Not remembering',
+        _ => 'Unknown',
+      };
+
+  /// What happens now and, when someone else keeps it off, who can change it.
+  String get explanation => switch (state) {
+        'on' =>
+          'The Assistant remembers lasting facts you state in your chats (your name, role or how you like answers) and uses them in later answers. Only you can see them.',
+        'off_by_user' =>
+          'Nothing new is remembered from your chats and no memories are used in your answers. $_kept',
+        'off_on_server' =>
+          'The server administrator has turned chat memory off for everyone. Your choice is saved and applies if it is turned back on. $_kept',
+        'off_for_organization' =>
+          'Your organization\'s memory policy does not allow memories from chats. An organization administrator can allow it under Governance. Your choice is saved and applies if they do. $_kept',
+        'not_for_role' =>
+          'Your role in this workspace cannot save memories, so nothing new is remembered from your chats. A workspace owner can change your role.',
+        _ => 'The server reported a state this version does not know.',
       };
 }

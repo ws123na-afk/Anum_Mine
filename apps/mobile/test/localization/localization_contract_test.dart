@@ -15,6 +15,7 @@ void main() {
       'approvals',
       'automation',
       'resources',
+      'developer',
       'settings',
       'refresh'
     ]) {

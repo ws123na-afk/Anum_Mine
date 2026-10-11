@@ -301,6 +301,23 @@ def test_web_bundle_settings_come_from_the_owner() -> None:
     assert web["ANUM_CSP_CONNECT_SRC"]["sync"] is False
 
 
+def test_web_error_reporting_dsn_is_an_optional_build_argument() -> None:
+    web = _env(_services()["anum-web"])
+    dockerfile = (REPO_ROOT / "apps" / "web" / "Dockerfile").read_text(encoding="utf-8")
+    # Empty by default in the image (reporting off); the owner may set it, never the repo.
+    assert "ARG VITE_SENTRY_DSN=\n" in dockerfile
+    assert web["VITE_SENTRY_DSN"] == {"key": "VITE_SENTRY_DSN", "sync": False}
+    assert web["VITE_SENTRY_ENVIRONMENT"]["value"] == "staging"
+    workflows = REPO_ROOT / ".github" / "workflows"
+    for name, variable in (
+        ("deploy-staging.yml", "STAGING_WEB_SENTRY_DSN"),
+        ("deploy-production.yml", "PRODUCTION_WEB_SENTRY_DSN"),
+    ):
+        text = (workflows / name).read_text(encoding="utf-8")
+        assert f"{variable}: ${{{{ vars.{variable} }}}}" in text, name
+        assert f'--build-arg "VITE_SENTRY_DSN=${{{variable}:-}}"' in text, name
+
+
 @pytest.fixture
 def blueprint_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
     """Settings as the API builds them from the Blueprint plus owner-entered values."""

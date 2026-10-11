@@ -21,12 +21,12 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .authorization import Permission
 from .dependencies import memory_repository_context, require_permission, tenant_context
-from .memory import MemoryListFilters, MemoryRepository
+from .memory import CONVERSATION_SOURCE_TYPE, MemoryListFilters, MemoryRepository
 from .model_gateway import ModelGateway, build_default_model_gateway
 from .retrieval import (
     Embedder,
@@ -250,6 +250,91 @@ async def reindex(
             },
         )
     return result
+
+
+# A run lists at most ANUM_RETRIEVAL_TOP_K (<= 20) passages; this bounds one lookup.
+MAX_SOURCE_LOOKUP = 50
+_TITLE_MAX_CHARS = 160
+
+
+class SourceName(BaseModel):
+    """What the caller may see of one memory or file a run used: never more than its list
+    routes return (a memory's first line, a file's metadata)."""
+
+    source_type: SourceType
+    source_id: str
+    found: bool = Field(description="False when the source is gone, expired or not visible to the caller")
+    title: str | None = Field(default=None, description="A memory's first non-empty line or a file's name")
+    kind: str | None = Field(
+        default=None,
+        description="`task_note` or `chat` for a memory (a chat memory is private to the caller); the file's content type",
+    )
+    task_id: str | None = None
+    size_bytes: int | None = None
+
+
+class SourceNames(BaseModel):
+    sources: list[SourceName]
+
+
+def memory_title(content: str) -> str:
+    """The first non-empty line of a memory, shortened for a list row."""
+    line = next((part.strip() for part in content.splitlines() if part.strip()), "")
+    return line if len(line) <= _TITLE_MAX_CHARS else line[: _TITLE_MAX_CHARS - 1].rstrip() + "\u2026"
+
+
+@router.get("/sources", response_model=SourceNames)
+async def source_names(
+    memory_id: list[str] = Query(default_factory=list, max_length=MAX_SOURCE_LOOKUP),
+    file_id: list[str] = Query(default_factory=list, max_length=MAX_SOURCE_LOOKUP),
+    context: TenantContext = Depends(tenant_context),
+    memories: MemoryRepository = Depends(memory_repository_context),
+) -> SourceNames:
+    require_permission(context, Permission.MEMORY_READ)
+    memory_ids = list(dict.fromkeys(memory_id))
+    file_ids = list(dict.fromkeys(file_id))
+    if len(memory_ids) + len(file_ids) > MAX_SOURCE_LOOKUP:
+        raise HTTPException(status_code=422, detail=f"Ask for at most {MAX_SOURCE_LOOKUP} sources at once")
+    from .files import open_file_metadata_store
+
+    now = datetime.now(timezone.utc)
+    names: list[SourceName] = []
+    for note_id in memory_ids:
+        # The repository scopes by tenant and workspace and hides another user's private
+        # memory (and RLS does too in PostgreSQL mode); an expired memory reads as gone.
+        note = memories.get(note_id, context)
+        if note is None or note.is_expired(now):
+            names.append(SourceName(source_type=SourceType.MEMORY, source_id=note_id, found=False))
+            continue
+        chat = note.provenance.source_type == CONVERSATION_SOURCE_TYPE
+        names.append(
+            SourceName(
+                source_type=SourceType.MEMORY,
+                source_id=note_id,
+                found=True,
+                title=memory_title(note.content) or None,
+                kind="chat" if chat else "task_note",
+                task_id=note.task_id,
+            )
+        )
+    if file_ids:
+        with open_file_metadata_store(context) as files:
+            for one in file_ids:
+                record = files.get(context, one)
+                if record is None:
+                    names.append(SourceName(source_type=SourceType.FILE, source_id=one, found=False))
+                    continue
+                names.append(
+                    SourceName(
+                        source_type=SourceType.FILE,
+                        source_id=one,
+                        found=True,
+                        title=record.name,
+                        kind=record.content_type,
+                        size_bytes=record.size_bytes,
+                    )
+                )
+    return SourceNames(sources=names)
 
 
 def _count(result: ReindexResult, outcome: IndexOutcome, before: RetrievalSource | None, model: str) -> None:

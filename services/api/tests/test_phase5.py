@@ -7,6 +7,8 @@ from anum_api.schemas import TenantContext
 
 OWNER = {"x-tenant-id": "tenant_scale", "x-workspace-id": "workspace_scale", "x-user-id": "owner_scale", "x-user-roles": "owner"}
 MEMBER = {**OWNER, "x-user-id": "member_scale", "x-user-roles": "member"}
+# The catalog and routing targets are tenant-wide: changing them needs org_admin.
+ORG_ADMIN = {**OWNER, "x-user-roles": "owner,org_admin"}
 PACKAGE = {
     "id": "skill.research-core", "name": "Research Core", "kind": "skill", "version": "1.0.0",
     "publisher": "ANUM", "verified": True, "permissions": ["memory:read"], "regions": ["us-east"],
@@ -39,7 +41,7 @@ def test_default_routing_reports_only_the_configured_model_as_unmeasured() -> No
 
 def test_marketplace_install_is_scoped_and_owner_managed() -> None:
     client = TestClient(app)
-    assert client.put(f"/api/v1/marketplace/packages/{PACKAGE['id']}", headers=OWNER, json=PACKAGE).status_code == 200
+    assert client.put(f"/api/v1/marketplace/packages/{PACKAGE['id']}", headers=ORG_ADMIN, json=PACKAGE).status_code == 200
     response = client.post("/api/v1/marketplace/packages/skill.research-core/install", headers=OWNER, json={})
     assert response.status_code == 201
     assert response.json()["package_id"] == "skill.research-core"
@@ -50,7 +52,7 @@ def test_marketplace_install_is_scoped_and_owner_managed() -> None:
 def test_routing_honors_region_and_cost_with_failover() -> None:
     client = TestClient(app)
     for target in (_target("us-primary", "us-east", 0.01), _target("eu-primary", "eu-west", 0.012)):
-        assert client.put(f"/api/v1/routing/targets/{target['id']}", headers=OWNER, json=target).status_code == 200
+        assert client.put(f"/api/v1/routing/targets/{target['id']}", headers=ORG_ADMIN, json=target).status_code == 200
     response = client.post("/api/v1/routing/decisions", headers=OWNER, json={"preferred_region": "eu-west", "max_cost_per_1k_tokens": 0.02})
     assert response.status_code == 200
     assert response.json()["target"]["region"] == "eu-west"
@@ -65,9 +67,9 @@ def test_routing_rejects_unsatisfied_policy() -> None:
 
 def test_enterprise_snapshot_reports_multi_region_readiness_from_real_targets() -> None:
     client = TestClient(app)
-    headers = {**OWNER, "x-tenant-id": "tenant_regions"}
+    headers = {**ORG_ADMIN, "x-tenant-id": "tenant_regions"}
     for target in (_target("us-a", "us-east", 0.01), _target("eu-a", "eu-west", 0.01)):
-        client.put(f"/api/v1/routing/targets/{target['id']}", headers=headers, json=target)
+        assert client.put(f"/api/v1/routing/targets/{target['id']}", headers=headers, json=target).status_code == 200
     payload = client.get("/api/v1/enterprise/operations", headers=headers).json()
     assert payload["active_regions"] >= 2
     assert payload["failover_ready"] is True
@@ -79,3 +81,30 @@ def test_member_can_read_catalog_but_cannot_configure_routes() -> None:
     context = TenantContext(tenant_id="tenant_scale", workspace_id="workspace_scale", user_id="member_scale", roles=["member"])
     target = store.targets(context)[0].model_dump(mode="json")
     assert client.put(f"/api/v1/routing/targets/{target['id']}", headers=MEMBER, json=target).status_code == 403
+
+
+def test_a_workspace_owner_cannot_change_the_tenant_catalog_or_routing() -> None:
+    client = TestClient(app)
+    tenant = {"x-tenant-id": "tenant_scale_deny"}
+    owner, admin = {**OWNER, **tenant}, {**ORG_ADMIN, **tenant}
+    package = {**PACKAGE, "id": "skill.deny-check"}
+    assert client.put(f"/api/v1/marketplace/packages/{package['id']}", headers=admin, json=package).status_code == 200
+    target = _target("deny-check", "us-east", 0.01)
+
+    refused = [
+        client.put("/api/v1/marketplace/packages/skill.other", headers=owner, json={**PACKAGE, "id": "skill.other"}),
+        client.delete(f"/api/v1/marketplace/packages/{package['id']}", headers=owner),
+        client.put(f"/api/v1/routing/targets/{target['id']}", headers=owner, json=target),
+    ]
+
+    for response in refused:
+        assert response.status_code == 403
+        assert response.json()["error"]["message"].startswith("Organization administrator role required")
+    # Nothing changed: the catalog still holds only the admin's package, no target was added.
+    assert [item["id"] for item in client.get("/api/v1/marketplace/packages", headers=owner).json()] == [package["id"]]
+    assert "deny-check" not in {t["id"] for t in client.get("/api/v1/routing/targets", headers=owner).json()}
+    # Installing into this workspace stays a workspace-owner action.
+    assert client.post(f"/api/v1/marketplace/packages/{package['id']}/install", headers=owner, json={}).status_code == 201
+    assert client.delete(f"/api/v1/marketplace/packages/{package['id']}/install", headers=owner).status_code == 204
+    # The admin may remove the package once nothing installs it.
+    assert client.delete(f"/api/v1/marketplace/packages/{package['id']}", headers=admin).status_code == 204

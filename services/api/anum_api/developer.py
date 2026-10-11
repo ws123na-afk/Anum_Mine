@@ -266,8 +266,21 @@ def mentions_protected(text: str) -> bool:
 # -- storage ------------------------------------------------------------------------------
 
 
+class DeveloperAdmissionError(Exception):
+    """``admit`` refused a new request: ``reason`` is ``"active"`` or ``"daily_limit"``."""
+
+    def __init__(self, reason: Literal["active", "daily_limit"]) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 class DeveloperStoreProtocol(Protocol):
     def add(self, request: DeveloperRequest) -> DeveloperRequest: ...
+    def admit(self, request: DeveloperRequest, *, since: datetime, limit: int) -> DeveloperRequest:
+        """Store ``request`` only if its scope has no queued or coding request and fewer than
+        ``limit`` requests created since ``since``. The checks and the insert are one atomic
+        step; a refusal raises ``DeveloperAdmissionError``."""
+        ...
     def get(self, request_id: str, context: TenantContext) -> DeveloperRequest | None: ...
     def save(self, request: DeveloperRequest) -> DeveloperRequest: ...
     def list(
@@ -296,6 +309,17 @@ class InMemoryDeveloperStore:
 
     def add(self, request: DeveloperRequest) -> DeveloperRequest:
         with self._lock:
+            self._items[request.id] = request.model_copy(deep=True)
+        return request
+
+    def admit(self, request: DeveloperRequest, *, since: datetime, limit: int) -> DeveloperRequest:
+        scope = (request.tenant_id, request.workspace_id)
+        with self._lock:
+            scoped = [item for item in self._items.values() if (item.tenant_id, item.workspace_id) == scope]
+            if any(item.status in ACTIVE for item in scoped):
+                raise DeveloperAdmissionError("active")
+            if sum(1 for item in scoped if item.created_at >= since) >= limit:
+                raise DeveloperAdmissionError("daily_limit")
             self._items[request.id] = request.model_copy(deep=True)
         return request
 
@@ -501,6 +525,11 @@ async def sync(request: DeveloperRequest, *, force: bool = False) -> tuple[Devel
         pull = await client.find_pull(request.branch)
         checks = await client.checks(pull.head_sha) if pull is not None and pull.state == "open" and pull.head_sha else None
         new_status, reason = derive_status(request, run, pull, checks, now)
+        if new_status in ACTIVE and previous not in ACTIVE:
+            # Never back to queued or coding once a request left them (a pull request briefly
+            # missing from GitHub's answer): another request may have been admitted since, and
+            # at most one per workspace is active (uq_developer_requests_one_active).
+            new_status, reason = previous, None
         if new_status == DevRequestStatus.FAILED and run is not None and reason is None:
             step = await client.failed_step(run.id)
             reason = FAILED_STEP_REASONS.get(step or "", f"The developer run failed{f' at {step!r}' if step else ''}.")
@@ -742,6 +771,25 @@ def _retire_merge_task(repository: AnumRepository, context: TenantContext, reque
     )
 
 
+def _mark_not_sent(context: TenantContext, request: DeveloperRequest, reason: str) -> None:
+    """Fail an admitted request whose dispatch did not go through, so it blocks nothing.
+
+    If even this write fails, ``sync`` fails the queued request once ``RUN_START_GRACE``
+    passes without a workflow run.
+    """
+    request.status = DevRequestStatus.FAILED
+    request.failure_reason = reason
+    request.updated_at = utc_now()
+    try:
+        with open_developer_store(context) as store:
+            store.save(request)
+    except Exception:
+        logger.exception(
+            "developer_mark_not_sent_failed",
+            extra={"anum_developer": {"event": "mark_not_sent_failed", "request_id": request.id}},
+        )
+
+
 @router.get("/setup", response_model=DeveloperSetup)
 async def get_setup(context: TenantContext = Depends(tenant_context)) -> DeveloperSetup:
     """What is configured (never the token itself) and what is missing."""
@@ -809,22 +857,26 @@ async def create_request(
                 "change unless you allow it explicitly."
             ),
         )
-    with open_developer_store(context) as store:
-        if store.active(context):
+    # One budgeted model action: refused (402) when the monthly model budget is used up.
+    check_model_budget(context)
+    # Admission is atomic with the insert and committed before anything is sent to GitHub:
+    # two concurrent creates cannot both pass the "nothing active" and daily-limit checks.
+    try:
+        with open_developer_store(context) as store:
+            store.admit(request, since=now - timedelta(days=1), limit=developer_settings.max_requests_per_day)
+    except DeveloperAdmissionError as exc:
+        if exc.reason == "active":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="A developer request is already queued or coding. Wait for it to open its pull request, or cancel it.",
-            )
-        if store.count_since(context, now - timedelta(days=1)) >= developer_settings.max_requests_per_day:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=(
-                    f"Developer mode allows {developer_settings.max_requests_per_day} requests a day. "
-                    "Try again tomorrow or raise ANUM_DEVELOPER_MAX_REQUESTS_PER_DAY."
-                ),
-            )
-    # One budgeted model action: refused (402) when the monthly model budget is used up.
-    check_model_budget(context)
+            ) from None
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Developer mode allows {developer_settings.max_requests_per_day} requests a day. "
+                "Try again tomorrow or raise ANUM_DEVELOPER_MAX_REQUESTS_PER_DAY."
+            ),
+        ) from None
     client = github_client()
     try:
         await client.dispatch(
@@ -837,11 +889,15 @@ async def create_request(
             }
         )
     except GitHubError as exc:
+        _mark_not_sent(context, request, f"Not sent to GitHub: {exc.message}")
         _audit(repository, context, "developer.request.dispatch_failed", request, "failure", {"github_status": exc.status})
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"The request could not be sent to GitHub. {exc.message}",
         ) from None
+    except BaseException:
+        _mark_not_sent(context, request, "Not sent: the API stopped while sending the request to GitHub.")
+        raise
     record_model_usage(
         context,
         ModelUsage(
@@ -852,8 +908,6 @@ async def create_request(
             estimated_cost_usd=developer_settings.request_cost_usd,
         ),
     )
-    with open_developer_store(context) as store:
-        store.add(request)
     _audit(
         repository,
         context,

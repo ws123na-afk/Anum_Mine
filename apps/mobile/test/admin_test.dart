@@ -88,8 +88,14 @@ class AdminTransport implements ApiTransport {
   AdminTransport(
       {this.forbidden = false,
       this.role = 'owner',
-      this.policyForbidden = false});
+      this.policyForbidden = false,
+      this.orgAdmin = false})
+      : budgets = {..._budgets, 'can_manage_tenant_budget': orgAdmin};
   final bool forbidden;
+
+  /// The caller is an organization administrator (`org_admin`): the API lets
+  /// it change the organization budget and says so in the overview.
+  final bool orgAdmin;
 
   /// Role from `/workspace-memberships/current`; null answers 404.
   final String? role;
@@ -102,7 +108,7 @@ class AdminTransport implements ApiTransport {
     _member('user_b', 'member')
   ];
   List<JsonMap> invitations = [_invitation()];
-  JsonMap budgets = Map.of(_budgets);
+  JsonMap budgets;
   JsonMap policy = {
     'two_person_rule': false,
     'medium_risk_requires_approval': false,
@@ -185,6 +191,23 @@ class AdminTransport implements ApiTransport {
       return ok(members.last);
     }
     if (path.endsWith('/model-budgets')) return ok(budgets);
+    if (path.endsWith('/model-budgets/tenant')) {
+      if (!orgAdmin) {
+        return ApiResponse(
+            statusCode: 403,
+            body: _envelope('forbidden',
+                'Organization administrator role required: this setting applies to every workspace in the organization'));
+      }
+      final tenant = Map.of(budgets['tenant']! as JsonMap)
+        ..['budget'] = {
+          'scope': 'tenant',
+          ...r.body!,
+          'updated_at': '2026-10-06T12:00:00Z',
+          'updated_by': 'user_owner'
+        };
+      budgets = {...budgets, 'tenant': tenant};
+      return ok(budgets);
+    }
     if (path.endsWith('/model-budgets/workspace')) {
       final workspace = Map.of(budgets['workspace']! as JsonMap)
         ..['budget'] = {
@@ -506,6 +529,74 @@ void main() {
       expect(transport.requests.last.body,
           {'monthly_cost_limit_usd': 25.0, 'monthly_token_limit': 5000000});
       expect(find.text('Used up'), findsNothing);
+    });
+  });
+
+  group('organization budget', () {
+    test('the flag is read from the overview; a missing flag is read only', () {
+      expect(BudgetOverview.fromJson(_budgets).canManageTenantBudget, isFalse);
+      expect(
+          BudgetOverview.fromJson(
+                  {..._budgets, 'can_manage_tenant_budget': true})
+              .canManageTenantBudget,
+          isTrue);
+    });
+
+    testWidgets(
+        'a workspace owner who is not an organization administrator reads it',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 3000);
+      addTearDown(tester.view.reset);
+      final transport = AdminTransport();
+      final controller =
+          BudgetsController(ApiAdminRepository(await _api(transport)));
+      await tester.pumpWidget(_app(BudgetsScreen(controller: controller)));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('tenant-read-only')), findsOneWidget);
+      expect(find.textContaining('only an organization administrator can'),
+          findsOneWidget);
+      expect(find.byKey(const Key('tenant-cost')), findsNothing);
+      expect(find.byKey(const Key('tenant-tokens')), findsNothing);
+      // The workspace's own budget stays editable for its owner.
+      expect(find.byKey(const Key('workspace-cost')), findsOneWidget);
+      expect(find.text('Save limits'), findsOneWidget);
+      expect(
+          transport.requests.any((r) =>
+              r.method == 'PUT' && r.uri.path.endsWith('/model-budgets/tenant')),
+          isFalse);
+    });
+
+    testWidgets('an organization administrator sets it', (tester) async {
+      tester.view.physicalSize = const Size(1200, 3000);
+      addTearDown(tester.view.reset);
+      final transport = AdminTransport(orgAdmin: true);
+      final controller =
+          BudgetsController(ApiAdminRepository(await _api(transport)));
+      await tester.pumpWidget(_app(BudgetsScreen(controller: controller)));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('tenant-read-only')), findsNothing);
+      await tester.enterText(find.byKey(const Key('tenant-tokens')), '9000');
+      await tester.ensureVisible(find.text('Save limits').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save limits').first);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('tenant-notice')), findsOneWidget);
+      expect(find.text('Budget saved.'), findsOneWidget);
+      expect(transport.requests.last.uri.path, '/api/v1/model-budgets/tenant');
+      expect(transport.requests.last.body,
+          {'monthly_cost_limit_usd': null, 'monthly_token_limit': 9000});
+    });
+
+    test('a refused change shows the API answer', () async {
+      final controller =
+          BudgetsController(ApiAdminRepository(await _api(AdminTransport())));
+      await controller.load();
+      expect(await controller.save('tenant', '', '5'), isFalse);
+      expect(controller.notices['tenant'],
+          startsWith('Not allowed: Organization administrator role required'));
+      expect(controller.overview!.tenant.budget, isNull);
     });
   });
 

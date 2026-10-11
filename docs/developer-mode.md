@@ -7,7 +7,7 @@ No code runs on the ANUM servers (or the Oracle VM). Coding runs in GitHub Actio
 ## Flow
 
 1. **Request.** An owner sends text from the Developer view, or starts a chat message or a spoken sentence with `developer`, `build` or `Anum build`. Chat and voice first answer "I'll ask the developer to: … Start?" and create the request only after Start (or a spoken "yes"). Non-owners get a polite refusal.
-2. **Dispatch.** `POST /api/v1/developer/requests` stores a `developer_requests` row and sends a `repository_dispatch` of type `anum-dev-request` with the request id and text.
+2. **Dispatch.** `POST /api/v1/developer/requests` first admits the request and commits its `developer_requests` row (see [Admission](#admission)), then sends a `repository_dispatch` of type `anum-dev-request` with the request id and text. If GitHub refuses the dispatch, or the API stops while sending it, the row is marked `failed` with the reason (`Not sent to GitHub: …`) so it blocks nothing, and nothing is charged to the model budget.
 3. **Coding.** The workflow's `code` job checks out the base branch, creates `anum-dev/<request id>`, installs dependencies and runs the agent with `CLAUDE.md`, the definition of done and the `anum-verify` checks as its instructions. The agent commits locally; it has a read-only `GITHUB_TOKEN` and cannot push.
 4. **Publish.** The `publish` job loads the commits from a git bundle, refuses protected paths, pushes with `ANUM_DEV_PUSH_TOKEN` (a token from a person, so the pull request triggers CI) and opens a **draft** pull request that names the request id.
 5. **Progress.** `GET /api/v1/developer/requests` reads the workflow run (by its `run-name`, `anum-dev <id>`), the pull request (by branch) and CI (every Actions run on the head commit except this workflow, plus commit statuses) from GitHub. Results are cached for `ANUM_DEVELOPER_STATUS_CACHE_SECONDS` (15 s) and stored on the row, so the list still shows the last known state when GitHub is unreachable.
@@ -32,13 +32,26 @@ All routes need `developer:manage`, which only the `owner` role holds.
 
 Every step is audited: `developer.request.created`, `.refused`, `.dispatch_failed`, `.status_changed` (actor `system`), `.cancelled`, `developer.merge.requested`, `.blocked`, `.completed`, `.refused`, plus the usual `approval.*` records.
 
-**Budget and rate limits.** Each request counts as one budgeted model action of `ANUM_DEVELOPER_REQUEST_COST_USD` (default 1.00) against the tenant and workspace monthly budgets, and is refused (402) once they are used up. At most one request is queued or coding at a time (the workflow also runs one at a time) and at most `ANUM_DEVELOPER_MAX_REQUESTS_PER_DAY` (10) are created per workspace per day. The coding run itself is billed to the `ANTHROPIC_API_KEY` in GitHub.
+**Budget and rate limits.** Each request sent to GitHub counts as one budgeted model action of `ANUM_DEVELOPER_REQUEST_COST_USD` (default 1.00) against the tenant and workspace monthly budgets, and is refused (402) once they are used up. At most one request per workspace is queued or coding at a time (the workflow also runs one at a time) and at most `ANUM_DEVELOPER_MAX_REQUESTS_PER_DAY` (10) are created per workspace per day; a request GitHub refused stays in the list as `failed` and still counts toward the day. The coding run itself is billed to the `ANTHROPIC_API_KEY` in GitHub.
+
+### Admission
+
+The "one queued or coding request" and daily-limit checks and the insert are one atomic step, committed before anything is sent to GitHub, so two concurrent creates (two tabs, a chat and a voice confirmation) cannot both pass and both dispatch:
+
+- **PostgreSQL:** in the request's tenant and workspace RLS context, the transaction takes `pg_advisory_xact_lock` on a key derived from the tenant and workspace, then counts and inserts. A concurrent create for the same workspace waits for that commit and then sees the new row (409). The partial unique index `uq_developer_requests_one_active` on `(tenant_id, workspace_id) where status in ('queued', 'coding')` (migration `0023_developer_one_active`) enforces the same rule for any writer that skips the lock.
+- **Memory backend:** the same checks and the insert run under the store's lock.
+
+A request never returns to `queued` or `coding` once it left them (a pull request briefly missing from GitHub's answer keeps the last status). If the API dies between admitting a request and marking a failed dispatch, the request stays `queued` until the next status refresh after 30 minutes without a workflow run fails it ("The developer workflow never started").
 
 ## Clients
 
 - **Web:** the Developer view (owners only; hidden in the navigation for everyone else, and an explanation if opened by link) lists requests with the status timeline, pull request and run links, CI summary, Approve & merge (opens the approval with its payload hash, then Confirm merge), Cancel, search and paging. It shows the setup state with the missing setting names, and an empty state with example requests. It refreshes every 20 s while something is moving.
 - **Chat:** the Assistant intercepts developer commands before they reach the model and shows the confirmation card.
 - **Voice:** the same commands, confirmed by "yes"/"start". When a pull request becomes ready ANUM says "The change is ready for review: …. Say approve to merge." Saying "approve" opens the merge approval with its hash on screen; the merge still needs a tap on Confirm merge. Voice never approves by itself.
+- **Flutter (Android, iOS, tablets):** the same three surfaces, over the same routes ([Mobile](mobile.md#developer-mode)).
+  - *Developer screen* (`lib/features/developer/`): listed in the navigation only for an active owner (`GET /api/v1/workspace-memberships/current` says `owner`; last in the rail, under More on phones); a deep link (`/developer`) for anyone else, or a `403` from the API, explains what it is and who can use it. It shows the setup state with the missing setting names (never values), the request form (the protected-topics tick, today's use, one request at a time), search (`q`) and keyset paging (Load older requests), and an empty state with example requests. A request opens a detail page with the timeline, the one-line summary, the CI summary, failure and merge errors, Pull request and Coding run links (opened in the browser through `url_launcher`; only `https` links), Check now, Cancel (after a confirmation) and Approve & merge. Approve & merge only calls `merge-approval` and shows the approval: tool, arguments, target and the full payload hash; the merge happens only on Confirm merge, which sends `POST /api/v1/approvals/{id}/approve` with `{"payload_hash": …}` exactly as the Approvals screen does, then refreshes the request. It refreshes every 20 s while something is moving and every 60 s while a merge waits, only while it is on screen.
+  - *Assistant:* the composer sends "build …", "developer, …" and "Anum build …" to developer mode instead of the model and shows the "Start?" card above the composer (Start or Cancel). Non-owners get the polite refusal; nothing is sent.
+  - *Voice:* the answer to "Start?" is spoken and, with wake by name on, the app listens once for "yes"/"no" without the name. A ready pull request is announced while Voice is on screen; "approve" opens the approval with its payload hash on screen, and only a tap on Confirm merge approves it.
 
 ## Setup (one time, owner)
 
@@ -67,14 +80,15 @@ Missing or invalid settings never stop the API; the Developer view shows the set
 | Leaking the GitHub token | Both tokens are scoped to one repository. The API token lives only in the environment as a secret string, goes only into the `Authorization` header and never into responses, audit metadata or logs (errors carry GitHub's status and short message). The push token exists only in the publish job, which runs no repository code. |
 | Merging unreviewed or failing code | Merge only through the high-risk tool after an approval bound by payload hash to the head SHA; checks are re-read at merge time; GitHub's own `sha` check refuses a moved head. Governance rules and the two-person rule apply. |
 | Other tenants using the operator's repository | `ANUM_DEVELOPER_TENANT_ID` (and workspace) gate every route; rows are tenant- and workspace-scoped under forced RLS (migration `0022_developer_requests`). |
-| Runaway cost | One active request, a daily cap, the monthly model budget, a 75-minute job timeout and a 150-turn agent limit. |
+| Runaway cost | One active request (admitted atomically, backed by a unique index), a daily cap, the monthly model budget, a 75-minute job timeout and a 150-turn agent limit. |
 
 ## Storage
 
 `developer_requests` (migration `0022_developer_requests`, expand-only): request text and source, status, branch, run and pull request ids and links, head SHA, CI summary (JSONB), failure and merge errors, merge approval and task ids, merge commit, timestamps. Forced RLS on `anum.tenant_id` and `anum.workspace_id`; no other role is granted anything. The migration was written on a parallel branch chained after `0020_tenants_rls` and must be re-chained onto the newest migration when it lands.
 
+`0023_developer_one_active` (expand-only) builds `uq_developer_requests_one_active` `CONCURRENTLY`. Before that, any workspace that already holds more than one queued or coding request (left by the admission race this revision closes) keeps its newest one and the others are marked `failed` ("Not started: another request for this workspace was already queued or coding."). The migration login sets no tenant context, so that one update runs with RLS not forced for the table owner inside the migration transaction, which forces it again, as `0007_event_outbox` does; no role is granted anything.
+
 ## Not covered yet
 
-- The Flutter app has no Developer screen; owners use the web app or voice there.
 - Requests started from GitHub issues are not tracked in ANUM.
 - Deploy after merge is the repository's existing pipeline; ANUM does not report deploy progress.

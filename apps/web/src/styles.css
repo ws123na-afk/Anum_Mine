@@ -182,6 +182,14 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .detailGrid { display: grid; gap: var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); margin: var(--d-s5) 0 0; }
 .settingsForm .muted { display: block; margin-top: var(--d-s3); }
 .settingsStack { display: grid; gap: var(--d-s5); max-width: 880px; }
+/* Settings sections (Workspace, Privacy): pill switcher above the stack. */
+.settingsTabs { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-bottom: var(--d-s5); }
+.settingsTabs button {
+  background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted);
+  font-size: 14px; font-weight: 600; min-height: 44px; padding: 0 var(--d-s4);
+}
+.settingsTabs button[aria-current="page"] { background: var(--d-glass-3); border-color: rgba(167, 139, 250, .45); color: var(--d-text); }
+.settingsTabs button:hover { color: var(--d-text); }
 .taskSummary dl, .agentRow dl, .inlineDetails { display: grid; gap: var(--d-s3); margin: var(--d-s5) 0 0; }
 dl div { min-width: 0; }
 dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
@@ -217,12 +225,38 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
 
 /* Sources */
 .sourcesList { list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
-.sourceRow { align-items: flex-start; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); padding: var(--d-s3) 0; }
-.sourceRow:first-child { border-top: 0; }
-.sourceRow small { color: var(--d-faint); display: block; font-size: 12px; margin-top: 2px; }
+.sourcesList > li + li { border-top: 1px solid var(--d-line); }
+.sourceRow { align-items: flex-start; display: flex; gap: var(--d-s3); padding: var(--d-s3) 0; width: 100%; }
+.sourceText { flex: 1 1 auto; min-width: 0; }
+.sourceTitle { display: block; overflow-wrap: anywhere; }
+.sourceRow small { color: var(--d-faint); display: block; font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
 .sourceRow code { font-size: 12px; overflow-wrap: anywhere; }
 .sourceIcon { color: var(--d-sky); }
 .sourceIcon svg { height: 16px; width: 16px; }
+/* A source the lookup found opens it: the whole row is the button, with a hover tint inset by the panel's own gap. */
+.sourceLink { background: none; border: 0; border-radius: var(--d-r-control); color: inherit; font: inherit; margin: 0 calc(-1 * var(--d-s2)); padding: var(--d-s3) var(--d-s2); text-align: start; width: calc(100% + 2 * var(--d-s2)); }
+.sourceLink:hover { background: var(--d-glass-1); }
+.sourceLink:hover .sourceTitle { color: var(--d-sky); }
+.sourceChevron { align-self: center; color: var(--d-faint); flex: none; }
+.sourcesStatus { align-items: center; flex-wrap: wrap; }
+.sourcesStatus > span { flex: 1 1 16rem; min-width: 0; }
+.sourcesStatus button { min-height: 44px; }
+/* A record opened from elsewhere (a memory or file a run used) is marked until the person moves on. */
+.focusedRow { background: rgba(125, 211, 252, .07); box-shadow: inset 3px 0 0 var(--d-sky); }
+.focusedRow:focus { outline: none; }
+.focusedRow:focus-visible { outline: 2px solid var(--d-sky); outline-offset: -2px; }
+.featureChip.focusChip { background: rgba(125, 211, 252, .12); color: var(--d-sky); display: flex; margin-bottom: var(--d-s1); text-transform: none; }
+.rowLink { background: none; border: 0; color: inherit; font: inherit; padding: 0; text-align: start; }
+.rowLink:hover strong { color: var(--d-sky); text-decoration: underline; }
+.fileDetail { margin-bottom: var(--d-s5); padding: var(--d-s5); }
+.fileDetail h2:focus { outline: none; }
+.fileDetail .taskMeta > .wideMeta { grid-column: 1 / -1; }
+.fileDetail h2 { overflow-wrap: anywhere; }
+.fileDetail .sectionHeader { flex-wrap: nowrap; align-items: flex-start; }
+.fileDetail .sectionHeader > div { min-width: 0; }
+.memoryFocusMissing { align-items: center; flex-wrap: wrap; margin-bottom: var(--d-s4); }
+.memoryFocusMissing > span { flex: 1 1 16rem; min-width: 0; }
+.memoryFocusMissing button { min-height: 44px; }
 
 /* Module intro (page lead under the title) */
 .moduleIntro { align-items: flex-end; display: flex; flex-wrap: wrap; gap: var(--d-s4); justify-content: space-between; margin-bottom: var(--d-s5); }
@@ -386,7 +420,7 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
   .metrics.three > :last-child { grid-column: 1 / -1; }
   .metric { padding: var(--d-s4); }
   .metric > strong { font-size: 28px; }
-  .composerSurface, .taskSummary, .timelineSurface, .approvalTable, .settingsForm, .automationComposer, .runTable, .sourcesSurface { padding: var(--d-s4); }
+  .composerSurface, .taskSummary, .timelineSurface, .approvalTable, .settingsForm, .automationComposer, .runTable, .sourcesSurface, .fileDetail { padding: var(--d-s4); }
   .integration { grid-template-columns: 44px minmax(0, 1fr); padding: var(--d-s4); }
   .integration > :last-child:not(:nth-child(2)) { grid-column: 2; justify-self: start; }
   .agentRow { gap: var(--d-s3); padding: var(--d-s4); }

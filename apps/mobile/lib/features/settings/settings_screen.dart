@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_models.dart';
 import '../../src/theme/anum_theme.dart';
+import 'model_choice.dart';
 import 'settings_controller.dart';
 import '../../src/widgets/depth.dart';
 import '../auth/account_screens.dart';
 import '../admin/admin.dart';
+import '../privacy/privacy_controller.dart';
+import '../privacy/privacy_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({required this.controller, super.key});
@@ -125,10 +128,18 @@ class _Content extends StatelessWidget {
                     : Column(children: [
                         ListTile(
                             leading: const Icon(Icons.smart_toy_outlined),
-                            title: Text(controller.model!.model),
+                            title: Text(controller.model!.provider ==
+                                    'anthropic'
+                                ? providerLabel('anthropic')
+                                : controller.model!.model),
                             subtitle: Text(
-                                '${controller.model!.provider} · ${controller.model!.baseUrl}',
+                                controller.model!.provider == 'anthropic'
+                                    ? 'Chat and voice: ${controller.model!.fastModel}\n'
+                                        'Planning: ${controller.model!.capableModel}'
+                                    : '${controller.model!.provider} · ${controller.model!.baseUrl}',
                                 textDirection: TextDirection.ltr),
+                            isThreeLine:
+                                controller.model!.provider == 'anthropic',
                             trailing: Icon(controller
                                         .model!.credentialConfigured ||
                                     controller.model!.provider == 'ollama' ||
@@ -151,10 +162,39 @@ class _Content extends StatelessWidget {
                                       onPressed: controller.testModel,
                                       icon: const Icon(Icons.network_check),
                                       label: const Text('Test connection')),
-                                ]))
+                                ])),
+                        if (controller.modelError != null)
+                          Padding(
+                              padding: const EdgeInsetsDirectional.fromSTEB(
+                                  16, 0, 16, 12),
+                              child: Semantics(
+                                  liveRegion: true,
+                                  child: Text(controller.modelError!,
+                                      style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .error)))),
                       ])),
             _Heading('Notifications'),
             _NotificationCard(controller: controller),
+            _Heading('Chat memory'),
+            _ChatMemoryCard(controller: controller),
+            if (controller.privacy != null) ...[
+              _Heading('Privacy'),
+              Card(
+                  child: ListTile(
+                      leading: const Icon(Icons.privacy_tip_outlined),
+                      title: const Text('Your data and privacy'),
+                      subtitle: const Text(
+                          'See what is stored, download it or delete it.'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => PrivacyScreen(
+                                  controller: PrivacyController(
+                                      controller.privacy!)))))),
+            ],
             _Heading('Security'),
             Card(
                 child: Column(children: [
@@ -251,6 +291,90 @@ class _NotificationState extends State<_NotificationCard> {
       ]));
 }
 
+/// "Remember things from my chats" (docs/memory.md#from-conversations):
+/// saved at once, with what it means now and a way to delete the memories
+/// already remembered.
+class _ChatMemoryCard extends StatelessWidget {
+  const _ChatMemoryCard({required this.controller});
+  final SettingsController controller;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final ok = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+                title: const Text('Delete memories from your chats?'),
+                content: const Text(
+                    'Every memory the Assistant remembered from your chats in this workspace is deleted. It no longer appears in search or in answers. This cannot be undone.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      style: FilledButton.styleFrom(
+                          backgroundColor:
+                              Theme.of(dialogContext).colorScheme.error),
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Delete all')),
+                ]));
+    if (ok == true) await controller.deleteChatMemories();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final preference = controller.chatMemory;
+    final busy = controller.chatMemoryBusy;
+    return Card(
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (preference == null)
+        ListTile(
+            leading: const Icon(Icons.psychology_outlined),
+            title: const Text('Remember things from my chats'),
+            subtitle: Text(controller.chatMemoryError ??
+                'Loading your chat memory setting...'),
+            trailing: TextButton(
+                onPressed: busy ? null : controller.reloadChatMemory,
+                child: const Text('Retry')))
+      else ...[
+        SwitchListTile(
+            secondary: const Icon(Icons.psychology_outlined),
+            title: const Text('Remember things from my chats'),
+            subtitle: Text(preference.explanation),
+            isThreeLine: true,
+            value: preference.rememberConversations,
+            onChanged: busy ? null : controller.setRememberConversations),
+        Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 0, 16, 4),
+            child: Text('Status: ${preference.badge}',
+                style: theme.textTheme.labelLarge)),
+      ],
+      if (preference != null && controller.chatMemoryError != null)
+        Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 4),
+            child: Semantics(
+                liveRegion: true,
+                child: Text(controller.chatMemoryError!,
+                    style: TextStyle(color: theme.colorScheme.error)))),
+      if (controller.chatMemoryNotice != null)
+        Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 4),
+            child: Semantics(
+                liveRegion: true,
+                child: Text(controller.chatMemoryNotice!,
+                    style: theme.textTheme.bodySmall))),
+      Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 12),
+          child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: OutlinedButton.icon(
+                  onPressed: busy ? null : () => _confirmDelete(context),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Delete memories from my chats')))),
+    ]));
+  }
+}
+
 class _Heading extends StatelessWidget {
   const _Heading(this.text);
   final String text;
@@ -320,7 +444,8 @@ Future<void> _confirmSignOut(
   if (confirmed ?? false) await controller.signOut();
 }
 
-/// Change the workspace model after setup. Ollama is free and needs no key.
+/// Change the workspace model after setup. Ollama is free and needs no key;
+/// Anthropic (Claude) routes quick replies and planning to separate models.
 class _ModelSheet extends StatefulWidget {
   const _ModelSheet({required this.controller, this.current});
   final SettingsController controller;
@@ -330,11 +455,7 @@ class _ModelSheet extends StatefulWidget {
 }
 
 class _ModelSheetState extends State<_ModelSheet> {
-  static const _presets = <String, (String, String)>{
-    'ollama': ('llama3.2', 'http://localhost:11434/v1'),
-    'openai_compatible': ('gpt-4.1-mini', 'https://api.openai.com/v1'),
-    'mock': ('mock', 'http://localhost'),
-  };
+  static const _presets = modelPresets;
   final form = GlobalKey<FormState>();
   late String provider = _normalise(widget.current?.provider) ?? 'ollama';
   late final model = TextEditingController(
@@ -342,16 +463,36 @@ class _ModelSheetState extends State<_ModelSheet> {
   late final url = TextEditingController(
       text: widget.current?.baseUrl ?? _presets[provider]!.$2);
   final key = TextEditingController();
+  late final fastModel = TextEditingController(
+      text: _claudeSaved
+          ? (widget.current!.routing.fastModel ?? '')
+          : anthropicFastModel);
+  late final capableModel = TextEditingController(
+      text: _claudeSaved ? widget.current!.capableModel : anthropicCapableModel);
+  late String fastEffort =
+      _claudeSaved ? (widget.current!.routing.fastEffort ?? '') : 'low';
+  late String capableEffort =
+      _claudeSaved ? (widget.current!.routing.capableEffort ?? '') : '';
   bool saving = false;
   String? error;
 
-  static String? _normalise(String? value) => value?.replaceAll('-', '_');
+  bool get _claudeSaved => widget.current?.provider == 'anthropic';
+  SavedKeyState get _keyState =>
+      savedKeyState(provider, url.text, widget.current);
+  bool get _claude => provider == 'anthropic';
+
+  static String? _normalise(String? value) {
+    final normalised = value?.replaceAll('-', '_');
+    return modelPresets.containsKey(normalised) ? normalised : null;
+  }
 
   @override
   void dispose() {
     model.dispose();
     url.dispose();
     key.dispose();
+    fastModel.dispose();
+    capableModel.dispose();
     super.dispose();
   }
 
@@ -374,9 +515,18 @@ class _ModelSheetState extends State<_ModelSheet> {
     setState(() => saving = true);
     final ok = await widget.controller.changeModel(
         provider: provider,
-        model: model.text.trim(),
+        // Claude's planning model is the workspace's default model.
+        model: _claude ? capableModel.text.trim() : model.text.trim(),
         baseUrl: url.text.trim(),
-        apiKey: provider == 'openai_compatible' ? key.text.trim() : null);
+        // Empty keeps the saved key (same provider and base URL only).
+        apiKey: providerNeedsKey(provider) ? key.text.trim() : null,
+        routing: _claude
+            ? ModelRouting(
+                fastModel: fastModel.text,
+                capableModel: capableModel.text,
+                fastEffort: fastEffort,
+                capableEffort: capableEffort)
+            : null);
     if (!mounted) return;
     setState(() {
       saving = false;
@@ -391,7 +541,8 @@ class _ModelSheetState extends State<_ModelSheet> {
           MediaQuery.viewInsetsOf(context).bottom + 24),
       child: Form(
           key: form,
-          child: Column(
+          child: SingleChildScrollView(
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -399,65 +550,86 @@ class _ModelSheetState extends State<_ModelSheet> {
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 4),
                 const Text(
-                    'Tasks and voice answers in this workspace use this model.'),
+                    'Tasks, chat and voice answers in this workspace use this model.'),
                 const SizedBox(height: AnumSpacing.md),
                 DropdownButtonFormField<String>(
                     initialValue: provider,
                     isExpanded: true,
                     decoration: const InputDecoration(labelText: 'Provider'),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'ollama',
-                          child: Text('Ollama (free, runs on your computer)')),
-                      DropdownMenuItem(
-                          value: 'openai_compatible',
-                          child: Text('OpenAI compatible')),
-                      DropdownMenuItem(
-                          value: 'mock', child: Text('Local mock')),
-                    ],
+                    items: providerItems(),
                     onChanged: saving
                         ? null
                         : (v) {
                             if (v != null) _select(v);
                           }),
-                const SizedBox(height: AnumSpacing.sm),
-                TextFormField(
-                    controller: model,
-                    decoration: const InputDecoration(labelText: 'Model'),
-                    validator: (v) =>
-                        (v ?? '').trim().isEmpty ? 'Enter a model name' : null),
+                if (!_claude) ...[
+                  const SizedBox(height: AnumSpacing.sm),
+                  TextFormField(
+                      controller: model,
+                      decoration: const InputDecoration(labelText: 'Model'),
+                      validator: (v) => (v ?? '').trim().isEmpty
+                          ? 'Enter a model name'
+                          : null),
+                ],
                 const SizedBox(height: AnumSpacing.sm),
                 TextFormField(
                     controller: url,
                     textDirection: TextDirection.ltr,
                     keyboardType: TextInputType.url,
+                    // The key field's hint depends on the address.
+                    onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                        labelText: 'Base URL',
+                        labelText: _claude ? 'Base URL (optional)' : 'Base URL',
                         helperMaxLines: 3,
                         helperText: provider == 'ollama'
                             ? 'The ANUM server calls this address, not your phone.'
-                            : null),
-                    validator: (v) {
-                      final u = Uri.tryParse(v ?? '');
-                      return u != null && u.isAbsolute
-                          ? null
-                          : 'Enter an absolute URL';
-                    }),
-                if (provider == 'openai_compatible') ...[
+                            : _claude
+                                ? 'Leave empty for api.anthropic.com.'
+                                : null),
+                    validator: (v) => validateBaseUrl(provider, v)),
+                if (providerNeedsKey(provider)) ...[
                   const SizedBox(height: AnumSpacing.sm),
                   TextFormField(
                       controller: key,
                       obscureText: true,
-                      decoration: const InputDecoration(labelText: 'API key'),
-                      validator: (v) => (v ?? '').trim().isEmpty
-                          ? 'Enter the API key'
-                          : null),
+                      textDirection: TextDirection.ltr,
+                      decoration: InputDecoration(
+                          labelText:
+                              _claude ? 'Anthropic API key' : 'API key',
+                          helperMaxLines: 3,
+                          helperText: switch (_keyState) {
+                            SavedKeyState.keep =>
+                              'Leave empty to keep the saved key '
+                                  '(${widget.current?.credentialHint ?? 'hidden'}). '
+                                  'Paste a new key to replace it.',
+                            SavedKeyState.moved =>
+                              'The base URL changed: enter the key for this '
+                                  'address. The saved key is only used with '
+                                  'the address it was saved for.',
+                            SavedKeyState.none =>
+                              'Stored encrypted; never shown again.',
+                          }),
+                      validator: (v) => validateApiKey(v, _keyState)),
+                ],
+                if (_claude) ...[
+                  const SizedBox(height: AnumSpacing.sm),
+                  ClaudeRoutingFields(
+                      fastModel: fastModel,
+                      capableModel: capableModel,
+                      fastEffort: fastEffort,
+                      capableEffort: capableEffort,
+                      enabled: !saving,
+                      onFastEffort: (v) => setState(() => fastEffort = v),
+                      onCapableEffort: (v) =>
+                          setState(() => capableEffort = v)),
                 ],
                 if (error != null) ...[
                   const SizedBox(height: AnumSpacing.sm),
-                  Text(error!,
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
+                  Semantics(
+                      liveRegion: true,
+                      child: Text(error!,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error))),
                 ],
                 const SizedBox(height: AnumSpacing.md),
                 FilledButton.icon(
@@ -468,7 +640,7 @@ class _ModelSheetState extends State<_ModelSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.cable),
                     label: Text(saving ? 'Testing...' : 'Save and test')),
-              ])));
+              ]))));
 }
 
 /// Members, invitations, model budgets and the approval policy. Shown to

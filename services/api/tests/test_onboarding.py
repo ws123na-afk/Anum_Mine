@@ -109,6 +109,7 @@ def test_model_connection_can_be_verified() -> None:
     assert tested.json() == {
         "provider": "mock",
         "model": "anum-mock",
+        "models": ["anum-mock"],
         "latency_ms": 0,
         "status": "connected",
     }

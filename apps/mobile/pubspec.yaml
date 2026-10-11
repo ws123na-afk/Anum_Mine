@@ -22,6 +22,11 @@ dependencies:
   flutter_tts: ^4.2.5
   permission_handler: ^13.0.1
   flutter_appauth: 12.1.0
+  # Opens pull request and run links in the browser (Developer screen).
+  # url_launcher_android is held at 6.3.29, the last Java release: 6.3.30+
+  # rely on AGP 9 built-in Kotlin like file_picker 11 (see above).
+  url_launcher: ^6.3.2
+  url_launcher_android: 6.3.29
 
 dev_dependencies:
   flutter_test:

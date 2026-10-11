@@ -12,6 +12,11 @@
         <intent>
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
+        <!-- url_launcher: pull request and run links open in the browser. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
     <application android:allowBackup="false" android:fullBackupContent="false" android:usesCleartextTraffic="true"
         android:label="ANUM"

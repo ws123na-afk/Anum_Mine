@@ -89,7 +89,7 @@ ANUM's own spans and metrics are built from metadata only. Tests in `services/ap
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `ANUM_SENTRY_DSN` | empty (off) | `https://<key>@<host>/<project id>`. Outside `local`, plain `http` is allowed only to a private service name without dots, for example `http://<key>@glitchtip:8000/1` on the compose network. The startup policy, and the Helm chart through `infra/helm/ci/lint.sh`, refuse anything else. A malformed DSN is refused at startup in every environment, and the error never echoes the key. |
+| `ANUM_SENTRY_DSN` | empty (off) | `https://<key>@<host>/<project id>`. Outside `local`, plain `http` is allowed only to a private service name without dots, for example `http://<key>@glitchtip:8000/1` on the compose network. The startup policy, and the Helm chart through `infra/helm/ci/lint.sh`, refuse anything else. A malformed DSN is refused at startup in every environment, and the error never echoes the key. The DSN carries the project's ingest key: on Kubernetes, put it in the `anum-app` Secret (`secrets.app.optional` lists it, so the chart injects it into the API and the worker) rather than in `config`, which renders into a ConfigMap. The chart cannot read a Secret, so a DSN there is checked only by the API's startup policy; a DSN in `config` or `extraEnv` is refused by `helm template` as well. |
 
 An event keeps:
 
@@ -110,6 +110,45 @@ Removed before sending, whatever the integration that produced the event:
 - breadcrumb data other than method, status code and query-less URL.
 
 The worker sends no tenant tag, because its activities share one SDK scope. `tests/test_error_reporting.py` runs the real SDK against a FastAPI route and checks that none of these values leave the process.
+
+#### Browser errors (web app)
+
+The web app can report its own unhandled errors and unhandled promise rejections to a Sentry-compatible project (GlitchTip on the [Oracle VM](monitoring-oracle.md#web-errors)). It is off unless the bundle is built with `VITE_SENTRY_DSN`. A build without it contains no reporting code: the branch and the SDK chunk are removed at build time, and nothing is loaded or sent. With a DSN, `@sentry/browser` 10.75.3 (pinned exactly in `apps/web/package.json`) is loaded in its own chunk after the first render. Errors thrown before it loads are not reported.
+
+| Build setting | Default | Meaning |
+|---|---|---|
+| `VITE_SENTRY_DSN` | empty (off) | The browser project's public DSN, `https://<public key>@<host>/<project id>`. Plain `http` is accepted only for `localhost`. A malformed value fails `vite build` (`apps/web/vite.config.ts`), and the error never echoes the key. The key is public by design: it is in the bundle every visitor downloads, and it can only submit events. |
+| `VITE_SENTRY_ENVIRONMENT` | `production` | The event's `environment` (the Oracle compose passes `ANUM_ENVIRONMENT`). |
+
+Every deploy path that builds the web image passes the DSN as an optional build argument; leaving it unset keeps reporting off:
+
+| Deploy path | Where the DSN comes from | Environment |
+|---|---|---|
+| Oracle VM | `ANUM_WEB_SENTRY_DSN` in `.env` ([monitoring](monitoring-oracle.md#web-errors)) | `ANUM_ENVIRONMENT` |
+| Render | `anum-web`'s `VITE_SENTRY_DSN` (`render.yaml`, `sync: false`; [Render](deploy-render.md)) | `staging` |
+| Helm staging and production (`deploy-staging.yml`, `deploy-production.yml`) | repository variables `STAGING_WEB_SENTRY_DSN`, `PRODUCTION_WEB_SENTRY_DSN` ([deployment](deployment.md)) | `staging`, `production` |
+
+The DSN is public (it ships in the bundle), so it is a variable, not a secret. Changing it needs a rebuild of the web image. `services/api/tests/test_render_blueprint.py` checks the Render and workflow wiring.
+
+The SDK reports errors only: no tracing, sessions, replay or user feedback. Console and DOM breadcrumbs are off, because console text and clicked element names can hold what someone typed. `apps/web/src/lib/errorReporting.ts` scrubs every event and breadcrumb (`beforeSend`, `beforeBreadcrumb`), with the same rules as the API. An event keeps:
+
+- the exception type and stack frames (file without query, function, line, column);
+- the page URL without its query string or fragment;
+- `environment`;
+- one tag, `anum.tenant_id`.
+
+Removed before sending:
+
+- exception messages, which can echo what someone typed or an API answer;
+- user identity, headers (including `User-Agent` and `Referer`), cookies and request data;
+- query strings and fragments, which hold the OIDC `code` and `state` after sign-in and invitation tokens;
+- source lines and local variables;
+- `extra` data, every other tag, and contexts other than browser, OS and trace;
+- breadcrumb messages, and breadcrumb data other than method, status code and query-less URL.
+
+A breadcrumb whose URL carries a token (`token`, `code=`, `state=`, `invitation` and similar, including calls to Keycloak's token endpoint) is dropped whole.
+
+**CSP.** The web image's Content-Security-Policy adds the DSN's origin to `connect-src` only when `VITE_SENTRY_DSN` was set. It changes no other directive. `apps/web/Dockerfile` derives the origin at build time with `apps/web/scripts/sentry-csp-origin.ts`, the same validation as the bundle, and writes it into the nginx template. The runtime `ANUM_CSP_CONNECT_SRC` stays the API and Keycloak. Tests: `apps/web/test/errorReporting.test.ts` (scrubbing and DSN validation), `apps/web/e2e/error-reporting.spec.ts` (a build with a DSN sends a scrubbed event with the tenant tag only; the default build loads no reporter and sends nothing), and `tests/test_oracle_compose.py` (build argument, CSP placeholder, origin script).
 
 ### Local stack
 

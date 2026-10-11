@@ -33,3 +33,7 @@ Uploads are limited to 25 MiB, reject path traversal, and verify an optional cli
 ## Retrieval
 
 Text files (`text/*`, JSON, YAML, XML, CSV, or a `.txt`/`.md`/`.csv`/`.json`/`.yaml`/`.xml`/`.log`/`.rst` name) up to 2 MiB of UTF-8 are indexed for retrieval into task prompts right after their metadata is committed; other files get a `skipped` index row (`not_text`, `not_utf8`, `too_large`). Indexing is best effort: a failed embedding is recorded on the index row and never fails the upload, and `POST /api/v1/retrieval/index` retries it. Deleting a file removes its chunks, and search ignores chunks of a file without metadata in any case. See [Memory](memory.md#retrieval).
+
+## Web Files view
+
+The web Files view (`apps/web/src/FilesView.tsx`; the desktop app renders the same build) uploads, lists, downloads and deletes files. A file's name opens its detail panel, read from `GET /api/v1/files/{id}`: kind (from the content type), size, upload time and user, id and SHA-256, with Download and Delete (confirmed in place). "Sources used" on a run opens the same panel for a file the run used ([Memory](memory.md#at-run-time)). The panel handles loading, a file deleted since ("This file no longer exists in this workspace"), a `403` (who can see files) and other errors with Retry. Tests: `apps/web/e2e/sources-used.spec.ts`.

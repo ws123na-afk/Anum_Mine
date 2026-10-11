@@ -260,22 +260,28 @@ class AuthRepository {
         },
       ));
 
+  /// Saves the workspace model. [routing] is sent for `anthropic` only; its
+  /// base URL may be empty (the API then uses https://api.anthropic.com).
   Future<ModelConfiguration> configureModel({
     required String provider,
     required String model,
     required String baseUrl,
     String? apiKey,
-  }) async =>
-      ModelConfiguration.fromJson(await api.request(
-        'PUT',
-        '/api/v1/model-config',
-        body: {
-          'provider': provider,
-          'model': model,
-          'base_url': baseUrl,
-          if (apiKey != null && apiKey.isNotEmpty) 'api_key': apiKey,
-        },
-      ));
+    ModelRouting? routing,
+  }) async {
+    final claude = provider == 'anthropic';
+    return ModelConfiguration.fromJson(await api.request(
+      'PUT',
+      '/api/v1/model-config',
+      body: {
+        'provider': provider,
+        'model': model,
+        if (!claude || baseUrl.trim().isNotEmpty) 'base_url': baseUrl,
+        if (apiKey != null && apiKey.isNotEmpty) 'api_key': apiKey,
+        if (claude) ...(routing ?? const ModelRouting()).toJson(),
+      },
+    ));
+  }
 
   Future<ModelConfiguration> modelConfiguration() async =>
       ModelConfiguration.fromJson(
@@ -289,6 +295,24 @@ class AuthRepository {
       NotificationPreferences.fromJson(
         await api.request('GET', '/api/v1/notification-preferences'),
       );
+
+  /// The caller's own "Remember things from my chats" switch.
+  Future<ChatMemoryPreference> chatMemoryPreference() async =>
+      ChatMemoryPreference.fromJson(
+          await api.request('GET', '/api/v1/me/preferences'));
+
+  Future<ChatMemoryPreference> setRememberConversations(bool remember) async =>
+      ChatMemoryPreference.fromJson(await api.request(
+          'PUT', '/api/v1/me/preferences',
+          body: {'remember_conversations': remember}));
+
+  /// Deletes every memory remembered from the caller's own chats in this
+  /// workspace; returns how many.
+  Future<int> deleteMyChatMemories() async {
+    final result = await api.request(
+        'DELETE', '/api/v1/memories?source_type=conversation');
+    return (result['deleted'] as num?)?.toInt() ?? 0;
+  }
 
   Future<NotificationPreferences> updateNotificationPreferences(
     NotificationPreferences value,

@@ -79,3 +79,92 @@ export function sourcesNote(record: RunSources): string {
 export function scoreLabel(score: number): string {
   return `${Math.round(Math.max(0, Math.min(1, score)) * 100)}% match`;
 }
+
+// ---------------------------------------------------------------------------
+// Names for the sources: GET /api/v1/retrieval/sources resolves every source of a run in one
+// bounded request (never one per source). A source that is gone, expired or not visible to the
+// caller comes back `found: false` and is shown by its id, without a link.
+
+export type SourceGroup = ReturnType<typeof groupSources>[number];
+
+export interface SourceName {
+  sourceType: 'memory' | 'file';
+  sourceId: string;
+  found: boolean;
+  /** A memory's first line or a file's name. */
+  title: string | null;
+  /** `task_note` or `chat` for a memory; the content type for a file. */
+  kind: string | null;
+  sizeBytes: number | null;
+}
+
+/** The API refuses more than this many ids in one lookup; a run lists at most 20 passages. */
+export const MAX_SOURCE_LOOKUP = 50;
+
+/** Path naming every distinct source of the groups (bounded), or null when there are none. */
+export function sourceNamesPath(groups: Array<Pick<SourceGroup, 'sourceType' | 'sourceId'>>): string | null {
+  const query = new URLSearchParams();
+  for (const group of groups.slice(0, MAX_SOURCE_LOOKUP)) query.append(group.sourceType === 'memory' ? 'memory_id' : 'file_id', group.sourceId);
+  const text = query.toString();
+  return text ? `/api/v1/retrieval/sources?${text}` : null;
+}
+
+/** Parse the lookup's body, dropping malformed entries rather than guessing. */
+export function parseSourceNames(body: unknown): SourceName[] {
+  const list = asRecord(body)?.sources;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((value): SourceName[] => {
+    const item = asRecord(value);
+    if (!item || (item.source_type !== 'memory' && item.source_type !== 'file') || typeof item.source_id !== 'string') return [];
+    return [{
+      sourceType: item.source_type,
+      sourceId: item.source_id,
+      found: item.found === true,
+      title: typeof item.title === 'string' && item.title ? item.title : null,
+      kind: typeof item.kind === 'string' && item.kind ? item.kind : null,
+      sizeBytes: typeof item.size_bytes === 'number' ? item.size_bytes : null,
+    }];
+  });
+}
+
+export function sourceKey(sourceType: 'memory' | 'file', sourceId: string): string {
+  return `${sourceType}:${sourceId}`;
+}
+
+export function sourceNameMap(names: SourceName[]): Map<string, SourceName> {
+  return new Map(names.map((name) => [sourceKey(name.sourceType, name.sourceId), name]));
+}
+
+const FILE_KINDS: Record<string, string> = {
+  'text/markdown': 'Markdown', 'text/plain': 'Text', 'text/csv': 'CSV', 'text/html': 'HTML', 'application/json': 'JSON',
+  'application/pdf': 'PDF', 'application/xml': 'XML', 'text/xml': 'XML', 'application/yaml': 'YAML', 'text/yaml': 'YAML',
+};
+
+/** A readable kind: "Task memory", "Memory from your chats", or a file type such as "Markdown file". */
+export function sourceKindLabel(name: Pick<SourceName, 'sourceType' | 'kind'>): string {
+  if (name.sourceType === 'memory') return name.kind === 'chat' ? 'Memory from your chats' : 'Task memory';
+  if (!name.kind) return 'File';
+  const known = FILE_KINDS[name.kind.toLowerCase()];
+  if (known) return `${known} file`;
+  const [major = '', minor = ''] = name.kind.split('/');
+  const label = minor.replace(/^(x-|vnd\.)/, '').replace(/\+.*$/, '') || major;
+  return `${label.toUpperCase()} file`;
+}
+
+export interface SourceDisplay {
+  /** The name to show: a memory's first line or a file's name, else the source id. */
+  title: string;
+  kind: string;
+  /** The lookup found it, so it can be opened. */
+  found: boolean;
+  /** The lookup answered for this source (found or not). */
+  resolved: boolean;
+}
+
+/** How one source row reads: its name and kind when the lookup found it, else its id. */
+export function sourceDisplay(group: Pick<SourceGroup, 'sourceType' | 'sourceId'>, names: ReadonlyMap<string, SourceName> | null): SourceDisplay {
+  const name = names?.get(sourceKey(group.sourceType, group.sourceId));
+  if (!name) return { title: group.sourceId, kind: sourceLabel(group.sourceType), found: false, resolved: false };
+  if (!name.found) return { title: group.sourceId, kind: `${sourceLabel(group.sourceType)} no longer available`, found: false, resolved: true };
+  return { title: name.title ?? group.sourceId, kind: sourceKindLabel(name), found: true, resolved: true };
+}

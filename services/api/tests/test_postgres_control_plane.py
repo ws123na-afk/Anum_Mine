@@ -288,6 +288,33 @@ def test_marketplace_and_routing_survive_a_restart_and_are_scoped(client: TestCl
     assert operations["installed_packages"] == 0 and operations["active_regions"] == 2
 
 
+def test_a_workspace_owner_without_org_admin_writes_no_tenant_catalog_routing_or_skill(
+    client: TestClient, database_engine: Engine
+) -> None:
+    workspace_owner = {**A2, "x-user-roles": "owner"}
+    assert client.put(f"/api/v1/marketplace/packages/{PACKAGE['id']}", headers=A, json=PACKAGE).status_code == 200
+
+    attempts = [
+        client.put("/api/v1/marketplace/packages/skill.other", headers=workspace_owner,
+                   json={**PACKAGE, "id": "skill.other"}),
+        client.delete(f"/api/v1/marketplace/packages/{PACKAGE['id']}", headers=workspace_owner),
+        client.put(f"/api/v1/routing/targets/{TARGET['id']}", headers=workspace_owner, json=TARGET),
+        client.post("/api/v1/skills/versions", headers=workspace_owner, json=SKILL),
+    ]
+
+    assert [response.status_code for response in attempts] == [403] * 4
+    for response in attempts:
+        assert response.json()["error"]["message"].startswith("Organization administrator role required")
+    assert _count(database_engine, "marketplace_packages") == 1
+    assert _count(database_engine, "routing_targets") == 0
+    assert _count(database_engine, "skill_versions") == 0
+    assert _count(database_engine, "audit_records") == 0
+    # The workspace-scoped actions stay with the workspace owner.
+    assert client.post(f"/api/v1/marketplace/packages/{PACKAGE['id']}/install", headers=workspace_owner,
+                       json={}).status_code == 201
+    assert _count(database_engine, "marketplace_installs") == 1
+
+
 # Integrations, files and notification preferences ---------------------------------------
 
 

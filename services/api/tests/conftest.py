@@ -43,6 +43,7 @@ TABLES_IN_DELETE_ORDER = (
     "model_budgets",
     "workspace_approval_policies",
     "notification_preferences",
+    "user_preferences",
     "workspace_files",
     "integration_configurations",
     "routing_targets",
@@ -86,6 +87,15 @@ def _fresh_rate_limit_budget() -> Iterator[None]:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    # Live provider tests spend money and need a real key: they run only when the -m
+    # expression names them (the Live model workflow). Deselected, never skipped, so the
+    # no-skip integration job and normal runs do not report them at all.
+    if "live_model" not in (config.getoption("markexpr", "") or ""):
+        live = [item for item in items if "live_model" in item.keywords]
+        if live:
+            config.hook.pytest_deselected(items=live)
+            items[:] = [item for item in items if "live_model" not in item.keywords]
+
     if os.getenv("ANUM_TEST_DATABASE_URL"):
         return
 

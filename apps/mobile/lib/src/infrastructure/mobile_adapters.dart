@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -12,6 +13,7 @@ import '../../features/auth/workspace_selection.dart';
 import '../../features/workspace/api_workspace_repository.dart';
 import '../../features/workspace/workspace_models.dart';
 import '../../features/governance/api_governance_repository.dart';
+import '../../features/privacy/privacy_repository.dart';
 
 class HttpApiTransport implements ApiTransport {
   HttpApiTransport({http.Client? client}) : _client = client ?? http.Client();
@@ -177,5 +179,20 @@ class HttpAuditExporter implements AuditExporter {
       fileName: 'audit-export.$format',
       bytes: response.bodyBytes,
     );
+  }
+}
+
+/// Saves "Download my data" through the system save dialog (docs/privacy.md).
+class FilePickerExportSaver implements PrivacyExportSaver {
+  const FilePickerExportSaver();
+
+  @override
+  Future<bool> save(String fileName, List<int> bytes) async {
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save your ANUM data',
+      fileName: fileName,
+      bytes: Uint8List.fromList(bytes),
+    );
+    return path != null;
   }
 }

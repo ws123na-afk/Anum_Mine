@@ -1,6 +1,7 @@
 """Per-tenant and per-workspace monthly model budgets (threat model G4).
 
-An owner sets, for the organization (tenant) and for each workspace, an optional
+An organization administrator sets the organization (tenant) budget and a workspace owner
+sets each workspace's budget: an optional
 estimated-cost limit in USD and an optional token limit per UTC calendar month. Every
 model call made for a workspace (task planning and voice answers) goes through
 :class:`BudgetedModelGateway`, which:
@@ -39,7 +40,7 @@ from pydantic import BaseModel, Field
 
 from .audit import AuditRecord
 from .authorization import Permission
-from .dependencies import repository_context, require_permission, tenant_context
+from .dependencies import has_permission, repository_context, require_permission, tenant_context
 from .model_gateway import (
     ChatMessage,
     EmbeddingResponse,
@@ -426,6 +427,19 @@ class BudgetedModelGateway:
         self._record(response)
         return response
 
+    async def generate_with_instructions(self, instructions: str, prompt: str) -> ModelResponse:
+        """Stable instructions then a prompt (the planner's cache layout), budgeted.
+
+        A gateway without the method gets them as one prompt."""
+        check_model_budget(self.context, now=self._clock())
+        generate = getattr(self.inner, "generate_with_instructions", None)
+        if callable(generate):
+            response: ModelResponse = await generate(instructions, prompt)
+        else:
+            response = await self.inner.generate_text(f"{instructions}\n\n{prompt}")
+        self._record(response)
+        return response
+
     async def generate_structured(
         self, prompt: str, response_model: type[StructuredModel]
     ) -> tuple[StructuredModel, ModelResponse]:
@@ -523,6 +537,9 @@ class ModelBudgetOverview(BaseModel):
     resets_on: date
     tenant: ModelBudgetScopeView
     workspace: ModelBudgetScopeView
+    # Whether this caller may change the organization (tenant) budget: the organization
+    # administrator role. Clients show the tenant budget read-only when it is false.
+    can_manage_tenant_budget: bool = False
 
 
 def _overview(context: TenantContext, now: datetime) -> ModelBudgetOverview:
@@ -543,6 +560,7 @@ def _overview(context: TenantContext, now: datetime) -> ModelBudgetOverview:
         resets_on=next_month_start(month),
         tenant=view(states[BudgetScope.TENANT]),
         workspace=view(states[BudgetScope.WORKSPACE]),
+        can_manage_tenant_budget=has_permission(context, Permission.ORG_POLICY_MANAGE),
     )
 
 
@@ -568,8 +586,15 @@ async def set_model_budget(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> ModelBudgetOverview:
-    """Set (or clear, with nulls) the organization's or this workspace's monthly budget."""
-    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    """Set (or clear, with nulls) the organization's or this workspace's monthly budget.
+
+    The organization budget caps every workspace of the tenant, so it needs the organization
+    administrator role; this workspace's budget stays with the workspace owner.
+    """
+    require_permission(
+        context,
+        Permission.ORG_POLICY_MANAGE if scope == BudgetScope.TENANT else Permission.ORGANIZATION_MANAGE,
+    )
     now = utc_now()
     with open_model_budget_store(context) as store:
         previous = store.get_budget(context, scope)

@@ -45,5 +45,6 @@ apps/mobile/android/key.properties
 google-services.json
 GoogleService-Info.plist
 apps/web/dist-oidc/
+apps/web/dist-sentry/
 # monitoring.sh enable/disable (docs/monitoring-oracle.md); the directory stays in git.
 infra/oracle/sites-enabled/*.caddy

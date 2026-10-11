@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Activity, CheckCircle2, CircleDot, Play, RefreshCw, Search, ShieldCheck, Square, XCircle } from 'lucide-react';
 import type { AgentRun, Approval, Task } from '@anum/contracts';
 import * as api from './lib/api';
-import { SourcesUsed } from './SourcesUsed';
+import { SourcesUsed, type MemoryTarget } from './SourcesUsed';
 import { Answer } from './AnswerView';
 import {
   approvalsForTask, countByStatus, filterTasks, finalAnswer, hasMorePages, isTerminal, mergeTaskPages, parseAnswer,
@@ -28,6 +28,9 @@ export interface TasksViewProps {
   cancel(): void;
   resume(): void;
   openApprovals(): void;
+  /** "Sources used": open a memory in the Memory view, or a file's detail. */
+  openMemory(target: MemoryTarget): void;
+  openFile(fileId: string): void;
 }
 
 const FILTERS: { id: StatusFilter; label: string }[] = [
@@ -108,11 +111,11 @@ export function TasksView(p: TasksViewProps) {
         {more && !!all.length && <div className="actions"><button className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? 'Loading...' : 'Load more tasks'}</button></div>}
       </section>
     </div>
-    {selected ? <TaskDetail task={selected} run={run} approvals={approvalsForTask(p.approvals, selected.id)} openApprovals={p.openApprovals} /> : <section className="surface"><Empty title="No task selected" text="Run a task or pick one from the history." /></section>}
+    {selected ? <TaskDetail task={selected} run={run} approvals={approvalsForTask(p.approvals, selected.id)} openApprovals={p.openApprovals} openMemory={p.openMemory} openFile={p.openFile} /> : <section className="surface"><Empty title="No task selected" text="Run a task or pick one from the history." /></section>}
   </>;
 }
 
-function TaskDetail({ task, run, approvals, openApprovals }: { task: Task; run: AgentRun | null; approvals: Approval[]; openApprovals(): void }) {
+function TaskDetail({ task, run, approvals, openApprovals, openMemory, openFile }: { task: Task; run: AgentRun | null; approvals: Approval[]; openApprovals(): void; openMemory(target: MemoryTarget): void; openFile(fileId: string): void }) {
   const answer = finalAnswer(run);
   const working = !isTerminal(task.status);
   return <>
@@ -142,7 +145,7 @@ function TaskDetail({ task, run, approvals, openApprovals }: { task: Task; run: 
       <div className="sectionHeader"><div><p className="eyebrow">Execution trace</p><h2>Steps</h2></div>{run && <span className="statusBadge neutral">{run.steps.length} steps</span>}</div>
       {run?.steps.length ? <div className="timeline">{run.steps.map((s, i) => <div className="timelineRow" key={s.id}><div className="timelineRail"><span className="stepDot">{i + 1}</span>{i < run.steps.length - 1 && <span className="railLine" />}</div><div className="timelineBody"><div className="timelineTitle"><strong>{s.type.replaceAll('_', ' ')}</strong><time dateTime={s.createdAt}>{time(s.createdAt)}</time></div><p>{s.summary}</p></div></div>)}</div> : <Empty title="No execution trace loaded" text="Run a task to inspect its execution steps." />}
     </section>
-    <SourcesUsed run={run} />
+    <SourcesUsed run={run} onOpenMemory={openMemory} onOpenFile={openFile} />
   </>;
 }
 

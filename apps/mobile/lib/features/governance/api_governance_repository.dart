@@ -144,7 +144,10 @@ class ApiGovernanceRepository implements GovernanceRepository {
       policyPacks: j.integer('policy_packs'),
       activePolicyPacks: j.integer('active_policy_packs'),
       roleTemplates: j.integer('role_templates'),
-      approvalRules: j.integer('approval_rules'));
+      approvalRules: j.integer('approval_rules'),
+      // An API without the flag predates org_admin: treat everything as read only.
+      canManageOrganizationPolicy:
+          j.optBool('can_manage_organization_policy') ?? false);
   PolicyPack _policy(JsonReader j) => PolicyPack(
       id: j.string('id'),
       name: j.string('name'),

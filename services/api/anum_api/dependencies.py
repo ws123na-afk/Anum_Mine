@@ -41,9 +41,15 @@ _oidc_validator: OidcValidator | None = None
 event_runtime = build_event_runtime(settings)
 
 
+# Says how to get the role, because after an upgrade from a realm without org_admin the
+# workspace owner who used to change these settings is refused too
+# (docs/governance-and-scale.md#who-may-change-what).
 ORGANIZATION_ADMIN_REQUIRED = (
     "Organization administrator role required: this setting applies to every workspace "
-    "in the organization"
+    "in the organization, so owning a workspace is not enough. Ask the administrator of "
+    "your ANUM sign-in (Keycloak) to assign you the realm role org_admin (on a "
+    "self-hosted server: infra/oracle/keycloak-2fa.sh grant-org-admin <your username>), "
+    "then sign out and sign in again"
 )
 
 

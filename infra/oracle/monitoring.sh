@@ -9,6 +9,8 @@
 #   bash infra/oracle/monitoring.sh agent     connect the Beszel agent (key and token
 #                                            from the hub's "Add system" dialog)
 #   bash infra/oracle/monitoring.sh dsn       set the API's GlitchTip DSN (or --clear)
+#   bash infra/oracle/monitoring.sh web-dsn   set the web app's browser DSN and rebuild
+#                                            the web image (or --clear)
 #   bash infra/oracle/monitoring.sh status    profiles, containers, memory, endpoints
 #   bash infra/oracle/monitoring.sh disable   stop and remove the containers and the
 #                                            Caddy sites; data and secrets are kept
@@ -34,7 +36,7 @@ warn() { printf 'WARNING: %s\n' "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -390,6 +392,49 @@ print(f"http://{parts.username}@glitchtip:8000/{project}")
   wait_healthy api 300 || die "the API did not become healthy; check: docker compose logs --tail 100 api"
 }
 
+# Browser errors (docs/monitoring-oracle.md#web-errors): the DSN of a GlitchTip project
+# for the browser, kept public (https://<key>@<ANUM_ERRORS_HOST>/<id>) because browsers
+# send to it directly through Caddy's unauthenticated ingest path. It is compiled into the
+# web bundle and its origin into the web CSP, so the web image is rebuilt.
+cmd_web_dsn() {
+  local dsn errors_host
+  if [ "${1:-}" = "--clear" ]; then
+    set_env_value ANUM_WEB_SENTRY_DSN ""
+  else
+    errors_host="$(get_env ANUM_ERRORS_HOST)"
+    [ -n "$errors_host" ] || die "run: bash infra/oracle/monitoring.sh enable"
+    cat <<EOF
+
+Report the web app's errors to GlitchTip:
+  1. Open https://$errors_host and create a second project (platform: JavaScript / Browser).
+  2. Project settings -> Client Keys (DSN): copy the DSN and paste it here.
+     It is public by design: it is compiled into the web app every visitor downloads.
+EOF
+    read -r -p "Browser DSN [skip]: " dsn
+    if [ -z "$dsn" ]; then
+      echo "Skipped. Later: bash infra/oracle/monitoring.sh web-dsn"
+      return 0
+    fi
+    printf '%s\n' "$dsn" | ERRORS_HOST="$errors_host" python3 -c '
+import os, sys
+from urllib.parse import urlsplit
+dsn = sys.stdin.read().strip()
+try:
+    parts = urlsplit(dsn)
+    project = parts.path.rstrip("/").rsplit("/", 1)[-1]
+    ok = (parts.scheme == "https" and parts.username and not parts.password and parts.hostname == os.environ["ERRORS_HOST"]
+          and project.isdigit() and not parts.query and not parts.fragment)
+except ValueError:
+    ok = False
+sys.exit(0 if ok else "not a browser DSN for this GlitchTip: expected https://<key>@" + os.environ["ERRORS_HOST"] + "/<project id>")
+' || die "that is not a browser DSN for https://$errors_host"
+    set_env_value ANUM_WEB_SENTRY_DSN "$dsn"
+  fi
+  log "Rebuilding the web image with the new ANUM_WEB_SENTRY_DSN"
+  dc up -d --build --no-deps web
+  wait_healthy web 300 || die "the web app did not become healthy; check: docker compose logs --tail 100 web"
+}
+
 cmd_enable() {
   log "Monitoring hostnames (DNS A records must point at this VM, as for the other three)"
   ask_host ANUM_MONITOR_HOST "Beszel (host metrics) hostname" "anum-monitor-yourname.duckdns.org"
@@ -428,6 +473,7 @@ cmd_enable() {
   create_glitchtip_admin
   cmd_agent
   cmd_dsn
+  cmd_web_dsn
   cmd_status
 }
 
@@ -442,7 +488,12 @@ cmd_disable() {
     set_env_value ANUM_SENTRY_DSN ""
     dc up -d --no-deps api
   fi
-  echo "Off. 'enable' turns it back on with the same data (then run 'dsn' again)."
+  if [[ "$(get_env ANUM_WEB_SENTRY_DSN)" == *"@$(get_env ANUM_ERRORS_HOST)/"* ]]; then
+    echo "The web app reported errors to this GlitchTip; clearing ANUM_WEB_SENTRY_DSN and rebuilding it."
+    set_env_value ANUM_WEB_SENTRY_DSN ""
+    dc up -d --build --no-deps web
+  fi
+  echo "Off. 'enable' turns it back on with the same data (then run 'dsn' and 'web-dsn' again)."
 }
 
 cmd_purge() {
@@ -476,6 +527,7 @@ cmd_status() {
   echo "COMPOSE_PROFILES=$(get_env COMPOSE_PROFILES)"
   if [ -f "$SITE_LINK" ]; then echo "Caddy sites: enabled"; else echo "Caddy sites: disabled"; fi
   if [ -n "$(get_env ANUM_SENTRY_DSN)" ]; then echo "API error reporting: on"; else echo "API error reporting: off"; fi
+  if [ -n "$(get_env ANUM_WEB_SENTRY_DSN)" ]; then echo "Web error reporting: on"; else echo "Web error reporting: off"; fi
   dc --profile monitoring --profile monitoring-agent ps "${ALL_SERVICES[@]}" || true
   local ids
   ids="$(dc --profile monitoring --profile monitoring-agent ps -q "${ALL_SERVICES[@]}" 2>/dev/null || true)"
@@ -498,6 +550,7 @@ case "${1:-}" in
   enable) cmd_enable ;;
   agent) cmd_agent ;;
   dsn) shift; cmd_dsn "${1:-}" ;;
+  web-dsn) shift; cmd_web_dsn "${1:-}" ;;
   status) cmd_status ;;
   disable) cmd_disable ;;
   purge) cmd_purge ;;

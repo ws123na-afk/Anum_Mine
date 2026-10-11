@@ -9,6 +9,9 @@ import '../settings/settings_controller.dart';
 import '../settings/settings_screen.dart';
 import '../governance/governance_controller.dart';
 import '../governance/governance_screen.dart';
+import '../developer/developer_assist.dart';
+import '../developer/developer_controller.dart';
+import '../developer/developer_screen.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import 'approvals_screen.dart';
@@ -27,6 +30,8 @@ class WorkspaceHome extends StatefulWidget {
       required this.settingsController,
       required this.governanceController,
       required this.localeController,
+      this.developerController,
+      this.chatDeveloper,
       this.workspaceName,
       this.initialIndex = 0});
   final WorkspaceController controller;
@@ -35,6 +40,12 @@ class WorkspaceHome extends StatefulWidget {
   final SettingsController settingsController;
   final GovernanceController governanceController;
   final LocaleController localeController;
+
+  /// Developer mode (owners only). Without it the destination is absent.
+  final DeveloperController? developerController;
+
+  /// "build ..." in the Assistant; the voice one lives on the voice controller.
+  final DeveloperAssist? chatDeveloper;
   final String? workspaceName;
   final int initialIndex;
   @override
@@ -54,7 +65,17 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     super.initState();
     _index = RestorableInt(widget.initialIndex);
     if (widget.controller.phase == LoadPhase.initial) widget.controller.load();
+    // Whether to show Developer: the caller's role, checked once per workspace.
+    final developer = widget.developerController;
+    if (developer != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) developer.ensureOwner();
+      });
+    }
   }
+
+  /// Developer is in the navigation only for owners.
+  bool get _showDeveloper => widget.developerController?.owner ?? false;
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
@@ -85,13 +106,21 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               SettingsScreen(controller: widget.settingsController)));
 
   Widget _buildShell(BuildContext context) => ListenableBuilder(
-        listenable: widget.controller,
+        listenable:
+            Listenable.merge([widget.controller, widget.developerController]),
         builder: (context, _) {
+          final developer = widget.developerController;
+          // Chat and voice offer "Open Developer" only where it is listed.
+          final openDeveloper = _showDeveloper
+              ? () => _select(WorkspaceDestination.developer)
+              : null;
           final pages = [
             AssistantScreen(
               controller: widget.chatController,
               active: index == WorkspaceDestination.assistant,
               onOpenSettings: () => _openSettings(context),
+              developer: widget.chatDeveloper,
+              onOpenDeveloper: openDeveloper,
             ),
             HomeScreen(
               controller: widget.controller,
@@ -103,10 +132,19 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
             TasksScreen(controller: widget.controller),
             VoiceScreen(
                 controller: widget.voiceController,
-                onOpenApprovals: () => _select(WorkspaceDestination.approvals)),
+                onOpenApprovals: () => _select(WorkspaceDestination.approvals),
+                onOpenDeveloper: openDeveloper),
             ApprovalsScreen(controller: widget.controller),
             AutomationsScreen(controller: widget.controller),
-            ResourcesScreen(controller: widget.controller)
+            ResourcesScreen(controller: widget.controller),
+            if (developer != null)
+              DeveloperScreen(
+                controller: developer,
+                active: index == WorkspaceDestination.developer,
+                onOpenSettings: () => _openSettings(context),
+              )
+            else
+              const SizedBox.shrink(),
           ];
           final l = context.anum;
           final assistant = NavigationDestination(
@@ -143,6 +181,11 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 icon: const Icon(Icons.folder_outlined),
                 selectedIcon: const Icon(Icons.folder),
                 label: l.t('resources')),
+            if (_showDeveloper)
+              NavigationDestination(
+                  icon: const Icon(Icons.construction_outlined),
+                  selectedIcon: const Icon(Icons.construction),
+                  label: l.t('developer')),
           ];
           final compactDestinations = [
             assistant,
@@ -230,7 +273,10 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               body: expanded
                   ? Row(children: [
                       NavigationRail(
-                          selectedIndex: index,
+                          // A deep link to Developer for a non-owner selects
+                          // nothing: the destination is not listed for them.
+                          selectedIndex:
+                              index < destinations.length ? index : null,
                           onDestinationSelected: _select,
                           labelType: NavigationRailLabelType.all,
                           destinations: destinations
@@ -286,14 +332,20 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         },
       );
 
-  void _select(int value) => setState(() => _index.value = value);
+  void _select(int value) {
+    setState(() => _index.value = value);
+    // After a workspace switch (Settings) the role is checked again, so
+    // Developer appears or disappears with it.
+    widget.developerController?.ensureOwner();
+  }
 
   Future<void> _showMore(BuildContext context) async {
     final value = await showModalBottomSheet<int>(
         context: context,
         showDragHandle: true,
         builder: (context) => SafeArea(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                child: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
               ListTile(
                   leading: const Icon(Icons.mic),
                   title: const Text('Voice'),
@@ -309,6 +361,12 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                   title: const Text('Automations'),
                   onTap: () =>
                       Navigator.pop(context, WorkspaceDestination.automations)),
+              if (_showDeveloper)
+                ListTile(
+                    leading: const Icon(Icons.construction_outlined),
+                    title: Text(context.anum.t('developer')),
+                    onTap: () =>
+                        Navigator.pop(context, WorkspaceDestination.developer)),
               ListTile(
                   leading: const Icon(Icons.policy_outlined),
                   title: const Text('Policy packs'),
@@ -357,7 +415,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                             builder: (_) => SettingsScreen(
                                 controller: widget.settingsController)));
                   })
-            ])));
+            ]))));
     if (value != null) _select(value);
   }
 

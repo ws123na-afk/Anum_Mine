@@ -58,10 +58,12 @@ The chart never renders a Secret. Create these in the release namespace before i
 | Secret (`values` key) | Keys | Required |
 |---|---|---|
 | `secrets.app.name` (default `anum-app`) | `ANUM_SECRETS_KEY` (comma-separated Fernet keys, the first encrypts), `ANUM_DATABASE_URL` (`anum_app`) | yes |
-| | `ANUM_OUTBOX_DATABASE_URL` (`anum_relay`), `ANUM_VALKEY_URL`, `ANUM_MODEL_API_KEY`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY`, `ANUM_EXTERNAL_WEBHOOK_URL`, `ANUM_EXTERNAL_WEBHOOK_API_KEY`, `ANUM_SEARXNG_URL` ([web search](tools-and-integrations.md#web-search)) | when used |
+| | `ANUM_OUTBOX_DATABASE_URL` (`anum_relay`), `ANUM_VALKEY_URL`, `ANUM_MODEL_API_KEY`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY`, `ANUM_EXTERNAL_WEBHOOK_URL`, `ANUM_EXTERNAL_WEBHOOK_API_KEY`, `ANUM_SEARXNG_URL` ([web search](tools-and-integrations.md#web-search)), `ANUM_SENTRY_DSN` ([error reporting](observability.md#error-reporting)) | when used |
 | `secrets.migration.name` (default `anum-migrate`) | `ANUM_DATABASE_URL` (`anum_migrator`) | when `migration.enabled` |
 | `secrets.backup.name` (default `anum-backup`) | `ANUM_BACKUP_DATABASE_URL` (`anum_backup`) | when `backup.enabled` |
 | `ingress.tls.secretName` | TLS certificate | unless cert-manager issues it |
+
+The chart injects exactly the keys listed in `secrets.app.required` and `secrets.app.optional` into the API, the worker and the retention job; a key the Secret holds but the lists do not name is never read. `infra/helm/ci/lint.sh` renders the chart and checks that `ANUM_SENTRY_DSN` reaches the API and the worker from the Secret.
 
 Generate a Fernet key with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and rotate it as in [Runbooks](runbooks.md#rotating-anum_secrets_key). When the cloud provides workload identity for object storage, leave the S3 keys out and annotate the ServiceAccounts instead.
 
@@ -125,6 +127,7 @@ The chart is checked with Helm 4 (`v4.3.0`); Helm 3 renders it too, with `--atom
 | `STAGING_NAMESPACE`, `PRODUCTION_NAMESPACE` | repository variables | Release namespace (defaults `anum-staging`, `anum`). It and its Secrets must exist. |
 | `STAGING_HELM_VALUES`, `PRODUCTION_HELM_VALUES` | repository variables | YAML layered over the overlay: real hosts, endpoints, CIDRs. |
 | `STAGING_API_URL`, `STAGING_OIDC_ISSUER`, `PRODUCTION_API_URL`, `PRODUCTION_OIDC_ISSUER` | repository variables | Compiled into the web bundle; the API URL is also smoke-tested after the deploy. |
+| `STAGING_WEB_SENTRY_DSN`, `PRODUCTION_WEB_SENTRY_DSN` | repository variables, optional | The web image's `VITE_SENTRY_DSN` build argument (browser error reporting, [Browser errors](observability.md#browser-errors-web-app)); `VITE_SENTRY_ENVIRONMENT` is `staging` or `production`. A variable, not a secret: the DSN is public and ships in the bundle. Unset: the bundle has no reporting code. A malformed value fails the image build. |
 | `STAGING_WEB_URL`, `PRODUCTION_WEB_URL` | repository variables | Environment URL shown on the run. |
 
 The deploy identity needs, in the release namespace only: create, update, patch and delete on Deployments, Services, ConfigMaps, ServiceAccounts, Jobs, CronJobs, PodDisruptionBudgets, HorizontalPodAutoscalers, Ingresses, NetworkPolicies and Pods (for `helm test`), get and list on Pods, Events and Secrets of type `helm.sh/release.v1` (Helm stores release state in Secrets), and read on ReplicaSets for `--wait`. It does not need to read the application's Secrets' values, and it needs no cluster-scoped rights: the [admission policy](#admission-policy) is installed by a cluster admin, so the deploy identity cannot change or escape it.

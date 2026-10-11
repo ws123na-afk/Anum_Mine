@@ -293,6 +293,11 @@ services:
         VITE_ANUM_API_URL: https://${ANUM_API_HOST:?set ANUM_API_HOST in infra/oracle/.env}
         VITE_ANUM_OIDC_ISSUER: https://${ANUM_AUTH_HOST:?set ANUM_AUTH_HOST in infra/oracle/.env}/realms/anum
         VITE_ANUM_OIDC_CLIENT_ID: anum-web
+        # Optional browser error reporting to GlitchTip (docs/monitoring-oracle.md#web-errors):
+        # the project's public DSN, https://<key>@<ANUM_ERRORS_HOST>/<id>. Empty: off, and the
+        # bundle has no reporting code. Its origin is added to the CSP's connect-src at build.
+        VITE_SENTRY_DSN: ${ANUM_WEB_SENTRY_DSN:-}
+        VITE_SENTRY_ENVIRONMENT: ${ANUM_ENVIRONMENT:-staging}
     image: anum/web:local
     restart: unless-stopped
     environment:

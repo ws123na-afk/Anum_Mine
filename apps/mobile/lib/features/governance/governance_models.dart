@@ -3,9 +3,23 @@ class GovernanceSummary {
       {required this.policyPacks,
       required this.activePolicyPacks,
       required this.roleTemplates,
-      required this.approvalRules});
+      required this.approvalRules,
+      this.canManageOrganizationPolicy = false});
   final int policyPacks, activePolicyPacks, roleTemplates, approvalRules;
+
+  /// The API's answer for the caller (`can_manage_organization_policy`): only an
+  /// organization administrator (`org_admin`) changes tenant-wide policy and routing.
+  /// The screen never guesses this from the workspace role.
+  final bool canManageOrganizationPolicy;
 }
+
+/// Shown instead of the controls when the caller is not an organization administrator.
+const organizationReadOnlyNotice =
+    'Read only: policy packs and routing targets apply to every workspace in this '
+    'organization, so only an organization administrator can change them. Owning '
+    'this workspace is not enough. Ask your organization administrator to make the '
+    'change, or to have the org_admin role granted to you in your identity provider.';
+
 
 class PolicyPack {
   const PolicyPack(

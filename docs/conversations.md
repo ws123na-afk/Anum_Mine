@@ -113,7 +113,8 @@ A conversation is deleted with all its turns once it has had no activity (its
 `updated_at`: creation or latest turn) for `ANUM_CONVERSATION_RETENTION_DAYS` days
 (default 30, the same as voice transcripts; `0` keeps conversations until their user
 deletes them or the workspace's data is deleted; at most 3650). Any new turn resets the
-clock, so a conversation in use is never purged.
+clock, so a conversation in use is never purged. A user can also download every
+conversation or delete all of them at once from Settings → Privacy ([Privacy](privacy.md)).
 
 `python -m anum_api.conversation_retention [--dry-run]` runs the purge; the daily
 retention job `python -m anum_api.voice_retention` (the chart's `voiceRetention`

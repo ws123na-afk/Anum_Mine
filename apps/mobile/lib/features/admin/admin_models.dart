@@ -337,6 +337,7 @@ class BudgetOverview {
     required this.resetsOn,
     required this.tenant,
     required this.workspace,
+    this.canManageTenantBudget = false,
   });
   factory BudgetOverview.fromJson(JsonMap json) {
     final r = JsonReader(json);
@@ -347,11 +348,24 @@ class BudgetOverview {
       resetsOn: r.string('resets_on'),
       tenant: BudgetScopeView.fromJson(tenant.json, tenant.path),
       workspace: BudgetScopeView.fromJson(workspace.json, workspace.path),
+      canManageTenantBudget: r.optBool('can_manage_tenant_budget') ?? false,
     );
   }
   final String periodStart, resetsOn;
   final BudgetScopeView tenant, workspace;
+
+  /// Whether the caller may change the organization budget (the API's answer:
+  /// the organization administrator role `org_admin`, never the workspace role).
+  final bool canManageTenantBudget;
 }
+
+/// Shown on the organization budget card when the caller may not change it.
+const tenantBudgetReadOnlyNotice =
+    'Read only: the organization model budget applies to every workspace in this '
+    'organization, so only an organization administrator can change it. Owning '
+    'this workspace is not enough. Ask your organization administrator to make the '
+    'change, or to have the org_admin role granted to you in your identity provider.';
+
 
 enum MeterTone { none, ok, warn, stop }
 

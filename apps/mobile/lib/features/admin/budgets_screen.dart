@@ -87,6 +87,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                         title: 'Organization',
                         subtitle: 'All workspaces in this organization',
                         view: o.tenant,
+                        readOnly: !o.canManageTenantBudget,
                         controller: c),
                     _BudgetCard(
                         key: const Key('budget-workspace'),
@@ -110,10 +111,15 @@ class _BudgetCard extends StatefulWidget {
     required this.subtitle,
     required this.view,
     required this.controller,
+    this.readOnly = false,
     super.key,
   });
   final String scope, title, subtitle;
   final BudgetScopeView view;
+
+  /// The organization budget for a caller who is not an organization
+  /// administrator: the numbers without the controls, and why.
+  final bool readOnly;
   final BudgetsController controller;
   @override
   State<_BudgetCard> createState() => _BudgetCardState();
@@ -189,6 +195,18 @@ class _BudgetCardState extends State<_BudgetCard> {
               style: TextStyle(color: p.faint, fontSize: 12)),
         ],
         Divider(height: 28, color: p.line),
+        if (widget.readOnly)
+          Row(
+              key: Key('${widget.scope}-read-only'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.lock_outline, size: 18, color: p.muted),
+                const SizedBox(width: AnumSpacing.sm),
+                Expanded(
+                    child: Text(tenantBudgetReadOnlyNotice,
+                        style: TextStyle(color: p.muted, fontSize: 13))),
+              ])
+        else ...[
         TextField(
             key: Key('${widget.scope}-cost'),
             controller: cost,
@@ -226,6 +244,7 @@ class _BudgetCardState extends State<_BudgetCard> {
                     : () => c.save(widget.scope, '', ''),
                 child: const Text('Remove limits')),
         ]),
+        ],
       ]),
     );
   }

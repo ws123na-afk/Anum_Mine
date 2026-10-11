@@ -10,6 +10,21 @@ class AnumLocalizations {
   static AnumLocalizations of(BuildContext context) =>
       Localizations.of<AnumLocalizations>(context, AnumLocalizations)!;
   String t(String key) => (isArabic ? _ar : _en)[key] ?? _en[key] ?? key;
+
+  /// [t] with each `{name}` placeholder replaced by its value.
+  String f(String key, Map<String, Object> values) {
+    var text = t(key);
+    values
+        .forEach((name, value) => text = text.replaceAll('{$name}', '$value'));
+    return text;
+  }
+
+  /// The catalog for [context], or English when none is installed (widgets
+  /// pumped in tests without the delegate).
+  static AnumLocalizations maybeOf(BuildContext context) =>
+      Localizations.of<AnumLocalizations>(context, AnumLocalizations) ??
+      english;
+  static const english = AnumLocalizations(Locale('en'));
   static const _en = <String, String>{
     'assistant': 'Assistant',
     'home': 'Home',
@@ -20,6 +35,7 @@ class AnumLocalizations {
     'approvals': 'Approvals',
     'automation': 'Automation',
     'resources': 'Resources',
+    'developer': 'Developer',
     'refresh': 'Refresh',
     'settings': 'Settings',
     'organization': 'Organization operations',
@@ -33,6 +49,35 @@ class AnumLocalizations {
     'createWorkspace': 'Create workspace',
     'modelSetup': 'Connect a model',
     'saveModel': 'Test, save, and continue',
+    'sourcesEyebrow': 'Retrieval',
+    'sourcesTitle': 'Sources used',
+    'sourcesNone': 'none',
+    'sourcesOne': '1 source',
+    'sourcesMany': '{n} sources',
+    'sourcesNoneSpoken': 'No sources used',
+    'sourcesCountSpoken': '{count} used by this run',
+    'sourcesMemory': 'Memory',
+    'sourcesFile': 'File',
+    'sourcesPassage': 'passage {n}, {score}% match',
+    'sourcesShortened': 'shortened',
+    'sourcesOpensFile': 'opens file details',
+    'sourcesOpensMemory': 'opens it in Memory',
+    'sourcesTruncated':
+        'Some retrieved text was shortened to fit the prompt limit.',
+    'sourcesNoResults': 'No indexed memory or file matched this task.',
+    'sourcesSkipped': 'Retrieval skipped.',
+    'sourcesSkippedReason': 'Retrieval skipped: {reason}.',
+    'sourcesUnavailable':
+        'Retrieval was unavailable; the task ran without workspace context.',
+    'sourcesUntrusted': 'Retrieved text is passed to the model as labeled, '
+        'untrusted data; it cannot change tools or approvals.',
+    'sourcesLoading': "Loading the run's sources…",
+    'sourcesErrorTitle': "Couldn't load the sources used",
+    'sourcesErrorHint': '{message} Check your connection, then try again.',
+    'sourcesDeniedHint': '{message} Members with task access can see them; '
+        'ask a workspace owner for access.',
+    'retry': 'Try again',
+    'memoryUsedByRun': 'Used by the run you came from',
   };
   static const _ar = <String, String>{
     'assistant': 'المساعد',
@@ -44,6 +89,7 @@ class AnumLocalizations {
     'approvals': 'الموافقات',
     'automation': 'الأتمتة',
     'resources': 'الموارد',
+    'developer': 'المطوّر',
     'refresh': 'تحديث',
     'settings': 'الإعدادات',
     'organization': 'عمليات المؤسسة',
@@ -57,6 +103,34 @@ class AnumLocalizations {
     'createWorkspace': 'إنشاء مساحة العمل',
     'modelSetup': 'ربط نموذج',
     'saveModel': 'اختبار وحفظ ومتابعة',
+    'sourcesEyebrow': 'الاسترجاع',
+    'sourcesTitle': 'المصادر المستخدمة',
+    'sourcesNone': 'لا شيء',
+    'sourcesOne': 'مصدر واحد',
+    'sourcesMany': 'المصادر: {n}',
+    'sourcesNoneSpoken': 'لم تُستخدم أي مصادر',
+    'sourcesCountSpoken': '{count}، استخدمها هذا التشغيل',
+    'sourcesMemory': 'ذاكرة',
+    'sourcesFile': 'ملف',
+    'sourcesPassage': 'المقطع {n}، تطابق {score}٪',
+    'sourcesShortened': 'مختصر',
+    'sourcesOpensFile': 'يفتح تفاصيل الملف',
+    'sourcesOpensMemory': 'يفتحها في الذاكرة',
+    'sourcesTruncated': 'اختُصر بعض النص المسترجع ليناسب حد الطلب.',
+    'sourcesNoResults': 'لم تطابق أي ذاكرة أو ملف مفهرس هذه المهمة.',
+    'sourcesSkipped': 'تم تخطي الاسترجاع.',
+    'sourcesSkippedReason': 'تم تخطي الاسترجاع: {reason}.',
+    'sourcesUnavailable':
+        'لم يكن الاسترجاع متاحًا؛ نُفذت المهمة دون سياق مساحة العمل.',
+    'sourcesUntrusted': 'يُمرَّر النص المسترجع إلى النموذج كبيانات موسومة غير '
+        'موثوقة؛ ولا يمكنه تغيير الأدوات أو الموافقات.',
+    'sourcesLoading': 'جارٍ تحميل مصادر التشغيل…',
+    'sourcesErrorTitle': 'تعذر تحميل المصادر المستخدمة',
+    'sourcesErrorHint': '{message} تحقق من الاتصال ثم حاول مرة أخرى.',
+    'sourcesDeniedHint': '{message} يستطيع رؤيتها الأعضاء الذين لديهم صلاحية '
+        'المهام؛ اطلب الصلاحية من مالك مساحة العمل.',
+    'retry': 'حاول مرة أخرى',
+    'memoryUsedByRun': 'استخدمها التشغيل الذي أتيت منه',
   };
 }
 

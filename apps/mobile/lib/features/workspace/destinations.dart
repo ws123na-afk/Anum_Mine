@@ -8,4 +8,9 @@ abstract final class WorkspaceDestination {
   static const approvals = 4;
   static const automations = 5;
   static const resources = 6;
+
+  /// Owners only (docs/developer-mode.md): hidden from the navigation for
+  /// everyone else; opened by link it explains who can use it. Last, so the
+  /// positions above stay the same whether or not it is shown.
+  static const developer = 7;
 }

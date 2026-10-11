@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 from .authorization import Permission
 from .dependencies import (
@@ -28,6 +29,7 @@ from .integration_tools import configured_external_handler
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
 from .model_gateway import build_default_model_gateway
 from .memory import (
+    CONVERSATION_SOURCE_TYPE,
     MemoryAccess,
     MemoryCreate,
     MEMORY_LIST_DEFAULT_LIMIT,
@@ -77,7 +79,9 @@ from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
 from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
 from .conversations import router as conversations_router
+from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
+from .user_preferences import router as user_preferences_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -142,7 +146,8 @@ app.add_middleware(
         "idempotency-key",
         CORRELATION_ID_HEADER,
     ],
-    expose_headers=[CORRELATION_ID_HEADER, "Retry-After"],
+    # Content-Disposition: the file name of a download (GET /api/v1/privacy/export).
+    expose_headers=[CORRELATION_ID_HEADER, "Retry-After", "Content-Disposition"],
 )
 # Outermost ANUM middleware, so 413/429 answers and CORS preflights are counted too.
 app.add_middleware(HttpMetricsMiddleware)
@@ -163,6 +168,7 @@ async def model_budget_exceeded_handler(request: Request, exc: ModelBudgetExceed
 
 app.include_router(voice_router)
 app.include_router(conversations_router)
+app.include_router(privacy_router)
 app.include_router(phase5_router)
 app.include_router(governance_router)
 app.include_router(automation_router)
@@ -174,6 +180,7 @@ app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(model_budget_router)
 app.include_router(developer_router)
+app.include_router(user_preferences_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -719,6 +726,42 @@ async def list_memories(
             limit=limit,
         ),
     )
+
+
+class MemoryBulkDeleteResult(BaseModel):
+    deleted: int
+
+
+@app.delete("/api/v1/memories", response_model=MemoryBulkDeleteResult)
+async def delete_my_conversation_memories(
+    source_type: str = Query(description="Only `conversation`: every memory remembered from the caller's own chats"),
+    context: TenantContext = Depends(tenant_context),
+    memories: MemoryRepository = Depends(memory_repository_context),
+) -> MemoryBulkDeleteResult:
+    """Delete all of the caller's memories from chats in this workspace (with their index rows).
+
+    Only the caller's own private memories: nobody else can see them, and shared notes are
+    never touched. Expired ones go too.
+    """
+    require_permission(context, Permission.MEMORY_DELETE)
+    if source_type != CONVERSATION_SOURCE_TYPE:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Only memories from your chats can be deleted together (source_type=conversation)",
+        )
+    deleted = 0
+    filters = MemoryListFilters(source_types={CONVERSATION_SOURCE_TYPE}, include_expired=True, limit=MEMORY_LIST_MAX_LIMIT)
+    while True:
+        own = [note for note in memories.list(context, filters, utc_now()) if note.owner_user_id == context.user_id]
+        removed = 0
+        for note in own:
+            if memories.delete(note.id, context):
+                forget_memory(context, note.id, memories)
+                removed += 1
+        deleted += removed
+        if removed == 0 or len(own) < MEMORY_LIST_MAX_LIMIT:
+            break
+    return MemoryBulkDeleteResult(deleted=deleted)
 
 
 @app.delete("/api/v1/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -6,6 +6,8 @@
 # - 'wasm-unsafe-eval' and cdn.jsdelivr.net let the in-browser Kokoro voice load the
 #   ONNX runtime; huggingface.co hosts its model weights.
 # - style-src allows inline styles because React components set style attributes.
+# - __ANUM_CSP_ERROR_REPORTING_SRC__ is replaced when the image is built: the origin of
+#   VITE_SENTRY_DSN (browser error reporting), or nothing when it is off.
 
 server {
     listen 8080;
@@ -16,7 +18,7 @@ server {
 
     client_max_body_size 1k;
 
-    set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ${ANUM_CSP_CONNECT_SRC} https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ${ANUM_CSP_CONNECT_SRC} __ANUM_CSP_ERROR_REPORTING_SRC__ https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
     add_header Content-Security-Policy $csp always;
     add_header X-Content-Type-Options "nosniff" always;

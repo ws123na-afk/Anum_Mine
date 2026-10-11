@@ -33,5 +33,14 @@ export default defineConfig({
       timeout: 120_000,
       env: { VITE_ANUM_OIDC_ISSUER: 'http://oidc.anum.test/realms/anum', VITE_ANUM_OIDC_CLIENT_ID: 'anum-web' },
     },
+    {
+      // The same app built with browser error reporting on, for e2e/error-reporting.spec.ts. The DSN
+      // names a placeholder host that the spec intercepts; nothing resolves or contacts it.
+      command: 'pnpm exec vite build --outDir dist-sentry --emptyOutDir && pnpm exec vite preview --outDir dist-sentry --host 127.0.0.1 --port 4175',
+      url: 'http://127.0.0.1:4175',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      env: { VITE_SENTRY_DSN: 'https://examplekey@errors.anum.test/7', VITE_SENTRY_ENVIRONMENT: 'e2e' },
+    },
   ],
 });

@@ -597,3 +597,99 @@ def test_planning_uses_the_capable_route(monkeypatch: pytest.MonkeyPatch) -> Non
     result = asyncio.run(planner.plan(task))
     assert json.loads(seen[0].content)["model"] == ANTHROPIC_CAPABLE_MODEL
     assert result.model_response.text == "Plan ready."
+
+
+# --------------------------------------------------------------------------- planning cache layout
+
+
+def _planning_task(prompt: str = PROMPT):  # type: ignore[no-untyped-def]
+    from anum_api.schemas import Task
+
+    return Task.model_validate(
+        {
+            "id": "task_example",
+            "tenant_id": "tenant_route",
+            "workspace_id": "workspace_route",
+            "created_by": "owner",
+            "title": "Plan",
+            "prompt": prompt,
+            "status": "queued",
+            "created_at": "2026-10-11T00:00:00Z",
+            "updated_at": "2026-10-11T00:00:00Z",
+        }
+    )
+
+
+BLOCK = "<<untrusted-data id=0 source=memory origin=m/chunk-0 truncated=false>>\nLaunch is on Friday.\n<<end-untrusted-data id=0>>"
+
+
+def _planner(gateway: Any) -> AgentPlanner:
+    from anum_api.agent_skills import default_skill_registry
+    from anum_api.agent_tools import default_tool_registry
+
+    return AgentPlanner(gateway, default_skill_registry(), default_tool_registry())
+
+
+def test_planning_with_context_caches_the_stable_instructions_and_sends_the_task_last() -> None:
+    from anum_api.prompt_provenance import UNTRUSTED_DATA_RULES
+    from anum_api.retrieval import CACHED_RETRIEVAL_PREFACE, TASK_HEADING
+
+    gateway, seen = _gateway([_json(_message("Plan ready.")), _json(_message("Plan ready."))])
+    planner = _planner(gateway)
+
+    first = asyncio.run(planner.plan(_planning_task(), context_blocks=[BLOCK]))
+    asyncio.run(planner.plan(_planning_task("Draft the launch email for the example team"), context_blocks=[BLOCK]))
+
+    assert first.model_response.text == "Plan ready."
+    bodies = [json.loads(request.content) for request in seen]
+    # The stable instructions are the cached system prefix, identical for both tasks.
+    for body in bodies:
+        (system,) = body["system"]
+        assert system["cache_control"] == {"type": "ephemeral"}
+        assert system["text"].startswith(CACHED_RETRIEVAL_PREFACE) and UNTRUSTED_DATA_RULES in system["text"]
+        assert PROMPT not in system["text"] and BLOCK not in system["text"]
+        # The one-off prompt is not cached: nothing would read it again.
+        assert count_cache_breakpoints(body) == 1
+    assert bodies[0]["system"] == bodies[1]["system"]
+    # Retrieved blocks, then the task, last.
+    content = bodies[0]["messages"][-1]["content"]
+    assert isinstance(content, str)
+    assert content.index(BLOCK) < content.index(TASK_HEADING) < content.index(PROMPT)
+    assert content.rstrip().endswith(PROMPT)
+
+
+def test_planning_without_context_sends_the_task_alone_and_uncached() -> None:
+    gateway, seen = _gateway([_json(_message("Plan ready."))])
+    asyncio.run(_planner(gateway).plan(_planning_task()))
+    body = json.loads(seen[0].content)
+    assert "system" not in body and count_cache_breakpoints(body) == 0
+    assert body["messages"] == [{"role": "user", "content": PROMPT}]
+
+
+def test_budgeted_planning_keeps_the_cache_layout_and_meters_the_call(_budgets: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "repository_backend", "memory")
+    context = TenantContext(tenant_id="tenant_plan_cache", workspace_id="workspace_plan_cache", user_id="owner", roles=["owner"])
+    gateway, seen = _gateway([_json(_message("Plan ready.", cache_read_input_tokens=600))])
+    asyncio.run(_planner(BudgetedModelGateway(gateway, context)).plan(_planning_task(), context_blocks=[BLOCK]))
+    body = json.loads(seen[0].content)
+    assert body["system"][0]["cache_control"] == {"type": "ephemeral"}
+    totals = memory_model_budget_store.usage(context, BudgetScope.WORKSPACE, month_start(datetime.now(timezone.utc)))
+    assert totals.input_tokens == 610 and totals.calls == 1
+
+
+def test_other_providers_get_the_planning_prompt_unchanged(_budgets: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "repository_backend", "memory")
+    from anum_api.retrieval import build_task_prompt
+
+    prompts: list[str] = []
+
+    class Recording(MockModelGateway):
+        async def generate_text(self, prompt: str):  # type: ignore[no-untyped-def]
+            prompts.append(prompt)
+            return await super().generate_text(prompt)
+
+    context = TenantContext(tenant_id="tenant_plan_other", workspace_id="workspace_plan_other", user_id="owner", roles=["owner"])
+    for gateway in (Recording(), BudgetedModelGateway(Recording(), context)):
+        asyncio.run(_planner(gateway).plan(_planning_task(), context_blocks=[BLOCK]))
+    assert prompts == [build_task_prompt(PROMPT, [BLOCK])] * 2
+    assert prompts[0].startswith(PROMPT)

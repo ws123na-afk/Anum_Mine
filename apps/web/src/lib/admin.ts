@@ -38,7 +38,7 @@ interface ApiScopeView {
   total_tokens: number;
   exceeded: boolean;
 }
-export interface ApiBudgetOverview { period_start: string; resets_on: string; tenant: ApiScopeView; workspace: ApiScopeView }
+export interface ApiBudgetOverview { period_start: string; resets_on: string; tenant: ApiScopeView; workspace: ApiScopeView; can_manage_tenant_budget?: boolean }
 
 const role = (value: string): WorkspaceRole => (ROLES as readonly string[]).includes(value) ? value as WorkspaceRole : 'viewer';
 
@@ -74,7 +74,8 @@ function mapScope(value: ApiScopeView): ModelBudgetScopeView {
 }
 
 export function mapBudgetOverview(value: ApiBudgetOverview): ModelBudgetOverview {
-  return { periodStart: value.period_start, resetsOn: value.resets_on, tenant: mapScope(value.tenant), workspace: mapScope(value.workspace) };
+  // An API without the flag predates org_admin budgets: treat the organization budget as read only.
+  return { periodStart: value.period_start, resetsOn: value.resets_on, tenant: mapScope(value.tenant), workspace: mapScope(value.workspace), canManageTenantBudget: value.can_manage_tenant_budget === true };
 }
 
 export function limitsBody(limits: ModelBudgetLimits): { monthly_cost_limit_usd: number | null; monthly_token_limit: number | null } {

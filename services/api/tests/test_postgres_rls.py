@@ -45,6 +45,7 @@ TENANT_TABLES = {
     "integration_configurations",
     "workspace_files",
     "notification_preferences",
+    "user_preferences",
     "audit_records",
     "workspace_invitations",
     "workspace_memberships",

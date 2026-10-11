@@ -161,6 +161,14 @@ services:
         sync: false
       - key: VITE_ANUM_OIDC_CLIENT_ID
         value: anum-web
+      # Optional browser error reporting: the public DSN of a Sentry-compatible project,
+      # https://<public key>@<host>/<project id>. Leave empty to build without reporting
+      # code; when set, the image adds its origin to the CSP's connect-src
+      # (docs/observability.md#browser-errors-web-app). Changing it needs a rebuild.
+      - key: VITE_SENTRY_DSN
+        sync: false
+      - key: VITE_SENTRY_ENVIRONMENT
+        value: staging
       # Runtime: origins the page may call, "https://<API host> https://<Keycloak host>".
       - key: ANUM_CSP_CONNECT_SRC
         sync: false

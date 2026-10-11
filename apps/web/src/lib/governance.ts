@@ -27,14 +27,30 @@ export function parseList(text: string): string[] {
  * the view never guesses from the workspace role, because owning one workspace is not enough.
  * Until the summary loads nothing is editable and nothing is explained yet.
  */
-export function organizationPolicyAccess(summary: Pick<GovernanceSummary, 'can_manage_organization_policy'> | null): { canManage: boolean; notice: string | null } {
-  if (!summary) return { canManage: false, notice: null };
-  if (summary.can_manage_organization_policy) return { canManage: true, notice: null };
+export function organizationPolicyAccess(summary: Pick<GovernanceSummary, 'can_manage_organization_policy'> | null): TenantWriteAccess {
+  return tenantWriteAccess(summary ? summary.can_manage_organization_policy ?? false : null, 'policy packs, role templates and approval rules');
+}
+
+export interface TenantWriteAccess { canManage: boolean; notice: string | null }
+
+/**
+ * Who may make a tenant-wide write (organization budget, routing targets, the marketplace
+ * catalog, policy): the API's capability flag for the caller, never a guess from the
+ * workspace role. `null` means the flag has not loaded yet: nothing is editable and nothing
+ * is explained yet. `subject` names what is read only, in plain words ("routing targets").
+ */
+export function tenantWriteAccess(canManage: boolean | null, subject: string): TenantWriteAccess {
+  if (canManage === null) return { canManage: false, notice: null };
+  if (canManage) return { canManage: true, notice: null };
   return {
     canManage: false,
-    notice: 'Read only: policy packs, role templates and approval rules apply to every workspace in this organization, so only an organization administrator can change them. Owning this workspace is not enough. Ask your organization administrator to make the change, or to have the org_admin role granted to you in your identity provider.',
+    notice: `Read only: ${subject} apply to every workspace in this organization, so only an organization administrator can change them. Owning this workspace is not enough. To become one, ask the administrator of your ANUM sign-in (Keycloak) to assign you the realm role org_admin (on a self-hosted server they run: infra/oracle/keycloak-2fa.sh grant-org-admin <your username>), then sign out and sign in again. Until then, an organization administrator can make the change for you.`,
   };
 }
+
+/** Routing targets and the marketplace catalog (Enterprise view), from the governance summary. */
+export const enterpriseWriteAccess = (summary: Pick<GovernanceSummary, 'can_manage_organization_policy'> | null): TenantWriteAccess =>
+  tenantWriteAccess(summary ? summary.can_manage_organization_policy ?? false : null, 'routing targets and the marketplace catalog');
 
 /** The badge and next action for a pack: the API activates or archives a stored version. */
 export function packState(pack: Pick<PolicyPack, 'active'>): { label: string; tone: 'success' | 'neutral'; action: 'activate' | 'archive' } {
