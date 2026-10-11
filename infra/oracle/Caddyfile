@@ -1,0 +1,70 @@
+# Caddy for ANUM on one VM (infra/oracle/compose.yaml, docs/deploy-oracle.md).
+#
+# Three HTTPS sites with certificates from Let's Encrypt, issued and renewed by Caddy
+# (HTTP-01 on port 80 or TLS-ALPN-01 on 443; the hostnames' DNS A records must point at
+# the VM). Port 80 only answers ACME challenges and redirects to https.
+#
+# Forwarded headers: Caddy is the first hop from the internet, so it trusts no proxy
+# (no `trusted_proxies`). Every upstream request gets X-Forwarded-For set to the peer
+# address Caddy saw, replacing whatever a client sent, plus X-Forwarded-Proto/Host.
+# The API (FORWARDED_ALLOW_IPS) and Keycloak (KC_PROXY_TRUSTED_ADDRESSES) accept those
+# headers only from Caddy's fixed address 172.30.10.10. If a CDN or another proxy is
+# ever put in front, list its ranges in `trusted_proxies` here, never `0.0.0.0/0`.
+#
+# Placeholders {$NAME} are read from the container's environment at start (set from
+# infra/oracle/.env by compose).
+
+{
+	email {$ACME_EMAIL}
+	# HTTP/1.1 and HTTP/2 only: HTTP/3 would need UDP 443 in the Oracle security list.
+	servers {
+		protocols h1 h2
+	}
+}
+
+(upstream_headers) {
+	header_up X-Forwarded-For {remote_host}
+	header_up X-Real-IP {remote_host}
+}
+
+(common) {
+	header -Server
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$ANUM_WEB_HOST} {
+	import common
+	reverse_proxy web:8080 {
+		import upstream_headers
+	}
+}
+
+{$ANUM_API_HOST} {
+	import common
+	# Streams (SSE) are passed through unbuffered.
+	reverse_proxy api:8000 {
+		import upstream_headers
+		flush_interval -1
+	}
+}
+
+{$ANUM_AUTH_HOST} {
+	import common
+	header Strict-Transport-Security "max-age=63072000"
+	# Keycloak's admin console and admin REST API, from the allowed source ranges only
+	# (ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS, default everyone; docs/deploy-oracle.md#keycloak).
+	@admin_denied {
+		path /admin /admin/*
+		not remote_ip {$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS}
+	}
+	respond @admin_denied 403
+	# Management endpoints stay on Keycloak's private port 9000; never proxy them.
+	@management path /health /health/* /metrics /metrics/*
+	respond @management 404
+	reverse_proxy keycloak:8080 {
+		import upstream_headers
+	}
+}

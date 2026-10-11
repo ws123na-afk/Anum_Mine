@@ -1,0 +1,511 @@
+# ANUM on one VM (Oracle Cloud Always Free Ampere A1, arm64; any Docker host works).
+# Step-by-step guide (Windows, PowerShell, no Kubernetes): docs/deploy-oracle.md.
+# The Render path (render.yaml) and the Kubernetes path (infra/helm/anum) stay the
+# alternatives.
+#
+#   cd infra/oracle && docker compose build && docker compose up -d
+#
+# Every value comes from infra/oracle/.env (generated on the server by install.sh from
+# .env.example, mode 600, gitignored). Rules this file keeps
+# (services/api/tests/test_oracle_compose.py checks them):
+# - No credential is written here: every secret is a ${VAR} reference to .env.
+# - Only Caddy publishes ports (80 and 443). PostgreSQL, Valkey, Keycloak's plain HTTP
+#   port, the API and the web container are reachable only on the compose networks.
+# - The API never connects as the schema owner. `db-init` creates the roles with
+#   infra/helm/bootstrap-database.sql (as on Render and Kubernetes), `migrate` runs
+#   `alembic upgrade head` as anum_migrator, and the API, the retention job and the
+#   scheduler use anum_app (RLS applies). The migration password reaches only db-init
+#   and migrate.
+# - The values the API refuses outside local (docs/security.md#startup-policy) are not
+#   used: https origins and issuer, OIDC, PostgreSQL, rate limiting on, no compose
+#   development credentials.
+# - Every image runs on linux/arm64 and linux/amd64; images are built on the VM.
+
+name: anum
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# The API image, built once and shared by migrate, api and the retention job.
+x-api-build: &api-build
+  context: ../../services/api
+
+services:
+  # --- Reverse proxy: the only container with published ports ----------------------
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    # TCP only: HTTP/3 (UDP 443) is turned off in the Caddyfile, so the Oracle security
+    # list needs TCP 80 and 443 only.
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in infra/oracle/.env}
+      ANUM_WEB_HOST: ${ANUM_WEB_HOST:?set ANUM_WEB_HOST in infra/oracle/.env}
+      ANUM_API_HOST: ${ANUM_API_HOST:?set ANUM_API_HOST in infra/oracle/.env}
+      ANUM_AUTH_HOST: ${ANUM_AUTH_HOST:?set ANUM_AUTH_HOST in infra/oracle/.env}
+      # Source addresses allowed to open Keycloak's /admin console (space-separated CIDRs).
+      ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS: ${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-0.0.0.0/0 ::/0}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account: keep this volume, or Let's Encrypt rate limits
+      # apply on every re-issue.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      edge:
+        # Fixed address: the API (FORWARDED_ALLOW_IPS) and Keycloak
+        # (KC_PROXY_TRUSTED_ADDRESSES) trust forwarded headers from this peer only.
+        ipv4_address: 172.30.10.10
+    depends_on:
+      - web
+      - api
+      - keycloak
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+    logging: *logging
+
+  # --- PostgreSQL 17 with pgvector: ANUM's database and Keycloak's own database -----
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17-trixie
+    restart: unless-stopped
+    environment:
+      # The cluster superuser. Used only by db-init (role bootstrap) and the restore
+      # tools (docs/deploy-oracle.md#backups); no application service receives it.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ANUM_POSTGRES_PASSWORD:?set ANUM_POSTGRES_PASSWORD in infra/oracle/.env}
+      POSTGRES_DB: anum
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=peer"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=4GB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - max_connections=100
+      - -c
+      - password_encryption=scram-sha-256
+    shm_size: 512m
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d anum -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    stop_grace_period: 60s
+    mem_limit: 4g
+    logging: *logging
+
+  # One-shot, on every `up`: creates or updates the roles and Keycloak's database with
+  # the passwords from .env (infra/oracle/db-init.sh). Idempotent.
+  db-init:
+    image: pgvector/pgvector:0.8.7-pg17-trixie
+    restart: "no"
+    entrypoint: ["/bin/sh", "/init/db-init.sh"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: ${ANUM_POSTGRES_PASSWORD:?set ANUM_POSTGRES_PASSWORD in infra/oracle/.env}
+      ANUM_MIGRATOR_PASSWORD: ${ANUM_MIGRATOR_PASSWORD:?set ANUM_MIGRATOR_PASSWORD in infra/oracle/.env}
+      ANUM_APP_PASSWORD: ${ANUM_APP_PASSWORD:?set ANUM_APP_PASSWORD in infra/oracle/.env}
+      ANUM_RELAY_PASSWORD: ${ANUM_RELAY_PASSWORD:?set ANUM_RELAY_PASSWORD in infra/oracle/.env}
+      ANUM_BACKUP_DB_PASSWORD: ${ANUM_BACKUP_DB_PASSWORD:?set ANUM_BACKUP_DB_PASSWORD in infra/oracle/.env}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in infra/oracle/.env}
+    volumes:
+      - ./db-init.sh:/init/db-init.sh:ro
+      - ./db:/init/db:ro
+      - ../helm/bootstrap-database.sql:/init/bootstrap-database.sql:ro
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  # One-shot, on every `up`: `alembic upgrade head` as the schema owner. The API starts
+  # only after it succeeded. Migrations are expand/contract (docs/deployment.md#migrations).
+  migrate:
+    build: *api-build
+    image: anum/api:local
+    restart: "no"
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    environment:
+      ANUM_ENVIRONMENT: ${ANUM_ENVIRONMENT:-staging}
+      ANUM_REPOSITORY_BACKEND: postgresql
+      ANUM_DATABASE_URL: postgresql+psycopg://anum_migrator:${ANUM_MIGRATOR_PASSWORD:?set ANUM_MIGRATOR_PASSWORD in infra/oracle/.env}@postgres:5432/anum
+      ANUM_SECRETS_KEY: ${ANUM_SECRETS_KEY:?set ANUM_SECRETS_KEY in infra/oracle/.env}
+    # The image's HEALTHCHECK probes the API port, which this job does not serve.
+    healthcheck:
+      disable: true
+    networks:
+      - backend
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    logging: *logging
+
+  # --- API (FastAPI) ----------------------------------------------------------------
+  api:
+    build: *api-build
+    image: anum/api:local
+    restart: unless-stopped
+    environment:
+      # Only Caddy may set X-Forwarded-For/Proto (client IPs for rate limiting). Caddy
+      # replaces any X-Forwarded-For a client sends (Caddyfile), so a client cannot
+      # choose its own rate-limit bucket.
+      FORWARDED_ALLOW_IPS: 172.30.10.10
+      ANUM_ENVIRONMENT: ${ANUM_ENVIRONMENT:-staging}
+      ANUM_AUTH_MODE: oidc
+      ANUM_OIDC_AUDIENCE: anum-api
+      # Exactly as Keycloak writes it into tokens (KC_HOSTNAME + /realms/anum).
+      ANUM_KEYCLOAK_ISSUER: https://${ANUM_AUTH_HOST:?set ANUM_AUTH_HOST in infra/oracle/.env}/realms/anum
+      # Signing keys fetched from Keycloak on the private network, not through the
+      # public address (no hairpin through the VM's public IP).
+      ANUM_OIDC_JWKS_URL: http://keycloak:8080/realms/anum/protocol/openid-connect/certs
+      ANUM_CORS_ORIGINS: '["https://${ANUM_WEB_HOST:?set ANUM_WEB_HOST in infra/oracle/.env}"]'
+      ANUM_REPOSITORY_BACKEND: postgresql
+      ANUM_DATABASE_URL: postgresql+psycopg://anum_app:${ANUM_APP_PASSWORD:?set ANUM_APP_PASSWORD in infra/oracle/.env}@postgres:5432/anum
+      # Comma-separated Fernet keys (first one encrypts), generated by install.sh.
+      ANUM_SECRETS_KEY: ${ANUM_SECRETS_KEY:?set ANUM_SECRETS_KEY in infra/oracle/.env}
+      # No NATS and no Temporal on this path: events stay in PostgreSQL (SSE reads them)
+      # and agent runs execute inside the API request, as on Render.
+      ANUM_EVENT_BUS: memory
+      ANUM_RUNTIME_BACKEND: inline
+      ANUM_VALKEY_URL: redis://valkey:6379/0
+      ANUM_RUN_LOCK_BACKEND: valkey
+      ANUM_RATE_LIMIT_BACKEND: valkey
+      ANUM_RATE_LIMIT_ENABLED: "true"
+      # Workspace files in an external S3-compatible bucket with versioning (Backblaze
+      # B2 or AWS S3; docs/deploy-oracle.md#file-storage).
+      ANUM_OBJECT_STORAGE_BACKEND: s3
+      ANUM_S3_ENDPOINT: ${ANUM_S3_ENDPOINT:?set ANUM_S3_ENDPOINT in infra/oracle/.env}
+      ANUM_S3_REGION: ${ANUM_S3_REGION:?set ANUM_S3_REGION in infra/oracle/.env}
+      ANUM_S3_BUCKET: ${ANUM_S3_BUCKET:?set ANUM_S3_BUCKET in infra/oracle/.env}
+      ANUM_S3_ACCESS_KEY: ${ANUM_S3_ACCESS_KEY:?set ANUM_S3_ACCESS_KEY in infra/oracle/.env}
+      ANUM_S3_SECRET_KEY: ${ANUM_S3_SECRET_KEY:?set ANUM_S3_SECRET_KEY in infra/oracle/.env}
+      ANUM_S3_SERVER_SIDE_ENCRYPTION: AES256
+      ANUM_S3_CREATE_BUCKET: "false"
+      # Staging starts on the mock model. For Ollama (the `ai` profile) or a hosted
+      # provider, change these in .env (docs/deploy-oracle.md#ai-model).
+      ANUM_MODEL_PROVIDER: ${ANUM_MODEL_PROVIDER:-mock}
+      ANUM_MODEL_NAME: ${ANUM_MODEL_NAME:-gpt-4.1-mini}
+      ANUM_MODEL_BASE_URL: ${ANUM_MODEL_BASE_URL:-https://api.openai.com/v1}
+      ANUM_MODEL_API_KEY: ${ANUM_MODEL_API_KEY:-}
+      # Operator allow-list for a private model host, `ollama:11434` with the ai profile.
+      ANUM_MODEL_ALLOWED_HOSTS: ${ANUM_MODEL_ALLOWED_HOSTS:-}
+      ANUM_MODEL_TIMEOUT_SECONDS: ${ANUM_MODEL_TIMEOUT_SECONDS:-60}
+      # Fires due automation schedules; anum_app is granted anum_maintenance by the
+      # bootstrap (WITH INHERIT FALSE, SET TRUE).
+      ANUM_AUTOMATION_SCHEDULER_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - edge
+      - backend
+      - egress
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    stop_grace_period: 30s
+    mem_limit: 2g
+    logging: *logging
+
+  # --- Web client (Vite bundle on unprivileged nginx) -------------------------------
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      # Compiled into the bundle; not secret.
+      args:
+        VITE_ANUM_API_URL: https://${ANUM_API_HOST:?set ANUM_API_HOST in infra/oracle/.env}
+        VITE_ANUM_OIDC_ISSUER: https://${ANUM_AUTH_HOST:?set ANUM_AUTH_HOST in infra/oracle/.env}/realms/anum
+        VITE_ANUM_OIDC_CLIENT_ID: anum-web
+    image: anum/web:local
+    restart: unless-stopped
+    environment:
+      # Origins the page may call besides itself, substituted into the CSP at start.
+      ANUM_CSP_CONNECT_SRC: https://${ANUM_API_HOST} https://${ANUM_AUTH_HOST}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - edge
+    mem_limit: 256m
+    logging: *logging
+
+  # --- Keycloak (identity provider) -------------------------------------------------
+  keycloak:
+    build:
+      context: ../..
+      dockerfile: infra/render/keycloak.Dockerfile
+    image: anum/keycloak:local
+    restart: unless-stopped
+    environment:
+      # Public URL; every URL Keycloak builds (and the token issuer) comes from it.
+      KC_HOSTNAME: https://${ANUM_AUTH_HOST:?set ANUM_AUTH_HOST in infra/oracle/.env}
+      # Fills ${ANUM_WEB_ORIGIN} in the realm's web client on the first start.
+      ANUM_WEB_ORIGIN: https://${ANUM_WEB_HOST:?set ANUM_WEB_HOST in infra/oracle/.env}
+      # The image sets KC_PROXY_HEADERS=xforwarded; only Caddy's address may send them.
+      KC_PROXY_TRUSTED_ADDRESSES: 172.30.10.10/32
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_PORT: "5432"
+      KC_DB_URL_DATABASE: keycloak
+      # Keycloak's own login: owns only the keycloak database, no ANUM role.
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in infra/oracle/.env}
+      # One-time bootstrap admin of the master realm, used only on the first start.
+      # Replace it with a named admin with MFA on day one, then empty both values in
+      # .env, keeping the lines (docs/deploy-oracle.md#keycloak).
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-}
+    healthcheck:
+      # The image has no curl or wget; bash reads the management port's readiness.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    networks:
+      - edge
+      - backend
+      - egress
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    # Keycloak sizes its heap from this limit (70%).
+    mem_limit: 2g
+    logging: *logging
+
+  # --- Valkey (rate limits shared across workers, run locks) ------------------------
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    restart: unless-stopped
+    # Short-lived counters and locks only: no persistence, and never evict a lock.
+    command: ["valkey-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    mem_limit: 384m
+    logging: *logging
+
+  # --- Scheduled jobs (profile `jobs`; started by systemd timers, never by `up`) ----
+  # Daily voice transcript and retrieval index retention (anum-retention.timer).
+  retention:
+    profiles: ["jobs"]
+    build: *api-build
+    image: anum/api:local
+    restart: "no"
+    command: ["python", "-m", "anum_api.voice_retention"]
+    environment:
+      ANUM_ENVIRONMENT: ${ANUM_ENVIRONMENT:-staging}
+      ANUM_REPOSITORY_BACKEND: postgresql
+      # The application login (RLS applies), never the migration login.
+      ANUM_DATABASE_URL: postgresql+psycopg://anum_app:${ANUM_APP_PASSWORD:?set ANUM_APP_PASSWORD in infra/oracle/.env}@postgres:5432/anum
+      ANUM_SECRETS_KEY: ${ANUM_SECRETS_KEY:?set ANUM_SECRETS_KEY in infra/oracle/.env}
+    healthcheck:
+      disable: true
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  # Nightly logical backup with infra/backup/anum_backup.py as anum_backup (BYPASSRLS,
+  # pg_read_all_data; a login nothing else uses), into ANUM_BACKUP_DIR (anum-backup.timer
+  # runs infra/oracle/backup.sh).
+  backup:
+    profiles: ["jobs"]
+    build:
+      context: ../backup
+    image: anum/backup:local
+    restart: "no"
+    command: ["backup", "--out", "/backups/anum"]
+    environment:
+      ANUM_BACKUP_DATABASE_URL: postgresql://anum_backup:${ANUM_BACKUP_DB_PASSWORD:?set ANUM_BACKUP_DB_PASSWORD in infra/oracle/.env}@postgres:5432/anum
+      # The same login for pg_dump of Keycloak's database (backup.sh).
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: anum_backup
+      PGPASSWORD: ${ANUM_BACKUP_DB_PASSWORD:?set ANUM_BACKUP_DB_PASSWORD in infra/oracle/.env}
+    volumes:
+      - ${ANUM_BACKUP_DIR:-/var/lib/anum/backups}:/backups
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  # Restore, verify and the restore drill (backup.sh drill|restore|restore-keycloak).
+  # Needs the cluster superuser to create anum_restore_* scratch databases.
+  restore-tools:
+    profiles: ["jobs"]
+    build:
+      context: ../backup
+    image: anum/backup:local
+    restart: "no"
+    command: ["--help"]
+    environment:
+      ANUM_BACKUP_DATABASE_URL: postgresql://anum_backup:${ANUM_BACKUP_DB_PASSWORD:?set ANUM_BACKUP_DB_PASSWORD in infra/oracle/.env}@postgres:5432/anum
+      ANUM_RESTORE_ADMIN_URL: postgresql://postgres:${ANUM_POSTGRES_PASSWORD:?set ANUM_POSTGRES_PASSWORD in infra/oracle/.env}@postgres:5432/postgres
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: ${ANUM_POSTGRES_PASSWORD:?set ANUM_POSTGRES_PASSWORD in infra/oracle/.env}
+    volumes:
+      - ${ANUM_BACKUP_DIR:-/var/lib/anum/backups}:/backups
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  # Copies the dumps to the off-site bucket, encrypted on the VM first (rclone crypt with
+  # ANUM_BACKUP_ENCRYPTION_PASSPHRASE), then sent with B2/S3 server-side encryption too.
+  backup-upload:
+    profiles: ["jobs"]
+    image: rclone/rclone:1.75.2
+    restart: "no"
+    user: "10001:10001"
+    # rclone wants the crypt password obscured; it is derived here, from stdin, so it
+    # never appears on a command line.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'RCLONE_CONFIG_SEALED_PASSWORD="$$(printf %s "$$ANUM_BACKUP_ENCRYPTION_PASSPHRASE" | rclone obscure -)" && export RCLONE_CONFIG_SEALED_PASSWORD && exec rclone "$$@"'
+      - rclone
+    command: ["copy", "/backups", "sealed:", "--include", "/anum/**", "--include", "/keycloak/**"]
+    environment:
+      HOME: /tmp
+      RCLONE_CONFIG: /tmp/rclone.conf
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: Other
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${ANUM_BACKUP_S3_ENDPOINT:?set ANUM_BACKUP_S3_ENDPOINT in infra/oracle/.env}
+      RCLONE_CONFIG_OFFSITE_REGION: ${ANUM_BACKUP_S3_REGION:?set ANUM_BACKUP_S3_REGION in infra/oracle/.env}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${ANUM_BACKUP_S3_ACCESS_KEY:?set ANUM_BACKUP_S3_ACCESS_KEY in infra/oracle/.env}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${ANUM_BACKUP_S3_SECRET_KEY:?set ANUM_BACKUP_S3_SECRET_KEY in infra/oracle/.env}
+      RCLONE_CONFIG_OFFSITE_SERVER_SIDE_ENCRYPTION: AES256
+      # The bucket exists already and the key may not list or create buckets.
+      RCLONE_CONFIG_OFFSITE_NO_CHECK_BUCKET: "true"
+      RCLONE_CONFIG_SEALED_TYPE: crypt
+      RCLONE_CONFIG_SEALED_REMOTE: offsite:${ANUM_BACKUP_S3_BUCKET:?set ANUM_BACKUP_S3_BUCKET in infra/oracle/.env}/anum-backups
+      # File contents are encrypted; names stay readable so a restore can pick a date.
+      RCLONE_CONFIG_SEALED_FILENAME_ENCRYPTION: "off"
+      RCLONE_CONFIG_SEALED_DIRECTORY_NAME_ENCRYPTION: "false"
+      ANUM_BACKUP_ENCRYPTION_PASSPHRASE: ${ANUM_BACKUP_ENCRYPTION_PASSPHRASE:?set ANUM_BACKUP_ENCRYPTION_PASSPHRASE in infra/oracle/.env}
+    volumes:
+      - ${ANUM_BACKUP_DIR:-/var/lib/anum/backups}:/backups
+    networks:
+      - egress
+    logging: *logging
+
+  # --- Optional local model (profile `ai`: COMPOSE_PROFILES=ai in .env) --------------
+  # CPU only on the Ampere A1: small models answer, slowly (docs/deploy-oracle.md#ai-model).
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:0.40.3
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "2"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - backend
+      - egress
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: 12g
+    logging: *logging
+
+  # One-shot: pulls the chat model and the embedding model (retrieval uses
+  # nomic-embed-text with Ollama). Re-runs on `up`; a model already present is kept.
+  ollama-pull:
+    profiles: ["ai"]
+    image: ollama/ollama:0.40.3
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c", 'ollama pull "$$OLLAMA_MODEL" && ollama pull nomic-embed-text']
+    environment:
+      OLLAMA_HOST: ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+    networks:
+      - backend
+    depends_on:
+      ollama:
+        condition: service_healthy
+    logging: *logging
+
+networks:
+  # Caddy and the three services it proxies to. Not internal: Caddy's published ports
+  # and its ACME (Let's Encrypt) traffic need it.
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
+  # PostgreSQL, Valkey and the jobs. Internal: no route to or from the internet, and
+  # Caddy is not on it.
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.20.0/24
+  # Outbound internet for the containers that need it: the API (S3 bucket, model
+  # provider), Keycloak (mail), the off-site backup upload and Ollama (model downloads).
+  egress:
+    ipam:
+      config:
+        - subnet: 172.30.30.0/24
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+  ollama-models:

@@ -102,16 +102,16 @@ Android signing (`android/app/build.gradle.kts`). The `release` build type uses 
 - Setting only some of the four fails the build. `ANUM_ANDROID_REQUIRE_RELEASE_SIGNING=true` makes a missing key fail the build; the release pipeline sets it.
 - Enrol in Play App Signing: Google holds the app signing key and the keystore above is only the upload key. In CI the keystore is a base64 secret decoded to a temporary path ([Release pipeline](#release-pipeline)).
 
-iOS. The bundle identifier is `com.anum.app`; the redirect scheme and the microphone and speech-recognition usage strings are in `ios/Runner/Info.plist`. The project keeps automatic signing with no team; the release pipeline supplies the team and an App Store Connect API key, and Xcode creates the cloud-managed distribution certificate and the App Store profile for `com.anum.app`. Locally, `flutter build ipa` works once a team is selected in Xcode. The Apple account does not exist yet ([Production plan](production-plan.md#credentials-and-decisions-needed-from-the-owner)).
+iOS. The bundle identifier is `com.anum.app`; the redirect scheme and the microphone and speech-recognition usage strings are in `ios/Runner/Info.plist`. The project keeps automatic signing with no team; the release pipeline supplies the team and an App Store Connect API key, and Xcode creates the cloud-managed distribution certificate and the App Store profile for `com.anum.app`. Locally, `flutter build ipa` works once a team is selected in Xcode; the pipeline needs no Mac of the owner's ([Owner checklist](#owner-checklist-windows)). App Transport Security stays at its HTTPS-only default (no `NSAppTransportSecurity` exceptions), and the Android release manifest turns cleartext off, so a store build cannot reach a plain-HTTP API or issuer.
 
 ## Release Pipeline
 
-`.github/workflows/release-clients.yml` builds the store apps on every `v*` tag and on manual runs (Actions, Release clients, Run workflow; tick "upload" to send a manual build to the stores). The desktop half is in [Desktop](desktop.md#release-pipeline). Signing and upload steps run only when their secrets exist; without them the jobs pass with a notice and no store artifact, so the workflow never fails for lack of the owner's credentials.
+`.github/workflows/release-clients.yml` builds the store apps on every `v*` tag and on manual runs (Actions, Release clients, Run workflow; tick "upload" to send a manual build to the stores). The desktop half is deferred by the owner: its jobs and the draft GitHub release are skipped unless the `ANUM_RELEASE_DESKTOP` variable is `true` (tags) or the "desktop" input is ticked (manual runs), see [Desktop](desktop.md#release-pipeline). Signing and upload steps run only when their secrets exist; without them the jobs pass with a notice and no store artifact, so the workflow never fails for lack of the owner's credentials. A production URL variable that is set but does not start with `https://` fails the job: that is a mistake, not a missing credential.
 
 - Android (`ubuntu-latest`): decodes the upload keystore into `$RUNNER_TEMP`, builds `flutter build appbundle --release` with `ANUM_ANDROID_REQUIRE_RELEASE_SIGNING=true` and the production values, refuses a debug-signed bundle, uploads `anum-<version>-<build>.aab` and its SHA-256 as the artifact `anum-android-release`, then (on tags, or manual runs with "upload") sends it to the Play internal track with `r0adkll/upload-google-play` pinned by commit. The keystore file is deleted at the end of the job.
-- iOS (`macos-latest`): with the Apple secrets, `flutter build ios --config-only` writes the production configuration and `xcodebuild archive` and `-exportArchive` sign with automatic, cloud-managed signing through the API key (`flutter build ipa` cannot pass an API key to Xcode). The IPA and its SHA-256 are uploaded as `anum-ios-release` and, on tags or with "upload", to TestFlight with `xcrun altool`. Without the secrets the job runs `flutter build ios --release --no-codesign` as a compile check. CI's `Flutter iOS compile check` job runs the cheaper debug variant on every pull request.
+- iOS (`macos-latest`): with the Apple secrets, `flutter build ios --config-only` writes the production configuration and `xcodebuild archive` and `-exportArchive` sign with automatic, cloud-managed signing through the API key (`flutter build ipa` cannot pass an API key to Xcode). The export options (`method app-store-connect`, `manageAppVersionAndBuildNumber false`) keep the pipeline's build number. The IPA and its SHA-256 are uploaded as `anum-ios-release` and, on tags or with "upload", to TestFlight with `xcrun altool`. Without the secrets the job runs `flutter build ios --release --no-codesign` as a compile check. CI's `Flutter iOS compile check` job runs the cheaper debug variant on every pull request.
 
-The version name comes from the tag (`v1.2.3` becomes `1.2.3`; manual runs use `pubspec.yaml`) and the build number is the workflow run number plus `ANUM_BUILD_NUMBER_OFFSET`, so every upload has a higher Play version code and iOS build number than the last.
+Both builds get the same generated defines file (`ANUM_API_URL`, `ANUM_OIDC_ISSUER` and, when set, `ANUM_WEB_APP_URL`). The version name comes from the tag (`v1.2.3` becomes `1.2.3`; manual runs use the `X.Y.Z` of `version:` in `pubspec.yaml`) and the build number is the workflow run number plus `ANUM_BUILD_NUMBER_OFFSET`, so every upload has a higher Play version code and iOS build number than the last.
 
 Repository variables:
 
@@ -122,19 +122,20 @@ Repository variables:
 | `ANUM_PRODUCTION_WEB_APP_URL` | Optional. Production web app address (becomes `ANUM_WEB_APP_URL`, adds the web invitation link). |
 | `ANUM_BUILD_NUMBER_OFFSET` | Optional. A whole number added to the run number, for example to continue above a build uploaded by hand. |
 | `ANUM_PLAY_RELEASE_STATUS` | Optional. `completed` by default; set `draft` while the Play app has never been reviewed (Play refuses `completed` releases for a draft app). |
+| `ANUM_RELEASE_DESKTOP` | Optional. `true` also builds the desktop installers on tags. Leave unset while desktop releases are deferred. |
 
 Repository secrets:
 
 | Secret | Value |
 | --- | --- |
-| `ANUM_ANDROID_KEYSTORE_BASE64` | The upload keystore, `base64 -w0 upload.jks`. |
+| `ANUM_ANDROID_KEYSTORE_BASE64` | The upload keystore in base64 (`[Convert]::ToBase64String([IO.File]::ReadAllBytes("<path>\anum-upload.jks"))` in PowerShell, `base64 -w0 anum-upload.jks` on Linux). |
 | `ANUM_ANDROID_KEYSTORE_PASSWORD`, `ANUM_ANDROID_KEY_ALIAS`, `ANUM_ANDROID_KEY_PASSWORD` | Keystore password, key alias and key password. |
 | `PLAY_SERVICE_ACCOUNT_JSON` | Optional. JSON key of a Google Cloud service account invited in Play Console (Users and permissions) with release rights for `com.anum.app`. Without it the bundle is built but not uploaded. |
 | `APPLE_TEAM_ID` | The ten-character Apple Developer team ID. |
 | `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID` | Key ID and issuer ID from App Store Connect, Users and Access, Integrations. |
 | `APP_STORE_CONNECT_API_KEY_P8` | The downloaded `AuthKey_<id>.p8` file's contents. The key needs the Admin role so Xcode may create the cloud-managed distribution certificate and profiles. |
 
-Before the first upload: create the app `com.anum.app` in Play Console and upload the first bundle by hand (the Play API cannot create an app), enrol in Play App Signing, and create the app record for `com.anum.app` in App Store Connect.
+Before the first upload: create the app `com.anum.app` in Play Console and upload the first bundle by hand (the Play API cannot create an app), enrol in Play App Signing, and create the app record for `com.anum.app` in App Store Connect. The step-by-step version is the [Owner checklist](#owner-checklist-windows).
 
 Cutting a release: set the version (see [Desktop](desktop.md#release-pipeline) for all three files), then tag `vX.Y.Z` and push the tag. The run uploads to the Play internal track and TestFlight; promote from there in Play Console (internal to closed or production, with a staged rollout percentage) and App Store Connect (TestFlight groups, then submit for review).
 
@@ -143,7 +144,95 @@ Rolling back a store release:
 - Play: halt the staged rollout in Play Console (Release, the track, Halt rollout), which stops new installs of that version. Play cannot downgrade installed users, so fix forward: tag a new patch version, which gets a higher version code, and roll it out. Internal-track builds can simply be superseded.
 - App Store: before release, remove the build from review or from the TestFlight groups. After release, pause the phased release if it is still running, then ship a fixed build through an expedited review; an approved version cannot be replaced by an older one.
 
-The pipeline has not run yet: it needs the accounts and secrets above, and no signed build or macOS job can be run from a Linux development container.
+The pipeline has not run yet: it needs the keys and secrets above, and no signed build or macOS job can be run from a Linux development container. `services/api/tests/test_mobile_release.py` checks that the deployed realm's `anum-flutter` client registers exactly `com.anum.app:/oauth2redirect` (no wildcards) as its redirect and post-logout redirect, that the app's defaults, the Android `appAuthRedirectScheme` and applicationId, and the iOS URL scheme and bundle identifier agree with it, and that the workflow uploads `com.anum.app` and keeps the desktop jobs gated.
+
+### Owner Checklist (Windows)
+
+The owner already has the Google Play developer account and the Apple Developer account. Everything below runs in a browser and Windows PowerShell. No Mac is needed: the iOS job runs on GitHub's macOS runner and signs with Apple's cloud-managed certificate through the App Store Connect API key. The examples use `https://app.example.com` (web), `https://api.example.com` (API) and `https://auth.example.com` (Keycloak, issuer `https://auth.example.com/realms/anum`); use the real hostnames. The deployed realm already contains the `anum-flutter` client with the app's exact redirect, so Keycloak needs no change for the apps.
+
+Secrets and variables go in GitHub, Settings, Secrets and variables, Actions (the Secrets tab or the Variables tab). The `gh` commands below do the same from PowerShell after `gh auth login`, run inside a clone of the repository; `gh secret set NAME` without `--body` prompts for the value or reads it from the pipe.
+
+| Item | How to get it (Windows) | Where it goes |
+| --- | --- | --- |
+| Upload keystore | `keytool -genkeypair` (Android step 1) | Secret `ANUM_ANDROID_KEYSTORE_BASE64` (base64 of the file) |
+| Keystore password | Chosen at `keytool` | Secrets `ANUM_ANDROID_KEYSTORE_PASSWORD` and `ANUM_ANDROID_KEY_PASSWORD` (same value) |
+| Key alias | `upload` (the `-alias` given to `keytool`) | Secret `ANUM_ANDROID_KEY_ALIAS` |
+| Play app | Play Console, Create app; first `.aab` uploaded by hand | Play Console (package `com.anum.app`, Play App Signing) |
+| Play service account key | Google Cloud console, service account, JSON key; invited in Play Console | Secret `PLAY_SERVICE_ACCOUNT_JSON` (file contents) |
+| Apple Team ID | developer.apple.com, Membership details | Secret `APPLE_TEAM_ID` |
+| Bundle ID | Certificates, Identifiers and Profiles, Identifiers | Apple Developer (`com.anum.app`) |
+| App record | App Store Connect, Apps, New App | App Store Connect (bundle ID `com.anum.app`) |
+| API key Issuer ID | App Store Connect, Users and Access, Integrations | Secret `APP_STORE_CONNECT_API_ISSUER_ID` |
+| API key Key ID | Same page, the key's row | Secret `APP_STORE_CONNECT_API_KEY_ID` |
+| API key `.p8` | Same page, Download (once) | Secret `APP_STORE_CONNECT_API_KEY_P8` (file contents) |
+| API address | The API's public HTTPS origin, with a trailing slash | Variable `ANUM_PRODUCTION_API_URL` |
+| Keycloak issuer | `https://<Keycloak host>/realms/anum`, equal to the API's `ANUM_KEYCLOAK_ISSUER` | Variable `ANUM_PRODUCTION_OIDC_ISSUER` |
+| Web app address | The web app's public HTTPS origin | Variable `ANUM_PRODUCTION_WEB_APP_URL` (optional) |
+| Play release status | `draft` until the first internal release is rolled out, then delete | Variable `ANUM_PLAY_RELEASE_STATUS` |
+
+Android, once:
+
+1. Create the upload keystore outside the repository. `keytool` ships with Android Studio's bundled JDK:
+
+   ```powershell
+   $keytool = "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe"
+   New-Item -ItemType Directory -Force "$HOME\anum-keys" | Out-Null
+   & $keytool -genkeypair -v -keystore "$HOME\anum-keys\anum-upload.jks" -alias upload `
+     -keyalg RSA -keysize 2048 -validity 10000
+   ```
+
+   It asks for a keystore password and the certificate names. The keystore is PKCS12, so the key password is the keystore password. Keep the file and the password in a password manager: Play accepts only bundles signed with this upload key (a lost key can be reset through Play support, not recovered).
+2. Store it as secrets:
+
+   ```powershell
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\anum-keys\anum-upload.jks")) | gh secret set ANUM_ANDROID_KEYSTORE_BASE64
+   gh secret set ANUM_ANDROID_KEYSTORE_PASSWORD   # paste the keystore password
+   gh secret set ANUM_ANDROID_KEY_ALIAS --body upload
+   gh secret set ANUM_ANDROID_KEY_PASSWORD        # the same password again
+   ```
+3. Play Console: Create app (name `ANUM`, App, Free, accept the declarations). The package name is fixed by the first bundle uploaded, which is `com.anum.app`. Play App Signing is on by default for new apps: keep the Google-generated app signing key when the first release asks.
+4. Google Cloud console (any project): enable the Google Play Android Developer API, then IAM and admin, Service accounts, Create service account (for example `anum-play-release`, no project roles), Keys, Add key, JSON. In Play Console, Users and permissions, Invite new users: the service account's e-mail, the ANUM app, "Release apps to testing tracks" (add "Release to production" later if the pipeline should do that), Invite. Then `Get-Content -Raw "<path>\<key>.json" | gh secret set PLAY_SERVICE_ACCOUNT_JSON` and delete the downloaded file. Set this secret only at step 3 of the first release below; the permissions can take up to a day to apply.
+
+iOS, once:
+
+1. developer.apple.com, Account, Membership details: copy the Team ID, then `gh secret set APPLE_TEAM_ID --body <team id>`.
+2. Certificates, Identifiers and Profiles, Identifiers, +, App IDs, App: explicit bundle ID `com.anum.app`, description `ANUM`, no extra capabilities.
+3. App Store Connect, Apps, +, New App: iOS, name `ANUM` (or another free store name), bundle ID `com.anum.app`, SKU `anum-ios`.
+4. App Store Connect, Users and Access, Integrations, App Store Connect API (the Account Holder requests access the first time), Team Keys, +: name `anum-release`, access Admin (cloud-managed signing needs it to create the distribution certificate and the App Store profile). Copy the Issuer ID shown above the list and the key's Key ID, and download the `.p8` (possible only once):
+
+   ```powershell
+   gh secret set APP_STORE_CONNECT_API_ISSUER_ID --body <issuer id>
+   gh secret set APP_STORE_CONNECT_API_KEY_ID --body <key id>
+   Get-Content -Raw "$HOME\Downloads\AuthKey_<key id>.p8" | gh secret set APP_STORE_CONNECT_API_KEY_P8
+   ```
+
+   Keep the `.p8` in the password manager and delete the download. No certificate, provisioning profile or `match` repository is made by hand: the first signed run creates them. The Account Holder must have accepted the current agreements in App Store Connect (Business), or the upload is refused.
+
+Production addresses:
+
+```powershell
+gh variable set ANUM_PRODUCTION_API_URL --body "https://api.example.com/"
+gh variable set ANUM_PRODUCTION_OIDC_ISSUER --body "https://auth.example.com/realms/anum"
+gh variable set ANUM_PRODUCTION_WEB_APP_URL --body "https://app.example.com/"
+gh variable set ANUM_PLAY_RELEASE_STATUS --body draft
+```
+
+The API URL keeps its trailing slash; the issuer has none and must equal the API's `ANUM_KEYCLOAK_ISSUER` exactly. Leave `ANUM_RELEASE_DESKTOP` unset.
+
+First release:
+
+1. Actions, Release clients, Run workflow on `main` with "upload" unticked. It builds the signed bundle and the signed IPA without sending them anywhere; a red Android or iOS job here points at a wrong secret.
+2. Open the run, download the `anum-android-release` artifact and unzip it (`Expand-Archive anum-android-release.zip`). In Play Console, Testing, Internal testing, Create new release, upload the `.aab`, add a tester list, then Save, Review and Roll out. This first manual upload is required: the Play API cannot upload to an app that has no bundle yet.
+3. Set `PLAY_SERVICE_ACCOUNT_JSON` (Android step 4).
+4. Tag and push from PowerShell: `git tag v0.1.0`, then `git push origin v0.1.0`. Tags must be plain `vX.Y.Z` and higher than the last release; keep `version:` in `apps/mobile/pubspec.yaml` (and the desktop files, [Desktop](desktop.md#release-pipeline)) at the same `X.Y.Z` so manual runs match. The tag run uploads the bundle to the Play internal track and the IPA to TestFlight; the build number is the run number, so it is always above the manual run's.
+
+Where the builds land:
+
+- GitHub: the run's summary lists each build's SHA-256, and its Artifacts hold `anum-android-release` and `anum-ios-release`.
+- Play Console, Testing, Internal testing: while `ANUM_PLAY_RELEASE_STATUS` is `draft` the release waits as a draft; open it and Roll out. Once one internal release is out, delete that variable so later tags roll out by themselves.
+- App Store Connect, TestFlight: the build appears after Apple's processing (usually 5 to 30 minutes). Answer the export compliance question for each build (the owner's declaration; the app itself uses only HTTPS and the operating system's keychain), then add the build to a tester group.
+
+Promoting past internal testing needs the store listing, privacy policy and data-safety forms ([Production plan](production-plan.md#stage-6-client-release)).
 
 ## Verification
 

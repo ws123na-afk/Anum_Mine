@@ -1,13 +1,14 @@
 # Deployment
 
-ANUM has two deployment paths:
+ANUM has three deployment paths:
 
 | Path | For | Guide |
 |---|---|---|
 | Kubernetes with the Helm chart | Any cluster; the strict path: images built once, scanned, signed and verified, admission policy, NetworkPolicies, separate migration Secret, Temporal worker and NATS. | This document. |
 | Render Blueprint (`render.yaml`) | An owner without Kubernetes (the current choice): Render builds and runs the API, web client, Keycloak, the retention cron job, PostgreSQL and Valkey. No image signing or admission control, no network policies, no Temporal or NATS; the gaps are listed in the guide. | [Deploying on Render](deploy-render.md) |
+| One VM with Docker Compose (`infra/oracle/compose.yaml`) | An owner who wants $0 hosting (the current choice for staging): everything on one Oracle Cloud Always Free Ampere A1 VM (arm64), images built on the VM, Caddy with Let's Encrypt in front, PostgreSQL 17 with pgvector and Valkey on an internal network, nightly encrypted off-site backups. One machine, no replicas, no image signing, no Temporal or NATS; the gaps are listed in the guide. | [Deploying on one Oracle Cloud VM](deploy-oracle.md) |
 
-Both use the same images' Dockerfiles, the same `infra/helm/bootstrap-database.sql` roles, the same startup refusals and the same expand/contract migration rule. The rest of this document describes the Kubernetes path.
+All three use the same images' Dockerfiles, the same `infra/helm/bootstrap-database.sql` roles, the same startup refusals and the same expand/contract migration rule. The rest of this document describes the Kubernetes path.
 
 ANUM deploys to any Kubernetes cluster with the Helm chart in `infra/helm/anum`. The chart is cloud-neutral: managed or self-hosted PostgreSQL, NATS, Temporal, Valkey, object storage and Keycloak are external dependencies, and every credential comes from a Kubernetes Secret the chart references by name only. Choosing a cloud (see [Production plan](production-plan.md)) means filling in values, Secrets and cluster access; the chart and workflows stay the same. Image builds and local compose are described in [Infrastructure](infrastructure.md).
 
@@ -46,7 +47,7 @@ Run `infra/helm/bootstrap-database.sql` once per database as the cluster admin, 
 | `anum_outbox_relay` | no | granted to `anum_relay` | Column grants from migration `0007`. |
 | `anum_maintenance` | no | granted to `anum_app` `WITH INHERIT FALSE, SET TRUE` | Discovery-only grants from migration `0011` ([Multi-tenancy](multi-tenancy.md#maintenance-role)). The scheduler and the retention job need it. Its policies admit rows across tenants, so an inheriting grant would widen the app role's own queries; re-run `bootstrap-database.sql` on existing databases to switch the grant to `INHERIT FALSE`. |
 | `anum_membership_reader` | no | granted to `anum_app` `WITH INHERIT FALSE, SET TRUE` | Read-only grants from migration `0013` for `GET /api/v1/me/workspace-memberships` ([Multi-tenancy](multi-tenancy.md#membership-directory-role)). Without the grant that route fails; with an inheriting grant its policies would widen the app role's own reads. |
-| `anum_backup` | yes | backup CronJob only (`secrets.backup`) | `BYPASSRLS` and `pg_read_all_data`; create it only where the backup job runs, and nowhere in the application's configuration. |
+| `anum_backup` | yes | backup CronJob only (`secrets.backup`); on the one-VM path the backup job, created by `infra/oracle/db/cluster.sql` | `BYPASSRLS` and `pg_read_all_data`; create it only where the backup job runs, and nowhere in the application's configuration. |
 
 The script also creates the `vector` extension, which is not a trusted extension and needs the admin. No login is a superuser or has `BYPASSRLS` except the backup login, and nothing is `SECURITY DEFINER`. The NOLOGIN roles are pre-created so the migration login needs no `CREATEROLE`.
 
@@ -259,4 +260,5 @@ Tools are pinned: Helm `v4.3.0`, kind `v0.33.0` and kubeconform `v0.8.0` are bui
 - A real staging run of the workflows: they stay skipped until the owner sets the variables and secrets above.
 - Installing the [admission policy](#admission-policy) in a real cluster, and proof that a signed image is admitted: kind can only show refusals, because no image of this repository has been signed yet.
 - Shipping backups off the volume to encrypted, versioned object storage in a second region.
+- A first real deploy on the one-VM path: `infra/oracle` is checked in CI (`services/api/tests/test_oracle_compose.py`, compose config, ShellCheck) and was brought up locally on x86_64, but not yet on an Oracle VM ([Deploying on one Oracle Cloud VM](deploy-oracle.md)).
 - A first real deploy on the Render path: `render.yaml` is checked in CI (`services/api/tests/test_render_blueprint.py`) but has not been applied to a Render account yet ([Deploying on Render](deploy-render.md)).
