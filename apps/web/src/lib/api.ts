@@ -2,6 +2,7 @@ import type { AgentRun, Approval, DomainEvent, TenantContext, Task, UserPreferen
 import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
 import { apiErrorFrom, apiErrorFromResponse } from './errors';
+import { t } from './i18n';
 import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, SortValue } from './files';
 import { filesListPath } from './files';
 import type { ApiCurrentMembership } from './policy';
@@ -211,7 +212,7 @@ export async function uploadFile(file: File, onProgress?: (loaded: number, total
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as FileRecord);
       else reject(apiErrorFrom(xhr.status, body));
     };
-    xhr.onerror = () => reject(new Error('The upload lost its connection to the API. Check the connection and try again.'));
+    xhr.onerror = () => reject(new Error(t('files.uploadLost')));
     xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
     signal?.addEventListener('abort', () => xhr.abort(), { once: true });
     xhr.send(file);

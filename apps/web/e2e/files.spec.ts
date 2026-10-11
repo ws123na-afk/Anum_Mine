@@ -220,7 +220,7 @@ test('the detail panel previews Markdown safely, renames, re-indexes and deletes
   await detail.getByRole('button', { name: 'Save name' }).click();
   await expect(page.getByRole('heading', { name: 'launch-guide.md' })).toBeVisible();
   expect(api.requests.find((r) => r.method === 'PATCH')?.body).toBe('{"name":"launch-guide.md"}');
-  await expect(page.getByRole('region', { name: 'launch-guide.md' }).getByText(/by you/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'launch-guide.md' }).getByText(/by You/)).toBeVisible();
 
   await page.getByRole('button', { name: 'Show details of notes.txt' }).click();
   const notes = page.getByRole('region', { name: 'notes.txt' });

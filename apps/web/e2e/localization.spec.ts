@@ -113,5 +113,19 @@ test('the audit log and this workspace read in Arabic, right to left, without ho
   await page.goto('/#settings');
   await page.reload();
   await expect(page.getByRole('region', { name: 'مساحة العمل هذه' }).getByRole('heading', { name: 'مساحة العمل هذه' })).toBeVisible();
+
+test('Files reads in Arabic, right to left, with Arabic plurals', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await useSavedLocale(page, 'ar');
+  await page.goto('/#files');
+  await expect(page.getByRole('heading', { name: 'الملفات', level: 2 })).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: 'المستخدم من تخزين مساحة العمل' })).toHaveAttribute('aria-valuetext', /· ملفان$/);
+  const list = page.getByRole('region', { name: 'الملفات' });
+  await expect(list.getByText('مفهرس', { exact: true })).toBeVisible();
+  await expect(list.getByText('غير مفهرس', { exact: true })).toBeVisible();
+  await list.getByRole('button', { name: /^عرض تفاصيل .?release-notes\.md.?$/ }).click();
+  const detail = page.locator('.fileDetail');
+  await expect(detail.getByText('تستطيع المهام استخدام هذا الملف (3 مقاطع).')).toBeVisible();
+  await expect(detail.getByRole('region', { name: 'معاينة' }).getByRole('heading', { name: 'Release notes' })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });

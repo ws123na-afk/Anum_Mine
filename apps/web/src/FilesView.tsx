@@ -3,9 +3,11 @@ import { CircleDot, Download, FileText, Image as ImageIcon, Lock, Pencil, Refres
 import * as api from './lib/api';
 import { describeError, isPermissionDenied, ApiError } from './lib/errors';
 import {
-  SORT_OPTIONS, canReindex, fileTypeLabel, formatBytes, indexBadge, mergePage, parseMarkdown, previewMode, progressText,
+  sortOptions, canReindex, fileTypeLabel, formatBytes, indexBadge, mergePage, parseMarkdown, previewMode, progressText,
   renameProblem, uploadProblem, uploaderLabel, usageMeter, PAGE_SIZE, type ApiFile, type ApiFileUsage, type Block, type Inline, type SortValue,
 } from './lib/files';
+import { formatDateTime, t } from './lib/i18n';
+import { rich } from './rich';
 import './admin.css';
 import './files.css';
 
@@ -15,8 +17,6 @@ type Detail = { state: 'loading' } | { state: 'ready'; file: ApiFile } | { state
 type List = { state: 'loading' } | { state: 'ready' } | { state: 'denied' } | { state: 'error'; message: string };
 interface Upload { key: string; name: string; size: number; loaded: number; state: 'uploading' | 'failed' | 'cancelled'; error?: string; abort: AbortController }
 
-const READ_DENIED = 'Seeing files needs a viewer, member or owner role in this workspace. Ask a workspace owner for access.';
-const MANAGE_NOTE = 'Only the person who uploaded this file or a workspace owner can rename or delete it.';
 
 /**
  * Workspace files (docs/files.md): upload with progress and cancel, search, sort and keyset paging,
@@ -58,8 +58,8 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
       setItems((current) => mergePage(current, page)); setMore(page.length === PAGE_SIZE);
     } catch (e) {
       // A cursor whose file was deleted meanwhile: start the list again.
-      if (e instanceof ApiError && e.status === 400) { setNote('The list changed while you were reading it, so it was reloaded.'); await load(); }
-      else setProblem(`Could not load more files: ${describeError(e)}`);
+      if (e instanceof ApiError && e.status === 400) { setNote(t('files.listChanged')); await load(); }
+      else setProblem(t('files.loadMoreFailed', { message: describeError(e) }));
     } finally { setPaging(false); }
   }
 
@@ -76,12 +76,12 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
       try {
         const created = await api.uploadFile(file, (loaded) => setUploads((u) => u.map((x) => x.key === key ? { ...x, loaded } : x)), abort.signal);
         setUploads((u) => u.filter((x) => x.key !== key));
-        setNote(`Uploaded ${created.name}. ${indexBadge(created.index).detail}`);
+        setNote(t('files.uploaded', { name: created.name, detail: indexBadge(created.index).detail }));
         if (limits) limits = { ...limits, used_bytes: limits.used_bytes + created.size_bytes, file_count: limits.file_count + 1 };
         await Promise.all([load(), loadUsage()]);
       } catch (e) {
         const cancelled = e instanceof DOMException && e.name === 'AbortError';
-        setUploads((u) => u.map((x) => x.key === key ? { ...x, state: cancelled ? 'cancelled' : 'failed', error: cancelled ? 'Upload cancelled; nothing was stored.' : uploadError(e) } : x));
+        setUploads((u) => u.map((x) => x.key === key ? { ...x, state: cancelled ? 'cancelled' : 'failed', error: cancelled ? t('files.uploadCancelled') : uploadError(e) } : x));
       }
     }
   }
@@ -89,7 +89,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
   async function remove(file: ApiFile) {
     await api.deleteFile(file.id);
     setConfirming(null);
-    setNote(`Deleted ${file.name}.`);
+    setNote(t('files.deleted', { name: file.name }));
     if (focusFileId === file.id) onFocusChange(null);
     await Promise.all([load(), loadUsage()]);
   }
@@ -102,69 +102,69 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
   const submitSearch = (event: FormEvent) => { event.preventDefault(); setQuery(draft.trim()); };
 
   return <>
-    <section className="moduleIntro"><div><p className="eyebrow">Workspace storage</p><h2>Files</h2><p>Documents your agents can read. Text files are indexed so tasks can use them.</p></div>
-      <button type="button" className="uploadButton" disabled={!canUpload} aria-describedby={!canUpload ? 'files-upload-denied' : undefined} onClick={() => picker.current?.click()}><Upload aria-hidden="true" />Upload</button>
-      <input ref={picker} type="file" multiple hidden aria-label="Upload files" accept={usage?.accepted_extensions.join(',')} onChange={(e) => { const chosen = [...(e.target.files ?? [])]; e.target.value = ''; if (chosen.length) void startUploads(chosen); }} />
+    <section className="moduleIntro"><div><p className="eyebrow">{t('files.intro.eyebrow')}</p><h2>{t('files.intro.title')}</h2><p>{t('files.intro.text')}</p></div>
+      <button type="button" className="uploadButton" disabled={!canUpload} aria-describedby={!canUpload ? 'files-upload-denied' : undefined} onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.upload')}</button>
+      <input ref={picker} type="file" multiple hidden aria-label={t('files.uploadInput')} accept={usage?.accepted_extensions.join(',')} onChange={(e) => { const chosen = [...(e.target.files ?? [])]; e.target.value = ''; if (chosen.length) void startUploads(chosen); }} />
     </section>
-    {!canUpload && <p className="notice" id="files-upload-denied" role="status"><Lock aria-hidden="true" />Uploading needs a member or owner role in this workspace. You can still open and download files.</p>}
-    {usage && meter && <section className="surface filesUsage" aria-label="Storage">
-      <div className="filesUsageTop"><strong>Storage</strong><span>{meter.text}</span></div>
-      <div className={`meterTrack ${meter.tone === 'ok' ? '' : meter.tone}`} role="progressbar" aria-label="Workspace storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(meter.percent)} aria-valuetext={meter.text}><span style={{ width: `${meter.percent}%` }} /></div>
-      <small className="muted">Up to {formatBytes(usage.max_upload_bytes)} per file. Accepted: {usage.accepted}.</small>
+    {!canUpload && <p className="notice" id="files-upload-denied" role="status"><Lock aria-hidden="true" />{t('files.uploadDeniedNote')}</p>}
+    {usage && meter && <section className="surface filesUsage" aria-label={t('files.storage')}>
+      <div className="filesUsageTop"><strong>{t('files.storage')}</strong><span>{meter.text}</span></div>
+      <div className={`meterTrack ${meter.tone === 'ok' ? '' : meter.tone}`} role="progressbar" aria-label={t('files.storageMeter')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(meter.percent)} aria-valuetext={meter.text}><span style={{ width: `${meter.percent}%` }} /></div>
+      <small className="muted">{t('files.limits', { size: formatBytes(usage.max_upload_bytes), accepted: usage.accepted })}</small>
     </section>}
-    {uploads.length > 0 && <section className="surface uploadQueue" aria-label="Uploads">
+    {uploads.length > 0 && <section className="surface uploadQueue" aria-label={t('files.uploads')}>
       {uploads.map((u) => <div className="uploadItem" key={u.key}>
-        <div className="uploadItemTop"><strong>{u.name}</strong>
+        <div className="uploadItemTop"><strong dir="auto">{u.name}</strong>
           {u.state === 'uploading'
-            ? <button type="button" className="secondary" aria-label={`Cancel upload of ${u.name}`} onClick={() => u.abort.abort()}>Cancel</button>
-            : <button type="button" className="iconButton" aria-label={`Dismiss ${u.name}`} title="Dismiss" onClick={() => setUploads((all) => all.filter((x) => x.key !== u.key))}><X aria-hidden="true" /></button>}
+            ? <button type="button" className="secondary" aria-label={t('files.cancelUploadOf', { name: u.name })} onClick={() => u.abort.abort()}>{t('common.cancel')}</button>
+            : <button type="button" className="iconButton" aria-label={t('files.dismissOf', { name: u.name })} title={t('files.dismiss')} onClick={() => setUploads((all) => all.filter((x) => x.key !== u.key))}><X aria-hidden="true" /></button>}
         </div>
         {u.state === 'uploading'
-          ? <><div className="meterTrack" role="progressbar" aria-label={`Uploading ${u.name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={u.size ? Math.round((u.loaded / u.size) * 100) : 0}><span style={{ width: `${u.size ? Math.min(100, (u.loaded / u.size) * 100) : 0}%` }} /></div><small className="muted" aria-live="polite">{progressText(u.loaded, u.size)}</small></>
+          ? <><div className="meterTrack" role="progressbar" aria-label={t('files.uploadingOf', { name: u.name })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={u.size ? Math.round((u.loaded / u.size) * 100) : 0}><span style={{ width: `${u.size ? Math.min(100, (u.loaded / u.size) * 100) : 0}%` }} /></div><small className="muted" aria-live="polite">{progressText(u.loaded, u.size)}</small></>
           : <p className={`notice ${u.state === 'failed' ? 'errorNotice' : ''}`} role={u.state === 'failed' ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{u.error}</p>}
       </div>)}
     </section>}
     {focusFileId && <FileDetail key={focusFileId} fileId={focusFileId} me={me} canUpload={canUpload} onClose={() => onFocusChange(null)} onDelete={remove} onChange={replaceFile} />}
     {note && <Notice>{note}</Notice>}
     {problem && <Notice error>{problem}</Notice>}
-    {list.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{READ_DENIED}</p>}
-    {list.state === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>Could not load files: {list.message} Check the connection to the API, then retry.</span><button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />Retry</button></div>}
+    {list.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('files.readDenied')}</p>}
+    {list.state === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('files.loadFailed', { message: list.message })}</span><button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div>}
     {list.state !== 'denied' && (items.length > 0 || searching) && <form className="actions filesToolbar" role="search" onSubmit={submitSearch}>
-      <label className="visuallyHidden" htmlFor={`${searchId}-q`}>Search files by name</label>
-      <input id={`${searchId}-q`} type="search" value={draft} placeholder="Search files by name" maxLength={255} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) setQuery(''); }} />
-      <button type="submit" className="secondary"><Search aria-hidden="true" />Search</button>
-      <label className="visuallyHidden" htmlFor={`${searchId}-sort`}>Sort files</label>
-      <select id={`${searchId}-sort`} value={sort} onChange={(e) => setSort(e.target.value as SortValue)}>{SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+      <label className="visuallyHidden" htmlFor={`${searchId}-q`}>{t('files.searchLabel')}</label>
+      <input id={`${searchId}-q`} type="search" value={draft} placeholder={t('files.searchLabel')} maxLength={255} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) setQuery(''); }} />
+      <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
+      <label className="visuallyHidden" htmlFor={`${searchId}-sort`}>{t('files.sortLabel')}</label>
+      <select id={`${searchId}-sort`} value={sort} onChange={(e) => setSort(e.target.value as SortValue)}>{sortOptions().map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
     </form>}
-    {list.state === 'loading' && <Notice>Loading files...</Notice>}
-    {items.length > 0 && <section className="surface memoryTable filesTable" aria-label="Files">{items.map((x) => {
+    {list.state === 'loading' && <Notice>{t('files.loading')}</Notice>}
+    {items.length > 0 && <section className="surface memoryTable filesTable" aria-label={t('files.list')}>{items.map((x) => {
       const badge = indexBadge(x.index);
       return <div className={`memoryRow ${x.id === focusFileId ? 'focusedRow' : ''}`} key={x.id}>
         <div><span className="typeIcon">{x.kind === 'image' ? <ImageIcon aria-hidden="true" /> : <FileText aria-hidden="true" />}</span><div>
-          <button type="button" className="rowLink" aria-label={`Show details of ${x.name}`} aria-current={x.id === focusFileId ? 'true' : undefined} onClick={() => onFocusChange(x.id)}><strong>{x.name}</strong></button>
-          <p>{`${fileTypeLabel(x.content_type)} · ${formatBytes(x.size_bytes)} · ${uploaderLabel(x.created_by, me)} · `}<time dateTime={x.created_at}>{date(x.created_at)}</time></p></div></div>
+          <button type="button" className="rowLink" aria-label={t('files.showDetails', { name: x.name })} aria-current={x.id === focusFileId ? 'true' : undefined} onClick={() => onFocusChange(x.id)}><strong dir="auto">{x.name}</strong></button>
+          <p>{t('files.rowMeta', { type: fileTypeLabel(x.content_type), size: formatBytes(x.size_bytes), uploader: uploaderLabel(x.created_by, me) })}<time dateTime={x.created_at}>{date(x.created_at)}</time></p></div></div>
         <span className={`statusBadge ${badge.tone}`} title={badge.detail}>{badge.label}</span>
         <div className="rowActions">
           {confirming === x.id
-            ? <><span className="visuallyHidden" role="status">Delete {x.name}? This cannot be undone.</span><button type="button" className="danger" aria-label={`Confirm delete of ${x.name}`} onClick={() => void remove(x).catch((e) => { setConfirming(null); setProblem(isPermissionDenied(e) ? MANAGE_NOTE : `Could not delete ${x.name}: ${describeError(e)}`); })}>Delete</button><button type="button" className="secondary" aria-label={`Keep ${x.name}`} onClick={() => setConfirming(null)}>Keep</button></>
+            ? <><span className="visuallyHidden" role="status">{t('files.confirmDeletePrompt', { name: x.name })}</span><button type="button" className="danger" aria-label={t('files.confirmDeleteOf', { name: x.name })} onClick={() => void remove(x).catch((e) => { setConfirming(null); setProblem(isPermissionDenied(e) ? t('files.manageNote') : t('files.deleteFailed', { name: x.name, message: describeError(e) })); })}>{t('common.delete')}</button><button type="button" className="secondary" aria-label={t('files.keepOf', { name: x.name })} onClick={() => setConfirming(null)}>{t('files.keep')}</button></>
             : <>
-              <button type="button" className="iconButton" title="Download" aria-label={`Download ${x.name}`} onClick={() => void api.downloadFile(x.id, x.name).catch((e) => setProblem(`Could not download ${x.name}: ${describeError(e)}`))}><Download aria-hidden="true" /></button>
-              {x.can_manage && <button type="button" className="iconButton" title="Delete" aria-label={`Delete ${x.name}`} onClick={() => setConfirming(x.id)}><Trash2 aria-hidden="true" /></button>}
+              <button type="button" className="iconButton" title={t('files.download')} aria-label={t('files.downloadOf', { name: x.name })} onClick={() => void api.downloadFile(x.id, x.name).catch((e) => setProblem(t('files.downloadFailed', { name: x.name, message: describeError(e) })))}><Download aria-hidden="true" /></button>
+              {x.can_manage && <button type="button" className="iconButton" title={t('common.delete')} aria-label={t('files.deleteOf', { name: x.name })} onClick={() => setConfirming(x.id)}><Trash2 aria-hidden="true" /></button>}
             </>}
         </div>
       </div>;
     })}
     </section>}
-    {more && items.length > 0 && <div className="actions"><button type="button" className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? 'Loading...' : 'Load more files'}</button></div>}
+    {more && items.length > 0 && <div className="actions"><button type="button" className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? t('common.loading') : t('files.loadMore')}</button></div>}
     {list.state === 'ready' && !items.length && (searching
-      ? <div className="emptyState"><Search aria-hidden="true" /><h3>No files match "{query}"</h3><p>Try another part of the name.</p><div className="actions"><button type="button" className="secondary" onClick={() => { setDraft(''); setQuery(''); }}>Clear search</button></div></div>
-      : <div className="emptyState"><Upload aria-hidden="true" /><h3>No files yet</h3><p>{canUpload ? 'Upload documents, data or images. Text files are indexed so tasks can use them.' : 'Nobody has uploaded a file to this workspace yet.'}</p>{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />Upload a file</button></div>}</div>)}
+      ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('files.noMatch', { query })}</h3><p>{t('files.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setDraft(''); setQuery(''); }}>{t('files.clearSearch')}</button></div></div>
+      : <div className="emptyState"><Upload aria-hidden="true" /><h3>{t('files.empty')}</h3><p>{canUpload ? t('files.emptyUpload') : t('files.emptyReadOnly')}</p>{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.uploadFirst')}</button></div>}</div>)}
   </>;
 }
 
 function uploadError(e: unknown): string {
-  if (isPermissionDenied(e)) return 'Uploading needs a member or owner role in this workspace.';
-  if (e instanceof ApiError && e.status === 413 && !e.detail) return 'The file is larger than the server accepts.';
+  if (isPermissionDenied(e)) return t('files.uploadRoleDenied');
+  if (e instanceof ApiError && e.status === 413 && !e.detail) return t('files.uploadTooLargeServer');
   return describeError(e);
 }
 
@@ -196,52 +196,52 @@ function FileDetail({ fileId, me, canUpload, onClose, onDelete, onChange }: { fi
   async function act(kind: 'rename' | 'reindex', work: () => Promise<ApiFile>, done: (file: ApiFile) => string) {
     setBusy(kind); setActionError(null); setActionNote(null);
     try { const file = await work(); update(file); setActionNote(done(file)); setRenaming(null); }
-    catch (e) { setActionError(isPermissionDenied(e) ? (kind === 'rename' ? MANAGE_NOTE : 'Re-indexing needs a member or owner role in this workspace.') : describeError(e)); }
+    catch (e) { setActionError(isPermissionDenied(e) ? (kind === 'rename' ? t('files.manageNote') : t('files.detail.reindexDenied')) : describeError(e)); }
     finally { setBusy(null); }
   }
 
-  const title = detail.state === 'ready' ? detail.file.name : 'File detail';
+  const title = detail.state === 'ready' ? detail.file.name : t('files.detail.title');
   const file = detail.state === 'ready' ? detail.file : null;
   const badge = file ? indexBadge(file.index) : null;
   const renameIssue = file && renaming !== null ? renameProblem(file.name, renaming) : null;
   return (
     <section className="surface fileDetail" aria-labelledby="file-detail-heading" aria-busy={detail.state === 'loading'}>
       <div className="sectionHeader">
-        <div><p className="eyebrow">File detail</p><h2 id="file-detail-heading" ref={heading} tabIndex={-1}>{title}</h2></div>
-        <button type="button" className="iconButton" aria-label="Close file detail" title="Close" onClick={onClose}><X aria-hidden="true" /></button>
+        <div><p className="eyebrow">{t('files.detail.eyebrow')}</p><h2 id="file-detail-heading" ref={heading} tabIndex={-1} dir="auto">{title}</h2></div>
+        <button type="button" className="iconButton" aria-label={t('files.detail.close')} title={t('files.detail.close')} onClick={onClose}><X aria-hidden="true" /></button>
       </div>
-      {detail.state === 'loading' && <Notice>Loading file details...</Notice>}
-      {detail.state === 'missing' && <Notice error>This file no longer exists in this workspace. It may have been deleted; runs that used it still list its id <code>{fileId}</code>.</Notice>}
-      {detail.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{READ_DENIED}</p>}
-      {detail.state === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>Could not load this file: {detail.message} Check the connection to the API, then retry.</span><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />Retry</button></div>}
+      {detail.state === 'loading' && <Notice>{t('files.detail.loading')}</Notice>}
+      {detail.state === 'missing' && <Notice error>{rich('files.detail.missing', { id: <code dir="ltr">{fileId}</code> })}</Notice>}
+      {detail.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('files.readDenied')}</p>}
+      {detail.state === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('files.detail.loadFailed', { message: detail.message })}</span><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div>}
       {file && badge && <>
         <dl className="taskMeta">
-          <div><dt>Kind</dt><dd>{fileTypeLabel(file.content_type)} <small className="muted">({file.content_type})</small></dd></div>
-          <div><dt>Size</dt><dd>{formatBytes(file.size_bytes)}</dd></div>
-          <div><dt>Uploaded</dt><dd><time dateTime={file.created_at}>{date(file.created_at)}</time></dd></div>
-          <div><dt>Uploaded by</dt><dd>{uploaderLabel(file.created_by, me) === 'You' ? 'You' : <code>{file.created_by}</code>}</dd></div>
-          {file.updated_at && file.updated_by && <div><dt>Renamed</dt><dd><time dateTime={file.updated_at}>{date(file.updated_at)}</time> by {uploaderLabel(file.updated_by, me) === 'You' ? 'you' : <code>{file.updated_by}</code>}</dd></div>}
-          <div className="wideMeta"><dt>Retrieval</dt><dd><span className={`statusBadge ${badge.tone}`}>{badge.label}</span> <small className="muted">{badge.detail}</small></dd></div>
-          <div><dt>File id</dt><dd><code>{file.id}</code></dd></div>
-          <div className="wideMeta"><dt>SHA-256</dt><dd><code>{file.sha256}</code></dd></div>
+          <div><dt>{t('files.detail.kind')}</dt><dd>{fileTypeLabel(file.content_type)} <small className="muted">({file.content_type})</small></dd></div>
+          <div><dt>{t('files.detail.size')}</dt><dd><bdi>{formatBytes(file.size_bytes)}</bdi></dd></div>
+          <div><dt>{t('files.detail.uploaded')}</dt><dd><time dateTime={file.created_at}>{date(file.created_at)}</time></dd></div>
+          <div><dt>{t('files.detail.uploadedBy')}</dt><dd>{file.created_by === me ? t('files.you') : <code dir="ltr">{file.created_by}</code>}</dd></div>
+          {file.updated_at && file.updated_by && <div><dt>{t('files.detail.renamed')}</dt><dd>{rich('files.detail.renamedBy', { when: <time dateTime={file.updated_at}>{date(file.updated_at)}</time>, who: file.updated_by === me ? t('files.you') : <code dir="ltr">{file.updated_by}</code> })}</dd></div>}
+          <div className="wideMeta"><dt>{t('files.detail.retrieval')}</dt><dd><span className={`statusBadge ${badge.tone}`}>{badge.label}</span> <small className="muted">{badge.detail}</small></dd></div>
+          <div><dt>{t('files.detail.fileId')}</dt><dd><code dir="ltr">{file.id}</code></dd></div>
+          <div className="wideMeta"><dt>{t('files.detail.sha')}</dt><dd><code dir="ltr">{file.sha256}</code></dd></div>
         </dl>
         {actionError && <Notice error>{actionError}</Notice>}
         {actionNote && <Notice>{actionNote}</Notice>}
         {renaming !== null
-          ? <form className="renameForm" onSubmit={(e) => { e.preventDefault(); if (!renameIssue) void act('rename', () => api.renameFile(file.id, renaming.trim()), (f) => `Renamed to ${f.name}.`); }}>
-            <label className="field"><span>New name</span><input id={renameId} value={renaming} maxLength={255} autoFocus aria-invalid={Boolean(renameIssue)} aria-describedby={`${renameId}-hint`} onChange={(e) => setRenaming(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }} /></label>
-            <small id={`${renameId}-hint`} className={renameIssue ? 'fieldError' : 'muted'}>{renameIssue ?? 'The extension stays the same; the file and its index are kept.'}</small>
-            <div className="actions"><button type="submit" disabled={Boolean(renameIssue) || busy !== null}>{busy === 'rename' ? 'Saving...' : 'Save name'}</button><button type="button" className="secondary" onClick={() => setRenaming(null)}>Cancel</button></div>
+          ? <form className="renameForm" onSubmit={(e) => { e.preventDefault(); if (!renameIssue) void act('rename', () => api.renameFile(file.id, renaming.trim()), (f) => t('files.detail.renamedTo', { name: f.name })); }}>
+            <label className="field"><span>{t('files.detail.renameField')}</span><input id={renameId} value={renaming} maxLength={255} autoFocus aria-invalid={Boolean(renameIssue)} aria-describedby={`${renameId}-hint`} onChange={(e) => setRenaming(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }} /></label>
+            <small id={`${renameId}-hint`} className={renameIssue ? 'fieldError' : 'muted'}>{renameIssue ?? t('files.detail.renameHint')}</small>
+            <div className="actions"><button type="submit" disabled={Boolean(renameIssue) || busy !== null}>{busy === 'rename' ? t('files.detail.saving') : t('files.detail.saveName')}</button><button type="button" className="secondary" onClick={() => setRenaming(null)}>{t('common.cancel')}</button></div>
           </form>
           : <div className="actions">
-            <button type="button" onClick={() => { setActionError(null); void api.downloadFile(file.id, file.name).catch((e) => setActionError(`Could not download: ${describeError(e)}`)); }}><Download aria-hidden="true" />Download</button>
-            {file.can_manage && <button type="button" className="secondary" onClick={() => { setRenaming(file.name); setConfirming(false); }}><Pencil aria-hidden="true" />Rename</button>}
-            {canUpload && canReindex(file.index) && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act('reindex', () => api.reindexFile(file.id), (f) => indexBadge(f.index).detail)}><RefreshCw aria-hidden="true" />{busy === 'reindex' ? 'Re-indexing...' : 'Re-index'}</button>}
+            <button type="button" onClick={() => { setActionError(null); void api.downloadFile(file.id, file.name).catch((e) => setActionError(t('files.detail.downloadFailed', { message: describeError(e) }))); }}><Download aria-hidden="true" />{t('files.download')}</button>
+            {file.can_manage && <button type="button" className="secondary" onClick={() => { setRenaming(file.name); setConfirming(false); }}><Pencil aria-hidden="true" />{t('files.detail.rename')}</button>}
+            {canUpload && canReindex(file.index) && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act('reindex', () => api.reindexFile(file.id), (f) => indexBadge(f.index).detail)}><RefreshCw aria-hidden="true" />{busy === 'reindex' ? t('files.detail.reindexing') : t('files.detail.reindex')}</button>}
             {file.can_manage && (confirming
-              ? <><button type="button" className="danger" disabled={busy !== null} onClick={() => { setBusy('delete'); setActionError(null); void onDelete(file).catch((e) => { setActionError(isPermissionDenied(e) ? MANAGE_NOTE : describeError(e)); setBusy(null); }); }} aria-label={`Confirm delete of ${file.name}`}>{busy === 'delete' ? 'Deleting...' : 'Delete permanently'}</button><button type="button" className="secondary" onClick={() => setConfirming(false)}>Keep</button></>
-              : <button type="button" className="secondary" onClick={() => setConfirming(true)}><Trash2 aria-hidden="true" />Delete</button>)}
+              ? <><button type="button" className="danger" disabled={busy !== null} onClick={() => { setBusy('delete'); setActionError(null); void onDelete(file).catch((e) => { setActionError(isPermissionDenied(e) ? t('files.manageNote') : describeError(e)); setBusy(null); }); }} aria-label={t('files.confirmDeleteOf', { name: file.name })}>{busy === 'delete' ? t('files.detail.deleting') : t('files.detail.deletePermanently')}</button><button type="button" className="secondary" onClick={() => setConfirming(false)}>{t('files.keep')}</button></>
+              : <button type="button" className="secondary" onClick={() => setConfirming(true)}><Trash2 aria-hidden="true" />{t('files.detail.delete')}</button>)}
           </div>}
-        {!file.can_manage && <p className="muted filesNote"><Lock aria-hidden="true" />{MANAGE_NOTE}</p>}
+        {!file.can_manage && <p className="muted filesNote"><Lock aria-hidden="true" />{t('files.manageNote')}</p>}
         <FilePreview key={`${file.id}-${file.sha256}`} file={file} />
       </>}
     </section>
@@ -285,20 +285,20 @@ function FilePreview({ file }: { file: ApiFile }) {
     return undefined;
   }, [bytes, mode]);
 
-  if (!mode) return <section className="filePreview" aria-label="Preview"><h3>Preview</h3><p className="muted">{fileTypeLabel(file.content_type)} files have no preview here. Download the file to open it.</p></section>;
+  if (!mode) return <section className="filePreview" aria-label={t('files.preview.title')}><h3>{t('files.preview.title')}</h3><p className="muted">{t('files.preview.none', { type: fileTypeLabel(file.content_type) })}</p></section>;
   const failed = (text.state === 'error' && (mode === 'text' || mode === 'markdown')) || (bytes.state === 'error' && (mode === 'image' || mode === 'pdf'));
   const failure = text.state === 'error' ? text.message : bytes.state === 'error' ? bytes.message : '';
   return (
-    <section className="filePreview" aria-label="Preview">
-      <div className="filePreviewHead"><h3>Preview</h3>{mode === 'markdown' && text.state === 'ready' && <span className="actions"><button type="button" className="secondary" aria-pressed={source} onClick={() => setSource((v) => !v)}>{source ? 'Show formatted' : 'Show source'}</button></span>}</div>
-      {failed && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>Could not load the preview: {failure}</span><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />Retry</button></div>}
-      {!failed && (mode === 'text' || mode === 'markdown') && text.state === 'loading' && <Notice>Loading preview...</Notice>}
-      {!failed && (mode === 'image' || mode === 'pdf') && bytes.state === 'loading' && <Notice>Loading preview...</Notice>}
-      {text.state === 'ready' && (mode === 'text' || (mode === 'markdown' && source)) && <pre className="filePreviewText" tabIndex={0} aria-label={`Text of ${file.name}`}>{text.value.text}</pre>}
-      {text.state === 'ready' && mode === 'markdown' && !source && <div className="filePreviewDoc" tabIndex={0} aria-label={`Formatted ${file.name}`}><MarkdownBlocks blocks={parseMarkdown(text.value.text)} /></div>}
-      {text.state === 'ready' && text.value.truncated && <p className="muted">Showing the first 256 KB. Download the file for the rest.</p>}
-      {mode === 'image' && imageUrl && <img className="filePreviewImage" src={imageUrl} alt={`Preview of ${file.name}`} />}
-      {mode === 'pdf' && pdf && <Suspense fallback={<Notice>Opening the PDF...</Notice>}><PdfPreview data={pdf} name={file.name} /></Suspense>}
+    <section className="filePreview" aria-label={t('files.preview.title')}>
+      <div className="filePreviewHead"><h3>{t('files.preview.title')}</h3>{mode === 'markdown' && text.state === 'ready' && <span className="actions"><button type="button" className="secondary" aria-pressed={source} onClick={() => setSource((v) => !v)}>{source ? t('files.preview.showFormatted') : t('files.preview.showSource')}</button></span>}</div>
+      {failed && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('files.preview.failed', { message: failure })}</span><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div>}
+      {!failed && (mode === 'text' || mode === 'markdown') && text.state === 'loading' && <Notice>{t('files.preview.loading')}</Notice>}
+      {!failed && (mode === 'image' || mode === 'pdf') && bytes.state === 'loading' && <Notice>{t('files.preview.loading')}</Notice>}
+      {text.state === 'ready' && (mode === 'text' || (mode === 'markdown' && source)) && <pre className="filePreviewText" tabIndex={0} aria-label={t('files.preview.textOf', { name: file.name })} dir="auto">{text.value.text}</pre>}
+      {text.state === 'ready' && mode === 'markdown' && !source && <div className="filePreviewDoc" tabIndex={0} aria-label={t('files.preview.formattedOf', { name: file.name })} dir="auto"><MarkdownBlocks blocks={parseMarkdown(text.value.text)} /></div>}
+      {text.state === 'ready' && text.value.truncated && <p className="muted">{t('files.preview.truncated')}</p>}
+      {mode === 'image' && imageUrl && <img className="filePreviewImage" src={imageUrl} alt={t('files.preview.imageOf', { name: file.name })} />}
+      {mode === 'pdf' && pdf && <Suspense fallback={<Notice>{t('files.pdf.opening')}</Notice>}><PdfPreview data={pdf} name={file.name} /></Suspense>}
     </section>
   );
 }
@@ -331,4 +331,4 @@ function Inlines({ items }: { items: Inline[] }) {
 }
 
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) { return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>; }
-const date = (v: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(v));
+const date = (v: string) => formatDateTime(v);

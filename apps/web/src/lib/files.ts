@@ -1,5 +1,7 @@
 // Workspace files (docs/files.md): list paths, upload checks, labels, index state and a safe
 // Markdown reader. Pure, so `pnpm --filter @anum/web test:unit` exercises it without a browser.
+// Text comes from the message catalogs (docs/web-localization.md).
+import { CATALOGS, t, type MessageKey } from './i18n.ts';
 
 export type FileKind = 'text' | 'markdown' | 'data' | 'image' | 'pdf' | 'document' | 'archive';
 export type IndexStatus = 'indexed' | 'stale' | 'failed' | 'skipped' | 'pending';
@@ -24,14 +26,11 @@ export interface ApiFileLink { url: string; expires_at: string }
 
 export const PAGE_SIZE = 50;
 export type SortValue = 'created_at:desc' | 'created_at:asc' | 'name:asc' | 'name:desc' | 'size:desc' | 'size:asc';
-export const SORT_OPTIONS: readonly { value: SortValue; label: string }[] = [
-  { value: 'created_at:desc', label: 'Newest first' },
-  { value: 'created_at:asc', label: 'Oldest first' },
-  { value: 'name:asc', label: 'Name, A to Z' },
-  { value: 'name:desc', label: 'Name, Z to A' },
-  { value: 'size:desc', label: 'Largest first' },
-  { value: 'size:asc', label: 'Smallest first' },
-];
+export const SORT_VALUES: readonly SortValue[] = ['created_at:desc', 'created_at:asc', 'name:asc', 'name:desc', 'size:desc', 'size:asc'];
+/** The sort choices with their labels in the current language. */
+export function sortOptions(): { value: SortValue; label: string }[] {
+  return SORT_VALUES.map((value) => ({ value, label: t(`files.sort.${value}` as MessageKey) }));
+}
 
 /** `GET /api/v1/files` for one page: search, sort and the keyset cursor (the last id shown). */
 export function filesListPath(options: { query?: string; sort?: SortValue; cursor?: string | null; limit?: number } = {}): string {
@@ -58,24 +57,11 @@ export function formatBytes(value: number): string {
   return `${size.toFixed(1)} ${units[unit]}`;
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  'text/plain': 'Text', 'text/markdown': 'Markdown', 'text/x-rst': 'reStructuredText', 'text/csv': 'CSV',
-  'text/tab-separated-values': 'TSV', 'application/json': 'JSON', 'application/yaml': 'YAML', 'application/xml': 'XML',
-  'image/png': 'PNG image', 'image/jpeg': 'JPEG image', 'image/gif': 'GIF image', 'image/webp': 'WebP image',
-  'application/pdf': 'PDF', 'application/zip': 'ZIP archive',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel workbook',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PowerPoint deck',
-  'application/vnd.oasis.opendocument.text': 'OpenDocument text',
-  'application/vnd.oasis.opendocument.spreadsheet': 'OpenDocument sheet',
-  'application/vnd.oasis.opendocument.presentation': 'OpenDocument slides',
-};
-
 /** "Markdown", "PNG image", "Word document"; an unknown type reads as its subtype. */
 export function fileTypeLabel(contentType: string): string {
   const media = contentType.split(';', 1)[0].trim().toLowerCase();
-  const known = TYPE_LABELS[media];
-  if (known) return known;
+  const key = `files.type.${media}`;
+  if (key in CATALOGS.en) return t(key as MessageKey);
   const [major = '', minor = ''] = media.split('/');
   return (minor.replace(/^(x-|vnd\.)/, '').replace(/\+.*$/, '') || major || 'file').toUpperCase();
 }
@@ -95,24 +81,29 @@ export function previewMode(file: Pick<ApiFile, 'kind' | 'previewable'>): Previe
 
 /** A `.statusBadge` tone class. */
 export type Tone = 'success' | 'neutral' | 'warning' | 'dangerTone';
-const SKIP_REASONS: Record<string, string> = {
-  not_text: 'only text files are indexed', too_large: 'it has more than 2 MiB of text', not_utf8: 'it is not UTF-8 text', empty: 'it has no text',
-};
+function skipReason(error: string | null): string {
+  const key = `files.skip.${error ?? ''}`;
+  if (key in CATALOGS.en) return t(key as MessageKey);
+  return error ? error.replaceAll('_', ' ') : t('files.skip.other');
+}
 
 /** The retrieval index state of a file as a badge and a sentence (docs/memory.md#retrieval). */
 export function indexBadge(index: ApiFileIndex | null | undefined): { label: string; tone: Tone; detail: string } {
-  if (!index) return { label: 'Index unknown', tone: 'neutral', detail: 'The index state could not be read. Reload to try again.' };
+  if (!index) return { label: t('files.index.unknown'), tone: 'neutral', detail: t('files.index.unknownDetail') };
   switch (index.status) {
     case 'indexed':
-      return { label: 'Indexed', tone: 'success', detail: `Tasks can use this file (${index.chunk_count} passage${index.chunk_count === 1 ? '' : 's'}).` };
+      return { label: t('files.index.indexed'), tone: 'success', detail: t('files.index.indexedDetail', { count: index.chunk_count }) };
     case 'stale':
-      return { label: 'Re-index needed', tone: 'warning', detail: 'Indexed with an earlier embedding model; tasks will not find it until it is indexed again.' };
+      return { label: t('files.index.stale'), tone: 'warning', detail: t('files.index.staleDetail') };
     case 'failed':
-      return { label: 'Indexing failed', tone: 'dangerTone', detail: `Indexing failed${index.error ? ` (${index.error.replaceAll('_', ' ')})` : ''}. Re-index to try again.` };
+      return {
+        label: t('files.index.failed'), tone: 'dangerTone',
+        detail: index.error ? t('files.index.failedDetailReason', { reason: index.error.replaceAll('_', ' ') }) : t('files.index.failedDetail'),
+      };
     case 'skipped':
-      return { label: 'Not indexed', tone: 'neutral', detail: `Not indexed: ${SKIP_REASONS[index.error ?? ''] ?? (index.error ?? 'not indexable').replaceAll('_', ' ')}.` };
+      return { label: t('files.index.skipped'), tone: 'neutral', detail: t('files.index.skippedDetail', { reason: skipReason(index.error) }) };
     default:
-      return { label: 'Not indexed yet', tone: 'warning', detail: 'This file has not been indexed yet. Re-index so tasks can use it.' };
+      return { label: t('files.index.pending'), tone: 'warning', detail: t('files.index.pendingDetail') };
   }
 }
 
@@ -122,7 +113,7 @@ export function canReindex(index: ApiFileIndex | null | undefined): boolean {
 }
 
 export function uploaderLabel(createdBy: string, currentUserId: string | null): string {
-  return currentUserId && createdBy === currentUserId ? 'You' : createdBy;
+  return currentUserId && createdBy === currentUserId ? t('files.you') : createdBy;
 }
 
 function extension(name: string): string {
@@ -132,13 +123,13 @@ function extension(name: string): string {
 
 /** A reason to refuse an upload before sending it, from the limits the API reported; null to send. */
 export function uploadProblem(file: { name: string; size: number }, usage: ApiFileUsage | null): string | null {
-  if (file.size === 0) return `${file.name} is empty. Choose a file with content.`;
+  if (file.size === 0) return t('files.check.empty', { name: file.name });
   if (!usage) return null;
-  if (file.size > usage.max_upload_bytes) return `${file.name} is ${formatBytes(file.size)}; files can be at most ${formatBytes(usage.max_upload_bytes)}. Split or compress it.`;
+  if (file.size > usage.max_upload_bytes) return t('files.check.tooLarge', { name: file.name, size: formatBytes(file.size), max: formatBytes(usage.max_upload_bytes) });
   const ext = extension(file.name);
-  if (!ext || !usage.accepted_extensions.includes(ext)) return `${file.name} cannot be uploaded: this workspace accepts ${usage.accepted}.`;
+  if (!ext || !usage.accepted_extensions.includes(ext)) return t('files.check.type', { name: file.name, accepted: usage.accepted });
   if (usage.used_bytes + file.size > usage.quota_bytes) {
-    return `${file.name} (${formatBytes(file.size)}) does not fit: ${formatBytes(usage.used_bytes)} of ${formatBytes(usage.quota_bytes)} is used. Delete files you no longer need.`;
+    return t('files.check.quota', { name: file.name, size: formatBytes(file.size), used: formatBytes(usage.used_bytes), quota: formatBytes(usage.quota_bytes) });
   }
   return null;
 }
@@ -146,12 +137,12 @@ export function uploadProblem(file: { name: string; size: number }, usage: ApiFi
 /** Why a new name would be refused, or null. A rename never changes the extension (the type). */
 export function renameProblem(current: string, next: string): string | null {
   const name = next.trim();
-  if (!name) return 'Enter a name.';
-  if (name.length > 255) return 'Names are at most 255 characters.';
+  if (!name) return t('files.rename.empty');
+  if (name.length > 255) return t('files.rename.tooLong');
   // eslint-disable-next-line no-control-regex
-  if (/[\\/\u0000-\u001f\u007f]/.test(name) || name === '.' || name === '..') return 'Names cannot contain / or \\ or control characters.';
-  if (extension(name) !== extension(current)) return extension(current) ? `Keep the ${extension(current)} extension: renaming does not change the file type.` : 'Do not add an extension: renaming does not change the file type.';
-  if (name === current) return 'Enter a different name.';
+  if (/[\\/\u0000-\u001f\u007f]/.test(name) || name === '.' || name === '..') return t('files.rename.chars');
+  if (extension(name) !== extension(current)) return extension(current) ? t('files.rename.keepExtension', { extension: extension(current) }) : t('files.rename.noExtension');
+  if (name === current) return t('files.rename.same');
   return null;
 }
 
@@ -162,14 +153,14 @@ export function usageMeter(usage: ApiFileUsage): { percent: number; tone: 'ok' |
   return {
     percent,
     tone: raw >= 95 ? 'stop' : raw >= 80 ? 'warn' : 'ok',
-    text: `${formatBytes(usage.used_bytes)} of ${formatBytes(usage.quota_bytes)} used · ${usage.file_count} file${usage.file_count === 1 ? '' : 's'}`,
+    text: t('files.storageText', { used: formatBytes(usage.used_bytes), quota: formatBytes(usage.quota_bytes), count: usage.file_count }),
   };
 }
 
 /** Upload progress as a sentence: "42% of 3.1 MB". */
 export function progressText(loaded: number, total: number): string {
-  if (total <= 0) return 'Starting...';
-  return `${Math.min(100, Math.round((loaded / total) * 100))}% of ${formatBytes(total)}`;
+  if (total <= 0) return t('files.progressStarting');
+  return t('files.progress', { percent: Math.min(100, Math.round((loaded / total) * 100)), size: formatBytes(total) });
 }
 
 // --------------------------------------------------------------------------- Markdown

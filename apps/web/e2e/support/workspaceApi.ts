@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 // One mocked workspace with something on every main view (Assistant, Tasks, Approvals, Memory,
-// Settings, Notifications, Privacy), for the accessibility and localization specs. Every request the views make
+// Files, Settings, Notifications, Privacy), for the accessibility and localization specs. Every request the views make
 // is answered; anything else is aborted so a new, unmocked call shows up as a failure.
 const now = new Date().toISOString();
 const later = new Date(Date.now() + 5 * 3600_000).toISOString();
@@ -38,6 +38,13 @@ const privacy = {
   privacy_policy_url: 'https://example.com/privacy', delete_confirmation: 'DELETE MY DATA', export_max_bytes: 26214400,
   account_note: 'Your sign-in account is managed by your organization.', shared_note: 'Shared records belong to the workspace.',
 };
+
+const fileIndex = { status: 'indexed', error: null, chunk_count: 3, embedding_model: 'anum-local-hash-v1', indexed_at: now };
+const files = [
+  { id: 'file_notes', name: 'release-notes.md', content_type: 'text/markdown', kind: 'markdown', previewable: true, can_manage: true, size_bytes: 2048, sha256: 'cd'.repeat(32), created_by: 'user_local', created_at: now, updated_by: null, updated_at: null, index: fileIndex },
+  { id: 'file_logo', name: 'logo.png', content_type: 'image/png', kind: 'image', previewable: true, can_manage: false, size_bytes: 512, sha256: 'ef'.repeat(32), created_by: 'user_owner', created_at: now, updated_by: null, updated_at: null, index: { ...fileIndex, status: 'skipped', error: 'not_text', chunk_count: 0 } },
+];
+const fileUsage = { used_bytes: 2560, file_count: 2, quota_bytes: 2147483648, max_upload_bytes: 26214400, link_ttl_seconds: 300, accepted: 'text, images, PDF, Office files and .zip', accepted_extensions: ['.md', '.pdf', '.png', '.txt'], can_upload: true, can_manage_all: true };
 
 export async function mockWorkspaceApi(page: Page): Promise<void> {
   await page.route('http://localhost:8000/**', async (route) => {
@@ -76,6 +83,10 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/me/devices' && method === 'GET') return json(devices);
     if (path === '/api/v1/model-config') return json({ detail: 'No workspace model configuration' }, 404);
     if (path === '/api/v1/privacy') return json(privacy);
+    if (path === '/api/v1/files/usage') return json(fileUsage);
+    if (path === '/api/v1/files' && method === 'GET') return json(files);
+    if (path === '/api/v1/files/file_notes') return json(files[0]);
+    if (path === '/api/v1/files/file_notes/preview') return json({ kind: 'markdown', text: '# Release notes\n\n- Faster exports', truncated: false, size_bytes: 2048 });
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: now, updated_at: now });
     if (path === '/api/v1/me/workspace-memberships') return json([{ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'owner', active: true }]);
     // Workspace lifecycle and the audit log (docs/identity.md#workspace-lifecycle, docs/governance-and-scale.md#audit-log).

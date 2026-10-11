@@ -95,6 +95,8 @@ Text files (`text/*`, JSON, YAML, XML, CSV, or a `.txt`/`.md`/`.csv`/`.json`/`.y
 
 Tests: `apps/web/test/files.test.ts` (paths, checks, labels, the Markdown reader), `apps/web/e2e/files.spec.ts` (list, search, sort and paging, uploads with refusals, quota and cancel, Markdown, image and PDF previews, rename, re-index, delete, the viewer role, `403`, errors, and no horizontal overflow from 1440x900 to 390x844), `apps/web/e2e/sources-used.spec.ts`.
 
+Every string is in the English and Arabic catalogs (`files.*` in `apps/web/src/lib/messages/`); file names and previewed text keep their own direction (`dir="auto"`), sizes and ids are isolated, and the pager chevrons mirror in Arabic ([Web localization](web-localization.md)). `e2e/localization.spec.ts` reads the view in Arabic and `e2e/accessibility.spec.ts` runs axe over it in both languages.
+
 ## Mobile
 
 The Flutter app's Resources, Files tab (`apps/mobile/lib/features/workspace/files_screen.dart`, state in `files_controller.dart`, API in `files_repository.dart`) has the same behaviour: the storage meter and limits, the system picker for several files, streamed uploads with progress and Cancel (`http.StreamedRequest`; cancelling closes that upload's connection), search, sort and "Load more files", and a detail screen with the index state, a text or image preview, Download (the save dialog, through a short-lived link), Rename (a dialog that keeps the extension), Re-index and Delete with confirm, shown by role. PDFs, Office files and archives are downloaded and opened in another app; the app has no PDF renderer. "Sources used" on a run opens the same detail screen. Tests: `apps/mobile/test/files_test.dart`, including layouts at 320, 390, 768, 1024 and 1440 wide at 1x and 2x text.
