@@ -2,6 +2,7 @@
 // an incremental server-sent-events parser, the chat transcript reducer, sentence
 // splitting for speaking a reply while it streams, and the auto-scroll rule.
 // No browser or Vite APIs, so `pnpm test:unit` exercises them directly.
+import { t as msg } from './i18n.ts';
 
 export type TurnStatus = 'complete' | 'cancelled' | 'failed';
 
@@ -121,7 +122,7 @@ export function applyAskEvent(turns: UiTurn[], event: SseEvent): UiTurn[] {
   }
   if (event.event === 'error') {
     const reply = asTurn(data.assistant_turn);
-    const message = typeof data.message === 'string' ? data.message : 'The model did not answer.';
+    const message = typeof data.message === 'string' ? data.message : msg('chat.modelNoAnswer');
     const code = typeof data.code === 'string' ? data.code : undefined;
     return turns.map((t) => t.id === PENDING_ASSISTANT
       ? { id: reply?.id ?? `local-${++localTurns}`, role: 'assistant', content: reply?.content ?? t.content, status: 'failed', error: message, errorCode: code }
@@ -141,7 +142,7 @@ export function endAsk(turns: UiTurn[], outcome: { stopped: boolean; error?: str
     .map((t): UiTurn => t.status === 'streaming'
       ? outcome.stopped
         ? { ...t, status: 'cancelled' }
-        : { ...t, status: 'failed', error: outcome.error ?? 'The connection dropped before the answer finished.', errorCode: outcome.errorCode }
+        : { ...t, status: 'failed', error: outcome.error ?? msg('chat.connectionDropped'), errorCode: outcome.errorCode }
       : t);
 }
 
@@ -194,5 +195,5 @@ export function isNearBottom(box: { scrollTop: number; scrollHeight: number; cli
 }
 
 export function conversationTitle(conversation: Conversation): string {
-  return conversation.title.trim() || 'New conversation';
+  return conversation.title.trim() || msg('chat.newConversation');
 }

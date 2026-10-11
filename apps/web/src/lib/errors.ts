@@ -1,6 +1,7 @@
 // The API's error envelope as a typed error (docs/api-contracts.md, Error Model).
 // Pure, so `pnpm --filter @anum/web test:unit` can exercise it without a browser.
 import type { ApiErrorCode } from '@anum/contracts';
+import { t } from './i18n.ts';
 
 /** A non-2xx API answer: HTTP status, the envelope's stable code and its message. */
 export class ApiError extends Error {
@@ -47,18 +48,23 @@ export function isPermissionDenied(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 403;
 }
 
+/** The fallback when the API sends no sentence of its own (in the current locale). */
+export function budgetFallbackMessage(): string {
+  return t('common.budgetFallback');
+}
+/** English fallback, kept for callers and tests that compare against it. */
 export const BUDGET_FALLBACK_MESSAGE = 'This workspace has used its monthly model budget. An owner can raise it under Model budgets.';
 
 /** The budget message to show: the API's own sentence (it names the reset date) or a fallback. */
 export function budgetMessage(error: ApiError): string {
-  return error.detail ?? BUDGET_FALLBACK_MESSAGE;
+  return error.detail ?? budgetFallbackMessage();
 }
 
 /** A sentence for a person: the API's message for known failures, never a stack trace. */
-export function describeError(error: unknown, fallback = 'Operation failed.'): string {
+export function describeError(error: unknown, fallback = t('common.operationFailed')): string {
   if (error instanceof ApiError) {
-    if (error.status === 402 || error.code === 'model_budget_exceeded') return `Monthly model budget reached. ${budgetMessage(error)}`;
-    if (error.status === 401) return 'Your sign-in expired. Sign in again.';
+    if (error.status === 402 || error.code === 'model_budget_exceeded') return t('common.budgetReached', { message: budgetMessage(error) });
+    if (error.status === 401) return t('common.signInExpired');
     if (error.detail) return error.detail;
     return error.message;
   }

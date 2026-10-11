@@ -17,7 +17,7 @@
 .featureDialog header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .featureDialog h3, .featureDialog h4, .featureDialog p { margin: 0; }
 .featureDialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
-.featureToolList { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.featureToolList { margin: 0; padding-inline-start: 18px; display: grid; gap: 4px; }
 
 .featureDisabled { opacity: 0.7; }
 .featureLink { font-size: 0.85rem; }

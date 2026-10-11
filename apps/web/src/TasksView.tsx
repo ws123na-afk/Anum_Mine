@@ -8,6 +8,8 @@ import {
   approvalsForTask, countByStatus, filterTasks, finalAnswer, hasMorePages, isTerminal, mergeTaskPages, parseAnswer,
   runForTask, streamBadge, TASK_PAGE_SIZE, type StatusFilter, type StreamState,
 } from './lib/tasks';
+import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { statusLabel, stepLabel } from './lib/labels';
 import './tasks.css';
 
 export interface TasksViewProps {
@@ -33,10 +35,7 @@ export interface TasksViewProps {
   openFile(fileId: string): void;
 }
 
-const FILTERS: { id: StatusFilter; label: string }[] = [
-  { id: 'all', label: 'All statuses' }, { id: 'active', label: 'Active' }, { id: 'waiting_approval', label: 'Waiting approval' },
-  { id: 'completed', label: 'Completed' }, { id: 'failed', label: 'Failed' }, { id: 'cancelled', label: 'Cancelled' },
-];
+const FILTERS: StatusFilter[] = ['all', 'active', 'waiting_approval', 'completed', 'failed', 'cancelled'];
 
 export function TasksView(p: TasksViewProps) {
   const [older, setOlder] = useState<Task[]>([]);
@@ -72,46 +71,46 @@ export function TasksView(p: TasksViewProps) {
       setOlder((o) => [...o, ...page]);
       setLastPage(page.length);
     } catch (e) {
-      setPageError(e instanceof Error ? e.message : 'Could not load more tasks.');
+      setPageError(e instanceof Error ? e.message : t('tasks.loadMoreFailed'));
     } finally { setPaging(false); }
   }
 
   return <>
     <section className="metrics three">
-      <Metric icon={<Activity />} label="Active" value={String(counts.active)} detail="Queued, running or waiting" />
-      <Metric icon={<CheckCircle2 />} label="Completed" value={String(counts.completed)} detail="Loaded tasks" />
-      <Metric icon={<XCircle />} label="Failed or cancelled" value={String(counts.failed)} detail={`${all.length} tasks loaded`} />
+      <Metric icon={<Activity />} label={t('tasks.metric.active')} value={String(counts.active)} detail={t('tasks.metric.activeDetail')} />
+      <Metric icon={<CheckCircle2 />} label={t('tasks.metric.completed')} value={String(counts.completed)} detail={t('tasks.metric.completedDetail')} />
+      <Metric icon={<XCircle />} label={t('tasks.metric.failed')} value={String(counts.failed)} detail={t('tasks.metric.failedDetail', { count: all.length })} />
     </section>
     <div className="taskLayout">
       <section className="surface composerSurface">
         <div className="sectionHeader">
-          <div><p className="eyebrow">New execution</p><h2>Run an agent task</h2></div>
-          <span className={`statusBadge ${badge.tone}`} title="Workspace event stream">{badge.label}</span>
+          <div><p className="eyebrow">{t('tasks.composer.eyebrow')}</p><h2>{t('tasks.composer.title')}</h2></div>
+          <span className={`statusBadge ${badge.tone}`} title={t('tasks.streamTitle')}>{badge.label}</span>
         </div>
-        <label className="field"><span>Task instructions</span><textarea value={p.prompt} onChange={(e) => p.setPrompt(e.target.value)} placeholder="Describe the result the agent should produce" /></label>
+        <label className="field"><span>{t('tasks.instructions')}</span><textarea value={p.prompt} onChange={(e) => p.setPrompt(e.target.value)} placeholder={t('tasks.instructionsPlaceholder')} /></label>
         <div className="actions">
-          <button onClick={p.runTask} disabled={p.busy || !p.prompt.trim()}><Play />{p.busy ? 'Running...' : 'Run task'}</button>
-          {selected && <button className="secondary" onClick={p.cancel} disabled={p.busy || isTerminal(selected.status)}><Square />Cancel</button>}
-          {run && ['failed', 'cancelled'].includes(run.status) && <button className="secondary" onClick={p.resume} disabled={p.busy}><RefreshCw />Resume</button>}
+          <button onClick={p.runTask} disabled={p.busy || !p.prompt.trim()}><Play aria-hidden="true" />{p.busy ? t('tasks.running') : t('tasks.run')}</button>
+          {selected && <button className="secondary" onClick={p.cancel} disabled={p.busy || isTerminal(selected.status)}><Square aria-hidden="true" />{t('tasks.cancel')}</button>}
+          {run && ['failed', 'cancelled'].includes(run.status) && <button className="secondary" onClick={p.resume} disabled={p.busy}><RefreshCw aria-hidden="true" />{t('tasks.resume')}</button>}
         </div>
         <Notice>{p.message}</Notice>
       </section>
       <section className="surface taskSummary">
-        <div className="sectionHeader"><div><p className="eyebrow">Task history</p><h2>{p.loading && !all.length ? 'Loading...' : `${shown.length} of ${all.length} tasks`}</h2></div></div>
+        <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.history.eyebrow')}</p><h2>{p.loading && !all.length ? t('common.loading') : t('tasks.history.count', { shown: shown.length, count: all.length })}</h2></div></div>
         <div className="taskFilters">
-          <label className="field taskSearch"><span>Search tasks</span><input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Title, instructions or id" /></label>
-          <label className="field"><span>Status</span><select value={filter} onChange={(e) => setFilter(e.target.value as StatusFilter)}>{FILTERS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
+          <label className="field taskSearch"><span>{t('tasks.search')}</span><input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('tasks.searchPlaceholder')} /></label>
+          <label className="field"><span>{t('tasks.status')}</span><select value={filter} onChange={(e) => setFilter(e.target.value as StatusFilter)}>{FILTERS.map((f) => <option key={f} value={f}>{t(`tasks.filter.${f}` as MessageKey)}</option>)}</select></label>
         </div>
         <div className="compactList taskList">
-          {shown.map((x) => <button className={`recordButton ${selected?.id === x.id ? 'selected' : ''}`} aria-pressed={selected?.id === x.id} key={x.id} onClick={() => p.setTask(x)}><span><strong>{x.title}</strong><small className="taskPromptPreview">{x.prompt}</small><small>{date(x.updatedAt)}</small></span><Status value={x.status} /></button>)}
-          {!p.loading && !all.length && <Empty title="No tasks" text="Create a task to start the runtime." />}
-          {!!all.length && !shown.length && <Empty title="No matching tasks" text="Change the search or status filter." />}
+          {shown.map((x) => <button className={`recordButton ${selected?.id === x.id ? 'selected' : ''}`} aria-pressed={selected?.id === x.id} key={x.id} onClick={() => p.setTask(x)}><span><strong dir="auto">{x.title}</strong><small className="taskPromptPreview" dir="auto">{x.prompt}</small><small>{date(x.updatedAt)}</small></span><Status value={x.status} /></button>)}
+          {!p.loading && !all.length && <Empty title={t('tasks.empty.title')} text={t('tasks.empty.text')} />}
+          {!!all.length && !shown.length && <Empty title={t('tasks.noMatch.title')} text={t('tasks.noMatch.text')} />}
         </div>
         {pageError && <Notice error>{pageError}</Notice>}
-        {more && !!all.length && <div className="actions"><button className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? 'Loading...' : 'Load more tasks'}</button></div>}
+        {more && !!all.length && <div className="actions"><button className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? t('common.loading') : t('tasks.loadMore')}</button></div>}
       </section>
     </div>
-    {selected ? <TaskDetail task={selected} run={run} approvals={approvalsForTask(p.approvals, selected.id)} openApprovals={p.openApprovals} openMemory={p.openMemory} openFile={p.openFile} /> : <section className="surface"><Empty title="No task selected" text="Run a task or pick one from the history." /></section>}
+    {selected ? <TaskDetail task={selected} run={run} approvals={approvalsForTask(p.approvals, selected.id)} openApprovals={p.openApprovals} openMemory={p.openMemory} openFile={p.openFile} /> : <section className="surface"><Empty title={t('tasks.noneSelected.title')} text={t('tasks.noneSelected.text')} /></section>}
   </>;
 }
 
@@ -121,38 +120,38 @@ function TaskDetail({ task, run, approvals, openApprovals, openMemory, openFile 
   return <>
     <section className="surface taskDetail" aria-labelledby="task-detail-heading">
       <div className="sectionHeader">
-        <div><p className="eyebrow">Task detail</p><h2 id="task-detail-heading">{task.title}</h2></div>
+        <div><p className="eyebrow">{t('tasks.detail.eyebrow')}</p><h2 id="task-detail-heading" dir="auto">{task.title}</h2></div>
         <Status value={task.status} />
       </div>
       <dl className="taskMeta">
-        <div><dt>Task</dt><dd><code>{task.id}</code></dd></div>
-        <div><dt>Created</dt><dd>{date(task.createdAt)}</dd></div>
-        <div><dt>Updated</dt><dd>{date(task.updatedAt)}</dd></div>
-        {run && <div><dt>Run</dt><dd><code>{run.id}</code></dd></div>}
+        <div><dt>{t('tasks.detail.task')}</dt><dd><code dir="ltr">{task.id}</code></dd></div>
+        <div><dt>{t('tasks.detail.created')}</dt><dd>{date(task.createdAt)}</dd></div>
+        <div><dt>{t('tasks.detail.updated')}</dt><dd>{date(task.updatedAt)}</dd></div>
+        {run && <div><dt>{t('tasks.detail.run')}</dt><dd><code dir="ltr">{run.id}</code></dd></div>}
       </dl>
-      <h3 className="taskSubheading">Instructions</h3>
-      <p className="taskInstructions">{task.prompt}</p>
+      <h3 className="taskSubheading">{t('tasks.detail.instructions')}</h3>
+      <p className="taskInstructions" dir="auto">{task.prompt}</p>
     </section>
     <section className="surface taskAnswer" aria-labelledby="task-answer-heading" aria-live="polite" aria-busy={working && !answer}>
-      <div className="sectionHeader"><div><p className="eyebrow">Result</p><h2 id="task-answer-heading">Answer</h2></div>{working && <span className="statusBadge warning">updating</span>}</div>
-      {answer ? <Answer blocks={parseAnswer(answer)} /> : <p className="muted">{working ? 'The answer appears here as the run progresses.' : run ? 'This run produced no answer.' : 'No run recorded for this task.'}</p>}
+      <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.answer.eyebrow')}</p><h2 id="task-answer-heading">{t('tasks.answer.title')}</h2></div>{working && <span className="statusBadge warning">{t('tasks.answer.updating')}</span>}</div>
+      {answer ? <Answer blocks={parseAnswer(answer)} /> : <p className="muted">{working ? t('tasks.answer.pending') : run ? t('tasks.answer.none') : t('tasks.answer.noRun')}</p>}
     </section>
-    {approvals.length > 0 && <section className="surface" aria-labelledby="task-approvals-heading">
-      <div className="sectionHeader"><div><p className="eyebrow">Governance</p><h2 id="task-approvals-heading">Approvals</h2></div><button className="secondary" onClick={openApprovals}><ShieldCheck />Open approvals</button></div>
-      <ul className="taskApprovals">{approvals.map((a) => <li key={a.id}><span><strong>{a.action}</strong><small>{a.reason}</small></span><Status value={a.status} /></li>)}</ul>
+    {approvals.length > 0 && <section className="surface taskApprovalsSurface" aria-labelledby="task-approvals-heading">
+      <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.approvals.eyebrow')}</p><h2 id="task-approvals-heading">{t('tasks.approvals.title')}</h2></div><button className="secondary" onClick={openApprovals}><ShieldCheck aria-hidden="true" />{t('tasks.approvals.open')}</button></div>
+      <ul className="taskApprovals">{approvals.map((a) => <li key={a.id}><span><strong dir="ltr">{a.action}</strong><small dir="auto">{a.reason}</small></span><Status value={a.status} /></li>)}</ul>
     </section>}
-    <section className="surface timelineSurface">
-      <div className="sectionHeader"><div><p className="eyebrow">Execution trace</p><h2>Steps</h2></div>{run && <span className="statusBadge neutral">{run.steps.length} steps</span>}</div>
-      {run?.steps.length ? <div className="timeline">{run.steps.map((s, i) => <div className="timelineRow" key={s.id}><div className="timelineRail"><span className="stepDot">{i + 1}</span>{i < run.steps.length - 1 && <span className="railLine" />}</div><div className="timelineBody"><div className="timelineTitle"><strong>{s.type.replaceAll('_', ' ')}</strong><time dateTime={s.createdAt}>{time(s.createdAt)}</time></div><p>{s.summary}</p></div></div>)}</div> : <Empty title="No execution trace loaded" text="Run a task to inspect its execution steps." />}
+    <section className="surface timelineSurface" aria-labelledby="task-steps-heading">
+      <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.trace.eyebrow')}</p><h2 id="task-steps-heading">{t('tasks.trace.title')}</h2></div>{run && <span className="statusBadge neutral">{t('tasks.trace.count', { count: run.steps.length })}</span>}</div>
+      {run?.steps.length ? <div className="timeline">{run.steps.map((s, i) => <div className="timelineRow" key={s.id}><div className="timelineRail"><span className="stepDot">{i + 1}</span>{i < run.steps.length - 1 && <span className="railLine" />}</div><div className="timelineBody"><div className="timelineTitle"><strong>{stepLabel(s.type)}</strong><time dateTime={s.createdAt}>{time(s.createdAt)}</time></div><p dir="auto">{s.summary}</p></div></div>)}</div> : <Empty title={t('tasks.trace.empty.title')} text={t('tasks.trace.empty.text')} />}
     </section>
     <SourcesUsed run={run} onOpenMemory={openMemory} onOpenFile={openFile} />
   </>;
 }
 
 
-function Metric({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) { return <article className="metric"><div className="metricTop"><span>{label}</span><div className="metricIcon">{icon}</div></div><strong>{value}</strong><small>{detail}</small></article>; }
-function Status({ value }: { value: string }) { return <span className={`statusBadge ${value === 'completed' || value === 'approved' ? 'success' : ['failed', 'cancelled', 'rejected', 'expired'].includes(value) ? 'dangerTone' : 'warning'}`}>{value.replaceAll('_', ' ')}</span>; }
-function Notice({ children, error }: { children: ReactNode; error?: boolean }) { return <p className={`notice ${error ? 'errorNotice' : ''}`}><CircleDot />{children}</p>; }
-function Empty({ title, text }: { title: string; text: string }) { return <div className="emptyState"><Search /><h3>{title}</h3><p>{text}</p></div>; }
-const date = (v: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(v));
-const time = (v: string) => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(v));
+function Metric({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) { return <article className="metric"><div className="metricTop"><span>{label}</span><div className="metricIcon" aria-hidden="true">{icon}</div></div><strong>{value}</strong><small>{detail}</small></article>; }
+function Status({ value }: { value: string }) { return <span className={`statusBadge ${value === 'completed' || value === 'approved' ? 'success' : ['failed', 'cancelled', 'rejected', 'expired'].includes(value) ? 'dangerTone' : 'warning'}`}>{statusLabel(value)}</span>; }
+function Notice({ children, error }: { children: ReactNode; error?: boolean }) { return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>; }
+function Empty({ title, text }: { title: string; text: string }) { return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p></div>; }
+const date = (v: string) => formatDateTime(v);
+const time = (v: string) => formatDateTime(v, { hour: '2-digit', minute: '2-digit', second: '2-digit' });

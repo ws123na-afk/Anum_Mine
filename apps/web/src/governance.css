@@ -6,7 +6,7 @@
 /* The row's activate/archive control: a compact button sized by its label, never by the grid. */
 .govRow > button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: var(--d-s2) var(--d-s3); white-space: nowrap; }
 .govRow p, .govItem p { color: var(--d-muted); font-size: 12px; margin: 4px 0 0; }
-.govVersion { background: var(--d-glass-2); border-radius: 999px; color: var(--d-muted); font-size: 11px; font-weight: 700; margin-left: 6px; padding: 2px 6px; }
+.govVersion { background: var(--d-glass-2); border-radius: 999px; color: var(--d-muted); font-size: 11px; font-weight: 700; margin-inline-start: 6px; padding: 2px 6px; }
 .govItem { border-top: 1px solid var(--d-line); padding: 10px 0; }
 .govColumns { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .govForm .actions { margin-top: 14px; }

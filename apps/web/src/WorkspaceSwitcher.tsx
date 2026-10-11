@@ -6,8 +6,9 @@ import { ArrowRightLeft, ChevronDown, X } from 'lucide-react';
 import * as api from './lib/api';
 import { describeError } from './lib/errors';
 import { membershipLabel, type MembershipEntry } from './lib/workspaces';
+import { t } from './lib/i18n';
 
-const sourceLabel = { member: 'Your membership', default: 'Default from sign-in or configuration', remembered: 'Joined or used in this browser' } as const;
+const sourceLabel = (source: 'member' | 'default' | 'remembered') => t(`switcher.source.${source}`);
 
 type Directory = { state: 'loading' } | { state: 'loaded'; memberships: MembershipEntry[] } | { state: 'unavailable' };
 
@@ -49,34 +50,34 @@ export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch }: { tenantI
   const submit = (event: FormEvent) => { event.preventDefault(); if (typed.trim()) go(typed.trim()); };
 
   return <div className="workspaceSwitcher" ref={root}>
-    <button type="button" className="tenant workspaceSwitch" aria-haspopup="dialog" aria-expanded={open} aria-controls={panelId} title="Switch workspace" onClick={() => setOpen(!open)}>
-      <span>{tenantId} / {workspaceId}</span><ChevronDown aria-hidden />
+    <button type="button" className="tenant workspaceSwitch" aria-haspopup="dialog" aria-expanded={open} aria-controls={panelId} title={t('switcher.button')} onClick={() => setOpen(!open)}>
+      <span dir="ltr">{tenantId} / {workspaceId}</span><ChevronDown aria-hidden />
     </button>
-    {open && <section className="workspacePanel" id={panelId} role="dialog" aria-label="Switch workspace">
-      <div><p className="eyebrow">Workspace</p><h2>Switch workspace</h2></div>
-      <p className="muted">Every request names the selected workspace. Your role and the data you see follow it.</p>
-      {directory.state === 'loading' && <p className="muted" role="status">Loading your workspaces...</p>}
-      <ul className="workspaceOptions" aria-label="Workspaces">
+    {open && <section className="workspacePanel" id={panelId} role="dialog" aria-label={t('switcher.button')}>
+      <div><p className="eyebrow">{t('switcher.eyebrow')}</p><h2>{t('switcher.button')}</h2></div>
+      <p className="muted">{t('switcher.intro')}</p>
+      {directory.state === 'loading' && <p className="muted" role="status">{t('switcher.loading')}</p>}
+      <ul className="workspaceOptions" aria-label={t('switcher.list')}>
         {options.map((option) => {
           const detail = membershipLabel(option);
           return <li className="workspaceOption" key={option.id}>
             <button type="button" aria-current={option.current} disabled={busy !== null} onClick={() => go(option.id)}>
-              <strong>{option.id}</strong>
-              <small>{option.current ? `Current workspace${detail ? ` · ${detail}` : ''}` : busy === option.id ? 'Checking membership...' : detail ?? sourceLabel[option.source]}</small>
+              <strong dir="ltr">{option.id}</strong>
+              <small>{option.current ? (detail ? t('switcher.currentWith', { detail }) : t('switcher.current')) : busy === option.id ? t('switcher.checking') : detail ?? sourceLabel(option.source)}</small>
             </button>
             {!option.current && option.source === 'remembered'
-              ? <button type="button" className="iconButton" title={`Forget ${option.id}`} aria-label={`Forget ${option.id}`} disabled={busy !== null} onClick={() => { api.forgetWorkspace(option.id); setVersion((v) => v + 1); }}><X /></button>
+              ? <button type="button" className="iconButton" title={t('switcher.forget', { id: option.id })} aria-label={t('switcher.forget', { id: option.id })} disabled={busy !== null} onClick={() => { api.forgetWorkspace(option.id); setVersion((v) => v + 1); }}><X aria-hidden="true" /></button>
               : <span />}
           </li>;
         })}
       </ul>
-      <form onSubmit={submit} aria-label="Switch to another workspace">
-        <label className="field"><span>Another workspace ID</span><input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="workspace_id" autoComplete="off" spellCheck={false} /></label>
-        <button type="submit" disabled={busy !== null || !typed.trim()}><ArrowRightLeft />{busy && busy === typed.trim() ? 'Checking...' : 'Switch'}</button>
+      <form onSubmit={submit} aria-label={t('switcher.otherForm')}>
+        <label className="field"><span>{t('switcher.otherLabel')}</span><input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="workspace_id" autoComplete="off" spellCheck={false} /></label>
+        <button type="submit" disabled={busy !== null || !typed.trim()}><ArrowRightLeft aria-hidden="true" />{busy && busy === typed.trim() ? t('switcher.checkingShort') : t('switcher.switch')}</button>
       </form>
       {directory.state === 'unavailable'
-        ? <p className="muted">Your workspace list could not be loaded, so only the workspaces this browser knows are shown. Type the ID of any other workspace you are a member of; the API checks your membership before the switch.</p>
-        : <p className="muted">The list shows every workspace in {tenantId} where you are an active member. The API checks your membership again before the switch.</p>}
+        ? <p className="muted">{t('switcher.unavailable')}</p>
+        : <p className="muted">{t('switcher.listNote', { tenant: tenantId })}</p>}
       {error && <p className="notice errorNotice" role="alert">{error}</p>}
     </section>}
   </div>;

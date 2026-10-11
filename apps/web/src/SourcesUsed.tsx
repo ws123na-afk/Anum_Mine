@@ -7,6 +7,7 @@ import {
   groupSources, runSources, scoreLabel, sourceDisplay, sourceNameMap, sourceNamesPath, sourcesNote,
   type SourceGroup, type SourceName,
 } from './lib/retrieval';
+import { t } from './lib/i18n';
 
 /** What the Memory view needs to find and highlight a memory a run used. */
 export interface MemoryTarget { id: string; title: string | null }
@@ -36,7 +37,7 @@ export function SourcesUsed({ run, onOpenMemory, onOpenFile }: { run: AgentRun |
     setNames({ state: 'loading' });
     api.getSourceNames(path).then(
       (list) => { if (live) setNames({ state: 'ready', names: sourceNameMap(list) }); },
-      (error: unknown) => { if (live) setNames(isPermissionDenied(error) ? { state: 'denied' } : { state: 'error', message: describeError(error, 'The API could not be reached.') }); },
+      (error: unknown) => { if (live) setNames(isPermissionDenied(error) ? { state: 'denied' } : { state: 'error', message: describeError(error, t('common.unreachable')) }); },
     );
     return () => { live = false; };
   }, [path, attempt]);
@@ -48,26 +49,26 @@ export function SourcesUsed({ run, onOpenMemory, onOpenFile }: { run: AgentRun |
     <section className="surface sourcesSurface" aria-labelledby="sources-used-heading">
       <div className="sectionHeader">
         <div>
-          <p className="eyebrow">Retrieval</p>
-          <h2 id="sources-used-heading">Sources used</h2>
+          <p className="eyebrow">{t('sources.eyebrow')}</p>
+          <h2 id="sources-used-heading">{t('sources.title')}</h2>
         </div>
         <span className={`statusBadge ${record.state === 'ok' ? 'success' : record.state === 'unavailable' ? 'warning' : ''}`}>
-          {groups.length ? `${groups.length} ${groups.length === 1 ? 'source' : 'sources'}` : 'none'}
+          {t('sources.count', { count: groups.length })}
         </span>
       </div>
       {groups.length > 0 && names.state === 'loading' && (
-        <p className="notice sourcesStatus" role="status"><CircleDot aria-hidden="true" />Looking up the names of these sources...</p>
+        <p className="notice sourcesStatus" role="status"><CircleDot aria-hidden="true" />{t('sources.lookingUp')}</p>
       )}
       {groups.length > 0 && names.state === 'error' && (
         <div className="notice errorNotice sourcesStatus" role="alert">
           <CircleDot aria-hidden="true" />
-          <span>Could not load the names of these sources: {names.message} Their ids are shown below. Check the connection to the API, then retry.</span>
-          <button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />Retry</button>
+          <span>{t('sources.lookupFailed', { reason: names.message })}</span>
+          <button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />{t('common.retry')}</button>
         </div>
       )}
       {groups.length > 0 && names.state === 'denied' && (
         <p className="notice sourcesStatus" role="status">
-          <Lock aria-hidden="true" />Names are hidden: seeing workspace memory and files needs a viewer, member or owner role in this workspace. Ask a workspace owner for access; the ids are shown below.
+          <Lock aria-hidden="true" />{t('sources.denied')}
         </p>
       )}
       {groups.length > 0 && (
@@ -85,7 +86,7 @@ export function SourcesUsed({ run, onOpenMemory, onOpenFile }: { run: AgentRun |
         </p>
       )}
       {groups.length > 0 && (
-        <p className="muted">Retrieved text is passed to the model as labeled, untrusted data; it cannot change tools or approvals.</p>
+        <p className="muted">{t('sources.untrusted')}</p>
       )}
     </section>
   );
@@ -95,14 +96,14 @@ function SourceRow({ group, names, onOpenMemory, onOpenFile }: { group: SourceGr
   const display = sourceDisplay(group, names);
   const memory = group.sourceType === 'memory';
   const passages = group.passages
-    .map((passage) => `passage ${passage.chunkIndex + 1}, ${scoreLabel(passage.score)}${passage.truncated ? ', shortened' : ''}`)
-    .join('; ');
+    .map((passage) => t(passage.truncated ? 'sources.passageShortened' : 'sources.passage', { n: passage.chunkIndex + 1, score: scoreLabel(passage.score) }))
+    .join(t('sources.passageJoin'));
   const body = (
     <>
       <span className="sourceIcon" aria-hidden="true">{memory ? <MemoryStick /> : <FileText />}</span>
       <span className="sourceText">
         <strong className="sourceTitle">{display.title}</strong>
-        <small>{display.kind}{display.title !== group.sourceId && <> · <code>{group.sourceId}</code></>}</small>
+        <small>{display.kind}{display.title !== group.sourceId && <> · <code dir="ltr">{group.sourceId}</code></>}</small>
         <small>{passages}</small>
       </span>
     </>
@@ -110,9 +111,9 @@ function SourceRow({ group, names, onOpenMemory, onOpenFile }: { group: SourceGr
   if (!display.found) return <div className="sourceRow">{body}</div>;
   const open = () => (memory ? onOpenMemory({ id: group.sourceId, title: display.title === group.sourceId ? null : display.title }) : onOpenFile(group.sourceId));
   return (
-    <button type="button" className="sourceRow sourceLink" onClick={open} aria-label={`Open ${memory ? 'memory' : 'file'} ${display.title} (${display.kind}; ${passages})`}>
+    <button type="button" className="sourceRow sourceLink" onClick={open} aria-label={t(memory ? 'sources.openMemory' : 'sources.openFile', { title: display.title, kind: display.kind, passages })}>
       {body}
-      <ChevronRight className="sourceChevron" aria-hidden="true" />
+      <ChevronRight className="sourceChevron flipRtl" aria-hidden="true" />
     </button>
   );
 }

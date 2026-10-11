@@ -1,6 +1,7 @@
 // Pure helpers for the Tasks view: filtering, paging, stream state and rendering a model answer
 // as plain blocks (never HTML), so untrusted model output can only ever become text nodes.
 import type { AgentRun, Approval, Task, TaskStatus } from '@anum/contracts';
+import { t } from './i18n.ts';
 
 export const TASK_PAGE_SIZE = 50;
 export const ACTIVE_STATUSES: readonly TaskStatus[] = ['created', 'queued', 'running', 'waiting_approval'];
@@ -42,9 +43,9 @@ export function countByStatus(tasks: readonly Task[]): { active: number; complet
 }
 
 export function streamBadge(state: StreamState): { label: string; tone: 'success' | 'warning' | 'dangerTone' } {
-  if (state === 'live') return { label: 'Live updates', tone: 'success' };
-  if (state === 'connecting') return { label: 'Connecting', tone: 'warning' };
-  return { label: 'Updates offline', tone: 'dangerTone' };
+  if (state === 'live') return { label: t('tasks.stream.live'), tone: 'success' };
+  if (state === 'connecting') return { label: t('tasks.stream.connecting'), tone: 'warning' };
+  return { label: t('tasks.stream.offline'), tone: 'dangerTone' };
 }
 
 /** Approvals raised by this task, pending first, newest first within each group. */

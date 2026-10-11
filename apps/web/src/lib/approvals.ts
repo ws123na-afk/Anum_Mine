@@ -1,6 +1,7 @@
 // Approval display and decision helpers (docs/approvals-and-risk.md).
 // Pure functions, so `pnpm --filter @anum/web test:unit` can exercise them without a DOM.
 import type { Approval, ApprovalStatus } from '@anum/contracts';
+import { joinList, t } from './i18n.ts';
 
 export const REDACTED = '[REDACTED]';
 
@@ -76,33 +77,32 @@ export function decisionBody(approval: Approval, reason?: string | null): Decisi
 
 /** Short form of the hash for display; the full value is in the title attribute. */
 export function shortHash(hash: string | null | undefined): string {
-  return hash ? `${hash.slice(0, 12)}…${hash.slice(-6)}` : 'not bound';
+  return hash ? `${hash.slice(0, 12)}…${hash.slice(-6)}` : t('approvals.notBound');
 }
 
 /** "Expires in 3 h" / "Expired" for a pending approval, otherwise an empty string. */
 export function expiryLabel(approval: Approval, now: Date = new Date()): string {
   if (approval.status !== 'pending' || !approval.expiresAt) return '';
   const remaining = Date.parse(approval.expiresAt) - now.getTime();
-  if (remaining <= 0) return 'Expired';
+  if (remaining <= 0) return t('approvals.expired');
   const minutes = Math.ceil(remaining / 60_000);
-  if (minutes < 60) return `Expires in ${minutes} min`;
+  if (minutes < 60) return t('approvals.expiresMin', { count: minutes });
   const hours = Math.floor(minutes / 60);
-  return hours < 48 ? `Expires in ${hours} h` : `Expires in ${Math.floor(hours / 24)} d`;
+  return hours < 48 ? t('approvals.expiresHours', { count: hours }) : t('approvals.expiresDays', { count: Math.floor(hours / 24) });
 }
 
 /** History line: who decided and when, or how it ended without a decision. */
 export function decisionSummary(approval: Approval, format: (iso: string) => string, now: Date = new Date()): string {
   const status = effectiveStatus(approval, now);
-  const when = approval.decidedAt ? ` ${format(approval.decidedAt)}` : '';
   if (status === 'approved' || status === 'rejected') {
-    const verb = status === 'approved' ? 'Approved' : 'Rejected';
+    const verb = status === 'approved' ? t('approvals.verb.approved') : t('approvals.verb.rejected');
     const approvers = (approval.approvers ?? []).map((approver) => approver.userId);
-    const who = status === 'approved' && approvers.length > 1 ? joinNames(approvers) : approval.decidedBy ?? 'unknown user';
-    return `${verb} by ${who}${when ? ` ·${when}` : ''}`;
+    const who = status === 'approved' && approvers.length > 1 ? joinNames(approvers) : approval.decidedBy ?? t('approvals.unknownUser');
+    return approval.decidedAt ? t('approvals.decidedByAt', { verb, who, when: format(approval.decidedAt) }) : t('approvals.decidedBy', { verb, who });
   }
   if (status === 'expired') {
     const at = approval.decidedAt ?? approval.expiresAt;
-    return `Expired without a decision${at ? ` · ${format(at)}` : ''}`;
+    return at ? t('approvals.expiredNoDecisionAt', { when: format(at) }) : t('approvals.expiredNoDecision');
   }
   return '';
 }
@@ -127,7 +127,7 @@ export function approvalProgress(approval: Approval): ApprovalProgress | null {
   const approvers = (approval.approvers ?? []).map((approver) => approver.userId);
   if (required <= 1 && approvers.length <= 1) return null;
   const total = Math.max(required, approvers.length);
-  return { collected: approvers.length, required: total, label: `${approvers.length} of ${total} approvals`, approvers };
+  return { collected: approvers.length, required: total, label: t('approvals.progress', { collected: approvers.length, count: total }), approvers };
 }
 
 /** Whether this user already approved (the API refuses a second approval by the same person). */
@@ -137,6 +137,5 @@ export function hasApproved(approval: Approval, userId: string | null | undefine
 
 /** Names joined for a sentence: "a", "a and b", "a, b and c". */
 export function joinNames(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? '';
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return joinList(names);
 }

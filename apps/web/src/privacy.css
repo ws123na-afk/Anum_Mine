@@ -12,7 +12,7 @@
 .privacyPolicy { margin-top: var(--d-s3); }
 .privacyPolicy a { align-items: center; display: inline-flex; font-weight: 600; gap: var(--d-s1); min-height: 44px; }
 .privacyPolicy a svg { height: 16px; width: 16px; }
-.privacyKept { color: var(--d-muted); display: grid; font-size: 14px; gap: var(--d-s2); margin: var(--d-s3) 0 0; padding-left: var(--d-s5); }
+.privacyKept { color: var(--d-muted); display: grid; font-size: 14px; gap: var(--d-s2); margin: var(--d-s3) 0 0; padding-inline-start: var(--d-s5); }
 .privacyKept strong { color: var(--d-text); }
 .privacyDanger { border-color: rgba(253, 164, 175, .28); }
 .privacyDanger .field code { color: var(--d-text); font-weight: 700; }

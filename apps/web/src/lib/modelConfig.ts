@@ -1,5 +1,6 @@
 // Per-workspace model settings (docs/model-gateway.md, Per-workspace model configuration
 // and Model routing). Pure, so `pnpm --filter @anum/web test:unit` can exercise it.
+import { joinList, t } from './i18n.ts';
 
 import type { ModelConnectionTest, WorkspaceModelConfig, WorkspaceModelConfigWrite, WorkspaceModelProvider } from '@anum/contracts';
 
@@ -31,12 +32,13 @@ export const ANTHROPIC_FAST_MODEL = 'claude-haiku-5-5';
 export const ANTHROPIC_CAPABLE_MODEL = 'claude-sonnet-5-5';
 
 export const EFFORTS: { value: ModelEffort; label: string }[] = [
-  { value: '', label: "Model's default" },
-  { value: 'low', label: 'Low (quickest)' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-  { value: 'max', label: 'Max' },
+  // Labels are getters so they read in the locale current when shown.
+  { value: '', get label() { return t('model.effort.default'); } },
+  { value: 'low', get label() { return t('model.effort.low'); } },
+  { value: 'medium', get label() { return t('model.effort.medium'); } },
+  { value: 'high', get label() { return t('model.effort.high'); } },
+  { value: 'xhigh', get label() { return t('model.effort.xhigh'); } },
+  { value: 'max', get label() { return t('model.effort.max'); } },
 ];
 
 export interface ProviderOption {
@@ -48,10 +50,10 @@ export interface ProviderOption {
 }
 
 export const PROVIDERS: ProviderOption[] = [
-  { value: 'anthropic', label: 'Anthropic (Claude)', keyRequired: true, model: ANTHROPIC_CAPABLE_MODEL, baseUrl: ANTHROPIC_BASE_URL },
-  { value: 'openai_compatible', label: 'OpenAI compatible', keyRequired: true, model: 'gpt-4.1-mini', baseUrl: 'https://api.openai.com/v1' },
-  { value: 'ollama', label: 'Ollama (free, local)', keyRequired: false, model: 'llama3.2', baseUrl: 'http://localhost:11434/v1' },
-  { value: 'mock', label: 'Local mock (development only)', keyRequired: false, model: 'anum-mock-planner', baseUrl: 'http://localhost:8000' },
+  { value: 'anthropic', get label() { return t('model.providerName.anthropic'); }, keyRequired: true, model: ANTHROPIC_CAPABLE_MODEL, baseUrl: ANTHROPIC_BASE_URL },
+  { value: 'openai_compatible', get label() { return t('model.providerName.openai_compatible'); }, keyRequired: true, model: 'gpt-4.1-mini', baseUrl: 'https://api.openai.com/v1' },
+  { value: 'ollama', get label() { return t('model.providerName.ollama'); }, keyRequired: false, model: 'llama3.2', baseUrl: 'http://localhost:11434/v1' },
+  { value: 'mock', get label() { return t('model.providerName.mock'); }, keyRequired: false, model: 'anum-mock-planner', baseUrl: 'http://localhost:8000' },
 ];
 
 export function providerOption(provider: string): ProviderOption | undefined {
@@ -118,25 +120,25 @@ export function savedKeyState(draft: ModelDraft, saved: ModelConfig | null): 'ke
 export function validateDraft(draft: ModelDraft, saved: ModelConfig | null): Partial<Record<DraftField, string>> {
   const errors: Partial<Record<DraftField, string>> = {};
   const option = draft.provider ? providerOption(draft.provider) : undefined;
-  if (!option) { errors.provider = 'Choose a provider.'; return errors; }
+  if (!option) { errors.provider = t('model.error.provider'); return errors; }
   if (option.value === 'anthropic') {
-    if (!draft.capableModel.trim()) errors.capableModel = 'Enter the model for planning, for example claude-sonnet-5-5.';
-  } else if (!draft.model.trim()) errors.model = 'Enter a model name.';
+    if (!draft.capableModel.trim()) errors.capableModel = t('model.error.capable');
+  } else if (!draft.model.trim()) errors.model = t('model.error.model');
   const base = draft.baseUrl.trim();
-  if (!base && option.value !== 'anthropic') errors.baseUrl = 'Enter the base URL.';
-  else if (base && !/^https?:\/\/[^\s/]+/i.test(base)) errors.baseUrl = 'Enter a full URL starting with https://.';
+  if (!base && option.value !== 'anthropic') errors.baseUrl = t('model.error.baseUrl');
+  else if (base && !/^https?:\/\/[^\s/]+/i.test(base)) errors.baseUrl = t('model.error.baseUrlFull');
   const keyState = savedKeyState(draft, saved);
   if (option.keyRequired && !draft.apiKey.trim() && keyState !== 'keep') {
     errors.apiKey = keyState === 'moved'
-      ? 'The base URL changed: paste the API key for this address. The saved key is only used with the address it was saved for.'
-      : `Paste your ${option.value === 'anthropic' ? 'Anthropic' : 'provider'} API key.`;
+      ? t('model.error.keyMoved')
+      : t(option.value === 'anthropic' ? 'model.error.keyAnthropic' : 'model.error.keyProvider');
   }
   return errors;
 }
 
 /** The PUT body. Routing fields are sent for Claude only; empty means "use the main model" / "model's default". */
 export function modelConfigBody(draft: ModelDraft): ModelConfigBody {
-  if (!draft.provider) throw new Error('Choose a provider.');
+  if (!draft.provider) throw new Error(t('model.error.provider'));
   const body: ModelConfigBody = { provider: draft.provider, model: draft.model.trim(), api_key: draft.apiKey.trim() || null };
   const base = draft.baseUrl.trim();
   if (draft.provider === 'anthropic') {
@@ -157,8 +159,7 @@ export function modelConfigBody(draft: ModelDraft): ModelConfigBody {
 /** One sentence for a successful connection test. */
 export function connectionSummary(result: ModelConnectionTest): string {
   const models = result.models && result.models.length ? result.models : [result.model];
-  const list = models.length === 1 ? models[0] : `${models.slice(0, -1).join(', ')} and ${models[models.length - 1]}`;
-  return `Connected to ${list} in ${result.latency_ms} ms.`;
+  return t('model.connected', { models: joinList(models), ms: result.latency_ms });
 }
 
 /** What answers each kind of call, for the saved configuration. */

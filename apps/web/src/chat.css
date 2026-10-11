@@ -11,7 +11,7 @@
 .chatList li.active { background: var(--d-glass-2); box-shadow: inset 3px 0 0 var(--d-violet); }
 .chatListItem {
   background: transparent; border: 0; border-radius: var(--d-r-control); color: var(--d-muted); display: grid; flex: 1; gap: 2px;
-  min-height: 44px; min-width: 0; padding: var(--d-s2) var(--d-s3); text-align: left;
+  min-height: 44px; min-width: 0; padding: var(--d-s2) var(--d-s3); text-align: start;
 }
 .chatListItem:hover { background: var(--d-glass-1); color: var(--d-text); }
 .chatList li.active .chatListItem { color: var(--d-text); }
@@ -43,7 +43,7 @@
 .chatEmpty { color: var(--d-muted); display: grid; gap: var(--d-s3); }
 .chatEmpty p { max-width: 60ch; }
 .chatSuggestions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.chatSuggestions button { text-align: left; }
+.chatSuggestions button { text-align: start; }
 .chatLoading { color: var(--d-muted); font-size: 14px; }
 
 .chatTurn { max-width: min(78ch, 100%); min-width: 0; }
@@ -67,7 +67,7 @@
 
 .chatJump { bottom: 96px; justify-self: center; position: absolute; z-index: 1; }
 .chatPanel .notice { align-items: center; flex-wrap: wrap; margin: 0 var(--d-s4) var(--d-s3); }
-.chatPanel .notice button { margin-left: auto; }
+.chatPanel .notice button { margin-inline-start: auto; }
 
 .chatComposer { align-items: end; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
 .chatComposer textarea { field-sizing: content; max-height: 160px; min-height: 44px; resize: none; }

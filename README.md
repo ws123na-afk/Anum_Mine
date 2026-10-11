@@ -103,6 +103,7 @@ x-user-roles: owner,member
 - [Voice](docs/voice.md)
 - [Voice research](docs/voice-research.md)
 - [UI research](docs/ui-research.md)
+- [Web localization and accessibility](docs/web-localization.md)
 - [Desktop](docs/desktop.md)
 - [Android](docs/android.md)
 - [Flutter mobile](docs/mobile.md)

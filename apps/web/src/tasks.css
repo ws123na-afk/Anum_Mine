@@ -5,7 +5,9 @@
 .taskList .recordButton { gap: 10px; }
 .taskList .recordButton > span { min-width: 0; }
 .taskPromptPreview { color: var(--d-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.taskDetail, .taskAnswer { margin-top: 16px; }
+/* The detail sections are surfaces like the rest of the page: same padding token, same gap. */
+.taskDetail, .taskAnswer, .taskApprovalsSurface { margin-top: var(--d-s5); padding: var(--d-s5); }
+@media (max-width: 480px) { .taskDetail, .taskAnswer, .taskApprovalsSurface { padding: var(--d-s4); } }
 .taskMeta { display: grid; gap: 10px 18px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 14px 0 0; }
 .taskMeta dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
 .taskMeta dd { margin: 3px 0 0; overflow-wrap: anywhere; }

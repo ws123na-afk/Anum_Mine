@@ -8,7 +8,7 @@
 .devPanelIcon { color: var(--d-violet); height: 24px; width: 24px; }
 .devPanel h2 { font-size: 18px; margin-bottom: var(--d-s1); }
 .devSetupLead { margin-top: var(--d-s3); }
-.devSetupList { display: grid; gap: var(--d-s2); margin: var(--d-s2) 0 var(--d-s3); padding-left: var(--d-s5); }
+.devSetupList { display: grid; gap: var(--d-s2); margin: var(--d-s2) 0 var(--d-s3); padding-inline-start: var(--d-s5); }
 .devSetupList li { overflow-wrap: anywhere; }
 .devPanel code, .devCardHeader code { overflow-wrap: anywhere; }
 
@@ -19,9 +19,9 @@
 .actions.devFormFooter { margin-top: var(--d-s3); }
 .actions.devSearch, .actions.devMore, .actions.devInline { margin-top: 0; }
 .actions.devExamples { margin-top: var(--d-s2); }
-.devInline { margin-left: auto; }
+.devInline { margin-inline-start: auto; }
 .devFormFooter > small { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
-.devFormFooter > button { margin-left: auto; }
+.devFormFooter > button { margin-inline-start: auto; }
 .devCheck { align-items: center; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s2); }
 .devCheck input { accent-color: var(--d-violet); height: 16px; margin: 0; width: 16px; }
 .devHint { margin-top: var(--d-s2); }
@@ -81,6 +81,6 @@
   .devPanel { grid-template-columns: minmax(0, 1fr); }
   .devTimeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .devCardHeader { flex-direction: column; }
-  .devFormFooter > button { margin-left: 0; width: 100%; justify-content: center; }
+  .devFormFooter > button { margin-inline-start: 0; width: 100%; justify-content: center; }
 }
 .chatPanel > .devAssist { margin: 0 var(--d-s4) var(--d-s3); }
