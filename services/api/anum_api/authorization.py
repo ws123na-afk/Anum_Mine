@@ -26,6 +26,11 @@ class Permission(StrEnum):
     MEMORY_READ = "memory:read"
     MEMORY_CREATE = "memory:create"
     MEMORY_DELETE = "memory:delete"
+    # Workspace files (docs/files.md): read (list, preview, download), upload (and rename
+    # or delete one's own uploads, re-index), manage (rename or delete anyone's).
+    FILE_READ = "file:read"
+    FILE_UPLOAD = "file:upload"
+    FILE_MANAGE = "file:manage"
     INTEGRATION_READ = "integration:read"
     TENANT_CREATE = "tenant:create"
     WORKSPACE_CREATE = "workspace:create"
@@ -93,6 +98,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.APPROVAL_READ,
         Permission.EVENT_READ,
         Permission.MEMORY_READ,
+        Permission.FILE_READ,
         Permission.INTEGRATION_READ,
         Permission.ORGANIZATION_READ,
         Permission.POLICY_READ,
@@ -118,6 +124,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.TASK_RUN,
             Permission.MEMORY_CREATE,
             Permission.MEMORY_DELETE,
+            Permission.FILE_UPLOAD,
             Permission.AUTOMATION_MANAGE,
         },
         Role.VIEWER: _READ_PERMISSIONS,

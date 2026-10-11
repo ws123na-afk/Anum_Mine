@@ -231,6 +231,10 @@ class Settings(BaseSettings):
     # /api/v1/files get max_upload_body_bytes; every other request gets the general limit.
     max_request_body_bytes: int = 1_048_576
     max_upload_body_bytes: int = 25 * 1024 * 1024
+    # Workspace files (docs/files.md): bytes one workspace may store in total (every
+    # workspace gets this quota), and how long a signed download or preview link works.
+    files_workspace_quota_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1)
+    files_link_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     rate_limit_enabled: bool = True
     rate_limit_requests_per_minute: int = 600
     rate_limit_burst: int = 120

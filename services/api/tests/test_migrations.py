@@ -464,4 +464,21 @@ def test_workspace_admin_migration_is_expand_only_and_concurrent() -> None:
     assert "grant select (archived_at) on workspaces to anum_membership_reader" in upgrade
     assert "autocommit_block" in upgrade and upgrade.count("create index concurrently if not exists") == 2
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_file_management_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0029_file_management.py").read_text(encoding="utf-8")
+    assert 'revision = "0029_file_management"' in revision_text
+    assert len("0029_file_management") <= 32
+    assert 'down_revision = "0028_workspace_admin"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0029_file_management.py"]
+    assert not [path for path in others if 'down_revision = "0028_workspace_admin"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Two nullable columns the previous release ignores, and indexes built without a write lock.
+    assert upgrade.count("op.add_column(") == 2
+    assert upgrade.count("nullable=true") == 2
+    assert upgrade.count("create index concurrently if not exists") == 2
+    assert "autocommit_block" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade

@@ -210,7 +210,7 @@ def test_export_contains_my_data_and_nobody_elses() -> None:
     _seed(COLLEAGUE, "colleague")
     _seed(OTHER_WORKSPACE, "elsewhere")
     _seed(OTHER_TENANT, "foreign")
-    upload = client.post("/api/v1/files", headers={**ME, "x-file-name": "notes.bin", "content-type": "application/octet-stream"}, content=b"\x00\x01")
+    upload = client.post("/api/v1/files", headers={**ME, "x-file-name": "notes.txt", "content-type": "text/plain"}, content=b"my notes")
     assert upload.status_code == 201
 
     response = client.get("/api/v1/privacy/export", headers=ME)

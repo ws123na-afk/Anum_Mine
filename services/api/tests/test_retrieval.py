@@ -524,7 +524,7 @@ def test_memory_and_file_indexing_status_run_sources_and_deletion_through_the_ap
     binary = client.post(
         "/api/v1/files",
         headers={**headers, "x-file-name": "logo.png", "content-type": "image/png"},
-        content=b"\x89PNG\r\n",
+        content=b"\x89PNG\r\n\x1a\n" + b"\x00" * 16,
     )
     assert binary.status_code == 201
 

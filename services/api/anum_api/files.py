@@ -1,19 +1,42 @@
+"""Workspace files (docs/files.md): bytes in object storage, metadata under tenant RLS.
+
+Routes under ``/api/v1/files``:
+
+* ``POST``: upload the raw body (``?name=`` or ``X-File-Name``, optional
+  ``X-Content-SHA256``). Type,
+  size, content signature, the malware-scan hook and the workspace quota are checked
+  before anything is stored.
+* ``GET``: one page, newest first by default. ``q`` searches names, ``sort`` is
+  ``created_at``, ``name`` or ``size``, ``order`` ``asc``/``desc``, and ``cursor`` is the
+  last file id of the previous page (keyset paging).
+* ``GET /usage``: bytes used, the quota, the upload limit and the accepted types.
+* ``GET``/``PATCH``/``DELETE /{id}``: metadata, rename, delete. Members rename and delete
+  their own uploads; owners (``file:manage``) anyone's.
+* ``GET /{id}/content``: the bytes as an attachment. ``GET /{id}/preview``: text kinds as
+  bounded text. ``POST /{id}/links``: a short-lived signed link that ``GET /links/{token}``
+  serves without a bearer token.
+* ``POST /{id}/reindex``: index the file for retrieval again and return its state.
+"""
+
 from __future__ import annotations
 
 import hashlib
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from threading import RLock
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
+from . import file_policy
 from .authorization import Permission
-from .dependencies import require_permission, tenant_context
+from .dependencies import has_permission, tenant_context
+from .errors import ApplicationError, ErrorCode, ErrorDetail
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
@@ -193,6 +216,44 @@ class FileRecord(BaseModel):
     storage_key: str
     created_by: str
     created_at: datetime
+    # Set by a rename (migration 0026); None for a file never renamed.
+    updated_by: str | None = None
+    updated_at: datetime | None = None
+
+
+class FileSort(StrEnum):
+    CREATED_AT = "created_at"
+    NAME = "name"
+    SIZE = "size"
+
+
+class FilePageQuery(BaseModel):
+    """One page of a workspace's files. ``after`` is the last record of the previous page."""
+
+    limit: int = 50
+    search: str | None = None
+    sort: FileSort = FileSort.CREATED_AT
+    descending: bool = True
+    after: FileRecord | None = None
+
+
+class FileUsage(BaseModel):
+    used_bytes: int = 0
+    file_count: int = 0
+
+
+class StorageQuotaExceeded(Exception):
+    def __init__(self, usage: FileUsage) -> None:
+        super().__init__("workspace storage quota exceeded")
+        self.usage = usage
+
+
+def sort_key(record: FileRecord, sort: FileSort) -> tuple[Any, str]:
+    if sort == FileSort.NAME:
+        return (record.name.lower(), record.id)
+    if sort == FileSort.SIZE:
+        return (record.size_bytes, record.id)
+    return (record.created_at, record.id)
 
 
 class FileMetadataStore(Protocol):
@@ -202,9 +263,16 @@ class FileMetadataStore(Protocol):
     the RLS-protected ``workspace_files`` table.
     """
 
-    def add(self, record: FileRecord) -> FileRecord: ...
+    def add(self, record: FileRecord, quota_bytes: int | None = None) -> FileRecord:
+        """Add ``record``; with ``quota_bytes``, refuse (:class:`StorageQuotaExceeded`) when the
+        workspace would go over it, checked under a per-workspace lock."""
+        ...
+
     def get(self, context: TenantContext, file_id: str) -> FileRecord | None: ...
     def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]: ...
+    def list_page(self, context: TenantContext, query: FilePageQuery) -> list[FileRecord]: ...
+    def usage(self, context: TenantContext) -> FileUsage: ...
+    def rename(self, context: TenantContext, file_id: str, name: str) -> FileRecord | None: ...
     def delete(self, context: TenantContext, file_id: str) -> bool: ...
 
 
@@ -222,8 +290,17 @@ class FileStore:
                 self.storage.delete(record.storage_key)
             self.records.clear()
 
-    def add(self, record: FileRecord) -> FileRecord:
+    def _scoped(self, context: TenantContext) -> list[FileRecord]:
+        return [r for r in self.records.values()
+                if r.tenant_id == context.tenant_id and r.workspace_id == context.workspace_id]
+
+    def add(self, record: FileRecord, quota_bytes: int | None = None) -> FileRecord:
+        scope = TenantContext(tenant_id=record.tenant_id, workspace_id=record.workspace_id, user_id=record.created_by)
         with self._lock:
+            if quota_bytes is not None:
+                current = self.usage(scope)
+                if current.used_bytes + record.size_bytes > quota_bytes:
+                    raise StorageQuotaExceeded(current)
             self.records[record.id] = record
         return record
 
@@ -235,8 +312,36 @@ class FileStore:
 
     def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]:
         with self._lock:
-            return [r for r in self.records.values() if r.tenant_id == context.tenant_id
-                    and r.workspace_id == context.workspace_id][:limit]
+            return sorted(self._scoped(context), key=lambda r: (r.created_at, r.id))[:limit]
+
+    def list_page(self, context: TenantContext, query: FilePageQuery) -> list[FileRecord]:
+        with self._lock:
+            items = self._scoped(context)
+        if query.search:
+            needle = query.search.lower()
+            items = [r for r in items if needle in r.name.lower()]
+        items.sort(key=lambda r: sort_key(r, query.sort), reverse=query.descending)
+        if query.after is not None:
+            boundary = sort_key(query.after, query.sort)
+            if query.descending:
+                items = [r for r in items if sort_key(r, query.sort) < boundary]
+            else:
+                items = [r for r in items if sort_key(r, query.sort) > boundary]
+        return items[: query.limit]
+
+    def usage(self, context: TenantContext) -> FileUsage:
+        with self._lock:
+            items = self._scoped(context)
+        return FileUsage(used_bytes=sum(r.size_bytes for r in items), file_count=len(items))
+
+    def rename(self, context: TenantContext, file_id: str, name: str) -> FileRecord | None:
+        with self._lock:
+            record = self.get(context, file_id)
+            if record is None:
+                return None
+            renamed = record.model_copy(update={"name": name, "updated_by": context.user_id, "updated_at": utc_now()})
+            self.records[file_id] = renamed
+            return renamed
 
     def delete(self, context: TenantContext, file_id: str) -> bool:
         with self._lock:
@@ -262,8 +367,82 @@ def open_file_metadata_store(context: TenantContext) -> Iterator[FileMetadataSto
         yield store
 
 
+# --------------------------------------------------------------------------- views
+
+IndexState = Literal["indexed", "stale", "failed", "skipped", "pending"]
+
+
+class FileIndex(BaseModel):
+    """Retrieval index state of one file (docs/memory.md#retrieval)."""
+
+    status: IndexState = Field(description="`pending`: no index row yet; `stale`: indexed with another embedding model")
+    error: str | None = Field(default=None, description="Why a file was skipped or failed, e.g. `not_text`, `too_large`")
+    chunk_count: int = 0
+    embedding_model: str | None = None
+    indexed_at: datetime | None = None
+
+
+class FileView(FileRecord):
+    kind: file_policy.FileKind | None = Field(default=None, description="None for a type uploaded before the allow-list")
+    previewable: bool = False
+    can_manage: bool = Field(default=False, description="Whether the caller may rename and delete this file")
+    index: FileIndex | None = Field(default=None, description="None when the index state could not be read")
+
+
+class FileUsageView(FileUsage):
+    quota_bytes: int
+    max_upload_bytes: int
+    link_ttl_seconds: int
+    accepted: str = Field(description="A sentence naming the accepted types")
+    accepted_extensions: list[str]
+    can_upload: bool
+    can_manage_all: bool
+
+
+class FileRename(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class FileLinkRequest(BaseModel):
+    disposition: Literal["attachment", "inline"] = "attachment"
+
+
+class FileLink(BaseModel):
+    url: str = Field(description="Path on the API, valid without a bearer token until `expires_at`")
+    expires_at: datetime
+
+
+class FilePreview(BaseModel):
+    kind: file_policy.FileKind
+    text: str
+    truncated: bool
+    size_bytes: int
+
+
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+PREVIEW_MAX_BYTES = 256 * 1024
+_NAME = re.compile(r"[^\x00-\x1f\x7f\\/]+")
+READ_DENIED = "Seeing files needs a viewer, member or owner role in this workspace. Ask a workspace owner for access."
+UPLOAD_DENIED = "Uploading and changing files needs a member or owner role in this workspace. Ask a workspace owner."
+MANAGE_DENIED = "Only the person who uploaded this file or a workspace owner can rename or delete it."
+
+
+def _require(context: TenantContext, permission: Permission, message: str) -> None:
+    if not has_permission(context, permission):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, message)
+
+
+def _can_manage(context: TenantContext, record: FileRecord) -> bool:
+    if has_permission(context, Permission.FILE_MANAGE):
+        return True
+    return record.created_by == context.user_id and has_permission(context, Permission.FILE_UPLOAD)
+
+
+def _valid_name(value: str) -> str:
+    name = value.strip()
+    if not name or name in {".", ".."} or Path(name).name != name or not _NAME.fullmatch(name):
+        raise HTTPException(422, "Invalid file name: it cannot be empty or contain /, \\ or control characters.")
+    return name
 
 
 def _record(file_id: str, context: TenantContext) -> FileRecord:
@@ -274,78 +453,333 @@ def _record(file_id: str, context: TenantContext) -> FileRecord:
     return record
 
 
-@router.post("", response_model=FileRecord, status_code=status.HTTP_201_CREATED)
-async def upload_file(request: Request, context: TenantContext = Depends(tenant_context),
-                      x_file_name: str = Header(min_length=1, max_length=255),
-                      x_content_sha256: str | None = Header(default=None)) -> FileRecord:
-    require_permission(context, Permission.MEMORY_CREATE)
-    name = Path(x_file_name).name
-    if name != x_file_name or not re.fullmatch(r"[^\x00-\x1f\\/]+", name):
-        raise HTTPException(422, "Invalid file name")
-    content = await request.body()
-    if not content or len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413 if content else 422, "File must contain 1 byte to 25 MiB")
+def _index_state(source: Any, model: str | None) -> FileIndex:
+    if source is None:
+        return FileIndex(status="pending")
+    value: IndexState = source.status.value
+    if value == "indexed" and model is not None and source.embedding_model != model:
+        value = "stale"
+    return FileIndex(status=value, error=source.error, chunk_count=source.chunk_count,
+                     embedding_model=source.embedding_model, indexed_at=source.indexed_at)
+
+
+def _views(context: TenantContext, records: list[FileRecord]) -> list[FileView]:
+    from .retrieval import SourceType, open_retrieval_store
+    from .retrieval_api import current_embedding_model
+
+    sources: dict[str, Any] | None = {}
+    model: str | None = None
+    if records:
+        try:
+            with open_retrieval_store(context) as store:
+                sources = store.get_sources(context, SourceType.FILE, [r.id for r in records])
+            model = current_embedding_model(context)
+        except Exception:  # noqa: BLE001 - the files still list; their index state reads as unknown.
+            sources = None
+    views = []
+    for record in records:
+        kind = file_policy.kind_of(record.content_type, record.name)
+        views.append(FileView(
+            **record.model_dump(),
+            kind=kind,
+            previewable=kind in file_policy.PREVIEWABLE_KINDS,
+            can_manage=_can_manage(context, record),
+            index=None if sources is None else _index_state(sources.get(record.id), model),
+        ))
+    return views
+
+
+def human_bytes(value: int) -> str:
+    for unit, size in (("GiB", 1 << 30), ("MiB", 1 << 20), ("KiB", 1 << 10)):
+        if value >= size:
+            return f"{value / size:.1f} {unit}"
+    return f"{value} B"
+
+
+def _quota_error(usage: FileUsage, size: int) -> ApplicationError:
+    quota = settings.files_workspace_quota_bytes
+    return ApplicationError(
+        ErrorCode.PAYLOAD_TOO_LARGE,
+        f"This workspace has used {human_bytes(usage.used_bytes)} of its {human_bytes(quota)} storage quota, so a "
+        f"{human_bytes(size)} file does not fit. Delete files you no longer need, or ask the operator to raise "
+        "ANUM_FILES_WORKSPACE_QUOTA_BYTES.",
+        status_code=413,
+        details=[ErrorDetail(type="storage_quota", message=f"used={usage.used_bytes} quota={quota}")],
+    )
+
+
+def _too_large(limit: int) -> HTTPException:
+    return HTTPException(413, f"Files can be at most {human_bytes(limit)}. Split or compress the file and upload it again.")
+
+
+async def _read_body(request: Request, limit: int) -> bytes:
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise _too_large(limit)
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise _too_large(limit)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post("", response_model=FileView, status_code=status.HTTP_201_CREATED)
+async def upload_file(
+    request: Request,
+    context: TenantContext = Depends(tenant_context),
+    name_param: str | None = Query(
+        default=None, alias="name", min_length=1, max_length=255,
+        description="The file name; use this (URL-encoded) for names that are not ASCII",
+    ),
+    x_file_name: str | None = Header(default=None, min_length=1, max_length=255),
+    x_content_sha256: str | None = Header(default=None),
+) -> FileView:
+    _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
+    raw_name = name_param or x_file_name
+    if raw_name is None:
+        raise HTTPException(422, "Name the file: send ?name= (or the X-File-Name header for ASCII names).")
+    if Path(raw_name).name != raw_name:
+        raise HTTPException(422, "Invalid file name: send the name only, without a folder.")
+    name = _valid_name(raw_name)
+    try:
+        allowed = file_policy.resolve_content_type(name, request.headers.get("content-type"))
+    except file_policy.UnsupportedFileType as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+    limit = settings.max_upload_body_bytes
+    content = await _read_body(request, limit)
+    if not content:
+        raise HTTPException(422, "The file is empty. Choose a file with content.")
+    if not file_policy.content_matches_type(content, allowed):
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"The content of {name} is not a valid {allowed.content_type} file. Check the file and its extension.",
+        )
     digest = hashlib.sha256(content).hexdigest()
     if x_content_sha256 is not None and x_content_sha256.lower() != digest:
-        raise HTTPException(422, "Content checksum mismatch")
+        raise HTTPException(422, "Content checksum mismatch: the upload was corrupted in transit. Try again.")
+    scanner = file_policy.file_scanner()
+    if scanner is not None:
+        try:
+            verdict = scanner.scan(name, allowed.content_type, content)
+        except Exception as exc:
+            raise HTTPException(503, "The malware scanner is unavailable, so nothing was stored. Try again later.") from exc
+        if not verdict.clean:
+            reason = f": {verdict.reason}" if verdict.reason else "."
+            raise HTTPException(422, f"The malware scanner refused {name}{reason}")
+    quota = settings.files_workspace_quota_bytes
+    with open_file_metadata_store(context) as store:
+        current = store.usage(context)
+    if current.used_bytes + len(content) > quota:
+        raise _quota_error(current, len(content))
     file_id = new_id("file")
     try:
         key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
     except ValueError as exc:
         raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
-    content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0]
     record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
-                        name=name, content_type=content_type, size_bytes=len(content), sha256=digest,
+                        name=name, content_type=allowed.content_type, size_bytes=len(content), sha256=digest,
                         storage_key=key, created_by=context.user_id, created_at=utc_now())
-    file_store.storage.put(key, content, content_type)
+    file_store.storage.put(key, content, allowed.content_type)
     try:
         with open_file_metadata_store(context) as store:
-            store.add(record)
+            store.add(record, quota)
+    except StorageQuotaExceeded as exc:
+        # A concurrent upload took the space between the check above and this insert.
+        file_store.storage.delete(key)
+        raise _quota_error(exc.usage, len(content)) from exc
     except BaseException:
         # No metadata, no object: never leave unreachable bytes behind.
         file_store.storage.delete(key)
         raise
     # Text files become retrievable context (docs/memory.md#retrieval); best effort,
-    # a failure is recorded on the index row and retried by POST /retrieval/index.
+    # a failure is recorded on the index row and retried by POST /{id}/reindex.
     from .retrieval_api import index_uploaded_file
 
     await index_uploaded_file(context, record, content)
-    return record
+    return _views(context, [record])[0]
 
 
-@router.get("", response_model=list[FileRecord])
-def list_files(limit: int = Query(default=100, ge=1, le=500), context: TenantContext = Depends(tenant_context)) -> list[FileRecord]:
-    require_permission(context, Permission.MEMORY_READ)
+@router.get("", response_model=list[FileView])
+def list_files(
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: str | None = Query(default=None, max_length=80, description="Id of the last file of the previous page"),
+    q: str | None = Query(default=None, max_length=255, description="Case-insensitive part of the file name"),
+    sort: FileSort = FileSort.CREATED_AT,
+    order: Literal["asc", "desc"] | None = Query(
+        default=None, description="Default: desc (newest, largest first); asc (A to Z) for name"
+    ),
+    context: TenantContext = Depends(tenant_context),
+) -> list[FileView]:
+    _require(context, Permission.FILE_READ, READ_DENIED)
+    descending = (order or ("asc" if sort == FileSort.NAME else "desc")) == "desc"
     with open_file_metadata_store(context) as store:
-        return store.list_files(context, limit)
+        after = None
+        if cursor:
+            after = store.get(context, cursor)
+            if after is None:
+                raise HTTPException(400, "Unknown or invalid cursor: the file it names is gone. Reload the list.")
+        records = store.list_page(
+            context,
+            FilePageQuery(limit=limit, search=(q or "").strip() or None, sort=sort, descending=descending, after=after),
+        )
+    return _views(context, records)
 
 
-@router.get("/{file_id}", response_model=FileRecord)
-def get_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> FileRecord:
-    require_permission(context, Permission.MEMORY_READ)
-    return _record(file_id, context)
+@router.get("/usage", response_model=FileUsageView)
+def file_usage(context: TenantContext = Depends(tenant_context)) -> FileUsageView:
+    _require(context, Permission.FILE_READ, READ_DENIED)
+    with open_file_metadata_store(context) as store:
+        usage = store.usage(context)
+    return FileUsageView(
+        **usage.model_dump(),
+        quota_bytes=settings.files_workspace_quota_bytes,
+        max_upload_bytes=settings.max_upload_body_bytes,
+        link_ttl_seconds=settings.files_link_ttl_seconds,
+        accepted=file_policy.ACCEPTED_SUMMARY,
+        accepted_extensions=sorted(ext for allowed in file_policy.ALLOWED_TYPES for ext in allowed.extensions),
+        can_upload=has_permission(context, Permission.FILE_UPLOAD),
+        can_manage_all=has_permission(context, Permission.FILE_MANAGE),
+    )
+
+
+@router.get("/links/{token}")
+def serve_link(token: str) -> Response:
+    """The bytes behind a short-lived link. The signed link is the credential (no bearer
+    token), so it works in ``<a href>`` and ``fetch`` without headers; it names the
+    tenant, workspace, user and file it was minted for, and RLS applies as for that user."""
+    try:
+        claims = file_policy.verify_link(token)
+    except file_policy.InvalidLink as exc:
+        raise HTTPException(410, "This file link has expired or is invalid. Open the file again for a new link.") from exc
+    context = TenantContext(tenant_id=claims.tenant_id, workspace_id=claims.workspace_id, user_id=claims.user_id)
+    if settings.auth_mode == "oidc":
+        from .dependencies import lookup_membership
+
+        membership = lookup_membership(context)
+        if membership is None or not membership.active:
+            raise HTTPException(403, "The person who opened this link is no longer a member of the workspace.")
+    with open_file_metadata_store(context) as store:
+        record = store.get(context, claims.file_id)
+    if record is None or record.sha256 != claims.sha256:
+        raise HTTPException(404, "File not found")
+    try:
+        content = file_store.storage.get(record.storage_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "File content not found") from exc
+    kind = file_policy.kind_of(record.content_type, record.name)
+    inline = claims.inline and kind in file_policy.PREVIEWABLE_KINDS
+    media = record.content_type if inline else "application/octet-stream"
+    if inline and kind in file_policy.TEXT_PREVIEW_KINDS:
+        media = "text/plain; charset=utf-8"
+    headers = {
+        "Content-Disposition": file_policy.content_disposition("inline" if inline else "attachment", record.name),
+        "ETag": f'"{record.sha256}"',
+        "Cache-Control": "private, no-store",
+        # Opened directly, the bytes render with no script and no network access.
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",
+    }
+    return Response(content, media_type=media, headers=headers)
+
+
+@router.get("/{file_id}", response_model=FileView)
+def get_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> FileView:
+    _require(context, Permission.FILE_READ, READ_DENIED)
+    return _views(context, [_record(file_id, context)])[0]
+
+
+@router.patch("/{file_id}", response_model=FileView)
+def rename_file(file_id: str, body: FileRename, context: TenantContext = Depends(tenant_context)) -> FileView:
+    _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
+    name = _valid_name(body.name)
+    with open_file_metadata_store(context) as store:
+        record = store.get(context, file_id)
+        if record is None:
+            raise HTTPException(404, "File not found")
+        if not _can_manage(context, record):
+            raise HTTPException(403, MANAGE_DENIED)
+        old_suffix = Path(record.name).suffix.lower()
+        if Path(name).suffix.lower() != old_suffix:
+            keep = f"the {old_suffix} extension" if old_suffix else "the name without an extension"
+            raise HTTPException(422, f"Keep {keep}: renaming does not change a file's type.")
+        renamed = store.rename(context, file_id, name)
+    if renamed is None:
+        raise HTTPException(404, "File not found")
+    return _views(context, [renamed])[0]
 
 
 @router.get("/{file_id}/content")
 def download_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
-    require_permission(context, Permission.MEMORY_READ)
+    _require(context, Permission.FILE_READ, READ_DENIED)
     record = _record(file_id, context)
     try:
         content = file_store.storage.get(record.storage_key)
     except FileNotFoundError as exc:
         raise HTTPException(404, "File content not found") from exc
     return Response(content, media_type=record.content_type,
-                    headers={"Content-Disposition": f'attachment; filename="{record.name}"',
-                             "ETag": record.sha256})
+                    headers={"Content-Disposition": file_policy.content_disposition("attachment", record.name),
+                             "ETag": record.sha256, "Cache-Control": "private, no-store"})
+
+
+@router.get("/{file_id}/preview", response_model=FilePreview)
+def preview_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> FilePreview:
+    """Text, Markdown and data files as text, at most 256 KiB (``truncated`` says when more
+    exists). Images and PDFs are previewed from their bytes; other kinds have no preview."""
+    _require(context, Permission.FILE_READ, READ_DENIED)
+    record = _record(file_id, context)
+    kind = file_policy.kind_of(record.content_type, record.name)
+    if kind not in file_policy.TEXT_PREVIEW_KINDS:
+        raise HTTPException(422, "Only text, Markdown and data files have a text preview. Download this file to open it.")
+    try:
+        content = file_store.storage.get(record.storage_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "File content not found") from exc
+    head = content[:PREVIEW_MAX_BYTES]
+    return FilePreview(kind=kind, text=head.decode("utf-8", errors="replace"),
+                       truncated=len(content) > PREVIEW_MAX_BYTES, size_bytes=record.size_bytes)
+
+
+@router.post("/{file_id}/links", response_model=FileLink, status_code=status.HTTP_201_CREATED)
+def create_link(file_id: str, body: FileLinkRequest | None = None,
+                context: TenantContext = Depends(tenant_context)) -> FileLink:
+    _require(context, Permission.FILE_READ, READ_DENIED)
+    record = _record(file_id, context)
+    inline = (body or FileLinkRequest()).disposition == "inline"
+    if inline and file_policy.kind_of(record.content_type, record.name) not in file_policy.PREVIEWABLE_KINDS:
+        raise HTTPException(422, "This kind of file has no preview; ask for a download link instead.")
+    expires_at = utc_now().replace(microsecond=0) + timedelta(seconds=settings.files_link_ttl_seconds)
+    token = file_policy.sign_link(file_policy.LinkClaims(
+        tenant_id=context.tenant_id, workspace_id=context.workspace_id, user_id=context.user_id,
+        file_id=record.id, sha256=record.sha256, inline=inline, expires_at=expires_at))
+    return FileLink(url=f"{router.prefix}/links/{token}", expires_at=expires_at)
+
+
+@router.post("/{file_id}/reindex", response_model=FileView)
+async def reindex_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> FileView:
+    """Index one file for retrieval again (spends model budget for text files)."""
+    _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
+    record = _record(file_id, context)
+    try:
+        content = file_store.storage.get(record.storage_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "File content not found") from exc
+    from .retrieval_api import reindex_one_file
+
+    await reindex_one_file(context, record, content)
+    return _views(context, [record])[0]
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
-    require_permission(context, Permission.MEMORY_DELETE)
+    _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
     with open_file_metadata_store(context) as store:
         record = store.get(context, file_id)
         if record is None:
             raise HTTPException(404, "File not found")
+        if not _can_manage(context, record):
+            raise HTTPException(403, MANAGE_DENIED)
         store.delete(context, file_id)
     # Bytes go only after the metadata delete committed, so a file is never listed without content.
     file_store.storage.delete(record.storage_key)

@@ -183,6 +183,9 @@ app.add_middleware(
         "x-user-roles",
         "last-event-id",
         "idempotency-key",
+        # File uploads (docs/files.md): the name and the optional checksum of the body.
+        "x-file-name",
+        "x-content-sha256",
         CORRELATION_ID_HEADER,
     ],
     # Content-Disposition: the file name of a download (privacy and audit exports).

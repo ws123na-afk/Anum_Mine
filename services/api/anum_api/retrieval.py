@@ -141,6 +141,12 @@ class RetrievalStore(Protocol):
 
     def list_sources(self, context: TenantContext) -> list[RetrievalSource]: ...
 
+    def get_sources(
+        self, context: TenantContext, source_type: SourceType, source_ids: Sequence[str]
+    ) -> dict[str, RetrievalSource]:
+        """Index state of several sources of one type in one read (a page of files)."""
+        ...
+
     def has_indexed(self, context: TenantContext, embedding_model: str) -> bool: ...
 
     def save_source(self, context: TenantContext, source: RetrievalSource, chunks: Sequence[ChunkInput]) -> None:
@@ -325,6 +331,16 @@ class InMemoryRetrievalStore:
         with self._lock:
             found = [source.model_copy() for source in self._sources.values() if visible_to(source, context)]
         return sorted(found, key=lambda source: (source.source_type, source.source_id))
+
+    def get_sources(
+        self, context: TenantContext, source_type: SourceType, source_ids: Sequence[str]
+    ) -> dict[str, RetrievalSource]:
+        found = {}
+        for source_id in dict.fromkeys(source_ids):
+            source = self.get_source(context, source_type, source_id)
+            if source is not None:
+                found[source_id] = source
+        return found
 
     def has_indexed(self, context: TenantContext, embedding_model: str) -> bool:
         return any(
