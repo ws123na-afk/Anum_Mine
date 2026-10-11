@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
@@ -17,13 +19,16 @@ from pydantic import SecretStr
 from anum_api import developer, main
 from anum_api.authorization import ROLE_PERMISSIONS, Permission, Role
 from anum_api.developer import (
+    DeveloperAdmissionError,
     DeveloperRequest,
     DevRequestSource,
     DevRequestStatus,
+    InMemoryDeveloperStore,
     derive_status,
     developer_settings,
     developer_store,
     mentions_protected,
+    sync,
     timeline,
 )
 from anum_api.developer_github import ChecksState, PullRequest, WorkflowRun, run_title
@@ -158,6 +163,31 @@ class FakeGitHub:
         return httpx.Response(404, json={"message": f"unexpected {request.method} {path}"})
 
 
+class SlowDispatch(httpx.AsyncBaseTransport):
+    """FakeGitHub behind a transport that yields on the dispatch call, as a real network
+    call does: concurrent creates interleave exactly where the admission race used to be."""
+
+    def __init__(self, fake: FakeGitHub, delay: float = 0.05) -> None:
+        self.fake = fake
+        self.delay = delay
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        await request.aread()
+        if request.method == "POST" and request.url.path.endswith("/dispatches"):
+            await asyncio.sleep(self.delay)
+        return self.fake(request)
+
+
+async def create_concurrently(app: Any, headers: dict[str, str], texts: list[str]) -> list[httpx.Response]:
+    """POST several developer requests at once on one event loop (as one API process does)."""
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://anum.test") as http:
+        return list(
+            await asyncio.gather(
+                *(http.post("/api/v1/developer/requests", headers=headers, json={"text": text}) for text in texts)
+            )
+        )
+
+
 @pytest.fixture(autouse=True)
 def github(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeGitHub]:
     fake = FakeGitHub()
@@ -279,14 +309,115 @@ def test_budget_exhausted_refuses_before_dispatch(github: FakeGitHub) -> None:
     assert github.dispatches == []
 
 
-def test_dispatch_failure_is_reported_without_storing_a_request(github: FakeGitHub) -> None:
+def test_dispatch_failure_marks_the_request_failed_so_it_blocks_nothing(github: FakeGitHub) -> None:
     github.fail_dispatch = True
     response = _create()
     assert response.status_code == 502
     message = response.json()["error"]["message"]
     assert "GitHub answered 404" in message and PAT not in message
-    assert client.get("/api/v1/developer/requests", headers=OWNER).json() == []
+    [stored] = client.get("/api/v1/developer/requests", headers=OWNER).json()
+    assert stored["status"] == "failed" and stored["failure_reason"].startswith("Not sent to GitHub:")
+    assert PAT not in stored["failure_reason"]
     assert "developer.request.dispatch_failed" in _audit_actions()
+    assert "developer.request.created" not in _audit_actions()
+    usage = memory_model_budget_store.usage(CONTEXT, BudgetScope.WORKSPACE, utc_now().date().replace(day=1))
+    assert usage.calls == 0  # nothing was sent, nothing is charged
+    github.fail_dispatch = False
+    retried = _create()
+    assert retried.status_code == 201, retried.text
+    assert len(github.dispatches) == 1
+
+
+def test_an_interrupted_dispatch_still_fails_the_admitted_request(github: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def broken(self: Any, payload: Any) -> None:
+        raise RuntimeError("connection dropped")
+
+    monkeypatch.setattr(developer.GitHubClient, "dispatch", broken)
+    with pytest.raises(RuntimeError):
+        _create()
+    [stored] = developer_store.list(CONTEXT, limit=5, before=None, query=None)
+    assert stored.status == DevRequestStatus.FAILED and stored.failure_reason and "stopped" in stored.failure_reason
+    assert developer_store.active(CONTEXT) == []
+
+
+def test_concurrent_creates_admit_one_request_and_dispatch_once(github: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(developer, "github_transport", SlowDispatch(github))
+    responses = asyncio.run(
+        create_concurrently(main.app, OWNER, ["Add a dark/light toggle to settings", "Add a compact table density option"])
+    )
+    assert sorted(response.status_code for response in responses) == [201, 409]
+    assert len(github.dispatches) == 1
+    [created] = [response.json() for response in responses if response.status_code == 201]
+    assert github.dispatches[0]["client_payload"]["request_id"] == created["id"]
+    assert [item.id for item in developer_store.list(CONTEXT, limit=5, before=None, query=None)] == [created["id"]]
+
+
+def test_concurrent_creates_respect_the_daily_limit(github: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(developer, "github_transport", SlowDispatch(github))
+    monkeypatch.setattr(developer_settings, "max_requests_per_day", 1)
+    first = _create().json()
+    client.post(f"/api/v1/developer/requests/{first['id']}/cancel", headers=OWNER)
+    responses = asyncio.run(
+        create_concurrently(main.app, OWNER, ["Add a compact table density option", "Add a keyboard shortcut list"])
+    )
+    assert [response.status_code for response in responses] == [429, 429]
+    assert len(github.dispatches) == 1
+
+
+def test_memory_admission_is_atomic_across_threads() -> None:
+    memory = InMemoryDeveloperStore()
+    now = utc_now()
+    barrier = threading.Barrier(8)
+    outcomes: list[str] = []
+
+    def attempt(index: int) -> None:
+        request = DeveloperRequest(
+            id=f"dev_{index}", tenant_id=TENANT, workspace_id=WORKSPACE, created_by="o", text="t" * 20,
+            source=DevRequestSource.TEXT, status=DevRequestStatus.QUEUED, branch=f"anum-dev/dev_{index}",
+            created_at=now, updated_at=now,
+        )
+        barrier.wait()
+        try:
+            memory.admit(request, since=now - timedelta(days=1), limit=10)
+            outcomes.append("admitted")
+        except DeveloperAdmissionError as exc:
+            outcomes.append(exc.reason)
+
+    threads = [threading.Thread(target=attempt, args=(index,)) for index in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(outcomes) == ["active"] * 7 + ["admitted"]
+    assert len(memory.active(CONTEXT)) == 1
+    other = CONTEXT.model_copy(update={"workspace_id": "workspace_other"})
+    elsewhere = DeveloperRequest(
+        id="dev_other", tenant_id=TENANT, workspace_id="workspace_other", created_by="o", text="t" * 20,
+        source=DevRequestSource.TEXT, status=DevRequestStatus.QUEUED, branch="anum-dev/dev_other",
+        created_at=now, updated_at=now,
+    )
+    memory.admit(elsewhere, since=now - timedelta(days=1), limit=10)  # another workspace is not blocked
+    assert len(memory.active(other)) == 1
+    with pytest.raises(DeveloperAdmissionError) as refused:
+        memory.admit(
+            elsewhere.model_copy(update={"id": "dev_other2", "status": DevRequestStatus.CANCELLED}),
+            since=now - timedelta(days=1),
+            limit=1,
+        )
+    assert refused.value.reason == "active"
+
+
+def test_a_request_never_returns_to_coding_after_it_left(github: FakeGitHub) -> None:
+    created = _create().json()
+    github.start_run(created["id"], status="completed", conclusion="success")
+    github.open_pull(created["id"])
+    github.set_ci("a" * 40, None)
+    url = f"/api/v1/developer/requests/{created['id']}"
+    assert client.get(url, headers=OWNER).json()["status"] == "ci_running"
+    github.pulls.clear()  # GitHub briefly answers without the pull request
+    [stored] = developer_store.list(CONTEXT, limit=5, before=None, query=None)
+    refreshed, changed = asyncio.run(sync(stored, force=True))
+    assert refreshed.status == DevRequestStatus.CI_RUNNING and not changed
 
 
 def test_status_follows_the_run_pull_request_and_ci(github: FakeGitHub) -> None:
@@ -505,6 +636,24 @@ def test_developer_workflow_is_valid_and_guarded() -> None:
     assert "continue-on-error" not in text
     for step_name in developer.FAILED_STEP_REASONS:
         assert f"name: {step_name}" in text, step_name
+
+
+def test_one_active_migration_is_expand_only_and_built_concurrently() -> None:
+    versions = ROOT / "services" / "api" / "migrations" / "versions"
+    source = (versions / "0023_developer_one_active.py").read_text(encoding="utf-8")
+    assert 'revision = "0023_developer_one_active"' in source and len("0023_developer_one_active") <= 32
+    assert 'down_revision = "0022_developer_requests"' in source
+    others = [path for path in versions.glob("*.py") if path.name != "0023_developer_one_active.py"]
+    assert not [path for path in others if 'down_revision = "0022_developer_requests"' in path.read_text(encoding="utf-8")]
+    upgrade = source.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "create unique index concurrently if not exists {index}" in upgrade and "autocommit_block" in upgrade
+    assert "where status in {active}" in upgrade
+    assert "uq_developer_requests_one_active" in source and "('queued', 'coding')" in source
+    # RLS stays forced after the one-off clean-up, and no role gets a way around it.
+    assert upgrade.index("no force row level security") < upgrade.index("alter table {table} force row level security")
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "add_column" not in upgrade and "alter_column" not in upgrade and "drop table" not in upgrade
+    assert "drop index concurrently if exists {index}" in upgrade  # only an invalid leftover
 
 
 def test_migration_is_expand_only_with_forced_rls() -> None:

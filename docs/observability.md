@@ -89,7 +89,7 @@ ANUM's own spans and metrics are built from metadata only. Tests in `services/ap
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `ANUM_SENTRY_DSN` | empty (off) | `https://<key>@<host>/<project id>`. Outside `local`, plain `http` is allowed only to a private service name without dots, for example `http://<key>@glitchtip:8000/1` on the compose network. The startup policy, and the Helm chart through `infra/helm/ci/lint.sh`, refuse anything else. A malformed DSN is refused at startup in every environment, and the error never echoes the key. |
+| `ANUM_SENTRY_DSN` | empty (off) | `https://<key>@<host>/<project id>`. Outside `local`, plain `http` is allowed only to a private service name without dots, for example `http://<key>@glitchtip:8000/1` on the compose network. The startup policy, and the Helm chart through `infra/helm/ci/lint.sh`, refuse anything else. A malformed DSN is refused at startup in every environment, and the error never echoes the key. The DSN carries the project's ingest key: on Kubernetes, put it in the `anum-app` Secret (`secrets.app.optional` lists it, so the chart injects it into the API and the worker) rather than in `config`, which renders into a ConfigMap. The chart cannot read a Secret, so a DSN there is checked only by the API's startup policy; a DSN in `config` or `extraEnv` is refused by `helm template` as well. |
 
 An event keeps:
 

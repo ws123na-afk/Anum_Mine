@@ -58,10 +58,12 @@ The chart never renders a Secret. Create these in the release namespace before i
 | Secret (`values` key) | Keys | Required |
 |---|---|---|
 | `secrets.app.name` (default `anum-app`) | `ANUM_SECRETS_KEY` (comma-separated Fernet keys, the first encrypts), `ANUM_DATABASE_URL` (`anum_app`) | yes |
-| | `ANUM_OUTBOX_DATABASE_URL` (`anum_relay`), `ANUM_VALKEY_URL`, `ANUM_MODEL_API_KEY`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY`, `ANUM_EXTERNAL_WEBHOOK_URL`, `ANUM_EXTERNAL_WEBHOOK_API_KEY`, `ANUM_SEARXNG_URL` ([web search](tools-and-integrations.md#web-search)) | when used |
+| | `ANUM_OUTBOX_DATABASE_URL` (`anum_relay`), `ANUM_VALKEY_URL`, `ANUM_MODEL_API_KEY`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY`, `ANUM_EXTERNAL_WEBHOOK_URL`, `ANUM_EXTERNAL_WEBHOOK_API_KEY`, `ANUM_SEARXNG_URL` ([web search](tools-and-integrations.md#web-search)), `ANUM_SENTRY_DSN` ([error reporting](observability.md#error-reporting)) | when used |
 | `secrets.migration.name` (default `anum-migrate`) | `ANUM_DATABASE_URL` (`anum_migrator`) | when `migration.enabled` |
 | `secrets.backup.name` (default `anum-backup`) | `ANUM_BACKUP_DATABASE_URL` (`anum_backup`) | when `backup.enabled` |
 | `ingress.tls.secretName` | TLS certificate | unless cert-manager issues it |
+
+The chart injects exactly the keys listed in `secrets.app.required` and `secrets.app.optional` into the API, the worker and the retention job; a key the Secret holds but the lists do not name is never read. `infra/helm/ci/lint.sh` renders the chart and checks that `ANUM_SENTRY_DSN` reaches the API and the worker from the Secret.
 
 Generate a Fernet key with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and rotate it as in [Runbooks](runbooks.md#rotating-anum_secrets_key). When the cloud provides workload identity for object storage, leave the S3 keys out and annotate the ServiceAccounts instead.
 

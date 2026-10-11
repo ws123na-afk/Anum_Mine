@@ -1,7 +1,11 @@
-"""PostgreSQL developer-mode requests (migration 0022_developer_requests).
+"""PostgreSQL developer-mode requests (migrations 0022_developer_requests, 0023_developer_one_active).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); the
 queries filter on the scope explicitly as well. Rows are shared by the workspace's owners.
+
+Admission (``admit``) serialises creates per tenant and workspace with a transaction-scoped
+advisory lock, then counts and inserts in the same transaction; the partial unique index
+``uq_developer_requests_one_active`` backs the "one queued or coding request" rule.
 """
 
 from __future__ import annotations
@@ -9,13 +13,27 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, func, or_, and_, select
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    and_,
+    func,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from anum_api.developer import (
     ACTIVE,
     ChecksSummary,
+    DeveloperAdmissionError,
     DeveloperRequest,
     DevRequestSource,
     DevRequestStatus,
@@ -56,6 +74,11 @@ class DeveloperRequestRecord(Base, WorkspaceScopedMixin):
 
     __table_args__ = (_workspace_fk("developer_requests"),)
 
+
+# pg_advisory_xact_lock(key1, key2): key1 names developer-mode admission, key2 is the scope's
+# hash. A hash collision only makes two scopes wait for each other, never admits more.
+ADMISSION_LOCK_CLASS = 0x414E4456  # "ANDV"
+ONE_ACTIVE_INDEX = "uq_developer_requests_one_active"
 
 _FIELDS = (
     "created_by", "text", "source", "status", "allow_protected_paths", "branch", "run_id", "run_url",
@@ -122,6 +145,27 @@ class SqlAlchemyDeveloperStore:
         self.session.add(record)
         self.session.flush()
         return request
+
+    def admit(self, request: DeveloperRequest, *, since: datetime, limit: int) -> DeveloperRequest:
+        require_workspace(self.session, self.context.tenant_id, self.context.workspace_id)
+        scope_key = f"{self.context.tenant_id}\x1f{self.context.workspace_id}"
+        # Held until this unit of work commits or rolls back: a concurrent create for the same
+        # scope waits here and then sees this request (READ COMMITTED re-reads per statement).
+        self.session.execute(
+            text("select pg_advisory_xact_lock(cast(:lock_class as integer), hashtext(:scope_key))"),
+            {"lock_class": ADMISSION_LOCK_CLASS, "scope_key": scope_key},
+        )
+        if self.active(self.context):
+            raise DeveloperAdmissionError("active")
+        if self.count_since(self.context, since) >= limit:
+            raise DeveloperAdmissionError("daily_limit")
+        try:
+            return self.add(request)
+        except IntegrityError as exc:
+            # A writer that does not take the lock (an older release during a rollout).
+            if ONE_ACTIVE_INDEX in str(exc.orig):
+                raise DeveloperAdmissionError("active") from None
+            raise
 
     def _record(self, request_id: str, *, for_update: bool = False) -> DeveloperRequestRecord | None:
         statement = select(DeveloperRequestRecord).where(*self._scope(), DeveloperRequestRecord.id == request_id)
