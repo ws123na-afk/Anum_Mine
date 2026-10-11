@@ -23,7 +23,7 @@ Contact: `<owner contact>` (email or postal address). `<Data protection officer 
 | Voice | Transcripts of what you say to the voice assistant and its replies. Audio is turned into text on your device or by your device's speech service; ANUM receives text, not recordings. | You. |
 | Tasks, runs and approvals | Tasks you create, what the agent did, approvals you decide. | You and the agent. |
 | Files | Files you upload and their metadata. | You. |
-| Settings | Notification preferences. | You. |
+| Settings | Notification preferences and your own preferences, such as whether the assistant remembers things from your chats. | You. |
 | Technical data | Request logs with ids, times and error codes, security audit records (who did what, with ids and counts), and `<error reports, if ANUM_SENTRY_DSN is set>`. They do not contain your messages. | Our servers. |
 
 We do not use advertising identifiers, do not track you across other apps or websites and do not sell your data.
@@ -72,7 +72,7 @@ You can, at any time, in the app under **Settings → Privacy**:
 
 - **see** what is stored about you;
 - **download** your data as a file (access and portability);
-- **delete** your conversations, private memories, voice transcripts and notification preferences.
+- **delete** your conversations, private memories, voice transcripts, notification preferences and other settings.
 
 Records you created that your whole workspace relies on (tasks, approvals, shared notes and files) are kept; ask a workspace owner to remove them. To close your account, correct your details or object to processing, contact `<owner contact>`. `<If the GDPR applies: you may also complain to your data protection authority, <authority>.>` We answer within `<30 days>`.
 

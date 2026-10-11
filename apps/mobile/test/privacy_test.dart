@@ -8,6 +8,7 @@ import 'package:anum_mobile/features/privacy/privacy_models.dart';
 import 'package:anum_mobile/features/privacy/privacy_repository.dart';
 import 'package:anum_mobile/features/privacy/privacy_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _counts = {
@@ -18,6 +19,7 @@ const _counts = {
   'voice_sessions': 1,
   'voice_transcript_segments': 3,
   'notification_preferences': 1,
+  'user_preferences': 1,
 };
 const _shared = {
   'tasks_created': 4,
@@ -26,7 +28,9 @@ const _shared = {
   'files_uploaded': 2,
 };
 
-Map<String, Object?> _summary(Map<String, int> private) => {
+Map<String, Object?> _summary(Map<String, int> private,
+        {String policy = 'https://example.com/privacy'}) =>
+    {
       'tenant_id': 'tenant_test',
       'workspace_id': 'workspace_test',
       'user_id': 'user_test',
@@ -46,7 +50,7 @@ Map<String, Object?> _summary(Map<String, int> private) => {
         'workspace': null,
         'conversation_memory_enabled': true,
       },
-      'privacy_policy_url': 'https://example.com/privacy',
+      'privacy_policy_url': policy,
       'delete_confirmation': 'DELETE MY DATA',
       'export_max_bytes': 26214400,
       'account_note': 'Ask your administrator to close your account.',
@@ -54,8 +58,12 @@ Map<String, Object?> _summary(Map<String, int> private) => {
     };
 
 class _PrivacyTransport implements ApiTransport {
-  _PrivacyTransport({this.summaryStatus = 200, this.exportStatus = 200});
+  _PrivacyTransport(
+      {this.summaryStatus = 200,
+      this.exportStatus = 200,
+      this.policy = 'https://example.com/privacy'});
   final int summaryStatus;
+  final String policy;
   final int exportStatus;
   final List<ApiRequest> requests = [];
   Map<String, int> current = Map.of(_counts);
@@ -66,7 +74,8 @@ class _PrivacyTransport implements ApiTransport {
     final path = request.uri.path;
     if (path.endsWith('/api/v1/privacy')) {
       return summaryStatus == 200
-          ? ApiResponse(statusCode: 200, body: _summary(current))
+          ? ApiResponse(
+              statusCode: 200, body: _summary(current, policy: policy))
           : ApiResponse(
               statusCode: summaryStatus,
               body: const {'detail': 'Workspace permission denied'});
@@ -140,7 +149,7 @@ Future<ApiPrivacyRepository> _repository(_PrivacyTransport transport,
 void main() {
   test('the summary reads counts, retention and the provider', () {
     final summary = PrivacySummary.fromJson(_summary(_counts));
-    expect(totalOf(summary.private), 15);
+    expect(totalOf(summary.private), 16);
     expect(totalOf(summary.shared), 7);
     expect(summary.retention.first.$2,
         'Deleted after 30 days without activity, or when you delete them.');
@@ -196,6 +205,8 @@ void main() {
     expect(find.text('What ANUM stores about you'), findsOneWidget);
     expect(find.text('https://example.com/privacy'), findsOneWidget);
     final button = find.widgetWithText(FilledButton, 'Delete my data');
+    await tester.scrollUntilVisible(button, 200,
+        scrollable: find.byType(Scrollable).first);
     expect(tester.widget<FilledButton>(button).onPressed, isNull);
 
     await tester.enterText(
@@ -213,9 +224,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-        find.textContaining('Deleted 15 private items.'), 200,
+        find.textContaining('Deleted 16 private items.'), 200,
         scrollable: find.byType(Scrollable).first);
-    expect(find.textContaining('Deleted 15 private items.'), findsOneWidget);
+    expect(find.textContaining('Deleted 16 private items.'), findsOneWidget);
     expect(find.textContaining('7 shared workspace records stay.'),
         findsOneWidget);
     await tester.scrollUntilVisible(
@@ -226,5 +237,53 @@ void main() {
     final delete =
         transport.requests.singleWhere((r) => r.uri.path.endsWith('/delete'));
     expect(delete.body, {'confirm': 'DELETE MY DATA'});
+  });
+
+  testWidgets('the policy opens in the browser, https only, copy otherwise',
+      (tester) async {
+    final opened = <Uri>[];
+    Future<void> show(String policy, {bool browser = true}) async {
+      final controller = PrivacyController(
+          await _repository(_PrivacyTransport(policy: policy)));
+      await tester.pumpWidget(MaterialApp(
+          home: PrivacyScreen(
+              key: ValueKey('$policy $browser'),
+              controller: controller,
+              openLink: (uri) async {
+                opened.add(uri);
+                return browser;
+              })));
+      await tester.pumpAndSettle();
+      final tile = find.text('Read the privacy policy');
+      await tester.scrollUntilVisible(tile, 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+    }
+
+    await tester.binding.setSurfaceSize(const Size(390, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    String? copied;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String?;
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    await show('https://example.com/privacy');
+    expect(opened, [Uri.parse('https://example.com/privacy')]);
+
+    await show('http://example.com/privacy');
+    expect(opened, hasLength(1), reason: 'plain http is never opened');
+    expect(find.textContaining('not an https address'), findsOneWidget);
+    expect(copied, 'http://example.com/privacy');
+
+    await show('https://example.com/privacy', browser: false);
+    expect(opened, hasLength(2));
+    expect(find.textContaining('The link was copied'), findsOneWidget);
   });
 }

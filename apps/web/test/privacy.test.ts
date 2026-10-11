@@ -9,7 +9,7 @@ import {
 
 const summary: PrivacySummary = {
   tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'member',
-  private: { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 1, voice_transcript_segments: 3, notification_preferences: 1 },
+  private: { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 1, voice_transcript_segments: 3, notification_preferences: 1, user_preferences: 1 },
   shared: { tasks_created: 4, approvals_decided: 1, shared_memories_created: 0, files_uploaded: 2 },
   retention: { conversation_days: 30, voice_transcript_days: 30, voice_transcript_choices: ['session', '30_days', 'permanent'], private_memories: 'Kept until you delete them.', task_memories: 'Kept with their task.', audit_records: 'Kept as the security record.' },
   model_provider: { deployment: 'anthropic', workspace: null, conversation_memory_enabled: true },
@@ -21,10 +21,10 @@ const apiError = (status: number, detail: string | null = null) => Object.assign
 
 describe('count rows', () => {
   test('list every private and shared count with a label, in a stable order', () => {
-    assert.deepEqual(privateRows(summary.private).map((row) => row.value), [2, 6, 1, 1, 1, 3, 1]);
+    assert.deepEqual(privateRows(summary.private).map((row) => row.value), [2, 6, 1, 1, 1, 3, 1, 1]);
     assert.equal(privateRows(summary.private)[0].label, 'Assistant conversations');
     assert.deepEqual(sharedRows(summary.shared).map((row) => row.key), ['tasks_created', 'approvals_decided', 'shared_memories_created', 'files_uploaded']);
-    assert.equal(totalOf(summary.private), 15);
+    assert.equal(totalOf(summary.private), 16);
     assert.equal(totalOf(summary.shared), 7);
   });
 });
@@ -90,8 +90,8 @@ describe('privacyErrorMessage', () => {
 describe('deletedSentence', () => {
   test('counts what went and what stayed', () => {
     const result = { deleted: summary.private, kept: summary.shared, account_note: '', shared_note: '' };
-    assert.equal(deletedSentence(result), 'Deleted 15 private items. 7 shared workspace records stay.');
-    const nothing = { ...result, deleted: { ...summary.private, conversations: 0, conversation_turns: 0, private_memories: 0, retrieval_index_entries: 0, voice_sessions: 0, voice_transcript_segments: 0, notification_preferences: 0 }, kept: { tasks_created: 1, approvals_decided: 0, shared_memories_created: 0, files_uploaded: 0 } };
+    assert.equal(deletedSentence(result), 'Deleted 16 private items. 7 shared workspace records stay.');
+    const nothing = { ...result, deleted: { ...summary.private, conversations: 0, conversation_turns: 0, private_memories: 0, retrieval_index_entries: 0, voice_sessions: 0, voice_transcript_segments: 0, notification_preferences: 0, user_preferences: 0 }, kept: { tasks_created: 1, approvals_decided: 0, shared_memories_created: 0, files_uploaded: 0 } };
     assert.equal(deletedSentence(nothing), 'There was nothing private to delete. 1 shared workspace record stays.');
   });
 });

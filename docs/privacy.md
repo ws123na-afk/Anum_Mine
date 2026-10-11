@@ -27,7 +27,8 @@ Format `anum.privacy-export/v1`, sections in this order:
 | `voice_sessions` | Sessions with their transcript. A 30-day transcript past its expiry is empty, as in the voice API. |
 | `tasks_created` | Tasks the caller created, each with its runs and steps. The run checkpoint (internal resume state) is left out. |
 | `approvals_decided` | Approvals the caller approved or rejected, or approved as one of a chain (`your_approval`). Tool `arguments` are left out: they belong to the run and may carry redacted values. |
-| `notification_preferences` | The caller's preferences, or `null`. |
+| `notification_preferences` | The caller's notification preferences in this workspace, or `null`. |
+| `user_preferences` | The caller's own preferences (`GET /api/v1/me/preferences`, such as "Remember things from my chats"), or `null` when never saved. One row per user and tenant, so it applies in every workspace of the organization. |
 | `files_uploaded` | Metadata of files the caller uploaded (name, type, size, SHA-256, time) with a `download_path` (`/api/v1/files/{id}/content`). |
 | `not_included` | Plain sentences listing what is not in the file (below). |
 
@@ -44,7 +45,8 @@ Removed, in one transaction:
 - conversations and their turns;
 - private memories and their retrieval index rows (`retrieval_sources` with `owner_user_id` = caller; chunks cascade);
 - voice sessions and their transcript segments;
-- notification preferences.
+- notification preferences;
+- the caller's `user_preferences` row (migration `0025_user_preferences`). It is per user and tenant, not per workspace, so deleting from any workspace resets it everywhere in that organization; the defaults apply again ("Remember things from my chats" back on).
 
 Kept, and counted in the response and on the page:
 
@@ -54,7 +56,7 @@ Kept, and counted in the response and on the page:
 
 ## Isolation
 
-With PostgreSQL every read and delete runs in one transaction whose RLS context carries the caller's tenant, workspace **and** `anum.user_id` (`anum_api.privacy.open_privacy_store`, `anum_api/db/privacy_repository.py`). The user-private tables (conversations, turns, voice sessions and segments, owned memories and their index rows) admit only that user's rows under their policies; the shared tables admit only that workspace. Each statement also names the scope and the user explicitly; `notification_preferences` is scoped by tenant and workspace in RLS, so the explicit user filter is what limits it, and the store is only ever opened with the caller's own context. No maintenance role, no `BYPASSRLS`, no `SECURITY DEFINER`. `services/api/tests/test_postgres_privacy.py` proves, below RLS, that another user in the same workspace, the same user in another workspace and a user in another tenant keep every row.
+With PostgreSQL every read and delete runs in one transaction whose RLS context carries the caller's tenant, workspace **and** `anum.user_id` (`anum_api.privacy.open_privacy_store`, `anum_api/db/privacy_repository.py`). The user-private tables (conversations, turns, voice sessions and segments, owned memories and their index rows, and `user_preferences`, whose forced RLS checks tenant and `anum.user_id`) admit only that user's rows under their policies; the shared tables admit only that workspace. Each statement also names the scope and the user explicitly; `notification_preferences` is scoped by tenant and workspace in RLS, so the explicit user filter is what limits it, and the store is only ever opened with the caller's own context. No maintenance role, no `BYPASSRLS`, no `SECURITY DEFINER`. `services/api/tests/test_postgres_privacy.py` proves, below RLS, that another user in the same workspace, the same user in another workspace and a user in another tenant keep every row (except the same user's tenant-wide `user_preferences` row, which is the one deleted), and that the same user id in another tenant keeps its preferences.
 
 ## Audit
 
@@ -76,7 +78,7 @@ The API exposes `Content-Disposition` to browsers (CORS `expose_headers`) so the
 ## Clients
 
 - Web (`apps/web/src/PrivacyView.tsx`, helpers in `src/lib/privacy.ts`): loading, ready, `403` and error states with a retry; the download button reports the saved file and size or the reason it failed; the delete button stays disabled until the phrase is typed exactly and reports what was deleted and kept. Covered by `test/privacy.test.ts` and `e2e/privacy.spec.ts`.
-- Flutter (`apps/mobile/lib/features/privacy/`): the same sections; the export is saved with the system save dialog (`file_picker`), and the policy link is shown as selectable text with a copy button (the app has no browser-launch dependency). Covered by `test/privacy_test.dart`.
+- Flutter (`apps/mobile/lib/features/privacy/`): the same sections; the export is saved with the system save dialog (`file_picker`), and "Read the privacy policy" opens the link in the browser with `url_launcher` (https only, like developer mode's links); a non-https link, or one no browser opens, is copied instead and a message says so. A copy button is always there. Covered by `test/privacy_test.dart`.
 
 ## Not done yet
 

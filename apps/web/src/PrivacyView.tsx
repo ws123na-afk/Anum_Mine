@@ -86,14 +86,14 @@ export function PrivacyView() {
     <div className="privacyActions">
     <section className="surface settingsForm privacyBlock" aria-labelledby="privacy-download">
       <h2 id="privacy-download">Download my data</h2>
-      <p className="muted">A JSON file with your profile in this workspace, conversations, private memories, voice transcripts, tasks you created, approvals you decided, notification preferences and the list of files you uploaded (with download links). Up to {formatBytes(summary.export_max_bytes)}.</p>
+      <p className="muted">A JSON file with your profile in this workspace, conversations, private memories, voice transcripts, tasks you created, approvals you decided, notification preferences, your preferences and the list of files you uploaded (with download links). Up to {formatBytes(summary.export_max_bytes)}.</p>
       <div className="actions"><button onClick={() => void download()} disabled={exporting} aria-busy={exporting}><Download aria-hidden="true"/>{exporting ? 'Preparing download...' : 'Download my data'}</button></div>
       {exported && <p className={`notice ${exported.tone === 'error' ? 'errorNotice' : ''}`} role={exported.tone === 'error' ? 'alert' : 'status'}><CircleDot aria-hidden="true"/>{exported.text}</p>}
     </section>
 
     <section className="surface settingsForm privacyBlock privacyDanger" aria-labelledby="privacy-delete">
       <h2 id="privacy-delete">Delete my data</h2>
-      <p className="muted">Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, and notification preferences in this workspace. This cannot be undone. Download your data first if you want a copy.</p>
+      <p className="muted">Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, and notification preferences in this workspace, and resets your preferences (such as Remember things from my chats) in every workspace of this organization. This cannot be undone. Download your data first if you want a copy.</p>
       <ul className="privacyKept">
         <li><strong>Kept:</strong> {sharedTotal ? `${sharedTotal} shared workspace ${sharedTotal === 1 ? 'record' : 'records'} you created or decided (tasks, approvals, shared memories, files).` : 'shared workspace records (none created by you).'} A workspace owner can remove them.</li>
         <li><strong>Your account:</strong> {summary.account_note}</li>

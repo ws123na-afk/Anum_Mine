@@ -37,7 +37,7 @@ Data types (collected, not shared, unless the note says otherwise):
 | Messages: Other in-app messages | Yes | App functionality | No | Assistant conversations; the core feature. |
 | Audio: Voice or sound recordings | No | | | Only text transcripts reach the API. If you prefer to be conservative, declare it as collected for App functionality and processed ephemerally. |
 | Files and docs | Yes | App functionality | Yes | Files the user uploads. |
-| App activity: Other user-generated content | Yes | App functionality | No | Tasks, memories, voice transcripts, approvals. |
+| App activity: Other user-generated content | Yes | App functionality | No | Tasks, memories, voice transcripts, approvals, the user's settings (notification and memory preferences). |
 | App activity: App interactions | Yes | App functionality, Fraud prevention, security and compliance | No | Audit records (ids and counts). |
 | App info and performance: Crash logs, Diagnostics | Only if `ANUM_SENTRY_DSN` is set | App functionality | No | Server-side, scrubbed. |
 | Location, Financial info, Health, Photos and videos, Contacts, Calendar, Web browsing, Installed apps, Device or other IDs | No | | | |

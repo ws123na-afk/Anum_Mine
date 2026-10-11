@@ -19,6 +19,7 @@ from anum_api.memory import MemoryNote
 from anum_api.onboarding import NotificationPreferences
 from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
+from anum_api.user_preferences import UserPreferences
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
 
 from .conversation_repository import _conversation, _turn
@@ -32,6 +33,7 @@ from .models import (
     MemoryRecord,
     NotificationPreferenceRecord,
     TaskRecord,
+    UserPreferenceRecord,
     VoiceSessionRecord,
     VoiceTranscriptSegmentRecord,
     WorkspaceFileRecord,
@@ -166,6 +168,19 @@ class SqlAlchemyPrivacyStore:
     def notification_preferences(self) -> NotificationPreferences | None:
         return SqlAlchemyNotificationPreferenceStore(self.session).get(self.context)
 
+    def _user_preference_filter(self):  # type: ignore[no-untyped-def]
+        # Tenant-wide row (no workspace), under forced RLS on tenant and user (0025).
+        return (
+            UserPreferenceRecord.tenant_id == self.context.tenant_id,
+            UserPreferenceRecord.user_id == self.context.user_id,
+        )
+
+    def user_preferences(self) -> UserPreferences | None:
+        record = self.session.scalar(select(UserPreferenceRecord).where(*self._user_preference_filter()))
+        if record is None:
+            return None
+        return UserPreferences(remember_conversations=record.remember_conversations, updated_at=record.updated_at)
+
     def _file_filter(self):  # type: ignore[no-untyped-def]
         return (*self._in_workspace(WorkspaceFileRecord), WorkspaceFileRecord.created_by == self.context.user_id)
 
@@ -206,6 +221,7 @@ class SqlAlchemyPrivacyStore:
             voice_sessions=self._count(VoiceSessionRecord, *self._mine(VoiceSessionRecord)),
             voice_transcript_segments=self._count(VoiceTranscriptSegmentRecord, *self._mine(VoiceTranscriptSegmentRecord)),
             notification_preferences=self._count(NotificationPreferenceRecord, *self._mine(NotificationPreferenceRecord)),
+            user_preferences=self._count(UserPreferenceRecord, *self._user_preference_filter()),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -234,6 +250,7 @@ class SqlAlchemyPrivacyStore:
         self.session.execute(delete(ConversationRecord).where(*self._mine(ConversationRecord)))
         self.session.execute(delete(VoiceSessionRecord).where(*self._mine(VoiceSessionRecord)))
         self.session.execute(delete(NotificationPreferenceRecord).where(*self._mine(NotificationPreferenceRecord)))
+        self.session.execute(delete(UserPreferenceRecord).where(*self._user_preference_filter()))
         self.session.flush()
         return deleted
 

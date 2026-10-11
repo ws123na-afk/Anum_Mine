@@ -122,9 +122,17 @@ def _seed(client: TestClient, factory: sessionmaker[Session], hdrs: dict[str, st
         f"/api/v1/voice/sessions/{session_id}/transcript", headers=hdrs, json={"text": f"{label} spoken", "client_sequence": 1}
     ).status_code == 201
     assert client.put("/api/v1/notification-preferences", headers=hdrs, json={"email_enabled": True}).status_code == 200
+    assert client.put("/api/v1/me/preferences", headers=hdrs, json={"remember_conversations": False}).status_code == 200
     task = client.post("/api/v1/tasks", headers=hdrs, json={"title": f"{label} task", "prompt": f"{label} summarize notes"})
     assert task.status_code == 201, task.text
     return {"conversation": conversation_id, "memory": memory_id, "voice": session_id, "task": task.json()["id"]}
+
+
+def _preference_rows(engine: Engine) -> set[tuple[str, str]]:
+    """user_preferences rows (one per tenant and user, migration 0025), read below RLS."""
+    with engine.connect() as connection:
+        rows = connection.execute(text("select tenant_id, user_id from user_preferences"))
+        return {(row.tenant_id, row.user_id) for row in rows}
 
 
 def _rows_per_user(engine: Engine) -> dict[tuple[str, str, str], dict[str, int]]:
@@ -163,6 +171,7 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
     assert export["voice_sessions"][0]["transcript"][0]["text"] == "mine spoken"
     assert [t["id"] for t in export["tasks_created"]] == [seeded["mine"]["task"]]
     assert export["notification_preferences"]["email_enabled"] is True
+    assert export["user_preferences"]["remember_conversations"] is False
     for other in ("colleague", "elsewhere", "foreign"):
         assert other not in response.content.decode()
 
@@ -175,6 +184,7 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "voice_sessions": 1,
         "voice_transcript_segments": 1,
         "notification_preferences": 1,
+        "user_preferences": 1,
     }
     assert summary["shared"]["tasks_created"] == 1
 
@@ -185,13 +195,13 @@ def test_the_store_needs_the_user_context_to_see_private_rows(client: TestClient
         # Tenant and workspace only: RLS hides every user-private row.
         db_session.set_tenant_context(session, TENANT_A, WORKSPACE_A)
         counts, _ = SqlAlchemyPrivacyStore(session, _context(ME)).counts()
-        assert counts.conversations == counts.private_memories == counts.voice_sessions == 0
+        assert counts.conversations == counts.private_memories == counts.voice_sessions == counts.user_preferences == 0
         session.rollback()
     with app_factory() as session:
         # Another user's context sees none of mine either.
         db_session.set_tenant_context(session, TENANT_A, WORKSPACE_A, user_id="user_colleague")
         counts, _ = SqlAlchemyPrivacyStore(session, _context(ME)).counts()
-        assert counts.conversations == counts.private_memories == counts.voice_sessions == 0
+        assert counts.conversations == counts.private_memories == counts.voice_sessions == counts.user_preferences == 0
         # notification_preferences is scoped by tenant and workspace in RLS; the store's
         # explicit user filter is what keeps it to the caller (it is only ever opened
         # with the caller's own context, privacy.open_privacy_store).
@@ -203,6 +213,7 @@ def test_delete_removes_my_private_rows_and_nobody_elses(
 ) -> None:
     seeded = {label: _seed(client, app_factory, hdrs, label) for label, hdrs in zip(("mine", "colleague", "elsewhere", "foreign"), EVERYONE)}
     before = _rows_per_user(database_engine)
+    assert _preference_rows(database_engine) == {(TENANT_A, "user_me"), (TENANT_A, "user_colleague"), (TENANT_B, "user_me")}
     assert before[_key(ME)] == {table: (2 if table == "conversation_turns" else 1) for table in PRIVATE_TABLES}
 
     assert client.post("/api/v1/privacy/delete", headers=ME, json={"confirm": "nope"}).status_code == 422
@@ -215,6 +226,9 @@ def test_delete_removes_my_private_rows_and_nobody_elses(
 
     after = _rows_per_user(database_engine)
     assert _key(ME) not in after
+    # One preference row per user and tenant: mine in tenant A goes; the colleague's and
+    # the same user id's row in tenant B stay.
+    assert _preference_rows(database_engine) == {(TENANT_A, "user_colleague"), (TENANT_B, "user_me")}
     for hdrs in (COLLEAGUE, OTHER_WORKSPACE, OTHER_TENANT):
         assert after[_key(hdrs)] == before[_key(hdrs)]
 

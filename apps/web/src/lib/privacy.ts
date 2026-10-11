@@ -10,6 +10,8 @@ export interface PrivateCounts {
   voice_sessions: number;
   voice_transcript_segments: number;
   notification_preferences: number;
+  /** Tenant-wide (every workspace of the organization). */
+  user_preferences?: number;
 }
 
 export interface SharedCounts {
@@ -59,6 +61,7 @@ const PRIVATE_LABELS: [keyof PrivateCounts, string][] = [
   ['voice_sessions', 'Voice sessions'],
   ['voice_transcript_segments', 'Voice transcript lines'],
   ['notification_preferences', 'Notification preferences'],
+  ['user_preferences', 'Your preferences (all workspaces)'],
 ];
 
 const SHARED_LABELS: [keyof SharedCounts, string][] = [

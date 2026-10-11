@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // Settings -> Privacy (docs/privacy.md): what is stored, retention, Download my data and Delete my data.
-const counts = { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 1, voice_transcript_segments: 3, notification_preferences: 1 };
+const counts = { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 1, voice_transcript_segments: 3, notification_preferences: 1, user_preferences: 1 };
 const zero = Object.fromEntries(Object.keys(counts).map((key) => [key, 0]));
 const shared = { tasks_created: 4, approvals_decided: 1, shared_memories_created: 0, files_uploaded: 2 };
 
@@ -68,7 +68,7 @@ test('a member sees what is stored, downloads it and deletes their private data 
   await expect(remove).toBeDisabled();
   await page.getByLabel('Type DELETE MY DATA to confirm').fill('DELETE MY DATA');
   await remove.click();
-  await expect(page.getByText(/Deleted 15 private items\. 7 shared workspace records stay\./)).toBeVisible();
+  await expect(page.getByText(/Deleted 16 private items\. 7 shared workspace records stay\./)).toBeVisible();
   expect(calls.deleted).toEqual([{ confirm: 'DELETE MY DATA' }]);
   await expect(page.getByText('Nothing private is stored for you here yet.', { exact: false })).toBeVisible();
 });

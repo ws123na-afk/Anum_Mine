@@ -15,6 +15,7 @@ from anum_api.files import file_store
 from anum_api.main import app, store
 from anum_api.memory import MemoryNote, MemoryProvenance, RetentionKind, RetentionPolicy
 from anum_api.onboarding import _notifications
+from anum_api.user_preferences import user_preference_store
 from anum_api.retrieval import IndexStatus, RetrievalSource, SourceType, memory_retrieval_store
 from anum_api.schemas import TenantContext, new_id, utc_now
 from anum_api.settings import settings
@@ -44,6 +45,7 @@ def setup_function() -> None:
     memory_retrieval_store.clear()
     voice_store.clear()
     _notifications.clear()
+    user_preference_store.clear()
     file_store.clear()
 
 
@@ -99,6 +101,7 @@ def _seed(hdrs: dict[str, str], label: str) -> dict[str, str]:
     assert client.put(
         "/api/v1/notification-preferences", headers=hdrs, json={"email_enabled": True}
     ).status_code == 200
+    assert client.put("/api/v1/me/preferences", headers=hdrs, json={"remember_conversations": False}).status_code == 200
     task = client.post("/api/v1/tasks", headers=hdrs, json={"title": f"{label} task", "prompt": f"{label} summarize notes"})
     assert task.status_code == 201
     return {"conversation": conversation_id, "memory": memory_id, "voice": session_id, "task": task.json()["id"]}
@@ -118,6 +121,7 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "voice_sessions": 1,
         "voice_transcript_segments": 1,
         "notification_preferences": 1,
+        "user_preferences": 1,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -158,6 +162,7 @@ def test_export_contains_my_data_and_nobody_elses() -> None:
     assert export["voice_sessions"][0]["transcript"][0]["text"] == "mine spoken words"
     assert [t["id"] for t in export["tasks_created"]] == [mine["task"]]
     assert export["notification_preferences"]["email_enabled"] is True
+    assert export["user_preferences"]["remember_conversations"] is False
     (exported_file,) = export["files_uploaded"]
     assert exported_file["download_path"] == f"/api/v1/files/{upload.json()['id']}/content"
     assert "storage_key" not in exported_file
@@ -229,6 +234,7 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "voice_sessions": 1,
         "voice_transcript_segments": 1,
         "notification_preferences": 1,
+        "user_preferences": 1,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]
@@ -237,6 +243,8 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
     assert set(after["private"].values()) == {0}
     # Shared records stay: the task I created is still in the workspace.
     assert client.get(f"/api/v1/tasks/{mine['task']}", headers=ME).status_code == 200
+    # The preference row is gone, so the defaults apply again.
+    assert client.get("/api/v1/me/preferences", headers=ME).json()["remember_conversations"] is True
     assert client.get(f"/api/v1/voice/sessions/{mine['voice']}", headers=ME).status_code == 404
     assert client.get(f"/api/v1/conversations/{mine['conversation']}", headers=ME).status_code == 404
 
@@ -245,6 +253,9 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         counts = client.get("/api/v1/privacy", headers=hdrs).json()["private"]
         assert counts["conversations"] == counts["private_memories"] == counts["voice_sessions"] == 1
         assert counts["retrieval_index_entries"] == counts["notification_preferences"] == 1
+        # user_preferences is one row per user and tenant (every workspace): the same
+        # user in another workspace of this tenant shares the row that was deleted.
+        assert counts["user_preferences"] == (0 if hdrs is OTHER_WORKSPACE else 1)
         assert client.get(f"/api/v1/conversations/{seeded['conversation']}", headers=hdrs).status_code == 200
         assert memory_note_repository.get(seeded["memory"], _context(hdrs)) is not None
 
@@ -283,9 +294,10 @@ def test_build_export_is_valid_json_with_every_section() -> None:
     parsed = json.loads(body)
     assert set(sections) == {
         "identity", "conversations", "memories", "voice_sessions", "tasks_created",
-        "approvals_decided", "notification_preferences", "files_uploaded",
+        "approvals_decided", "notification_preferences", "user_preferences", "files_uploaded",
     }
     assert parsed["notification_preferences"] is None
+    assert parsed["user_preferences"] is None
     assert parsed["not_included"]
 
 

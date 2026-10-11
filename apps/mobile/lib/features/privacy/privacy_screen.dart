@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../src/theme/anum_theme.dart';
+import '../developer/developer_models.dart' show safeLink;
+import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
 import 'privacy_controller.dart';
 import 'privacy_models.dart';
 
@@ -10,8 +12,12 @@ import 'privacy_models.dart';
 /// actions. "Delete my data" is the in-app deletion path Google Play and the
 /// App Store require.
 class PrivacyScreen extends StatefulWidget {
-  const PrivacyScreen({required this.controller, super.key});
+  const PrivacyScreen(
+      {required this.controller, this.openLink = openInBrowser, super.key});
   final PrivacyController controller;
+
+  /// Opens the policy in the browser (url_launcher); tests pass a fake.
+  final LinkOpener openLink;
   @override
   State<PrivacyScreen> createState() => _PrivacyScreenState();
 }
@@ -106,10 +112,10 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                   const SizedBox(height: AnumSpacing.xs),
                   Text(s.providerSentence, style: theme.textTheme.bodySmall),
                   const SizedBox(height: AnumSpacing.xs),
-                  _PolicyLink(url: s.policyUrl),
+                  _PolicyLink(url: s.policyUrl, open: widget.openLink),
                   _Heading('Download my data'),
                   Text(
-                      'A JSON file with your profile in this workspace, conversations, private memories, voice transcripts, tasks you created, approvals you decided, notification preferences and the list of files you uploaded. Up to ${formatBytes(s.exportMaxBytes)}.'),
+                      'A JSON file with your profile in this workspace, conversations, private memories, voice transcripts, tasks you created, approvals you decided, notification preferences, your preferences and the list of files you uploaded. Up to ${formatBytes(s.exportMaxBytes)}.'),
                   const SizedBox(height: AnumSpacing.sm),
                   Align(
                       alignment: AlignmentDirectional.centerStart,
@@ -123,7 +129,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                     _Message(text: c.exportMessage!, error: c.exportFailed),
                   _Heading('Delete my data'),
                   Text(
-                      'Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, and notification preferences in this workspace. This cannot be undone.'),
+                      'Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, and notification preferences in this workspace, and resets your preferences (such as Remember things from my chats) in every workspace of this organization. This cannot be undone.'),
                   const SizedBox(height: AnumSpacing.xs),
                   Text(
                       'Kept: ${sharedTotal == 0 ? 'shared workspace records (none created by you)' : '$sharedTotal shared workspace ${sharedTotal == 1 ? 'record' : 'records'} you created or decided'}. A workspace owner can remove them.',
@@ -181,8 +187,33 @@ class _Counts extends StatelessWidget {
 }
 
 class _PolicyLink extends StatelessWidget {
-  const _PolicyLink({required this.url});
+  const _PolicyLink({required this.url, required this.open});
   final String? url;
+  final LinkOpener open;
+
+  Future<void> _copy(BuildContext context, String link, String note) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    await Clipboard.setData(ClipboardData(text: link));
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(note)));
+  }
+
+  /// Opens an https policy in the browser; otherwise (or when no browser
+  /// opens it) copies the link and says so.
+  Future<void> _open(BuildContext context, String link) async {
+    final uri = safeLink(link);
+    final opened = uri != null && await open(uri);
+    if (!opened && context.mounted) {
+      await _copy(
+          context,
+          link,
+          uri == null
+              ? 'The policy link is not an https address, so it was copied instead of opened.'
+              : 'The browser could not open the policy. The link was copied; paste it into a browser.');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final link = url;
@@ -193,18 +224,14 @@ class _PolicyLink extends StatelessWidget {
     return Card(
         child: ListTile(
             leading: const Icon(Icons.policy_outlined),
-            title: const Text('Privacy policy'),
-            subtitle: SelectableText(link, textDirection: TextDirection.ltr),
+            title: const Text('Read the privacy policy'),
+            subtitle: Text(link, textDirection: TextDirection.ltr),
+            onTap: () => _open(context, link),
             trailing: IconButton(
                 tooltip: 'Copy privacy policy link',
                 icon: const Icon(Icons.copy),
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: link));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Privacy policy link copied.')));
-                  }
-                })));
+                onPressed: () =>
+                    _copy(context, link, 'Privacy policy link copied.'))));
   }
 }
 

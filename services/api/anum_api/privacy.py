@@ -51,6 +51,7 @@ from .onboarding import NotificationPreferences
 from .request_context import current_correlation_id
 from .schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership, new_id, utc_now
 from .settings import settings
+from .user_preferences import UserPreferences
 from .voice import TRANSCRIPT_RETENTION_DAYS, TranscriptRetention, TranscriptSegment, VoiceSession
 
 logger = logging.getLogger("anum.privacy")
@@ -80,6 +81,8 @@ class PrivateCounts(BaseModel):
     voice_sessions: int = 0
     voice_transcript_segments: int = 0
     notification_preferences: int = 0
+    # Tenant-wide, not per workspace (migration 0025_user_preferences).
+    user_preferences: int = 0
 
     @property
     def total(self) -> int:
@@ -153,6 +156,7 @@ class PrivacyStore(Protocol):
     def tasks_created(self) -> list[tuple[Task, list[AgentRun]]]: ...
     def approvals_decided(self) -> list[tuple[Approval, ApprovalApproverRecord | None]]: ...
     def notification_preferences(self) -> NotificationPreferences | None: ...
+    def user_preferences(self) -> UserPreferences | None: ...
     def files_uploaded(self) -> list[FileRecord]: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
@@ -247,6 +251,11 @@ class InMemoryPrivacyStore:
 
         return _notifications.get(self.context)
 
+    def user_preferences(self) -> UserPreferences | None:
+        from .user_preferences import user_preference_store
+
+        return user_preference_store.get(self.context)
+
     def files_uploaded(self) -> list[FileRecord]:
         from .files import file_store
 
@@ -280,6 +289,7 @@ class InMemoryPrivacyStore:
             # Stored segments, including expired ones not yet purged.
             voice_transcript_segments=sum(len(voice_store.segments.get(session.id, [])) for session, _ in voice),
             notification_preferences=int(self.notification_preferences() is not None),
+            user_preferences=int(self.user_preferences() is not None),
         )
         return private, self._shared_counts()
 
@@ -313,6 +323,10 @@ class InMemoryPrivacyStore:
                 voice_store.sessions.pop(session.id, None)
         with _notifications._lock:
             _notifications._items.pop((self.context.tenant_id, self.context.workspace_id, self.context.user_id), None)
+        from .user_preferences import user_preference_store
+
+        with user_preference_store._lock:
+            user_preference_store._items.pop((self.context.tenant_id, self.context.user_id), None)
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -438,6 +452,9 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     )
     preferences = store.notification_preferences()
     yield ("notification_preferences", _dump(preferences) if preferences is not None else None)
+    # Tenant-wide (every workspace of this organization), e.g. "Remember things from my chats".
+    mine = store.user_preferences()
+    yield ("user_preferences", _dump(mine) if mine is not None else None)
     yield (
         "files_uploaded",
         [

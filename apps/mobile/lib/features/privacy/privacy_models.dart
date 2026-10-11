@@ -17,6 +17,7 @@ const _privateLabels = <String, String>{
   'voice_sessions': 'Voice sessions',
   'voice_transcript_segments': 'Voice transcript lines',
   'notification_preferences': 'Notification preferences',
+  'user_preferences': 'Your preferences (all workspaces)',
 };
 
 const _sharedLabels = <String, String>{
