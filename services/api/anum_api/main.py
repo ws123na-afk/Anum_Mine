@@ -77,6 +77,7 @@ from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
 from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
 from .conversations import router as conversations_router
+from .developer import register_developer_tools, router as developer_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -172,13 +173,14 @@ app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(model_budget_router)
+app.include_router(developer_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = default_tool_registry(
+tool_registry = register_developer_tools(default_tool_registry(
     configured_external_handler(settings),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
-)
+))
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)

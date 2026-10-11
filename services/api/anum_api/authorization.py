@@ -44,6 +44,9 @@ class Permission(StrEnum):
     # governance). Granted only by the organization role below, never by a workspace role:
     # an owner of one workspace must not change policy that binds every workspace.
     ORG_POLICY_MANAGE = "organization_policy:manage"
+    # Developer mode (docs/developer-mode.md): workspace owners only (not
+    # granted to members or viewers below).
+    DEVELOPER_MANAGE = "developer:manage"
 
 
 class OrganizationRole(StrEnum):

@@ -442,7 +442,7 @@ function mapRun(run: ApiAgentRun): AgentRun {
   };
 }
 
-function mapApproval(approval: ApiApproval): Approval {
+export function mapApproval(approval: ApiApproval): Approval {
   return {
     id: approval.id,
     taskId: approval.task_id,

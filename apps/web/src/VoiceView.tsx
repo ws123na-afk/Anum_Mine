@@ -31,6 +31,7 @@ import { Orb3D } from './Orb3D';
 import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import './voice.css';
 import { takeSentences } from './lib/chat';
+import { useDeveloperAssist } from './DeveloperAssist';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -64,7 +65,7 @@ function store(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* preferences are optional */ }
 }
 
-export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } = {}) {
+export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApprovals?: () => void; onOpenDeveloper?: () => void } = {}) {
   const [session, setSession] = useState<VoiceSession | null>(null);
   const [locale, setLocale] = useState(() => stored('anum.voice.locale', navigator.language || 'en-US'));
   const [name, setName] = useState(() => stored('anum.voice.name', 'Anum'));
@@ -116,6 +117,16 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   };
   const rankedVoices = rankVoices(voices, locale);
   const effectiveVoice: ReplyVoice = voice === 'natural' && !naturalVoiceSupports(locale) ? '' : voice;
+  // Developer mode by voice (docs/developer-mode.md): confirm first, announce ready pull requests,
+  // and never approve by voice; the merge needs a tap on Confirm merge with the hash on screen.
+  const developer = useDeveloperAssist({
+    source: 'voice',
+    onOpenDeveloper,
+    announce: (text) => {
+      setTurns((current) => [...current, { id: `developer-${Date.now()}`, speaker: 'assistant', text }]);
+      if (!muted) void speakAndWait(text, { locale, voice: effectiveVoice });
+    },
+  });
 
   useEffect(() => { probedLocale.current = null; setMode(baseRecognitionMode()); store('anum.voice.locale', locale); }, [locale]);
   useEffect(() => { void listSystemVoices().then(setVoices); }, []);
@@ -213,6 +224,16 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
     setNotice('');
     setTurns((current) => [...current, { id: `you-${Date.now()}`, speaker: 'you', text }]);
     setDraft('');
+    const local = await developer.intercept(text);
+    if (local !== null) {
+      setTurns((current) => [...current, { id: `developer-${Date.now()}`, speaker: 'assistant', text: local }]);
+      if (!muted) { setState('speaking'); await speakAndWait(local, { locale, voice: effectiveVoice }); }
+      setState('idle');
+      // A question ("Start?") is answered without saying the name again.
+      if (!muted && wakeOnRef.current && local.endsWith('Start?')) window.setTimeout(() => void startRef.current(false, true), 150);
+      else wake.current?.resume();
+      return;
+    }
     const abort = new AbortController();
     replyAbort.current?.abort();
     replyAbort.current = abort;
@@ -413,6 +434,8 @@ export function VoiceView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
         </button>}
       </div>
     </div>
+
+    {developer.panel}
 
     <ol className="voiceLog" aria-label="Conversation">
       {turns.length === 0 && <li className="voiceEmpty">

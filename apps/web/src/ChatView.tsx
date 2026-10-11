@@ -8,6 +8,7 @@ import {
 import { askInConversation, createConversation, deleteConversation, getConversation, listConversations, type AskBody } from './lib/chatApi';
 import { ApiError, budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
 import { parseAnswer } from './lib/tasks';
+import { useDeveloperAssist } from './DeveloperAssist';
 import './chat.css';
 
 const SUGGESTIONS = ['What is waiting for my approval?', 'Draft a short status update for my team', 'Explain how approvals protect this workspace'];
@@ -24,7 +25,9 @@ function explain(error: unknown, action: string): string {
  * Replies render through the safe answer renderer (text nodes only); Stop aborts the request,
  * which stops the model on the server.
  */
-export function ChatView({ onOpenBudgets, initialConversationId = null }: { onOpenBudgets: () => void; initialConversationId?: string | null }) {
+export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId = null }: { onOpenBudgets: () => void; onOpenDeveloper?: () => void; initialConversationId?: string | null }) {
+  // "build ..." / "developer, ..." goes to developer mode after a confirmation (docs/developer-mode.md).
+  const developer = useDeveloperAssist({ source: 'text', onOpenDeveloper });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [turns, setTurns] = useState<UiTurn[]>([]);
@@ -149,7 +152,7 @@ export function ChatView({ onOpenBudgets, initialConversationId = null }: { onOp
     const content = draft.trim();
     if (!content || streaming) return;
     setDraft('');
-    void ask({ content });
+    void developer.intercept(content).then((handled) => { if (handled === null) void ask({ content }); });
   }
   function onKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
@@ -210,6 +213,7 @@ export function ChatView({ onOpenBudgets, initialConversationId = null }: { onOp
         </article>)}
       </div>
       {!atBottom && <button type="button" className="secondary chatJump" onClick={jumpToLatest}><ArrowDown aria-hidden="true" />Jump to latest</button>}
+      {developer.panel}
       {budget && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{budget}</span><button type="button" className="secondary" onClick={onOpenBudgets}>Open Budgets</button></p>}
       {notice && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{notice}</span></p>}
       <form className="chatComposer" onSubmit={submit}>

@@ -55,11 +55,15 @@ def build_activities(
     from .onboarding import budgeted_model_gateway
 
     gateway = model_gateway or build_default_model_gateway(config)
-    registry = tools or default_tool_registry(
-        configured_external_handler(config),
-        configured_web_search_handler(
-            config, default_integration_registry(config).workspace_enabled(SEARXNG_INTEGRATION_ID)
-        ),
+    from .developer import register_developer_tools
+
+    registry = tools or register_developer_tools(
+        default_tool_registry(
+            configured_external_handler(config),
+            configured_web_search_handler(
+                config, default_integration_registry(config).workspace_enabled(SEARXNG_INTEGRATION_ID)
+            ),
+        )
     )
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
