@@ -36,6 +36,7 @@ class SettingsController extends ChangeNotifier {
 
   /// Activity and autonomy levels (docs/autonomy.md).
   final AutonomyRepository? autonomy;
+
   /// What ANUM learned (docs/learning.md).
   final LearningRepository? learning;
   SettingsPhase phase = SettingsPhase.initial;

@@ -1105,7 +1105,7 @@ class AutonomyRecipientRecord(Base):
 
 
 # --------------------------------------------------------------------------- learning
-# What ANUM learned (migration ``0031_learning``, docs/learning.md). Every row is private
+# What ANUM learned (migration ``0036_learning``, docs/learning.md). Every row is private
 # to one user in one workspace: forced RLS checks the tenant, workspace and user.
 
 

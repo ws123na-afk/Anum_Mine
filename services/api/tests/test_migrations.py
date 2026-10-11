@@ -563,12 +563,12 @@ def test_email_inbox_migration_is_expand_only_with_forced_rls_and_narrow_discove
 
 def test_learning_migration_is_expand_only_with_user_scoped_forced_rls() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0031_learning.py").read_text(encoding="utf-8")
-    assert 'revision = "0031_learning"' in revision_text
-    assert len("0031_learning") <= 32
-    assert 'down_revision = "0030_integration_health"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0031_learning.py"]
-    assert not [path for path in others if 'down_revision = "0030_integration_health"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0036_learning.py").read_text(encoding="utf-8")
+    assert 'revision = "0036_learning"' in revision_text
+    assert len("0036_learning") <= 32
+    assert 'down_revision = "0035_email_inbox"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0036_learning.py"]
+    assert not [path for path in others if 'down_revision = "0035_email_inbox"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 6
     assert "enable row level security" in upgrade and "force row level security" in upgrade

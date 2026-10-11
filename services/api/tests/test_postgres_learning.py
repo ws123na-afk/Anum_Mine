@@ -1,4 +1,4 @@
-"""What ANUM learned, in PostgreSQL (migration 0031_learning, docs/learning.md).
+"""What ANUM learned, in PostgreSQL (migration 0036_learning, docs/learning.md).
 
 The API runs as the non-owner ``anum_test_app`` role. Every learning row is private to
 one user in one workspace: the forced RLS policies check ``anum.tenant_id``,

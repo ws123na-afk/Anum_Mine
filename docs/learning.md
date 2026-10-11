@@ -6,7 +6,7 @@ Code: `services/api/anum_api/learning.py` (models and the pure learning logic), 
 
 ## Privacy model
 
-- **Per user, per workspace.** Six tables (migration `0031_learning`): `learning_signals`, `learning_profiles`, `learning_preferences`, `learning_routines`, `learning_notes`, `learning_suggestions`. Each has forced RLS on `anum.tenant_id`, `anum.workspace_id` **and** `anum.user_id`, like conversations; every statement repeats the scope. Nobody else, not a workspace owner and not a maintenance role, can read them. No `BYPASSRLS`, no `SECURITY DEFINER`, no cross-tenant job.
+- **Per user, per workspace.** Six tables (migration `0036_learning`): `learning_signals`, `learning_profiles`, `learning_preferences`, `learning_routines`, `learning_notes`, `learning_suggestions`. Each has forced RLS on `anum.tenant_id`, `anum.workspace_id` **and** `anum.user_id`, like conversations; every statement repeats the scope. Nobody else, not a workspace owner and not a maintenance role, can read them. No `BYPASSRLS`, no `SECURITY DEFINER`, no cross-tenant job.
 - **The switches.** Learning is on only while all of these hold, otherwise the state says which one stops it:
 
   | `state` | Meaning |
@@ -63,7 +63,7 @@ Short instructions (at most 300 characters, 200 per user) with a scope: `all`, `
 
 Activities match on a short normalized signature of the prompt (lower case, numbers and filler words removed, first three words). New routines are `proposed`; detecting again refreshes them; one the user accepted, confirmed or dismissed is never proposed again (delete it to allow that).
 
-**Create paused automation** (`POST /routines/{id}/accept`, needs `automation:manage`: members and owners) creates a workflow through the existing automation engine, one `task.create` step per activity with its prompt, and a schedule with the routine's cron and timezone **disabled**. **Start the schedule** (`/confirm`) enables it. Both are audited (`learning.routine_accepted`, `learning.routine_confirmed`, `learning.routine_dismissed`). A viewer sees why the button is unavailable and who can help. The Flutter app detects in UTC (the cron hour is the same moment; it reads in UTC).
+**Create paused automation** (`POST /routines/{id}/accept`, needs `automation:manage`: members and owners) creates a workflow through the existing automation engine, one `task.create` step per activity with its label as the title and its prompt, and a schedule with the routine's cron and timezone **disabled**. **Start the schedule** (`/confirm`) enables it. Both are audited (`learning.routine_accepted`, `learning.routine_confirmed`, `learning.routine_dismissed`). A viewer sees why the button is unavailable and who can help. The Flutter app detects in UTC (the cron hour is the same moment; it reads in UTC).
 
 ## Weekly improvement notes
 

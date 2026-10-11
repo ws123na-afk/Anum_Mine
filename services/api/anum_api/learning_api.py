@@ -682,7 +682,7 @@ async def accept_routine(
             "Its schedule stays paused until you confirm it."
         ),
         steps=[
-            WorkflowStep(id=f"step-{index + 1}", name=step.label[:160], action="task.create", input={"prompt": step.prompt})
+            WorkflowStep(id=f"step-{index + 1}", name=step.label[:160], action="task.create", input={"title": step.label[:160], "prompt": step.prompt})
             for index, step in enumerate(routine.steps)
         ],
     )

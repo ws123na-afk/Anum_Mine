@@ -65,7 +65,7 @@ Removed, in one transaction:
 - voice sessions and their transcript segments;
 - notification preferences;
 - the phones registered for push in this workspace (`push_devices`, migration `0027_push_devices`): they get no more pushes for it;
-- what ANUM learned from the caller in this workspace: every row of `learning_signals`, `learning_profiles`, `learning_preferences`, `learning_routines`, `learning_notes` and `learning_suggestions` (migration `0031_learning`; counted as `learning_signals` and `learned_items`). Automations created from an accepted routine are workspace records and stay;
+- what ANUM learned from the caller in this workspace: every row of `learning_signals`, `learning_profiles`, `learning_preferences`, `learning_routines`, `learning_notes` and `learning_suggestions` (migration `0036_learning`; counted as `learning_signals` and `learned_items`). Automations created from an accepted routine are workspace records and stay;
 - the caller's `user_preferences` row (migration `0025_user_preferences`). It is per user and tenant, not per workspace, so deleting from any workspace resets it everywhere in that organization; the defaults apply again ("Remember things from my chats" back on).
 
 Kept, and counted in the response and on the page:

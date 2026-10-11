@@ -1,4 +1,4 @@
-"""PostgreSQL store for what ANUM learned (migration ``0031_learning``, docs/learning.md).
+"""PostgreSQL store for what ANUM learned (migration ``0036_learning``, docs/learning.md).
 
 The session's RLS context names the tenant, the workspace and the user
 (``open_scoped_store(..., user_scoped=True)``, or the privacy unit of work); every

@@ -2,7 +2,7 @@
 
 A learning store is always bound to one caller: tenant, workspace *and* user. With
 ``ANUM_REPOSITORY_BACKEND=memory`` it lives in process memory; with ``postgresql`` it is
-the six ``learning_*`` tables of migration ``0031_learning`` under forced RLS on
+the six ``learning_*`` tables of migration ``0036_learning`` under forced RLS on
 ``anum.tenant_id``, ``anum.workspace_id`` and ``anum.user_id`` (the unit of work sets all
 three), and every statement repeats the scope.
 

@@ -10,15 +10,15 @@ reads learning data across tenants or users.
 
 Expand only: new tables; the previous release ignores them.
 
-Chained after ``0030_integration_health``.
+Chained after ``0035_email_inbox``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0031_learning"
-down_revision = "0030_integration_health"
+revision = "0036_learning"
+down_revision = "0035_email_inbox"
 branch_labels = None
 depends_on = None
 

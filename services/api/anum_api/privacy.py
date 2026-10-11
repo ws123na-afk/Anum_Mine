@@ -91,7 +91,7 @@ class PrivateCounts(BaseModel):
     user_preferences: int = 0
     # Phones registered for push in this workspace (migration 0027_push_devices).
     push_devices: int = 0
-    # What ANUM learned (migration 0031_learning, docs/learning.md): feedback signals, and
+    # What ANUM learned (migration 0036_learning, docs/learning.md): feedback signals, and
     # the style profile, learned preferences, routines, notes and suggestions.
     learning_signals: int = 0
     learned_items: int = 0
