@@ -232,6 +232,16 @@ def open_model_budget_store(context: TenantContext) -> Iterator[ModelBudgetStore
 # --------------------------------------------------------------------------- enforcement
 
 
+def budget_exceeded_message(scope: BudgetScope, kind: BudgetKind, resets_on: date) -> str:
+    """The user-facing refusal, built from the budget's fields rather than an exception's text."""
+    owner = "organization" if scope == BudgetScope.TENANT else "workspace"
+    measure = "estimated cost" if kind == BudgetKind.COST else "tokens"
+    return (
+        f"This {owner} has used its monthly model budget ({measure}). It resets on "
+        f"{resets_on.isoformat()} (UTC); an owner can raise it in Settings."
+    )
+
+
 class ModelBudgetExceededError(Exception):
     """A tenant or workspace has used its model budget for the current UTC month."""
 
@@ -239,12 +249,7 @@ class ModelBudgetExceededError(Exception):
         self.scope = scope
         self.kind = kind
         self.resets_on = resets_on
-        owner = "organization" if scope == BudgetScope.TENANT else "workspace"
-        measure = "estimated cost" if kind == BudgetKind.COST else "tokens"
-        super().__init__(
-            f"This {owner} has used its monthly model budget ({measure}). It resets on "
-            f"{resets_on.isoformat()} (UTC); an owner can raise it in Settings."
-        )
+        super().__init__(budget_exceeded_message(scope, kind, resets_on))
 
     @property
     def message(self) -> str:

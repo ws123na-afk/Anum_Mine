@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field
 
 from .authorization import Permission
 from .dependencies import require_permission, tenant_context
-from .model_budget import ModelBudgetExceededError, check_model_budget
+from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
@@ -291,7 +291,7 @@ async def stream_reply(
         _store_reply(context, conversation, "".join(parts), outcome)
         raise
     except ModelBudgetExceededError as exc:
-        error = ("model_budget_exceeded", str(exc))
+        error = ("model_budget_exceeded", budget_exceeded_message(exc.scope, exc.kind, exc.resets_on))
     except Exception as exc:  # reported to the client; only the class name is logged
         logger.warning(
             "conversation_reply_failed error_class=%s",
