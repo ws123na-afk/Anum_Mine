@@ -1,0 +1,50 @@
+/* Files view (FilesView.tsx): storage meter, upload queue, toolbar, rows and previews. Spacing from the shared tokens. */
+.filesUsage, .uploadQueue { display: grid; gap: var(--d-s2); margin-bottom: var(--d-s4); padding: var(--d-s4) var(--d-s5); }
+.filesUsageTop, .uploadItemTop { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); justify-content: space-between; min-width: 0; }
+.filesUsageTop span { color: var(--d-muted); font-size: 14px; }
+.uploadQueue { gap: var(--d-s4); }
+.uploadItem { display: grid; gap: var(--d-s2); min-width: 0; }
+.uploadItem strong { min-width: 0; overflow-wrap: anywhere; }
+.uploadItem .notice { margin: 0; }
+.filesToolbar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0 0 var(--d-s4); }
+.filesToolbar input { flex: 1 1 240px; min-width: 0; }
+.filesToolbar select { flex: 0 1 200px; width: auto; }
+.filesTable .memoryRow { grid-template-columns: minmax(0, 1fr) auto auto; }
+.filesTable .memoryRow p { overflow-wrap: anywhere; }
+.filesTable .rowActions { align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.filesTable .rowActions button.danger, .filesTable .rowActions button.secondary { min-height: 36px; padding: var(--d-s1) var(--d-s3); }
+.fileDetail dd .statusBadge { margin-inline-end: var(--d-s2); }
+.fileDetail .taskMeta dd { overflow-wrap: anywhere; }
+.renameForm { margin-top: var(--d-s4); }
+.renameForm .field { margin-top: 0; max-width: 520px; }
+.renameForm small { display: block; margin-top: var(--d-s1); }
+.fieldError { color: var(--d-stop); }
+.filesNote { align-items: center; display: flex; gap: var(--d-s2); margin-top: var(--d-s3); }
+.filesNote svg { flex: none; height: 16px; width: 16px; }
+.filePreview { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); margin-top: var(--d-s5); padding-top: var(--d-s4); min-width: 0; }
+.filePreview h3 { font-size: 16px; }
+.filePreviewHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.filePreviewHead .actions { margin-top: 0; }
+.filePreviewHead button { min-height: 36px; padding-block: var(--d-s1); }
+.filePreviewText, .filePreviewDoc pre { background: rgba(2, 6, 23, .45); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-family: var(--d-mono); font-size: 13px; margin: 0; max-height: min(60vh, 560px); overflow: auto; padding: var(--d-s3) var(--d-s4); white-space: pre-wrap; overflow-wrap: anywhere; }
+.filePreviewDoc { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); max-height: min(60vh, 560px); overflow: auto; overflow-wrap: anywhere; padding: var(--d-s4); }
+.filePreviewDoc :is(h4, h5, h6) { font-size: 15px; margin: 0; }
+.filePreviewDoc :is(p, ul, ol, blockquote) { margin: 0; }
+.filePreviewDoc :is(ul, ol) { padding-inline-start: var(--d-s5); }
+.filePreviewDoc blockquote { border-inline-start: 3px solid var(--d-line-strong); color: var(--d-muted); padding-inline-start: var(--d-s3); }
+.filePreviewDoc code { font-family: var(--d-mono); font-size: 13px; }
+.filePreviewDoc a { color: var(--d-sky); }
+.filePreviewDoc hr { border: 0; border-top: 1px solid var(--d-line); margin: 0; width: 100%; }
+.filePreviewText:focus-visible, .filePreviewDoc:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+.filePreviewImage { background: repeating-conic-gradient(rgba(255, 255, 255, .06) 0% 25%, transparent 0% 50%) 50% / 16px 16px; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: block; height: auto; max-height: min(60vh, 560px); max-width: 100%; object-fit: contain; }
+.pdfPreview { display: grid; gap: var(--d-s2); justify-items: center; min-width: 0; }
+.pdfPreview canvas { background: #fff; border-radius: var(--d-s1); max-width: 100%; }
+.pdfPager { align-items: center; display: flex; gap: var(--d-s3); }
+@media (max-width: 720px) {
+  .filesUsage, .uploadQueue { padding: var(--d-s4); }
+  /* Name and details on the first line; the index badge and the actions share the second. */
+  .filesTable .memoryRow { gap: var(--d-s2) var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; }
+  .filesTable .memoryRow > div:first-child { grid-column: 1 / -1; }
+  .filesTable .memoryRow > .statusBadge { justify-self: start; }
+  .filesToolbar select { flex: 1 1 100%; }
+}

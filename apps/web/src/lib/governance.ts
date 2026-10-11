@@ -64,7 +64,7 @@ export function sortPacks(packs: PolicyPack[]): PolicyPack[] {
 
 export const ROLE_TEMPLATE_PERMISSIONS = [
   'task:read', 'task:create', 'task:run', 'task:cancel', 'approval:read', 'approval:decide', 'event:read',
-  'memory:read', 'memory:create', 'memory:delete', 'integration:read', 'marketplace:read', 'routing:read',
+  'memory:read', 'memory:create', 'memory:delete', 'file:read', 'file:upload', 'file:manage', 'integration:read', 'marketplace:read', 'routing:read',
   'operations:read', 'organization:read', 'policy:read', 'automation:read', 'automation:manage',
 ] as const;
 

@@ -18,6 +18,7 @@
     "kokoro-js": "1.2.1",
     "lucide-react": "latest",
     "ogl": "^1.0.11",
+    "pdfjs-dist": "6.3.289",
     "react": "latest",
     "react-dom": "latest",
     "typescript": "^7.0.2",

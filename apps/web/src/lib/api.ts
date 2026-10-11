@@ -1,7 +1,9 @@
 import type { AgentRun, Approval, DomainEvent, TenantContext, Task, UserPreferencesUpdate } from '@anum/contracts';
 import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
-import { apiErrorFromResponse } from './errors';
+import { apiErrorFrom, apiErrorFromResponse } from './errors';
+import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, SortValue } from './files';
+import { filesListPath } from './files';
 import type { ApiCurrentMembership } from './policy';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
@@ -142,7 +144,7 @@ export async function approveTask(approval: Approval, reason?: string): Promise<
 
 // task_id is null for a memory remembered from a chat; owner_user_id marks it private to its owner.
 export interface MemoryNote { id: string; task_id: string | null; content: string; provenance: { source_type: string; source_id: string | null; created_by_user_id: string; created_at: string; metadata?: Record<string, unknown> }; retention: { kind: string; expires_at: string | null }; created_at: string; owner_user_id?: string | null; updated_at?: string | null; }
-export interface FileRecord { id: string; name: string; content_type: string; size_bytes: number; sha256: string; created_by: string; created_at: string; }
+export type FileRecord = ApiFile;
 export interface SkillVersion { id: string; skill_id: string; version: string; name: string; description: string; required_tools: string[]; risk_level: string; created_at: string; }
 export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; }
 export interface WorkspaceInfo { id: string; tenant_id: string; name: string; created_at: string; updated_at: string; }
@@ -184,19 +186,66 @@ export async function resumeRun(runId: string): Promise<RunTaskResult> {
 export async function getMemories(): Promise<MemoryNote[]> { return request('/api/v1/memories', { method: 'GET' }); }
 export async function createMemory(taskId: string, content: string): Promise<MemoryNote> { return request('/api/v1/memories', { method: 'POST', body: JSON.stringify({ task_id: taskId, content, source_type: 'user', retention: { kind: 'task' } }) }); }
 export async function deleteMemory(id: string): Promise<void> { await requestVoid(`/api/v1/memories/${id}`, { method: 'DELETE' }); }
-export async function getFiles(): Promise<FileRecord[]> { return request('/api/v1/files', { method: 'GET' }); }
+/** One page of workspace files (docs/files.md): search, sort and the keyset cursor (last id shown). */
+export async function getFiles(options: { query?: string; sort?: SortValue; cursor?: string | null; limit?: number } = {}): Promise<FileRecord[]> { return request(filesListPath(options), { method: 'GET' }); }
 export async function getFile(id: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}`, { method: 'GET' }); }
+export async function getFileUsage(): Promise<ApiFileUsage> { return request('/api/v1/files/usage', { method: 'GET' }); }
 /** Names of a run's sources in one bounded lookup (`path` from retrieval.sourceNamesPath). */
 export async function getSourceNames(path: string): Promise<SourceName[]> { return parseSourceNames(await request<unknown>(path, { method: 'GET' })); }
-export async function uploadFile(file: File): Promise<FileRecord> {
-  return request('/api/v1/files', { method: 'POST', body: file, headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': file.name } });
+/**
+ * Upload one file with progress and cancel. XMLHttpRequest, because fetch reports no upload
+ * progress. The name goes in the query (URL-encoded), so non-ASCII names work; `signal` aborts.
+ */
+export async function uploadFile(file: File, onProgress?: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<FileRecord> {
+  const headers = await authHeaders();
+  return new Promise<FileRecord>((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException('Upload cancelled', 'AbortError')); return; }
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${apiBaseUrl}/api/v1/files?${new URLSearchParams({ name: file.name }).toString()}`);
+    for (const [key, value] of Object.entries(headers)) xhr.setRequestHeader(key, value);
+    xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = (event) => onProgress?.(event.loaded, event.lengthComputable ? event.total : file.size);
+    xhr.onload = () => {
+      let body: unknown;
+      try { body = JSON.parse(xhr.responseText); } catch { body = undefined; }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as FileRecord);
+      else reject(apiErrorFrom(xhr.status, body));
+    };
+    xhr.onerror = () => reject(new Error('The upload lost its connection to the API. Check the connection and try again.'));
+    xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(file);
+  });
 }
-export async function deleteFile(id: string): Promise<void> { await requestVoid(`/api/v1/files/${id}`, { method: 'DELETE' }); }
+export async function renameFile(id: string, name: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }); }
+export async function reindexFile(id: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}/reindex`, { method: 'POST' }); }
+export async function getFilePreview(id: string): Promise<ApiFilePreview> { return request(`/api/v1/files/${encodeURIComponent(id)}/preview`, { method: 'GET' }); }
+export async function deleteFile(id: string): Promise<void> { await requestVoid(`/api/v1/files/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
+/** A short-lived link that needs no bearer token (`inline` for previews). The URL is absolute. */
+export async function createFileLink(id: string, disposition: 'attachment' | 'inline' = 'attachment'): Promise<ApiFileLink> {
+  const link = await request<ApiFileLink>(`/api/v1/files/${encodeURIComponent(id)}/links`, { method: 'POST', body: JSON.stringify({ disposition }) });
+  return { ...link, url: `${apiBaseUrl}${link.url}` };
+}
+/** The bytes behind a short-lived inline link (image and PDF previews). */
+export async function fetchFileBytes(id: string, signal?: AbortSignal): Promise<Blob> {
+  const link = await createFileLink(id, 'inline');
+  const response = await fetch(link.url, { signal });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return response.blob();
+}
+/**
+ * Download through a short-lived link. The bytes (at most the upload limit) are saved from a
+ * same-origin blob URL, which browsers and the desktop webview both treat as a download.
+ */
 export async function downloadFile(id: string, name: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/api/v1/files/${id}/content`, { headers: await authHeaders() });
-  if (!response.ok) throw new Error(`ANUM API request failed: ${response.status}`);
+  const link = await createFileLink(id, 'attachment');
+  const response = await fetch(link.url);
+  if (!response.ok) throw await apiErrorFromResponse(response);
   const url = URL.createObjectURL(await response.blob());
-  const link = document.createElement('a'); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
+  const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = name;
+  document.body.append(anchor); anchor.click(); anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export async function getSkillVersions(): Promise<SkillVersion[]> { return request('/api/v1/skills/versions', { method: 'GET' }); }
 export async function getSkillInstallations(): Promise<SkillInstallation[]> { return request('/api/v1/skills/installations', { method: 'GET' }); }
