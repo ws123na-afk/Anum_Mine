@@ -3,6 +3,7 @@
 // (test/i18n.test.ts checks both). Plural messages pick a form by `count`.
 import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
+import { tyreEn } from './tyre.en.ts';
 
 export const en = {
   // ---- Commerce (commerce.en.ts) ----
@@ -2604,6 +2605,7 @@ export const en = {
   'call.end.nothingKept': 'Nothing from this call was saved.',
   'call.end.open': 'Open conversation',
   'call.end.again': 'New call',
+  ...tyreEn,
 } satisfies Record<string, Message>;
 
 export type MessageKey = keyof typeof en;

@@ -37,6 +37,7 @@ from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .sse import SSE_HEADERS, sse
+from .tyre.tools import tyre_grounding
 from .voice_assistant import (
     MAX_REPLY_CHARS,
     SMALL_TALK,
@@ -443,9 +444,16 @@ async def ask_voice_assistant(
     """Answer a spoken question. Read-only: it never changes tasks or approvals."""
     asked = _prepare_ask(session_id, payload, context, repository)
     reply = asked.reply
+    grounding = await tyre_grounding(context, asked.text) if reply is None else None
+    if grounding is not None and getattr(gateway, "provider", "") == "mock":
+        # No model to phrase it: say the tool's own answer, numbers included.
+        reply = grounding.result.summary[:MAX_REPLY_CHARS]
     if reply is None:
         try:
-            reply = await answer_question(gateway, asked.text, asked.facts, asked.name, asked.arabic)
+            reply = await answer_question(
+                gateway, asked.text, asked.facts, asked.name, asked.arabic,
+                data_blocks=[grounding.block] if grounding else (),
+            )
         except ModelBudgetExceededError as exc:
             # Said aloud instead of an error: the monthly model budget is used up.
             reply = exc.spoken(asked.arabic)
@@ -606,6 +614,8 @@ def stream_prepared_answer(
 
     async def answer() -> AsyncIterator[str]:
         looking = vision is not None and asked.reply is None
+        # Tyre data for a tyre question (its own store session, never the request's).
+        grounding = await tyre_grounding(context, asked.text) if asked.reply is None else None
         yield sse(
             "meta",
             {
@@ -618,14 +628,17 @@ def stream_prepared_answer(
         )
         fixed = asked.reply
         if fixed is None and not looking and getattr(gateway, "provider", "") == "mock":
-            fixed = mock_answer(asked.facts, asked.arabic)
+            fixed = grounding.result.summary[:MAX_REPLY_CHARS] if grounding else mock_answer(asked.facts, asked.arabic)
         parts: list[str] = []
         if fixed is not None:
             parts.append(fixed)
             yield sse("delta", {"text": fixed})
         else:
             try:
-                messages = voice_messages(asked.text, asked.facts, asked.name, asked.history)
+                messages = voice_messages(
+                    asked.text, asked.facts, asked.name, asked.history,
+                    data_blocks=[grounding.block] if grounding else (),
+                )
                 if extra_rules:
                     messages[0] = {"role": "system", "content": f"{messages[0]['content']}\n{extra_rules}"}
                 answering = vision if looking and vision is not None else route_gateway(gateway, ModelRoute.FAST)

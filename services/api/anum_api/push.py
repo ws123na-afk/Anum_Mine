@@ -30,6 +30,7 @@ event                                          recipients                       
 ``developer_request.failed``                   the request's creator (owner)    ``run_failed``
 ``commerce.alert.raised``                       active owners and members        ``commerce_alerts``
                                                (``commerce:operate``)
+``tyre_alerts.raised``                         active members (``tyre:read``)    ``tyre_alerts``
 =============================================  ==============================  =====================
 
 Recipients are resolved as the application role inside the event's tenant and workspace
@@ -375,6 +376,7 @@ class PushKind(StrEnum):
     DEVELOPER_READY = "developer_ready"
     DEVELOPER_FAILED = "developer_failed"
     COMMERCE_ALERT = "commerce_alert"
+    TYRE_ALERTS = "tyre_alerts"
 
 
 # Which notification preference switch gates each kind.
@@ -385,6 +387,7 @@ PREFERENCE: dict[PushKind, str] = {
     PushKind.DEVELOPER_READY: "approval_required",
     PushKind.DEVELOPER_FAILED: "run_failed",
     PushKind.COMMERCE_ALERT: "commerce_alerts",
+    PushKind.TYRE_ALERTS: "tyre_alerts",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -395,6 +398,7 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.DEVELOPER_READY: ("Change ready for review", "A developer request has a pull request ready to merge."),
     PushKind.DEVELOPER_FAILED: ("Developer request stopped", "A developer request failed or its checks did not pass."),
     PushKind.COMMERCE_ALERT: ("Store alert", "A sales channel needs your attention: low stock, a late order, returns or a price."),
+    PushKind.TYRE_ALERTS: ("Tyre alerts", "New tyre alerts need attention."),
 }
 
 EVENT_KINDS: dict[str, PushKind] = {
@@ -404,6 +408,7 @@ EVENT_KINDS: dict[str, PushKind] = {
     "developer_request.ready_for_review": PushKind.DEVELOPER_READY,
     "developer_request.failed": PushKind.DEVELOPER_FAILED,
     "commerce.alert.raised": PushKind.COMMERCE_ALERT,
+    "tyre_alerts.raised": PushKind.TYRE_ALERTS,
 }
 
 
@@ -434,6 +439,8 @@ class PushIntent:
         return {key: value for key, value in values.items() if value}
 
     def collapse_id(self) -> str:
+        if self.kind == PushKind.TYRE_ALERTS:
+            return f"tyre_alerts:{self.workspace_id}"
         return self.approval_id or self.request_id or self.alert_id or self.task_id or self.event_id
 
 
@@ -451,6 +458,8 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
     }
     if kind == PushKind.APPROVAL_REQUIRED:
         return PushIntent(**common, approval_id=event.subject, task_id=task_id)
+    if kind == PushKind.TYRE_ALERTS:
+        return PushIntent(**common)
     if kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
         if task_id is None:
             return None
@@ -498,6 +507,8 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
         elif intent.kind == PushKind.COMMERCE_ALERT:
             # Those who can act on it (docs/commerce.md#alerts); viewers see it in the app.
             recipients = [user for user, role in members.items() if _allowed(role, Permission.COMMERCE_OPERATE)]
+        elif intent.kind == PushKind.TYRE_ALERTS:
+            recipients = [user for user, role in members.items() if _allowed(role, Permission.TYRE_READ)]
         else:
             from .developer import open_developer_store
 

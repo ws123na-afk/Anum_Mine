@@ -17,8 +17,7 @@ Grant ``anum_maintenance`` to the API login ``WITH INHERIT FALSE, SET TRUE`` (as
 
 Expand only: new tables and a defaulted column; the previous release ignores them.
 
-Numbered 0038 on a parallel branch: re-chain ``down_revision`` onto the newest
-migration when this lands (CLAUDE.md, parallel migrations).
+Chained after ``0037_tyre_planning`` (parallel branches, CLAUDE.md).
 """
 
 import sqlalchemy as sa
@@ -26,7 +25,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0038_commerce"
-down_revision = "0036_learning"
+down_revision = "0037_tyre_planning"
 branch_labels = None
 depends_on = None
 

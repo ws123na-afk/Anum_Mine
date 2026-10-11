@@ -270,6 +270,7 @@ class SqlAlchemyNotificationPreferenceStore:
             desktop_enabled=record.desktop_enabled,
             push_enabled=record.push_enabled,
             commerce_alerts=record.commerce_alerts,
+            tyre_alerts=record.tyre_alerts,
         )
 
     def save(self, context: TenantContext, preferences: NotificationPreferences) -> NotificationPreferences:
@@ -290,6 +291,7 @@ class SqlAlchemyNotificationPreferenceStore:
         record.desktop_enabled = preferences.desktop_enabled
         record.push_enabled = preferences.push_enabled
         record.commerce_alerts = preferences.commerce_alerts
+        record.tyre_alerts = preferences.tyre_alerts
         record.updated_at = utc_now()
         self.session.flush()
         return preferences

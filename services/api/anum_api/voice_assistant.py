@@ -10,6 +10,7 @@ visual approval flow.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -205,6 +206,7 @@ def voice_messages(
     *,
     max_turns: int = 8,
     max_chars: int = 6000,
+    data_blocks: Sequence[str] = (),
 ) -> list[ChatMessage]:
     """Chat messages for a streamed spoken answer: the rules, the recent spoken turns
     (``(role, text)``, newest last, bounded) and the question, each user turn labeled
@@ -219,7 +221,7 @@ def voice_messages(
     kept.reverse()
     while kept and kept[0][0] != "user":
         kept.pop(0)
-    messages: list[ChatMessage] = [{"role": "system", "content": with_untrusted_rules(voice_rules(name, facts))}]
+    messages: list[ChatMessage] = [{"role": "system", "content": with_untrusted_rules(_rules(name, facts, data_blocks), *data_blocks)}]
     turns = kept + [("user", question)]
     for role, text in turns:
         content = label_untrusted(text, source=Provenance.USER_SPEECH, origin="voice") if role == "user" else text
@@ -230,17 +232,27 @@ def voice_messages(
     return messages
 
 
+def _rules(name: str, facts: WorkspaceSnapshot, data_blocks: Sequence[str]) -> str:
+    if not data_blocks:
+        return voice_rules(name, facts)
+    from .tyre.tools import TYRE_PREFACE
+
+    return f"{voice_rules(name, facts)}\n{TYRE_PREFACE} Say the key numbers aloud; keep it short."
+
+
 async def answer_question(
     gateway: ModelGateway,
     question: str,
     facts: WorkspaceSnapshot,
     name: str,
     arabic: bool,
+    data_blocks: Sequence[str] = (),
 ) -> str:
     if getattr(gateway, "provider", "") == "mock":
         return mock_answer(facts, arabic)
     prompt = with_untrusted_rules(
-        voice_rules(name, facts),
+        _rules(name, facts, data_blocks),
+        *data_blocks,
         label_untrusted(question, source=Provenance.USER_SPEECH, origin="voice"),
     )
     response = await route_gateway(gateway, ModelRoute.FAST).generate_text(prompt)

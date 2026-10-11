@@ -50,6 +50,16 @@ Integrations are defined by the operator's Settings; this deployment has exactly
 
 The WhatsApp inbox is a per-workspace integration with Meta's WhatsApp Cloud API: an inbound webhook verified with the app secret, encrypted per-workspace credentials, and five governed agent tools (`list_whatsapp_conversations`, `read_whatsapp`, `draft_whatsapp_reply`, `send_whatsapp`, `send_whatsapp_template`). Sending is always a tool call through `ToolPolicy` and approvals by risk. See [WhatsApp Business inbox](whatsapp.md).
 
+## Delivery
+
+Sending something ANUM produced to a person outside it (a tyre report by email or WhatsApp today) uses one generic path, `anum_api/delivery.py`, never a connector called directly:
+
+- **Registering.** A connector that can deliver registers a tool whose `ToolDefinition.delivery_channel` names the channel (`email`, `whatsapp`). `GET /api/v1/tyre/delivery-channels` lists what is connected; with nothing registered, features say "No email integration is connected" and keep the item downloadable.
+- **Deciding.** `request_delivery` plans the channel's tool call as an ordinary task run (task, run, proposal step, checkpointed call) and lets `ToolPolicy` decide it. Delivery tools are expected to be `high` risk, so the run waits for an approval bound to the payload hash; a governance deny blocks it; the runtime executes the approved call exactly as approved.
+- **Arguments.** `{"to", "subject", "text", "attachments"}`. Attachments are references, not bytes: `{"kind", "id", "format", "filename", "content_type", "sha256", "size_bytes"}`. The tool calls `delivery.resolve_attachment(reference, context)` in the same tenant context to get the bytes; it raises if the item is gone or its SHA-256 differs from the approved reference, so what is sent is what was approved. Features register a resolver per kind (`tyre_report`: a report's frozen content rendered as PDF or CSV).
+- **Not yet a channel: the inbox and WhatsApp send tools.** `send_email` (`email_inbox.py`) sends an approved reply draft: it needs `draft_id`, `account_id` and `from`, and `OutgoingMessage` carries no attachments. `send_whatsapp_template` (`whatsapp.py`) sends a Meta-approved template with text parameters to an existing conversation (`conversation_id`, `to` = that conversation's number), carries no document, and is `medium` risk with owner-chosen templates sent without approval. Neither accepts `{to, subject, text, attachments}`, so marking either as a delivery channel would plan calls that fail only after someone approved them, and the template tool would loosen the approval rule. Each needs its own delivery tool first: a new-message email send with MIME attachments (Gmail raw message, Graph `attachments`), high risk; a WhatsApp document send (media upload, then a `document` message), high risk. Until then `delivery-channels` lists nothing and reports are downloaded.
+- **Tests:** `services/api/tests/test_tyre_api.py` (a fake high-risk email tool: nothing is sent before approval, the approved call receives the PDF).
+
 ## MCP Strategy
 
 MCP should be supported as an integration protocol, not as the entire runtime. ANUM can call MCP servers through mediated adapters while still applying tenant policy, approvals, audit logging, and tool schemas.

@@ -100,6 +100,18 @@ def default_skill_registry() -> SkillRegistry:
                 required_tools=frozenset({"commerce.sales_summary"}),
             ),
             SkillManifest(
+                id="anum.tyre-planning",
+                version="1.0.0",
+                name="Tyre planning",
+                description=(
+                    "Answers fleet tyre questions from the synced tyre data: health, tyres due, "
+                    "purchase plan and alerts (docs/tyre-planning.md)."
+                ),
+                triggers=frozenset({"tyre", "tyres", "tire", "tires", "tread", "treads", "retread"}),
+                # Selectable where the tyre tools are registered (the API and the worker).
+                required_tools=frozenset({"tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts"}),
+            ),
+            SkillManifest(
                 id="anum.external-action",
                 version="1.0.0",
                 name="External action",

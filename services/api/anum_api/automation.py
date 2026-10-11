@@ -95,6 +95,8 @@ STEP_ACTIONS: dict[str, str] = {
     "notify": "Notify the run's owner in the app (input: message)",
     "pause": "Wait until someone resumes the run",
     "fail": "Stop the run as failed (input: message)",
+    # Tyre planning (docs/tyre-planning.md#reports): runs after the run is committed.
+    "tyre.report": "Sync the tyre data and generate a tyre report (input: kind, optional delivery)",
 }
 TASK_TITLE_MAX = 160
 TASK_PROMPT_MAX = 8000
@@ -761,6 +763,39 @@ def summarize(workflow: WorkflowDefinition, runs: list[WorkflowRun], schedules: 
     )
 
 
+# Feature step actions ------------------------------------------------------------------
+#
+# A feature can register a handler for its own action name (tyre planning registers
+# ``tyre.report``, docs/tyre-planning.md#reports). The engine records such a step like any
+# accepted step; the handler runs *after* the run is committed, outside every engine
+# transaction, so it may call external systems without holding a row lock. A failure is
+# logged and recorded by the feature itself and never undoes the run. A handler gets the
+# run, the step's state and the step's input as the run recorded it.
+
+StepHandler = Callable[[WorkflowRun, RunStepState, dict[str, Any]], None]
+_step_handlers: dict[str, StepHandler] = {}
+
+
+def register_step_handler(action: str, handler: StepHandler) -> None:
+    _step_handlers[action] = handler
+
+
+def dispatch_step_actions(runs: list[WorkflowRun], engine_provider: Callable[[], AutomationEngine] | None = None) -> int:
+    """Run the registered handlers for the completed steps of ``runs``; returns how many ran."""
+    handled = 0
+    for run in runs:
+        for step in run.steps:
+            handler = _step_handlers.get(step.action)
+            if handler is None or step.status != RunStatus.COMPLETED:
+                continue
+            try:
+                handler(run, step, dict(step.input))
+                handled += 1
+            except Exception:
+                logger.exception("Automation run %s step %s (%s) failed", run.id, step.id, step.action)
+    return handled
+
+
 # Local SQLite engine -------------------------------------------------------------------
 
 # Every statement is a fixed string per table: nothing is interpolated into SQL.
@@ -1235,6 +1270,8 @@ class AutomationScheduler:
     def run_once(self) -> list[WorkflowRun]:
         runs = self.engine_provider().run_due_schedules(limit=self.batch_size)
         self.fired += len(runs)
+        # After the fires are committed: feature step actions (for example tyre reports).
+        dispatch_step_actions(runs, self.engine_provider)
         return runs
 
     def start(self) -> None:
@@ -1469,7 +1506,9 @@ def delete_schedule(schedule_id: str, context: TenantContext = Depends(tenant_co
 def start_run(workflow_id: str, context: TenantContext = Depends(tenant_context), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=200)) -> WorkflowRun:
     _require(context, Permission.AUTOMATION_MANAGE)
     with _handled():
-        return current_engine().start(context, workflow_id, idempotency_key)
+        run = current_engine().start(context, workflow_id, idempotency_key)
+    dispatch_step_actions([run])
+    return run
 
 
 @router.get("/runs", response_model=list[WorkflowRun])
@@ -1528,4 +1567,5 @@ def retry_run(run_id: str, context: TenantContext = Depends(tenant_context), ide
         context,
         new_signal(SignalKind.RETRY, Surface.AUTOMATION, subject_id=prior.id, metadata={"workflow_id": prior.workflow_id}),
     )
+    dispatch_step_actions([retried])
     return retried

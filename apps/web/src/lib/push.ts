@@ -44,6 +44,8 @@ export interface NotificationPreferences {
   push_enabled?: boolean;
   /** Commerce alerts (docs/commerce.md#alerts); older servers do not send it. */
   commerce_alerts?: boolean;
+  /** Tyre planning alerts (docs/tyre-planning.md#alerts); older servers do not send it, on there. */
+  tyre_alerts?: boolean;
 }
 
 export type NotificationKey = keyof Required<NotificationPreferences>;
@@ -56,7 +58,7 @@ export interface NotificationSwitch {
 
 /** The switches in the order Settings shows them: what to hear about, then where. */
 export const NOTIFICATION_KEYS: NotificationKey[] = [
-  'approval_required', 'task_completed', 'run_failed', 'automation_failed', 'commerce_alerts', 'push_enabled', 'desktop_enabled', 'email_enabled',
+  'approval_required', 'task_completed', 'run_failed', 'automation_failed', 'commerce_alerts', 'tyre_alerts', 'push_enabled', 'desktop_enabled', 'email_enabled',
 ];
 
 /** What each switch means, in the current language. */
@@ -69,7 +71,7 @@ export function notificationSwitches(): NotificationSwitch[] {
 }
 
 export function withDefaults(value: NotificationPreferences): Required<NotificationPreferences> {
-  return { ...value, push_enabled: value.push_enabled ?? true, commerce_alerts: value.commerce_alerts ?? true };
+  return { ...value, push_enabled: value.push_enabled ?? true, commerce_alerts: value.commerce_alerts ?? true, tyre_alerts: value.tyre_alerts ?? true };
 }
 
 export interface PushSummary {

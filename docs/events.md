@@ -89,6 +89,8 @@ Automation runs publish `automation_run.completed`, `automation_run.paused`, `au
 
 ## Membership Events
 
+A tyre planning sync (or an assumptions change) that raises new critical or warning alerts records one `tyre_alerts.raised` ([Tyre planning](tyre-planning.md#alerts)). Subject: `tyre_alerts`. Payload: the `critical` and `warning` counts only; never tyre data. Phone push turns it into one "Tyre alerts" notification per workspace for members whose `tyre_alerts` preference is on.
+
 Workspace invitations and membership management ([Identity](identity.md#invitations-and-membership-management)) emit `workspace_invitation.created`, `workspace_invitation.accepted`, `workspace_invitation.resent`, `workspace_invitation.revoked`, `workspace_member.added`, `workspace_member.role_changed`, `workspace_member.deactivated` and `workspace_member.reactivated`. The workspace lifecycle ([Identity](identity.md#workspace-lifecycle)) emits `workspace.created` (in the new workspace), `workspace.renamed`, `workspace.archived` and `workspace.restored`. Payloads carry ids, roles, the expiry and whether an invitation is email-bound; never the invitation token or the invitee's email (the email is kept in the audit record only).
 
 ## Now

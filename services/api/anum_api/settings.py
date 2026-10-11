@@ -247,6 +247,15 @@ class Settings(BaseSettings):
     web_search_max_results: int = Field(default=5, ge=1, le=20)
     # SearXNG safesearch level: 0 off, 1 moderate, 2 strict.
     web_search_safe_search: int = Field(default=1, ge=0, le=2)
+    # Tyre planning (docs/tyre-planning.md): reads the owner's fleet data from their own
+    # Supabase (PostgreSQL or REST) or Firebase (Firestore). Workspace-saved Supabase
+    # hosts must be public HTTPS/TLS endpoints outside local; this comma-separated list of
+    # host or host:port entries is the operator's escape hatch for a self-hosted database
+    # on a private network (same format as ANUM_MODEL_ALLOWED_HOSTS).
+    tyre_source_allowed_hosts: str = ""
+    # Rows read per mapped table or collection in one sync; the rest is reported as cut.
+    tyre_max_rows_per_entity: int = Field(default=50_000, ge=100, le=500_000)
+    tyre_source_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     # Automation (docs/automation.md): workflows, schedules and runs live in this SQLite
     # file with ANUM_REPOSITORY_BACKEND=memory and in PostgreSQL with postgresql.
     automation_database_path: str = ".anum/automation.db"

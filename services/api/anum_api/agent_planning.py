@@ -104,6 +104,11 @@ class AgentPlanner:
                 name="external.action",
                 arguments={"action": prompt, "planned_response": response.text},
             )
+        if any(skill.id == "anum.tyre-planning" for skill in skills):
+            # Read-only tyre tools; the tool and its arguments come from the user's own words.
+            from .tyre.tools import choose_call
+
+            return choose_call(prompt)
         if any(skill.id == "anum.web-search" for skill in skills):
             # The query is the user's own prompt, never retrieved text or model output
             # (threat model G5); the tool caps its length.

@@ -11,6 +11,11 @@ remembers what was said. It is the main Ask experience in the web console (the
   bypassed: anything that changes state is a task, which runs under the workspace's
   approval policy. The system prompt tells the model so, and it suggests creating a task
   when the user wants something done.
+- **Tyre data, read-only.** A tyre question is answered from the workspace's synced
+  tyre data: ANUM (not the model) picks one of the read-only tyre tools from the
+  user's own words, `ToolPolicy` decides it (a policy pack can deny it), the call is
+  audited as `tool.call`, and the result reaches the model as a labeled, untrusted data
+  block with an instruction to show the numbers ([Tyre planning](tyre-planning.md#assistant)).
 - **Private.** A conversation belongs to the user who started it in one tenant and
   workspace. Other users of the same workspace cannot list, read, ask in or delete it.
 - **Bounded.** Each question goes to the model with the system prompt and the most recent

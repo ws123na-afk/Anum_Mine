@@ -101,6 +101,10 @@ To regenerate (for example after a Flutter template change), delete the folders,
 - Tests: `test/developer/` covers the helpers, the controller, the chat and voice confirmation flows (voice never approves), the navigation (owners only, More on phones, Arabic label, deep link), and layouts at 320x568, 390x844, 768x1024, 1024x768 and 1440x900, at 200 percent text and right to left, including the open merge approval and the confirmation card in the Assistant and Voice.
 - Making the voice header and the Assistant's notices fit a short phone at 200 percent text (the voice controls wrap under the name; the notices, including the developer card, get only the height the header and composer leave) came with this change.
 
+## Tyre planning
+
+**Home > Tyre planning** (route `/tyres`, `lib/features/tyre/`) shows the fleet tyre dashboard, the tyres due in a month (previous and next month, search, paging) and the open alerts, which members and owners acknowledge ([Tyre planning](tyre-planning.md)). Connecting the data source, mapping and reports stay on the web; with nothing synced the screen says who does that. A tapped "Tyre alerts" push opens `/tyres/alerts`. Tests: `test/tyre/tyre_test.dart` (every state, Arabic, 320 to 1440 wide at 200% text).
+
 ## Phone push
 
 Push notifications for approvals waiting, tasks finished or failed and developer pull requests ready ([Notifications](notifications.md)). Code: `lib/features/push/` (the `PushMessaging` interface, its Firebase implementation in `firebase_push_messaging.dart`, the controller and the Settings card).

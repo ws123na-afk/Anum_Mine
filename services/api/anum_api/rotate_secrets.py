@@ -3,10 +3,11 @@
     python -m anum_api.rotate_secrets --dry-run   # report only, writes nothing
     python -m anum_api.rotate_secrets             # re-encrypt and audit
 
-Covers every workspace model provider key (``workspace_model_configs.api_key_ciphertext``)
-every workspace integration credential (``integration_credentials.ciphertext``) and
-every developer-mode project token (``developer_projects.token_ciphertext``, migration
-0031) in every tenant. See docs/runbooks.md#rotating-anum_secrets_key.
+Covers every workspace model provider key (``workspace_model_configs.api_key_ciphertext``),
+every workspace integration credential (``integration_credentials.ciphertext``), every
+developer-mode project token (``developer_projects.token_ciphertext``, migration 0031)
+and every tyre planning source credential (``tyre_connections.secret_ciphertext``,
+migration 0037) in every tenant. See docs/runbooks.md#rotating-anum_secrets_key.
 
 How it crosses tenants without bypassing RLS (migration 0009, ``anum_api.maintenance``):
 
@@ -242,6 +243,95 @@ def rotate_integration_credentials(
         after = (rows[-1].tenant_id, rows[-1].workspace_id, rows[-1].integration_id)
 
 
+# Tyre planning source credentials: one row per workspace (docs/tyre-planning.md).
+_DISCOVER_TYRE = text(
+    """
+    select tenant_id, workspace_id
+    from tyre_connections
+    where (tenant_id, workspace_id) > (:after_tenant, :after_workspace)
+    order by tenant_id, workspace_id
+    limit :limit
+    """
+)
+_LOCK_TYRE = text(
+    """
+    select secret_ciphertext
+    from tyre_connections
+    where tenant_id = :tenant_id and workspace_id = :workspace_id
+    for update
+    """
+)
+_REWRITE_TYRE = text(
+    """
+    update tyre_connections
+    set secret_ciphertext = :new
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and secret_ciphertext = :old
+    """
+)
+
+
+def _rotate_tyre_one(
+    session_factory: SessionFactory,
+    cipher: SecretCipher,
+    tenant_id: str,
+    workspace_id: str,
+    report: RotationReport,
+) -> None:
+    scope = {"tenant_id": tenant_id, "workspace_id": workspace_id}
+    audit = {"store": "tyre_connections", "target": f"tyre_connection:{workspace_id}"}
+    with scoped_unit(session_factory, tenant_id, workspace_id) as session:
+        ciphertext = session.execute(_LOCK_TYRE, scope).scalar_one_or_none()
+        if ciphertext is None:
+            report.changed_concurrently += 1
+            return
+        if cipher.is_current(ciphertext):
+            report.already_current += 1
+            return
+        try:
+            rotated = cipher.rotate(ciphertext)
+        except SecretDecryptionError:
+            report.failed += 1
+            report.failures.append({"tenant_id": tenant_id, "workspace_id": workspace_id, "store": "tyre_connections"})
+            if not report.dry_run:
+                _audit(session, tenant_id, workspace_id, report.correlation_id, "failed", "undecryptable", **audit)
+            return
+        if report.dry_run:
+            report.rotated += 1
+            session.rollback()
+            return
+        if session.execute(_REWRITE_TYRE, {**scope, "new": rotated, "old": ciphertext}).rowcount != 1:
+            report.changed_concurrently += 1
+            return
+        _audit(session, tenant_id, workspace_id, report.correlation_id, "succeeded", "re-encrypted", **audit)
+        report.rotated += 1
+
+
+def rotate_tyre_credentials(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    report: RotationReport | None = None,
+) -> RotationReport:
+    """Re-encrypt every tyre planning source credential; adds to ``report`` when given."""
+    report = report or RotationReport(dry_run=dry_run, correlation_id=new_id("rotate_secrets"))
+    after = ("", "")
+    while True:
+        rows = discover(
+            maintenance_session_factory or session_factory,
+            _DISCOVER_TYRE,
+            {"after_tenant": after[0], "after_workspace": after[1], "limit": batch_size},
+        )
+        for row in rows:
+            report.scanned += 1
+            _rotate_tyre_one(session_factory, cipher, row.tenant_id, row.workspace_id, report)
+        if len(rows) < batch_size:
+            return report
+        after = (rows[-1].tenant_id, rows[-1].workspace_id)
+
+
 def rotate_model_config_keys(
     cipher: SecretCipher,
     *,
@@ -380,7 +470,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m anum_api.rotate_secrets",
         description=(
-            "Re-encrypt stored provider keys, integration credentials and developer project tokens "
+            "Re-encrypt stored provider keys, integration credentials, developer project tokens and tyre source credentials "
             "with the first key in ANUM_SECRETS_KEY."
         ),
     )
@@ -397,10 +487,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     cipher = SecretCipher.from_settings()
     report = rotate_model_config_keys(cipher, dry_run=args.dry_run, batch_size=args.batch_size)
     rotate_integration_credentials(cipher, dry_run=args.dry_run, batch_size=args.batch_size, report=report)
+    rotate_tyre_credentials(cipher, dry_run=args.dry_run, batch_size=args.batch_size, report=report)
     projects = rotate_developer_project_tokens(
         cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id
     )
-    # Provider keys and integration credentials at the top level (as before); project tokens nested.
+    # Provider keys, integration and tyre credentials at the top level (as before); project tokens nested.
     print(json.dumps({**asdict(report), "developer_projects": asdict(projects)}, indent=2))
     return 1 if report.failed or projects.failed else 0
 

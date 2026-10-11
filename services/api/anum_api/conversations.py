@@ -60,6 +60,7 @@ from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
 from .sse import SSE_HEADERS, sse
+from .tyre.tools import tyre_grounding
 from .voice import voice_model_gateway
 
 logger = logging.getLogger("anum.conversations")
@@ -254,6 +255,7 @@ def build_messages(
     max_chars: int | None = None,
     memory_blocks: Sequence[str] = (),
     learned_block: str | None = None,
+    data_blocks: Sequence[str] = (),
 ) -> list[ChatMessage]:
     """The system prompt, the most recent earlier turns that fit, then the question.
 
@@ -280,6 +282,11 @@ def build_messages(
         kept.pop(0)
     base = f"{SYSTEM_PROMPT}\n\n{learned_block}" if learned_block else SYSTEM_PROMPT
     system = with_untrusted_rules(f"{base}\n\n{RECALL_PREFACE}", *memory_blocks) if memory_blocks else base
+    if data_blocks:
+        # Read-only tool output (tyre planning): labeled untrusted data, after the rules.
+        from .tyre.tools import TYRE_PREFACE
+
+        system = with_untrusted_rules(f"{system}\n\n{TYRE_PREFACE}", *data_blocks)
     messages: list[ChatMessage] = [{"role": "system", "content": system}]
     for role, content in [(turn.role.value, turn.content) for turn in kept] + [("user", question)]:
         if messages[-1]["role"] == role:
@@ -461,11 +468,15 @@ async def ask_in_conversation(
         # Asking again is a sign the answer missed (docs/learning.md); recorded only while learning is on.
         record_server_signal(context, new_signal(SignalKind.RETRY, Surface.CHAT, subject_id=user_turn.id))
     recall = await recall_memories(context, user_turn.content)
+    # A tyre question is grounded in the workspace's tyre data through a read-only tool,
+    # decided by tool policy (anum_api/tyre/tools.py); the model never calls tools here.
+    grounding = await tyre_grounding(context, user_turn.content)
     messages = build_messages(
         history,
         user_turn.content,
         memory_blocks=recall.blocks,
         learned_block=learned_instructions(context, surface=Surface.CHAT.value),
+        data_blocks=[grounding.block] if grounding else (),
     )
     completed = CompletedReply()
     # Runs after the whole body has been sent: it never delays or fails the stream.

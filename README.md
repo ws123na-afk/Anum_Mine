@@ -90,6 +90,7 @@ x-user-roles: owner,member
 - [Developer mode](docs/developer-mode.md)
 - [WhatsApp Business inbox](docs/whatsapp.md)
 - [Commerce: Amazon, noon and the own store](docs/commerce.md)
+- [Tyre planning](docs/tyre-planning.md)
 - [Memory](docs/memory.md)
 - [What ANUM learned: feedback, style, routines and improvement notes](docs/learning.md)
 - [Privacy: download and delete my data](docs/privacy.md)

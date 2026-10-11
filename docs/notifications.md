@@ -12,6 +12,7 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `task_completed` | Tasks finished | `agent_run.completed` to the task's creator |
 | `run_failed` | Tasks failed | `agent_run.failed` to the task's creator, `developer_request.failed` to the request's owner |
 | `commerce_alerts` | Store alerts (migration `0038_commerce`, default on; older clients that do not send it leave it on) | `commerce.alert.raised` to the workspace's owners and members ([Commerce](commerce.md#alerts)) |
+| `tyre_alerts` | Tyre alerts (migration `0037_tyre_planning`, default on) | `tyre_alerts.raised` to every active member who may read tyre planning ([Tyre planning](tyre-planning.md#alerts)) |
 | `automation_failed` | Automations failed | Nothing yet: automation runs emit no domain event; the failure shows in Automation |
 | `push_enabled` | Phone push for this workspace (migration `0027_push_devices`, default on; older clients that do not send it leave it on) | The channel switch for all of the above |
 | `desktop_enabled` | Desktop notifications | Not a phone channel |
@@ -55,7 +56,7 @@ There is no user id in any path or body. Rows live in `push_devices` (migration 
 3. For each recipient it reads their notification preferences and their phones **inside that recipient's own RLS context**, decrypts the tokens and sends one FCM message per phone (ten in flight at most). A phone shared by two members gets the message once.
 4. FCM `UNREGISTERED`, `INVALID_ARGUMENT` or `SENDER_ID_MISMATCH` removes the phone; a bare 403/404 does not (a wrong project must not wipe every phone). 429 and 5xx are retried; a 401 refreshes the OAuth token. Successful sends set `last_sent_at`.
 
-The payload never carries content: a fixed title and sentence ("Approval needed" / "An action is waiting for your decision.", "Task finished", "Task failed", "Change ready for review", "Developer request stopped") and string ids for the deep link: `anum_kind`, `tenant_id`, `workspace_id`, and `approval_id`, `task_id`, `run_id` or `developer_request_id`. Android groups by `tag` and iOS by `apns-collapse-id` (the approval, request or task id), so a later push about the same item replaces the earlier one.
+The payload never carries content: a fixed title and sentence ("Approval needed" / "An action is waiting for your decision.", "Task finished", "Task failed", "Change ready for review", "Developer request stopped", "Tyre alerts") and string ids for the deep link: `anum_kind`, `tenant_id`, `workspace_id`, and `approval_id`, `task_id`, `run_id` or `developer_request_id`. Android groups by `tag` and iOS by `apns-collapse-id` (the approval, request or task id), so a later push about the same item replaces the earlier one.
 
 The queue is in-process and bounded. A push is lost if the process stops before sending it (a restart, a scale-down); the item itself is unaffected and every client lists it. Two API replicas that refresh the same developer request at the same instant can each announce the change once.
 

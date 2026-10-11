@@ -3,8 +3,11 @@ import '../../data/api_models.dart';
 /// Whether the server can send phone push (`GET /api/v1/push/status`,
 /// docs/notifications.md).
 class PushServerStatus {
-  const PushServerStatus(
-      {required this.available, required this.message, this.projectId});
+  const PushServerStatus({
+    required this.available,
+    required this.message,
+    this.projectId,
+  });
 
   factory PushServerStatus.fromJson(JsonMap json) {
     final r = JsonReader(json);
@@ -62,19 +65,20 @@ class PushDevice {
   }
 }
 
-enum PushDestinationKind { approval, task, developer }
+enum PushDestinationKind { approval, task, developer, tyreAlerts }
 
 /// Where a tapped notification leads. A push carries ids only
 /// (`anum_kind`, `workspace_id`, `approval_id`, `task_id`,
 /// `developer_request_id`); everything else is loaded from the API.
 class PushDestination {
-  const PushDestination(
-      {required this.kind,
-      required this.workspaceId,
-      this.tenantId,
-      this.taskId,
-      this.approvalId,
-      this.requestId});
+  const PushDestination({
+    required this.kind,
+    required this.workspaceId,
+    this.tenantId,
+    this.taskId,
+    this.approvalId,
+    this.requestId,
+  });
 
   final PushDestinationKind kind;
   final String workspaceId;
@@ -95,6 +99,7 @@ class PushDestination {
       'approval_required' => PushDestinationKind.approval,
       'task_completed' || 'run_failed' => PushDestinationKind.task,
       'developer_ready' || 'developer_failed' => PushDestinationKind.developer,
+      'tyre_alerts' => PushDestinationKind.tyreAlerts,
       _ => null,
     };
     if (kind == null || workspaceId == null) return null;
@@ -115,6 +120,7 @@ class PushDestination {
         PushDestinationKind.approval => '/approvals',
         PushDestinationKind.task => '/tasks/${Uri.encodeComponent(taskId!)}',
         PushDestinationKind.developer => '/developer',
+        PushDestinationKind.tyreAlerts => '/tyres/alerts',
       };
 }
 

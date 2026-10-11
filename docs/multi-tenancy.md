@@ -71,6 +71,7 @@ They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automa
    | `workspace_model_configs` | `tenant_id`, `workspace_id` | `api_key_ciphertext is not null` |
    | `retrieval_sources` (`0015`) | `tenant_id`, `workspace_id`, `source_type`, `source_id`, `source_expires_at` | `source_type = 'memory' and source_expires_at <= now()` |
    | `whatsapp_accounts` (`0031`) | `tenant_id`, `workspace_id`, `phone_number_id`, `verify_token_hash` | `true` (the WhatsApp webhook finds the workspace that owns a phone number id, and whether any workspace saved a verify token; never the encrypted token or app secret, [WhatsApp](whatsapp.md#webhook)) |
+   | `tyre_connections` (`0037`) | `tenant_id`, `workspace_id` | `secret_ciphertext is not null` |
    | `conversations` (`0019`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `updated_at` | `updated_at <= now() - interval '1 day'` (the purge then filters on the configured retention) |
    | `developer_requests` (`0026`) | `id`, `tenant_id`, `workspace_id`, `status` | `status in ('queued', 'coding', 'ci_running', 'ci_failed', 'waiting_approval')` |
    | `developer_projects` (`0031`) | `id`, `tenant_id`, `workspace_id` | `token_ciphertext is not null` |

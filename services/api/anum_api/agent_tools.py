@@ -30,6 +30,9 @@ class ToolDefinition(BaseModel):
     # holds that tool's arguments, and the undo stays available this many seconds.
     undo_tool: str | None = None
     undo_window_seconds: int = Field(default=0, ge=0, le=7 * 24 * 3600)
+    # Set by tools that deliver to people outside ANUM ("email", "whatsapp"): the generic
+    # delivery path (anum_api/delivery.py) finds them by channel.
+    delivery_channel: str | None = Field(default=None, pattern=r"^[a-z_]{2,30}$")
 
 
 class ToolCall(BaseModel):

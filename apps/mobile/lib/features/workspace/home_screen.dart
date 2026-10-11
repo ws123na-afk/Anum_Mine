@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../commerce/commerce_strings.dart';
@@ -43,14 +44,18 @@ class HomeScreen extends StatelessWidget {
     final tasks = controller.tasks;
     final now = DateTime.now();
     final running = tasks
-        .where((t) =>
-            t.status == WorkStatus.running || t.status == WorkStatus.queued)
+        .where(
+          (t) =>
+              t.status == WorkStatus.running || t.status == WorkStatus.queued,
+        )
         .toList();
     final pending = controller.pendingApprovals;
     final completedToday = tasks
-        .where((t) =>
-            t.status == WorkStatus.completed &&
-            now.difference(t.updatedAt.toLocal()).inHours < 24)
+        .where(
+          (t) =>
+              t.status == WorkStatus.completed &&
+              now.difference(t.updatedAt.toLocal()).inHours < 24,
+        )
         .length;
     final failed = tasks.where((t) => t.status == WorkStatus.failed).toList();
     final recent = [...tasks]
@@ -122,89 +127,118 @@ class HomeScreen extends StatelessWidget {
         if (pending.isNotEmpty)
           AnumSurface(
             accent: p.warn,
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              AnumHeader(
-                eyebrow: 'Needs you',
-                title: 'Waiting for your decision',
-                trailing: TextButton(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AnumHeader(
+                  eyebrow: 'Needs you',
+                  title: 'Waiting for your decision',
+                  trailing: TextButton(
                     onPressed: () => onNavigate(WorkspaceDestination.approvals),
-                    child: const Text('Review all')),
-              ),
-              const SizedBox(height: 6),
-              for (final approval in pending.take(3))
-                AnumRow(
-                  icon: Icons.front_hand_outlined,
-                  tone: riskTone(approval.risk),
-                  title: approvalTitle(approval, controller.tasks),
-                  subtitle: approvalReason(
-                      approval, approvalTitle(approval, controller.tasks)),
-                  detail: 'Requested ${relativeTime(approval.createdAt)}',
-                  trailing: AnumPill(
+                    child: const Text('Review all'),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                for (final approval in pending.take(3))
+                  AnumRow(
+                    icon: Icons.front_hand_outlined,
+                    tone: riskTone(approval.risk),
+                    title: approvalTitle(approval, controller.tasks),
+                    subtitle: approvalReason(
+                      approval,
+                      approvalTitle(approval, controller.tasks),
+                    ),
+                    detail: 'Requested ${relativeTime(approval.createdAt)}',
+                    trailing: AnumPill(
                       label: '${approval.risk} risk',
-                      tone: riskTone(approval.risk)),
-                  onTap: () => onNavigate(WorkspaceDestination.approvals),
-                ),
-            ]),
-          ),
-        AnumSurface(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            AnumHeader(
-              eyebrow: 'Activity',
-              title: 'Recent work',
-              trailing: TextButton(
-                  onPressed: () => onNavigate(WorkspaceDestination.tasks),
-                  child: const Text('All tasks')),
+                      tone: riskTone(approval.risk),
+                    ),
+                    onTap: () => onNavigate(WorkspaceDestination.approvals),
+                  ),
+              ],
             ),
-            const SizedBox(height: 6),
-            if (recent.isEmpty)
-              AnumEmpty(
-                icon: Icons.auto_awesome_outlined,
-                title: 'No tasks yet',
-                message: 'Ask $assistantName or create a task to get started.',
-                action: 'Create a task',
-                onAction: () => onNavigate(WorkspaceDestination.tasks),
-              )
-            else
-              for (final task in recent.take(5))
-                AnumRow(
-                  icon: workStatusIcon(task.status),
-                  tone: workStatusTone(task.status),
-                  title: task.title,
-                  subtitle: task.run?.result ?? task.prompt,
-                  detail: 'Updated ${relativeTime(task.updatedAt)}',
-                  trailing: WorkStatusPill(task.status),
-                  onTap: () => onOpenTask(task),
-                ),
-          ]),
+          ),
+        // Tyre planning (docs/tyre-planning.md): its own screen, by route.
+        AnumSurface(
+          onTap: () => Navigator.of(context).pushNamed('/tyres'),
+          semanticLabel: AnumLocalizations.maybeOf(context).t('tyreOpen'),
+          child: AnumRow(
+            icon: Icons.tire_repair_outlined,
+            title: AnumLocalizations.maybeOf(context).t('tyreOpen'),
+            subtitle: AnumLocalizations.maybeOf(context).t('tyreOpenHint'),
+            trailing: const Icon(Icons.chevron_right),
+          ),
         ),
         AnumSurface(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            AnumHeader(
-              eyebrow: 'System',
-              title: 'Connected services',
-              subtitle: integrations.isEmpty
-                  ? 'No integrations reported by the API.'
-                  : '$healthy of ${integrations.length} connected',
-              trailing: TextButton(
-                  onPressed: () => onNavigate(WorkspaceDestination.resources),
-                  child: const Text('Details')),
-            ),
-            if (integrations.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Wrap(spacing: 8, runSpacing: 8, children: [
-                for (final item in integrations)
-                  AnumPill(
-                    label: item.name,
-                    tone: integrationTone(item.status),
-                    icon:
-                        item.status == 'connected' ? Icons.check : Icons.remove,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AnumHeader(
+                eyebrow: 'Activity',
+                title: 'Recent work',
+                trailing: TextButton(
+                  onPressed: () => onNavigate(WorkspaceDestination.tasks),
+                  child: const Text('All tasks'),
+                ),
+              ),
+              const SizedBox(height: 6),
+              if (recent.isEmpty)
+                AnumEmpty(
+                  icon: Icons.auto_awesome_outlined,
+                  title: 'No tasks yet',
+                  message:
+                      'Ask $assistantName or create a task to get started.',
+                  action: 'Create a task',
+                  onAction: () => onNavigate(WorkspaceDestination.tasks),
+                )
+              else
+                for (final task in recent.take(5))
+                  AnumRow(
+                    icon: workStatusIcon(task.status),
+                    tone: workStatusTone(task.status),
+                    title: task.title,
+                    subtitle: task.run?.result ?? task.prompt,
+                    detail: 'Updated ${relativeTime(task.updatedAt)}',
+                    trailing: WorkStatusPill(task.status),
+                    onTap: () => onOpenTask(task),
                   ),
-              ]),
             ],
-          ]),
+          ),
+        ),
+        AnumSurface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AnumHeader(
+                eyebrow: 'System',
+                title: 'Connected services',
+                subtitle: integrations.isEmpty
+                    ? 'No integrations reported by the API.'
+                    : '$healthy of ${integrations.length} connected',
+                trailing: TextButton(
+                  onPressed: () => onNavigate(WorkspaceDestination.resources),
+                  child: const Text('Details'),
+                ),
+              ),
+              if (integrations.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final item in integrations)
+                      AnumPill(
+                        label: item.name,
+                        tone: integrationTone(item.status),
+                        icon: item.status == 'connected'
+                            ? Icons.check
+                            : Icons.remove,
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
         ),
         const SizedBox(height: AnumSpacing.xl),
       ],
@@ -220,10 +254,11 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _AskCard extends StatelessWidget {
-  const _AskCard(
-      {required this.assistantName,
-      required this.pending,
-      required this.onTap});
+  const _AskCard({
+    required this.assistantName,
+    required this.pending,
+    required this.onTap,
+  });
   final String assistantName;
   final int pending;
   final VoidCallback onTap;
@@ -234,45 +269,58 @@ class _AskCard extends StatelessWidget {
     return AnumSurface(
       onTap: onTap,
       semanticLabel: 'Talk to $assistantName',
-      child: Row(children: [
-        Container(
-          width: 54,
-          height: 54,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              center: const Alignment(-0.3, -0.4),
-              colors: [
-                Colors.white.withValues(alpha: 0.9),
-                p.sky,
-                p.violet,
-                p.rose
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                center: const Alignment(-0.3, -0.4),
+                colors: [
+                  Colors.white.withValues(alpha: 0.9),
+                  p.sky,
+                  p.violet,
+                  p.rose,
+                ],
+                stops: const [0, 0.25, 0.7, 1],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (pending > 0 ? p.warn : p.violet).withValues(
+                    alpha: 0.45,
+                  ),
+                  blurRadius: 18,
+                ),
               ],
-              stops: const [0, 0.25, 0.7, 1],
             ),
-            boxShadow: [
-              BoxShadow(
-                  color:
-                      (pending > 0 ? p.warn : p.violet).withValues(alpha: 0.45),
-                  blurRadius: 18),
-            ],
+            child: const Icon(Icons.mic, color: Colors.white),
           ),
-          child: const Icon(Icons.mic, color: Colors.white),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Talk to $assistantName',
-                style: TextStyle(
-                    color: p.text, fontSize: 16, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 2),
-            Text('Say “$assistantName” or tap to ask anything about your work.',
-                style: TextStyle(color: p.muted, fontSize: 13)),
-          ]),
-        ),
-        Icon(Icons.chevron_right, color: p.faint),
-      ]),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Talk to $assistantName',
+                  style: TextStyle(
+                    color: p.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Say “$assistantName” or tap to ask anything about your work.',
+                  style: TextStyle(color: p.muted, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: p.faint),
+        ],
+      ),
     );
   }
 }

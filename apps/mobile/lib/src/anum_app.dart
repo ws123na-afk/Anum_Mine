@@ -17,6 +17,9 @@ import '../features/chat/chat_repository.dart';
 import '../features/developer/developer_assist.dart';
 import '../features/developer/developer_controller.dart';
 import '../features/developer/developer_repository.dart';
+import '../features/tyre/tyre_controller.dart';
+import '../features/tyre/tyre_repository.dart';
+import '../features/tyre/tyre_screen.dart';
 import '../features/whatsapp/whatsapp_controller.dart';
 import '../features/whatsapp/whatsapp_repository.dart';
 import '../features/email/email_controller.dart';
@@ -69,6 +72,10 @@ abstract final class AnumRoutes {
   static const developer = '/developer';
   static const inbox = '/inbox';
   static const profile = '/profile';
+
+  /// Tyre planning (docs/tyre-planning.md); `/tyres/alerts` opens its alerts.
+  static const tyres = '/tyres';
+  static const tyreAlerts = '/tyres/alerts';
 }
 
 /// Why [apiUrl] cannot be used by a release build, or null when it can.
@@ -105,6 +112,7 @@ class _AnumAppState extends State<AnumApp> {
   late final DeveloperAssist voiceDeveloper;
   late final PushController push;
   late final CommerceController commerce;
+  late final TyreController tyre;
 
   /// For push deep links and foreground notices, which arrive outside any
   /// widget's context.
@@ -188,6 +196,7 @@ class _AnumAppState extends State<AnumApp> {
     // the Assistant and "developer, ..." by voice. The role is checked once.
     // Commerce (docs/commerce.md): sales summary and orders, read-only here.
     commerce = CommerceController(ApiCommerceRepository(api));
+    tyre = TyreController(ApiTyreRepository(api));
     final developerRepository = ApiDeveloperRepository(api);
     developer = DeveloperController(developerRepository);
     chatDeveloper = DeveloperAssist(
@@ -232,6 +241,7 @@ class _AnumAppState extends State<AnumApp> {
       automations.reset();
       developer.reset();
       commerce.reset();
+      tyre.reset();
       chatDeveloper.reset();
       voiceDeveloper.reset();
       whatsapp.reset();
@@ -309,6 +319,7 @@ class _AnumAppState extends State<AnumApp> {
     governance.dispose();
     developer.dispose();
     commerce.dispose();
+    tyre.dispose();
     push.dispose();
     chatDeveloper.dispose();
     voiceDeveloper.dispose();
@@ -429,6 +440,17 @@ class _AnumAppState extends State<AnumApp> {
       AnumRoutes.developer => WorkspaceDestination.developer,
       _ => null,
     };
+    if (name == AnumRoutes.tyres || name == AnumRoutes.tyreAlerts) {
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+          auth: auth,
+          child: TyreScreen(
+              controller: tyre,
+              initialTab: name == AnumRoutes.tyreAlerts ? 2 : 0),
+        ),
+      );
+    }
     if (index != null) {
       return MaterialPageRoute<void>(
         settings: settings,

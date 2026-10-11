@@ -204,6 +204,8 @@ class NotificationPreferences(BaseModel):
     push_enabled: bool = True
     # Commerce alerts (docs/commerce.md#alerts): low stock, late shipments, return spikes, prices.
     commerce_alerts: bool = True
+    # Tyre planning alerts (docs/tyre-planning.md#alerts).
+    tyre_alerts: bool = True
 
 
 def _config_view(config: StoredModelConfig) -> ModelConfigView:

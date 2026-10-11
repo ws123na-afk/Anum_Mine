@@ -78,6 +78,13 @@ class Permission(StrEnum):
     COMMERCE_OPERATE = "commerce:operate"
     COMMERCE_MANAGE = "commerce:manage"
     COMMERCE_PII = "commerce:pii"
+    # Tyre planning (docs/tyre-planning.md): everyone reads the dashboard, forecasts,
+    # plans, alerts and reports; members and owners also sync, generate and schedule
+    # reports and acknowledge alerts; only owners connect the data source and change the
+    # mapping and assumptions.
+    TYRE_READ = "tyre:read"
+    TYRE_OPERATE = "tyre:operate"
+    TYRE_MANAGE = "tyre:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -125,6 +132,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.OPERATIONS_READ,
         Permission.AUTOMATION_READ,
         Permission.COMMERCE_READ,
+        Permission.TYRE_READ,
     }
 )
 
@@ -150,6 +158,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.EMAIL_READ,
             Permission.EMAIL_ACT,
             Permission.COMMERCE_OPERATE,
+            Permission.TYRE_OPERATE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

@@ -131,6 +131,10 @@ Other rules:
 - Shutdown waits for a pass in progress to commit or roll back and close its sessions; it never abandons a transaction.
 - The local SQLite engine holds SQLite's write lock (`BEGIN IMMEDIATE`) for a pass.
 
+### Step actions
+
+Most steps only record that they ran. A feature can register a handler for its own action name with `automation.register_step_handler` (tyre planning registers `tyre.report`, docs/tyre-planning.md#reports). Handlers run after the run is committed (after a scheduler pass, and after `POST /workflows/{id}/runs` and `/runs/{id}/retry`), outside every engine transaction, so they may call external systems without holding a row lock. A failing handler is logged and never undoes the run; the feature records its own outcome (for tyre reports, on the report). A replayed run must not repeat work: `tyre.report` keys its report by run and step.
+
 Deployment: the API login must be a member of `anum_maintenance` (`grant anum_maintenance to <api login> with inherit false, set true`; the code switches to it with `SET LOCAL ROLE`, and an inherited grant would let its cross-tenant discovery policies widen the API login's own queries). Without it, discovery fails with a permission error in the logs and nothing fires.
 
 ### From learned routines

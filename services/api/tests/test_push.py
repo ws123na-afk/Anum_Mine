@@ -648,3 +648,20 @@ def test_queued_requests_older_than_the_grace_period_are_still_found(github: Any
     request.created_at = utc_now() - timedelta(hours=2)
     developer_store.save(request)
     assert discover_in_progress(TENANT, WORKSPACE) == [(request.id, WORKSPACE)]
+
+
+def test_tyre_alerts_reach_every_member_who_wants_them(sender: FakeSender) -> None:
+    member("owner_a", "owner")
+    member("member_m", "member")
+    register("owner_a", "owner", PHONE_A)
+    register("member_m", "member", PHONE_M)
+    announce(CanonicalEventName.TYRE_ALERTS_RAISED, "tyre_alerts", {"critical": 1, "warning": 2})
+    assert deliver().sent == 2 and sender.tokens() == sorted([PHONE_A, PHONE_M])
+    message = sender.messages[0]
+    assert (message.title, message.data["anum_kind"]) == ("Tyre alerts", "tyre_alerts")
+    assert message.collapse_id == f"tyre_alerts:{WORKSPACE}" and "critical" not in message.body
+
+    sender.messages.clear()
+    _notifications.save(ctx("member_m", "member"), NotificationPreferences(tyre_alerts=False))
+    announce(CanonicalEventName.TYRE_ALERTS_RAISED, "tyre_alerts", {"critical": 1, "warning": 0})
+    assert deliver().sent == 1 and sender.tokens() == [PHONE_A]

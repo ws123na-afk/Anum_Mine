@@ -577,3 +577,26 @@ def test_learning_migration_is_expand_only_with_user_scoped_forced_rls() -> None
         assert f"current_setting('{setting}', true)" in revision_text
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
+
+
+def test_tyre_planning_migration_is_expand_only_with_forced_rls_and_a_discovery_only_policy() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0037_tyre_planning.py").read_text(encoding="utf-8")
+    assert 'revision = "0037_tyre_planning"' in revision_text
+    assert len("0037_tyre_planning") <= 32
+    assert 'down_revision = "0036_learning"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0037_tyre_planning.py"]
+    assert not [path for path in others if 'down_revision = "0036_learning"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    for table in ("tyre_connections", "tyre_snapshots", "tyre_alerts", "tyre_reports"):
+        assert f'"{table}"' in upgrade
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    # Key rotation may discover ids of rows holding a ciphertext, nothing else.
+    assert "grant select (tenant_id, workspace_id) on tyre_connections to anum_maintenance" in upgrade
+    assert "using (secret_ciphertext is not null)" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert "server_default=sa.true()" in upgrade  # the new notification column has a default

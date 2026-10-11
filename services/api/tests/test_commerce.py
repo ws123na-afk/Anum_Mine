@@ -706,7 +706,7 @@ def test_commerce_migration_is_expand_only_with_forced_rls() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     source = (versions / "0038_commerce.py").read_text(encoding="utf-8")
     assert 'revision = "0038_commerce"' in source and len("0038_commerce") <= 32
-    assert 'down_revision = "0036_learning"' in source
+    assert 'down_revision = "0037_tyre_planning"' in source
     for table in ("commerce_connectors", "commerce_products", "commerce_listings", "commerce_orders", "commerce_order_lines",
                   "commerce_customers", "commerce_returns", "commerce_fees", "commerce_alerts", "commerce_settings"):
         assert f'"{table}"' in source
