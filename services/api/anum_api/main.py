@@ -110,6 +110,7 @@ from .tasks import (
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
 from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
+from .voice_call import call_router as voice_call_router
 from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
@@ -232,6 +233,7 @@ async def model_budget_exceeded_handler(request: Request, exc: ModelBudgetExceed
 
 
 app.include_router(voice_router)
+app.include_router(voice_call_router)
 app.include_router(conversations_router)
 app.include_router(privacy_router)
 app.include_router(phase5_router)

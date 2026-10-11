@@ -50,8 +50,10 @@ from .model_gateway import (
     ModelUsage,
     StructuredModel,
     UsageCallback,
+    VisionImage,
     route_gateway,
     estimate_tokens,
+    vision_gateway,
 )
 from .repository import AnumRepository
 from .schemas import TenantContext, new_id
@@ -406,6 +408,11 @@ class BudgetedModelGateway:
         """The routed inner gateway, still behind this workspace's budget."""
         routed = route_gateway(self.inner, route)
         return self if routed is self.inner else BudgetedModelGateway(routed, self.context, clock=self._clock)
+
+    def with_image(self, image: VisionImage) -> BudgetedModelGateway | None:
+        """The inner gateway's vision variant (voice calls), still behind the budget."""
+        variant = vision_gateway(self.inner, image)
+        return None if variant is None else BudgetedModelGateway(variant, self.context, clock=self._clock)
 
     def __getattr__(self, name: str) -> Any:
         # provider, model, base_url ... of the wrapped gateway (voice checks `provider`).

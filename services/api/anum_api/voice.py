@@ -568,9 +568,34 @@ async def stream_voice_assistant(
     unit of work (a partial reply too, when the client stops listening).
     """
     asked = _prepare_ask(session_id, payload, context, repository)
+    events = stream_prepared_answer(asked, context, session_id, gateway)
+    return StreamingResponse(
+        events,
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
+
+
+def stream_prepared_answer(
+    asked: _PreparedAsk,
+    context: TenantContext,
+    session_id: str,
+    gateway: ModelGateway,
+    *,
+    vision: ModelGateway | None = None,
+    extra_rules: str = "",
+) -> AsyncIterator[str]:
+    """The server-sent events of one spoken answer (``/ask/stream`` and the call's
+    ``/look/stream``): ``meta``, ``delta`` pieces, then ``done`` or ``error``.
+
+    ``vision`` is a gateway with a camera frame attached (voice_call.py). Only a
+    question reaches it: a fixed reply (status, small talk, refusals, task proposals)
+    never sends the frame anywhere.
+    """
     sequence = asked.segment.client_sequence
 
-    async def body() -> AsyncIterator[str]:
+    async def answer() -> AsyncIterator[str]:
+        looking = vision is not None and asked.reply is None
         yield sse(
             "meta",
             {
@@ -578,10 +603,11 @@ async def stream_voice_assistant(
                 "risk_tier": asked.tier.value,
                 "proposed_task": asked.proposal,
                 "workspace": asked.facts.model_dump(mode="json"),
+                "vision": looking,
             },
         )
         fixed = asked.reply
-        if fixed is None and getattr(gateway, "provider", "") == "mock":
+        if fixed is None and not looking and getattr(gateway, "provider", "") == "mock":
             fixed = mock_answer(asked.facts, asked.arabic)
         parts: list[str] = []
         if fixed is not None:
@@ -590,8 +616,10 @@ async def stream_voice_assistant(
         else:
             try:
                 messages = voice_messages(asked.text, asked.facts, asked.name, asked.history)
-                fast = route_gateway(gateway, ModelRoute.FAST)
-                async for chunk in fast.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS):
+                if extra_rules:
+                    messages[0] = {"role": "system", "content": f"{messages[0]['content']}\n{extra_rules}"}
+                answering = vision if looking and vision is not None else route_gateway(gateway, ModelRoute.FAST)
+                async for chunk in answering.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS):
                     room = MAX_REPLY_CHARS - sum(len(part) for part in parts)
                     if room <= 0:
                         break
@@ -613,11 +641,7 @@ async def stream_voice_assistant(
         segment = _store_voice_reply(context, session_id, "".join(parts).strip(), sequence)
         yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None})
 
-    return StreamingResponse(
-        body(),
-        media_type="text/event-stream",
-        headers=SSE_HEADERS,
-    )
+    return answer()
 
 
 @router.post("/sessions/{session_id}/complete", response_model=VoiceSession)

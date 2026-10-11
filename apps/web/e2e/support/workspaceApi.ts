@@ -188,6 +188,10 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/push/status') return json({ available: true, provider: 'fcm', project_id: 'anum-example', message: 'Phone push is on.' });
     if (path === '/api/v1/me/devices' && method === 'GET') return json(devices);
     if (path === '/api/v1/model-config') return json({ detail: 'No workspace model configuration' }, 404);
+    if (path === '/api/v1/voice/capabilities') {
+      const device = { id: 'device', kind: 'device', available: true, label: 'Device', model: null, usd_per_minute: null, usd_per_million_chars: null, reason: null };
+      return json({ stt: [device], tts: [device], vision: { available: false, model: null, reason: 'Camera answers need a vision model. An owner can choose Anthropic in Model settings.', max_frame_bytes: 1500000, media_types: ['image/jpeg'] }, latency_target_ms: { first_audio: 1500, barge_in: 300, end_of_turn: 700 }, locales: ['en-US', 'en-GB', 'ar-SA', 'ar-AE'], max_audio_bytes: 4194304, max_audio_ms: 120000, max_speech_chars: 600 });
+    }
     if (path === '/api/v1/privacy') return json(privacy);
     if (path === '/api/v1/files/usage') return json(fileUsage);
     if (path === '/api/v1/files' && method === 'GET') return json(files);

@@ -173,6 +173,10 @@ Every caller states what a call is for (`ModelRoute`, applied with `route_gatewa
 - **Effort.** The current Haiku and Sonnet models think adaptively by default; `low` effort keeps short replies (voice is capped at 400 tokens) quick and leaves the output budget for the answer. Clear `ANUM_MODEL_FAST_EFFORT` for a model that does not accept `effort` (for example `claude-haiku-4-5`). An invalid value stops the API at startup, and the Helm chart refuses it at `helm template`.
 - **Workspace models** saved in Settings with `openai_compatible`, `ollama` or `mock` have one model and no routes: they answer both kinds of call, and the connection test uses that model. An `anthropic` workspace routes like the server: `fast_model` (or `model`) with `fast_effort` for conversation replies, voice and [conversation memory](memory.md#from-conversations) extraction, `capable_model` (or `model`) with `capable_effort` for planning; the connection test calls each distinct model once.
 
+## Vision (voice calls)
+
+Camera answers in [voice calls](voice.md#video-showing-the-assistant-what-you-see) attach one frame to the last user message of one streamed chat (`with_image`, `vision_gateway`): an `image_url` data part for OpenAI-compatible APIs, a base64 `image` block before the text for Anthropic (that message is not cached). The vision model is `ANUM_MODEL_VISION_NAME` for `openai-compatible` and `ollama` (empty: no vision) and the fast model for `anthropic`. The variant keeps the workspace's budget and metering; the frame is never logged.
+
 ## Later
 
 Add provider failover, embeddings provider pools, tenant-specific model policies, per-workspace routes for the OpenAI-compatible and Ollama providers, batch processing and evaluation harnesses.

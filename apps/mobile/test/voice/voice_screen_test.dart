@@ -83,6 +83,12 @@ void main() {
         .runAsync(() => buildController(speech: speech, transport: transport));
     await _pumpScreen(tester, controller!);
     expect(find.text('Open app settings'), findsOneWidget);
+    // The header has a Call button too; bring the recovery to mid-screen,
+    // clear of the dock.
+    await Scrollable.ensureVisible(
+        tester.element(find.text('Open app settings')),
+        alignment: 0.5);
+    await tester.pump();
     await tester.tap(find.text('Open app settings'));
     expect(speech.settingsOpened, 1);
     expect(transport.requests, isEmpty);

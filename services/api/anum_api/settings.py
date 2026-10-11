@@ -110,6 +110,28 @@ class Settings(BaseSettings):
     # after ``model_stream_timeout_seconds``. Nothing is retried once text has streamed.
     model_first_token_timeout_seconds: float = Field(default=20.0, gt=0)
     model_stream_timeout_seconds: float = Field(default=120.0, gt=0)
+    # Vision in voice calls (docs/voice.md#call-mode): the model that reads a camera
+    # frame. Empty means none for openai-compatible and ollama (a text-only model would
+    # fail on an image); with the anthropic provider the fast model is used, since every
+    # Claude model accepts images. Examples: gpt-4.1-mini, llava, qwen2.5vl.
+    model_vision_name: str = ""
+    # Optional server-side speech for voice calls (docs/voice.md#speech-engines). Both
+    # speak the OpenAI audio API (POST {base}/audio/transcriptions and
+    # {base}/audio/speech), which OpenAI and self-hosted Whisper/Piper servers such as
+    # Speaches serve. Empty base URL or model = off; clients then use device speech.
+    speech_stt_base_url: str = ""
+    speech_stt_api_key: str | None = None
+    speech_stt_model: str = ""
+    # USD per audio minute, charged to the workspace's model budget; 0 for self-hosted.
+    speech_stt_usd_per_minute: float = Field(default=0.0, ge=0, le=10)
+    speech_tts_base_url: str = ""
+    speech_tts_api_key: str | None = None
+    speech_tts_model: str = ""
+    speech_tts_voice_en: str = ""
+    speech_tts_voice_ar: str = ""
+    # USD per million characters of speech, charged to the workspace's model budget.
+    speech_tts_usd_per_million_chars: float = Field(default=0.0, ge=0, le=1000)
+    speech_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     # Conversations (anum_api/conversations.py): how many earlier turns go back to the
     # model with each question, and the character budget those turns may use.
     conversation_history_turns: int = Field(default=12, ge=0, le=50)

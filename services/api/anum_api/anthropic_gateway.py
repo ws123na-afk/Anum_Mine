@@ -36,6 +36,7 @@ from .model_gateway import (
     ModelUsage,
     OpenAICompatibleGateway,
     StructuredModel,
+    VisionImage,
     _CallState,
     _StreamState,
     estimate_cost_usd,
@@ -124,6 +125,20 @@ def build_messages_request(
             raise ValueError(f"unsupported effort: {effort}")
         body["output_config"] = {"effort": effort}
     return body
+
+
+def _attach_image(body: dict[str, Any], image: VisionImage) -> None:
+    """Put ``image`` before the text of the last user message (Anthropic's advice)."""
+    for message in reversed(body.get("messages") or []):
+        if message.get("role") != "user":
+            continue
+        content = message["content"]
+        blocks = content if isinstance(content, list) else [_text_block(content)]
+        message["content"] = [
+            {"type": "image", "source": {"type": "base64", "media_type": image.media_type, "data": image.base64}},
+            *blocks,
+        ]
+        return
 
 
 def count_cache_breakpoints(body: Mapping[str, Any]) -> int:
@@ -224,7 +239,11 @@ class AnthropicGateway(OpenAICompatibleGateway):
     def _stream_request(
         self, messages: list[ChatMessage], max_tokens: int
     ) -> tuple[str, dict[str, object]]:
-        body = self._request(messages, max_tokens, cache=True)
+        # A frame is shown once: caching the message that carries it would only add the
+        # 1.25x write charge.
+        body = self._request(messages, max_tokens, cache=True, cache_messages=self._image is None)
+        if self._image is not None:
+            _attach_image(body, self._image)
         body["stream"] = True
         return f"{self.base_url}/v1/messages", body
 
