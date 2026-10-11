@@ -15,9 +15,9 @@ ANUM deploys to any Kubernetes cluster with the Helm chart in `infra/helm/anum`.
 
 | Workload | Kind | Image and command | Notes |
 |---|---|---|---|
-| API | Deployment, Service, PodDisruptionBudget, HorizontalPodAutoscaler | API image, `uvicorn anum_api.main:app` on 8000 | Startup, liveness and readiness probes on `/health`; rolling update with `maxUnavailable: 0`. |
+| API | Deployment, Service, PodDisruptionBudget, HorizontalPodAutoscaler | API image, `uvicorn anum_api.main:app` on 8000 | Startup, liveness and readiness probes on `/health`; rolling update with `maxUnavailable: 0`; a 5 s `preStop` sleep (`api.preStopSleepSeconds`) keeps a stopping pod serving until its endpoint is removed, so rollouts and rollbacks drop no connections. |
 | Temporal worker | Deployment, PodDisruptionBudget | API image, `python -m anum_api.worker` | No port and no HTTP probe. On SIGTERM it stops polling, hands in-flight activities back to Temporal and exits 0; `terminationGracePeriodSeconds: 60`. |
-| Web | Deployment, Service, PodDisruptionBudget | Web image, unprivileged nginx on 8080 | Probes on `/healthz`; `ANUM_CSP_CONNECT_SRC` from `web.cspConnectSrc`. |
+| Web | Deployment, Service, PodDisruptionBudget | Web image, unprivileged nginx on 8080 | Probes on `/healthz`; `ANUM_CSP_CONNECT_SRC` from `web.cspConnectSrc`; the same 5 s `preStop` drain (`web.preStopSleepSeconds`). |
 | Ingress | Ingress | | One host for the web client, one for the API. TLS from an existing Secret or cert-manager (`ingress.tls.clusterIssuer`). |
 | Migrations | Job, `pre-install,pre-upgrade` hook | API image, `python -m alembic upgrade head` | Runs with the migration login before any new pod starts. |
 | Voice retention | CronJob, daily | API image, `python -m anum_api.voice_retention` | Also purges retrieval index rows of expired memories. [Runbooks](runbooks.md#voice-transcript-retention). |
