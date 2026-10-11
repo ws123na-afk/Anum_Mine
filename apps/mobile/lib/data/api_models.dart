@@ -342,6 +342,7 @@ class NotificationPreferences {
     this.emailEnabled = false,
     this.desktopEnabled = true,
     this.pushEnabled = true,
+    this.commerceAlerts = true,
   });
 
   factory NotificationPreferences.fromJson(JsonMap json) {
@@ -355,6 +356,8 @@ class NotificationPreferences {
       desktopEnabled: r.boolean('desktop_enabled'),
       // Older servers do not send it; push is on there.
       pushEnabled: r.optBool('push_enabled') ?? true,
+      // Older servers do not send it; it is on there (docs/commerce.md#alerts).
+      commerceAlerts: r.optBool('commerce_alerts') ?? true,
     );
   }
 
@@ -368,6 +371,9 @@ class NotificationPreferences {
   /// Phone push for this workspace (docs/notifications.md).
   final bool pushEnabled;
 
+  /// Store alerts: low stock, late orders, returns and prices (docs/commerce.md).
+  final bool commerceAlerts;
+
   JsonMap toJson() => {
         'task_completed': taskCompleted,
         'approval_required': approvalRequired,
@@ -376,6 +382,7 @@ class NotificationPreferences {
         'email_enabled': emailEnabled,
         'desktop_enabled': desktopEnabled,
         'push_enabled': pushEnabled,
+        'commerce_alerts': commerceAlerts,
       };
 }
 

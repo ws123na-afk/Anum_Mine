@@ -98,3 +98,5 @@ Define event naming, publish core task and approval events to NATS JetStream, pe
 ## Later
 
 Add an outbox backlog metric and alert, event replay tools, dead-letter dashboards, schema registry checks, tenant-level event exports, and external event subscriptions.
+
+Commerce ([Commerce](commerce.md#alerts)) records `commerce.alert.raised` when a sync or a store webhook raises a new alert (low stock, an order not shipped in time, a return spike, a lost buy box, a competitor below the price, a sync problem). Subject: the alert id. Payload: `alert_id`, `kind`, `severity`, `title` and `channel`; never buyer details. Phone push turns it into a fixed sentence without the title.

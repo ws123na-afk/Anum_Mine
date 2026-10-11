@@ -30,6 +30,16 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "commerce_order_lines",
+    "commerce_orders",
+    "commerce_listings",
+    "commerce_customers",
+    "commerce_returns",
+    "commerce_fees",
+    "commerce_alerts",
+    "commerce_connectors",
+    "commerce_products",
+    "commerce_settings",
     "whatsapp_messages",
     "whatsapp_conversations",
     "whatsapp_contacts",

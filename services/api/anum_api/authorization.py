@@ -71,6 +71,13 @@ class Permission(StrEnum):
     EMAIL_READ = "email:read"
     EMAIL_ACT = "email:act"
     EMAIL_MANAGE = "email:manage"
+    # Commerce (docs/commerce.md#who-can-do-what): everyone reads sales, orders and stock;
+    # members also edit the catalogue, sync and propose price or stock changes (which still
+    # need approval); only owners connect channels and see buyer details.
+    COMMERCE_READ = "commerce:read"
+    COMMERCE_OPERATE = "commerce:operate"
+    COMMERCE_MANAGE = "commerce:manage"
+    COMMERCE_PII = "commerce:pii"
 
 
 class OrganizationRole(StrEnum):
@@ -117,6 +124,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.ROUTING_READ,
         Permission.OPERATIONS_READ,
         Permission.AUTOMATION_READ,
+        Permission.COMMERCE_READ,
     }
 )
 
@@ -141,6 +149,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.WHATSAPP_REPLY,
             Permission.EMAIL_READ,
             Permission.EMAIL_ACT,
+            Permission.COMMERCE_OPERATE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

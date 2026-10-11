@@ -5,6 +5,14 @@ from pydantic import BaseModel, Field
 
 from .schemas import RiskLevel
 
+# Words that select the commerce skill (anum_api/commerce/tools.py parses the request).
+COMMERCE_TRIGGERS = frozenset(
+    {
+        "sales", "sold", "revenue", "orders", "order", "amazon", "noon", "stock", "inventory", "listing", "listings",
+        "price", "prices", "returns", "unshipped", "sku", "selling", "restock",
+    }
+)
+
 
 class SkillManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]+$")
@@ -78,6 +86,18 @@ def default_skill_registry() -> SkillRegistry:
                 triggers=frozenset({"email", "emails", "e-mail", "e-mails", "inbox", "mail", "mails", "gmail", "outlook", "zoho"}),
                 # Selectable wherever the email tools are registered (docs/email.md).
                 required_tools=frozenset({"search_email"}),
+            ),
+            SkillManifest(
+                id="anum.commerce",
+                version="1.0.0",
+                name="Commerce",
+                description=(
+                    "Answers sales, order and stock questions across Amazon, noon and the own store, and "
+                    "proposes price or stock changes that wait for approval (docs/commerce.md)."
+                ),
+                triggers=COMMERCE_TRIGGERS,
+                # Selectable where the commerce tools are registered (the API and the worker).
+                required_tools=frozenset({"commerce.sales_summary"}),
             ),
             SkillManifest(
                 id="anum.external-action",

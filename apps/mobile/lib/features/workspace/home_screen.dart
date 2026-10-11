@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import '../commerce/commerce_strings.dart';
 import 'destinations.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
@@ -16,8 +17,12 @@ class HomeScreen extends StatelessWidget {
     required this.onOpenTask,
     this.workspaceName,
     this.assistantName = 'Anum',
+    this.onOpenCommerce,
     super.key,
   });
+
+  /// Opens Commerce (docs/commerce.md); without it the entry is hidden.
+  final VoidCallback? onOpenCommerce;
 
   final WorkspaceController controller;
 
@@ -64,6 +69,17 @@ class HomeScreen extends StatelessWidget {
           pending: pending.length,
           onTap: () => onNavigate(WorkspaceDestination.voice),
         ),
+        if (onOpenCommerce != null)
+          AnumSurface(
+            onTap: onOpenCommerce,
+            semanticLabel: CommerceStrings.of(context).t('entry'),
+            child: AnumRow(
+              title: CommerceStrings.of(context).t('entry'),
+              subtitle: CommerceStrings.of(context).t('entrySubtitle'),
+              icon: Icons.storefront_outlined,
+              trailing: const Icon(Icons.chevron_right),
+            ),
+          ),
         AnumMetricGrid(children: [
           AnumMetric(
             label: 'Needs you',

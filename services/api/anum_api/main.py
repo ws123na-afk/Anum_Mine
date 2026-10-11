@@ -117,6 +117,9 @@ from .developer import register_developer_tools, router as developer_router
 from .whatsapp import register_whatsapp_tools, router as whatsapp_router
 from . import email_inbox
 from .email_api import router as email_router
+from .commerce.api import router as commerce_router
+from .commerce.scheduler import build_commerce_scheduler
+from .commerce.tools import register_commerce_tools
 from .user_preferences import router as user_preferences_router
 from .push import push_dispatcher, router as push_router
 from .developer_watch import build_developer_watcher
@@ -163,9 +166,15 @@ async def lifespan(_: FastAPI):
     email_scheduler = email_inbox.build_email_scheduler(settings)
     if email_scheduler is not None:
         email_scheduler.start()
+    # Syncs due sales-channel connectors when ANUM_COMMERCE_SYNC_ENABLED=true (docs/commerce.md#sync).
+    commerce_scheduler = build_commerce_scheduler()
+    if commerce_scheduler is not None:
+        commerce_scheduler.start()
     try:
         yield
     finally:
+        if commerce_scheduler is not None:
+            await commerce_scheduler.stop()
         if email_scheduler is not None:
             await email_scheduler.stop()
         if scheduler is not None:
@@ -253,16 +262,17 @@ app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
+app.include_router(commerce_router)
 event_runtime.add_listener(push_dispatcher.submit)
 app.include_router(autonomy_router)
 app.include_router(learning_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
-))))
+)))))
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).
 configure_tool_catalog(tool_registry.definition)
 # A workspace owner can switch a mail provider off under Integrations (email_<provider>).

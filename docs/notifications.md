@@ -11,6 +11,7 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `approval_required` | Approvals waiting for me | `approval.requested` to the members who may decide it, `developer_request.ready_for_review` to the request's owner |
 | `task_completed` | Tasks finished | `agent_run.completed` to the task's creator |
 | `run_failed` | Tasks failed | `agent_run.failed` to the task's creator, `developer_request.failed` to the request's owner |
+| `commerce_alerts` | Store alerts (migration `0038_commerce`, default on; older clients that do not send it leave it on) | `commerce.alert.raised` to the workspace's owners and members ([Commerce](commerce.md#alerts)) |
 | `automation_failed` | Automations failed | Nothing yet: automation runs emit no domain event; the failure shows in Automation |
 | `push_enabled` | Phone push for this workspace (migration `0027_push_devices`, default on; older clients that do not send it leave it on) | The channel switch for all of the above |
 | `desktop_enabled` | Desktop notifications | Not a phone channel |

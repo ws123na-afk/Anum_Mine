@@ -297,7 +297,8 @@ class _NotificationState extends State<_NotificationCard> {
           bool? automation,
           bool? email,
           bool? desktop,
-          bool? push}) =>
+          bool? push,
+          bool? commerce}) =>
       NotificationPreferences(
           taskCompleted: task ?? value.taskCompleted,
           approvalRequired: approval ?? value.approvalRequired,
@@ -305,7 +306,8 @@ class _NotificationState extends State<_NotificationCard> {
           automationFailed: automation ?? value.automationFailed,
           emailEnabled: email ?? value.emailEnabled,
           desktopEnabled: desktop ?? value.desktopEnabled,
-          pushEnabled: push ?? value.pushEnabled);
+          pushEnabled: push ?? value.pushEnabled,
+          commerceAlerts: commerce ?? value.commerceAlerts);
   @override
   Widget build(BuildContext context) => Card(
           child: Column(children: [
@@ -329,6 +331,13 @@ class _NotificationState extends State<_NotificationCard> {
             title: const Text('Automation failed'),
             value: value.automationFailed,
             onChanged: (v) => update(copy(automation: v))),
+        SwitchListTile(
+            secondary: const Icon(Icons.storefront_outlined),
+            title: const Text('Store alerts'),
+            subtitle: const Text(
+                'Low stock, late orders, return spikes and price changes.'),
+            value: value.commerceAlerts,
+            onChanged: (v) => update(copy(commerce: v))),
         const Divider(height: 1),
         SwitchListTile(
             secondary: const Icon(Icons.email_outlined),

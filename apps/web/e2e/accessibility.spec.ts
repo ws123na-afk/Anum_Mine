@@ -12,6 +12,7 @@ const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'approvals', ready: (page) => expect(page.locator('.approvalDetail').first()).toBeVisible() },
   { hash: 'memory', ready: (page) => expect(page.locator('.memoryRow').first()).toBeVisible() },
   { hash: 'files', ready: (page) => expect(page.locator('.filesTable .memoryRow').first()).toBeVisible() },
+  { hash: 'commerce', ready: (page) => expect(page.locator('.cmChart svg')).toBeVisible() },
   { hash: 'settings', ready: (page) => expect(page.locator('.chatMemorySetting input[type="checkbox"]')).toBeVisible() },
   { hash: 'notifications', ready: (page) => expect(page.locator('.phoneList .phoneRow')).toHaveCount(1) },
   { hash: 'language', ready: (page) => expect(page.locator('.languageChoices')).toBeVisible() },

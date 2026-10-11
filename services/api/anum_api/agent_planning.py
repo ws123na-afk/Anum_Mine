@@ -90,6 +90,15 @@ class AgentPlanner:
             from .email_inbox import SEARCH_TOOL, tool_arguments_from_prompt
 
             return ToolCall(name=SEARCH_TOOL, arguments=tool_arguments_from_prompt(prompt))
+        if any(skill.id == "anum.commerce" for skill in skills):
+            # Parsed from the user's own prompt only (threat model G5); None falls through.
+            from .commerce.tools import plan_call
+
+            call = plan_call(prompt)
+            if call is not None:
+                if call.name == "anum.respond" and "text" not in call.arguments:
+                    call.arguments["text"] = response.text
+                return call
         if any(skill.id == "anum.external-action" for skill in skills):
             return ToolCall(
                 name="external.action",

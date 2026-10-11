@@ -79,7 +79,7 @@ describe('devices', () => {
 describe('notification switches', () => {
   test('every switch is labelled and phone push defaults on for older servers', () => {
     const keys = notificationSwitches().map((item) => item.key);
-    assert.deepEqual([...keys].sort(), ['approval_required', 'automation_failed', 'desktop_enabled', 'email_enabled', 'push_enabled', 'run_failed', 'task_completed']);
+    assert.deepEqual([...keys].sort(), ['approval_required', 'automation_failed', 'commerce_alerts', 'desktop_enabled', 'email_enabled', 'push_enabled', 'run_failed', 'task_completed']);
     for (const item of notificationSwitches()) assert.ok(item.label && item.description.length > 10, item.key);
     assert.equal(withDefaults(prefs).push_enabled, true);
     assert.equal(withDefaults({ ...prefs, push_enabled: false }).push_enabled, false);

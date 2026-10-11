@@ -2,8 +2,11 @@
 // Every other catalog must have exactly these keys and the same `{placeholders}`
 // (test/i18n.test.ts checks both). Plural messages pick a form by `count`.
 import type { Message } from './types.ts';
+import { commerceEn } from './commerce.en.ts';
 
 export const en = {
+  // ---- Commerce (commerce.en.ts) ----
+  ...commerceEn,
   // ---- Common ----
   'common.listAnd': '{head} and {last}',
   'common.listSeparator': ', ',

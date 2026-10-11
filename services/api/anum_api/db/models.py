@@ -755,6 +755,8 @@ class NotificationPreferenceRecord(Base):
     desktop_enabled: Mapped[bool] = mapped_column(nullable=False)
     # Migration 0027_push_devices; the server default keeps older releases' inserts valid.
     push_enabled: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
+    # Migration 0038_commerce; the server default keeps older releases' inserts valid.
+    commerce_alerts: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("notification_preferences"),)

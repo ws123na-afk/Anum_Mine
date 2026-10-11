@@ -16,6 +16,8 @@ import '../whatsapp/whatsapp_controller.dart';
 import '../whatsapp/whatsapp_screen.dart';
 import '../email/email_controller.dart';
 import '../email/inbox_screen.dart';
+import '../commerce/commerce_controller.dart';
+import '../commerce/commerce_screen.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../automations/automation_repository.dart';
@@ -42,6 +44,7 @@ class WorkspaceHome extends StatefulWidget {
       this.chatDeveloper,
       this.whatsappController,
       this.emailController,
+      this.commerceController,
       this.workspaceName,
       this.initialIndex = 0});
   final WorkspaceController controller;
@@ -67,6 +70,9 @@ class WorkspaceHome extends StatefulWidget {
 
   /// The unified inbox (docs/email.md), opened from the app bar or More.
   final EmailController? emailController;
+
+  /// Commerce (docs/commerce.md), opened from Home.
+  final CommerceController? commerceController;
   final String? workspaceName;
   final int initialIndex;
   @override
@@ -175,6 +181,11 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               onNavigate: _select,
               onOpenTask: (task) =>
                   openTaskDetail(context, widget.controller, task),
+              onOpenCommerce: widget.commerceController == null
+                  ? null
+                  : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => CommerceScreen(
+                          controller: widget.commerceController!))),
             ),
             TasksScreen(controller: widget.controller),
             VoiceScreen(

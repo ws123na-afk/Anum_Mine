@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { commerceReply, commerceState } from './commerceApi';
 
 // One mocked workspace with something on every main view (Assistant, Tasks, Approvals, Memory,
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
@@ -152,6 +153,8 @@ const note = {
 };
 const signal = { id: 'signal_1', kind: 'draft_edited', surface: 'email', subject_id: null, skill: null, tool: null, contact: 'supplier@example.com', language: 'en', original_text: 'Hello, the order is late.', final_text: 'Dear supplier,\nThe order is late.\nBest regards', reason: null, metadata: { edit: { words_before: 5, words_after: 9, words_added: 5, words_removed: 1, changed_ratio: 0.5, greeting_before: 'Hello', greeting_after: 'Dear', sign_off_before: null, sign_off_after: 'Best regards' } }, created_at: now, truncated: false };
 
+const commerceFixture = commerceState('owner');
+
 export async function mockWorkspaceApi(page: Page): Promise<void> {
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -230,6 +233,9 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/enterprise/operations') return json({ tenant_id: 'tenant_local', active_regions: 1, healthy_targets: 1, degraded_targets: 0, installed_packages: 1, failover_ready: false, generated_at: now });
     if (path === '/api/v1/routing/targets') return json([{ id: 'configured-model', region: 'local', provider: 'anthropic', model: 'claude', status: 'unverified', modalities: ['text'], sensitivity: ['standard'], cost_per_1k_tokens: 0, latency_ms: 1 }]);
     if (path === '/api/v1/marketplace/packages') return json(packages);
+    // Commerce (docs/commerce.md): one Amazon and one own-store connection with data on every tab.
+    const commerce = commerceReply(commerceFixture, method, url, request.postData() ? request.postDataJSON() : null);
+    if (commerce) return json(commerce.body, commerce.status);
     if (path === '/api/v1/marketplace/installs') return json([{ package_id: 'acme.crm-sync', version: '1.2.0', enabled: true, installed_by: 'user_local', installed_at: now }]);
     if (path === '/api/v1/email/setup') return json(emailSetup);
     if (path === '/api/v1/email/accounts' && method === 'GET') return json([emailAccount]);

@@ -202,6 +202,8 @@ class NotificationPreferences(BaseModel):
     desktop_enabled: bool = True
     # Phone push (docs/notifications.md); omitted by older clients, so it defaults on.
     push_enabled: bool = True
+    # Commerce alerts (docs/commerce.md#alerts): low stock, late shipments, return spikes, prices.
+    commerce_alerts: bool = True
 
 
 def _config_view(config: StoredModelConfig) -> ModelConfigView:

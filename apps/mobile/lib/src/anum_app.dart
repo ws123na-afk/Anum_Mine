@@ -21,6 +21,8 @@ import '../features/whatsapp/whatsapp_repository.dart';
 import '../features/email/email_controller.dart';
 import '../features/email/email_repository.dart';
 import '../features/email/inbox_screen.dart';
+import '../features/commerce/commerce_controller.dart';
+import '../features/commerce/commerce_repository.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/workspace/destinations.dart';
 import '../features/workspace/files_repository.dart';
@@ -94,6 +96,7 @@ class _AnumAppState extends State<AnumApp> {
   late final DeveloperAssist chatDeveloper;
   late final DeveloperAssist voiceDeveloper;
   late final PushController push;
+  late final CommerceController commerce;
 
   /// For push deep links and foreground notices, which arrive outside any
   /// widget's context.
@@ -175,6 +178,8 @@ class _AnumAppState extends State<AnumApp> {
     ));
     // Developer mode (docs/developer-mode.md): the screen, plus "build ..." in
     // the Assistant and "developer, ..." by voice. The role is checked once.
+    // Commerce (docs/commerce.md): sales summary and orders, read-only here.
+    commerce = CommerceController(ApiCommerceRepository(api));
     final developerRepository = ApiDeveloperRepository(api);
     developer = DeveloperController(developerRepository);
     chatDeveloper = DeveloperAssist(
@@ -216,6 +221,7 @@ class _AnumAppState extends State<AnumApp> {
       chat.reset();
       automations.reset();
       developer.reset();
+      commerce.reset();
       chatDeveloper.reset();
       voiceDeveloper.reset();
       whatsapp.reset();
@@ -292,6 +298,7 @@ class _AnumAppState extends State<AnumApp> {
     settings.dispose();
     governance.dispose();
     developer.dispose();
+    commerce.dispose();
     push.dispose();
     chatDeveloper.dispose();
     voiceDeveloper.dispose();
@@ -357,6 +364,7 @@ class _AnumAppState extends State<AnumApp> {
                       chatDeveloper: chatDeveloper,
                       whatsappController: whatsapp,
                       emailController: email,
+                      commerceController: commerce,
                       workspaceName: auth.workspaceName,
                     )
                   : AuthFlow(controller: auth),
@@ -426,6 +434,7 @@ class _AnumAppState extends State<AnumApp> {
         chatDeveloper: chatDeveloper,
         whatsappController: whatsapp,
         emailController: email,
+        commerceController: commerce,
         workspaceName: auth.workspaceName,
         initialIndex: index,
       );

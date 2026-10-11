@@ -67,6 +67,7 @@ export const ROLE_TEMPLATE_PERMISSIONS = [
   'task:read', 'task:create', 'task:run', 'task:cancel', 'approval:read', 'approval:decide', 'event:read',
   'memory:read', 'memory:create', 'memory:delete', 'file:read', 'file:upload', 'file:manage', 'integration:read', 'marketplace:read', 'routing:read',
   'operations:read', 'organization:read', 'policy:read', 'automation:read', 'automation:manage',
+  'commerce:read', 'commerce:operate', 'commerce:manage', 'commerce:pii',
 ] as const;
 
 export function roleTemplateBody(name: string, permissions: string[]): Result<{ name: string; permissions: string[] }> {

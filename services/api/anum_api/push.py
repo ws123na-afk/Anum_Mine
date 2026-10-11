@@ -28,6 +28,8 @@ event                                          recipients                       
 ``agent_run.failed``                           the task's creator               ``run_failed``
 ``developer_request.ready_for_review``         the request's creator (owner)    ``approval_required``
 ``developer_request.failed``                   the request's creator (owner)    ``run_failed``
+``commerce.alert.raised``                       active owners and members        ``commerce_alerts``
+                                               (``commerce:operate``)
 =============================================  ==============================  =====================
 
 Recipients are resolved as the application role inside the event's tenant and workspace
@@ -372,6 +374,7 @@ class PushKind(StrEnum):
     RUN_FAILED = "run_failed"
     DEVELOPER_READY = "developer_ready"
     DEVELOPER_FAILED = "developer_failed"
+    COMMERCE_ALERT = "commerce_alert"
 
 
 # Which notification preference switch gates each kind.
@@ -381,6 +384,7 @@ PREFERENCE: dict[PushKind, str] = {
     PushKind.RUN_FAILED: "run_failed",
     PushKind.DEVELOPER_READY: "approval_required",
     PushKind.DEVELOPER_FAILED: "run_failed",
+    PushKind.COMMERCE_ALERT: "commerce_alerts",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -390,6 +394,7 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.RUN_FAILED: ("Task failed", "A task you started could not finish."),
     PushKind.DEVELOPER_READY: ("Change ready for review", "A developer request has a pull request ready to merge."),
     PushKind.DEVELOPER_FAILED: ("Developer request stopped", "A developer request failed or its checks did not pass."),
+    PushKind.COMMERCE_ALERT: ("Store alert", "A sales channel needs your attention: low stock, a late order, returns or a price."),
 }
 
 EVENT_KINDS: dict[str, PushKind] = {
@@ -398,6 +403,7 @@ EVENT_KINDS: dict[str, PushKind] = {
     "agent_run.failed": PushKind.RUN_FAILED,
     "developer_request.ready_for_review": PushKind.DEVELOPER_READY,
     "developer_request.failed": PushKind.DEVELOPER_FAILED,
+    "commerce.alert.raised": PushKind.COMMERCE_ALERT,
 }
 
 
@@ -411,6 +417,7 @@ class PushIntent:
     approval_id: str | None = None
     run_id: str | None = None
     request_id: str | None = None
+    alert_id: str | None = None
 
     def data(self) -> dict[str, str]:
         """Deep-link ids only (FCM data values must be strings)."""
@@ -422,11 +429,12 @@ class PushIntent:
             "approval_id": self.approval_id,
             "run_id": self.run_id,
             "developer_request_id": self.request_id,
+            "commerce_alert_id": self.alert_id,
         }
         return {key: value for key, value in values.items() if value}
 
     def collapse_id(self) -> str:
-        return self.approval_id or self.request_id or self.task_id or self.event_id
+        return self.approval_id or self.request_id or self.alert_id or self.task_id or self.event_id
 
 
 def intent_for(event: DomainEvent) -> PushIntent | None:
@@ -447,6 +455,8 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         if task_id is None:
             return None
         return PushIntent(**common, run_id=event.subject, task_id=task_id)
+    if kind == PushKind.COMMERCE_ALERT:
+        return PushIntent(**common, alert_id=event.subject)
     return PushIntent(**common, request_id=event.subject)
 
 
@@ -485,6 +495,9 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
             creator = task.created_by if task is not None else None
             if creator and _allowed(members.get(creator, ""), Permission.TASK_READ):
                 recipients = [creator]
+        elif intent.kind == PushKind.COMMERCE_ALERT:
+            # Those who can act on it (docs/commerce.md#alerts); viewers see it in the app.
+            recipients = [user for user, role in members.items() if _allowed(role, Permission.COMMERCE_OPERATE)]
         else:
             from .developer import open_developer_store
 

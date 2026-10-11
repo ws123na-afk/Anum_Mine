@@ -367,6 +367,7 @@ async function requestVoid(path: string, init: RequestInit): Promise<void> {
   if (!response.ok) throw await apiErrorFromResponse(response);
 }
 
+
 const configuredWorkspaceId = import.meta.env.VITE_ANUM_WORKSPACE_ID as string | undefined;
 
 function browserStorage(): workspaces.KeyValueStorage | null {

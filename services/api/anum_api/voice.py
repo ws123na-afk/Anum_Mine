@@ -524,6 +524,16 @@ def _prepare_ask(
         reply = voice_email_reply(context, text, arabic)
     elif intent in SMALL_TALK:
         reply = small_talk_reply(intent, name, facts, arabic)
+    elif intent == VoiceIntent.QUESTION:
+        # "How were Amazon sales today?" is answered from the synced data (docs/commerce.md).
+        from .commerce.voice import commerce_voice_reply
+
+        commerce = commerce_voice_reply(context, text, arabic)
+        if commerce is not None:
+            tier_value, reply, proposal = commerce
+            tier = VoiceRiskTier(tier_value)
+            if proposal is not None:
+                intent = VoiceIntent.CREATE_TASK
     return _PreparedAsk(
         session=session,
         segment=segment,

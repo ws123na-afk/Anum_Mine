@@ -64,6 +64,7 @@ class CanonicalEventName(StrEnum):
     AUTOMATION_RUN_FAILED = "automation_run.failed"
     AUTOMATION_RUN_CANCELLED = "automation_run.cancelled"
     AUTOMATION_NOTIFICATION = "automation.notification"
+    COMMERCE_ALERT_RAISED = "commerce.alert.raised"
 
 
 class PublicationStatus(StrEnum):
