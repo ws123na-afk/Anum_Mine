@@ -1,6 +1,6 @@
 # Email: the unified inbox
 
-ANUM reads the owner's business mailboxes (Gmail / Google Workspace, Outlook / Microsoft 365, Zoho Mail) through each provider's official API and OAuth, shows them as one inbox, sorts and summarises messages, drafts replies with the model, and sends a reply only after an owner approves the exact message. Code: `services/api/anum_api/email_providers.py` (provider clients), `email_inbox.py` (settings, storage, sync, triage, tools), `email_api.py` (routes), `db/email_repository.py` and migration `0031_email_inbox`; web `apps/web/src/InboxView.tsx`; Flutter `apps/mobile/lib/features/email/`.
+ANUM reads the owner's business mailboxes (Gmail / Google Workspace, Outlook / Microsoft 365, Zoho Mail) through each provider's official API and OAuth, shows them as one inbox, sorts and summarises messages, drafts replies with the model, and sends a reply only after an owner approves the exact message. Code: `services/api/anum_api/email_providers.py` (provider clients), `email_inbox.py` (settings, storage, sync, triage, tools), `email_api.py` (routes), `db/email_repository.py` and migration `0035_email_inbox`; web `apps/web/src/InboxView.tsx`; Flutter `apps/mobile/lib/features/email/`.
 
 ## What it does
 

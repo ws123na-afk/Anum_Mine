@@ -50,6 +50,7 @@ from .authorization import Permission
 from .conversations import Conversation, ConversationTurn
 from .dependencies import require_permission, tenant_context
 from .files import FileRecord
+from .learning_store import LearningStore
 from .memory import MemoryNote
 from .onboarding import NotificationPreferences
 from .push import PushDevice
@@ -90,6 +91,10 @@ class PrivateCounts(BaseModel):
     user_preferences: int = 0
     # Phones registered for push in this workspace (migration 0027_push_devices).
     push_devices: int = 0
+    # What ANUM learned (migration 0031_learning, docs/learning.md): feedback signals, and
+    # the style profile, learned preferences, routines, notes and suggestions.
+    learning_signals: int = 0
+    learned_items: int = 0
 
     @property
     def total(self) -> int:
@@ -174,6 +179,7 @@ class PrivacyStore(Protocol):
     def user_preferences(self) -> UserPreferences | None: ...
     def push_devices(self) -> list[PushDevice]: ...
     def files_uploaded(self) -> list[FileRecord]: ...
+    def learning(self) -> LearningStore: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
     def record_audit(self, record: AuditRecord) -> None: ...
@@ -287,6 +293,11 @@ class InMemoryPrivacyStore:
         ]
         return sorted(records, key=lambda record: (record.created_at, record.id))
 
+    def learning(self) -> LearningStore:
+        from .learning_store import learning_data
+
+        return learning_data.bound(self.context)
+
     def _private_sources(self) -> list[Any]:
         from .retrieval import memory_retrieval_store
 
@@ -312,6 +323,7 @@ class InMemoryPrivacyStore:
             notification_preferences=int(self.notification_preferences() is not None),
             user_preferences=int(self.user_preferences() is not None),
             push_devices=len(self.push_devices()),
+            **learning_counts(self.learning()),
         )
         return private, self._shared_counts()
 
@@ -353,12 +365,31 @@ class InMemoryPrivacyStore:
 
         for device in push_device_store.list(self.context):
             push_device_store.delete(self.context, device.id)
+        self.learning().delete_all()
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
         from .dependencies import memory_repository
 
         memory_repository.record_audit(record)
+
+
+def learning_counts(store: LearningStore) -> dict[str, int]:
+    counts = store.counts()
+    return {"learning_signals": counts["signals"], "learned_items": sum(counts.values()) - counts["signals"]}
+
+
+def learning_export(store: LearningStore) -> dict[str, Any]:
+    """Everything ANUM learned from the caller in this workspace, full texts included."""
+    profile = store.get_profile()
+    return {
+        "profile": _dump(profile) if profile is not None else None,
+        "signals": [_dump(signal) for signal in store.list_signals()],
+        "preferences": [_dump(item) for item in store.list_preferences()],
+        "routines": [_dump(item) for item in store.list_routines()],
+        "notes": [_dump(item) for item in store.list_notes()],
+        "suggestions": [_dump(item) for item in store.list_suggestions()],
+    }
 
 
 def _decided_by(
@@ -483,6 +514,7 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("user_preferences", _dump(mine) if mine is not None else None)
     # Platform, label and dates only: the push token is never exported.
     yield ("push_devices", [_dump(device) for device in store.push_devices()])
+    yield ("learning", learning_export(store.learning()))
     yield (
         "files_uploaded",
         [

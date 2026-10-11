@@ -1519,4 +1519,13 @@ def retry_run(run_id: str, context: TenantContext = Depends(tenant_context), ide
         prior = selected.get_run(context, run_id)
         if prior.status not in {RunStatus.FAILED, RunStatus.CANCELLED}:
             raise AutomationConflict(f"Only failed or cancelled runs can be retried; this run is {prior.status.value}.")
-        return selected.start(context, prior.workflow_id, idempotency_key, retry_of=prior.id)
+        retried = selected.start(context, prior.workflow_id, idempotency_key, retry_of=prior.id)
+    # A retry is a learning signal for the caller (docs/learning.md); best effort.
+    from .learning import SignalKind, Surface
+    from .learning_store import new_signal, record_server_signal
+
+    record_server_signal(
+        context,
+        new_signal(SignalKind.RETRY, Surface.AUTOMATION, subject_id=prior.id, metadata={"workflow_id": prior.workflow_id}),
+    )
+    return retried

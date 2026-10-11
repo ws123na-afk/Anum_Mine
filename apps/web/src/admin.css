@@ -100,7 +100,7 @@
 /* Workspace switcher in the top bar */
 .workspaceSwitcher { min-width: 0; position: relative; }
 .topbar > div:first-child { min-width: 0; }
-.topActions .workspaceSwitch { align-items: center; cursor: pointer; display: inline-flex; gap: 6px; max-width: min(46vw, 360px); }
+.topActions .workspaceSwitch { align-items: center; cursor: pointer; display: inline-flex; gap: 6px; max-width: min(46vw, 360px, 100%); min-width: 0; }
 .workspaceSwitch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspaceSwitch svg { flex: none; height: 14px; width: 14px; }
 .workspacePanel {

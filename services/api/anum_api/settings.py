@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     conversation_memory_recall_k: int = Field(default=4, ge=0, le=20)
     conversation_memory_recall_chars: int = Field(default=2000, ge=0, le=20_000)
     conversation_memory_recall_timeout_seconds: float = Field(default=3.0, gt=0)
+    # What ANUM learned (anum_api/learning.py, docs/learning.md): feedback signals, the
+    # style profile, routines and weekly improvement notes, per user. ``false`` stops
+    # all new learning and the learned block in prompts; stored data stays viewable and
+    # deletable. Signals older than ``learning_signal_retention_days`` are deleted the
+    # next time their user's learning data is used.
+    learning_enabled: bool = True
+    learning_signal_retention_days: int = Field(default=180, ge=7, le=3650)
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))

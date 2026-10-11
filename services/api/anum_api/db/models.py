@@ -1102,3 +1102,126 @@ class AutonomyRecipientRecord(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("autonomy_recipients"),)
+
+
+# --------------------------------------------------------------------------- learning
+# What ANUM learned (migration ``0031_learning``, docs/learning.md). Every row is private
+# to one user in one workspace: forced RLS checks the tenant, workspace and user.
+
+
+class LearningProfileRecord(Base):
+    __tablename__ = "learning_profiles"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+    derived: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    overrides: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    derived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("learning_profiles"),)
+
+
+class LearningSignalRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "learning_signals"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    surface: Mapped[str] = mapped_column(String(20), nullable=False)
+    subject_id: Mapped[str | None] = mapped_column(String(120))
+    skill: Mapped[str | None] = mapped_column(String(120))
+    tool: Mapped[str | None] = mapped_column(String(120))
+    contact: Mapped[str | None] = mapped_column(String(160))
+    language: Mapped[str | None] = mapped_column(String(10))
+    original_text: Mapped[str | None] = mapped_column(Text)
+    final_text: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(String(500))
+    signal_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("learning_signals"),)
+
+
+class LearningPreferenceRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "learning_preferences"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    scope: Mapped[str] = mapped_column(String(200), nullable=False, default="all")
+    text: Mapped[str] = mapped_column(String(300), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
+    suggestion_id: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("learning_preferences"),)
+
+
+class LearningRoutineRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "learning_routines"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    cadence: Mapped[str] = mapped_column(String(10), nullable=False)
+    cron: Mapped[str] = mapped_column(String(120), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(80), nullable=False)
+    steps: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    occurrences: Mapped[int] = mapped_column(nullable=False, default=0)
+    weeks_observed: Mapped[int] = mapped_column(nullable=False, default=0)
+    confidence: Mapped[float] = mapped_column(Double, nullable=False, default=0.0)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    workflow_id: Mapped[str | None] = mapped_column(String(80))
+    schedule_id: Mapped[str | None] = mapped_column(String(80))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("learning_routines"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "fingerprint", name="uq_learning_routines_fingerprint"),
+    )
+
+
+class LearningNoteRecord(Base):
+    __tablename__ = "learning_notes"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    week: Mapped[str] = mapped_column(String(10), primary_key=True)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("learning_notes"),)
+
+
+class LearningSuggestionRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "learning_suggestions"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    week: Mapped[str] = mapped_column(String(10), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(200), nullable=False)
+    rule: Mapped[str] = mapped_column(String(40), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(String(1000), nullable=False)
+    target: Mapped[str | None] = mapped_column(String(200))
+    change: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("learning_suggestions"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "fingerprint", name="uq_learning_suggestions_fingerprint"),
+    )

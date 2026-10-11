@@ -173,3 +173,4 @@ export * from './phase2.js';
 export * from './admin.js';
 export * from './account.js';
 export * from './autonomy.js';
+export * from './learning.js';

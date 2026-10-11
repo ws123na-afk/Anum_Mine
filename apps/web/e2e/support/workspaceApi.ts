@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 
 // One mocked workspace with something on every main view (Assistant, Tasks, Approvals, Memory,
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
+// Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, What ANUM learned), for the accessibility and localization specs. Every request the views make
 // is answered; anything else is aborted so a new, unmocked call shows up as a failure.
 const now = new Date().toISOString();
 const later = new Date(Date.now() + 5 * 3600_000).toISOString();
@@ -134,6 +135,22 @@ export function emailDetail(id: string, drafts: unknown[] = [emailDraft]) {
     attachments: message.has_attachments ? [{ id: 'att_1', filename: 'photo.jpg', content_type: 'image/jpeg', size: 20480 }] : [],
   };
 }
+const style = { tone: 'formal', length: 'short', target_words: 24, greeting: 'Dear', sign_off: 'Best regards', language: 'en', contact_languages: { 'supplier@example.com': 'ar' }, emoji: false, edit_length_ratio: 0.7, samples: 3 };
+const learning = {
+  state: 'on', counts: { signals: { rating_up: 2, draft_edited: 3 }, preferences: 1, routines_proposed: 1, suggestions_open: 1 },
+  profile: { enabled: true, derived: style, overrides: {}, effective: style, derived_at: now, updated_at: now },
+  can_manage_automations: true, can_apply_autonomy: true,
+};
+const routine = {
+  id: 'routine_sunday', fingerprint: 'weekly:6:9:check amazon orders', status: 'proposed', title: 'Every Sunday around 09:00: Check Amazon orders, then Email the supplier',
+  cadence: 'weekly', cron: '0 9 * * 0', timezone: 'Asia/Riyadh', occurrences: 4, weeks_observed: 4, confidence: 1, last_seen_at: now, workflow_id: null, schedule_id: null, detected_at: now, decided_at: null,
+  steps: [{ key: 'check amazon orders', label: 'Check Amazon orders', prompt: 'Check Amazon orders', source: 'task' }, { key: 'email supplier restock', label: 'Email the supplier', prompt: 'Email the supplier about restock', source: 'task' }],
+};
+const note = {
+  note: { week: '2026-W41', period_start: now, period_end: now, generated_at: now, summary: { ratings_up: 2, ratings_down: 1, drafts_accepted: 0, drafts_edited: 3, approvals_approved: 1, approvals_rejected: 2, retries: 1, run_failures: 0 } },
+  suggestions: [{ id: 'suggestion_1', week: '2026-W41', fingerprint: 'f', rule: 'approval_rejections', kind: 'instruction', title: 'You rejected external.action 2 times', body: 'Applying adds an instruction to confirm the recipient first.', target: 'tool:external.action', change: { type: 'preference', scope: 'tool:external.action', text: 'Confirm the recipient first.' }, evidence: {}, status: 'open', created_at: now, updated_at: now, decided_at: null, needs_permission: null }],
+};
+const signal = { id: 'signal_1', kind: 'draft_edited', surface: 'email', subject_id: null, skill: null, tool: null, contact: 'supplier@example.com', language: 'en', original_text: 'Hello, the order is late.', final_text: 'Dear supplier,\nThe order is late.\nBest regards', reason: null, metadata: { edit: { words_before: 5, words_after: 9, words_added: 5, words_removed: 1, changed_ratio: 0.5, greeting_before: 'Hello', greeting_after: 'Dear', sign_off_before: null, sign_off_after: 'Best regards' } }, created_at: now, truncated: false };
 
 export async function mockWorkspaceApi(page: Page): Promise<void> {
   await page.route('http://localhost:8000/**', async (route) => {
@@ -214,6 +231,12 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/email/accounts' && method === 'GET') return json([emailAccount]);
     if (path === '/api/v1/email/messages' && method === 'GET') return json({ items: emailMessages, next_cursor: null, accounts: 1 });
     if (path.startsWith('/api/v1/email/messages/') && method === 'GET') return json(emailDetail(path.split('/').pop() ?? ''));
+    if (path === '/api/v1/learning') return json(learning);
+    if (path === '/api/v1/learning/ratings') return json({ ratings: [{ subject_id: 't2', rating: 'up', signal_id: 'signal_r', reason: null }] });
+    if (path === '/api/v1/learning/preferences') return json({ items: [{ id: 'pref_1', scope: 'surface:whatsapp', text: 'Reply to customers in Arabic.', source: 'user', suggestion_id: null, created_at: now, updated_at: now }], total: 1, limit: 10, offset: 0 });
+    if (path === '/api/v1/learning/routines') return json({ items: [routine], detected: 0, state: 'on' });
+    if (path === '/api/v1/learning/notes') return json({ items: [note], total: 1, state: 'on' });
+    if (path === '/api/v1/learning/signals') return json({ items: [signal], total: 1, limit: 10, offset: 0 });
     return route.abort();
   });
 }

@@ -31,17 +31,22 @@ class AgentPlanner:
         self.skills = skills
         self.tools = tools
 
-    async def plan(self, task: Task, *, context_blocks: Sequence[str] = ()) -> PlanResult:
+    async def plan(
+        self, task: Task, *, context_blocks: Sequence[str] = (), learned_block: str | None = None
+    ) -> PlanResult:
         """Plan ``task``; ``context_blocks`` are provenance-labeled retrieved data.
 
         Skills and the tool are chosen from the user's own prompt only. Retrieved
         blocks reach the model as labeled data and can never select a skill or tool
         (threat model G5); tool policy is evaluated by the runtime afterwards.
+        ``learned_block`` (the user's learned style and preferences, docs/learning.md)
+        precedes the task in the model prompt only; it never selects a skill or tool.
         """
         selected = self.skills.select(task.prompt, self.tools.names)
         # Planning is agent work: the capable model (docs/model-gateway.md#model-routing).
         planner = route_gateway(self.model_gateway, ModelRoute.CAPABLE)
-        response = await self._generate(planner, task.prompt, context_blocks)
+        prompt = f"{learned_block}\n\nTask:\n{task.prompt}" if learned_block else task.prompt
+        response = await self._generate(planner, prompt, context_blocks)
         call = self._select_tool(task.prompt, selected, response)
         return PlanResult(
             plan=AgentPlan(

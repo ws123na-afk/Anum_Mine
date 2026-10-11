@@ -51,6 +51,8 @@ from .conversation_memory import (
     remember_after_reply,
 )
 from .dependencies import require_permission, tenant_context
+from .learning import SignalKind, Surface
+from .learning_store import learned_instructions, new_signal, record_server_signal
 from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import with_untrusted_rules
@@ -251,6 +253,7 @@ def build_messages(
     max_turns: int | None = None,
     max_chars: int | None = None,
     memory_blocks: Sequence[str] = (),
+    learned_block: str | None = None,
 ) -> list[ChatMessage]:
     """The system prompt, the most recent earlier turns that fit, then the question.
 
@@ -258,7 +261,8 @@ def build_messages(
     text, newest kept first. Failed replies carry no text and are left out; consecutive
     turns of one role are joined so the roles alternate as every provider expects.
     Recalled memories (already labeled untrusted and bounded by the recall budget) follow
-    the system prompt, after the untrusted-data rules.
+    the system prompt, after the untrusted-data rules. ``learned_block`` (the user's
+    learned style and preferences, docs/learning.md) follows the system prompt itself.
     """
     max_turns = settings.conversation_history_turns if max_turns is None else max_turns
     max_chars = settings.conversation_history_chars if max_chars is None else max_chars
@@ -274,9 +278,8 @@ def build_messages(
     # The model's context starts with a question, never with an orphan reply.
     while kept and kept[0].role != TurnRole.USER:
         kept.pop(0)
-    system = (
-        with_untrusted_rules(f"{SYSTEM_PROMPT}\n\n{RECALL_PREFACE}", *memory_blocks) if memory_blocks else SYSTEM_PROMPT
-    )
+    base = f"{SYSTEM_PROMPT}\n\n{learned_block}" if learned_block else SYSTEM_PROMPT
+    system = with_untrusted_rules(f"{base}\n\n{RECALL_PREFACE}", *memory_blocks) if memory_blocks else base
     messages: list[ChatMessage] = [{"role": "system", "content": system}]
     for role, content in [(turn.role.value, turn.content) for turn in kept] + [("user", question)]:
         if messages[-1]["role"] == role:
@@ -454,8 +457,16 @@ async def ask_in_conversation(
             user_turn = store.add_turn(conversation, TurnRole.USER, question, TurnStatus.COMPLETE)
             if not conversation.title:
                 store.set_title(conversation, title_from(question))
+    if payload.retry_turn_id is not None:
+        # Asking again is a sign the answer missed (docs/learning.md); recorded only while learning is on.
+        record_server_signal(context, new_signal(SignalKind.RETRY, Surface.CHAT, subject_id=user_turn.id))
     recall = await recall_memories(context, user_turn.content)
-    messages = build_messages(history, user_turn.content, memory_blocks=recall.blocks)
+    messages = build_messages(
+        history,
+        user_turn.content,
+        memory_blocks=recall.blocks,
+        learned_block=learned_instructions(context, surface=Surface.CHAT.value),
+    )
     completed = CompletedReply()
     # Runs after the whole body has been sent: it never delays or fails the stream.
     background = (

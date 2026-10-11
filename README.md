@@ -90,6 +90,7 @@ x-user-roles: owner,member
 - [Developer mode](docs/developer-mode.md)
 - [WhatsApp Business inbox](docs/whatsapp.md)
 - [Memory](docs/memory.md)
+- [What ANUM learned: feedback, style, routines and improvement notes](docs/learning.md)
 - [Privacy: download and delete my data](docs/privacy.md)
 - [Privacy policy template](docs/privacy-policy.md)
 - [Store data safety and app privacy answers](docs/store-data-safety.md)

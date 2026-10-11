@@ -32,6 +32,7 @@ import '../features/voice/voice_controller.dart';
 import '../features/voice/voice_repository.dart';
 import '../features/settings/settings_controller.dart';
 import '../features/admin/admin_repository.dart';
+import '../features/learning/learning_repository.dart';
 import '../features/privacy/privacy_repository.dart';
 import '../features/push/firebase_push_messaging.dart';
 import '../features/push/push_controller.dart';
@@ -164,7 +165,8 @@ class _AnumAppState extends State<AnumApp> {
         autonomy: ApiAutonomyRepository(api),
         privacy:
             ApiPrivacyRepository(api, saver: const FilePickerExportSaver()),
-        push: push);
+        push: push,
+        learning: ApiLearningRepository(api));
     workspace.onApprovalDecided = _offerPushAfterApproval;
     governance = GovernanceController(ApiGovernanceRepository(
       api,

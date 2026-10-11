@@ -16,6 +16,7 @@ const PRIVATE_KEYS: (keyof PrivateCounts)[] = [
   'conversations', 'conversation_turns', 'private_memories', 'retrieval_index_entries',
   'voice_sessions', 'voice_transcript_segments', 'notification_preferences', 'user_preferences',
   'push_devices',
+  'learning_signals', 'learned_items',
 ];
 
 const SHARED_KEYS: (keyof SharedCounts)[] = ['tasks_created', 'approvals_decided', 'shared_memories_created', 'files_uploaded'];

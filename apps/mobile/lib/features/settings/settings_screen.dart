@@ -10,6 +10,8 @@ import '../admin/admin.dart';
 import '../autonomy/autonomy_controller.dart';
 import '../autonomy/autonomy_repository.dart';
 import '../autonomy/autonomy_screens.dart';
+import '../learning/learning_controller.dart';
+import '../learning/learning_screen.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
@@ -209,6 +211,22 @@ class _Content extends StatelessWidget {
             ],
             _Heading('Chat memory'),
             _ChatMemoryCard(key: chatMemoryKey, controller: controller),
+            if (controller.learning != null)
+              Card(
+                  child: ListTile(
+                      leading: const Icon(Icons.school_outlined),
+                      title: const Text('What ANUM learned'),
+                      subtitle: const Text(
+                          'Your style, preferences, routines and weekly suggestions. Edit, delete or turn learning off.'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => LearningScreen(
+                                  controller:
+                                      LearningController(controller.learning!),
+                                  onOpenChatMemory: () =>
+                                      _openChatMemory(context)))))),
             if (controller.privacy != null) ...[
               _Heading('Privacy'),
               Card(

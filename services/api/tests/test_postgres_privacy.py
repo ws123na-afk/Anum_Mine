@@ -49,6 +49,9 @@ PRIVATE_TABLES = (
     "voice_sessions",
     "voice_transcript_segments",
     "notification_preferences",
+    "learning_signals",
+    "learning_profiles",
+    "learning_preferences",
 )
 
 
@@ -122,6 +125,17 @@ def _seed(client: TestClient, factory: sessionmaker[Session], hdrs: dict[str, st
         f"/api/v1/voice/sessions/{session_id}/transcript", headers=hdrs, json={"text": f"{label} spoken", "client_sequence": 1}
     ).status_code == 201
     assert client.put("/api/v1/notification-preferences", headers=hdrs, json={"email_enabled": True}).status_code == 200
+    # What ANUM learned (docs/learning.md): one edited draft (a signal and the derived
+    # profile) and one learned preference, recorded while learning is on (the chat memory
+    # switch is per tenant, so an earlier seed of the same user turned it off).
+    assert client.put("/api/v1/me/preferences", headers=hdrs, json={"remember_conversations": True}).status_code == 200
+    learned = client.post(
+        "/api/v1/learning/feedback",
+        headers=hdrs,
+        json={"surface": "email", "original": f"Hello, {label} draft", "final": f"Hi, {label} draft as sent"},
+    )
+    assert learned.status_code == 200 and learned.json()["recorded"] is True, learned.text
+    assert client.post("/api/v1/learning/preferences", headers=hdrs, json={"text": f"{label} keeps it short"}).status_code == 201
     assert client.put("/api/v1/me/preferences", headers=hdrs, json={"remember_conversations": False}).status_code == 200
     task = client.post("/api/v1/tasks", headers=hdrs, json={"title": f"{label} task", "prompt": f"{label} summarize notes"})
     assert task.status_code == 201, task.text
@@ -186,6 +200,8 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "notification_preferences": 1,
         "user_preferences": 1,
         "push_devices": 0,
+        "learning_signals": 1,
+        "learned_items": 2,
     }
     assert summary["shared"]["tasks_created"] == 1
 

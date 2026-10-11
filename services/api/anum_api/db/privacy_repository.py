@@ -2,7 +2,7 @@
 
 The session carries the caller's tenant, workspace *and* user RLS context
 (``set_tenant_context(..., user_id=...)``): the user-private tables (conversations,
-voice, private memories and their index rows) admit only the caller's rows, and the
+voice, private memories and their index rows, and what ANUM learned) admit only the caller's rows, and the
 shared tables only the caller's workspace. Every statement also names the scope and the
 caller explicitly, so a missing context finds nothing. No other role is used.
 """
@@ -17,13 +17,14 @@ from anum_api.conversations import Conversation, ConversationTurn
 from anum_api.files import FileRecord
 from anum_api.memory import MemoryNote
 from anum_api.onboarding import NotificationPreferences
-from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by
+from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by, learning_counts
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
 from anum_api.push import PushDevice
 from anum_api.user_preferences import UserPreferences
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
 
 from .conversation_repository import _conversation, _turn
+from .learning_repository import SqlAlchemyLearningStore
 from .memory_repository import SqlAlchemyMemoryRepository
 from .models import (
     AgentRunRecord,
@@ -191,6 +192,9 @@ class SqlAlchemyPrivacyStore:
         from anum_api.db.push_repository import SqlAlchemyPushDeviceStore
 
         return [device.view() for device in SqlAlchemyPushDeviceStore(self.session).list(self.context)]
+    def learning(self) -> SqlAlchemyLearningStore:
+        """The caller's learning rows, in this same transaction and RLS context."""
+        return SqlAlchemyLearningStore(self.session, self.context)
 
     def _file_filter(self):  # type: ignore[no-untyped-def]
         return (*self._in_workspace(WorkspaceFileRecord), WorkspaceFileRecord.created_by == self.context.user_id)
@@ -234,6 +238,7 @@ class SqlAlchemyPrivacyStore:
             notification_preferences=self._count(NotificationPreferenceRecord, *self._mine(NotificationPreferenceRecord)),
             user_preferences=self._count(UserPreferenceRecord, *self._user_preference_filter()),
             push_devices=self._count(PushDeviceRecord, *self._push_device_filter()),
+            **learning_counts(self.learning()),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -264,6 +269,7 @@ class SqlAlchemyPrivacyStore:
         self.session.execute(delete(NotificationPreferenceRecord).where(*self._mine(NotificationPreferenceRecord)))
         self.session.execute(delete(UserPreferenceRecord).where(*self._user_preference_filter()))
         self.session.execute(delete(PushDeviceRecord).where(*self._push_device_filter()))
+        self.learning().delete_all()
         self.session.flush()
         return deleted
 

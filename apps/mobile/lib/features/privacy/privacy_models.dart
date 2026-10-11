@@ -19,6 +19,8 @@ const _privateLabels = <String, String>{
   'notification_preferences': 'Notification preferences',
   'user_preferences': 'Your preferences (all workspaces)',
   'push_devices': 'Phones registered for push',
+  'learning_signals': 'Feedback ANUM learned from',
+  'learned_items': 'Learned style, preferences, routines and notes',
 };
 
 const _sharedLabels = <String, String>{

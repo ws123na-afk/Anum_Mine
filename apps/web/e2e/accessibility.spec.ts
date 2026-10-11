@@ -24,6 +24,7 @@ const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'automation', ready: (page) => expect(page.locator('.autoRows')).toBeVisible() },
   { hash: 'activity', ready: (page) => expect(page.locator('.autonomyRow').first()).toBeVisible() },
   { hash: 'autonomy', ready: (page) => expect(page.locator('.autonomyPanel').first()).toBeVisible() },
+  { hash: 'learning', ready: (page) => expect(page.locator('.learningRoutine').first()).toBeVisible() },
 ];
 
 async function seriousViolations(page: Page): Promise<string[]> {

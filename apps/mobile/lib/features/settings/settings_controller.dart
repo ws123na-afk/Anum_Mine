@@ -5,6 +5,7 @@ import '../../data/api_models.dart';
 import '../admin/admin_repository.dart';
 import '../auth/auth_repository.dart';
 import '../autonomy/autonomy_repository.dart';
+import '../learning/learning_repository.dart';
 import '../privacy/privacy_repository.dart';
 import '../push/push_controller.dart';
 
@@ -20,7 +21,7 @@ enum SettingsPhase {
 
 class SettingsController extends ChangeNotifier {
   SettingsController(this.repository,
-      {this.admin, this.privacy, this.push, this.autonomy});
+      {this.admin, this.privacy, this.push, this.autonomy, this.learning});
   final AuthRepository repository;
 
   /// Members, invitations and model budgets; the API decides who may use them.
@@ -35,6 +36,8 @@ class SettingsController extends ChangeNotifier {
 
   /// Activity and autonomy levels (docs/autonomy.md).
   final AutonomyRepository? autonomy;
+  /// What ANUM learned (docs/learning.md).
+  final LearningRepository? learning;
   SettingsPhase phase = SettingsPhase.initial;
   LocalSession? session;
   ModelConfiguration? model;

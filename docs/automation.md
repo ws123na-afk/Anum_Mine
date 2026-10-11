@@ -133,6 +133,10 @@ Other rules:
 
 Deployment: the API login must be a member of `anum_maintenance` (`grant anum_maintenance to <api login> with inherit false, set true`; the code switches to it with `SET LOCAL ROLE`, and an inherited grant would let its cross-tenant discovery policies widen the API login's own queries). Without it, discovery fails with a permission error in the logs and nothing fires.
 
+### From learned routines
+
+[What ANUM learned](learning.md#routines) proposes routines mined from a user's own tasks. Accepting one creates a workflow (one `task.create` step per activity, with its prompt) and a **disabled** schedule through this engine, as the user (`automation:manage`); confirming enables the schedule. Steps of any action other than `pause` and `fail` are recorded as accepted; running `task.create` steps as agent tasks is not built yet.
+
 ## Not done yet
 
 - Event triggers (run an automation when a domain event or webhook arrives) are not implemented; automations start manually or on a schedule.

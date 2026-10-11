@@ -41,6 +41,10 @@ export interface PrivacyPrivateCounts {
   user_preferences?: number;
   /** Phones registered for push in this workspace (docs/notifications.md). Absent from older servers. */
   push_devices?: number;
+  /** What ANUM learned (docs/learning.md): feedback signals. Absent from older servers. */
+  learning_signals?: number;
+  /** The style profile, learned preferences, routines, notes and suggestions. Absent from older servers. */
+  learned_items?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */
@@ -122,6 +126,15 @@ export interface PrivacyExport {
   user_preferences: UserPreferences | null;
   /** Platform, label, the token's last four characters and dates; never the push token. */
   push_devices?: Array<Record<string, unknown> & { id: string; platform: string; token_hint: string }>;
+  /** What ANUM learned from the caller in this workspace, full texts included (absent from older servers). */
+  learning?: {
+    profile: Record<string, unknown> | null;
+    signals: Array<Record<string, unknown>>;
+    preferences: Array<Record<string, unknown>>;
+    routines: Array<Record<string, unknown>>;
+    notes: Array<Record<string, unknown>>;
+    suggestions: Array<Record<string, unknown>>;
+  };
   files_uploaded: Array<Record<string, unknown> & { id: string; download_path: string }>;
 }
 

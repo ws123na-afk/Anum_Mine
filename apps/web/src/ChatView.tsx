@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { ArrowDown, CircleDot, MessageSquarePlus, RefreshCw, RotateCcw, Send, Sparkles, Square, Trash2 } from 'lucide-react';
 import { Answer } from './AnswerView';
+import { AnswerFeedback, type Rating } from './AnswerFeedback';
+import { getRatings } from './lib/learningApi';
 import {
   applyAskEvent, canRetry, conversationTitle, endAsk, fromStored, isNearBottom, retryTarget, startAsk,
   type Conversation, type UiTurn,
@@ -39,6 +41,8 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
   const [notice, setNotice] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+  // The caller's rating of each answer (docs/learning.md); unknown until the lookup answers.
+  const [ratings, setRatings] = useState<Record<string, Rating>>({});
   const controller = useRef<AbortController | null>(null);
   const log = useRef<HTMLDivElement | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
@@ -53,7 +57,14 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
     setAtBottom(true);
     if (!id) { setTurns([]); return; }
     setOpening(true);
-    try { setTurns(fromStored((await getConversation(id)).turns)); }
+    try {
+      const stored = fromStored((await getConversation(id)).turns);
+      setTurns(stored);
+      const answers = stored.filter((turn) => turn.role === 'assistant' && turn.status === 'complete').map((turn) => turn.id);
+      setRatings({});
+      // Thumbs show their saved state; without it (an older server, learning data unreadable) they still work.
+      if (answers.length) void getRatings('chat', answers.slice(-100)).then((r) => setRatings(Object.fromEntries(r.ratings.map((x) => [x.subject_id, x.rating])))).catch(() => undefined);
+    }
     catch (e) {
       setTurns([]);
       if (e instanceof ApiError && e.status === 404) {
@@ -209,6 +220,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
               {turn.status === 'streaming' && turn.content && <span className="chatCaret" aria-hidden="true" />}
               {turn.status === 'cancelled' && <p className="chatMeta">{turn.content ? t('chat.stopped') : t('chat.stoppedEarly')}</p>}
               {turn.status === 'failed' && <p className="chatMeta chatError" dir="auto">{turn.error ?? t('chat.noAnswer')}</p>}
+              {turn.status === 'complete' && turn.content && !turn.id.startsWith('pending') && !turn.id.startsWith('local-') && !streaming && <AnswerFeedback turnId={turn.id} content={turn.content} rating={ratings[turn.id] ?? null} onRated={(rating) => setRatings((current) => ({ ...current, [turn.id]: rating }))} />}
             </>}
         </article>)}
       </div>

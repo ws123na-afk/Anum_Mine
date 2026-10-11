@@ -13,6 +13,7 @@ from anum_api.conversations import conversation_store
 from anum_api.dependencies import memory_note_repository
 from anum_api.files import file_store
 from anum_api.governance import MemoryGovernance, governance_store
+from anum_api.learning_store import learning_data
 from anum_api.main import app, store
 from anum_api.memory import MemoryNote, MemoryProvenance, RetentionKind, RetentionPolicy
 from anum_api.onboarding import _notifications
@@ -51,6 +52,7 @@ def setup_function() -> None:
     governance_store.clear()
     push_device_store.clear()
     file_store.clear()
+    learning_data.clear()
 
 
 def _context(hdrs: dict[str, str]) -> TenantContext:
@@ -105,6 +107,17 @@ def _seed(hdrs: dict[str, str], label: str) -> dict[str, str]:
     assert client.put(
         "/api/v1/notification-preferences", headers=hdrs, json={"email_enabled": True}
     ).status_code == 200
+    # What ANUM learned (docs/learning.md): one edited draft (a signal and the derived
+    # profile) and one learned preference, recorded while learning is on (the chat memory
+    # switch is per tenant, so an earlier seed of the same user turned it off).
+    assert client.put("/api/v1/me/preferences", headers=hdrs, json={"remember_conversations": True}).status_code == 200
+    learned = client.post(
+        "/api/v1/learning/feedback",
+        headers=hdrs,
+        json={"surface": "email", "original": f"Hello, {label} draft", "final": f"Hi, {label} draft as sent"},
+    )
+    assert learned.status_code == 200 and learned.json()["recorded"] is True, learned.text
+    assert client.post("/api/v1/learning/preferences", headers=hdrs, json={"text": f"{label} keeps it short"}).status_code == 201
     assert client.put("/api/v1/me/preferences", headers=hdrs, json={"remember_conversations": False}).status_code == 200
     context, now = _context(hdrs), utc_now()
     push_device_store.save(
@@ -143,6 +156,8 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "notification_preferences": 1,
         "user_preferences": 1,
         "push_devices": 1,
+        "learning_signals": 1,
+        "learned_items": 2,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -221,6 +236,10 @@ def test_export_contains_my_data_and_nobody_elses() -> None:
     export = json.loads(response.content)
     assert export["format"] == "anum.privacy-export/v1"
     assert export["identity"]["user_id"] == "user_me"
+    # What ANUM learned from me, in full: my edited draft, the style it derived, my preference.
+    assert [signal["final_text"] for signal in export["learning"]["signals"]] == ["Hi, mine draft as sent"]
+    assert export["learning"]["profile"]["derived"]["samples"] == 1
+    assert [item["text"] for item in export["learning"]["preferences"]] == ["mine keeps it short"]
     assert [c["id"] for c in export["conversations"]] == [mine["conversation"]]
     assert [t["role"] for t in export["conversations"][0]["turns"]] == ["user", "assistant"]
     assert export["conversations"][0]["turns"][0]["content"] == "mine question"
@@ -305,6 +324,8 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "notification_preferences": 1,
         "user_preferences": 1,
         "push_devices": 1,
+        "learning_signals": 1,
+        "learned_items": 2,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]
@@ -364,7 +385,7 @@ def test_build_export_is_valid_json_with_every_section() -> None:
     parsed = json.loads(body)
     assert set(sections) == {
         "identity", "conversations", "memories", "voice_sessions", "tasks_created",
-        "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "files_uploaded",
+        "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "learning", "files_uploaded",
     }
     assert parsed["notification_preferences"] is None
     assert parsed["user_preferences"] is None

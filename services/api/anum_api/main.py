@@ -120,6 +120,9 @@ from .user_preferences import router as user_preferences_router
 from .push import push_dispatcher, router as push_router
 from .developer_watch import build_developer_watcher
 from .autonomy_api import router as autonomy_router
+from .learning import SignalKind, Surface
+from .learning_api import router as learning_router
+from .learning_store import new_signal, record_server_signal
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -250,6 +253,7 @@ app.include_router(user_preferences_router)
 app.include_router(push_router)
 event_runtime.add_listener(push_dispatcher.submit)
 app.include_router(autonomy_router)
+app.include_router(learning_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -1677,6 +1681,7 @@ async def _decide_approval_locked(
         )
         approvers = [*approvers, approver]
         if len(approvers) < requirements.required:
+            _learn_from_decision(context, approval, ApprovalStatus.APPROVED, reason)
             return _record_partial_approval(
                 context, repository, task, run, approval, approvers, requirements, reason, now
             )
@@ -1729,6 +1734,7 @@ async def _decide_approval_locked(
             },
         )
     )
+    _learn_from_decision(context, approval, decision, reason)
     (shown,) = _with_progress([approval], context, repository)
     if run_dispatcher is not None:
         # The workflow applies the decision; a lost signal is caught by its next poll.
@@ -1740,6 +1746,27 @@ async def _decide_approval_locked(
     if resumed_run:
         repository.save_run(resumed_run)
     return ApprovalDecisionResponse(approval=shown, task=task, run=resumed_run)
+
+
+def _learn_from_decision(
+    context: TenantContext, approval: Approval, decision: ApprovalStatus, reason: str | None
+) -> None:
+    """The decider's approve or reject (with reason) as a learning signal (docs/learning.md).
+
+    Best effort and only while the decider's learning is on; it never changes the decision.
+    """
+    kind = SignalKind.APPROVAL_APPROVED if decision == ApprovalStatus.APPROVED else SignalKind.APPROVAL_REJECTED
+    record_server_signal(
+        context,
+        new_signal(
+            kind,
+            Surface.APPROVAL,
+            subject_id=approval.id,
+            tool=approval.action,
+            reason=reason,
+            metadata={"risk_level": approval.risk_level.value, "task_id": approval.task_id},
+        ),
+    )
 
 
 def _record_partial_approval(

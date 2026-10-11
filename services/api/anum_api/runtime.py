@@ -42,6 +42,10 @@ from .schemas import (
 )
 
 
+# Skills whose output is a draft the user sends or keeps: they get the learned style block.
+DRAFTING_SKILLS = frozenset({"anum.document-drafting"})
+
+
 class AgentRuntime:
     def __init__(
         self,
@@ -143,7 +147,10 @@ class AgentRuntime:
         task.updated_at = run.updated_at = utc_now()
 
         retrieved = await self._retrieve(task, run, context)
-        planned = await self.planner.plan(task, context_blocks=retrieved.blocks if retrieved else ())
+        learned = self._learned_block(task, context)
+        planned = await self.planner.plan(
+            task, context_blocks=retrieved.blocks if retrieved else (), learned_block=learned
+        )
         model_step = AgentRunStep(
                 id=new_id("step"),
                 type="model_call",
@@ -152,6 +159,8 @@ class AgentRuntime:
                 metadata={
                     "usage": planned.model_response.usage.model_dump(),
                     "selected_skills": planned.plan.skill_ids,
+                    # Whether the user's learned style shaped this draft (docs/learning.md); never its text.
+                    "learned_preferences": learned is not None,
                 },
             )
         run.steps.append(model_step)
@@ -189,6 +198,18 @@ class AgentRuntime:
             _, approval = self._pause_for_approval(task, run, context, call, decision)
             return approval
         return None
+
+    def _learned_block(self, task: Task, context: TenantContext) -> str | None:
+        """The user's learned style and preferences, for drafting tasks only (docs/learning.md)."""
+        selected = self.skills.select(task.prompt, self.tools.names)
+        if not any(skill.id in DRAFTING_SKILLS for skill in selected):
+            return None
+        from .learning_store import learned_instructions
+
+        tools = sorted({tool for skill in selected for tool in skill.required_tools})
+        return learned_instructions(
+            context, surface="task", skill_ids=tuple(skill.id for skill in selected), tools=tuple(tools)
+        )
 
     async def _retrieve(self, task: Task, run: AgentRun, context: TenantContext) -> RetrievalResult | None:
         """Retrieve labeled workspace context and record which chunks were used.
