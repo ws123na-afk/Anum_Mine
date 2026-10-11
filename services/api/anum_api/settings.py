@@ -119,6 +119,12 @@ class Settings(BaseSettings):
     # same 30 days as voice transcripts by default; 0 keeps them until the user deletes
     # them. Migration 0019 lets discovery see only conversations idle for a day or more.
     conversation_retention_days: int = Field(default=30, ge=0, le=3650)
+    # Privacy (docs/privacy.md): the public URL of the deployment's privacy policy, shown
+    # on the Privacy page of every client (empty: the page says the owner has not
+    # published one yet), and the largest "Download my data" export the API builds; a
+    # larger export is refused with 413 rather than truncated.
+    privacy_policy_url: str = Field(default="", max_length=2048, pattern=r"^(|https?://\S+)$")
+    privacy_export_max_bytes: int = Field(default=25 * 1024 * 1024, ge=64 * 1024, le=512 * 1024 * 1024)
     # Conversation memory (anum_api/conversation_memory.py, docs/memory.md#from-conversations).
     # After a reply completes, a small background model call (at most
     # ``conversation_memory_max_tokens``, metered against the budget) extracts durable

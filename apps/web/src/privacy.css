@@ -1,0 +1,22 @@
+/* Settings -> Privacy (PrivacyView.tsx). Shared tokens from styles.css; content-driven heights. */
+.privacyStack { max-width: 1040px; }
+.privacyBlock h3 { margin-top: var(--d-s4); }
+.privacyBlock > .muted:first-of-type { margin-top: var(--d-s2); }
+.privacyColumns { display: grid; gap: 0 var(--d-s6); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.privacyCounts, .privacyRetention { display: grid; gap: var(--d-s1); margin: var(--d-s3) 0 0; }
+.privacyCounts div { align-items: baseline; border-bottom: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; padding: var(--d-s2) 0; }
+.privacyCounts dt { color: var(--d-muted); font-size: 14px; font-weight: 500; }
+.privacyCounts dd { font-variant-numeric: tabular-nums; margin: 0; }
+.privacyRetention div { display: grid; gap: var(--d-s1) var(--d-s4); grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); padding: var(--d-s2) 0; border-bottom: 1px solid var(--d-line); }
+.privacyRetention dd { font-weight: 500; margin: 0; }
+.privacyPolicy { margin-top: var(--d-s3); }
+.privacyPolicy a { align-items: center; display: inline-flex; font-weight: 600; gap: var(--d-s1); min-height: 44px; }
+.privacyPolicy a svg { height: 16px; width: 16px; }
+.privacyKept { color: var(--d-muted); display: grid; font-size: 14px; gap: var(--d-s2); margin: var(--d-s3) 0 0; padding-left: var(--d-s5); }
+.privacyKept strong { color: var(--d-text); }
+.privacyDanger { border-color: rgba(253, 164, 175, .28); }
+.privacyDanger .field code { color: var(--d-text); font-weight: 700; }
+@media (max-width: 760px) {
+  .privacyRetention div { grid-template-columns: minmax(0, 1fr); }
+}
+.privacyActions { align-items: start; display: grid; gap: var(--d-s5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }

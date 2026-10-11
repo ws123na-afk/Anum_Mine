@@ -182,6 +182,14 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .detailGrid { display: grid; gap: var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); margin: var(--d-s5) 0 0; }
 .settingsForm .muted { display: block; margin-top: var(--d-s3); }
 .settingsStack { display: grid; gap: var(--d-s5); max-width: 880px; }
+/* Settings sections (Workspace, Privacy): pill switcher above the stack. */
+.settingsTabs { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-bottom: var(--d-s5); }
+.settingsTabs button {
+  background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted);
+  font-size: 14px; font-weight: 600; min-height: 44px; padding: 0 var(--d-s4);
+}
+.settingsTabs button[aria-current="page"] { background: var(--d-glass-3); border-color: rgba(167, 139, 250, .45); color: var(--d-text); }
+.settingsTabs button:hover { color: var(--d-text); }
 .taskSummary dl, .agentRow dl, .inlineDetails { display: grid; gap: var(--d-s3); margin: var(--d-s5) 0 0; }
 dl div { min-width: 0; }
 dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }

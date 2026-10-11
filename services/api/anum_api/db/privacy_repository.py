@@ -1,0 +1,241 @@
+"""PostgreSQL store behind "Download my data" and "Delete my data" (docs/privacy.md).
+
+The session carries the caller's tenant, workspace *and* user RLS context
+(``set_tenant_context(..., user_id=...)``): the user-private tables (conversations,
+voice, private memories and their index rows) admit only the caller's rows, and the
+shared tables only the caller's workspace. Every statement also names the scope and the
+caller explicitly, so a missing context finds nothing. No other role is used.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.orm import Session
+
+from anum_api.audit import AuditRecord
+from anum_api.conversations import Conversation, ConversationTurn
+from anum_api.files import FileRecord
+from anum_api.memory import MemoryNote
+from anum_api.onboarding import NotificationPreferences
+from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by
+from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
+from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
+
+from .conversation_repository import _conversation, _turn
+from .memory_repository import SqlAlchemyMemoryRepository
+from .models import (
+    AgentRunRecord,
+    ApprovalApproverRow,
+    ApprovalRecord,
+    ConversationRecord,
+    ConversationTurnRecord,
+    MemoryRecord,
+    NotificationPreferenceRecord,
+    TaskRecord,
+    VoiceSessionRecord,
+    VoiceTranscriptSegmentRecord,
+    WorkspaceFileRecord,
+)
+from .repository import SqlAlchemyRepository
+from .voice_repository import _segment, _session
+from .workspace_settings_repository import SqlAlchemyNotificationPreferenceStore, _file
+
+
+class SqlAlchemyPrivacyStore:
+    def __init__(self, session: Session, context: TenantContext) -> None:
+        self.session = session
+        self.context = context
+        self.repository = SqlAlchemyRepository(session, created_by_user_id=context.user_id)
+
+    def _in_workspace(self, model):  # type: ignore[no-untyped-def]
+        return (model.tenant_id == self.context.tenant_id, model.workspace_id == self.context.workspace_id)
+
+    def _mine(self, model):  # type: ignore[no-untyped-def]
+        return (*self._in_workspace(model), model.user_id == self.context.user_id)
+
+    def _count(self, model, *where) -> int:  # type: ignore[no-untyped-def]
+        return int(self.session.scalar(select(func.count()).select_from(model).where(*where)) or 0)
+
+    # -- reads ---------------------------------------------------------------------------
+
+    def membership(self) -> WorkspaceMembership | None:
+        return self.repository.get_membership(self.context)
+
+    def conversations(self) -> list[tuple[Conversation, list[ConversationTurn]]]:
+        conversations = self.session.scalars(
+            select(ConversationRecord)
+            .where(*self._mine(ConversationRecord))
+            .order_by(ConversationRecord.created_at, ConversationRecord.id)
+        ).all()
+        turns: dict[str, list[ConversationTurn]] = {record.id: [] for record in conversations}
+        for record in self.session.scalars(
+            select(ConversationTurnRecord)
+            .where(*self._mine(ConversationTurnRecord))
+            .order_by(ConversationTurnRecord.conversation_id, ConversationTurnRecord.seq)
+        ):
+            if record.conversation_id in turns:
+                turns[record.conversation_id].append(_turn(record))
+        return [(_conversation(record), turns[record.id]) for record in conversations]
+
+    def _memories(self, *where) -> list[MemoryNote]:  # type: ignore[no-untyped-def]
+        records = self.session.scalars(
+            select(MemoryRecord)
+            .where(*self._in_workspace(MemoryRecord), *where)
+            .order_by(MemoryRecord.created_at, MemoryRecord.id)
+        ).all()
+        return [SqlAlchemyMemoryRepository._from_record(record) for record in records]
+
+    def _private_memory_filter(self):  # type: ignore[no-untyped-def]
+        return (MemoryRecord.owner_user_id == self.context.user_id,)
+
+    def _shared_memory_filter(self):  # type: ignore[no-untyped-def]
+        return (
+            MemoryRecord.owner_user_id.is_(None),
+            MemoryRecord.provenance["created_by_user_id"].astext == self.context.user_id,
+        )
+
+    def private_memories(self) -> list[MemoryNote]:
+        return self._memories(*self._private_memory_filter())
+
+    def shared_memories_created(self) -> list[MemoryNote]:
+        return self._memories(*self._shared_memory_filter())
+
+    def voice_sessions(self) -> list[tuple[VoiceSession, list[TranscriptSegment]]]:
+        sessions = [
+            _session(record)
+            for record in self.session.scalars(
+                select(VoiceSessionRecord)
+                .where(*self._mine(VoiceSessionRecord))
+                .order_by(VoiceSessionRecord.created_at, VoiceSessionRecord.id)
+            )
+        ]
+        segments: dict[str, list[TranscriptSegment]] = {session.id: [] for session in sessions}
+        for record in self.session.scalars(
+            select(VoiceTranscriptSegmentRecord)
+            .where(*self._mine(VoiceTranscriptSegmentRecord))
+            .order_by(
+                VoiceTranscriptSegmentRecord.session_id,
+                VoiceTranscriptSegmentRecord.client_sequence,
+                VoiceTranscriptSegmentRecord.created_at,
+            )
+        ):
+            if record.session_id in segments:
+                segments[record.session_id].append(_segment(record))
+        # An expired 30-day transcript is unreadable even before the purge removes it.
+        return [(session, [] if transcript_expired(session) else segments[session.id]) for session in sessions]
+
+    def _task_filter(self):  # type: ignore[no-untyped-def]
+        return (*self._in_workspace(TaskRecord), TaskRecord.created_by_user_id == self.context.user_id)
+
+    def tasks_created(self) -> list[tuple[Task, list[AgentRun]]]:
+        tasks = self.session.scalars(
+            select(TaskRecord).where(*self._task_filter()).order_by(TaskRecord.created_at, TaskRecord.id)
+        ).all()
+        runs: dict[str, list[AgentRun]] = {task.id: [] for task in tasks}
+        if tasks:
+            for record in self.session.scalars(
+                select(AgentRunRecord)
+                .where(*self._in_workspace(AgentRunRecord), AgentRunRecord.task_id.in_(list(runs)))
+                .order_by(AgentRunRecord.created_at, AgentRunRecord.id)
+            ):
+                runs[record.task_id].append(self.repository._run_from_record(record))
+        return [(SqlAlchemyRepository._task_from_record(task), runs[task.id]) for task in tasks]
+
+    def _approval_filter(self):  # type: ignore[no-untyped-def]
+        approved_by_me = (
+            select(ApprovalApproverRow.approval_id)
+            .where(
+                *self._in_workspace(ApprovalApproverRow),
+                ApprovalApproverRow.user_id == self.context.user_id,
+            )
+            .scalar_subquery()
+        )
+        return (
+            *self._in_workspace(ApprovalRecord),
+            or_(ApprovalRecord.decided_by == self.context.user_id, ApprovalRecord.id.in_(approved_by_me)),
+        )
+
+    def approvals_decided(self) -> list[tuple[Approval, ApprovalApproverRecord | None]]:
+        records = self.session.scalars(
+            select(ApprovalRecord).where(*self._approval_filter()).order_by(ApprovalRecord.created_at, ApprovalRecord.id)
+        ).all()
+        approvals = [SqlAlchemyRepository._approval_from_record(record) for record in records]
+        approvers = self.repository.list_approval_approvers([item.id for item in approvals], self.context)
+        return _decided_by(self.context.user_id, approvals, approvers)
+
+    def notification_preferences(self) -> NotificationPreferences | None:
+        return SqlAlchemyNotificationPreferenceStore(self.session).get(self.context)
+
+    def _file_filter(self):  # type: ignore[no-untyped-def]
+        return (*self._in_workspace(WorkspaceFileRecord), WorkspaceFileRecord.created_by == self.context.user_id)
+
+    def files_uploaded(self) -> list[FileRecord]:
+        rows = self.session.scalars(
+            select(WorkspaceFileRecord)
+            .where(*self._file_filter())
+            .order_by(WorkspaceFileRecord.created_at, WorkspaceFileRecord.id)
+        ).all()
+        return [_file(row) for row in rows]
+
+    # -- counts --------------------------------------------------------------------------
+
+    def _private_source_count(self) -> int:
+        return int(
+            self.session.execute(
+                text(
+                    "select count(*) from retrieval_sources where tenant_id = :tenant_id "
+                    "and workspace_id = :workspace_id and owner_user_id = :user_id"
+                ),
+                self._scope_params(),
+            ).scalar_one()
+        )
+
+    def _scope_params(self) -> dict[str, str]:
+        return {
+            "tenant_id": self.context.tenant_id,
+            "workspace_id": self.context.workspace_id,
+            "user_id": self.context.user_id,
+        }
+
+    def counts(self) -> tuple[PrivateCounts, SharedCounts]:
+        private = PrivateCounts(
+            conversations=self._count(ConversationRecord, *self._mine(ConversationRecord)),
+            conversation_turns=self._count(ConversationTurnRecord, *self._mine(ConversationTurnRecord)),
+            private_memories=self._count(MemoryRecord, *self._in_workspace(MemoryRecord), *self._private_memory_filter()),
+            retrieval_index_entries=self._private_source_count(),
+            voice_sessions=self._count(VoiceSessionRecord, *self._mine(VoiceSessionRecord)),
+            voice_transcript_segments=self._count(VoiceTranscriptSegmentRecord, *self._mine(VoiceTranscriptSegmentRecord)),
+            notification_preferences=self._count(NotificationPreferenceRecord, *self._mine(NotificationPreferenceRecord)),
+        )
+        shared = SharedCounts(
+            tasks_created=self._count(TaskRecord, *self._task_filter()),
+            approvals_decided=self._count(ApprovalRecord, *self._approval_filter()),
+            shared_memories_created=self._count(MemoryRecord, *self._in_workspace(MemoryRecord), *self._shared_memory_filter()),
+            files_uploaded=self._count(WorkspaceFileRecord, *self._file_filter()),
+        )
+        return private, shared
+
+    # -- delete --------------------------------------------------------------------------
+
+    def delete_private(self) -> PrivateCounts:
+        """Delete the caller's user-private rows; returns what was removed."""
+        deleted, _ = self.counts()
+        # Index rows of private memories first (their chunks cascade); migration 0015's
+        # trigger would also remove them with the memory.
+        self.session.execute(
+            text(
+                "delete from retrieval_sources where tenant_id = :tenant_id "
+                "and workspace_id = :workspace_id and owner_user_id = :user_id"
+            ),
+            self._scope_params(),
+        )
+        self.session.execute(delete(MemoryRecord).where(*self._in_workspace(MemoryRecord), *self._private_memory_filter()))
+        # Turns and transcript segments cascade from their conversation or session.
+        self.session.execute(delete(ConversationRecord).where(*self._mine(ConversationRecord)))
+        self.session.execute(delete(VoiceSessionRecord).where(*self._mine(VoiceSessionRecord)))
+        self.session.execute(delete(NotificationPreferenceRecord).where(*self._mine(NotificationPreferenceRecord)))
+        self.session.flush()
+        return deleted
+
+    def record_audit(self, record: AuditRecord) -> None:
+        self.repository.record_audit(record)

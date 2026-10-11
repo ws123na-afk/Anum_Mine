@@ -7,6 +7,8 @@ import 'settings_controller.dart';
 import '../../src/widgets/depth.dart';
 import '../auth/account_screens.dart';
 import '../admin/admin.dart';
+import '../privacy/privacy_controller.dart';
+import '../privacy/privacy_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({required this.controller, super.key});
@@ -166,6 +168,22 @@ class _Content extends StatelessWidget {
             _NotificationCard(controller: controller),
             _Heading('Chat memory'),
             _ChatMemoryCard(controller: controller),
+            if (controller.privacy != null) ...[
+              _Heading('Privacy'),
+              Card(
+                  child: ListTile(
+                      leading: const Icon(Icons.privacy_tip_outlined),
+                      title: const Text('Your data and privacy'),
+                      subtitle: const Text(
+                          'See what is stored, download it or delete it.'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => PrivacyScreen(
+                                  controller: PrivacyController(
+                                      controller.privacy!)))))),
+            ],
             _Heading('Security'),
             Card(
                 child: Column(children: [

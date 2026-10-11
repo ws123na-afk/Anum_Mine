@@ -288,7 +288,7 @@ Where the builds land:
 - Play Console, Testing, Internal testing: while `ANUM_PLAY_RELEASE_STATUS` is `draft` the release waits as a draft; open it and Roll out. Once one internal release is out, delete that variable so later tags roll out by themselves.
 - App Store Connect, TestFlight: the build appears after Apple's processing (usually 5 to 30 minutes). Answer the export compliance question for each build (the owner's declaration; the app itself uses only HTTPS and the operating system's keychain), then add the build to a tester group.
 
-Promoting past internal testing needs the store listing, privacy policy and data-safety forms ([Production plan](production-plan.md#stage-6-client-release)).
+Promoting past internal testing needs the store listing, privacy policy and data-safety forms ([Production plan](production-plan.md#stage-6-client-release)). Write the policy from the [privacy policy template](privacy-policy.md) and answer Google Play's Data safety and Apple's App Privacy forms from [Store data safety](store-data-safety.md). The in-app account-data deletion path both stores require is Settings → Privacy → Delete my data ([Privacy](privacy.md)).
 
 ## Verification
 

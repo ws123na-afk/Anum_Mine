@@ -97,6 +97,8 @@ The [assistant chat](conversations.md) has long-term memory. Code: `anum_api/con
 
 **Recall.** Every ask (`POST /api/v1/conversations/{id}/ask`), before the reply streams, embeds the question and retrieves the nearest memories the caller may read (`source_type = memory` only: their private memories and the workspace's shared notes; never files), at most `ANUM_CONVERSATION_MEMORY_RECALL_K` (4) and `ANUM_CONVERSATION_MEMORY_RECALL_CHARS` (2,000) characters in total. Each is wrapped by `label_untrusted` and placed in the system message after a short preface and `UNTRUSTED_DATA_RULES`. Recall needs memory read permission and the user's **Remember things from my chats** switch on, spends no embedding call when nothing is indexed, and is skipped (the question is answered without it) when it fails, the budget is exhausted, or it takes longer than `ANUM_CONVERSATION_MEMORY_RECALL_TIMEOUT_SECONDS` (3). The SSE `turn` event lists the recalled memory ids in `memories_used`.
 
+**Export and deletion.** Settings → Privacy downloads a user's private memories with their other data and deletes them, with their retrieval index rows, in one transaction ([Privacy](privacy.md)); workspace-shared notes they added are exported but kept.
+
 **Web.** The Memory view labels a memory from a chat "From chat" with the conversation's title and an **Open chat** link to it in the Assistant view, alongside delete. It has no task column for such a memory. A **Show: All memories / From my chats** filter lists only the caller's chat memories (`source_type=conversation`), and in that view **Delete all from my chats** (with a confirmation) deletes them together.
 
 ### Per-user switch
