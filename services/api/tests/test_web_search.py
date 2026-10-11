@@ -29,6 +29,8 @@ TENANT = "tenant_search"
 WORKSPACE = "workspace_search"
 CONTEXT = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_a", roles=["owner"])
 OWNER = {"x-tenant-id": TENANT, "x-workspace-id": WORKSPACE, "x-user-id": "owner_a", "x-user-roles": "owner"}
+# Tenant-wide policy (packs, approval rules) needs the organization administrator role.
+ORG_ADMIN = {**OWNER, "x-user-roles": "owner,org_admin"}
 
 SEARX_RESULTS = {
     "query": "anum",
@@ -292,11 +294,11 @@ def test_a_policy_pack_can_deny_web_search(searxng: list[httpx.Request]) -> None
     client = TestClient(main.app)
     pack = client.post(
         "/api/v1/policy-packs",
-        headers=OWNER,
+        headers=ORG_ADMIN,
         json={"name": "No web", "description": "", "rules": [{"action": "web_search", "effect": "deny"}]},
     )
     assert pack.status_code == 201, pack.text
-    assert client.post(f"/api/v1/policy-packs/{pack.json()['id']}/activate", headers=OWNER).status_code == 200
+    assert client.post(f"/api/v1/policy-packs/{pack.json()['id']}/activate", headers=ORG_ADMIN).status_code == 200
     body = _run(client, "Search the web for anything")
     assert body["task"]["status"] == "failed"
     assert searxng == [] and _audits() == []
@@ -306,7 +308,7 @@ def test_an_approval_rule_can_require_approval_for_web_search(searxng: list[http
     client = TestClient(main.app)
     rule = client.post(
         "/api/v1/organization/approval-rules",
-        headers=OWNER,
+        headers=ORG_ADMIN,
         json={"name": "Review searches", "action_pattern": "web_search"},
     )
     assert rule.status_code == 201, rule.text

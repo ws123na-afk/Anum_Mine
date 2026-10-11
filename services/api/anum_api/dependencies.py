@@ -7,7 +7,15 @@ from opentelemetry import trace
 
 from .repository import AnumRepository, InMemoryRepository
 from .event_bus import EventCollectingRepository, build_event_runtime
-from .authorization import AuthorizationError, Permission, Role, WorkspaceMembership, policy
+from .authorization import (
+    ORGANIZATION_PERMISSIONS,
+    AuthorizationError,
+    OrganizationRole,
+    Permission,
+    Role,
+    WorkspaceMembership,
+    policy,
+)
 from .memory import InMemoryMemoryRepository, MemoryRepository
 from .schemas import TenantContext
 from .schemas import WorkspaceMembership as WorkspaceMembershipRecord
@@ -32,7 +40,41 @@ _oidc_validator: OidcValidator | None = None
 event_runtime = build_event_runtime(settings)
 
 
+ORGANIZATION_ADMIN_REQUIRED = (
+    "Organization administrator role required: this setting applies to every workspace "
+    "in the organization"
+)
+
+
 def require_permission(context: TenantContext, permission: Permission) -> None:
+    """403 unless the caller holds ``permission``.
+
+    Workspace permissions come from the caller's role in the request's workspace.
+    Tenant-wide permissions (``ORGANIZATION_PERMISSIONS``) need an organization role as
+    well as an active workspace role; a workspace owner alone is refused.
+    """
+    if permission in ORGANIZATION_PERMISSIONS:
+        _require_workspace_role(context, Permission.ORGANIZATION_READ)
+        try:
+            policy.require_organization(context, permission)
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ORGANIZATION_ADMIN_REQUIRED,
+            ) from exc
+        return
+    _require_workspace_role(context, permission)
+
+
+def has_permission(context: TenantContext, permission: Permission) -> bool:
+    try:
+        require_permission(context, permission)
+    except HTTPException:
+        return False
+    return True
+
+
+def _require_workspace_role(context: TenantContext, permission: Permission) -> None:
     claimed_roles = {role.strip().lower() for role in context.roles}
     role = next(
         (candidate for candidate in Role if candidate.value in claimed_roles),
@@ -275,12 +317,14 @@ def _header_context(
             detail="Missing ANUM tenant context headers",
         )
 
-    roles = [role.strip() for role in (x_user_roles or "member").split(",") if role.strip()]
+    claimed = [role.strip() for role in (x_user_roles or "member").split(",") if role.strip()]
+    organization_values = {role.value for role in OrganizationRole}
     return TenantContext(
         tenant_id=x_tenant_id,
         workspace_id=x_workspace_id,
         user_id=x_user_id,
-        roles=roles,
+        roles=[role for role in claimed if role.lower() not in organization_values],
+        organization_roles=[role.lower() for role in claimed if role.lower() in organization_values],
     )
 
 

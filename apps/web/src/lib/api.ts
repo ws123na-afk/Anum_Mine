@@ -13,7 +13,9 @@ export const defaultTenantContext: TenantContext = {
   tenantId: 'tenant_local',
   workspaceId: 'workspace_foundation',
   userId: 'user_local',
-  roles: ['owner', 'member'],
+  // Local development only (ANUM_AUTH_MODE=headers): the workspace owner who is also the
+  // organization administrator, like the Keycloak realm's DEV-ONLY `dev` user.
+  roles: ['owner', 'member', 'org_admin'],
 };
 
 export interface ApiTask {

@@ -24,6 +24,27 @@ Model routing policies constrain provider, model, region, data classification, l
 
 Enterprise operations include tenant/workspace budgets, throttling, service-level objectives, regional health, incident records, queue age and dead-letter visibility, controlled replay, and break-glass actions with expiry and mandatory audit review.
 
+## Who may change what
+
+Governance settings are tenant-level: one policy pack, role template, approval rule or memory governance setting binds every workspace of the organization. Changing them therefore needs the tenant-level permission `organization_policy:manage` (`Permission.ORG_POLICY_MANAGE`), which only the organization role `org_admin` grants (`anum_api/authorization.py`, `OrganizationRole`). No workspace role grants it, not even `owner`: owning one workspace is not enough to change policy for all the others.
+
+| Route | Who |
+|---|---|
+| `POST /policy-packs`, `POST /policy-packs/{id}/activate`, `POST /policy-packs/{id}/archive` | `org_admin` with an active membership in the request's workspace (any role) |
+| `POST /role-templates`, `POST /organization/approval-rules`, `PUT /organization/memory-governance` | same |
+| `GET /organization/governance`, `GET /policy-packs`, `GET /role-templates`, `GET /organization/approval-rules`, `GET /organization/memory-governance` | any member (`organization:read`) |
+| `GET /audit/export` (the acting workspace's audit trail) | workspace owner (`audit:export`) |
+| `PUT /approval-policy` (the workspace's two-person rule and medium-risk approval) | workspace owner (`policy:manage`); workspace-scoped, unchanged |
+
+A refused change answers `403` with `Organization administrator role required: this setting applies to every workspace in the organization`, writes nothing and records no audit row. `GET /organization/governance` also returns `can_manage_organization_policy`, the API's answer for the caller, so clients do not guess from the workspace role.
+
+Where `org_admin` comes from:
+
+- `ANUM_AUTH_MODE=oidc`: the Keycloak realm role `org_admin` in the access token (`realm_access.roles` or `roles`). Unlike the workspace realm roles, which the persisted membership replaces, it is kept next to the membership role, and it applies only to the token's IdP-managed `tenant_id`. Grant it in Keycloak to the organization's administrators ([Identity](identity.md#keycloak-realm)). The caller still needs an active membership in the request's workspace.
+- `ANUM_AUTH_MODE=headers` (local and test only): `x-user-roles` containing `org_admin`, for example `owner,org_admin`. Local development sessions (`/api/v1/auth/local/*`) carry it, like the realm's DEV-ONLY `dev` user.
+
+Not built yet: managing organization administrators inside ANUM (they are managed in the identity provider), and the same separation for the other tenant-level writes that are still owner-gated: the tenant model budget (`PUT /model-budgets/tenant`), routing targets, the marketplace catalog and skill versions.
+
 ## Persistence
 
 With `ANUM_REPOSITORY_BACKEND=postgresql` policy packs, role templates, approval rules and memory governance are tenant-level tables, the marketplace catalog (`marketplace_packages`) and routing targets are per tenant, and marketplace installs are per workspace, all under RLS ([Multi-tenancy](multi-tenancy.md#control-plane-stores)). Every governance write records an `audit_records` row (append-only: RLS allows select and insert only) in the same transaction, so a rejected write leaves no audit record; `GET /audit/export` returns the acting workspace's audit trail, which also includes membership changes. Packages published with `PUT /marketplace/packages/{id}` are visible only to the publishing tenant.
@@ -51,4 +72,4 @@ Production completion requires identity-provider administration, an object store
 
 ## Web console
 
-The web app's Governance view lists every policy pack version with its status and lets owners activate or archive a version, create role templates and add organization approval rules. The Enterprise view reports regions from the configured routing targets only: with zero or one serving region it says so ("Single region", failover "Not applicable") instead of a pending failover. Owners create and edit routing targets (`PUT /routing/targets/{id}`); the API has no delete, so a target leaves routing by being set `offline`. The Integrations view gives owners a per-workspace configuration panel (enabled flag and endpoint) over `GET`/`PUT /integrations/{id}/configuration`. Health checks honor only the enabled flag: they always probe, and report, the operator-configured endpoint from Settings, never a workspace-saved one (SSRF).
+The web app's Governance view lists every policy pack version with its status, the role templates and the organization approval rules to every member. Organization administrators (`can_manage_organization_policy`) can add the baseline pack, activate or archive a version, create role templates and add approval rules; everyone else, a workspace owner included, sees the same lists read-only with a notice that these settings apply to every workspace, so only an organization administrator can change them, and whom to ask. A `403` on a change is shown in place with the API's message. Tests: `apps/web/test/governance.test.ts` (`organizationPolicyAccess`) and `apps/web/e2e/governance.spec.ts`. The Enterprise view reports regions from the configured routing targets only: with zero or one serving region it says so ("Single region", failover "Not applicable") instead of a pending failover. Owners create and edit routing targets (`PUT /routing/targets/{id}`); the API has no delete, so a target leaves routing by being set `offline`. The Integrations view gives owners a per-workspace configuration panel (enabled flag and endpoint) over `GET`/`PUT /integrations/{id}/configuration`. Health checks honor only the enabled flag: they always probe, and report, the operator-configured endpoint from Settings, never a workspace-saved one (SSRF).

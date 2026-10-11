@@ -341,3 +341,22 @@ def test_conversation_retention_migration_adds_a_discovery_only_policy() -> None
     assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade
     assert "security definer" not in upgrade and "bypassrls" not in upgrade
     assert "drop " not in upgrade and "alter " not in upgrade
+
+
+def test_tenants_rls_migration_forces_rls_on_tenants_and_grants_nothing() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0020_tenants_rls.py").read_text(encoding="utf-8")
+    assert 'revision = "0020_tenants_rls"' in revision_text
+    assert len("0020_tenants_rls") <= 32
+    assert 'down_revision = "0019_conversation_retention"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0020_tenants_rls.py"]
+    assert not [path for path in others if 'down_revision = "0019_conversation_retention"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "alter table tenants enable row level security" in upgrade
+    assert "alter table tenants force row level security" in upgrade
+    assert "create policy tenant_isolation_tenants on tenants" in upgrade
+    assert "using ({tenant_predicate})" in upgrade and "with check ({tenant_predicate})" in upgrade
+    assert "id = nullif(current_setting('anum.tenant_id', true), '')" in revision_text
+    # Expand only, and no role gets a way around the policy.
+    assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

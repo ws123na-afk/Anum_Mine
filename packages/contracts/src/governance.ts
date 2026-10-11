@@ -4,6 +4,24 @@ export type PolicyDecision = 'allowed' | 'denied' | 'approval_required';
 export type ExportStatus = 'queued' | 'running' | 'completed' | 'failed' | 'expired';
 export type RegionHealth = 'healthy' | 'degraded' | 'unavailable';
 
+// Tenant-level role from the identity provider (Keycloak realm role), separate from the
+// workspace roles. Only it may change tenant-wide policy: policy packs, role templates,
+// organization approval rules and memory governance (docs/governance-and-scale.md).
+export type OrganizationRole = 'org_admin';
+
+// Wire shape of GET /api/v1/organization/governance (governance.py: GovernanceSummary).
+// `can_manage_organization_policy` is the API's answer for the caller: clients show the
+// tenant-wide controls read-only, with the reason, when it is false.
+export interface GovernanceSummary {
+  tenant_id: string;
+  policy_packs: number;
+  active_policy_packs: number;
+  role_templates: number;
+  approval_rules: number;
+  memory_governance_configured: boolean;
+  can_manage_organization_policy: boolean;
+}
+
 // Wire shapes of /api/v1/role-templates and /api/v1/policy-packs
 // (services/api/anum_api/governance.py: RoleTemplate, PolicyRule, PolicyPack), snake_case.
 export interface OrganizationRoleTemplate {

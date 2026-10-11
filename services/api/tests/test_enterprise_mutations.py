@@ -7,7 +7,7 @@ from anum_api.automation import LocalAutomationEngine
 from anum_api.main import app
 
 
-OWNER = {"x-tenant-id": "tenant_mutations", "x-workspace-id": "workspace_mutations", "x-user-id": "owner_mutations", "x-user-roles": "owner"}
+OWNER = {"x-tenant-id": "tenant_mutations", "x-workspace-id": "workspace_mutations", "x-user-id": "owner_mutations", "x-user-roles": "owner,org_admin"}
 OTHER = {**OWNER, "x-tenant-id": "tenant_other", "x-workspace-id": "workspace_other"}
 
 

@@ -40,6 +40,17 @@ class Permission(StrEnum):
     GOVERNANCE_MANAGE = "governance:manage"
     AUTOMATION_READ = "automation:read"
     AUTOMATION_MANAGE = "automation:manage"
+    # Tenant-wide policy (policy packs, role templates, organization approval rules, memory
+    # governance). Granted only by the organization role below, never by a workspace role:
+    # an owner of one workspace must not change policy that binds every workspace.
+    ORG_POLICY_MANAGE = "organization_policy:manage"
+
+
+class OrganizationRole(StrEnum):
+    """Tenant-level roles. They come from the identity provider (Keycloak realm role in
+    ``oidc`` mode), never from a workspace membership, and apply to the token's tenant only."""
+
+    ADMIN = "org_admin"
 
 
 class AuthorizationFailure(StrEnum):
@@ -81,9 +92,15 @@ _READ_PERMISSIONS = frozenset(
     }
 )
 
+ORGANIZATION_PERMISSIONS = frozenset({Permission.ORG_POLICY_MANAGE})
+
+ORGANIZATION_ROLE_PERMISSIONS: Mapping[OrganizationRole, frozenset[Permission]] = MappingProxyType(
+    {OrganizationRole.ADMIN: ORGANIZATION_PERMISSIONS}
+)
+
 ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
     {
-        Role.OWNER: frozenset(Permission),
+        Role.OWNER: frozenset(Permission) - ORGANIZATION_PERMISSIONS,
         Role.MEMBER: _READ_PERMISSIONS
         | {
             Permission.TASK_CREATE,
@@ -152,6 +169,25 @@ class AuthorizationPolicy:
             raise AuthorizationError(permission, AuthorizationFailure.MISSING_ROLE)
 
         if permission not in ROLE_PERMISSIONS.get(membership.role, frozenset()):
+            raise AuthorizationError(permission, AuthorizationFailure.PERMISSION_DENIED)
+
+    def require_organization(self, context: TenantContext, permission: Permission) -> None:
+        """Tenant-wide permissions: an organization role of the caller's own tenant.
+
+        The caller must still hold an active membership in the request's workspace (the
+        request dependencies enforce that); the workspace role itself grants nothing here.
+        """
+        claimed = {role.strip().lower() for role in context.organization_roles}
+        granted = frozenset().union(
+            *(
+                ORGANIZATION_ROLE_PERMISSIONS[role]
+                for role in OrganizationRole
+                if role.value in claimed
+            )
+        )
+        if not claimed & {role.value for role in OrganizationRole}:
+            raise AuthorizationError(permission, AuthorizationFailure.MISSING_ROLE)
+        if permission not in granted:
             raise AuthorizationError(permission, AuthorizationFailure.PERMISSION_DENIED)
 
 

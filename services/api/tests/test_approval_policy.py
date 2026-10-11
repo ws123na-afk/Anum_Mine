@@ -293,7 +293,7 @@ def three_approver_chain() -> Iterator[None]:
     store.approval_approvers.clear()
     rule = client.post(
         "/api/v1/organization/approval-rules",
-        headers=OWNER_A,
+        headers={**OWNER_A, "x-user-roles": "owner,org_admin"},
         json={"name": "Three approvers", "action_pattern": "external.*", "minimum_approvers": 3},
     )
     assert rule.status_code == 201, rule.text

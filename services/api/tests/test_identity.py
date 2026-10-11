@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
 
 from anum_api import dependencies
-from anum_api.authorization import Role
+from anum_api.authorization import OrganizationRole, Role
 from anum_api.identity import (
     AuthConfigurationError,
     JwksCache,
@@ -278,6 +278,52 @@ def test_oidc_request_with_membership_uses_membership_role(oidc_api) -> None:
     assert denied.json()["error"]["message"] == "Workspace permission denied"
 
 
+POLICY_PACK = {
+    "name": "Organization baseline",
+    "rules": [{"action": "integration.*.write", "effect": "require_approval"}],
+}
+
+
+def test_oidc_workspace_owner_without_org_admin_cannot_change_tenant_policy(oidc_api) -> None:
+    client, key, _ = oidc_api
+    add_membership(Role.OWNER)
+    token = key.sign()  # realm roles: owner only
+
+    denied = client.post("/api/v1/policy-packs", headers=bearer(token), json=POLICY_PACK)
+    summary = client.get("/api/v1/organization/governance", headers=bearer(token))
+
+    assert denied.status_code == 403
+    assert denied.json()["error"]["message"].startswith("Organization administrator role required")
+    assert summary.status_code == 200
+    assert summary.json()["can_manage_organization_policy"] is False
+
+
+def test_oidc_org_admin_realm_role_survives_the_membership_role(oidc_api) -> None:
+    client, key, _ = oidc_api
+    # The persisted membership (member) replaces the token's workspace role but keeps the
+    # tenant-level org_admin role, which the identity provider grants for this tenant only.
+    add_membership(Role.MEMBER)
+    token = key.sign(realm_access={"roles": ["owner", "org_admin"]})
+
+    created = client.post("/api/v1/policy-packs", headers=bearer(token), json=POLICY_PACK)
+    summary = client.get("/api/v1/organization/governance", headers=bearer(token))
+
+    assert created.status_code == 201
+    assert summary.json()["can_manage_organization_policy"] is True
+    # org_admin is not a workspace role: the member still cannot manage this workspace.
+    assert client.get("/api/v1/workspace-members", headers=bearer(token)).status_code == 403
+
+
+def test_oidc_org_admin_without_a_membership_is_refused(oidc_api) -> None:
+    client, key, _ = oidc_api
+    token = key.sign(realm_access={"roles": ["org_admin"]})
+
+    response = client.post("/api/v1/policy-packs", headers=bearer(token), json=POLICY_PACK)
+
+    assert response.status_code == 403
+    assert response.json()["error"]["message"] == "Active workspace membership required"
+
+
 def test_oidc_missing_membership_is_403(oidc_api) -> None:
     client, key, _ = oidc_api
 
@@ -476,7 +522,7 @@ def test_realm_roles_match_authorization_roles() -> None:
     names = {role["name"] for role in realm["roles"]["realm"]}
 
     assert realm["realm"] == "anum"
-    assert names == {role.value for role in Role}
+    assert names == {role.value for role in Role} | {role.value for role in OrganizationRole}
 
 
 def test_realm_issuer_matches_default_settings() -> None:

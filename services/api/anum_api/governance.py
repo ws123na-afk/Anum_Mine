@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from .audit import AuditRecord, InMemoryAuditRecorder
 from .authorization import Permission
-from .dependencies import require_permission, tenant_context
+from .dependencies import has_permission, require_permission, tenant_context
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 
@@ -97,6 +97,9 @@ class GovernanceSummary(BaseModel):
     role_templates: int
     approval_rules: int
     memory_governance_configured: bool
+    # Whether the caller may change the tenant-wide settings above (organization
+    # administrator). Clients show the controls read-only, with the reason, when false.
+    can_manage_organization_policy: bool = False
 
 
 class RoleTemplateExistsError(ValueError):
@@ -236,6 +239,13 @@ def open_governance_store(context: TenantContext) -> Iterator[GovernanceReposito
 router = APIRouter(prefix="/api/v1", tags=["governance"])
 
 
+def _organization_admin(context: TenantContext) -> None:
+    """Policy packs, role templates, approval rules and memory governance bind every
+    workspace of the tenant, so changing them needs the organization administrator role;
+    owning one workspace is not enough (docs/governance-and-scale.md#who-may-change-what)."""
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+
+
 def _owner(context: TenantContext, permission: Permission) -> None:
     require_permission(context, permission)
 
@@ -264,12 +274,13 @@ def summary(context: TenantContext = Depends(tenant_context)) -> GovernanceSumma
             role_templates=len(store.list_role_templates(context)),
             approval_rules=len(store.list_approval_rules(context)),
             memory_governance_configured=store.get_memory_governance(context) is not None,
+            can_manage_organization_policy=has_permission(context, Permission.ORG_POLICY_MANAGE),
         )
 
 
 @router.post("/policy-packs", response_model=PolicyPack, status_code=status.HTTP_201_CREATED)
 def create_policy_pack(payload: PolicyPackCreate, context: TenantContext = Depends(tenant_context)) -> PolicyPack:
-    _owner(context, Permission.POLICY_MANAGE)
+    _organization_admin(context)
     with open_governance_store(context) as store:
         result = store.create_policy_pack(context, payload)
         _audit(store, context, "policy_pack.created", f"policy_pack:{result.id}", {"name": result.name, "version": result.version})
@@ -293,7 +304,7 @@ def _policy_pack(store: GovernanceRepository, policy_id: str, context: TenantCon
 
 @router.post("/policy-packs/{policy_id}/activate", response_model=PolicyPack)
 def activate_policy_pack(policy_id: str, context: TenantContext = Depends(tenant_context)) -> PolicyPack:
-    _owner(context, Permission.POLICY_MANAGE)
+    _organization_admin(context)
     with open_governance_store(context) as store:
         pack = store.activate_policy_pack(context, _policy_pack(store, policy_id, context))
         _audit(store, context, "policy_pack.activated", f"policy_pack:{pack.id}", {"name": pack.name, "version": pack.version})
@@ -302,7 +313,7 @@ def activate_policy_pack(policy_id: str, context: TenantContext = Depends(tenant
 
 @router.post("/policy-packs/{policy_id}/archive", response_model=PolicyPack)
 def archive_policy_pack(policy_id: str, context: TenantContext = Depends(tenant_context)) -> PolicyPack:
-    _owner(context, Permission.POLICY_MANAGE)
+    _organization_admin(context)
     with open_governance_store(context) as store:
         pack = store.archive_policy_pack(context, _policy_pack(store, policy_id, context))
         _audit(store, context, "policy_pack.archived", f"policy_pack:{pack.id}", {"name": pack.name, "version": pack.version})
@@ -311,7 +322,7 @@ def archive_policy_pack(policy_id: str, context: TenantContext = Depends(tenant_
 
 @router.post("/role-templates", response_model=RoleTemplate, status_code=status.HTTP_201_CREATED)
 def create_role_template(payload: RoleTemplateCreate, context: TenantContext = Depends(tenant_context)) -> RoleTemplate:
-    _owner(context, Permission.ORGANIZATION_MANAGE)
+    _organization_admin(context)
     template = RoleTemplate(id=new_id("role"), tenant_id=context.tenant_id, name=payload.name,
                             permissions=sorted(set(payload.permissions)), created_at=utc_now())
     try:
@@ -332,7 +343,7 @@ def list_role_templates(context: TenantContext = Depends(tenant_context)) -> lis
 
 @router.post("/organization/approval-rules", response_model=ApprovalRule, status_code=201)
 def create_approval_rule(payload: ApprovalRuleCreate, context: TenantContext = Depends(tenant_context)) -> ApprovalRule:
-    _owner(context, Permission.GOVERNANCE_MANAGE)
+    _organization_admin(context)
     rule = ApprovalRule(id=new_id("approval_rule"), tenant_id=context.tenant_id,
                         created_at=utc_now(), **payload.model_dump())
     with open_governance_store(context) as store:
@@ -350,7 +361,7 @@ def list_approval_rules(context: TenantContext = Depends(tenant_context)) -> lis
 
 @router.put("/organization/memory-governance", response_model=MemoryGovernance)
 def update_memory_governance(payload: MemoryGovernanceUpdate, context: TenantContext = Depends(tenant_context)) -> MemoryGovernance:
-    _owner(context, Permission.GOVERNANCE_MANAGE)
+    _organization_admin(context)
     value = MemoryGovernance(tenant_id=context.tenant_id, updated_by=context.user_id,
                              updated_at=utc_now(), **payload.model_dump())
     with open_governance_store(context) as store:

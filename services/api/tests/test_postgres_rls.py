@@ -23,6 +23,7 @@ from conftest import (
 pytestmark = pytest.mark.database
 
 TENANT_TABLES = {
+    "tenants",
     "retrieval_sources",
     "retrieval_chunks",
     "conversations",
@@ -171,6 +172,62 @@ def test_rls_hides_other_tenants_and_rejects_cross_tenant_writes(
                 ),
                 {"tenant_b": TENANT_B, "workspace_b": WORKSPACE_B},
             )
+
+
+def test_tenants_rls_shows_the_app_role_only_its_own_tenant(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    """Migration 0020: ``tenants`` is under forced RLS on ``anum.tenant_id``."""
+    with app_session(tenant_context(TENANT_A, WORKSPACE_A)) as session:
+        assert session.execute(text("select id from tenants order by id")).scalars().all() == [TENANT_A]
+        # Naming the other tenant directly finds nothing either.
+        assert session.execute(
+            text("select count(*) from tenants where id = :tenant_b"), {"tenant_b": TENANT_B}
+        ).scalar_one() == 0
+        # Updates and deletes of another tenant's row match no rows.
+        assert session.execute(
+            text("update tenants set name = 'Taken' where id = :tenant_b"), {"tenant_b": TENANT_B}
+        ).rowcount == 0
+        assert session.execute(
+            text("delete from tenants where id = :tenant_b"), {"tenant_b": TENANT_B}
+        ).rowcount == 0
+
+    with app_session(tenant_context(TENANT_B, WORKSPACE_B)) as session:
+        assert session.execute(text("select id, name from tenants")).all() == [(TENANT_B, "Tenant B")]
+
+    # Without tenant context the application role sees no tenant at all.
+    with app_session() as session:
+        assert session.execute(text("select count(*) from tenants")).scalar_one() == 0
+
+
+def test_tenants_rls_lets_a_tenant_create_only_its_own_row(
+    clean_database: None,
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    context = tenant_context("tenant_rls_new", "workspace_rls_new")
+
+    # Provisioning (POST /api/v1/tenants, onboarding) inserts the caller's own tenant row
+    # inside its own tenant context, then its first workspace (foreign key to tenants).
+    with app_session(context, commit=True) as session:
+        session.execute(text("insert into tenants (id, name) values ('tenant_rls_new', 'New')"))
+        session.execute(
+            text(
+                "insert into workspaces (id, tenant_id, name) "
+                "values ('workspace_rls_new', 'tenant_rls_new', 'First')"
+            )
+        )
+
+    with app_session(context) as session:
+        assert session.execute(text("select id from tenants")).scalars().all() == ["tenant_rls_new"]
+
+    with pytest.raises(DBAPIError):
+        with app_session(context) as session:
+            session.execute(text("insert into tenants (id, name) values ('tenant_rls_other', 'Other')"))
+
+    with pytest.raises(DBAPIError):
+        with app_session(context) as session:
+            session.execute(text("update tenants set id = 'tenant_rls_moved' where id = 'tenant_rls_new'"))
 
 
 def test_rls_denies_access_when_tenant_context_is_missing(

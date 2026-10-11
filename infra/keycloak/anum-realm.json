@@ -27,6 +27,10 @@
       {
         "name": "viewer",
         "description": "ANUM read-only viewer (authoritative role is the ANUM workspace membership)."
+      },
+      {
+        "name": "org_admin",
+        "description": "ANUM organization administrator for the user's tenant_id: may change tenant-wide policy (policy packs, role templates, approval rules, memory governance). Authoritative; grant it only to the tenant's administrators."
       }
     ]
   },
@@ -369,7 +373,8 @@
         }
       ],
       "realmRoles": [
-        "owner"
+        "owner",
+        "org_admin"
       ]
     }
   ],

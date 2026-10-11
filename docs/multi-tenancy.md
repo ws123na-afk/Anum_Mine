@@ -25,6 +25,8 @@ Their RLS policies and grants cover nothing else.
 - RLS prevents data access outside the active tenant context.
 - Tool policy limits what agents can do even after a user starts a task.
 
+Tenant-wide policy (policy packs, role templates, organization approval rules, memory governance) is a separate, tenant-level permission, `organization_policy:manage`, held only by the organization administrator role `org_admin`; a workspace owner does not have it ([Governance](governance-and-scale.md#who-may-change-what)).
+
 Workspace owners add people with invitations and manage roles and deactivation; the last active owner is protected ([Identity](identity.md#invitations-and-membership-management)). In `ANUM_AUTH_MODE=oidc` the tenant comes from the token's IdP-managed `tenant_id` claim, the workspace from `x-workspace-id` (or the token's default `workspace_id`), and the persisted membership supplies the role. See [Identity and sign-in](identity.md#tenant-and-workspace-resolution).
 
 ## Control-Plane Stores
@@ -38,6 +40,12 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` every control-plane store is a tenant 
 | User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`) | `tenant_id`, `workspace_id` and `user_id` |
 
 User-level rows need `anum.user_id` in the session context as well (`set_tenant_context(..., user_id=...)`, or `open_scoped_store(..., user_scoped=True)`). Without it they are invisible, even to other users of the same workspace. Tenant-level settings are shared by all of a tenant's workspaces and invisible to other tenants. Governance changes write an `audit_records` row for the acting workspace in the same transaction. The marketplace catalog belongs to the tenant that published the package; an install in any of the tenant's workspaces blocks deleting the package through a foreign key, which PostgreSQL checks without RLS filtering.
+
+## Tenants Table
+
+`tenants` (id, name, status) is under forced RLS too (migration `0020_tenants_rls`): the policy `tenant_isolation_tenants` admits only the row whose `id` equals `anum.tenant_id`, for reads (`using`) and writes (`with check`). A request or job therefore sees its own tenant row and nothing else; without tenant context it sees no tenant at all. Creating a tenant (`POST /api/v1/tenants`, `PUT /api/v1/onboarding`) still works because those routes set the caller's tenant as context and insert exactly that id. No narrow role is granted anything on `tenants`: the outbox relay, the scheduler, the retention purge and key rotation find their work through other tables and never read it. Foreign keys to `tenants` are checked by PostgreSQL without row security, so every tenant table keeps its reference. Tests: `tests/test_postgres_rls.py` (`test_tenants_rls_*`: other tenants are invisible by listing and by id, updates and deletes of them match nothing, a tenant can create only its own row).
+
+Merge note: the revision is chained after `0018_conversations`; if a `0019_*` revision lands first, re-chain `0020_tenants_rls` onto it and update `tests/test_migrations.py`.
 
 ## Maintenance Role
 
