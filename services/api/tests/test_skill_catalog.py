@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from anum_api import main
+from anum_api.dependencies import memory_repository
 from anum_api.governance import governance_store
 from anum_api.phase5 import store as scale_store
 from anum_api.schemas import TenantContext
@@ -28,10 +29,14 @@ def clean() -> Iterator[None]:
     skill_store.clear()
     scale_store.clear()
     governance_store.clear()
+    # Governance audit records live in the shared in-memory audit log (docs/governance-and-scale.md#audit-log).
+    memory_repository.store.audit_records.clear()
     yield
     skill_store.clear()
     scale_store.clear()
     governance_store.clear()
+    # Governance audit records live in the shared in-memory audit log (docs/governance-and-scale.md#audit-log).
+    memory_repository.store.audit_records.clear()
 
 
 def _publish(client: TestClient, version: str, tools: list[str], name: str = "Release notes", risk: str = "medium") -> None:

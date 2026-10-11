@@ -257,15 +257,28 @@ void main() {
     final privacy = find.text('Your data and privacy');
     await tester.scrollUntilVisible(privacy, 200,
         scrollable: find.byType(Scrollable).first);
+    // The Settings list has grown (phone push); bring the tile fully on screen first.
+    await tester.ensureVisible(privacy);
+    await tester.pumpAndSettle();
     await tester.tap(privacy);
     await tester.pumpAndSettle();
 
     final memory = find.byKey(const Key('privacy-memory'));
     await tester.scrollUntilVisible(memory, 200,
-        scrollable: find.byType(Scrollable).last);
+        scrollable: find
+            .descendant(
+                of: find.byType(PrivacyScreen),
+                matching: find.byType(Scrollable))
+            .first);
     expect(tester.widget<Text>(memory).data,
         startsWith('You turned off Remember things from my chats'));
     final change = find.text('Change Remember things from my chats');
+    await tester.scrollUntilVisible(change, 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(PrivacyScreen),
+                matching: find.byType(Scrollable))
+            .first);
     await tester.ensureVisible(change);
     await tester.pumpAndSettle();
     await tester.tap(change);
