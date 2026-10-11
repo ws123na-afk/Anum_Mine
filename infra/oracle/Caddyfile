@@ -12,7 +12,7 @@
 # ever put in front, list its ranges in `trusted_proxies` here, never `0.0.0.0/0`.
 #
 # Placeholders {$NAME} are read from the container's environment at start (set from
-# infra/oracle/.env by compose).
+# infra/oracle/.env by compose). infra/oracle/smoke.sh checks the result from outside.
 
 {
 	email {$ACME_EMAIL}
@@ -54,13 +54,30 @@
 {$ANUM_AUTH_HOST} {
 	import common
 	header Strict-Transport-Security "max-age=63072000"
-	# Keycloak's admin console and admin REST API, from the allowed source ranges only
-	# (ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS, default everyone; docs/deploy-oracle.md#keycloak).
+	header ?X-Content-Type-Options nosniff
+	# The address Caddy sees for the caller: what to put in the allow-list below, and
+	# how infra/oracle/smoke.sh checks that Caddy sees real client addresses.
+	@client_ip path /anum/client-ip
+	header @client_ip Cache-Control no-store
+	respond @client_ip "{remote_host}" 200
+	# Keycloak's admin console, admin REST API and the master realm (where the admins
+	# sign in) answer only callers in ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS. Caddy is the
+	# edge, so remote_ip is the TCP peer: the real client address (Docker publishes the
+	# ports with NAT). compose.yaml turns the comma-separated list from .env into the
+	# space-separated one Caddy reads, and an empty list into 0.0.0.0/32 ::/128, which
+	# no TCP peer can have: the console is then closed to the internet and reached
+	# through an SSH tunnel (docs/deploy-oracle.md#keycloak). A peer on the Docker
+	# networks (172.30.0.0/16, for example traffic relayed by docker-proxy, which hides
+	# the client) is never allowed, whatever the list says. Sign-in to ANUM
+	# (/realms/anum/...) stays public.
 	@admin_denied {
-		path /admin /admin/*
-		not remote_ip {$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS}
+		path /admin /admin/* /realms/master /realms/master/*
+		not {
+			remote_ip {$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS}
+			not remote_ip 172.30.0.0/16
+		}
 	}
-	respond @admin_denied 403
+	respond @admin_denied "Keycloak's admin console is not reachable from this address (docs/deploy-oracle.md#keycloak)" 403
 	# Management endpoints stay on Keycloak's private port 9000; never proxy them.
 	@management path /health /health/* /metrics /metrics/*
 	respond @management 404
@@ -68,3 +85,8 @@
 		import upstream_headers
 	}
 }
+
+# Optional sites: infra/oracle/monitoring.sh enable puts an import of monitoring.caddy
+# (Beszel and GlitchTip, docs/monitoring-oracle.md) into sites-enabled/ and disable
+# removes it. A glob that matches no file imports nothing.
+import /etc/caddy/sites-enabled/*.caddy

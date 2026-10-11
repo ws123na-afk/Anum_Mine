@@ -119,3 +119,38 @@ def test_openai_compatible_still_requires_a_key() -> None:
             assert "API key is required" in str(exc)
         else:
             raise AssertionError("hosted providers must fail closed without a key")
+
+
+def test_complete_chat_is_one_non_streaming_call_with_the_callers_max_tokens() -> None:
+    import json as _json
+
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(_json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "model": "provider-model-v1",
+                "choices": [{"message": {"content": '{"facts": []}'}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 40, "completion_tokens": 5},
+            },
+        )
+
+    gateway = OpenAICompatibleGateway(
+        api_key="provider-secret",
+        model="configured-model",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    messages = [{"role": "system", "content": "Extract."}, {"role": "user", "content": "I like tea."}]
+    response = asyncio.run(gateway.complete_chat(messages, max_tokens=128))
+
+    (body,) = seen
+    assert body["max_tokens"] == 128 and "stream" not in body
+    assert body["messages"] == messages
+    assert response.text == '{"facts": []}'
+    assert (response.usage.input_tokens, response.usage.output_tokens) == (40, 5)
+
+    mock = build_model_gateway("mock")
+    reply = asyncio.run(mock.complete_chat([{"role": "user", "content": "Hello there"}], max_tokens=32))
+    assert reply.text.startswith("Mock reply to: Hello there") and reply.usage.output_tokens > 0

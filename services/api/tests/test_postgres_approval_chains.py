@@ -42,7 +42,7 @@ def client(postgres_backend: None) -> TestClient:  # noqa: F811
 def _waiting_approval(client: TestClient) -> dict:
     rule = client.post(
         "/api/v1/organization/approval-rules",
-        headers=REQUESTER,
+        headers={**REQUESTER, "x-user-roles": "owner,org_admin"},
         json={"name": "Three approvers", "action_pattern": "external.*", "minimum_approvers": 3},
     )
     assert rule.status_code == 201, rule.text

@@ -5,7 +5,7 @@ ANUM memory is the system's controlled long-term context layer. It should improv
 ## Memory Types
 
 - Task memory: notes, decisions, and artifacts tied to a task.
-- User memory: preferences and stable facts approved for reuse.
+- User memory: preferences and stable facts approved for reuse. Facts remembered from a user's assistant chats are private to that user ([From conversations](#from-conversations)).
 - Workspace memory: shared project context visible to authorized members.
 - Integration memory: derived summaries from connected tools, scoped by consent.
 - Operational memory: runtime metadata used for debugging and quality, separated from user-facing recall.
@@ -77,8 +77,27 @@ The run's `retrieval` step is the audit record. Its metadata: `status` (`ok`, `n
 
 ### API
 
+- `GET /api/v1/memories` (memory read) lists the workspace's shared notes and the caller's own private memories; `source_type=conversation` keeps only memories remembered from chats. A private memory has `task_id: null`, `owner_user_id` (the caller) and `provenance.source_id` = the conversation; `provenance.metadata.conversation_title` names it. `DELETE /api/v1/memories/{id}` (memory delete) deletes it with its index rows; nobody else, not even a workspace owner, can see or delete another user's private memory.
 - `GET /api/v1/retrieval/status` (memory read): the embedding model in use and, per source, status, error code, chunk count and model; counts of `indexed`, `failed`, `skipped`, `stale` sources and of chunks, and `stale_models` (stale sources per model they were indexed with).
 - `POST /api/v1/retrieval/index?limit=100` (memory create, because it spends budget): indexes memories and files that are missing, failed, changed or on another model (at most `limit` embedded per call, `remaining` says how many are left) and deletes index rows whose memory or file is gone or expired. Unchanged sources on the current model are not counted against `limit`. After an embedding model change (`ANUM_EMBEDDING_MODEL`, the provider, or a workspace's saved endpoint) it re-embeds the sources still on the old model: `reembedded` counts them (they are also in `indexed`), `stale_remaining` counts those left for the next call, and the response's `status` shows what is still `stale`. Call it until `stale_remaining` is 0. Use it after upgrading to `0014_retrieval_index` to index existing memories and files.
+
+## From conversations
+
+The [assistant chat](conversations.md) has long-term memory. Code: `anum_api/conversation_memory.py`; storage: migration `0021_memory_sources`.
+
+**Remembering.** When an assistant reply is complete and stored, a background pass runs after the whole SSE body has been sent (a Starlette background task), so it never delays, blocks or fails the stream:
+
+1. It runs only when `ANUM_CONVERSATION_MEMORY_ENABLED` is true (the default), the caller has memory create permission (owner and member), and the tenant's memory governance allows it: an `allowed_source_types` list that does not contain `conversation` turns it off for the tenant (an empty list allows every source).
+2. The workspace's model (the same budgeted gateway as the chat: checked before, metered after) gets one **non-streaming** call, `complete_chat` with `max_tokens` = `ANUM_CONVERSATION_MEMORY_MAX_TOKENS` (256): the question and the reply, framed as data, and an instruction to return `{"facts": [...]}`, at most `ANUM_CONVERSATION_MEMORY_MAX_FACTS` (5) durable facts the *user* stated about themselves ("The user prefers short answers."). With the mock provider (local and tests) no model is called; a deterministic rule-based extractor rewrites first-person statements ("My name is Sam" becomes "The user's name is Sam.").
+3. The reply is parsed tolerantly (code fences and prose around the JSON are ignored; anything unparsable yields nothing). Facts shorter than 8 or longer than 240 characters, duplicates, and facts that look sensitive (passwords, keys, tokens, card or account numbers, long secrets) are dropped.
+4. Each fact is upserted into the user's private memories in one unit of work: the same text (ignoring case and punctuation) is left alone; otherwise the fact is embedded (budgeted, once per pass: the same vector is reused to index it) and compared with the user's own conversation memories through the retrieval index (`source_type = memory`). At cosine similarity `ANUM_CONVERSATION_MEMORY_DEDUPE_THRESHOLD` (0.85) or more the nearest memory is **updated** in place (new text, `provenance.source_id` = the newest conversation, `updated_at` set) and re-indexed; below it a new memory is created: `source_type = conversation`, `source_id` = the conversation id, no task, `owner_user_id` = the user, retention indefinite unless memory governance disallows permanent retention (then `default_retention_days`). If the provider cannot embed, only exact-text dedupe applies for that pass.
+5. One pass at a time per user (an in-process lock), bounded by `ANUM_CONVERSATION_MEMORY_TIMEOUT_SECONDS` (60). Any failure (provider down, budget exhausted, timeout, database error) is logged as `conversation_memory_failed stage=<stage> error_class=<class>`, never with text, and nothing else happens. A successful pass logs counts only (`conversation_memory_pass`).
+
+**Privacy.** Conversations are private, so their memories are too. `memories.owner_user_id` and `retrieval_sources.owner_user_id` hold the owner; a `RESTRICTIVE` policy on each table (AND-ed with tenant isolation) makes an owned row visible and writable only while `anum.user_id` names its owner, and every statement repeats the rule. Memory and retrieval units of work therefore set `anum.user_id` (`memory_repository_context`, `open_memory_repository`, `open_retrieval_store`). Chunks are read only through their source row. A task run's retrieval sees the caller's own private memories and the workspace's shared ones, never another user's. Sessions without a user (the retention purge, the previous release) do not see owned rows, so they neither return nor purge them; the owner's next memory pass deletes their own expired conversation memories (with their index rows). Deleting a conversation keeps the memories drawn from it; the Memory view then shows the source as a deleted chat.
+
+**Recall.** Every ask (`POST /api/v1/conversations/{id}/ask`), before the reply streams, embeds the question and retrieves the nearest memories the caller may read (`source_type = memory` only: their private memories and the workspace's shared notes; never files), at most `ANUM_CONVERSATION_MEMORY_RECALL_K` (4) and `ANUM_CONVERSATION_MEMORY_RECALL_CHARS` (2,000) characters in total. Each is wrapped by `label_untrusted` and placed in the system message after a short preface and `UNTRUSTED_DATA_RULES`. Recall needs memory read permission, spends no embedding call when nothing is indexed, and is skipped (the question is answered without it) when it fails, the budget is exhausted, or it takes longer than `ANUM_CONVERSATION_MEMORY_RECALL_TIMEOUT_SECONDS` (3). The SSE `turn` event lists the recalled memory ids in `memories_used`.
+
+**Web.** The Memory view labels a memory from a chat "From chat" with the conversation's title and an **Open chat** link to it in the Assistant view, alongside delete. It has no task column for such a memory.
 
 ## Governance
 
@@ -86,8 +105,8 @@ Users need ways to inspect, edit, disable, and delete memory. Memories should ha
 
 ## Now
 
-Task-linked notes with retention and deletion, chunked embeddings in pgvector for memories and text files, scoped retrieval into task prompts with provenance labels, and per-run source records.
+Task-linked notes with retention and deletion, chunked embeddings in pgvector for memories and text files, scoped retrieval into task prompts with provenance labels, per-run source records, and private long-term memory from assistant chats (extraction, dedupe by embedding, recall into the chat, deletion from the Memory view).
 
 ## Later
 
-Approximate-nearest-neighbour indexes for further dimensions as models are adopted, hybrid (keyword plus vector) ranking, re-indexing in the background when the embedding model changes, memory graph relationships, conflict resolution, freshness scoring, automatic summarization, user-visible memory management, and organization retention policies.
+Approximate-nearest-neighbour indexes for further dimensions as models are adopted, hybrid (keyword plus vector) ranking, re-indexing in the background when the embedding model changes, memory graph relationships, conflict resolution (two contradictory facts below the dedupe threshold are both kept), a per-user switch for conversation memory (today: the server setting and tenant governance), editing a memory in place from the Memory view, freshness scoring, automatic summarization, user-visible memory management, and organization retention policies.

@@ -59,7 +59,8 @@ def headers(tenant_id: str = TENANT_A, workspace_id: str = WORKSPACE_A, user_id:
         "x-tenant-id": tenant_id,
         "x-workspace-id": workspace_id,
         "x-user-id": user_id,
-        "x-user-roles": "owner",
+        # Workspace owner and organization administrator (tenant-wide governance writes).
+        "x-user-roles": "owner,org_admin",
     }
 
 
@@ -190,6 +191,7 @@ def test_governance_and_its_audit_trail_survive_a_restart(client: TestClient, da
     assert summary_a2 == {
         "tenant_id": TENANT_A, "policy_packs": 2, "active_policy_packs": 1,
         "role_templates": 1, "approval_rules": 1, "memory_governance_configured": True,
+        "can_manage_organization_policy": True,
     }
     summary_b = client.get("/api/v1/organization/governance", headers=B).json()
     assert summary_b["policy_packs"] == 0 and summary_b["memory_governance_configured"] is False
@@ -206,6 +208,34 @@ def test_governance_and_its_audit_trail_survive_a_restart(client: TestClient, da
     assert client.get("/api/v1/audit/export", headers=A2).json() == []
     assert client.get("/api/v1/audit/export", headers=B).json() == []
     assert _count(database_engine, "audit_records") == 6
+
+
+def test_a_workspace_owner_without_org_admin_writes_no_tenant_policy(
+    client: TestClient, database_engine: Engine
+) -> None:
+    workspace_owner = {**A2, "x-user-roles": "owner"}
+    pack = client.post("/api/v1/policy-packs", headers=A, json=POLICY).json()
+
+    attempts = [
+        client.post("/api/v1/policy-packs", headers=workspace_owner, json=POLICY),
+        client.post(f"/api/v1/policy-packs/{pack['id']}/archive", headers=workspace_owner),
+        client.post("/api/v1/role-templates", headers=workspace_owner, json={
+            "name": "Operator", "permissions": ["task:read"]}),
+        client.post("/api/v1/organization/approval-rules", headers=workspace_owner, json={
+            "name": "Loose", "action_pattern": "finance.*"}),
+        client.put("/api/v1/organization/memory-governance", headers=workspace_owner, json={
+            "default_retention_days": 3650, "allow_permanent_retention": True}),
+    ]
+
+    assert [response.status_code for response in attempts] == [403] * 5
+    assert client.get("/api/v1/organization/governance", headers=workspace_owner).json()[
+        "can_manage_organization_policy"
+    ] is False
+    assert _count(database_engine, "policy_packs") == 1
+    assert _count(database_engine, "role_templates") == 0
+    assert _count(database_engine, "approval_rules") == 0
+    assert _count(database_engine, "memory_governance") == 0
+    assert _count(database_engine, "audit_records") == 1
 
 
 def test_a_rejected_governance_write_leaves_no_audit_record(client: TestClient, database_engine: Engine) -> None:

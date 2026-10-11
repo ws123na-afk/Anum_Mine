@@ -13,7 +13,16 @@ localhost redirect URIs. A shared Keycloak gets:
   environment when it imports the realm (`kc.sh start --import-realm`);
 * the `anum-desktop` client without the Vite dev-server entries (`http://localhost:5173`),
   keeping the Tauri origins and the RFC 8252 loopback redirect (`http://127.0.0.1/*`);
+* the two-factor policies of docs/identity.md#two-factor-sign-in: TOTP (HmacSHA1,
+  6 digits, 30 seconds) and passkeys offered on the sign-in page with user verification
+  required. The relying party id stays empty (Keycloak then uses its own host name, the
+  auth host). The values are the ones ``infra/keycloak/two_factor.py`` applies to a
+  running server; a test keeps the two equal;
 * every other client, role, mapper and the user profile unchanged.
+
+The 2FA browser flow itself is not part of the import: a realm file that lists any
+authentication flow must list all of them, so the flow is added by
+``infra/keycloak/two_factor.py`` (``infra/oracle/keycloak-2fa.sh``) after the import.
 
 Standard library only, so it runs in a bare Python build stage.
 """
@@ -28,6 +37,22 @@ from typing import Any
 WEB_ORIGIN_PLACEHOLDER = "${ANUM_WEB_ORIGIN}"
 DEV_SERVER_PREFIXES = ("http://localhost:5173", "http://127.0.0.1:5173")
 
+# Kept equal to infra/keycloak/two_factor.py (OTP_POLICY, PASSKEY_POLICY) by
+# services/api/tests/test_render_blueprint.py; this file runs alone in the image build.
+TWO_FACTOR_POLICY: dict[str, Any] = {
+    "otpPolicyType": "totp",
+    "otpPolicyAlgorithm": "HmacSHA1",
+    "otpPolicyDigits": 6,
+    "otpPolicyPeriod": 30,
+    "otpPolicyLookAheadWindow": 1,
+    "otpPolicyCodeReusable": False,
+    "webAuthnPolicyPasswordlessRpEntityName": "ANUM",
+    "webAuthnPolicyPasswordlessUserVerificationRequirement": "required",
+    "webAuthnPolicyPasswordlessRequireResidentKey": "Yes",
+    "webAuthnPolicyPasswordlessSignatureAlgorithms": ["ES256", "RS256"],
+    "webAuthnPolicyPasswordlessPasskeysEnabled": True,
+}
+
 
 def _without_dev_server(values: list[str]) -> list[str]:
     return [value for value in values if not value.startswith(DEV_SERVER_PREFIXES)]
@@ -37,6 +62,7 @@ def shared_realm(realm: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of ``realm`` that is safe to import into a shared Keycloak."""
     result = json.loads(json.dumps(realm))
     result.pop("users", None)
+    result.update(json.loads(json.dumps(TWO_FACTOR_POLICY)))
     for client in result.get("clients", []):
         if client.get("clientId") not in {"anum-web", "anum-desktop"}:
             continue

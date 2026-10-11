@@ -7,7 +7,7 @@ export interface PolicyRule { action: string; effect: string; conditions?: Recor
 export interface PolicyPack { id: string; name: string; description: string; version: number; active: boolean; rules: PolicyRule[]; created_by: string; created_at: string }
 export interface RoleTemplate { id: string; name: string; permissions: string[]; created_at: string }
 export interface ApprovalRule { id: string; name: string; action_pattern: string; minimum_approvers: number; required_roles: string[]; enabled: boolean; created_at: string }
-export interface GovernanceSummary { policy_packs: number; active_policy_packs: number; role_templates: number; approval_rules: number; memory_governance_configured: boolean }
+export interface GovernanceSummary { policy_packs: number; active_policy_packs: number; role_templates: number; approval_rules: number; memory_governance_configured: boolean; can_manage_organization_policy?: boolean }
 export type RegionStatus = 'healthy' | 'degraded' | 'offline' | 'unverified';
 export interface RoutingTarget { id: string; region: string; provider: string; model: string; status: RegionStatus; modalities: string[]; sensitivity: string[]; cost_per_1k_tokens: number; latency_ms: number }
 export interface EnterpriseOperations { active_regions: number; healthy_targets: number; degraded_targets: number; installed_packages: number; failover_ready: boolean }
@@ -19,6 +19,21 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 /** Comma or newline separated text to a trimmed, de-duplicated list. */
 export function parseList(text: string): string[] {
   return [...new Set(text.split(/[,\n]/).map((x) => x.trim()).filter(Boolean))];
+}
+
+/**
+ * Who may change the tenant-wide controls (policy packs, role templates, approval rules).
+ * The API decides (`can_manage_organization_policy`, the organization administrator role);
+ * the view never guesses from the workspace role, because owning one workspace is not enough.
+ * Until the summary loads nothing is editable and nothing is explained yet.
+ */
+export function organizationPolicyAccess(summary: Pick<GovernanceSummary, 'can_manage_organization_policy'> | null): { canManage: boolean; notice: string | null } {
+  if (!summary) return { canManage: false, notice: null };
+  if (summary.can_manage_organization_policy) return { canManage: true, notice: null };
+  return {
+    canManage: false,
+    notice: 'Read only: policy packs, role templates and approval rules apply to every workspace in this organization, so only an organization administrator can change them. Owning this workspace is not enough. Ask your organization administrator to make the change, or to have the org_admin role granted to you in your identity provider.',
+  };
 }
 
 /** The badge and next action for a pack: the API activates or archives a stored version. */
@@ -104,6 +119,17 @@ export function integrationConfigBody(enabled: boolean, endpoint: string): Resul
   const value = endpoint.trim();
   if (value.length > 500) return { ok: false, error: 'The endpoint is at most 500 characters.' };
   return { ok: true, value: { enabled, endpoint: value || null } };
+}
+
+/**
+ * What an integration's health means for the agent tool it backs (only `search` backs
+ * one today: SearXNG and the `web_search` tool). Null for infrastructure integrations.
+ */
+export function integrationToolNote(kind: string, status: string): { text: string; available: boolean } | null {
+  if (kind !== 'search') return null;
+  if (status === 'connected') return { text: 'Agent tool web_search: available.', available: true };
+  if (status === 'degraded') return { text: 'Agent tool web_search: calls fail until search answers.', available: false };
+  return { text: 'Agent tool web_search: unavailable here.', available: false };
 }
 
 /** Badge for an integration's health; a disabled integration is "Not used", not a failure. */

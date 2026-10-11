@@ -63,8 +63,26 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if and (eq $env "production") (eq (toString $c.ANUM_MODEL_PROVIDER) "mock") -}}
 {{- fail "ANUM_MODEL_PROVIDER=mock is a release blocker in production" -}}
 {{- end -}}
+{{- range $key := list "ANUM_MODEL_FAST_EFFORT" "ANUM_MODEL_CAPABLE_EFFORT" -}}
+{{- if not (regexMatch "^(|low|medium|high|xhigh|max)$" (toString (index $c $key | default ""))) -}}
+{{- fail (printf "config.%s must be low, medium, high, xhigh, max or empty (the API refuses other values at startup)" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- $dsn := trim (toString (default "" (coalesce (get (default (dict) .Values.extraEnv) "ANUM_SENTRY_DSN") $c.ANUM_SENTRY_DSN))) -}}
+{{- if $dsn -}}
+{{- if not (regexMatch "^https?://[^@/?#]+@[^/?#]+/([^?#]*/)?[0-9]+/?$" $dsn) -}}
+{{- fail "config.ANUM_SENTRY_DSN must look like https://<public key>@<host>/<project id>" -}}
+{{- end -}}
+{{- if and (not (hasPrefix "https://" $dsn)) (or (not (regexMatch "^http://[^@/]+@[^.:/@\\[\\]]+(:[0-9]+)?/" $dsn)) (regexMatch "^http://[^@/]+@localhost(:[0-9]+)?/" $dsn)) -}}
+{{- fail "config.ANUM_SENTRY_DSN must use https, or http to a service name without dots such as glitchtip (the API refuses other clear-text DSNs at startup)" -}}
+{{- end -}}
+{{- end -}}
 {{- if ne (lower (toString $c.ANUM_RATE_LIMIT_ENABLED)) "true" -}}
 {{- fail "config.ANUM_RATE_LIMIT_ENABLED must stay true outside local" -}}
+{{- end -}}
+{{- $retention := toString (default "30" $c.ANUM_CONVERSATION_RETENTION_DAYS) -}}
+{{- if or (not (regexMatch "^[0-9]{1,4}$" $retention)) (gt (atoi $retention) 3650) -}}
+{{- fail (printf "config.ANUM_CONVERSATION_RETENTION_DAYS=%q must be a whole number of days from 0 (keep forever) to 3650" $retention) -}}
 {{- end -}}
 {{- if not .Values.secrets.app.name -}}
 {{- fail "secrets.app.name is required (an existing Secret with ANUM_SECRETS_KEY and ANUM_DATABASE_URL)" -}}

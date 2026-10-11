@@ -1,0 +1,47 @@
+# SearXNG for ANUM's `web_search` tool (docs/tools-and-integrations.md#web-search).
+#
+# Mounted read-only at /etc/searxng/settings.yml by infra/docker/compose.yaml and
+# infra/oracle/compose.yaml. The instance is private: it has no published port and no
+# Caddy route, and only the API calls it, on the compose network, as
+# http://searxng:8080 (ANUM_SEARXNG_URL).
+#
+# No secret lives here: server.secret_key is overridden by the SEARXNG_SECRET
+# environment variable (generated into infra/oracle/.env by install.sh).
+
+use_default_settings: true
+
+general:
+  instance_name: "ANUM private search"
+  debug: false
+  # No /stats metrics endpoint for anyone who reaches the network.
+  enable_metrics: false
+
+search:
+  # The API sends safesearch per request (ANUM_WEB_SEARCH_SAFE_SEARCH); this is the
+  # fallback. 0 off, 1 moderate, 2 strict.
+  safe_search: 1
+  # The API asks for JSON; the HTML page stays for an operator debugging on the VM.
+  formats:
+    - html
+    - json
+  autocomplete: ""
+
+server:
+  # Placeholder; SEARXNG_SECRET replaces it (SearXNG refuses to start on the default).
+  secret_key: "replaced-by-env"
+  # The bot limiter needs Valkey and protects public instances; this one serves the
+  # API alone on an internal network, so it is off.
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+valkey:
+  url: false
+
+outgoing:
+  # Below the API's own deadline (ANUM_WEB_SEARCH_TIMEOUT_SECONDS, default 8).
+  request_timeout: 4.0
+  max_request_timeout: 6.0
+  pool_connections: 50
+  pool_maxsize: 10

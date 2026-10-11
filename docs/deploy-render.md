@@ -206,6 +206,7 @@ Day one, before anyone else uses it:
 3. Sign out, sign in as the new user, set up OTP, then **Users** → `anum-bootstrap-admin` → **Delete**.
 4. Render → `anum-keycloak` → **Environment**: delete `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` → **Save and deploy**. Keycloak creates the bootstrap admin only on its first start against an empty database, so these variables do nothing afterwards; if a later Blueprint sync adds them back, delete them again.
 5. Realm **anum** → **Realm settings**: confirm "User registration" is off (it is in the realm file) and set the e-mail settings if you want password-reset mail.
+6. Turn on two-factor sign-in for ANUM users: the imported realm already has the OTP and passkey policies, but the `anum-browser-2fa` flow has to be added after the import. The Render Keycloak image has no Python for `infra/keycloak/two_factor.py`, so follow "In the admin console" in [Identity: Two-factor sign-in](identity.md#two-factor-sign-in), and set **Authentication** → **Policies** → **Webauthn Passwordless Policy** → Relying party ID to the auth host (`<AUTH>` without `https://`).
 
 Create ANUM users (realm **anum** → **Users** → **Add user**):
 
@@ -241,6 +242,8 @@ Render has no GPUs. Staging starts with `ANUM_MODEL_PROVIDER=mock` (placeholder 
 | `ANUM_MODEL_BASE_URL` | `https://api.openai.com/v1` or the provider's `https://.../v1` |
 | `ANUM_MODEL_NAME` | for example `gpt-4.1-mini` |
 | `ANUM_MODEL_API_KEY` | the provider key: **Add Environment Variable** in the Dashboard (it is not in `render.yaml`); never a value in git |
+
+**Claude through the native Anthropic API** (prompt caching, quick replies on the fast model): `ANUM_MODEL_PROVIDER=anthropic` and `ANUM_MODEL_API_KEY` (added in the Dashboard as above). Leave `ANUM_MODEL_NAME` and `ANUM_MODEL_BASE_URL` at their `render.yaml` values: the provider then uses `https://api.anthropic.com`, `claude-haiku-5-5` for chat and voice and `claude-sonnet-5-5` for planning. `ANUM_MODEL_FAST_NAME`, `ANUM_MODEL_CAPABLE_NAME` and the two effort settings change that ([Model routing](model-gateway.md#model-routing)).
 
 Set monthly budgets through the owner screens or `/api/v1/model-budgets` ([Model gateway](model-gateway.md#monthly-budgets)). Workspace owners can also save their own provider and key per workspace; those keys are encrypted with `ANUM_SECRETS_KEY`.
 

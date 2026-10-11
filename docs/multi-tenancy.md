@@ -25,6 +25,8 @@ Their RLS policies and grants cover nothing else.
 - RLS prevents data access outside the active tenant context.
 - Tool policy limits what agents can do even after a user starts a task.
 
+Tenant-wide policy (policy packs, role templates, organization approval rules, memory governance) is a separate, tenant-level permission, `organization_policy:manage`, held only by the organization administrator role `org_admin`; a workspace owner does not have it ([Governance](governance-and-scale.md#who-may-change-what)).
+
 Workspace owners add people with invitations and manage roles and deactivation; the last active owner is protected ([Identity](identity.md#invitations-and-membership-management)). In `ANUM_AUTH_MODE=oidc` the tenant comes from the token's IdP-managed `tenant_id` claim, the workspace from `x-workspace-id` (or the token's default `workspace_id`), and the persisted membership supplies the role. See [Identity and sign-in](identity.md#tenant-and-workspace-resolution).
 
 ## Control-Plane Stores
@@ -35,9 +37,16 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` every control-plane store is a tenant 
 |---|---|---|
 | Tenant | `skill_versions`, `policy_packs`, `role_templates`, `approval_rules`, `memory_governance`, `marketplace_packages`, `routing_targets` | `tenant_id` |
 | Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `workspace_files`, `notification_preferences` (per user), `automation_workflows`, `automation_schedules`, `automation_runs` (migration `0011_voice_automation`), `retrieval_sources`, `retrieval_chunks` (migration `0014_retrieval_index`, [Memory](memory.md#retrieval)) | `tenant_id` and `workspace_id` |
-| User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`) | `tenant_id`, `workspace_id` and `user_id` |
+| User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`), `conversations`, `conversation_turns` (migration `0018_conversations`) | `tenant_id`, `workspace_id` and `user_id` |
+| Workspace, with private rows | `memories`, `retrieval_sources` (owner column and restrictive policy from migration `0021_memory_sources`, [Memory](memory.md#from-conversations)) | `tenant_id` and `workspace_id`; a row with an `owner_user_id` also needs `anum.user_id` = that owner |
 
 User-level rows need `anum.user_id` in the session context as well (`set_tenant_context(..., user_id=...)`, or `open_scoped_store(..., user_scoped=True)`). Without it they are invisible, even to other users of the same workspace. Tenant-level settings are shared by all of a tenant's workspaces and invisible to other tenants. Governance changes write an `audit_records` row for the acting workspace in the same transaction. The marketplace catalog belongs to the tenant that published the package; an install in any of the tenant's workspaces blocks deleting the package through a foreign key, which PostgreSQL checks without RLS filtering.
+
+## Tenants Table
+
+`tenants` (id, name, status) is under forced RLS too (migration `0020_tenants_rls`): the policy `tenant_isolation_tenants` admits only the row whose `id` equals `anum.tenant_id`, for reads (`using`) and writes (`with check`). A request or job therefore sees its own tenant row and nothing else; without tenant context it sees no tenant at all. Creating a tenant (`POST /api/v1/tenants`, `PUT /api/v1/onboarding`) still works because those routes set the caller's tenant as context and insert exactly that id. No narrow role is granted anything on `tenants`: the outbox relay, the scheduler, the retention purge and key rotation find their work through other tables and never read it. Foreign keys to `tenants` are checked by PostgreSQL without row security, so every tenant table keeps its reference. Tests: `tests/test_postgres_rls.py` (`test_tenants_rls_*`: other tenants are invisible by listing and by id, updates and deletes of them match nothing, a tenant can create only its own row).
+
+Merge note: the revision is chained after `0018_conversations`; if a `0019_*` revision lands first, re-chain `0020_tenants_rls` onto it and update `tests/test_migrations.py`.
 
 ## Maintenance Role
 
@@ -46,6 +55,7 @@ Some jobs must find work in every tenant:
 - the automation scheduler (due schedules, [Automation](automation.md#scheduler));
 - the voice transcript purge (expired 30-day transcripts, [Voice](voice.md#storage-and-retention));
 - the retrieval index purge (index rows of expired memories, [Memory](memory.md#retention); migration `0015_retrieval_retention`);
+- the conversation retention purge (conversations idle past `ANUM_CONVERSATION_RETENTION_DAYS`, [Conversations](conversations.md#retention); migration `0019_conversation_retention`);
 - `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, [Runbooks](runbooks.md#rotating-anum_secrets_key)).
 
 They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automation`):
@@ -58,6 +68,7 @@ They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automa
    | `voice_sessions` | `id`, `tenant_id`, `workspace_id`, `user_id`, `expires_at` | `expires_at <= now() and transcript_purged_at is null` |
    | `workspace_model_configs` | `tenant_id`, `workspace_id` | `api_key_ciphertext is not null` |
    | `retrieval_sources` (`0015`) | `tenant_id`, `workspace_id`, `source_type`, `source_id`, `source_expires_at` | `source_type = 'memory' and source_expires_at <= now()` |
+   | `conversations` (`0019`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `updated_at` | `updated_at <= now() - interval '1 day'` (the purge then filters on the configured retention) |
 
 2. **Act.** Each discovered scope gets its own transaction as the application role, with that tenant, workspace (and user) set as RLS context. Every content read (transcript text, workflow steps, ciphertexts) and every write is checked by the normal tenant-isolation policies. Audit records are written there too.
 
@@ -69,7 +80,7 @@ Deployment:
 - Grant it to the operator login that runs the purge and rotation commands.
 - Like `anum_outbox_relay`, the role is cluster-wide and survives a downgrade.
 
-`tests/test_postgres_automation.py`, `tests/test_postgres_voice.py`, `tests/test_postgres_rotate_secrets.py` and `tests/test_postgres_retrieval.py` check that the role sees only those rows and columns and cannot write; the last two also check that a grant `WITH INHERIT FALSE` keeps the application role's own reads in one workspace while an inheriting grant would not.
+`tests/test_postgres_automation.py`, `tests/test_postgres_voice.py`, `tests/test_postgres_rotate_secrets.py`, `tests/test_postgres_retrieval.py` and `tests/test_postgres_conversations.py` check that the role sees only those rows and columns and cannot write; the last three also check that a grant `WITH INHERIT FALSE` keeps the application role's own reads in one workspace while an inheriting grant would not.
 
 ## Membership Directory Role
 

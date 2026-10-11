@@ -59,6 +59,10 @@ local_sessions = LocalSessionStore()
 LOCAL_ENVIRONMENTS = frozenset({"local", "test"})
 SUPPORTED_AUTH_MODES = frozenset({"headers", "oidc"})
 ANUM_ROLES = ("owner", "member", "viewer")
+# Tenant-level realm roles (``anum_api.authorization.OrganizationRole``). Unlike the
+# workspace roles above they are authoritative: the persisted workspace membership replaces
+# a token's workspace role but keeps these, and they apply only to the token's tenant.
+ORGANIZATION_ROLES = ("org_admin",)
 _SCOPE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{3,80}$")
 
 
@@ -210,6 +214,10 @@ class OidcClaims(BaseModel):
     def anum_roles(self) -> list[str]:
         return [role for role in ANUM_ROLES if role in self.roles]
 
+    @property
+    def organization_roles(self) -> list[str]:
+        return [role for role in ORGANIZATION_ROLES if role in self.roles]
+
     def tenant_context(self, workspace_id: str | None = None) -> TenantContext:
         resolved_workspace = workspace_id or self.workspace_id
         if not resolved_workspace:
@@ -219,6 +227,7 @@ class OidcClaims(BaseModel):
             workspace_id=resolved_workspace,
             user_id=self.subject,
             roles=self.anum_roles,
+            organization_roles=self.organization_roles,
         )
 
 

@@ -275,6 +275,11 @@ class _LocalAuthStore:
 _local_auth = _LocalAuthStore()
 
 
+# Local development sessions (local/test only) stand for the organization's administrator,
+# like the Keycloak realm's DEV-ONLY ``dev`` user (realm roles ``owner`` and ``org_admin``).
+LOCAL_ORGANIZATION_ROLES = ["org_admin"]
+
+
 def _local_enabled() -> None:
     if not local_sessions_allowed(settings.environment, settings.auth_mode):
         raise HTTPException(status_code=404, detail="Local authentication is unavailable")
@@ -382,6 +387,7 @@ async def create_local_session(payload: LocalSessionCreate) -> LocalSessionRespo
         workspace_id=payload.workspace_id,
         user_id=payload.user_id,
         roles=["owner"],
+        organization_roles=LOCAL_ORGANIZATION_ROLES,
     )
     return _session_response(context)
 
@@ -400,7 +406,7 @@ async def verify_local_otp(payload: OtpVerify) -> LocalSessionResponse:
     scope = _local_auth.consume(_local_auth.otp, payload.challenge_id, payload.code)
     if scope is None:
         raise HTTPException(status_code=401, detail="Invalid or expired verification code")
-    return _session_response(TenantContext(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id, user_id=scope.user_id, roles=["owner"]))
+    return _session_response(TenantContext(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id, user_id=scope.user_id, roles=["owner"], organization_roles=LOCAL_ORGANIZATION_ROLES))
 
 
 @router.post("/auth/local/password/forgot", response_model=ChallengeResponse, status_code=202)
@@ -418,7 +424,7 @@ async def reset_local_password(payload: PasswordReset) -> LocalSessionResponse:
     if scope is None:
         raise HTTPException(status_code=401, detail="Invalid or expired password reset")
     _local_auth.set_password(scope.tenant_id, scope.user_id, payload.new_password.get_secret_value())
-    return _session_response(TenantContext(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id, user_id=scope.user_id, roles=["owner"]))
+    return _session_response(TenantContext(tenant_id=scope.tenant_id, workspace_id=scope.workspace_id, user_id=scope.user_id, roles=["owner"], organization_roles=LOCAL_ORGANIZATION_ROLES))
 
 
 @router.post("/auth/local/workspace/switch", response_model=LocalSessionResponse)

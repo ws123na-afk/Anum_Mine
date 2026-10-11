@@ -8,7 +8,10 @@ import '../features/auth/auth_controller.dart';
 import '../features/auth/auth_repository.dart';
 import '../features/auth/auth_screens.dart';
 import '../features/auth/oidc.dart';
+import '../features/chat/chat_controller.dart';
+import '../features/chat/chat_repository.dart';
 import '../features/workspace/api_workspace_repository.dart';
+import '../features/workspace/destinations.dart';
 import '../features/workspace/workspace_controller.dart';
 import '../features/workspace/workspace_home.dart';
 import '../features/workspace/tasks_screen.dart';
@@ -20,6 +23,7 @@ import '../features/admin/admin_repository.dart';
 import '../features/governance/api_governance_repository.dart';
 import '../features/governance/governance_controller.dart';
 import 'infrastructure/appauth_authenticator.dart';
+import 'infrastructure/http_event_stream.dart';
 import 'infrastructure/mobile_adapters.dart';
 import 'theme/anum_theme.dart';
 import 'localization/anum_localizations.dart';
@@ -29,6 +33,7 @@ abstract final class AnumRoutes {
   static const signIn = '/sign-in';
   static const workspaceSetup = '/workspace-setup';
   static const modelSetup = '/model-setup';
+  static const assistant = '/assistant';
   static const home = '/home';
   static const tasks = '/tasks';
   static const taskDetail = '/tasks/:id';
@@ -59,6 +64,7 @@ class AnumApp extends StatefulWidget {
 class _AnumAppState extends State<AnumApp> {
   late final AuthController auth;
   late final WorkspaceController workspace;
+  late final ChatController chat;
   late final VoiceController voice;
   late final SettingsController settings;
   late final GovernanceController governance;
@@ -91,8 +97,11 @@ class _AnumAppState extends State<AnumApp> {
       transport: HttpApiTransport(),
       sessions: sessions,
     );
-    final authRepository =
-        AuthRepository(api: api, sessions: sessions, oidc: oidc);
+    final authRepository = AuthRepository(
+        api: api,
+        sessions: sessions,
+        oidc: oidc,
+        workspacePreferences: SecureWorkspacePreferenceStore());
     auth = AuthController(authRepository);
     workspace = WorkspaceController(ApiWorkspaceRepository(
       api,
@@ -101,8 +110,13 @@ class _AnumAppState extends State<AnumApp> {
         sessions: sessions,
       ),
     ));
+    // Streamed replies for the Assistant and voice (docs/conversations.md).
+    final events = HttpEventStreamClient(
+        baseUri: Uri.parse(configuredUrl), sessions: sessions);
+    chat = ChatController(ChatRepository(api, events));
     voice = VoiceController(
-        repository: VoiceRepository(api), speech: DeviceSpeechService());
+        repository: VoiceRepository(api, events: events),
+        speech: DeviceSpeechService());
     settings =
         SettingsController(authRepository, admin: ApiAdminRepository(api));
     governance = GovernanceController(ApiGovernanceRepository(
@@ -119,7 +133,11 @@ class _AnumAppState extends State<AnumApp> {
     if (auth.phase == AuthPhase.ready && workspace.phase.name == 'initial') {
       workspace.load();
     }
-    if (auth.phase == AuthPhase.signedOut) workspace.currentUserId = null;
+    if (auth.phase == AuthPhase.signedOut) {
+      workspace.currentUserId = null;
+      // The next person to sign in never sees these conversations.
+      chat.reset();
+    }
     if (auth.phase == AuthPhase.ready && workspace.currentUserId == null) {
       _rememberUser();
     }
@@ -144,6 +162,7 @@ class _AnumAppState extends State<AnumApp> {
     auth.removeListener(_onAuthChanged);
     auth.dispose();
     workspace.dispose();
+    chat.dispose();
     voice.dispose();
     settings.dispose();
     governance.dispose();
@@ -195,6 +214,7 @@ class _AnumAppState extends State<AnumApp> {
               builder: (context, _) => auth.phase == AuthPhase.ready
                   ? WorkspaceHome(
                       controller: workspace,
+                      chatController: chat,
                       voiceController: voice,
                       settingsController: settings,
                       governanceController: governance,
@@ -217,12 +237,13 @@ class _AnumAppState extends State<AnumApp> {
           settings: settings, builder: (_) => AuthFlow(controller: auth));
     }
     final index = switch (name) {
-      AnumRoutes.home => 0,
-      AnumRoutes.tasks => 1,
-      AnumRoutes.voice => 2,
-      AnumRoutes.approvals => 3,
-      AnumRoutes.automations => 4,
-      AnumRoutes.files => 5,
+      AnumRoutes.assistant => WorkspaceDestination.assistant,
+      AnumRoutes.home => WorkspaceDestination.home,
+      AnumRoutes.tasks => WorkspaceDestination.tasks,
+      AnumRoutes.voice => WorkspaceDestination.voice,
+      AnumRoutes.approvals => WorkspaceDestination.approvals,
+      AnumRoutes.automations => WorkspaceDestination.automations,
+      AnumRoutes.files => WorkspaceDestination.resources,
       _ => null,
     };
     if (index != null) {
@@ -249,6 +270,7 @@ class _AnumAppState extends State<AnumApp> {
 
   Widget _workspace(int index) => WorkspaceHome(
         controller: workspace,
+        chatController: chat,
         voiceController: voice,
         settingsController: settings,
         governanceController: governance,

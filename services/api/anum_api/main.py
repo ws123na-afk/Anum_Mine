@@ -25,7 +25,8 @@ from .errors import ApplicationError, ErrorCode, application_error_handler, erro
 from .events import CanonicalEventName, create_event
 from .integrations import IntegrationConfiguration, IntegrationConfigurationView, IntegrationHealth, default_integration_registry
 from .integration_tools import configured_external_handler
-from .model_gateway import build_model_gateway
+from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
+from .model_gateway import build_default_model_gateway
 from .memory import (
     MemoryAccess,
     MemoryCreate,
@@ -76,6 +77,7 @@ from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
 from .hardening import docs_routes, enforce_startup_policy, install_hardening
 from .voice import router as voice_router
 from .conversations import router as conversations_router
+from .developer import register_developer_tools, router as developer_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -88,6 +90,7 @@ from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
+from .error_reporting import setup_error_reporting, shutdown_error_reporting
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -108,9 +111,13 @@ async def lifespan(_: FastAPI):
             await scheduler.stop()
         await event_runtime.stop()
         shutdown_telemetry()
+        shutdown_error_reporting()
 
 
 enforce_startup_policy(settings)
+# Errors to a Sentry-compatible server (GlitchTip) when ANUM_SENTRY_DSN is set; scrubbed
+# to types, frames, routes and the tenant id (anum_api/error_reporting.py).
+setup_error_reporting(settings, service_name="anum-api")
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan, **docs_routes(settings))
 app.add_middleware(CorrelationIdMiddleware)
 install_hardening(
@@ -166,15 +173,14 @@ app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(model_budget_router)
+app.include_router(developer_router)
 repository = memory_repository
-model_gateway = build_model_gateway(
-    settings.model_provider,
-    api_key=settings.model_api_key,
-    model=settings.model_name,
-    base_url=settings.model_base_url,
-)
+model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = default_tool_registry(configured_external_handler(settings))
+tool_registry = register_developer_tools(default_tool_registry(
+    configured_external_handler(settings),
+    configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
+))
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)

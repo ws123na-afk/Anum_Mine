@@ -323,6 +323,8 @@ class MemoryRecord(Base, TimestampMixin, TenantScopedMixin):
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     workspace_id: Mapped[str | None] = mapped_column(String(80))
     source_task_id: Mapped[str | None] = mapped_column(String(80))
+    # Private to this user when set (facts from their conversations, migration 0021).
+    owner_user_id: Mapped[str | None] = mapped_column(String(160))
     kind: Mapped[str] = mapped_column(String(80), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[Any | None] = mapped_column(Vector(1536))

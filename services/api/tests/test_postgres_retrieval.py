@@ -360,6 +360,8 @@ def test_ann_search_uses_the_hnsw_index_and_matches_exact_results_within_one_wor
                     "model": LOCAL_EMBEDDING_MODEL,
                     "now": FIXED_NOW,
                     "limit": 5,
+                    "user_id": context.user_id,
+                    "source_type": None,
                 },
             ).scalars()
         )

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  approvalRuleBody, emptyTargetDraft, integrationBadge, integrationConfigBody, packState, parseList, regionSummary,
+  approvalRuleBody, emptyTargetDraft, integrationBadge, integrationConfigBody, integrationToolNote, organizationPolicyAccess, packState, parseList, regionSummary,
   roleTemplateBody, routingTargetBody, sortPacks, targetDraft, type PolicyPack, type RoutingTarget,
 } from '../src/lib/governance.ts';
 
@@ -84,5 +84,29 @@ describe('integrations', () => {
     assert.deepEqual(integrationBadge('disabled'), { label: 'Not used', tone: 'neutral' });
     assert.equal(integrationBadge('connected').tone, 'success');
     assert.equal(integrationBadge('degraded').tone, 'dangerTone');
+  });
+  test('the search integration says whether agents can use web_search', () => {
+    assert.equal(integrationToolNote('cache', 'connected'), null);
+    assert.equal(integrationToolNote('search', 'connected')?.available, true);
+    assert.match(integrationToolNote('search', 'degraded')?.text ?? '', /calls fail until search answers/);
+    assert.deepEqual(integrationToolNote('search', 'disabled'), { text: 'Agent tool web_search: unavailable here.', available: false });
+  });
+});
+
+describe('organization policy access', () => {
+  test('nothing is editable or explained before the summary loads', () => {
+    assert.deepEqual(organizationPolicyAccess(null), { canManage: false, notice: null });
+  });
+  test('an organization administrator manages the tenant-wide controls', () => {
+    assert.deepEqual(organizationPolicyAccess({ can_manage_organization_policy: true }), { canManage: true, notice: null });
+  });
+  test('anyone else, a workspace owner included, reads them with the reason and who can change them', () => {
+    for (const summary of [{ can_manage_organization_policy: false }, {}]) {
+      const access = organizationPolicyAccess(summary);
+      assert.equal(access.canManage, false);
+      assert.match(access.notice ?? '', /every workspace in this organization/);
+      assert.match(access.notice ?? '', /organization administrator/);
+      assert.match(access.notice ?? '', /Owning this workspace is not enough/);
+    }
   });
 });

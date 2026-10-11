@@ -1,0 +1,86 @@
+/* Developer mode (DeveloperView.tsx, DeveloperAssist.tsx). Spacing and colour from the shared tokens. */
+.devLayout { display: grid; gap: var(--d-s4); min-width: 0; }
+.devLayout > .moduleIntro { margin-bottom: 0; }
+.devLayout > .notice { margin: 0; }
+.devLayout .errorNotice { align-items: center; flex-wrap: wrap; }
+
+.devPanel { align-items: flex-start; display: grid; gap: var(--d-s4); grid-template-columns: 28px minmax(0, 1fr); padding: var(--d-s5); }
+.devPanelIcon { color: var(--d-violet); height: 24px; width: 24px; }
+.devPanel h2 { font-size: 18px; margin-bottom: var(--d-s1); }
+.devSetupLead { margin-top: var(--d-s3); }
+.devSetupList { display: grid; gap: var(--d-s2); margin: var(--d-s2) 0 var(--d-s3); padding-left: var(--d-s5); }
+.devSetupList li { overflow-wrap: anywhere; }
+.devPanel code, .devCardHeader code { overflow-wrap: anywhere; }
+
+.devForm { padding: var(--d-s4) var(--d-s5) var(--d-s5); }
+.devForm .field { margin-top: 0; }
+.devForm textarea { min-height: 88px; }
+.devFormFooter { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.actions.devFormFooter { margin-top: var(--d-s3); }
+.actions.devSearch, .actions.devMore, .actions.devInline { margin-top: 0; }
+.actions.devExamples { margin-top: var(--d-s2); }
+.devInline { margin-left: auto; }
+.devFormFooter > small { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.devFormFooter > button { margin-left: auto; }
+.devCheck { align-items: center; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s2); }
+.devCheck input { accent-color: var(--d-violet); height: 16px; margin: 0; width: 16px; }
+.devHint { margin-top: var(--d-s2); }
+
+.devSearch { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.devSearch input { flex: 1 1 240px; min-width: 0; }
+
+.devExamples { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: center; margin-top: var(--d-s2); }
+
+.devList { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.devCard { display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s4) var(--d-s5); }
+.devCardHeader { align-items: flex-start; display: flex; gap: var(--d-s3); justify-content: space-between; min-width: 0; }
+.devCardHeader > div { min-width: 0; }
+.devCardHeader h3 { font-size: 16px; overflow-wrap: anywhere; }
+.devRequestText { color: var(--d-muted); font-size: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.devSummary { font-size: 14px; }
+.devChecks { margin-top: calc(var(--d-s2) * -1); }
+.devProblem { background: rgba(253, 164, 175, .08); border: 1px solid rgba(253, 164, 175, .28); border-radius: var(--d-r-control); color: #fee2e6; font-size: 13px; padding: var(--d-s2) var(--d-s3); }
+
+.devTimeline { display: grid; gap: var(--d-s2); grid-template-columns: repeat(6, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
+.devStage { align-items: center; color: var(--d-faint); display: flex; font-size: 12px; gap: var(--d-s2); min-width: 0; }
+.devStage > span:last-child { overflow-wrap: anywhere; }
+.devStageDot { border: 2px solid var(--d-line-strong); border-radius: 50%; flex: none; height: 10px; width: 10px; }
+.devStage.done { color: var(--d-muted); }
+.devStage.done .devStageDot { background: var(--d-ok); border-color: var(--d-ok); }
+.devStage.active { color: var(--d-text); font-weight: 600; }
+.devStage.active .devStageDot { border-color: var(--d-sky); box-shadow: 0 0 0 3px rgba(125, 211, 252, .2); }
+.devStage.failed { color: var(--d-stop); font-weight: 600; }
+.devStage.failed .devStageDot { background: var(--d-stop); border-color: var(--d-stop); }
+
+.devLinks { display: flex; flex-wrap: wrap; gap: var(--d-s4); }
+.devLinks:empty { display: none; }
+.devLinks a { align-items: center; display: inline-flex; font-size: 14px; gap: var(--d-s1); }
+.devLinks svg { height: 16px; width: 16px; }
+.devLinks .devExternal { height: 12px; width: 12px; }
+.devActions { margin-top: 0; }
+.devActions:empty { display: none; }
+.devMore { display: flex; justify-content: center; }
+
+.devReview { background: var(--d-glass-1); border: 1px solid rgba(125, 211, 252, .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.devReview h4 { align-items: center; display: flex; font-size: 15px; gap: var(--d-s2); }
+.devReview h4 svg { color: var(--d-sky); height: 18px; width: 18px; }
+.devReview .actions { margin-top: var(--d-s1); }
+
+/* Chat and voice confirmation card (DeveloperAssist). */
+.devAssist { background: var(--d-glass-1); border: 1px solid rgba(167, 139, 250, .32); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.devAssist p { overflow-wrap: anywhere; }
+.devAssist .actions { margin-top: 0; }
+.devAssistTitle { align-items: center; color: var(--d-violet); display: flex; font-size: 13px; font-weight: 600; gap: var(--d-s2); }
+.devAssistTitle svg { height: 16px; width: 16px; }
+
+@media (max-width: 1100px) {
+  .devTimeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .devCard, .devForm, .devPanel { padding: var(--d-s4); }
+  .devPanel { grid-template-columns: minmax(0, 1fr); }
+  .devTimeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .devCardHeader { flex-direction: column; }
+  .devFormFooter > button { margin-left: 0; width: 100%; justify-content: center; }
+}
+.chatPanel > .devAssist { margin: 0 var(--d-s4) var(--d-s3); }

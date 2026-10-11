@@ -43,6 +43,9 @@ fi
 
 log "Completing $ENV_FILE with new variables, if any"
 as_repo_owner python3 "$ORACLE_DIR/configure_env.py" "$ENV_FILE" --example "$ORACLE_DIR/.env.example" --non-interactive
+# Duplicate or invalid host names, or a malformed admin allow-list, would break Caddy or
+# the issuer: stop before building. A world-open allow-list is only a warning here.
+as_repo_owner python3 "$ORACLE_DIR/configure_env.py" "$ENV_FILE" --check
 
 log "Checking the compose configuration"
 dc config --quiet
@@ -53,7 +56,11 @@ dc --profile jobs build --pull
 log "Starting the database and applying roles and migrations"
 dc up -d --wait postgres valkey
 dc run --rm --no-deps db-init
+# Before any service is recreated: the running API keeps serving on the old code while
+# `alembic upgrade head` applies new revisions (expand-only, e.g. 0018_conversations
+# adds two tables), and a failed migration stops the update here.
 dc run --rm --no-deps migrate
+echo "database schema now at: $(dc run --rm --no-deps -T migrate python -m alembic current 2>/dev/null | tail -n 1)"
 
 log "Starting or recreating the services"
 dc up -d --remove-orphans

@@ -20,7 +20,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
-from .dependencies import AuthenticatedIdentity, authenticated_identity, memory_repository
+from .dependencies import AuthenticatedIdentity, directory_identity, memory_repository
 from .schemas import CallerMembership, TenantContext
 from .settings import settings
 
@@ -73,12 +73,14 @@ def list_caller_memberships(context: TenantContext) -> list[CallerMembership]:
 
 @router.get("/me/workspace-memberships", response_model=list[CallerMembership])
 async def my_workspace_memberships(
-    identity: AuthenticatedIdentity = Depends(authenticated_identity),
+    identity: AuthenticatedIdentity = Depends(directory_identity),
 ) -> list[CallerMembership]:
     """Every workspace of the caller's tenant where the caller has an active membership.
 
     Open to every authenticated caller: it reveals only the caller's own memberships, so
     no membership in the currently selected workspace is required (someone deactivated
-    there can still find the workspaces they may switch to).
+    there can still find the workspaces they may switch to). With OIDC no workspace need
+    be selected at all: a token without a ``workspace_id`` claim lists the workspaces to
+    pick from.
     """
     return list_caller_memberships(identity.context)

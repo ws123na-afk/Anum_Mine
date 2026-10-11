@@ -235,7 +235,7 @@ def test_an_approval_chain_signals_the_workflow_only_when_complete(dispatcher: R
     governance_store.clear()
     rule = client.post(
         "/api/v1/organization/approval-rules",
-        headers=HEADERS,
+        headers={**HEADERS, "x-user-roles": "owner,org_admin"},
         json={"name": "Three approvers", "action_pattern": "external.*", "minimum_approvers": 3},
     )
     assert rule.status_code == 201, rule.text
@@ -295,7 +295,7 @@ def test_a_partial_approval_with_a_moved_target_fails_the_waiting_workflow_run(
     monkeypatch.setattr(main, "tool_registry", webhook("hooks.example"))
     rule = client.post(
         "/api/v1/organization/approval-rules",
-        headers=HEADERS,
+        headers={**HEADERS, "x-user-roles": "owner,org_admin"},
         json={"name": "Three approvers", "action_pattern": "external.*", "minimum_approvers": 3},
     )
     assert rule.status_code == 201, rule.text

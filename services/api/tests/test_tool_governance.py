@@ -56,6 +56,11 @@ def headers(user: str = "owner_a", role: str = "owner", tenant: str = TENANT) ->
     return {"x-tenant-id": tenant, "x-workspace-id": WORKSPACE, "x-user-id": user, "x-user-roles": role}
 
 
+def as_org_admin(headers: dict[str, str]) -> dict[str, str]:
+    """The same caller with the tenant-level org_admin role, which tenant-wide policy needs."""
+    return {**headers, "x-user-roles": f"{headers['x-user-roles']},org_admin"}
+
+
 OWNER_A = headers("owner_a")
 OWNER_B = headers("owner_b")
 CONTEXT = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_a", roles=["owner"])
@@ -76,14 +81,14 @@ def _clean() -> Iterator[None]:
 
 def _approval_rule(pattern: str, *, who: dict[str, str] = OWNER_A, **extra: object) -> httpx.Response:
     body = {"name": f"rule {pattern}", "action_pattern": pattern, **extra}
-    response = client.post("/api/v1/organization/approval-rules", headers=who, json=body)
+    response = client.post("/api/v1/organization/approval-rules", headers=as_org_admin(who), json=body)
     assert response.status_code == 201, response.text
     return response
 
 
 def _policy_pack(*rules: dict, name: str = "Tools", who: dict[str, str] = OWNER_A) -> dict:
     response = client.post(
-        "/api/v1/policy-packs", headers=who, json={"name": name, "description": "", "rules": list(rules)}
+        "/api/v1/policy-packs", headers=as_org_admin(who), json={"name": name, "description": "", "rules": list(rules)}
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -279,7 +284,7 @@ def test_disabled_rules_and_inactive_packs_do_not_apply() -> None:
     _approval_rule("anum.*")
     governance_store.approval_rules[TENANT][0].enabled = False
     pack = _policy_pack({"action": "anum.*", "effect": "deny"})
-    assert client.post(f"/api/v1/policy-packs/{pack['id']}/archive", headers=OWNER_A).status_code == 200
+    assert client.post(f"/api/v1/policy-packs/{pack['id']}/archive", headers=as_org_admin(OWNER_A)).status_code == 200
     assert _run("Write a short note")["task"]["status"] == "completed"
 
 

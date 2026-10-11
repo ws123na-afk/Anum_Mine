@@ -38,6 +38,9 @@ class ToolResult(BaseModel):
     summary: str
     output: dict[str, Any] = Field(default_factory=dict)
     truncated: bool = False
+    # What the runtime records in the audit log for this call (``tool.call``). Tools
+    # that set it keep it to counts and outcomes: never query text, results or secrets.
+    audit_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolPolicyOutcome(StrEnum):
@@ -219,7 +222,10 @@ def tool_output_prompt_block(
     )
 
 
-def default_tool_registry(external_handler: ToolHandler | None = None) -> ToolRegistry:
+def default_tool_registry(
+    external_handler: ToolHandler | None = None,
+    web_search_handler: ToolHandler | None = None,
+) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(
         ToolDefinition(
@@ -240,4 +246,18 @@ def default_tool_registry(external_handler: ToolHandler | None = None) -> ToolRe
         ),
         external_handler or _external_action,
     )
+    if web_search_handler is not None:
+        # Registered only when ANUM_SEARXNG_URL is set (anum_api/web_search.py): without
+        # it the tool does not exist, so no skill can select it.
+        registry.register(
+            ToolDefinition(
+                name="web_search",
+                description="Search the web through the deployment's private SearXNG; read-only.",
+                risk_level=RiskLevel.LOW,
+                timeout_seconds=30,
+                idempotent=True,
+                target=getattr(web_search_handler, "target_host", None),
+            ),
+            web_search_handler,
+        )
     return registry

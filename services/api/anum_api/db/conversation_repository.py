@@ -3,11 +3,19 @@
 The session must carry the tenant, workspace *and user* RLS context
 (``set_tenant_context(..., user_id=...)``): conversations are private to the user who
 started them. Queries also filter on the scope explicitly.
+
+``purge_idle_conversations`` is the retention purge (migration 0019): idle conversations
+are discovered as ``anum_maintenance`` (ids and scope only) and deleted as the
+application role inside each user's tenant, workspace and user RLS context.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select, update
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from anum_api.conversations import (
@@ -17,6 +25,7 @@ from anum_api.conversations import (
     TurnRole,
     TurnStatus,
 )
+from anum_api.maintenance import SessionFactory, discover, scoped_unit
 from anum_api.schemas import TenantContext, new_id, utc_now
 
 from .models import ConversationRecord, ConversationTurnRecord
@@ -152,3 +161,113 @@ class SqlAlchemyConversationStore:
         self.session.execute(
             delete(ConversationRecord).where(*self._scope(), ConversationRecord.id == conversation.id)
         )
+
+
+# Retention purge (migration 0019_conversation_retention) -------------------------------
+
+# Runs as anum_maintenance: its policy admits only conversations idle for at least a day
+# and its grants cover these columns only. Keyset order, so a dry run (which deletes
+# nothing) still walks every batch.
+_IDLE_CONVERSATIONS = text(
+    """
+    select id, tenant_id, workspace_id, user_id, updated_at
+    from conversations
+    where updated_at <= now() - make_interval(days => :days)
+      and (cast(:after_updated_at as timestamptz) is null
+           or (updated_at, id) > (cast(:after_updated_at as timestamptz), :after_id))
+    order by updated_at, id
+    limit :limit
+    """
+)
+# Both re-check the idle predicate: a turn added since discovery keeps the conversation.
+_COUNT_IDLE = text(
+    """
+    select count(*) as conversations,
+           coalesce(sum((select count(*) from conversation_turns t
+                         where t.tenant_id = c.tenant_id and t.workspace_id = c.workspace_id
+                           and t.user_id = c.user_id and t.conversation_id = c.id)), 0) as turns
+    from conversations c
+    where c.tenant_id = :tenant_id and c.workspace_id = :workspace_id and c.user_id = :user_id
+      and c.id = any(:ids) and c.updated_at <= now() - make_interval(days => :days)
+    """
+)
+# Turns go with their conversation (ON DELETE CASCADE); the count reads the statement's
+# snapshot, taken before the delete, so it is the number of turns removed.
+_DELETE_IDLE = text(
+    """
+    with doomed as (
+      delete from conversations c
+      where c.tenant_id = :tenant_id and c.workspace_id = :workspace_id and c.user_id = :user_id
+        and c.id = any(:ids) and c.updated_at <= now() - make_interval(days => :days)
+      returning c.id
+    )
+    select (select count(*) from doomed) as conversations,
+           (select count(*) from conversation_turns t
+            where t.tenant_id = :tenant_id and t.workspace_id = :workspace_id
+              and t.user_id = :user_id and t.conversation_id in (select id from doomed)) as turns
+    """
+)
+
+
+@dataclass
+class ConversationPurgeResult:
+    retention_days: int = 0
+    conversations: int = 0
+    turns: int = 0
+    dry_run: bool = False
+
+
+def purge_idle_conversations(
+    session_factory: SessionFactory,
+    *,
+    retention_days: int,
+    maintenance_session_factory: SessionFactory | None = None,
+    batch_size: int = 500,
+    dry_run: bool = False,
+) -> ConversationPurgeResult:
+    """Delete conversations (and their turns) idle for ``retention_days`` or more.
+
+    ``retention_days`` 0 keeps every conversation. Discovery runs as ``anum_maintenance``
+    (ids, scope and ``updated_at`` only); each delete runs as the application role
+    inside that user's tenant, workspace and user RLS context.
+    """
+    result = ConversationPurgeResult(retention_days=retention_days, dry_run=dry_run)
+    if retention_days == 0:
+        return result
+    if retention_days < 1:
+        raise ValueError("retention_days must be 0 (keep) or a positive number of days")
+    after_updated_at: datetime | None = None
+    after_id = ""
+    while True:
+        rows = discover(
+            maintenance_session_factory or session_factory,
+            _IDLE_CONVERSATIONS,
+            {
+                "days": retention_days,
+                "after_updated_at": after_updated_at,
+                "after_id": after_id,
+                "limit": batch_size,
+            },
+        )
+        if not rows:
+            return result
+        after_updated_at, after_id = rows[-1].updated_at, rows[-1].id
+        scopes: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+        for row in rows:
+            scopes[(row.tenant_id, row.workspace_id, row.user_id)].append(row.id)
+        for (tenant_id, workspace_id, user_id), ids in scopes.items():
+            params = {
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "ids": ids,
+                "days": retention_days,
+            }
+            with scoped_unit(session_factory, tenant_id, workspace_id, user_id=user_id) as session:
+                counted = session.execute(_COUNT_IDLE if dry_run else _DELETE_IDLE, params).one()
+                if dry_run:
+                    session.rollback()
+            result.conversations += int(counted.conversations)
+            result.turns += int(counted.turns)
+        if len(rows) < batch_size:
+            return result

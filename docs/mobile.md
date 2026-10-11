@@ -18,6 +18,7 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 - Approval decisions, automation controls, workspace files, and durable memory.
 - Approval chain progress ("1 of 3 approvals", who approved) on approval cards and, while a task waits for approval, on its detail screen. Right after Run task or Resume, the approval in the run response (`approval`, with `required_approvals` and `approvers` when the API sends them; 1 and none when it does not) shows at once; once the approvals list reloads and returns that approval, the list entry replaces it, and if the list does not return it (for example offline) the run response's copy stays (`test/run_approval_test.dart`, [Approvals and risk](approvals-and-risk.md#approval-chains)).
 - "Sources used" on a task's run, matching the web: shown only when the run has a `retrieval` step, one row per memory or file with its type, the file's name or the memory's text when the loaded workspace lists it (else the id), each passage's number (chunk index + 1), match score and whether it was shortened, plus the step's note for no results, skipped or unavailable retrieval ([Memory](memory.md#at-run-time)). A listed file opens its detail sheet. Each row has one spoken label, ids are isolated left-to-right inside Arabic text, and the section fits a phone at 200 percent text (`test/sources_used_test.dart`).
+- The **Assistant**, first in the navigation: a streamed chat that remembers the conversation, with the conversation list, Stop, Retry, starter questions, Jump to latest and every loading, empty, error, `403` and `402` state, matching the web ([Conversations](conversations.md#mobile-flutter)). Voice replies stream too and are spoken sentence by sentence ([Voice](voice.md)).
 - Push-to-talk voice commands with English/Arabic locales, editable transcript review, explicit retention, governed execution, permission recovery, and spoken status confirmation.
 - A wake-by-name voice assistant with a 3D orb, and Home, Tasks, Approvals, Automations, Resources and Governance screens that show only live workspace data, with honest empty states instead of samples.
 - Owner screens under Settings › Workspace administration: members and invitations (roles, deactivation, a one-time invitation token with copy, plus the web invitation link when `ANUM_WEB_APP_URL` is defined), accepting an invitation by token or link, monthly model budgets with usage, and the workspace approval policy (two-person rule, approval for medium risk); non-owners see the API's `403` explanation, and members see the approval policy read-only ([Identity](identity.md#client-screens), [Model gateway](model-gateway.md#monthly-budgets), [Approvals and risk](approvals-and-risk.md#policy-screens)). Each of these screens owns its controller and disposes it when closed. A task run refused for a used-up budget (`402`) shows the budget message on Tasks; an approval refused with `403` (for example the two-person rule) shows the API's sentence on that approval's card.
@@ -50,8 +51,16 @@ When `ANUM_OIDC_ISSUER` is not defined the app keeps the local development sign-
 After Keycloak sign-in the app reads `GET /api/v1/onboarding` and routes by its answer:
 
 - No tenant, workspace or membership yet: the onboarding screen calls `PUT /api/v1/onboarding`, which creates them and makes the caller the first owner. A workspace that already has members answers 403 "Ask a workspace owner to invite you"; the screen shows that message. An inactive membership answers 403 "Active workspace membership required" and shows as "Access denied".
-- No workspace model saved: "Connect a model" saves one, or "Skip and use the server's model" continues with the model the API server is configured with. Members who may not change the model configuration take the skip.
-- The Keycloak user needs the admin-set `tenant_id` attribute and, unless the build sets `ANUM_WORKSPACE_ID`, a `default_workspace_id` attribute ([Identity](identity.md)). Without a tenant the app says the account has no ANUM organization; without a workspace the API answers 400 "Select a workspace".
+- No workspace model saved: the model step first checks whether a model would answer anyway: the workspace's saved one (`model_configured` of `GET /api/v1/onboarding`, for example saved meanwhile from another device) or the server's configured model (the `configured-model` target of `GET /api/v1/routing/targets`; the built-in mock planner does not count). Only then does it offer "Skip and use the server's model (<model>)" (or "Continue with this workspace's model"). While it checks it says so; if the check fails it names the error with "Check again". Otherwise there is no skip and the screen says why.
+  - Owners (the only role that may save the model) see the form: "Test, save, and continue" saves and tests one. Without a model to fall back on they must finish this step.
+  - Members and viewers cannot save one, so they see no form: the screen says a workspace owner must connect a model (Settings, Model connection), with "Check again" and "Sign in with another account".
+  - A workspace created on this screen whose `PUT /api/v1/onboarding` answer already reports a model goes straight to the workbench.
+- The Keycloak user needs the admin-set `tenant_id` attribute ([Identity](identity.md)); without it the app says the account has no ANUM organization. The workspace comes from the token's `workspace_id` claim (the `default_workspace_id` attribute) or, failing that, the build's `ANUM_WORKSPACE_ID`. When neither names one, the app lists the caller's workspaces with `GET /api/v1/me/workspace-memberships` (which needs no selected workspace, [Identity](identity.md#my-workspaces)):
+  - exactly one: it is selected without asking;
+  - several: "Where do you want to work?" lists them (name, id, role). A tap confirms the membership (`GET /api/v1/workspace-memberships/current`) and opens it; a refusal shows "Access denied" and "Try again" returns to the list. The choice is remembered in secure storage per organization and user (`SecureWorkspacePreferenceStore`; it survives sign-out because it is an id, not a credential), so the next sign-in opens it directly while it is still listed; Settings, Switch workspace updates it;
+  - none: "You are not in a workspace" explains that a workspace owner must invite the person or an administrator must set `default_workspace_id`, with "Check again" and "Sign in with another account";
+  - a failed list shows the error with "Try again".
+- Tests: `test/first_run_test.dart` (every workspace branch, the remembered choice, the skip only when a model answers, loading and error states, members, layouts from 360 pixels wide at 2x text to 1024 pixels).
 
 ## Native Projects
 
@@ -117,7 +126,16 @@ iOS. The bundle identifier is `com.anum.app`; the redirect scheme and the microp
 
 ## Release Pipeline
 
-`.github/workflows/release-clients.yml` builds the store apps on every `v*` tag and on manual runs (Actions, Release clients, Run workflow; tick "upload" to send a manual build to the stores). The desktop half is deferred by the owner: its jobs and the draft GitHub release are skipped unless the `ANUM_RELEASE_DESKTOP` variable is `true` (tags) or the "desktop" input is ticked (manual runs), see [Desktop](desktop.md#release-pipeline). Signing and upload steps run only when their secrets exist; without them the jobs pass with a notice and no store artifact, so the workflow never fails for lack of the owner's credentials. A production URL variable that is set but does not start with `https://` fails the job: that is a mistake, not a missing credential.
+`.github/workflows/release-clients.yml` builds the store apps on every `v*` tag and on manual runs (Actions, Release clients, Run workflow; tick "upload" to send a manual build to the stores). The desktop half is deferred by the owner: its jobs and the draft GitHub release are skipped unless the `ANUM_RELEASE_DESKTOP` variable is `true` (tags) or the "desktop" input is ticked (manual runs), see [Desktop](desktop.md#release-pipeline). Both mobile jobs decide what they can do with `.github/scripts/mobile-release-config.sh`, which only tests whether each secret and variable is empty and never prints a value:
+
+| Run | Missing secrets or variables | Result |
+| --- | --- | --- |
+| Manual, "upload" unticked (build only) | all signing secrets, or a production URL | Passes with a notice: Android builds nothing, iOS runs an unsigned compile check. Lets the workflow be tried before the secrets exist. |
+| Release tag, or manual with "upload" | anything the store upload needs: the signing secrets, `PLAY_SERVICE_ACCOUNT_JSON` (Android), `ANUM_PRODUCTION_API_URL`, `ANUM_PRODUCTION_OIDC_ISSUER` | Fails with "Android release not configured" or "iOS release not configured", naming every missing name. |
+| Any | some but not all of one platform's four signing secrets | Fails with "signing incomplete", naming the missing ones. |
+| Any | a production URL variable set without `https://` | Fails: that is a mistake, not a missing credential. |
+
+`services/api/tests/test_mobile_release.py` runs the script for each row.
 
 - Android (`ubuntu-latest`): decodes the upload keystore into `$RUNNER_TEMP`, builds `flutter build appbundle --release` with `ANUM_ANDROID_REQUIRE_RELEASE_SIGNING=true` and the production values, refuses a debug-signed bundle, uploads `anum-<version>-<build>.aab` and its SHA-256 as the artifact `anum-android-release`, then (on tags, or manual runs with "upload") sends it to the Play internal track with `r0adkll/upload-google-play` pinned by commit. The keystore file is deleted at the end of the job.
 - iOS (`macos-latest`): with the Apple secrets, `flutter build ios --config-only` writes the production configuration and `xcodebuild archive` and `-exportArchive` sign with automatic, cloud-managed signing through the API key (`flutter build ipa` cannot pass an API key to Xcode). The export options (`method app-store-connect`, `manageAppVersionAndBuildNumber false`) keep the pipeline's build number. The IPA and its SHA-256 are uploaded as `anum-ios-release` and, on tags or with "upload", to TestFlight with `xcrun altool`. Without the secrets the job runs `flutter build ios --release --no-codesign` as a compile check. CI's `Flutter iOS compile check` job runs the cheaper debug variant on every pull request.
@@ -135,7 +153,7 @@ Repository variables:
 | `ANUM_PLAY_RELEASE_STATUS` | Optional. `completed` by default; set `draft` while the Play app has never been reviewed (Play refuses `completed` releases for a draft app). |
 | `ANUM_RELEASE_DESKTOP` | Optional. `true` also builds the desktop installers on tags. Leave unset while desktop releases are deferred. |
 
-Repository secrets:
+Repository secrets (names only here; values never go into the repository, an issue, a pull request, a chat with an assistant or a log; type them only into GitHub's secret form or pipe them to `gh secret set`):
 
 | Secret | Value |
 | --- | --- |
@@ -190,6 +208,18 @@ Android, once:
    New-Item -ItemType Directory -Force "$HOME\anum-keys" | Out-Null
    & $keytool -genkeypair -v -keystore "$HOME\anum-keys\anum-upload.jks" -alias upload `
      -keyalg RSA -keysize 2048 -validity 10000
+   ```
+
+   On Linux or macOS (any JDK 17's `keytool`), the same keystore and secrets:
+
+   ```bash
+   mkdir -p ~/anum-keys && chmod 700 ~/anum-keys
+   keytool -genkeypair -v -keystore ~/anum-keys/anum-upload.jks -alias upload \
+     -keyalg RSA -keysize 2048 -validity 10000
+   base64 -w0 ~/anum-keys/anum-upload.jks | gh secret set ANUM_ANDROID_KEYSTORE_BASE64   # macOS: base64 -i <file>
+   gh secret set ANUM_ANDROID_KEYSTORE_PASSWORD   # prompts; nothing is echoed or kept in shell history
+   gh secret set ANUM_ANDROID_KEY_ALIAS --body upload
+   gh secret set ANUM_ANDROID_KEY_PASSWORD
    ```
 
    It asks for a keystore password and the certificate names. The keystore is PKCS12, so the key password is the keystore password. Keep the file and the password in a password manager: Play accepts only bundles signed with this upload key (a lost key can be reset through Play support, not recovered).
@@ -275,7 +305,8 @@ Install and identity
 - [ ] A second app claiming `com.anum.app` cannot complete the sign-in (PKCE): the code is useless without the verifier.
 - [ ] Kill the app after sign-in, reopen: the session restores without the browser. Leave it past the access-token lifetime: the next API call refreshes silently.
 - [ ] Disable the user or revoke the session in Keycloak: the next refresh signs the app out.
-- [ ] Sign-out ends the Keycloak session (a new sign-in asks for credentials) and clears secure storage even when the browser step is cancelled.
+- [ ] Sign-out ends the Keycloak session (a new sign-in asks for credentials) and clears the session and tokens from secure storage even when the browser step is cancelled (only the remembered workspace choice stays).
+- [ ] A Keycloak user without `default_workspace_id` and with several workspaces gets the workspace list after sign-in; after a choice, sign-out and sign-in open the same workspace.
 - [ ] On Android, install the new build over one that stored a session with `flutter_secure_storage` 9 (any build before the 10.x upgrade): the session survives (the plugin migrates it to its new ciphers) or, if migration fails, the app shows the sign-in screen instead of crashing.
 - [ ] Airplane mode during refresh keeps the session and shows the offline state; reconnecting recovers.
 - [ ] A release build refuses a plain-HTTP API or issuer.

@@ -4,7 +4,7 @@ ANUM should be designed as a security-sensitive system from the beginning becaus
 
 ## Identity
 
-Keycloak is the identity provider. ANUM uses OIDC for sign-in, token issuance, session management, MFA policy, and federation. Application services validate tokens, map external identities to ANUM users, and avoid embedding identity assumptions in client code.
+Keycloak is the identity provider. ANUM uses OIDC for sign-in, token issuance, session management, MFA policy, and federation. Application services validate tokens, map external identities to ANUM users, and avoid embedding identity assumptions in client code. On shared Keycloaks every password sign-in needs a second factor (authenticator app or recovery code) and passkeys with user verification are accepted alone ([Two-factor sign-in](identity.md#two-factor-sign-in)).
 
 The realm is code (`infra/keycloak/anum-realm.json`): public clients use authorization code with PKCE only, tokens carry `aud: anum-api` and an admin-managed `tenant_id` claim, and the API validates issuer, audience, expiry, and signature against a cached, rotation-aware JWKS. The persisted workspace membership, not the token's realm roles, decides the caller's workspace role. Development authentication (header-asserted context and `anum_local_*` sessions) is refused at startup outside `local`/`test`. The full contract is in [Identity and sign-in](identity.md).
 
@@ -44,6 +44,8 @@ Rate-limit state is in memory per process by default. `ANUM_RATE_LIMIT_BACKEND=v
 
 Workspace owners choose the model `base_url` the server calls. Outside `local`/`test` the outbound guard (`anum_api/model_egress.py`) only calls public HTTPS endpoints on port 443: it refuses credentials in the URL, non-canonical IP literals and hosts resolving to loopback, private, unique-local, link-local or cloud metadata, multicast, unspecified or reserved addresses, checks at save time and on every request, connects to the address it resolved (original Host and TLS name, so DNS rebinding cannot redirect a call), never follows redirects, and the connection test returns one generic error. `ANUM_MODEL_ALLOWED_HOSTS` (comma-separated `host` or `host:port`) is the explicit operator allow-list for a self-hosted model on a private network; metadata and link-local addresses stay refused for listed hosts too. Details in [Model gateway](model-gateway.md#outbound-guard-ssrf).
 
+The `web_search` tool calls only the operator's `ANUM_SEARXNG_URL` (a private SearXNG on the compose network); no tenant input, tool argument or saved integration endpoint changes the address, redirects are not followed, only `http`/`https` result links are returned, and the audit log keeps the query length and result count, never the query or results ([Web search](tools-and-integrations.md#web-search)).
+
 Owners can set monthly estimated-cost and token budgets for the organization and per workspace (`/api/v1/model-budgets`, audited); model calls are refused with `402 model_budget_exceeded` once a budget is used up ([Model gateway](model-gateway.md#monthly-budgets)).
 
 ### Startup policy
@@ -54,7 +56,8 @@ Outside `ANUM_ENVIRONMENT=local` the API refuses to start (`InsecureConfiguratio
 - `ANUM_DATABASE_URL` uses the compose credentials (`anum:anum`);
 - the object-storage secret, webhook key or model key is a compose default (`anum-local-secret`, `anum`, `admin`);
 - Keycloak's compose admin password (`admin/admin`) is in the API's environment or `.env` as `KEYCLOAK_ADMIN_PASSWORD` or `KC_BOOTSTRAP_ADMIN_PASSWORD` (or is `anum`/`anum-local-secret`). The API never uses Keycloak's admin account and normally never sees these variables; the check catches a shared env file or a copied compose `environment` block. The Helm chart refuses any Keycloak admin credential in `config` or `extraEnv`. The Keycloak deployment itself is outside ANUM's reach, so its rotated admin password is a release-gate item;
-- rate limiting is disabled or a limit is not positive.
+- rate limiting is disabled or a limit is not positive;
+- `ANUM_SENTRY_DSN` (optional error reporting) uses plain `http` to anything but a private service name without dots, such as `glitchtip` on the compose network ([Observability: Error reporting](observability.md#error-reporting)). A malformed DSN is refused in every environment, without echoing its key.
 
 Each deployment path checks these refusals before deploying: `infra/helm/ci/lint.sh` for the chart, `test_render_blueprint.py` for `render.yaml`, and `test_oracle_compose.py` for `infra/oracle/compose.yaml` (the API settings built from `.env.example` must pass `enforce_startup_policy`, in staging and in production with Ollama).
 

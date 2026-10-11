@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import math
@@ -8,8 +9,9 @@ import re
 import logging
 import random
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 from email.utils import parsedate_to_datetime
 from time import perf_counter
 from typing import Any, Protocol, TypeVar
@@ -20,7 +22,7 @@ from opentelemetry.trace import Span, SpanKind
 from pydantic import BaseModel, Field
 
 from .model_egress import model_http_client
-from .settings import ModelPrice, settings
+from .settings import ModelPrice, Settings, settings
 from .telemetry import annotate_model_span, model_call_span, telemetry
 
 # Model calls are logged with metadata only (provider, model, latency, attempts, token
@@ -37,11 +39,18 @@ _RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
 
 
 class ModelUsage(BaseModel):
+    """One call's usage. ``input_tokens`` is every prompt token the call processed,
+    cached ones included; the two cache fields say how many of them were written to or
+    read from the provider's prompt cache (Anthropic), which ``estimated_cost_usd``
+    prices at the cache rates."""
+
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
     provider: str
     model: str
     estimated_cost_usd: float | None = Field(default=None, ge=0)
+    cache_creation_input_tokens: int = Field(default=0, ge=0)
+    cache_read_input_tokens: int = Field(default=0, ge=0)
 
 
 class ModelCallMetadata(BaseModel):
@@ -73,6 +82,19 @@ T = TypeVar("T")
 ChatMessage = dict[str, str]
 UsageCallback = Callable[[ModelUsage], None]
 CHAT_ROLES = frozenset({"system", "user", "assistant"})
+
+
+class ModelRoute(StrEnum):
+    """What a call is for, so a gateway can pick a model (docs/model-gateway.md)."""
+
+    FAST = "fast"  # chat and voice quick replies
+    CAPABLE = "capable"  # task planning and agent runs
+
+
+def route_gateway(gateway: ModelGateway, route: ModelRoute) -> ModelGateway:
+    """``gateway`` set to the model configured for ``route``; itself when it has none."""
+    select = getattr(gateway, "for_route", None)
+    return select(route) if callable(select) else gateway
 
 
 class ModelStreamTimeout(httpx.TimeoutException):
@@ -233,6 +255,20 @@ class MockModelGateway:
                 )
             )
 
+    async def complete_chat(
+        self, messages: list[ChatMessage], *, max_tokens: int | None = None
+    ) -> ModelResponse:
+        """The streamed mock reply, returned in one piece."""
+        parts: list[str] = []
+        usage: list[ModelUsage] = []
+        async for chunk in self.stream_chat(messages, max_tokens=max_tokens, on_usage=usage.append):
+            parts.append(chunk)
+        return ModelResponse(
+            text="".join(parts),
+            usage=usage[-1],
+            metadata=ModelCallMetadata(latency_ms=0, finish_reason="stop"),
+        )
+
     async def embed(self, texts: list[str], *, model: str | None = None) -> EmbeddingResponse:
         """The mock provider embeds with the deterministic local embedder."""
         return local_embedding_response(list(texts))
@@ -313,13 +349,24 @@ def estimate_cost_usd(
     input_tokens: int,
     output_tokens: int,
     prices: Mapping[str, ModelPrice] | None = None,
+    *,
+    cache_creation_input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
 ) -> float | None:
+    """``input_tokens`` includes the cached ones; those are priced at the cache write
+    (default 1.25x input) and cache read (default 0.1x input) rates instead."""
     if provider in FREE_PROVIDERS:
         return 0.0
     price = find_model_price(model, settings.model_prices if prices is None else prices)
     if price is None:
         return None
-    cost = (input_tokens * price.input_per_million + output_tokens * price.output_per_million) / 1_000_000
+    uncached = max(0, input_tokens - cache_creation_input_tokens - cache_read_input_tokens)
+    cost = (
+        uncached * price.input_per_million
+        + cache_creation_input_tokens * price.cache_write_price
+        + cache_read_input_tokens * price.cache_read_price
+        + output_tokens * price.output_per_million
+    ) / 1_000_000
     return round(cost, 8)
 
 
@@ -327,6 +374,16 @@ def estimate_cost_usd(
 class _CallState:
     attempts: int = 0
     http_status: int | None = None
+
+
+@dataclass
+class _StreamState:
+    """What a stream reported so far: the model name, usage and stop reason."""
+
+    model: str
+    usage: ModelUsage | None = None
+    raw_usage: dict[str, int] = field(default_factory=dict)
+    finish_reason: str | None = None
 
 
 class OpenAICompatibleGateway:
@@ -353,6 +410,7 @@ class OpenAICompatibleGateway:
         first_token_timeout_seconds: float | None = None,
         stream_timeout_seconds: float | None = None,
         clock: Callable[[], float] = perf_counter,
+        route_models: Mapping[ModelRoute, str] | None = None,
     ) -> None:
         key = (api_key or "").strip()
         if require_api_key and not key:
@@ -377,6 +435,16 @@ class OpenAICompatibleGateway:
         )
         self.stream_timeout_seconds = stream_timeout_seconds or settings.model_stream_timeout_seconds
         self._clock = clock
+        self.route_models = {ModelRoute(k): v for k, v in (route_models or {}).items() if v}
+
+    def for_route(self, route: ModelRoute) -> OpenAICompatibleGateway:
+        """This gateway using ``route``'s model (shares the client and settings)."""
+        model = self.route_models.get(ModelRoute(route))
+        if not model or model == self.model:
+            return self
+        routed = copy.copy(self)
+        routed.model = model
+        return routed
 
     def _new_client(self) -> httpx.AsyncClient:
         if self.egress_guard:
@@ -398,6 +466,29 @@ class OpenAICompatibleGateway:
                 choice["message"]["content"] or "", payload, response, state, started
             )
             self._log_call("generate_text", started, state, "ok", usage=normalized.usage)
+            return normalized
+
+    async def complete_chat(
+        self, messages: list[ChatMessage], *, max_tokens: int | None = None
+    ) -> ModelResponse:
+        """A non-streaming chat completion of at most ``max_tokens`` (background work
+        such as conversation memory extraction). Same retries, logging and pricing as
+        :meth:`generate_text`."""
+        messages = validate_messages(messages)
+        with model_call_span(self.provider, self.model, "complete_chat"):
+            payload, response, state, started = await self._complete(
+                "complete_chat",
+                {
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": max_tokens or self.max_output_tokens,
+                },
+            )
+            choice = payload["choices"][0]
+            normalized = self._normalize(
+                (choice.get("message") or {}).get("content") or "", payload, response, state, started
+            )
+            self._log_call("complete_chat", started, state, "ok", usage=normalized.usage)
             return normalized
 
     async def generate_structured(
@@ -463,21 +554,14 @@ class OpenAICompatibleGateway:
         also when the stream fails or is closed after text was produced.
         """
         messages = validate_messages(messages)
-        body: dict[str, object] = {
-            "model": self.model,
-            "messages": messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-            "max_tokens": max_tokens or self.max_output_tokens,
-        }
+        url, body = self._stream_request(messages, max_tokens or self.max_output_tokens)
         client = self._client or self._new_client()
         owns_client = self._client is None
         state = _CallState()
         log_started = perf_counter()
         deadline = self._clock() + self.stream_timeout_seconds
         produced: list[str] = []
-        usage: ModelUsage | None = None
-        reported_model = self.model
+        stream = _StreamState(model=self.model)
         finished = False
         # Not made current: an async generator resumes in its consumer's context, so a
         # current span would leak into (or be detached from) unrelated code.
@@ -499,9 +583,7 @@ class OpenAICompatibleGateway:
                 first_deadline = min(self._clock() + self.first_token_timeout_seconds, deadline)
                 response: httpx.Response | None = None
                 try:
-                    request = client.build_request(
-                        "POST", f"{self.base_url}/chat/completions", headers=self._headers, json=body
-                    )
+                    request = client.build_request("POST", url, headers=self._headers, json=body)
                     response = await self._within(client.send(request, stream=True), first_deadline)
                     state.http_status = response.status_code
                     if is_retryable_status(response.status_code):
@@ -528,19 +610,19 @@ class OpenAICompatibleGateway:
                             data = json.loads(data_text)
                             if not isinstance(data, dict):
                                 continue
-                            if data.get("error"):
-                                raise ModelStreamError("model provider reported a stream error")
-                            reported_model = data.get("model") or reported_model
-                            if data.get("usage"):
-                                usage = self._stream_usage(data["usage"], reported_model)
-                            for choice in data.get("choices") or []:
-                                content = (choice.get("delta") or {}).get("content")
-                                if content:
-                                    produced.append(content)
-                                    yield content
+                            chunks, done = self._stream_event(data, stream)
+                            for content in chunks:
+                                produced.append(content)
+                                yield content
+                            if done:
+                                break
                         finished = True
-                        usage = usage or self._estimated_usage(messages, produced, reported_model)
-                        self._log_call("stream_text", log_started, state, "ok", usage=usage, span=span)
+                        stream.usage = stream.usage or self._estimated_usage(
+                            messages, produced, stream.model
+                        )
+                        self._log_call(
+                            "stream_text", log_started, state, "ok", usage=stream.usage, span=span
+                        )
                         return
                 except _RETRYABLE_EXCEPTIONS as exc:
                     # Once text reached the caller a retry would duplicate it.
@@ -573,11 +655,37 @@ class OpenAICompatibleGateway:
             span.end()
             if on_usage is not None and (finished or produced):
                 try:
-                    on_usage(usage or self._estimated_usage(messages, produced, reported_model))
+                    on_usage(stream.usage or self._estimated_usage(messages, produced, stream.model))
                 except Exception as exc:  # metering never breaks the caller's stream
                     logger.warning("model_stream_usage_failed error_class=%s", type(exc).__name__)
             if owns_client:
                 await client.aclose()
+
+    def _stream_request(
+        self, messages: list[ChatMessage], max_tokens: int
+    ) -> tuple[str, dict[str, object]]:
+        """The URL and body of one streaming chat request."""
+        return f"{self.base_url}/chat/completions", {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            "max_tokens": max_tokens,
+        }
+
+    def _stream_event(self, data: dict[str, Any], stream: _StreamState) -> tuple[list[str], bool]:
+        """Text chunks in one server-sent event, and whether the stream is complete."""
+        if data.get("error"):
+            raise ModelStreamError("model provider reported a stream error")
+        stream.model = data.get("model") or stream.model
+        if data.get("usage"):
+            stream.usage = self._stream_usage(data["usage"], stream.model)
+        chunks: list[str] = []
+        for choice in data.get("choices") or []:
+            content = (choice.get("delta") or {}).get("content")
+            if content:
+                chunks.append(content)
+        return chunks, False
 
     def _stream_usage(self, payload: Mapping[str, Any], model: str) -> ModelUsage:
         input_tokens = int(payload.get("prompt_tokens") or payload.get("input_tokens") or 0)
@@ -799,6 +907,8 @@ class OpenAICompatibleGateway:
             "http_status": state.http_status,
             "input_tokens": usage.input_tokens if usage else None,
             "output_tokens": usage.output_tokens if usage else None,
+            "cache_creation_input_tokens": usage.cache_creation_input_tokens if usage else None,
+            "cache_read_input_tokens": usage.cache_read_input_tokens if usage else None,
             "estimated_cost_usd": usage.estimated_cost_usd if usage else None,
             "error_class": type(error).__name__ if error else None,
         }
@@ -819,6 +929,8 @@ class OpenAICompatibleGateway:
             output_tokens=usage.output_tokens if usage else None,
             estimated_cost_usd=usage.estimated_cost_usd if usage else None,
             error_type=error_type,
+            cache_creation_input_tokens=usage.cache_creation_input_tokens if usage else None,
+            cache_read_input_tokens=usage.cache_read_input_tokens if usage else None,
         )
         annotate_model_span(
             span if span is not None else trace.get_current_span(),
@@ -830,6 +942,8 @@ class OpenAICompatibleGateway:
             output_tokens=usage.output_tokens if usage else None,
             estimated_cost_usd=usage.estimated_cost_usd if usage else None,
             error_type=error_type,
+            cache_creation_input_tokens=usage.cache_creation_input_tokens if usage else None,
+            cache_read_input_tokens=usage.cache_read_input_tokens if usage else None,
         )
 
 
@@ -854,8 +968,14 @@ def build_model_gateway(
     base_url: str = OPENAI_DEFAULT_BASE_URL,
     client: httpx.AsyncClient | None = None,
     egress_guard: bool = False,
+    route_models: Mapping[ModelRoute, str] | None = None,
+    route_efforts: Mapping[ModelRoute, str] | None = None,
 ) -> ModelGateway:
-    """``egress_guard=True`` for endpoints a workspace chose (SSRF guard, model_egress.py)."""
+    """``egress_guard=True`` for endpoints a workspace chose (SSRF guard, model_egress.py).
+
+    ``route_models`` maps :class:`ModelRoute` to a model name (``route_gateway``);
+    ``route_efforts`` sets the Anthropic ``output_config.effort`` per route.
+    """
     provider = normalize_provider(provider)
     if provider == "mock":
         return MockModelGateway()
@@ -866,6 +986,29 @@ def build_model_gateway(
             base_url=base_url,
             client=client,
             egress_guard=egress_guard,
+            route_models=route_models,
+        )
+    if provider == "anthropic":
+        from .anthropic_gateway import (
+            ANTHROPIC_CAPABLE_MODEL,
+            ANTHROPIC_DEFAULT_BASE_URL,
+            AnthropicGateway,
+        )
+
+        # The OpenAI defaults (e.g. untouched env defaults) mean "not set" here.
+        return AnthropicGateway(
+            api_key=api_key or "",
+            model=ANTHROPIC_CAPABLE_MODEL if not model or model == OPENAI_DEFAULT_MODEL else model,
+            base_url=(
+                ANTHROPIC_DEFAULT_BASE_URL
+                if not base_url or base_url.rstrip("/") == OPENAI_DEFAULT_BASE_URL
+                else base_url
+            ),
+            client=client,
+            egress_guard=egress_guard,
+            route_models=route_models,
+            effort=(route_efforts or {}).get(ModelRoute.CAPABLE) or None,
+            route_efforts=route_efforts,
         )
     if provider == "ollama":
         # Ollama serves an OpenAI-compatible API locally and needs no key. Fall back
@@ -884,5 +1027,42 @@ def build_model_gateway(
             require_api_key=False,
             provider="ollama",
             egress_guard=egress_guard,
+            route_models=route_models,
         )
     raise ValueError(f"Unsupported model provider: {provider}")
+
+
+def configured_route_models(config: Settings) -> dict[ModelRoute, str]:
+    """The fast and capable models the operator configured (docs/model-gateway.md).
+
+    Unset routes use ``ANUM_MODEL_NAME`` as before. With the ``anthropic`` provider and
+    ``ANUM_MODEL_NAME`` left at its default, they are claude-haiku-5-5 (fast) and
+    claude-sonnet-5-5 (capable).
+    """
+    fast = config.model_fast_name.strip()
+    capable = config.model_capable_name.strip()
+    if normalize_provider(config.model_provider) == "anthropic":
+        from .anthropic_gateway import ANTHROPIC_CAPABLE_MODEL, ANTHROPIC_FAST_MODEL
+
+        named = config.model_name.strip()
+        named = "" if named == OPENAI_DEFAULT_MODEL else named
+        fast = fast or named or ANTHROPIC_FAST_MODEL
+        capable = capable or named or ANTHROPIC_CAPABLE_MODEL
+    return {route: name for route, name in ((ModelRoute.FAST, fast), (ModelRoute.CAPABLE, capable)) if name}
+
+
+def build_default_model_gateway(config: Settings | None = None) -> ModelGateway:
+    """The server's default gateway from ``ANUM_MODEL_*`` settings, with model routing."""
+    config = config or settings
+    routes = configured_route_models(config)
+    return build_model_gateway(
+        config.model_provider,
+        api_key=config.model_api_key,
+        model=routes.get(ModelRoute.CAPABLE) or config.model_name,
+        base_url=config.model_base_url,
+        route_models=routes,
+        route_efforts={
+            ModelRoute.FAST: config.model_fast_effort,
+            ModelRoute.CAPABLE: config.model_capable_effort,
+        },
+    )

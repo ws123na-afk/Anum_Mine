@@ -66,11 +66,20 @@ refuses "must be an https origin" --set-string 'config.ANUM_CORS_ORIGINS=["*"]'
 refuses "ANUM_REPOSITORY_BACKEND must be postgresql" --set config.ANUM_REPOSITORY_BACKEND=memory
 refuses "mock is a release blocker" --set config.ANUM_ENVIRONMENT=production --set config.ANUM_MODEL_PROVIDER=mock
 refuses "files on one pod's disk" --set config.ANUM_OBJECT_STORAGE_BACKEND=local
+refuses "ANUM_MODEL_FAST_EFFORT must be" --set config.ANUM_MODEL_FAST_EFFORT=extreme
+refuses "ANUM_MODEL_CAPABLE_EFFORT must be" --set config.ANUM_MODEL_CAPABLE_EFFORT=fast
 refuses "ANUM_KEYCLOAK_ISSUER" --set config.ANUM_KEYCLOAK_ISSUER=http://id.anum.example/realms/anum
 refuses "Keycloak admin credential" --set config.KEYCLOAK_ADMIN_PASSWORD=admin
 refuses "Keycloak admin credential" --set extraEnv.KC_BOOTSTRAP_ADMIN_PASSWORD=admin
 refuses "worker.enabled must be true" --set worker.enabled=false
 refuses "backup.persistentVolumeClaim" --set backup.enabled=true
+refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=-1
+refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=3651
+refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=30d
+refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://examplekey@errors.anum.example/1
+refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://examplekey@localhost:8000/1
+refuses "ANUM_SENTRY_DSN must use https" --set extraEnv.ANUM_SENTRY_DSN=http://examplekey@10.0.0.5:8000/1
+refuses "ANUM_SENTRY_DSN must look like" --set config.ANUM_SENTRY_DSN=https://errors.anum.example/1
 
 # ---------------------------------------------------------------------------
 # Admission policy chart (infra/helm/anum-admission, docs/deployment.md#admission-policy).

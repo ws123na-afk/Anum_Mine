@@ -23,8 +23,11 @@ from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxR
 
 from .agent_tools import ToolRegistry, default_tool_registry
 from .durable_runs import AgentRunActivities
+from .error_reporting import setup_error_reporting, shutdown_error_reporting
 from .integration_tools import configured_external_handler
-from .model_gateway import ModelGateway, build_model_gateway
+from .integrations import default_integration_registry
+from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
+from .model_gateway import ModelGateway, build_default_model_gateway
 from .repository import AnumRepository
 from .runtime import AgentRuntime
 from .schemas import TenantContext
@@ -51,13 +54,17 @@ def build_activities(
 ) -> AgentRunActivities:
     from .onboarding import budgeted_model_gateway
 
-    gateway = model_gateway or build_model_gateway(
-        config.model_provider,
-        api_key=config.model_api_key,
-        model=config.model_name,
-        base_url=config.model_base_url,
+    gateway = model_gateway or build_default_model_gateway(config)
+    from .developer import register_developer_tools
+
+    registry = tools or register_developer_tools(
+        default_tool_registry(
+            configured_external_handler(config),
+            configured_web_search_handler(
+                config, default_integration_registry(config).workspace_enabled(SEARXNG_INTEGRATION_ID)
+            ),
+        )
     )
-    registry = tools or default_tool_registry(configured_external_handler(config))
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
         from .retrieval_api import retriever_for
@@ -109,6 +116,8 @@ async def run_worker(config: Settings = settings) -> None:
         raise RuntimeError("The worker needs ANUM_REPOSITORY_BACKEND=postgresql outside local")
 
     setup_telemetry(config, service_name="anum-worker", engines=sqlalchemy_engines(event_runtime))
+    # Errors only, without tenant tags: activities share one scope (anum_api/error_reporting.py).
+    setup_error_reporting(config, service_name="anum-worker")
     client = await Client.connect(
         config.temporal_target,
         namespace=config.temporal_namespace,
@@ -137,6 +146,7 @@ async def run_worker(config: Settings = settings) -> None:
     finally:
         await event_runtime.stop()
         shutdown_telemetry()
+        shutdown_error_reporting()
 
 
 def main() -> None:

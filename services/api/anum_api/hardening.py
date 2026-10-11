@@ -423,6 +423,13 @@ def insecure_configuration_problems(config: Any) -> list[str]:
             "credentials out of the API environment"
         )
 
+    # Error events cross the network in clear text over http (anum_api/error_reporting.py).
+    from .error_reporting import configured_dsn, insecure_dsn_problem
+
+    dsn_problem = insecure_dsn_problem(configured_dsn(config))
+    if dsn_problem:
+        problems.append(dsn_problem)
+
     if config.max_request_body_bytes <= 0 or config.rate_limit_requests_per_minute <= 0:
         problems.append("Request size and rate limits must be positive outside local")
     if not config.rate_limit_enabled:

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import 'destinations.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
@@ -61,7 +62,7 @@ class HomeScreen extends StatelessWidget {
         _AskCard(
           assistantName: assistantName,
           pending: pending.length,
-          onTap: () => onNavigate(2),
+          onTap: () => onNavigate(WorkspaceDestination.voice),
         ),
         AnumMetricGrid(children: [
           AnumMetric(
@@ -71,21 +72,21 @@ class HomeScreen extends StatelessWidget {
                 pending.isEmpty ? 'No approvals waiting' : 'Approvals waiting',
             icon: Icons.front_hand_outlined,
             accent: pending.isEmpty ? null : p.warn,
-            onTap: () => onNavigate(3),
+            onTap: () => onNavigate(WorkspaceDestination.approvals),
           ),
           AnumMetric(
             label: 'Running',
             value: '${running.length}',
             caption: 'Queued or in progress',
             icon: Icons.bolt_outlined,
-            onTap: () => onNavigate(1),
+            onTap: () => onNavigate(WorkspaceDestination.tasks),
           ),
           AnumMetric(
             label: 'Done today',
             value: '$completedToday',
             caption: 'Completed in the last 24 h',
             icon: Icons.check_circle_outline,
-            onTap: () => onNavigate(1),
+            onTap: () => onNavigate(WorkspaceDestination.tasks),
           ),
           AnumMetric(
             label: 'Failed',
@@ -93,7 +94,7 @@ class HomeScreen extends StatelessWidget {
             caption: failed.isEmpty ? 'Nothing failed' : 'Can be resumed',
             icon: Icons.error_outline,
             accent: failed.isEmpty ? null : p.stop,
-            onTap: () => onNavigate(1),
+            onTap: () => onNavigate(WorkspaceDestination.tasks),
           ),
         ]),
         if (pending.isNotEmpty)
@@ -105,7 +106,7 @@ class HomeScreen extends StatelessWidget {
                 eyebrow: 'Needs you',
                 title: 'Waiting for your decision',
                 trailing: TextButton(
-                    onPressed: () => onNavigate(3),
+                    onPressed: () => onNavigate(WorkspaceDestination.approvals),
                     child: const Text('Review all')),
               ),
               const SizedBox(height: 6),
@@ -120,7 +121,7 @@ class HomeScreen extends StatelessWidget {
                   trailing: AnumPill(
                       label: '${approval.risk} risk',
                       tone: riskTone(approval.risk)),
-                  onTap: () => onNavigate(3),
+                  onTap: () => onNavigate(WorkspaceDestination.approvals),
                 ),
             ]),
           ),
@@ -131,7 +132,7 @@ class HomeScreen extends StatelessWidget {
               eyebrow: 'Activity',
               title: 'Recent work',
               trailing: TextButton(
-                  onPressed: () => onNavigate(1),
+                  onPressed: () => onNavigate(WorkspaceDestination.tasks),
                   child: const Text('All tasks')),
             ),
             const SizedBox(height: 6),
@@ -141,7 +142,7 @@ class HomeScreen extends StatelessWidget {
                 title: 'No tasks yet',
                 message: 'Ask $assistantName or create a task to get started.',
                 action: 'Create a task',
-                onAction: () => onNavigate(1),
+                onAction: () => onNavigate(WorkspaceDestination.tasks),
               )
             else
               for (final task in recent.take(5))
@@ -166,7 +167,8 @@ class HomeScreen extends StatelessWidget {
                   ? 'No integrations reported by the API.'
                   : '$healthy of ${integrations.length} connected',
               trailing: TextButton(
-                  onPressed: () => onNavigate(5), child: const Text('Details')),
+                  onPressed: () => onNavigate(WorkspaceDestination.resources),
+                  child: const Text('Details')),
             ),
             if (integrations.isNotEmpty) ...[
               const SizedBox(height: 10),

@@ -96,6 +96,17 @@ class RetrievalSource(BaseModel):
     embedding_model: str | None = None
     source_expires_at: datetime | None = None
     indexed_at: datetime
+    # The owner of a private memory (from that user's conversations); None when the
+    # source is shared with the workspace. Other users never see owned sources.
+    owner_user_id: str | None = None
+
+
+def visible_to(source: RetrievalSource, context: TenantContext) -> bool:
+    """Same tenant and workspace, and shared or owned by the caller."""
+    return (
+        (source.tenant_id, source.workspace_id) == (context.tenant_id, context.workspace_id)
+        and (source.owner_user_id is None or source.owner_user_id == context.user_id)
+    )
 
 
 class ChunkInput(BaseModel):
@@ -139,7 +150,11 @@ class RetrievalStore(Protocol):
         embedding_model: str,
         limit: int,
         now: datetime,
-    ) -> list[RetrievedChunk]: ...
+        *,
+        source_type: SourceType | None = None,
+    ) -> list[RetrievedChunk]:
+        """Nearest live chunks the caller may see; only ``source_type`` when given."""
+        ...
 
 
 # --------------------------------------------------------------------------- embedders
@@ -289,15 +304,11 @@ class InMemoryRetrievalStore:
     def get_source(self, context: TenantContext, source_type: SourceType, source_id: str) -> RetrievalSource | None:
         with self._lock:
             source = self._sources.get(self._key(context, source_type, source_id))
-        return source.model_copy() if source else None
+        return source.model_copy() if source and visible_to(source, context) else None
 
     def list_sources(self, context: TenantContext) -> list[RetrievalSource]:
         with self._lock:
-            found = [
-                source.model_copy()
-                for key, source in self._sources.items()
-                if key[:2] == (context.tenant_id, context.workspace_id)
-            ]
+            found = [source.model_copy() for source in self._sources.values() if visible_to(source, context)]
         return sorted(found, key=lambda source: (source.source_type, source.source_id))
 
     def has_indexed(self, context: TenantContext, embedding_model: str) -> bool:
@@ -307,16 +318,22 @@ class InMemoryRetrievalStore:
         )
 
     def save_source(self, context: TenantContext, source: RetrievalSource, chunks: Sequence[ChunkInput]) -> None:
-        if (source.tenant_id, source.workspace_id) != (context.tenant_id, context.workspace_id):
-            raise ValueError("source belongs to another tenant or workspace")
+        if not visible_to(source, context):
+            raise ValueError("source belongs to another tenant, workspace or user")
         key = self._key(context, source.source_type, source.source_id)
         with self._lock:
+            existing = self._sources.get(key)
+            if existing is not None and not visible_to(existing, context):
+                raise ValueError("source belongs to another user")
             self._sources[key] = source.model_copy()
             self._chunks[key] = [(chunk.model_copy(), source.embedding_model or "") for chunk in chunks]
 
     def delete_source(self, context: TenantContext, source_type: SourceType, source_id: str) -> bool:
         key = self._key(context, source_type, source_id)
         with self._lock:
+            existing = self._sources.get(key)
+            if existing is None or not visible_to(existing, context):
+                return False
             self._chunks.pop(key, None)
             return self._sources.pop(key, None) is not None
 
@@ -327,13 +344,17 @@ class InMemoryRetrievalStore:
         embedding_model: str,
         limit: int,
         now: datetime,
+        *,
+        source_type: SourceType | None = None,
     ) -> list[RetrievedChunk]:
         scored: list[RetrievedChunk] = []
         with self._lock:
             for key, chunks in self._chunks.items():
-                if key[:2] != (context.tenant_id, context.workspace_id):
-                    continue
                 source = self._sources[key]
+                if not visible_to(source, context):
+                    continue
+                if source_type is not None and source.source_type != source_type:
+                    continue
                 if source.status != IndexStatus.INDEXED:
                     continue
                 if source.source_expires_at is not None and source.source_expires_at <= now:
@@ -394,7 +415,8 @@ def open_retrieval_store(context: TenantContext) -> Iterator[RetrievalStore]:
 
         return SqlAlchemyRetrievalStore(session)
 
-    with open_scoped_store(context, memory_retrieval_store, sql_store) as store:
+    # user_scoped: the caller's own private sources are visible too (migration 0021).
+    with open_scoped_store(context, memory_retrieval_store, sql_store, user_scoped=True) as store:
         yield store
 
 
@@ -442,6 +464,7 @@ class RetrievalIndexer:
             note.id,
             note.content,
             expires_at=note.retention.expires_at,
+            owner_user_id=getattr(note, "owner_user_id", None),
         )
 
     async def index_file(self, context: TenantContext, record: Any, content: bytes) -> IndexOutcome:
@@ -466,7 +489,10 @@ class RetrievalIndexer:
         *,
         name: str | None = None,
         expires_at: datetime | None = None,
+        owner_user_id: str | None = None,
     ) -> IndexOutcome:
+        if owner_user_id is not None and owner_user_id != context.user_id:
+            raise ValueError("a private source can only be indexed by its owner")
         digest = sha256_text(text)
         model = self.embedder.model_name
         existing = self.store.get_source(context, source_type, source_id)
@@ -475,6 +501,7 @@ class RetrievalIndexer:
             and existing.status == IndexStatus.INDEXED
             and existing.content_sha256 == digest
             and existing.embedding_model == model
+            and existing.owner_user_id == owner_user_id
         ):
             return IndexOutcome(
                 source_type=source_type,
@@ -485,7 +512,7 @@ class RetrievalIndexer:
             )
         pieces = chunk_text(text)
         if not pieces:
-            return self._record_skip(context, source_type, source_id, digest, "empty", name)
+            return self._record_skip(context, source_type, source_id, digest, "empty", name, owner_user_id)
         try:
             response = await self.embedder.embed(pieces)
         except Exception as exc:
@@ -501,7 +528,10 @@ class RetrievalIndexer:
             )
             self.store.save_source(
                 context,
-                self._source(context, source_type, source_id, digest, IndexStatus.FAILED, name, model, expires_at, error=error),
+                self._source(
+                    context, source_type, source_id, digest, IndexStatus.FAILED, name, model, expires_at,
+                    error=error, owner_user_id=owner_user_id,
+                ),
                 [],
             )
             return IndexOutcome(source_type=source_type, source_id=source_id, status=IndexStatus.FAILED, error=error)
@@ -512,7 +542,7 @@ class RetrievalIndexer:
             if any(component != 0.0 for component in vector)
         ]
         if not usable:
-            return self._record_skip(context, source_type, source_id, digest, "empty", name)
+            return self._record_skip(context, source_type, source_id, digest, "empty", name, owner_user_id)
         chunks = [
             ChunkInput(
                 id=new_id("chunk"),
@@ -525,7 +555,7 @@ class RetrievalIndexer:
         ]
         source = self._source(
             context, source_type, source_id, digest, IndexStatus.INDEXED, name, response.model, expires_at,
-            chunk_count=len(chunks),
+            chunk_count=len(chunks), owner_user_id=owner_user_id,
         )
         self.store.save_source(context, source, chunks)
         return IndexOutcome(
@@ -543,10 +573,14 @@ class RetrievalIndexer:
         digest: str,
         reason: str,
         name: str | None,
+        owner_user_id: str | None = None,
     ) -> IndexOutcome:
         self.store.save_source(
             context,
-            self._source(context, source_type, source_id, digest, IndexStatus.SKIPPED, name, None, None, error=reason),
+            self._source(
+                context, source_type, source_id, digest, IndexStatus.SKIPPED, name, None, None,
+                error=reason, owner_user_id=owner_user_id,
+            ),
             [],
         )
         return IndexOutcome(source_type=source_type, source_id=source_id, status=IndexStatus.SKIPPED, error=reason)
@@ -564,6 +598,7 @@ class RetrievalIndexer:
         *,
         error: str | None = None,
         chunk_count: int = 0,
+        owner_user_id: str | None = None,
     ) -> RetrievalSource:
         return RetrievalSource(
             tenant_id=context.tenant_id,
@@ -578,6 +613,7 @@ class RetrievalIndexer:
             embedding_model=model,
             source_expires_at=expires_at,
             indexed_at=self.clock(),
+            owner_user_id=owner_user_id,
         )
 
 
@@ -661,7 +697,10 @@ class Retriever:
         self.block_max_chars = settings.retrieval_block_max_chars if block_max_chars is None else block_max_chars
         self.clock = clock
 
-    async def retrieve(self, context: TenantContext, query: str) -> RetrievalResult:
+    async def retrieve(
+        self, context: TenantContext, query: str, *, source_type: SourceType | None = None
+    ) -> RetrievalResult:
+        """The top chunks for ``query``; only memories or only files with ``source_type``."""
         model = self.embedder.model_name
         if self.top_k <= 0 or self.max_chars <= 0:
             return RetrievalResult(RetrievalStatus.SKIPPED, "retrieval is turned off", model)
@@ -689,7 +728,7 @@ class Retriever:
         if not any(component != 0.0 for component in vector):
             return RetrievalResult(RetrievalStatus.NO_RESULTS, None, model)
         with self.store_factory(context) as store:
-            found = store.search(context, vector, model, self.top_k, self.clock())
+            found = store.search(context, vector, model, self.top_k, self.clock(), source_type=source_type)
         return self._assemble(context, found, model)
 
     def _assemble(self, context: TenantContext, found: list[RetrievedChunk], model: str) -> RetrievalResult:

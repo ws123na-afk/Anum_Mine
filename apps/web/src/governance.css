@@ -16,8 +16,18 @@
 .govTarget { grid-template-columns: 42px 1fr auto auto; }
 .integrationCard { grid-template-columns: 42px 1fr auto; }
 .integrationActions { align-items: center; display: flex; gap: 8px; }
+.integrationTool { color: var(--d-muted); display: block; margin-top: var(--d-s1); }
+.integrationTool.available { color: var(--d-text); }
 .integrationConfig { border-top: 1px solid var(--d-line); grid-column: 1 / -1; padding-top: 10px; }
+/* The phone layout moves a card's last child under the text (styles.css); the open panel
+   is the last child then and must still span the whole card. */
+@media (max-width: 480px) {
+  .integrationCard { grid-template-columns: 42px minmax(0, 1fr); }
+  .integration.integrationCard > .integrationConfig { grid-column: 1 / -1; }
+  .integration.integrationCard > .integrationActions { grid-column: 2; justify-self: start; }
+}
 .integrationToggle { align-items: center; display: flex; font-size: 13px; gap: 8px; }
+.integrationToggle input { accent-color: var(--d-violet); flex: none; height: 20px; min-height: 0; padding: 0; width: 20px; }
 @media (max-width: 900px) {
   .govColumns, .govGrid, .govPermissions { grid-template-columns: 1fr; }
   .govRow { grid-template-columns: 22px 1fr; }

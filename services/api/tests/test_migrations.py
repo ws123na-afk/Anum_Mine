@@ -322,3 +322,64 @@ def test_conversations_migration_is_expand_only_with_user_scoped_forced_rls() ->
     assert "drop " not in upgrade and "alter_column" not in upgrade
     # No other role is granted anything: nothing discovers conversations across tenants.
     assert "grant " not in upgrade
+
+
+def test_conversation_retention_migration_adds_a_discovery_only_policy() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0019_conversation_retention.py").read_text(encoding="utf-8")
+    assert 'revision = "0019_conversation_retention"' in revision_text
+    assert len("0019_conversation_retention") <= 32
+    assert 'down_revision = "0018_conversations"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0019_conversation_retention.py"]
+    assert not [path for path in others if 'down_revision = "0018_conversations"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Discovery only: ids, scope and the activity time; never the title or any turn.
+    assert "grant select (id, tenant_id, workspace_id, user_id, updated_at) on conversations to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade
+    assert "updated_at <= now() - interval '1 day'" in upgrade
+    assert "conversation_turns" not in upgrade and "title" not in upgrade
+    assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade
+    assert "security definer" not in upgrade and "bypassrls" not in upgrade
+    assert "drop " not in upgrade and "alter " not in upgrade
+
+
+def test_tenants_rls_migration_forces_rls_on_tenants_and_grants_nothing() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0020_tenants_rls.py").read_text(encoding="utf-8")
+    assert 'revision = "0020_tenants_rls"' in revision_text
+    assert len("0020_tenants_rls") <= 32
+    assert 'down_revision = "0019_conversation_retention"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0020_tenants_rls.py"]
+    assert not [path for path in others if 'down_revision = "0019_conversation_retention"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "alter table tenants enable row level security" in upgrade
+    assert "alter table tenants force row level security" in upgrade
+    assert "create policy tenant_isolation_tenants on tenants" in upgrade
+    assert "using ({tenant_predicate})" in upgrade and "with check ({tenant_predicate})" in upgrade
+    assert "id = nullif(current_setting('anum.tenant_id', true), '')" in revision_text
+    # Expand only, and no role gets a way around the policy.
+    assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_memory_sources_migration_is_expand_only_with_owner_scoped_restrictive_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0021_memory_sources.py").read_text(encoding="utf-8")
+    assert 'revision = "0021_memory_sources"' in revision_text
+    assert len("0021_memory_sources") <= 32
+    assert 'down_revision = "0020_tenants_rls"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0021_memory_sources.py"]
+    assert not [path for path in others if 'down_revision = "0020_tenants_rls"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Two nullable owner columns: the previous release never writes them.
+    assert upgrade.count("op.add_column(") == 2
+    assert upgrade.count("nullable=true") == 2
+    assert '"memories"' in upgrade and '"retrieval_sources"' in upgrade
+    # Owned rows: AND-ed with tenant isolation, visible only to the owner's user context.
+    assert "as restrictive" in upgrade and "with check" in upgrade
+    assert "current_setting('anum.user_id', true)" in revision_text
+    assert "create index concurrently if not exists ix_memories_owner" in upgrade
+    assert "autocommit_block" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "grant " not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade

@@ -7,12 +7,21 @@ from opentelemetry import trace
 
 from .repository import AnumRepository, InMemoryRepository
 from .event_bus import EventCollectingRepository, build_event_runtime
-from .authorization import AuthorizationError, Permission, Role, WorkspaceMembership, policy
+from .authorization import (
+    ORGANIZATION_PERMISSIONS,
+    AuthorizationError,
+    OrganizationRole,
+    Permission,
+    Role,
+    WorkspaceMembership,
+    policy,
+)
 from .memory import InMemoryMemoryRepository, MemoryRepository
 from .schemas import TenantContext
 from .schemas import WorkspaceMembership as WorkspaceMembershipRecord
 from .settings import settings
 from .store import store
+from .error_reporting import tag_tenant
 from .telemetry import set_tenant_attributes
 from .identity import (
     JwksUnavailableError,
@@ -32,7 +41,41 @@ _oidc_validator: OidcValidator | None = None
 event_runtime = build_event_runtime(settings)
 
 
+ORGANIZATION_ADMIN_REQUIRED = (
+    "Organization administrator role required: this setting applies to every workspace "
+    "in the organization"
+)
+
+
 def require_permission(context: TenantContext, permission: Permission) -> None:
+    """403 unless the caller holds ``permission``.
+
+    Workspace permissions come from the caller's role in the request's workspace.
+    Tenant-wide permissions (``ORGANIZATION_PERMISSIONS``) need an organization role as
+    well as an active workspace role; a workspace owner alone is refused.
+    """
+    if permission in ORGANIZATION_PERMISSIONS:
+        _require_workspace_role(context, Permission.ORGANIZATION_READ)
+        try:
+            policy.require_organization(context, permission)
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ORGANIZATION_ADMIN_REQUIRED,
+            ) from exc
+        return
+    _require_workspace_role(context, permission)
+
+
+def has_permission(context: TenantContext, permission: Permission) -> bool:
+    try:
+        require_permission(context, permission)
+    except HTTPException:
+        return False
+    return True
+
+
+def _require_workspace_role(context: TenantContext, permission: Permission) -> None:
     claimed_roles = {role.strip().lower() for role in context.roles}
     role = next(
         (candidate for candidate in Role if candidate.value in claimed_roles),
@@ -99,13 +142,16 @@ async def _oidc_identity(
     authorization: str | None,
     x_tenant_id: str | None,
     x_workspace_id: str | None,
+    *,
+    require_workspace: bool = True,
 ) -> tuple[OidcClaims, str]:
     """Validate the bearer token and resolve the tenant (from the token) and workspace.
 
     The tenant always comes from the IdP-asserted `tenant_id` claim; an `x-tenant-id` header,
     when sent, must agree with it. The workspace is the `x-workspace-id` header when present,
     otherwise the token's optional default `workspace_id` claim. Membership is checked by the
-    caller.
+    caller. With ``require_workspace=False`` an unresolved workspace is returned as ``""``
+    (only the caller's own workspace directory accepts that).
     """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise _unauthorized("Bearer token required")
@@ -127,6 +173,8 @@ async def _oidc_identity(
             detail="x-tenant-id does not match the authenticated tenant",
         )
     workspace_id = x_workspace_id or claims.workspace_id
+    if not workspace_id and not require_workspace:
+        return claims, ""
     if not workspace_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -218,8 +266,10 @@ async def tenant_context(
 
 
 def _traced(context: TenantContext) -> TenantContext:
-    """Tag the request span with the resolved tenant and workspace ids (ids only)."""
+    """Tag the request span with the resolved tenant and workspace ids (ids only), and
+    error reports with the tenant id only (anum_api/error_reporting.py)."""
     set_tenant_attributes(trace.get_current_span(), context.tenant_id, context.workspace_id)
+    tag_tenant(context.tenant_id)
     return context
 
 
@@ -270,12 +320,14 @@ def _header_context(
             detail="Missing ANUM tenant context headers",
         )
 
-    roles = [role.strip() for role in (x_user_roles or "member").split(",") if role.strip()]
+    claimed = [role.strip() for role in (x_user_roles or "member").split(",") if role.strip()]
+    organization_values = {role.value for role in OrganizationRole}
     return TenantContext(
         tenant_id=x_tenant_id,
         workspace_id=x_workspace_id,
         user_id=x_user_id,
-        roles=roles,
+        roles=[role for role in claimed if role.lower() not in organization_values],
+        organization_roles=[role.lower() for role in claimed if role.lower() in organization_values],
     )
 
 
@@ -361,6 +413,34 @@ async def authenticated_identity(
     return AuthenticatedIdentity(context, email, email_verified=email is not None)
 
 
+async def directory_identity(
+    authorization: str | None = Header(default=None),
+    x_tenant_id: str | None = Header(default=None),
+    x_workspace_id: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+    x_user_roles: str | None = Header(default="member"),
+    x_user_email: str | None = Header(default=None),
+) -> AuthenticatedIdentity:
+    """:func:`authenticated_identity` for ``GET /me/workspace-memberships`` only.
+
+    With OIDC no workspace has to be selected yet: a client whose token carries no
+    ``workspace_id`` claim lists the caller's workspaces to choose one
+    (docs/identity.md#my-workspaces). The context's ``workspace_id`` is then ``""``; the
+    directory never reads it (it filters by tenant and user only).
+    """
+    if settings.auth_mode == "oidc":
+        claims, workspace_id = await _oidc_identity(
+            authorization, x_tenant_id, x_workspace_id, require_workspace=False
+        )
+        context = TenantContext(
+            tenant_id=claims.tenant_id, workspace_id=workspace_id, user_id=claims.subject, roles=[]
+        )
+        return AuthenticatedIdentity(context, claims.email, claims.email_verified)
+    return await authenticated_identity(
+        authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles, x_user_email
+    )
+
+
 async def identity_repository_context(
     identity: AuthenticatedIdentity = Depends(authenticated_identity),
 ) -> AsyncIterator[AnumRepository]:
@@ -385,7 +465,9 @@ async def memory_repository_context(
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        # The user too: private memories (from the caller's conversations) are visible
+        # only under their owner's anum.user_id (migration 0021).
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
         from .db.repository import SqlAlchemyRepository
 
         _require_persisted_membership(
@@ -399,6 +481,25 @@ async def memory_repository_context(
         raise
     finally:
         session.close()
+
+
+@contextmanager
+def open_memory_repository(context: TenantContext) -> Iterator[MemoryRepository]:
+    """A memory store for one unit of work outside a request (conversation memory).
+
+    The caller already checked the membership and permission in its request. With
+    PostgreSQL the session carries the tenant, workspace and user RLS context, commits
+    when the block ends normally and rolls back otherwise.
+    """
+    from .scoped_store import open_scoped_store
+
+    def sql_store(session):  # type: ignore[no-untyped-def]
+        from .db.memory_repository import SqlAlchemyMemoryRepository
+
+        return SqlAlchemyMemoryRepository(session)
+
+    with open_scoped_store(context, memory_note_repository, sql_store, user_scoped=True) as repository:
+        yield repository
 
 
 async def provisioning_repository_context(

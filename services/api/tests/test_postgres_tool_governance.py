@@ -23,7 +23,8 @@ pytestmark = pytest.mark.database
 
 
 def headers(tenant_id: str = TENANT_A, workspace_id: str = WORKSPACE_A, user_id: str = "user_test") -> dict[str, str]:
-    return {"x-tenant-id": tenant_id, "x-workspace-id": workspace_id, "x-user-id": user_id, "x-user-roles": "owner"}
+    # Workspace owner and organization administrator: these tests write tenant-wide rules.
+    return {"x-tenant-id": tenant_id, "x-workspace-id": workspace_id, "x-user-id": user_id, "x-user-roles": "owner,org_admin"}
 
 
 A = headers()

@@ -54,6 +54,8 @@ class TenantContext(BaseModel):
     workspace_id: str
     user_id: str
     roles: list[str] = Field(default_factory=list)
+    # Tenant-level roles (``org_admin``) from the identity provider; never a workspace role.
+    organization_roles: list[str] = Field(default_factory=list)
 
 
 class TenantCreate(BaseModel):

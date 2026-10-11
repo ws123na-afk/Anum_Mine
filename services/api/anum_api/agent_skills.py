@@ -54,6 +54,15 @@ def default_skill_registry() -> SkillRegistry:
                 required_tools=frozenset({"anum.respond"}),
             ),
             SkillManifest(
+                id="anum.web-search",
+                version="1.0.0",
+                name="Web search",
+                description="Looks things up on the web through the deployment's private SearXNG.",
+                triggers=frozenset({"search", "web", "internet", "online", "lookup", "google", "news"}),
+                # Selectable only where ANUM_SEARXNG_URL registered the tool.
+                required_tools=frozenset({"web_search"}),
+            ),
+            SkillManifest(
                 id="anum.external-action",
                 version="1.0.0",
                 name="External action",

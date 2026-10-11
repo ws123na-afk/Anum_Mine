@@ -5,7 +5,7 @@ import { useIsOwner } from './useIsOwner';
 import { apiErrorFromResponse, describeError, isPermissionDenied } from './lib/errors';
 import * as gov from './lib/governanceApi';
 import {
-  ROLE_TEMPLATE_PERMISSIONS, approvalRuleBody, emptyTargetDraft, packState, regionSummary, roleTemplateBody, routingTargetBody, sortPacks, targetDraft,
+  ROLE_TEMPLATE_PERMISSIONS, approvalRuleBody, emptyTargetDraft, organizationPolicyAccess, packState, regionSummary, roleTemplateBody, routingTargetBody, sortPacks, targetDraft,
   type ApprovalRule, type EnterpriseOperations, type GovernanceSummary, type PolicyPack, type RegionStatus, type RoleTemplate, type RoutingTarget, type TargetDraft,
 } from './lib/governance';
 import './governance.css';
@@ -41,7 +41,6 @@ export function GovernanceView() {
   const [rules, setRules] = useState<ApprovalRule[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const owner = useIsOwner();
   const load = useCallback(async () => {
     try {
       const [s, p, t, r] = await Promise.all([gov.getGovernanceSummary(), gov.getPolicyPacks(), gov.getRoleTemplates(), gov.getApprovalRules()]);
@@ -50,6 +49,8 @@ export function GovernanceView() {
   }, []);
   useEffect(() => { void load(); }, [load]);
   const { busy, flash, act } = useAction(load);
+  // Tenant-wide controls: editable only for an organization administrator (the API's answer).
+  const { canManage, notice: readOnlyNotice } = organizationPolicyAccess(summary);
   const addBaseline = () => act('baseline', async () => {
     const pack = await gov.createPolicyPack({ name: 'Organization baseline', description: 'Approval-first enterprise defaults', rules: [{ action: 'integration.write', effect: 'require_approval', conditions: { risk: 'high' } }] });
     return `Policy pack ${pack.name} v${pack.version} created.`;
@@ -65,10 +66,10 @@ export function GovernanceView() {
   });
   return <>
     <section className="metrics"><Metric label="Policy packs" value={String(summary?.policy_packs ?? 0)} /><Metric label="Active policies" value={String(summary?.active_policy_packs ?? 0)} /><Metric label="Role templates" value={String(summary?.role_templates ?? 0)} /><Metric label="Approval rules" value={String(summary?.approval_rules ?? 0)} /></section>
-    <section className="moduleIntro"><div><p className="eyebrow">Organization controls</p><h2>Governance center</h2><p>Versioned policy, retention, roles, approvals, and immutable audit export.</p></div><div className="actions">{owner && <button type="button" disabled={busy !== null} onClick={() => void addBaseline()}><ShieldCheck size={17} />Add baseline</button>}<button type="button" className="secondary" disabled={busy !== null} onClick={() => void exportAudit()}><Download size={17} />Export audit</button></div></section>
+    <section className="moduleIntro"><div><p className="eyebrow">Organization controls</p><h2>Governance center</h2><p>Versioned policy, retention, roles, approvals, and immutable audit export.</p></div><div className="actions">{canManage && <button type="button" disabled={busy !== null} onClick={() => void addBaseline()}><ShieldCheck size={17} />Add baseline</button>}<button type="button" className="secondary" disabled={busy !== null} onClick={() => void exportAudit()}><Download size={17} />Export audit</button></div></section>
     {!loaded && <Notice>Loading governance controls...</Notice>}
     {loadError && <Notice error>{loadError}</Notice>}
-    {owner === false && <Notice>Changing policy packs, role templates and approval rules needs the owner role. You can read them here.</Notice>}
+    {readOnlyNotice && <Notice>{readOnlyNotice}</Notice>}
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
     <section className="surface govSection" aria-label="Policy packs">
       <div className="sectionHeader"><div><p className="eyebrow">Versioned policy</p><h2>Policy packs</h2></div></div>
@@ -79,7 +80,7 @@ export function GovernanceView() {
           <ShieldCheck />
           <div><strong>{pack.name}</strong> <span className="govVersion">v{pack.version}</span><p>{pack.description || 'No description'} · {pack.rules.length} {pack.rules.length === 1 ? 'rule' : 'rules'}</p><div className="tagRow">{pack.rules.map((rule) => <span key={`${rule.action}-${rule.effect}`}>{rule.action}: {rule.effect}</span>)}</div></div>
           <span className={`statusBadge ${state.tone}`}>{state.label}</span>
-          {owner && <button type="button" className="secondary" disabled={busy !== null} aria-label={`${state.action === 'activate' ? 'Activate' : 'Archive'} ${pack.name} v${pack.version}`} onClick={() => void act(pack.id, async () => {
+          {canManage && <button type="button" className="secondary" disabled={busy !== null} aria-label={`${state.action === 'activate' ? 'Activate' : 'Archive'} ${pack.name} v${pack.version}`} onClick={() => void act(pack.id, async () => {
             const next = await gov.setPolicyPackState(pack.id, state.action);
             return `${next.name} v${next.version} ${next.active ? 'activated' : 'archived'}.`;
           })}>{state.action === 'activate' ? <><Undo2 size={16} />Activate</> : <><Archive size={16} />Archive</>}</button>}
@@ -87,15 +88,15 @@ export function GovernanceView() {
       })}
     </section>
     <div className="govColumns">
-      <RoleTemplates templates={templates} owner={owner === true} busy={busy} act={act} />
-      <ApprovalRules rules={rules} owner={owner === true} busy={busy} act={act} />
+      <RoleTemplates templates={templates} canManage={canManage} busy={busy} act={act} />
+      <ApprovalRules rules={rules} canManage={canManage} busy={busy} act={act} />
     </div>
   </>;
 }
 
-type ActProps = { owner: boolean; busy: string | null; act: (key: string, action: () => Promise<string>) => Promise<boolean> };
+type ActProps = { canManage: boolean; busy: string | null; act: (key: string, action: () => Promise<string>) => Promise<boolean> };
 
-function RoleTemplates({ templates, owner, busy, act }: { templates: RoleTemplate[] } & ActProps) {
+function RoleTemplates({ templates, canManage, busy, act }: { templates: RoleTemplate[] } & ActProps) {
   const [name, setName] = useState('');
   const [perms, setPerms] = useState<string[]>(['task:read']);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +110,7 @@ function RoleTemplates({ templates, owner, busy, act }: { templates: RoleTemplat
     <div className="sectionHeader"><div><p className="eyebrow">Access</p><h2>Role templates</h2></div></div>
     {templates.length === 0 && <p className="muted">No role templates yet.</p>}
     {templates.map((t) => <div className="govItem" key={t.id}><strong>{t.name}</strong><div className="tagRow">{t.permissions.map((p) => <span key={p}>{p}</span>)}</div></div>)}
-    {owner && <form className="govForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+    {canManage && <form className="govForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <label className="field"><span>Template name</span><input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} /></label>
       <fieldset className="govPermissions"><legend>Permissions</legend>{ROLE_TEMPLATE_PERMISSIONS.map((p) => <label key={p}><input type="checkbox" checked={perms.includes(p)} onChange={(e) => setPerms((old) => e.target.checked ? [...old, p] : old.filter((x) => x !== p))} />{p}</label>)}</fieldset>
       {error && <Notice error>{error}</Notice>}
@@ -118,7 +119,7 @@ function RoleTemplates({ templates, owner, busy, act }: { templates: RoleTemplat
   </section>;
 }
 
-function ApprovalRules({ rules, owner, busy, act }: { rules: ApprovalRule[] } & ActProps) {
+function ApprovalRules({ rules, canManage, busy, act }: { rules: ApprovalRule[] } & ActProps) {
   const [draft, setDraft] = useState({ name: '', actionPattern: '', minimumApprovers: '1', requiredRoles: 'owner' });
   const [error, setError] = useState<string | null>(null);
   const field = (key: keyof typeof draft, label: string) => <label className="field"><span>{label}</span><input value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} /></label>;
@@ -132,7 +133,7 @@ function ApprovalRules({ rules, owner, busy, act }: { rules: ApprovalRule[] } & 
     <div className="sectionHeader"><div><p className="eyebrow">Organization approvals</p><h2>Approval rules</h2></div></div>
     {rules.length === 0 && <p className="muted">No organization approval rules yet.</p>}
     {rules.map((r) => <div className="govItem" key={r.id}><strong>{r.name}</strong><p>{r.action_pattern} · {r.minimum_approvers} approver{r.minimum_approvers === 1 ? '' : 's'} · {r.required_roles.join(', ')}{r.enabled ? '' : ' · disabled'}</p></div>)}
-    {owner && <form className="govForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+    {canManage && <form className="govForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       {field('name', 'Rule name')}{field('actionPattern', 'Action pattern')}{field('minimumApprovers', 'Minimum approvers')}{field('requiredRoles', 'Required roles (comma separated)')}
       {error && <Notice error>{error}</Notice>}
       <div className="actions"><button type="submit" disabled={busy !== null}><Plus size={16} />Add approval rule</button></div>

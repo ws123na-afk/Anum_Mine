@@ -181,8 +181,8 @@ class AgentRuntime:
             raise ValueError("Run has no executable checkpoint")
         call = ToolCall.model_validate(run.checkpoint.tool_call)
         self._mark_executing(task, run)
-        result = await self.tools.execute(call, context)
-        return self._complete(task, run, context, result)
+        result = await self._execute_tool(call, task, run, context)
+        return self._settle(task, run, context, result)
 
     def check_resumable(self, task: Task, run: AgentRun) -> None:
         """Raise ``ValueError`` unless ``run`` is stranded at an executable checkpoint."""
@@ -296,8 +296,8 @@ class AgentRuntime:
         approval_id: str | None = None,
     ) -> AgentRun:
         """Execute ``call`` through the tool registry and complete the run."""
-        result = await self.tools.execute(call, context)
-        return self._complete(task, run, context, result, approval_id)
+        result = await self._execute_tool(call, task, run, context)
+        return self._settle(task, run, context, result, approval_id)
 
     async def recover_interrupted_execution(
         self, task: Task, run: AgentRun, context: TenantContext
@@ -331,8 +331,8 @@ class AgentRuntime:
             {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task.id,
         )
         run.checkpoint.version += 1
-        result = await self.tools.execute(call, context)
-        return self._complete(task, run, context, result)
+        result = await self._execute_tool(call, task, run, context)
+        return self._settle(task, run, context, result)
 
     async def resume_after_approval(
         self,
@@ -596,6 +596,41 @@ class AgentRuntime:
             task.id,
         )
         return run, approval
+
+    async def _execute_tool(
+        self, call: ToolCall, task: Task, run: AgentRun, context: TenantContext
+    ) -> ToolResult:
+        """The one place a planned call reaches a tool handler.
+
+        When the tool reports ``audit_metadata`` (counts and outcomes, never content),
+        it is recorded as a ``tool.call`` audit record in the caller's tenant scope.
+        """
+        result = await self.tools.execute(call, context)
+        if result.audit_metadata:
+            self._audit(
+                context,
+                "tool.call",
+                call.name,
+                result.status,
+                task.id,
+                {**result.audit_metadata, "tool": call.name, "task_id": task.id, "run_id": run.id},
+            )
+        return result
+
+    def _settle(
+        self,
+        task: Task,
+        run: AgentRun,
+        context: TenantContext,
+        result: ToolResult,
+        approval_id: str | None = None,
+    ) -> AgentRun:
+        """Complete the run, or fail it when the tool itself reported a failure."""
+        if result.status in {"failed", "blocked"}:
+            run.result = result.summary
+            self._fail(task, run, context, result.summary, approval_id)
+            return run
+        return self._complete(task, run, context, result, approval_id)
 
     def _complete(
         self,

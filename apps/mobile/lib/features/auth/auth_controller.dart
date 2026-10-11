@@ -3,10 +3,17 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_models.dart';
 import 'auth_repository.dart';
 import 'oidc.dart';
+import 'workspace_selection.dart';
 
 enum AuthPhase {
   restoring,
   signedOut,
+
+  /// Signed in with several workspaces and no remembered choice.
+  workspacePicker,
+
+  /// Signed in, but a member of no workspace.
+  noWorkspace,
   onboarding,
   modelSetup,
   ready,
@@ -37,16 +44,27 @@ class AuthController extends ChangeNotifier {
   String? get workspaceName => onboarding?.workspace?.name;
   String? get organizationName => onboarding?.tenant?.name;
 
+  /// The memberships offered while [phase] is [AuthPhase.workspacePicker].
+  List<CallerMembership> workspaceChoices = const [];
+
+  /// Whether skipping the model step is possible, once checked
+  /// ([checkModelAvailability]); null while unknown.
+  ModelAvailability? modelAvailability;
+  bool checkingModel = false;
+
+  /// Why the model check failed, or null.
+  String? modelCheckError;
+
+  /// The caller may save the workspace's model (`organization:manage`, owners).
+  bool get canConfigureModel => onboarding?.membership?.role == 'owner';
+
   Future<void> restore() async {
     try {
       final session = await repository.restoreSession();
       if (session == null) {
         phase = AuthPhase.signedOut;
       } else {
-        final status = onboarding = await repository.onboardingStatus();
-        phase = status.complete
-            ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
-            : AuthPhase.onboarding;
+        await _routeSignedIn();
       }
     } on Object catch (error) {
       phase = AuthPhase.error;
@@ -72,10 +90,7 @@ class AuthController extends ChangeNotifier {
         userId: user.trim(),
         password: password?.trim(),
       );
-      final status = onboarding = await repository.onboardingStatus();
-      phase = status.complete
-          ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
-          : AuthPhase.onboarding;
+      await _routeSignedIn();
     });
   }
 
@@ -91,20 +106,14 @@ class AuthController extends ChangeNotifier {
         phase = AuthPhase.signedOut;
         return;
       }
-      final status = onboarding = await repository.onboardingStatus();
-      phase = status.complete
-          ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
-          : AuthPhase.onboarding;
+      await _routeSignedIn();
     });
   }
 
   Future<void> completeExternalSignIn(Future<Object?> Function() action) async {
     await _run(AuthPhase.signedOut, () async {
       await action();
-      final status = onboarding = await repository.onboardingStatus();
-      phase = status.complete
-          ? (status.modelConfigured ? AuthPhase.ready : AuthPhase.modelSetup)
-          : AuthPhase.onboarding;
+      await _routeSignedIn();
     });
   }
 
@@ -118,12 +127,78 @@ class AuthController extends ChangeNotifier {
       return;
     }
     await _run(AuthPhase.onboarding, () async {
-      await repository.completeOnboarding(
+      final status = onboarding = await repository.completeOnboarding(
         organizationName: organization.trim(),
         workspaceName: workspace.trim(),
       );
-      phase = AuthPhase.modelSetup;
+      _routeOnboarded(status);
     });
+  }
+
+  /// Selects one of [workspaceChoices]; the API confirms the membership first
+  /// and the choice is remembered for the next sign-in on this device.
+  Future<void> chooseWorkspace(String workspaceId) async {
+    await _run(AuthPhase.workspacePicker, () async {
+      await repository.switchWorkspace(workspaceId);
+      await _routeSignedIn();
+    });
+  }
+
+  /// Looks again for a workspace (after an owner added the person).
+  Future<void> checkWorkspacesAgain() async {
+    await _run(AuthPhase.noWorkspace, _routeSignedIn);
+  }
+
+  /// Checks whether skipping the model step would leave a model answering.
+  Future<void> checkModelAvailability() async {
+    checkingModel = true;
+    modelCheckError = null;
+    notifyListeners();
+    try {
+      final availability =
+          modelAvailability = await repository.modelAvailability();
+      if (availability.workspaceConfigured) {
+        // Someone (an owner, from another device) saved one meanwhile.
+        onboarding = await repository.onboardingStatus();
+      }
+    } on Object catch (error) {
+      modelAvailability = null;
+      modelCheckError = _describe(error);
+    } finally {
+      checkingModel = false;
+    }
+    notifyListeners();
+  }
+
+  Future<void> _routeSignedIn() async {
+    switch (await repository.resolveWorkspace()) {
+      case WorkspaceChoiceNeeded(:final memberships):
+        workspaceChoices = memberships;
+        phase = AuthPhase.workspacePicker;
+        return;
+      case NoWorkspaceMembership():
+        workspaceChoices = const [];
+        phase = AuthPhase.noWorkspace;
+        return;
+      case WorkspaceResolved():
+        workspaceChoices = const [];
+    }
+    _routeOnboarded(onboarding = await repository.onboardingStatus());
+  }
+
+  void _routeOnboarded(OnboardingStatus status) {
+    if (!status.complete) {
+      phase = AuthPhase.onboarding;
+    } else if (status.modelConfigured) {
+      phase = AuthPhase.ready;
+    } else {
+      phase = AuthPhase.modelSetup;
+      modelAvailability = null;
+      modelCheckError = null;
+      checkingModel = true;
+      // Runs after this phase change is announced; it notifies again when done.
+      Future<void>.microtask(checkModelAvailability);
+    }
   }
 
   Future<void> connectModel({
@@ -144,10 +219,11 @@ class AuthController extends ChangeNotifier {
     });
   }
 
-  /// Continues without a workspace model: the API then answers with the
-  /// server's configured model (docs/mobile.md#first-run). Members who may not
-  /// change the model configuration take this path too.
+  /// Continues without saving a workspace model. Offered only when
+  /// [modelAvailability] says a model answers: the workspace's saved one or
+  /// the server's configured one (docs/mobile.md#first-run).
   void useServerModel() {
+    if (modelAvailability?.canSkip != true) return;
     message = null;
     issue = AuthIssue.none;
     phase = AuthPhase.ready;
@@ -157,6 +233,9 @@ class AuthController extends ChangeNotifier {
   Future<void> signOut() async {
     await repository.signOut();
     onboarding = null;
+    workspaceChoices = const [];
+    modelAvailability = null;
+    modelCheckError = null;
     phase = AuthPhase.signedOut;
     notifyListeners();
   }
@@ -184,11 +263,14 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  static String _describe(Object error) => error
+      .toString()
+      .replaceFirst(RegExp(r'^ApiException\(\d+,\s*'), '')
+      .replaceFirst(RegExp(r'\)$'), '');
+
   void _setError(Object error) {
     final text = error.toString();
-    message = text
-        .replaceFirst(RegExp(r'^ApiException\(\d+,\s*'), '')
-        .replaceFirst(RegExp(r'\)$'), '');
+    message = _describe(error);
     issue = text.contains('(401,')
         ? AuthIssue.invalidSession
         : text.contains('(403,')

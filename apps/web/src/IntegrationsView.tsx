@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { CircleDot, Database, FileText, GitBranch, KeyRound, MemoryStick, Plug, RefreshCw, Settings, Workflow } from 'lucide-react';
+import { CircleDot, Database, FileText, GitBranch, KeyRound, MemoryStick, Plug, RefreshCw, Search, Settings, Workflow } from 'lucide-react';
 import { getCurrentMembership, getIntegrations, type IntegrationHealth } from './lib/api';
 import { describeError, isPermissionDenied } from './lib/errors';
-import { integrationBadge, integrationConfigBody } from './lib/governance';
+import { integrationBadge, integrationConfigBody, integrationToolNote } from './lib/governance';
 import { getIntegrationConfiguration, saveIntegrationConfiguration } from './lib/governanceApi';
 import './governance.css';
 
-const icons: Record<string, ReactNode> = { postgresql: <Database />, keycloak: <KeyRound />, nats: <GitBranch />, temporal: <Workflow />, valkey: <MemoryStick />, minio: <FileText />, s3: <FileText /> };
+const icons: Record<string, ReactNode> = { postgresql: <Database />, keycloak: <KeyRound />, nats: <GitBranch />, temporal: <Workflow />, valkey: <MemoryStick />, minio: <FileText />, s3: <FileText />, searxng: <Search /> };
 const failure = (error: unknown) => isPermissionDenied(error) ? `Not allowed: ${describeError(error)}` : describeError(error);
 
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
@@ -27,9 +27,10 @@ export function IntegrationsView() {
     {state && <Notice error={state.error}>{state.text}</Notice>}
     <div className="integrationGrid">{items.map((x) => {
       const badge = integrationBadge(x.status);
+      const tool = integrationToolNote(x.kind, x.status);
       return <article className="surface integration integrationCard" key={x.id}>
         <div className="integrationIcon">{icons[x.id] ?? <Plug />}</div>
-        <div><h3>{x.name}</h3><p>{x.endpoint}</p><small>{x.detail}{x.latency_ms !== null ? ` · ${x.latency_ms} ms` : ''}</small></div>
+        <div><h3>{x.name}</h3><p>{x.endpoint}</p><small>{x.detail}{x.latency_ms !== null ? ` · ${x.latency_ms} ms` : ''}</small>{tool && <small className={`integrationTool ${tool.available ? 'available' : ''}`}>{tool.text}</small>}</div>
         <div className="integrationActions"><span className={`statusBadge ${badge.tone}`}>{badge.label}</span>{owner && <button type="button" className="secondary" aria-expanded={open === x.id} aria-label={`Configure ${x.name}`} onClick={() => setOpen(open === x.id ? null : x.id)}><Settings size={15} /></button>}</div>
         {owner && open === x.id && <ConfigurePanel integration={x} onSaved={() => void load()} />}
       </article>;

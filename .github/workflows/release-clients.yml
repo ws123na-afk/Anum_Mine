@@ -8,9 +8,11 @@ name: Release clients
 # (tags) or the `desktop` input is ticked (manual runs); otherwise those jobs are skipped.
 #
 # Signing material comes only from repository secrets and is decoded into $RUNNER_TEMP. Every
-# signing or upload step is gated on its secrets: without them a job builds what it can (or skips
-# with a notice) and never fails for missing credentials. Nothing secret is written to the
-# repository, the build outputs or the logs.
+# signing or upload step is gated on its secrets (.github/scripts/mobile-release-config.sh): a
+# build-only manual run without them builds what it can (or skips) with a notice, while a run that
+# must upload (a release tag or the upload input) fails naming every missing secret and variable,
+# and so does a partly set signing set. Nothing secret is written to the repository, the build
+# outputs or the logs.
 
 on:
   push:
@@ -101,42 +103,20 @@ jobs:
       PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
       PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
     steps:
+      - uses: actions/checkout@v7
       - name: Check signing secrets and production configuration
         id: config
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANUM_ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANUM_ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANUM_ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
+          ANUM_ANDROID_KEYSTORE_BASE64: ${{ secrets.ANUM_ANDROID_KEYSTORE_BASE64 }}
+          ANUM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANUM_ANDROID_KEYSTORE_PASSWORD }}
+          ANUM_ANDROID_KEY_ALIAS: ${{ secrets.ANUM_ANDROID_KEY_ALIAS }}
+          ANUM_ANDROID_KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          ANUM_PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
+          ANUM_PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+          ANUM_PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
           UPLOAD: ${{ needs.version.outputs.upload }}
-        run: |
-          missing=()
-          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
-            [ -n "${!name}" ] || missing+=("ANUM_ANDROID_${name} (secret)")
-          done
-          # A production URL that is set but not HTTPS is a mistake, not a missing credential: fail.
-          for name in PRODUCTION_API_URL PRODUCTION_OIDC_ISSUER PRODUCTION_WEB_APP_URL; do
-            if [ -n "${!name}" ] && [[ "${!name}" != https://* ]]; then
-              echo "::error::The ANUM_${name} variable must start with https:// (got ${!name})."
-              exit 1
-            fi
-          done
-          [ -n "$PRODUCTION_API_URL" ] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
-          [ -n "$PRODUCTION_OIDC_ISSUER" ] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::notice title=Android release skipped::Not configured: ${missing[*]}. See docs/mobile.md, Release pipeline."
-            echo "build=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          fi
-          if [ "$UPLOAD" = "true" ] && [ -n "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
-            echo "play=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "play=false" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/checkout@v7
-        if: steps.config.outputs.build == 'true'
+        run: bash .github/scripts/mobile-release-config.sh android
       - uses: actions/setup-java@v6
         if: steps.config.outputs.build == 'true'
         with:
@@ -206,7 +186,7 @@ jobs:
           status: ${{ vars.ANUM_PLAY_RELEASE_STATUS || 'completed' }}
       - name: Play upload skipped
         if: steps.config.outputs.build == 'true' && steps.config.outputs.play != 'true'
-        run: echo "::notice title=Play upload skipped::Needs a tag or the upload input, and the PLAY_SERVICE_ACCOUNT_JSON secret."
+        run: echo "::notice title=Play upload skipped::Build-only run. A release tag or the upload input uploads (and then needs the PLAY_SERVICE_ACCOUNT_JSON secret)."
 
   ios:
     name: iOS app
@@ -226,34 +206,18 @@ jobs:
       - uses: actions/checkout@v7
       - name: Check signing secrets and production configuration
         id: config
+        # The job's default working directory is apps/mobile.
+        working-directory: .
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
-          API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          ANUM_PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
+          ANUM_PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
+          ANUM_PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
           UPLOAD: ${{ needs.version.outputs.upload }}
-        run: |
-          missing=()
-          [ -n "$APPLE_TEAM_ID" ] || missing+=("APPLE_TEAM_ID (secret)")
-          [ -n "$API_KEY_ID" ] || missing+=("APP_STORE_CONNECT_API_KEY_ID (secret)")
-          [ -n "$API_ISSUER_ID" ] || missing+=("APP_STORE_CONNECT_API_ISSUER_ID (secret)")
-          [ -n "$API_KEY_P8" ] || missing+=("APP_STORE_CONNECT_API_KEY_P8 (secret)")
-          # A production URL that is set but not HTTPS is a mistake, not a missing credential: fail.
-          for name in PRODUCTION_API_URL PRODUCTION_OIDC_ISSUER PRODUCTION_WEB_APP_URL; do
-            if [ -n "${!name}" ] && [[ "${!name}" != https://* ]]; then
-              echo "::error::The ANUM_${name} variable must start with https:// (got ${!name})."
-              exit 1
-            fi
-          done
-          [ -n "$PRODUCTION_API_URL" ] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
-          [ -n "$PRODUCTION_OIDC_ISSUER" ] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::notice title=iOS signing skipped::Building without code signing as a compile check. Not configured: ${missing[*]}. See docs/mobile.md, Release pipeline."
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-          fi
-          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+        run: bash .github/scripts/mobile-release-config.sh ios
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable

@@ -39,7 +39,7 @@ The resource carries `service.name`, `service.namespace=anum`, `service.version`
 | Span | Source | Notable attributes |
 |---|---|---|
 | `GET /api/v1/tasks/{task_id}` (server) | FastAPI instrumentation; `/health` excluded | `http.route` template, status, `anum.tenant_id`, `anum.workspace_id` (set by the `tenant_context` dependency) |
-| `generate_text <model>`, `generate_structured <model>`, `stream_text <model>` (client) | `model_gateway.py` | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`/`output_tokens`, `anum.model.estimated_cost_usd`, `anum.model.attempts`, `error.type` |
+| `generate_text <model>`, `generate_structured <model>`, `stream_text <model>` (client) | `model_gateway.py` | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`/`output_tokens`, `gen_ai.usage.cache_creation.input_tokens`/`cache_read.input_tokens` (when non-zero), `anum.model.estimated_cost_usd`, `anum.model.attempts`, `error.type` |
 | `POST` outbound HTTP (client) | httpx instrumentation (model calls, JWKS, webhooks) | URL without query string |
 | SQL statements | SQLAlchemy instrumentation (API session engine, outbox relay engine) | statement text with bind placeholders, never values |
 | `publish ANUM_EVENTS` (producer) | `NatsJetStreamBus.publish` | `messaging.system=nats`, stream, `messaging.message.id`; `traceparent` is injected into the NATS headers. The subject (it embeds tenant tokens) is not recorded. |
@@ -57,6 +57,7 @@ OpenTelemetry names and their Prometheus names after the collector's Prometheus 
 | `anum.rate_limit.rejections` | `anum_rate_limit_rejections_total` | `anum.rate_limit.backend` (`memory`, `valkey`) |
 | `anum.model.call.duration` (histogram, s) | `anum_model_call_duration_seconds_*` | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.operation.name`, `anum.model.status` (`ok`/`error`), `error.type` |
 | `anum.model.tokens` | `anum_model_tokens_total` | provider, model, `gen_ai.token.type` (`input`/`output`) |
+| `anum.model.cache.tokens` | `anum_model_cache_tokens_total` | provider, model, `anum.model.cache.operation` (`write`/`read`). Prompt-cache input tokens ([Anthropic](model-gateway.md#anthropic-messages-api)); already counted in `input` above. |
 | `anum.model.estimated_cost_usd` | `anum_model_estimated_cost_usd_total` | provider, model. Estimate from the price table ([Model gateway](model-gateway.md)); mock and Ollama cost 0. |
 | `anum.model.budget.thresholds` | `anum_model_budget_thresholds_total` | `anum.budget.scope` (`tenant`, `workspace`), `anum.budget.kind` (`cost`, `tokens`), `anum.budget.percent` (`80`, `100`). A model call crossed that share of a monthly budget ([Model gateway](model-gateway.md#monthly-budgets)); the matching `model_budget_threshold` log line names the tenant and workspace. |
 | `anum.model.budget.rejections` | `anum_model_budget_rejections_total` | `anum.budget.scope`, `anum.budget.kind`. Model calls refused because a budget was used up. |
@@ -81,6 +82,34 @@ With export on, `OtlpLogHandler` on the root logger ships records with a fixed a
 `RedactingSpanExporter` wraps the span exporter and rewrites every finished span, whatever library produced it: `http.url`, `url.full` and `http.target` lose query string, fragment and userinfo (memory search text arrives as `?query=`; webhook URLs can carry keys); `url.query`, client and peer addresses and any credential-like header attribute become `[redacted]`; exception events keep `exception.type` and stack frames but not the message; error statuses keep the code and drop the description (it is `str(exception)`). Redaction runs at export because instrumentations set most attributes after the span starts. The collector repeats the URL, address and header rules (`transform/redact`, `attributes/redact` in `infra/docker/otel-collector.yaml`) for any other emitter.
 
 ANUM's own spans and metrics are built from metadata only. Tests in `services/api/tests/test_telemetry.py` drive real requests, model calls (with a prompt and reply marked `PRIVATE`), NATS publishes, outbox passes, lock contention and activities through in-memory exporters and assert both what is recorded and that no prompt, reply, query string, key, user id or client address is exported; one test runs the API in a subprocess against a local OTLP/HTTP endpoint and checks the protobuf payloads on the wire.
+
+### Error reporting
+
+`services/api/anum_api/error_reporting.py` optionally sends unhandled errors, and log records at `ERROR` and above, from the API and the Temporal worker to a Sentry-compatible server: GlitchTip on the [Oracle VM](monitoring-oracle.md#glitchtip), or any hosted Sentry-compatible endpoint. It uses `sentry-sdk` 2.71.0 (pinned in `pyproject.toml`). Tracing stays with OpenTelemetry: the SDK runs without performance tracing, sessions or log shipping.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `ANUM_SENTRY_DSN` | empty (off) | `https://<key>@<host>/<project id>`. Outside `local`, plain `http` is allowed only to a private service name without dots, for example `http://<key>@glitchtip:8000/1` on the compose network. The startup policy, and the Helm chart through `infra/helm/ci/lint.sh`, refuse anything else. A malformed DSN is refused at startup in every environment, and the error never echoes the key. |
+
+An event keeps:
+
+- the exception type and stack frames (file, function, line);
+- the route, the request method and the URL path;
+- log message templates;
+- `environment` and `server_name` (`anum-api`/`anum-worker`);
+- two tags: `anum.tenant_id` (set per API request by the tenant dependency) and `anum.correlation_id` (matches the log lines).
+
+Removed before sending, whatever the integration that produced the event:
+
+- exception messages, which can echo request text;
+- local variables and source lines;
+- request bodies, query strings, cookies, and every header except `Content-Type` and `Content-Length`;
+- client addresses and user identity (`send_default_pii=False`, and `user` is dropped);
+- log arguments, formatted log messages and `extra=` fields;
+- contexts other than runtime, OS and trace;
+- breadcrumb data other than method, status code and query-less URL.
+
+The worker sends no tenant tag, because its activities share one SDK scope. `tests/test_error_reporting.py` runs the real SDK against a FastAPI route and checks that none of these values leave the process.
 
 ### Local stack
 
@@ -127,7 +156,7 @@ No Alertmanager is configured: alerts show in Prometheus and Grafana only until 
 
 ## Now
 
-In place: request, model, outbox, coordination and Temporal metrics; traces across API, model gateway, outbound HTTP, SQL, NATS publish and Temporal; correlated and redacted logs; the local backend stack with dashboards and tested alert rules; [Runbooks](runbooks.md) for each alert.
+In place: request, model, outbox, coordination and Temporal metrics; traces across API, model gateway, outbound HTTP, SQL, NATS publish and Temporal; correlated and redacted logs; optional scrubbed error reporting to GlitchTip or another Sentry-compatible server ([Error reporting](#error-reporting)); the local backend stack with dashboards and tested alert rules; [Runbooks](runbooks.md) for each alert.
 
 ## Later
 

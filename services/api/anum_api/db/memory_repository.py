@@ -1,6 +1,14 @@
+"""PostgreSQL memory store.
+
+The session carries the tenant and workspace RLS context; for private memories (those
+with an ``owner_user_id``, remembered from a user's conversations) it must also carry
+``anum.user_id`` (migration 0021's restrictive policy). Every statement also names the
+scope and the owner rule explicitly, so a missing context finds nothing.
+"""
+
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from anum_api.memory import (
@@ -15,21 +23,37 @@ from anum_api.schemas import TenantContext
 
 from .models import MemoryRecord, TaskRecord
 
+TASK_NOTE_KIND = "task_note"
+# Facts remembered from a user's conversation (owner_user_id set, no task).
+CONVERSATION_FACT_KIND = "conversation_fact"
+LISTED_KINDS = (TASK_NOTE_KIND, CONVERSATION_FACT_KIND)
+
+
+def _visible(context: TenantContext):  # type: ignore[no-untyped-def]
+    return (
+        MemoryRecord.tenant_id == context.tenant_id,
+        MemoryRecord.workspace_id == context.workspace_id,
+        or_(MemoryRecord.owner_user_id.is_(None), MemoryRecord.owner_user_id == context.user_id),
+    )
+
 
 class SqlAlchemyMemoryRepository(MemoryRepository):
     def __init__(self, session: Session) -> None:
         self.session = session
 
     def create(self, note: MemoryNote) -> MemoryNote:
-        task = self.session.scalar(
-            select(TaskRecord).where(
-                TaskRecord.id == note.task_id,
-                TaskRecord.tenant_id == note.tenant_id,
-                TaskRecord.workspace_id == note.workspace_id,
+        if note.task_id is not None:
+            task = self.session.scalar(
+                select(TaskRecord).where(
+                    TaskRecord.id == note.task_id,
+                    TaskRecord.tenant_id == note.tenant_id,
+                    TaskRecord.workspace_id == note.workspace_id,
+                )
             )
-        )
-        if task is None:
-            raise ValueError("Cannot create memory for an unavailable task")
+            if task is None:
+                raise ValueError("Cannot create memory for an unavailable task")
+        elif note.owner_user_id is None:
+            raise ValueError("A memory without a task must be private to its owner")
         if self.session.get(MemoryRecord, note.id) is not None:
             raise ValueError(f"Memory already exists: {note.id}")
 
@@ -38,7 +62,8 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
             tenant_id=note.tenant_id,
             workspace_id=note.workspace_id,
             source_task_id=note.task_id,
-            kind="task_note",
+            kind=TASK_NOTE_KIND if note.task_id is not None else CONVERSATION_FACT_KIND,
+            owner_user_id=note.owner_user_id,
             content=note.content,
             provenance=note.provenance.model_dump(mode="json"),
             retention_policy=note.retention.kind.value,
@@ -52,11 +77,7 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
 
     def get(self, note_id: str, context: TenantContext) -> MemoryNote | None:
         record = self.session.scalar(
-            select(MemoryRecord).where(
-                MemoryRecord.id == note_id,
-                MemoryRecord.tenant_id == context.tenant_id,
-                MemoryRecord.workspace_id == context.workspace_id,
-            )
+            select(MemoryRecord).where(MemoryRecord.id == note_id, *_visible(context))
         )
         return self._from_record(record) if record is not None else None
 
@@ -67,9 +88,8 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
         now: datetime,
     ) -> list[MemoryNote]:
         statement = select(MemoryRecord).where(
-            MemoryRecord.tenant_id == context.tenant_id,
-            MemoryRecord.workspace_id == context.workspace_id,
-            MemoryRecord.kind == "task_note",
+            *_visible(context),
+            MemoryRecord.kind.in_(LISTED_KINDS),
         )
         if filters.task_id is not None:
             statement = statement.where(MemoryRecord.source_task_id == filters.task_id)
@@ -103,19 +123,32 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
 
     def delete(self, note_id: str, context: TenantContext) -> bool:
         record = self.session.scalar(
-            select(MemoryRecord)
-            .where(
-                MemoryRecord.id == note_id,
-                MemoryRecord.tenant_id == context.tenant_id,
-                MemoryRecord.workspace_id == context.workspace_id,
-            )
-            .with_for_update()
+            select(MemoryRecord).where(MemoryRecord.id == note_id, *_visible(context)).with_for_update()
         )
         if record is None:
             return False
         self.session.delete(record)
         self.session.flush()
         return True
+
+    def update_content(
+        self,
+        note_id: str,
+        context: TenantContext,
+        content: str,
+        provenance: MemoryProvenance,
+        now: datetime,
+    ) -> MemoryNote | None:
+        record = self.session.scalar(
+            select(MemoryRecord).where(MemoryRecord.id == note_id, *_visible(context)).with_for_update()
+        )
+        if record is None:
+            return None
+        record.content = content
+        record.provenance = provenance.model_dump(mode="json")
+        record.updated_at = now
+        self.session.flush()
+        return self._from_record(record)
 
     @staticmethod
     def _from_record(record: MemoryRecord) -> MemoryNote:
@@ -132,4 +165,6 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
                 expires_at=record.retention_expires_at,
             ),
             created_at=record.created_at,
+            owner_user_id=record.owner_user_id,
+            updated_at=record.updated_at if record.updated_at != record.created_at else None,
         )

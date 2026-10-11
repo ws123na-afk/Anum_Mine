@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
+import '../chat/chat_controller.dart';
+import '../chat/chat_screen.dart';
 import '../voice/voice_controller.dart';
 import '../voice/voice_screen.dart';
 import '../settings/settings_controller.dart';
@@ -8,8 +10,10 @@ import '../settings/settings_screen.dart';
 import '../governance/governance_controller.dart';
 import '../governance/governance_screen.dart';
 import '../../src/localization/anum_localizations.dart';
+import '../../src/theme/anum_theme.dart';
 import 'approvals_screen.dart';
 import 'automations_screen.dart';
+import 'destinations.dart';
 import 'home_screen.dart';
 import 'resources_screen.dart';
 import 'tasks_screen.dart';
@@ -18,6 +22,7 @@ class WorkspaceHome extends StatefulWidget {
   const WorkspaceHome(
       {super.key,
       required this.controller,
+      required this.chatController,
       required this.voiceController,
       required this.settingsController,
       required this.governanceController,
@@ -25,6 +30,7 @@ class WorkspaceHome extends StatefulWidget {
       this.workspaceName,
       this.initialIndex = 0});
   final WorkspaceController controller;
+  final ChatController chatController;
   final VoiceController voiceController;
   final SettingsController settingsController;
   final GovernanceController governanceController;
@@ -51,16 +57,42 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope<Object?>(
-      // Leaving the workspace never keeps the microphone open.
-      onPopInvokedWithResult: (didPop, result) =>
-          widget.voiceController.setVisible(false),
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+      valueListenable: widget.chatController.listOpen,
+      builder: (context, listOpen, shell) {
+        // On a phone the Assistant's conversation list sits in place of the
+        // chat: Back closes it instead of leaving the workspace.
+        final backClosesList =
+            listOpen && index == WorkspaceDestination.assistant;
+        return PopScope<Object?>(
+            canPop: !backClosesList,
+            onPopInvokedWithResult: (didPop, result) {
+              if (!didPop && backClosesList) {
+                widget.chatController.closeList();
+                return;
+              }
+              // Leaving the workspace never keeps the microphone open.
+              widget.voiceController.setVisible(false);
+            },
+            child: shell!);
+      },
       child: _buildShell(context));
+
+  void _openSettings(BuildContext context) => Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+          builder: (_) =>
+              SettingsScreen(controller: widget.settingsController)));
 
   Widget _buildShell(BuildContext context) => ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
           final pages = [
+            AssistantScreen(
+              controller: widget.chatController,
+              active: index == WorkspaceDestination.assistant,
+              onOpenSettings: () => _openSettings(context),
+            ),
             HomeScreen(
               controller: widget.controller,
               workspaceName: widget.workspaceName,
@@ -71,13 +103,18 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
             TasksScreen(controller: widget.controller),
             VoiceScreen(
                 controller: widget.voiceController,
-                onOpenApprovals: () => _select(3)),
+                onOpenApprovals: () => _select(WorkspaceDestination.approvals)),
             ApprovalsScreen(controller: widget.controller),
             AutomationsScreen(controller: widget.controller),
             ResourcesScreen(controller: widget.controller)
           ];
           final l = context.anum;
+          final assistant = NavigationDestination(
+              icon: const Icon(Icons.chat_bubble_outline),
+              selectedIcon: const Icon(Icons.chat_bubble),
+              label: l.t('assistant'));
           final destinations = [
+            assistant,
             NavigationDestination(
                 icon: const Icon(Icons.home_outlined),
                 selectedIcon: const Icon(Icons.home),
@@ -108,6 +145,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 label: l.t('resources')),
           ];
           final compactDestinations = [
+            assistant,
             NavigationDestination(
                 icon: const Icon(Icons.home_outlined),
                 selectedIcon: const Icon(Icons.home),
@@ -207,26 +245,42 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                   : content,
               bottomNavigationBar: expanded
                   ? null
-                  : NavigationBar(
-                      selectedIndex: index == 0
-                          ? 0
-                          : index == 1
-                              ? 1
-                              : index == 5
-                                  ? 2
-                                  : 3,
-                      onDestinationSelected: (value) {
-                        if (value == 0) {
-                          _select(0);
-                        } else if (value == 1) {
-                          _select(1);
-                        } else if (value == 2) {
-                          _select(5);
-                        } else {
-                          _showMore(context);
-                        }
-                      },
-                      destinations: compactDestinations),
+                  : MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1.3,
+                      child: Builder(
+                        builder: (context) => NavigationBar(
+                            // Labels that cannot fit their slot (a narrow phone at
+                            // large text) are hidden rather than wrapped and
+                            // clipped; each destination keeps its tooltip and
+                            // spoken label.
+                            labelBehavior: navigationLabelsFit(context,
+                                    compactDestinations, constraints.maxWidth)
+                                ? NavigationDestinationLabelBehavior.alwaysShow
+                                : NavigationDestinationLabelBehavior.alwaysHide,
+                            selectedIndex: switch (index) {
+                              WorkspaceDestination.assistant => 0,
+                              WorkspaceDestination.home => 1,
+                              WorkspaceDestination.tasks => 2,
+                              WorkspaceDestination.resources => 3,
+                              _ => 4,
+                            },
+                            onDestinationSelected: (value) {
+                              switch (value) {
+                                case 0:
+                                  _select(WorkspaceDestination.assistant);
+                                case 1:
+                                  _select(WorkspaceDestination.home);
+                                case 2:
+                                  _select(WorkspaceDestination.tasks);
+                                case 3:
+                                  _select(WorkspaceDestination.resources);
+                                default:
+                                  _showMore(context);
+                              }
+                            },
+                            destinations: compactDestinations),
+                      ),
+                    ),
             );
           });
         },
@@ -243,15 +297,18 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               ListTile(
                   leading: const Icon(Icons.mic),
                   title: const Text('Voice'),
-                  onTap: () => Navigator.pop(context, 2)),
+                  onTap: () =>
+                      Navigator.pop(context, WorkspaceDestination.voice)),
               ListTile(
                   leading: const Icon(Icons.approval_outlined),
                   title: const Text('Approvals'),
-                  onTap: () => Navigator.pop(context, 3)),
+                  onTap: () =>
+                      Navigator.pop(context, WorkspaceDestination.approvals)),
               ListTile(
                   leading: const Icon(Icons.account_tree_outlined),
                   title: const Text('Automations'),
-                  onTap: () => Navigator.pop(context, 4)),
+                  onTap: () =>
+                      Navigator.pop(context, WorkspaceDestination.automations)),
               ListTile(
                   leading: const Icon(Icons.policy_outlined),
                   title: const Text('Policy packs'),
@@ -309,6 +366,29 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     _index.dispose();
     super.dispose();
   }
+}
+
+/// Whether every label fits one line in its share of a bottom navigation
+/// bar [width] wide, at the current text scale.
+bool navigationLabelsFit(BuildContext context,
+    List<NavigationDestination> destinations, double width) {
+  final theme = Theme.of(context);
+  final style = (theme.textTheme.labelMedium ?? const TextStyle()).merge(theme
+      .navigationBarTheme.labelTextStyle
+      ?.resolve(const {WidgetState.selected}));
+  final slot = width / destinations.length - AnumSpacing.xs;
+  for (final destination in destinations) {
+    final painter = TextPainter(
+      text: TextSpan(text: destination.label, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final fits = painter.width <= slot;
+    painter.dispose();
+    if (!fits) return false;
+  }
+  return true;
 }
 
 class _StateBanner extends StatelessWidget {

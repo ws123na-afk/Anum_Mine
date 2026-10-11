@@ -1,10 +1,15 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
+import '../../data/sse.dart';
 import 'voice_models.dart';
 
 class VoiceRepository {
-  const VoiceRepository(this.api);
+  const VoiceRepository(this.api, {this.events});
   final AnumApiClient api;
+
+  /// Streams replies when set (`/ask/stream`), so speech starts with the
+  /// first sentence; without it [ask] answers in one piece.
+  final EventStreamClient? events;
 
   Future<VoiceSession> createSession({
     required String locale,
@@ -44,6 +49,14 @@ class VoiceRepository {
         '/api/v1/voice/sessions/$sessionId/ask',
         body: {'transcript_segment_id': segmentId},
       ));
+
+  /// The same answer as [ask], streamed: `meta` (intent, risk tier,
+  /// proposal, workspace), `delta` (reply text), then `done` (the stored
+  /// assistant segment), or `error` when the model failed before saying
+  /// anything. Null when this repository has no stream client.
+  Stream<SseEvent>? askStream(String sessionId, String segmentId) =>
+      events?.post('/api/v1/voice/sessions/$sessionId/ask/stream',
+          {'transcript_segment_id': segmentId});
 
   /// Creates a task from a final user segment. Call only after the user
   /// confirmed on screen; voice alone never reaches this endpoint.

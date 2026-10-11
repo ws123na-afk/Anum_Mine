@@ -51,6 +51,18 @@ jobs:
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm --filter @anum/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+      # Evidence for a red run: the HTML report and the traces and screenshots Playwright keeps
+      # for failed tests (apps/web/playwright.config.ts). Only uploads; never changes the result.
+      - name: Upload Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   api-persistence:
     name: API PostgreSQL persistence tests
@@ -168,6 +180,8 @@ jobs:
       # The one-VM deployment (docs/deploy-oracle.md), with the placeholder .env.example.
       - run: docker compose -f infra/oracle/compose.yaml --env-file infra/oracle/.env.example config -q
       - run: docker compose -f infra/oracle/compose.yaml --env-file infra/oracle/.env.example --profile ai --profile jobs config -q
+      # Optional monitoring (docs/monitoring-oracle.md).
+      - run: docker compose -f infra/oracle/compose.yaml --env-file infra/oracle/.env.example --profile monitoring --profile monitoring-agent config -q
       - name: ShellCheck the one-VM scripts
         run: |
           shellcheck --version
@@ -529,7 +543,17 @@ jobs:
           test -s pubspec.lock
           osv-scanner scan source --config ../../osv-scanner.toml --lockfile pubspec.lock
       - name: Run Flutter tests
-        run: flutter test
+        # The JSON file reporter adds a machine-readable copy of the results; the console output
+        # and the exit code are unchanged.
+        run: flutter test --file-reporter=json:build/test-results/flutter-test.json
+      - name: Upload Flutter test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flutter-test-results
+          path: apps/mobile/build/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Build USB-device debug APK
         run: |
           set +e

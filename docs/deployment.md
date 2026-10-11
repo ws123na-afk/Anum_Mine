@@ -58,7 +58,7 @@ The chart never renders a Secret. Create these in the release namespace before i
 | Secret (`values` key) | Keys | Required |
 |---|---|---|
 | `secrets.app.name` (default `anum-app`) | `ANUM_SECRETS_KEY` (comma-separated Fernet keys, the first encrypts), `ANUM_DATABASE_URL` (`anum_app`) | yes |
-| | `ANUM_OUTBOX_DATABASE_URL` (`anum_relay`), `ANUM_VALKEY_URL`, `ANUM_MODEL_API_KEY`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY`, `ANUM_EXTERNAL_WEBHOOK_URL`, `ANUM_EXTERNAL_WEBHOOK_API_KEY` | when used |
+| | `ANUM_OUTBOX_DATABASE_URL` (`anum_relay`), `ANUM_VALKEY_URL`, `ANUM_MODEL_API_KEY`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY`, `ANUM_EXTERNAL_WEBHOOK_URL`, `ANUM_EXTERNAL_WEBHOOK_API_KEY`, `ANUM_SEARXNG_URL` ([web search](tools-and-integrations.md#web-search)) | when used |
 | `secrets.migration.name` (default `anum-migrate`) | `ANUM_DATABASE_URL` (`anum_migrator`) | when `migration.enabled` |
 | `secrets.backup.name` (default `anum-backup`) | `ANUM_BACKUP_DATABASE_URL` (`anum_backup`) | when `backup.enabled` |
 | `ingress.tls.secretName` | TLS certificate | unless cert-manager issues it |

@@ -3,10 +3,28 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class ModelPrice(BaseModel):
-    """USD price per million tokens for one model, used for estimated cost accounting."""
+    """USD price per million tokens for one model, used for estimated cost accounting.
+
+    Prompt-cache prices (Anthropic) default to 1.25x the input price for cache writes
+    (5-minute entries) and 0.1x for cache reads; set them where a model differs.
+    """
 
     input_per_million: float = Field(ge=0)
     output_per_million: float = Field(ge=0)
+    cache_write_per_million: float | None = Field(default=None, ge=0)
+    cache_read_per_million: float | None = Field(default=None, ge=0)
+
+    @property
+    def cache_write_price(self) -> float:
+        if self.cache_write_per_million is not None:
+            return self.cache_write_per_million
+        return self.input_per_million * 1.25
+
+    @property
+    def cache_read_price(self) -> float:
+        if self.cache_read_per_million is not None:
+            return self.cache_read_per_million
+        return self.input_per_million * 0.1
 
 
 # Published list prices (USD per 1M tokens) for the default hosted models. They are
@@ -17,6 +35,12 @@ DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
     "gpt-4.1-nano": ModelPrice(input_per_million=0.10, output_per_million=0.40),
     "gpt-4o": ModelPrice(input_per_million=2.50, output_per_million=10.00),
     "gpt-4o-mini": ModelPrice(input_per_million=0.15, output_per_million=0.60),
+    # Anthropic list prices; Claude Opus 5.5 reads its cache at $0.20 (0.05x input).
+    "claude-haiku-5-5": ModelPrice(input_per_million=0.10, output_per_million=0.50),
+    "claude-sonnet-5-5": ModelPrice(input_per_million=2.00, output_per_million=10.00),
+    "claude-opus-5-5": ModelPrice(
+        input_per_million=4.00, output_per_million=20.00, cache_read_per_million=0.20
+    ),
     "text-embedding-3-small": ModelPrice(input_per_million=0.02, output_per_million=0.0),
     "text-embedding-3-large": ModelPrice(input_per_million=0.13, output_per_million=0.0),
 }
@@ -46,7 +70,9 @@ class Settings(BaseSettings):
     oidc_leeway_seconds: int = 30
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     # Model provider: "mock" (default, placeholder text), "openai-compatible" (needs
-    # ANUM_MODEL_API_KEY) or "ollama" (free, local, no key). For Ollama set
+    # ANUM_MODEL_API_KEY), "anthropic" (the native Messages API with prompt caching;
+    # needs ANUM_MODEL_API_KEY, base URL defaults to https://api.anthropic.com) or
+    # "ollama" (free, local, no key). For Ollama set
     # ANUM_MODEL_PROVIDER=ollama, ANUM_MODEL_NAME=llama3.2 (or qwen2.5) and optionally
     # ANUM_MODEL_BASE_URL (defaults to http://localhost:11434/v1 for ollama).
     # The task runtime and voice assistant build their gateway from these values at
@@ -55,6 +81,17 @@ class Settings(BaseSettings):
     model_api_key: str | None = None
     model_name: str = "gpt-4.1-mini"
     model_base_url: str = "https://api.openai.com/v1"
+    # Model routing (docs/model-gateway.md#model-routing): chat and voice quick replies
+    # use the fast model, task planning and agent runs the capable one. Empty means
+    # ANUM_MODEL_NAME for both, as before; with ANUM_MODEL_PROVIDER=anthropic and no
+    # ANUM_MODEL_NAME the defaults are claude-haiku-5-5 (fast) and claude-sonnet-5-5.
+    model_fast_name: str = ""
+    model_capable_name: str = ""
+    # Anthropic only: output_config.effort per route ("" sends none, the model's
+    # default). "low" keeps quick replies quick on models that think by default; clear
+    # it for a fast model without effort support (claude-haiku-4-5).
+    model_fast_effort: str = Field(default="low", pattern="^(|low|medium|high|xhigh|max)$")
+    model_capable_effort: str = Field(default="", pattern="^(|low|medium|high|xhigh|max)$")
     # Gateway hardening: per-attempt timeout, bounded retries with exponential backoff
     # and full jitter (timeouts, connection errors, 429 and 5xx only), and the cap on
     # how long a provider's Retry-After header may ask us to wait before we give up.
@@ -76,6 +113,28 @@ class Settings(BaseSettings):
     # model with each question, and the character budget those turns may use.
     conversation_history_turns: int = Field(default=12, ge=0, le=50)
     conversation_history_chars: int = Field(default=24000, ge=1000, le=200000)
+    # Conversation retention (docs/conversations.md#retention): the daily retention job
+    # deletes conversations (and their turns) with no activity for this many days, the
+    # same 30 days as voice transcripts by default; 0 keeps them until the user deletes
+    # them. Migration 0019 lets discovery see only conversations idle for a day or more.
+    conversation_retention_days: int = Field(default=30, ge=0, le=3650)
+    # Conversation memory (anum_api/conversation_memory.py, docs/memory.md#from-conversations).
+    # After a reply completes, a small background model call (at most
+    # ``conversation_memory_max_tokens``, metered against the budget) extracts durable
+    # facts the user stated; they become private memories, deduplicated against the
+    # user's earlier ones (cosine >= ``conversation_memory_dedupe_threshold`` updates
+    # instead of adding). Each ask recalls the ``conversation_memory_recall_k`` nearest
+    # memories, at most ``conversation_memory_recall_chars`` of text, into the system
+    # prompt. ``false`` turns both off; a tenant also turns extraction off by leaving
+    # "conversation" out of its memory governance ``allowed_source_types``.
+    conversation_memory_enabled: bool = True
+    conversation_memory_max_tokens: int = Field(default=256, ge=32, le=2048)
+    conversation_memory_max_facts: int = Field(default=5, ge=1, le=20)
+    conversation_memory_dedupe_threshold: float = Field(default=0.85, gt=0, le=1)
+    conversation_memory_timeout_seconds: float = Field(default=60.0, gt=0)
+    conversation_memory_recall_k: int = Field(default=4, ge=0, le=20)
+    conversation_memory_recall_chars: int = Field(default=2000, ge=0, le=20_000)
+    conversation_memory_recall_timeout_seconds: float = Field(default=3.0, gt=0)
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))
@@ -143,6 +202,15 @@ class Settings(BaseSettings):
     # Integration tool responses (REST and MCP) are read up to this many bytes; the rest
     # is dropped and the result is marked truncated (threat model T7/G3).
     tool_response_max_bytes: int = Field(default=256 * 1024, ge=1024, le=16 * 1024 * 1024)
+    # Private web search (docs/tools-and-integrations.md#web-search): the base URL of a
+    # self-hosted SearXNG on the internal network, e.g. http://searxng:8080. Empty turns
+    # the `web_search` tool off (it is not registered). Operator configuration only:
+    # workspaces can switch the tool off but never point it somewhere else (SSRF).
+    searxng_url: str = ""
+    web_search_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
+    web_search_max_results: int = Field(default=5, ge=1, le=20)
+    # SearXNG safesearch level: 0 off, 1 moderate, 2 strict.
+    web_search_safe_search: int = Field(default=1, ge=0, le=2)
     # Automation (docs/automation.md): workflows, schedules and runs live in this SQLite
     # file with ANUM_REPOSITORY_BACKEND=memory and in PostgreSQL with postgresql.
     automation_database_path: str = ".anum/automation.db"
@@ -172,6 +240,10 @@ class Settings(BaseSettings):
     otel_logs_enabled: bool = True
     # Head sampling ratio for new traces (parent-based, so a sampled caller stays sampled).
     otel_traces_sampler_ratio: float = Field(default=1.0, ge=0, le=1)
+    # Error reporting to a Sentry-compatible server such as GlitchTip
+    # (anum_api/error_reporting.py, docs/observability.md#error-reporting). Empty: off.
+    # Outside local it must be https, or http to a private service name (no dots).
+    sentry_dsn: SecretStr | None = None
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",
@@ -188,6 +260,19 @@ class Settings(BaseSettings):
         from .model_egress import parse_allowed_hosts
 
         parse_allowed_hosts(value)
+        return value
+
+    @field_validator("sentry_dsn")
+    @classmethod
+    def _valid_sentry_dsn(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        from .error_reporting import dsn_problem
+
+        problem = dsn_problem(value.get_secret_value())
+        if problem:
+            # The message names the setting only: a DSN carries the project's key.
+            raise ValueError(problem)
         return value
 
     @field_validator("secrets_key")

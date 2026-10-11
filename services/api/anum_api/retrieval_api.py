@@ -27,8 +27,9 @@ from pydantic import BaseModel, Field
 from .authorization import Permission
 from .dependencies import memory_repository_context, require_permission, tenant_context
 from .memory import MemoryListFilters, MemoryRepository
-from .model_gateway import ModelGateway, build_model_gateway
+from .model_gateway import ModelGateway, build_default_model_gateway
 from .retrieval import (
+    Embedder,
     IndexOutcome,
     IndexStatus,
     RetrievalIndexer,
@@ -45,7 +46,6 @@ from .retrieval import (
     sha256_text,
 )
 from .schemas import TenantContext
-from .settings import settings
 
 logger = logging.getLogger("anum.retrieval")
 
@@ -56,12 +56,7 @@ def default_model_gateway() -> ModelGateway:
     """The server's default model (used when a workspace saved none), built once."""
     global _default_gateway
     if _default_gateway is None:
-        _default_gateway = build_model_gateway(
-            settings.model_provider,
-            api_key=settings.model_api_key,
-            model=settings.model_name,
-            base_url=settings.model_base_url,
-        )
+        _default_gateway = build_default_model_gateway()
     return _default_gateway
 
 
@@ -94,13 +89,15 @@ def _log_hook_failure(action: str, exc: BaseException) -> None:
     )
 
 
-async def index_memory_note(context: TenantContext, note: Any, memories: MemoryRepository) -> IndexOutcome | None:
+async def index_memory_note(
+    context: TenantContext, note: Any, memories: MemoryRepository, *, embedder: Embedder | None = None
+) -> IndexOutcome | None:
     """Index a just-created memory in the memory route's own transaction (best effort)."""
     session = getattr(memories, "session", None)
     try:
         with _savepoint(session):
             indexer = RetrievalIndexer(
-                retrieval_store_for_session(session), build_embedder(context, default_model_gateway())
+                retrieval_store_for_session(session), embedder or build_embedder(context, default_model_gateway())
             )
             return await indexer.index_memory(context, note)
     except Exception as exc:

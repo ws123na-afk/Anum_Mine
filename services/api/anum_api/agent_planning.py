@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from .agent_skills import SkillManifest, SkillRegistry
 from .agent_tools import ToolCall, ToolRegistry
-from .model_gateway import ModelGateway, ModelResponse
+from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gateway
 from .retrieval import build_task_prompt
 from .schemas import Task
 
@@ -39,7 +39,9 @@ class AgentPlanner:
         (threat model G5); tool policy is evaluated by the runtime afterwards.
         """
         selected = self.skills.select(task.prompt, self.tools.names)
-        response = await self.model_gateway.generate_text(build_task_prompt(task.prompt, context_blocks))
+        # Planning is agent work: the capable model (docs/model-gateway.md#model-routing).
+        planner = route_gateway(self.model_gateway, ModelRoute.CAPABLE)
+        response = await planner.generate_text(build_task_prompt(task.prompt, context_blocks))
         call = self._select_tool(task.prompt, selected, response)
         return PlanResult(
             plan=AgentPlan(
@@ -61,4 +63,8 @@ class AgentPlanner:
                 name="external.action",
                 arguments={"action": prompt, "planned_response": response.text},
             )
+        if any(skill.id == "anum.web-search" for skill in skills):
+            # The query is the user's own prompt, never retrieved text or model output
+            # (threat model G5); the tool caps its length.
+            return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
         return ToolCall(name="anum.respond", arguments={"text": response.text})

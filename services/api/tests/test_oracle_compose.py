@@ -47,7 +47,8 @@ KEYCLOAK_ADMIN_VARS = {
     "KC_BOOTSTRAP_ADMIN_USERNAME",
     "KC_BOOTSTRAP_ADMIN_PASSWORD",
 }
-LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama"}
+LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "beszel", "beszel-agent", "glitchtip"}
+MONITORING = {"beszel", "beszel-agent", "glitchtip"}
 ONE_SHOT = {"db-init", "migrate", "retention", "backup", "restore-tools", "backup-upload", "ollama-pull"}
 API_REQUIRED = {
     "ANUM_ENVIRONMENT",
@@ -156,6 +157,9 @@ def test_compose_has_the_expected_services_and_profiles() -> None:
         assert profiles[name] == ("jobs",), name
     for name in ("ollama", "ollama-pull"):
         assert profiles[name] == ("ai",), name
+    # Optional monitoring; the agent separately, as it needs the hub's key first.
+    assert profiles["beszel"] == profiles["glitchtip"] == ("monitoring",)
+    assert profiles["beszel-agent"] == ("monitoring-agent",)
     for name in ("caddy", "postgres", "db-init", "migrate", "api", "web", "keycloak", "valkey"):
         assert profiles[name] == (), name
 
@@ -200,7 +204,7 @@ def test_restart_policies_health_checks_and_log_rotation() -> None:
         logging = service["logging"]
         assert logging["driver"] == "json-file", name
         assert logging["options"]["max-size"] and int(logging["options"]["max-file"]) >= 1, name
-    for name in ("caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama"):
+    for name in LONG_RUNNING:
         assert services[name].get("mem_limit"), name
 
 
@@ -294,6 +298,7 @@ def test_env_example_holds_placeholders_only() -> None:
         "ANUM_SECRETS_KEY",
         "KC_BOOTSTRAP_ADMIN_PASSWORD",
         "ANUM_BACKUP_ENCRYPTION_PASSPHRASE",
+        "SEARXNG_SECRET",
     }
     owner = {key for key, value in example.items() if OWNER_PLACEHOLDER in value}
     assert {"ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ACME_EMAIL"} <= owner
@@ -465,10 +470,86 @@ def test_caddy_replaces_client_forwarded_headers_and_serves_the_three_hosts() ->
         assert f"reverse_proxy {upstream} {{\n\t\timport upstream_headers\n" in block, host
     assert "protocols h1 h2" in code
     assert "email {$ACME_EMAIL}" in code
-    assert "not remote_ip {$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS}" in code
     caddy_env = _env(_services()["caddy"])
     for name in ("ACME_EMAIL", "ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS"):
         assert name in caddy_env, name
+
+
+def _auth_site() -> str:
+    caddyfile = CADDYFILE.read_text(encoding="utf-8")
+    code = "\n".join(line for line in caddyfile.splitlines() if not line.lstrip().startswith("#"))
+    block = code[code.index("\n{$ANUM_AUTH_HOST} {") :]
+    return block[: block.index("\n}\n") if "\n}\n" in block else len(block)]
+
+
+def test_keycloak_admin_and_master_realm_follow_the_allow_list() -> None:
+    block = _auth_site()
+    matcher = block[block.index("@admin_denied {") :]
+    matcher = matcher[: matcher.index("\n\t}\n")]
+    # The console, the admin REST API and the master realm (where admins sign in) are
+    # refused unless the TCP peer is on the list and is not a Docker address; the anum
+    # realm, which every ANUM user signs in through, is not in the matcher.
+    assert "path /admin /admin/* /realms/master /realms/master/*" in matcher
+    assert "/realms/anum" not in matcher
+    allowed = (
+        "not {\n"
+        "\t\t\tremote_ip {$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS}\n"
+        "\t\t\tnot remote_ip 172.30.0.0/16\n"
+        "\t\t}"
+    )
+    assert allowed in matcher
+    assert "client_ip" not in matcher.replace("@client_ip", "")  # the peer, never a forwarded header
+    assert block.index("respond @admin_denied") < block.index("reverse_proxy keycloak:8080")
+    # Every compose network is inside the range that is never trusted.
+    docker = ipaddress.ip_network("172.30.0.0/16")
+    for network in _compose()["networks"].values():
+        assert ipaddress.ip_network(network["ipam"]["config"][0]["subnet"]).subnet_of(docker)
+    # The address Caddy sees, for the allow-list and smoke.sh.
+    assert 'respond @client_ip "{remote_host}" 200' in block
+
+
+def test_caddy_entrypoint_turns_the_comma_list_into_caddy_ranges() -> None:
+    caddy = _services()["caddy"]
+    assert _env(caddy)["ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS"] == "${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}"
+    assert caddy["command"] == ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    script = caddy["entrypoint"][2].replace("$$", "$")
+    if shutil.which("sh") is None:
+        return
+    for value, expected in (
+        ("", "0.0.0.0/32 ::/128"),
+        (" , ", "0.0.0.0/32 ::/128"),
+        ("203.0.113.7/32,198.51.100.0/24", "203.0.113.7/32 198.51.100.0/24"),
+        ("203.0.113.7, 2001:db8::/32", "203.0.113.7 2001:db8::/32"),
+    ):
+        result = subprocess.run(  # noqa: S603
+            ["sh", "-c", script, "caddy-entrypoint", "sh", "-c", 'printf %s "$ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS"'],
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": value},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout == expected, value
+
+
+def test_keycloak_admin_console_moves_to_the_tunnel_without_an_allow_list() -> None:
+    services = _services()
+    keycloak = services["keycloak"]
+    edge = keycloak["networks"]["edge"]["ipv4_address"]
+    subnet = ipaddress.ip_network(_compose()["networks"]["edge"]["ipam"]["config"][0]["subnet"])
+    assert ipaddress.ip_address(edge) in subnet
+    assert edge != services["caddy"]["networks"]["edge"]["ipv4_address"]
+    assert "ports" not in keycloak
+    script = keycloak["entrypoint"][2]
+    assert _env(keycloak)["ADMIN_CONSOLE_ALLOWED_IPS"] == "${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}"
+    assert "export KC_HOSTNAME_ADMIN=http://localhost:8080" in script
+    assert "unset ADMIN_CONSOLE_ALLOWED_IPS" in script
+    docs = (REPO_ROOT / "docs" / "deploy-oracle.md").read_text(encoding="utf-8")
+    assert f"ssh -L 8080:{edge}:8080" in docs
+    assert f"ssh -L 8080:{edge}:8080" in (ORACLE / "install.sh").read_text(encoding="utf-8")
+
+
+def test_example_closes_the_admin_console_by_default() -> None:
+    assert _example()["ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS"] == ""
 
 
 # --------------------------------------------------------------------------- database roles
@@ -557,6 +638,59 @@ def test_configure_env_quotes_values_compose_would_interpolate() -> None:
     assert module.validate("ANUM_S3_ENDPOINT", "http://s3.example.org") is not None
 
 
+HOSTS_OK = {
+    "ANUM_WEB_HOST": "anum-app-owner.duckdns.org",
+    "ANUM_API_HOST": "anum-api-owner.duckdns.org",
+    "ANUM_AUTH_HOST": "anum-auth-owner.duckdns.org",
+    "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "",
+}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "fragment"),
+    [
+        ({"ANUM_API_HOST": "anum-app-owner.duckdns.org"}, "ANUM_WEB_HOST and ANUM_API_HOST are both"),
+        ({"ANUM_AUTH_HOST": "ANUM-API-owner.duckdns.org"}, "capital letters"),
+        ({"ANUM_AUTH_HOST": "anum-api-owner.duckdns.org"}, "ANUM_API_HOST and ANUM_AUTH_HOST are both"),
+        ({"ANUM_WEB_HOST": ""}, "ANUM_WEB_HOST is empty"),
+        ({"ANUM_AUTH_HOST": "https://anum-auth-owner.duckdns.org"}, "not a valid host name"),
+        ({"ANUM_API_HOST": "anum-api-owner.duckdns.org:8443"}, "not a valid host name"),
+        ({"ANUM_WEB_HOST": "app.replace-me.example"}, "still the placeholder"),
+        ({"ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "203.0.113.7/32,home"}, "'home' is not an IP address"),
+        ({"ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "203.0.113.7/33"}, "is not an IP address"),
+    ],
+)
+def test_configure_env_check_refuses_bad_hosts_and_allow_lists(overrides: dict[str, str], fragment: str) -> None:
+    module = _configure_env_module()
+    problems, _ = module.check_deployment({**HOSTS_OK, **overrides}, strict=False)
+    assert any(fragment in problem for problem in problems), problems
+
+
+def test_configure_env_check_accepts_good_values_and_flags_a_world_open_console(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _configure_env_module()
+    assert module.check_deployment(HOSTS_OK, strict=True) == ([], [])
+    listed = {**HOSTS_OK, "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "203.0.113.7/32, 198.51.100.0/24,2001:db8::/48"}
+    assert module.check_deployment(listed, strict=True) == ([], [])
+    # Older .env files used spaces; an open console stops install.sh, update.sh warns.
+    world = {**HOSTS_OK, "ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS": "0.0.0.0/0 ::/0"}
+    problems, warnings = module.check_deployment(world, strict=True)
+    assert len(problems) == 1 and "whole internet" in problems[0] and not warnings
+    problems, warnings = module.check_deployment(world, strict=False)
+    assert not problems and len(warnings) == 1
+
+    target = tmp_path / ".env"
+    target.write_text("".join(f"{key}={value}\n" for key, value in HOSTS_OK.items()), encoding="utf-8")
+    assert module.main([str(target), "--check", "--strict"]) == 0
+    target.write_text(
+        target.read_text(encoding="utf-8").replace("anum-auth-owner", "anum-api-owner"), encoding="utf-8"
+    )
+    assert module.main([str(target), "--check"]) == 4
+    assert "ANUM_API_HOST and ANUM_AUTH_HOST are both" in capsys.readouterr().err
+    assert module.main([str(tmp_path / "missing.env"), "--check"]) == 2
+
+
 # --------------------------------------------------------------------------- scripts
 
 
@@ -577,6 +711,52 @@ def test_scripts_are_strict_and_units_point_at_existing_files() -> None:
     assert "ufw enable" not in install
     update = (ORACLE / "update.sh").read_text(encoding="utf-8")
     assert update.index("run --rm --no-deps migrate") < update.index("up -d --remove-orphans")
+    # Migrations (alembic upgrade head) run as their own one-shot before the API is
+    # recreated, and the API waits for them on every `up`.
+    assert _services()["migrate"]["command"] == ["python", "-m", "alembic", "upgrade", "head"]
+    assert _services()["api"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+    # Host names and the admin allow-list are checked before anything is built.
+    assert update.index('configure_env.py" "$ENV_FILE" --check') < update.index("build --pull")
+    check = install.index('configure_env.py" "$ENV_FILE" --check --strict')
+    assert check < install.index('update.sh" --no-pull')
+    # install.sh ends with the smoke test, as the owner, after the timers.
+    smoke = install.index('run_as_owner bash "$ORACLE_DIR/smoke.sh"')
+    assert smoke > install.index("systemctl daemon-reload")
+
+
+def test_smoke_test_needs_no_sudo_and_covers_the_edge() -> None:
+    smoke = (ORACLE / "smoke.sh").read_text(encoding="utf-8")
+    code = "\n".join(line for line in smoke.splitlines() if not line.lstrip().startswith("#"))
+    # No sudo and no Docker access: it runs as the owner on the VM or from any machine.
+    assert "sudo" not in code
+    assert not re.search(r"^\s*(docker|dc) ", code, re.MULTILINE)
+    for needle in (
+        "/realms/anum/.well-known/openid-configuration",
+        "/health",
+        "/api/v1/tasks",
+        "/admin/",
+        "/realms/master/.well-known/openid-configuration",
+        "/anum/client-ip",
+        "Strict-Transport-Security",
+        "Content-Security-Policy",
+        "X-Content-Type-Options",
+    ):
+        assert needle in code, needle
+    # The probed path really needs a token: it is an authenticated API route.
+    from anum_api.main import app
+
+    assert "/api/v1/tasks" in app.openapi()["paths"]
+    if shutil.which("bash") is None:
+        return
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(ORACLE / "smoke.sh"), "app.example.org", "app.example.org", "auth.example.org"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 1
+    assert "three different names" in result.stdout
 
 
 def test_install_does_not_ask_for_a_password_with_nopasswd_sudo() -> None:
@@ -611,3 +791,178 @@ def test_install_runs_owner_commands_when_started_with_sudo() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "nobody"
+
+
+def test_searxng_is_private_and_only_the_api_uses_it() -> None:
+    services = _services()
+    searxng = services["searxng"]
+    # Reachable from the API on the internal network, never through Caddy.
+    assert set(searxng["networks"]) == {"backend", "egress"}
+    assert not searxng.get("ports") and not searxng.get("expose")
+    assert "searxng" not in CADDYFILE.read_text(encoding="utf-8").lower()
+    assert searxng["mem_limit"]
+    assert _env(searxng)["SEARXNG_SECRET"].startswith("${SEARXNG_SECRET:?")
+    assert any(str(volume).endswith("/etc/searxng/settings.yml:ro") for volume in searxng["volumes"])
+    assert _env(services["api"])["ANUM_SEARXNG_URL"] == "http://searxng:8080"
+    assert _services_referencing("SEARXNG_SECRET") == {"searxng"}
+    searxng_settings = yaml.safe_load((REPO_ROOT / "infra" / "searxng" / "settings.yml").read_text(encoding="utf-8"))
+    assert "json" in searxng_settings["search"]["formats"]
+    assert searxng_settings["server"]["limiter"] is False
+    assert searxng_settings["server"]["public_instance"] is False
+
+
+# --------------------------------------------------------------------------- monitoring
+
+MONITORING_CADDY = ORACLE / "monitoring.caddy"
+MONITORING_SH = ORACLE / "monitoring.sh"
+
+
+def test_monitoring_is_opt_in_and_reachable_only_through_caddy() -> None:
+    compose = _compose()
+    services = compose["services"]
+    # Off unless monitoring.sh adds the profiles.
+    assert "monitoring" not in _example()["COMPOSE_PROFILES"]
+    for name in MONITORING:
+        service = services[name]
+        assert not service.get("ports") and not service.get("expose"), name
+        assert service["cap_drop"] == ["ALL"], name
+        assert "no-new-privileges:true" in service["security_opt"], name
+        for volume in service.get("volumes", []):
+            assert "docker.sock" not in str(volume) and ":/proc" not in str(volume), name
+    assert compose["networks"]["monitoring"]["internal"] is True
+    assert set(services["beszel-agent"]["networks"]) == {"monitoring"}
+    assert set(services["beszel"]["networks"]) == {"edge", "monitoring"}
+    # GlitchTip reaches PostgreSQL; Caddy reaches GlitchTip and the hub on `edge`.
+    assert set(services["glitchtip"]["networks"]) == {"edge", "backend"}
+    assert _env(services["beszel-agent"])["DOCKER_HOST"] == ""
+    assert _env(services["beszel"])["CONTAINER_DETAILS"] == "false"
+    # Pinned images, both Beszel parts on the same release.
+    hub, agent = services["beszel"]["image"], services["beszel-agent"]["image"]
+    assert re.fullmatch(r"henrygd/beszel:\d+\.\d+\.\d+", hub)
+    assert hub.split(":")[1] == agent.split(":")[1]
+    assert re.fullmatch(r"glitchtip/glitchtip:\d+\.\d+\.\d+", services["glitchtip"]["image"])
+    # The three stay within the RAM budget in docs/monitoring-oracle.md (1.4 GB).
+    limits = {"256m": 256, "128m": 128, "1g": 1024}
+    assert sum(limits[services[name]["mem_limit"]] for name in MONITORING) <= 1408
+
+
+def test_glitchtip_has_its_own_database_login_and_no_shared_valkey() -> None:
+    services = _services()
+    glitchtip = _env(services["glitchtip"])
+    assert glitchtip["DATABASE_USER"] == glitchtip["DATABASE_NAME"] == "glitchtip"
+    assert glitchtip["DATABASE_PASSWORD"] == "${GLITCHTIP_DB_PASSWORD:-}"
+    # The API's Valkey is noeviction and holds rate limits and run locks.
+    assert glitchtip["VALKEY_URL"] == ""
+    assert glitchtip["ENABLE_USER_REGISTRATION"] == "false"
+    assert "glitchtip" in glitchtip["ALLOWED_HOSTS"].split(",")
+    # Never GlitchTip's built-in default secret key.
+    assert '"$${#SECRET_KEY}" -lt 40' in services["glitchtip"]["command"][2]
+    assert _services_referencing("GLITCHTIP_DB_PASSWORD") == {"db-init", "glitchtip"}
+    assert _services_referencing("GLITCHTIP_SECRET_KEY") == {"glitchtip"}
+    assert _services_referencing("BESZEL_AGENT_TOKEN") == {"beszel-agent"}
+    assert "max_locks_per_transaction=512" in services["postgres"]["command"]
+    sql = (ORACLE / "db" / "glitchtip.sql").read_text(encoding="utf-8").lower()
+    assert "create role glitchtip login password %l nosuperuser nobypassrls nocreatedb nocreaterole" in sql
+    assert "revoke connect, temporary on database glitchtip from public" in sql
+    script = (ORACLE / "db-init.sh").read_text(encoding="utf-8")
+    assert "\\\\set glitchtip_password" in script and 'if [ -n "$glitchtip_password" ]' in script
+
+
+def test_monitoring_sites_are_imported_only_when_enabled_and_need_a_login() -> None:
+    caddy = _services()["caddy"]
+    volumes = caddy["volumes"]
+    assert "./monitoring.caddy:/etc/caddy/sites-available/monitoring.caddy:ro" in volumes
+    assert "./sites-enabled:/etc/caddy/sites-enabled:ro" in volumes
+    assert (ORACLE / "sites-enabled").is_dir()
+    assert not list((ORACLE / "sites-enabled").glob("*.caddy"))
+    assert "infra/oracle/sites-enabled/*.caddy" in (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "\nimport /etc/caddy/sites-enabled/*.caddy\n" in CADDYFILE.read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in MONITORING_CADDY.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "{$ANUM_MONITORING_BASIC_AUTH_USER} {$ANUM_MONITORING_BASIC_AUTH_HASH}" in code
+    for host, upstream in (("{$ANUM_MONITOR_HOST}", "beszel:8090"), ("{$ANUM_ERRORS_HOST}", "glitchtip:8000")):
+        block = code[code.index(f"\n{host} {{") :]
+        block = block[: block.index("\n}\n") + 3] if "\n}\n" in block else block
+        assert "import common" in block and "import upstream_headers" in block, host
+        assert f"reverse_proxy {upstream} {{" in block, host
+    errors = code[code.index("\n{$ANUM_ERRORS_HOST} {") :]
+    # Only the SDK ingest endpoints skip basic auth (the DSN key authenticates them).
+    assert "@ingest path_regexp ingest ^/api/[0-9]+/(envelope|store|security|minidump)/$" in errors
+    assert errors.index("handle @ingest") < errors.index("import monitoring_auth")
+    monitor = code[code.index("\n{$ANUM_MONITOR_HOST} {") : code.index("\n{$ANUM_ERRORS_HOST} {")]
+    assert "import monitoring_auth" in monitor and "handle" not in monitor
+    caddy_env = _env(caddy)
+    for name in ("ANUM_MONITOR_HOST", "ANUM_ERRORS_HOST", "ANUM_MONITORING_BASIC_AUTH_USER", "ANUM_MONITORING_BASIC_AUTH_HASH"):
+        assert caddy_env[name] == f"${{{name}:-}}", name
+
+
+def test_api_reports_errors_to_glitchtip_on_the_private_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _env(_services()["api"])["ANUM_SENTRY_DSN"] == "${ANUM_SENTRY_DSN:-}"
+    assert _example()["ANUM_SENTRY_DSN"] == ""
+    # What monitoring.sh dsn writes passes the startup policy in production.
+    environment = _api_environment(
+        {"ANUM_ENVIRONMENT": "production", **OLLAMA_VALUES, "ANUM_SENTRY_DSN": "http://examplekey@glitchtip:8000/1"}
+    )
+    settings = _settings(monkeypatch, environment)
+    assert insecure_configuration_problems(settings) == []
+    assert settings.sentry_dsn is not None
+    public = _settings(monkeypatch, {**environment, "ANUM_SENTRY_DSN": "http://examplekey@errors.example.org/1"})
+    assert any("ANUM_SENTRY_DSN" in problem for problem in insecure_configuration_problems(public))
+
+
+def test_monitoring_script_asks_for_secrets_privately_and_avoids_sudo() -> None:
+    script = MONITORING_SH.read_text(encoding="utf-8")
+    assert script.startswith("#!/usr/bin/env bash\n") and "set -euo pipefail" in script
+    for command in ("enable)", "disable)", "status)", "agent)", "dsn)", "purge)"):
+        assert command in script, command
+    # Hidden prompts for every secret; values reach .env on stdin through configure_env.py
+    # (mode 600, written as the .env owner), never on a command line.
+    assert script.count("read -r -s -p") >= 4
+    assert "write_private" in script and "as_env_owner" in script
+    assert "sudo -n true 2>/dev/null || sudo -v" in script
+    assert not [line for line in script.splitlines() if line.strip() == "sudo -v"]
+    # GlitchTip's admin password goes to Django on stdin.
+    assert "manage.py shell -c" in script and "DJANGO_SUPERUSER_PASSWORD" not in script
+    # The new sites are validated before Caddy is recreated, and removed if refused.
+    assert script.index("caddy_config_cmd validate") < script.index("dc up -d --no-deps caddy\n  caddy_config_cmd reload")
+    # exec'd caddy commands rewrite the admin allow-list as the Caddy entrypoint does.
+    entrypoint = _services()["caddy"]["entrypoint"][2].replace("$$", "$")
+    assert "tr ',' ' '" in entrypoint and 'tr "," " "' in script
+    assert "0.0.0.0/32 ::/128" in entrypoint and "0.0.0.0/32 ::/128" in script
+    assert 'rm -f "$SITE_LINK"' in script
+    assert {"ANUM_MONITOR_HOST", "ANUM_ERRORS_HOST"} <= _configure_env_module().HOST_NAMES
+
+
+def test_monitoring_script_edits_env_through_configure_env(tmp_path: Path) -> None:
+    """The script's .env helper keeps other lines, quotes bcrypt hashes and stays 600."""
+    script = MONITORING_SH.read_text(encoding="utf-8")
+    helper = script[script.index("ENV_HELPER='") + len("ENV_HELPER='") :]
+    helper = helper[: helper.index("\n'\n")]
+    env_file = tmp_path / ".env"
+    env_file.write_text("COMPOSE_PROFILES=ai\nANUM_WEB_HOST=app.example.org\n", encoding="utf-8")
+
+    def run(*args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603
+            [sys.executable, "-c", helper, str(CONFIGURE_ENV), *args],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    fake_hash = "$2a$14$" + "example" * 7 + "exa"
+    assert run("set", str(env_file), "ANUM_MONITORING_BASIC_AUTH_HASH", stdin=fake_hash + "\n").returncode == 0
+    assert run("set", str(env_file), "COMPOSE_PROFILES", stdin="ai,monitoring\n").returncode == 0
+    assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
+    text = env_file.read_text(encoding="utf-8")
+    assert "ANUM_WEB_HOST=app.example.org\n" in text
+    assert f"ANUM_MONITORING_BASIC_AUTH_HASH='{fake_hash}'\n" in text
+    assert text.count("COMPOSE_PROFILES=") == 1
+    assert run("get", str(env_file), "ANUM_MONITORING_BASIC_AUTH_HASH").stdout.strip() == fake_hash
+    assert run("get", str(env_file), "COMPOSE_PROFILES").stdout.strip() == "ai,monitoring"
+    secret = run("secret", str(env_file), "GLITCHTIP_DB_PASSWORD").stdout.strip()
+    assert re.fullmatch(r"[A-Za-z0-9_-]{43}", secret)
+    assert run("valid", str(env_file), "ANUM_ERRORS_HOST", stdin="https://errors.example.org\n").returncode == 1
+    assert run("valid", str(env_file), "ANUM_ERRORS_HOST", stdin="anum-errors-me.duckdns.org\n").returncode == 0
+    assert not (ORACLE / "__pycache__").exists()

@@ -13,7 +13,9 @@ export const defaultTenantContext: TenantContext = {
   tenantId: 'tenant_local',
   workspaceId: 'workspace_foundation',
   userId: 'user_local',
-  roles: ['owner', 'member'],
+  // Local development only (ANUM_AUTH_MODE=headers): the workspace owner who is also the
+  // organization administrator, like the Keycloak realm's DEV-ONLY `dev` user.
+  roles: ['owner', 'member', 'org_admin'],
 };
 
 export interface ApiTask {
@@ -127,7 +129,8 @@ export async function approveTask(approval: Approval, reason?: string): Promise<
   return decideApproval(approval, 'approve', reason);
 }
 
-export interface MemoryNote { id: string; task_id: string; content: string; provenance: { source_type: string; source_id: string | null; created_by_user_id: string; created_at: string }; retention: { kind: string; expires_at: string | null }; created_at: string; }
+// task_id is null for a memory remembered from a chat; owner_user_id marks it private to its owner.
+export interface MemoryNote { id: string; task_id: string | null; content: string; provenance: { source_type: string; source_id: string | null; created_by_user_id: string; created_at: string; metadata?: Record<string, unknown> }; retention: { kind: string; expires_at: string | null }; created_at: string; owner_user_id?: string | null; updated_at?: string | null; }
 export interface FileRecord { id: string; name: string; content_type: string; size_bytes: number; sha256: string; created_by: string; created_at: string; }
 export interface SkillVersion { id: string; skill_id: string; version: string; name: string; description: string; required_tools: string[]; risk_level: string; created_at: string; }
 export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; }
@@ -194,7 +197,7 @@ export async function getCurrentWorkspace(): Promise<WorkspaceInfo> { return req
 export interface IntegrationHealth {
   id: string;
   name: string;
-  kind: 'database' | 'identity' | 'event_bus' | 'workflow' | 'cache' | 'object_storage';
+  kind: 'database' | 'identity' | 'event_bus' | 'workflow' | 'cache' | 'object_storage' | 'search';
   status: 'connected' | 'degraded' | 'configured' | 'disabled';
   endpoint: string;
   latency_ms: number | null;
@@ -439,7 +442,7 @@ function mapRun(run: ApiAgentRun): AgentRun {
   };
 }
 
-function mapApproval(approval: ApiApproval): Approval {
+export function mapApproval(approval: ApiApproval): Approval {
   return {
     id: approval.id,
     taskId: approval.task_id,

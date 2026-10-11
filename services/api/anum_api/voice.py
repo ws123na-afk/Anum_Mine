@@ -30,13 +30,12 @@ from pydantic import BaseModel, Field
 
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
-from .model_gateway import ModelGateway, build_model_gateway
+from .model_gateway import ModelGateway, ModelRoute, build_default_model_gateway, route_gateway
 from .model_budget import ModelBudgetExceededError
 from .onboarding import budgeted_model_gateway
 from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
-from .settings import settings
 from .sse import SSE_HEADERS, sse
 from .voice_assistant import (
     MAX_REPLY_CHARS,
@@ -315,12 +314,7 @@ _gateway: ModelGateway | None = None
 def _default_voice_gateway() -> ModelGateway:
     global _gateway
     if _gateway is None:
-        _gateway = build_model_gateway(
-            settings.model_provider,
-            api_key=settings.model_api_key,
-            model=settings.model_name,
-            base_url=settings.model_base_url,
-        )
+        _gateway = build_default_model_gateway()
     return _gateway
 
 
@@ -591,7 +585,8 @@ async def stream_voice_assistant(
         else:
             try:
                 messages = voice_messages(asked.text, asked.facts, asked.name, asked.history)
-                async for chunk in gateway.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS):
+                fast = route_gateway(gateway, ModelRoute.FAST)
+                async for chunk in fast.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS):
                     room = MAX_REPLY_CHARS - sum(len(part) for part in parts)
                     if room <= 0:
                         break

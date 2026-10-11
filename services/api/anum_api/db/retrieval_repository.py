@@ -3,7 +3,9 @@
 The session must already carry the tenant and workspace RLS context
 (``set_tenant_context``); both tables force RLS on ``anum.tenant_id`` and
 ``anum.workspace_id``. Every statement also names the tenant and workspace explicitly,
-so a missing context finds nothing rather than relying on one layer alone.
+so a missing context finds nothing rather than relying on one layer alone. Sources of
+private memories (``owner_user_id``, migration 0021) are visible only under their
+owner's ``anum.user_id``; the statements repeat that rule with the caller's user id.
 """
 
 from __future__ import annotations
@@ -60,11 +62,14 @@ _LIVE_CHUNKS = """
       and c.embedding_model = :model and c.dimensions = {dimensions}
       and s.status = 'indexed'
       and (s.source_expires_at is null or s.source_expires_at > :now)
+      and (s.owner_user_id is null or s.owner_user_id = :user_id)
+      and (cast(:source_type as varchar) is null or c.source_type = cast(:source_type as varchar))
       and (
         (c.source_type = 'memory' and exists (
           select 1 from memories m
           where m.tenant_id = c.tenant_id and m.workspace_id = c.workspace_id
             and m.id = c.source_id
+            and (m.owner_user_id is null or m.owner_user_id = :user_id)
             and (m.retention_expires_at is null or m.retention_expires_at > :now)))
         or (c.source_type = 'file' and exists (
           select 1 from workspace_files f
@@ -140,7 +145,7 @@ class SqlAlchemyRetrievalStore:
 
     @staticmethod
     def _scope(context: TenantContext) -> dict[str, str]:
-        return {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id}
+        return {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id, "user_id": context.user_id}
 
     @staticmethod
     def _source(row) -> RetrievalSource:  # type: ignore[no-untyped-def]
@@ -157,14 +162,16 @@ class SqlAlchemyRetrievalStore:
             embedding_model=row.embedding_model,
             source_expires_at=row.source_expires_at,
             indexed_at=row.indexed_at,
+            owner_user_id=row.owner_user_id,
         )
 
     def get_source(self, context: TenantContext, source_type: SourceType, source_id: str) -> RetrievalSource | None:
         row = self.session.execute(
             text(
                 "select tenant_id, workspace_id, source_type, source_id, name, content_sha256, status, "
-                "error, chunk_count, embedding_model, source_expires_at, indexed_at from retrieval_sources "
-                "where tenant_id = :tenant_id and workspace_id = :workspace_id "
+                "error, chunk_count, embedding_model, source_expires_at, indexed_at, owner_user_id "
+                "from retrieval_sources where tenant_id = :tenant_id and workspace_id = :workspace_id "
+                "and (owner_user_id is null or owner_user_id = :user_id) "
                 "and source_type = :source_type and source_id = :source_id"
             ),
             {**self._scope(context), "source_type": str(source_type), "source_id": source_id},
@@ -175,8 +182,9 @@ class SqlAlchemyRetrievalStore:
         rows = self.session.execute(
             text(
                 "select tenant_id, workspace_id, source_type, source_id, name, content_sha256, status, "
-                "error, chunk_count, embedding_model, source_expires_at, indexed_at from retrieval_sources "
-                "where tenant_id = :tenant_id and workspace_id = :workspace_id "
+                "error, chunk_count, embedding_model, source_expires_at, indexed_at, owner_user_id "
+                "from retrieval_sources where tenant_id = :tenant_id and workspace_id = :workspace_id "
+                "and (owner_user_id is null or owner_user_id = :user_id) "
                 "order by source_type, source_id"
             ),
             self._scope(context),
@@ -189,6 +197,7 @@ class SqlAlchemyRetrievalStore:
                 text(
                     "select exists (select 1 from retrieval_sources "
                     "where tenant_id = :tenant_id and workspace_id = :workspace_id "
+                    "and (owner_user_id is null or owner_user_id = :user_id) "
                     "and status = 'indexed' and embedding_model = :model)"
                 ),
                 {**self._scope(context), "model": embedding_model},
@@ -198,8 +207,15 @@ class SqlAlchemyRetrievalStore:
     def save_source(self, context: TenantContext, source: RetrievalSource, chunks: Sequence[ChunkInput]) -> None:
         if (source.tenant_id, source.workspace_id) != (context.tenant_id, context.workspace_id):
             raise ValueError("source belongs to another tenant or workspace")
+        if source.owner_user_id is not None and source.owner_user_id != context.user_id:
+            raise ValueError("a private source can only be saved by its owner")
         require_workspace(self.session, context.tenant_id, context.workspace_id)
-        key = {**self._scope(context), "source_type": str(source.source_type), "source_id": source.source_id}
+        key = {
+            "tenant_id": context.tenant_id,
+            "workspace_id": context.workspace_id,
+            "source_type": str(source.source_type),
+            "source_id": source.source_id,
+        }
         self.session.execute(
             text(
                 "delete from retrieval_chunks where tenant_id = :tenant_id and workspace_id = :workspace_id "
@@ -210,15 +226,15 @@ class SqlAlchemyRetrievalStore:
         self.session.execute(
             text(
                 "insert into retrieval_sources (tenant_id, workspace_id, source_type, source_id, name, "
-                "content_sha256, status, error, chunk_count, embedding_model, source_expires_at, indexed_at) "
-                "values ("
+                "content_sha256, status, error, chunk_count, embedding_model, source_expires_at, indexed_at, "
+                "owner_user_id) values ("
                 ":tenant_id, :workspace_id, :source_type, :source_id, :name, :content_sha256, :status, "
-                ":error, :chunk_count, :embedding_model, :source_expires_at, :indexed_at) "
+                ":error, :chunk_count, :embedding_model, :source_expires_at, :indexed_at, :owner_user_id) "
                 "on conflict (tenant_id, workspace_id, source_type, source_id) do update set "
                 "name = excluded.name, content_sha256 = excluded.content_sha256, status = excluded.status, "
                 "error = excluded.error, chunk_count = excluded.chunk_count, "
                 "embedding_model = excluded.embedding_model, source_expires_at = excluded.source_expires_at, "
-                "indexed_at = excluded.indexed_at"
+                "indexed_at = excluded.indexed_at, owner_user_id = excluded.owner_user_id"
             ),
             {
                 **key,
@@ -230,6 +246,7 @@ class SqlAlchemyRetrievalStore:
                 "embedding_model": source.embedding_model,
                 "source_expires_at": source.source_expires_at,
                 "indexed_at": source.indexed_at,
+                "owner_user_id": source.owner_user_id,
             },
         )
         for chunk in chunks:
@@ -260,7 +277,8 @@ class SqlAlchemyRetrievalStore:
         result = self.session.execute(
             text(
                 "delete from retrieval_sources where tenant_id = :tenant_id and workspace_id = :workspace_id "
-                "and source_type = :source_type and source_id = :source_id"
+                "and source_type = :source_type and source_id = :source_id "
+                "and (owner_user_id is null or owner_user_id = :user_id)"
             ),
             key,
         )
@@ -274,8 +292,13 @@ class SqlAlchemyRetrievalStore:
         embedding_model: str,
         limit: int,
         now: datetime,
+        *,
+        source_type: SourceType | None = None,
     ) -> list[RetrievedChunk]:
         """Nearest chunks by cosine distance, live sources of this workspace only.
+
+        Sources private to another user are left out; with ``source_type`` only chunks
+        of that type (``memory`` for the assistant's recall) are considered.
 
         A memory chunk counts only while its memory exists and has not expired; a file
         chunk only while its file metadata exists. For a dimension in
@@ -297,6 +320,7 @@ class SqlAlchemyRetrievalStore:
                 "dimensions": dimensions,
                 "now": now,
                 "limit": limit,
+                "source_type": str(source_type) if source_type is not None else None,
             },
         ).all()
         return [
