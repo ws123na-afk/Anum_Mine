@@ -71,6 +71,15 @@ def default_skill_registry() -> SkillRegistry:
                 required_tools=frozenset({"list_whatsapp_conversations"}),
             ),
             SkillManifest(
+                id="anum.email",
+                version="1.0.0",
+                name="Email inbox",
+                description="Finds and summarises emails in the connected Gmail, Outlook and Zoho mailboxes.",
+                triggers=frozenset({"email", "emails", "e-mail", "e-mails", "inbox", "mail", "mails", "gmail", "outlook", "zoho"}),
+                # Selectable wherever the email tools are registered (docs/email.md).
+                required_tools=frozenset({"search_email"}),
+            ),
+            SkillManifest(
                 id="anum.external-action",
                 version="1.0.0",
                 name="External action",

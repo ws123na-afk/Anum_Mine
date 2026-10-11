@@ -79,6 +79,12 @@ class AgentPlanner:
                 name="list_whatsapp_conversations",
                 arguments={"filter": "needs_reply" if waiting else "all", "limit": 20},
             )
+        if any(skill.id == "anum.email" for skill in skills):
+            # Mail questions read the inbox; filters come from the user's own words (threat
+            # model G5). Sending is never planned here: it is a draft approved in the Inbox.
+            from .email_inbox import SEARCH_TOOL, tool_arguments_from_prompt
+
+            return ToolCall(name=SEARCH_TOOL, arguments=tool_arguments_from_prompt(prompt))
         if any(skill.id == "anum.external-action" for skill in skills):
             return ToolCall(
                 name="external.action",

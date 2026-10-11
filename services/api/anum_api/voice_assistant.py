@@ -29,6 +29,7 @@ class VoiceIntent(StrEnum):
     IDENTITY = "identity"
     GREETING = "greeting"
     THANKS = "thanks"
+    EMAIL = "email"
 
 
 SMALL_TALK = frozenset({VoiceIntent.IDENTITY, VoiceIntent.GREETING, VoiceIntent.THANKS})
@@ -65,6 +66,10 @@ _STATUS = re.compile(
     r"|(الحالة|الموافقات|المهام الجارية)",
     re.IGNORECASE,
 )
+_EMAIL = re.compile(
+    r"\b(e-?mails?|inbox|mailbox|gmail|outlook|zoho)\b|(بريد|إيميل|ايميل|الرسائل)",
+    re.IGNORECASE,
+)
 _IDENTITY = re.compile(
     r"\b(what'?s your name|what is your name|who are you|your name|what are you)\b"
     r"|(ما اسمك|من أنت|شو اسمك|ايش اسمك)",
@@ -98,6 +103,8 @@ def classify(text: str, name: str = "Anum") -> tuple[VoiceIntent, str | None]:
         return VoiceIntent.CREATE_TASK, proposal or None
     if _STATUS.search(text):
         return VoiceIntent.STATUS, None
+    if _EMAIL.search(text):
+        return VoiceIntent.EMAIL, None
     if _IDENTITY.search(text):
         return VoiceIntent.IDENTITY, None
     if _THANKS.search(text):

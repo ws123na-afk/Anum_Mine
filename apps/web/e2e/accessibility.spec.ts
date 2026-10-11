@@ -7,6 +7,7 @@ import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 // its help text and the offending selectors so the fix is clear from the CI log.
 const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'assistant', ready: (page) => expect(page.locator('.chatTurn.assistant').first()).toBeVisible() },
+  { hash: 'inbox', ready: async (page) => { await page.locator('.inboxRow').first().click(); await expect(page.locator('.inboxDraftCard').first()).toBeVisible(); } },
   { hash: 'tasks', ready: (page) => expect(page.locator('.recordButton').first()).toBeVisible() },
   { hash: 'approvals', ready: (page) => expect(page.locator('.approvalDetail').first()).toBeVisible() },
   { hash: 'memory', ready: (page) => expect(page.locator('.memoryRow').first()).toBeVisible() },

@@ -14,6 +14,8 @@ import '../developer/developer_controller.dart';
 import '../developer/developer_screen.dart';
 import '../whatsapp/whatsapp_controller.dart';
 import '../whatsapp/whatsapp_screen.dart';
+import '../email/email_controller.dart';
+import '../email/inbox_screen.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../automations/automation_repository.dart';
@@ -39,6 +41,7 @@ class WorkspaceHome extends StatefulWidget {
       this.automationsController,
       this.chatDeveloper,
       this.whatsappController,
+      this.emailController,
       this.workspaceName,
       this.initialIndex = 0});
   final WorkspaceController controller;
@@ -61,6 +64,8 @@ class WorkspaceHome extends StatefulWidget {
   /// The WhatsApp inbox (docs/whatsapp.md), opened as its own page from the
   /// app bar (wide layouts) or the More sheet (phones).
   final WhatsAppController? whatsappController;
+  /// The unified inbox (docs/email.md), opened from the app bar or More.
+  final EmailController? emailController;
   final String? workspaceName;
   final int initialIndex;
   @override
@@ -131,6 +136,14 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       MaterialPageRoute<void>(
           builder: (_) =>
               WhatsAppScreen(controller: widget.whatsappController!)));
+  void _openInbox(BuildContext context) {
+    final email = widget.emailController;
+    if (email == null) return;
+    Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+            builder: (_) => InboxScreen(controller: email)));
+  }
 
   void _openSettings(BuildContext context) => Navigator.push(
       context,
@@ -265,6 +278,11 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                                     fontWeight: FontWeight.normal))
                           ]),
                       actions: [
+                          if (widget.emailController != null)
+                            IconButton(
+                                onPressed: () => _openInbox(context),
+                                tooltip: l.t('inbox'),
+                                icon: const Icon(Icons.mail_outline)),
                           PopupMenuButton<String>(
                               tooltip: l.t('language'),
                               onSelected: widget.localeController.select,
@@ -391,6 +409,14 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                     onTap: () {
                       Navigator.pop(context);
                       _openWhatsApp(context);
+                    }),
+              if (widget.emailController != null)
+                ListTile(
+                    leading: const Icon(Icons.mail_outline),
+                    title: Text(context.anum.t('inbox')),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _openInbox(context);
                     }),
               ListTile(
                   leading: const Icon(Icons.mic),

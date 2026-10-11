@@ -65,6 +65,12 @@ class Permission(StrEnum):
     WHATSAPP_READ = "whatsapp:read"
     WHATSAPP_REPLY = "whatsapp:reply"
     WHATSAPP_MANAGE = "whatsapp:manage"
+    # Email (docs/email.md): reading the unified inbox, acting on messages (mark read,
+    # archive, draft, ask to send) and connecting or disconnecting mailboxes (owners).
+    # Viewers get none of them: mail is not part of the read-only workspace view.
+    EMAIL_READ = "email:read"
+    EMAIL_ACT = "email:act"
+    EMAIL_MANAGE = "email:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -133,6 +139,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.AUTOMATION_MANAGE,
             Permission.WHATSAPP_READ,
             Permission.WHATSAPP_REPLY,
+            Permission.EMAIL_READ,
+            Permission.EMAIL_ACT,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

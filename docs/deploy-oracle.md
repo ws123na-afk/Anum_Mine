@@ -309,6 +309,9 @@ jq -c . service-account.json   # prints the key on one line; paste it as ANUM_FC
 ```
 
 Then `docker compose up -d api` and delete the downloaded file. The API refuses to start if the value is not a service-account key; `GET /api/v1/push/status` and Settings › Notifications in the web app say whether push is on. The developer watcher that announces ready pull requests uses the `anum_maintenance` role the bootstrap already grants `anum_app`. Pushes leave the VM for Google's FCM servers with a fixed title ("Approval needed") and ids only.
+### Email (unified inbox)
+
+The API passes the mail settings from `.env` through (`infra/oracle/compose.yaml`): `ANUM_EMAIL_GOOGLE_CLIENT_ID`, `ANUM_EMAIL_GOOGLE_CLIENT_SECRET`, `ANUM_EMAIL_MICROSOFT_CLIENT_ID`, `ANUM_EMAIL_MICROSOFT_CLIENT_SECRET`, `ANUM_EMAIL_MICROSOFT_TENANT` (default `common`), `ANUM_EMAIL_ZOHO_CLIENT_ID`, `ANUM_EMAIL_ZOHO_CLIENT_SECRET` and `ANUM_EMAIL_ZOHO_DATA_CENTRE` (default `com`; `sa` for a Saudi Zoho account). `ANUM_EMAIL_PUBLIC_API_URL` and `ANUM_EMAIL_WEB_URL` are set from `ANUM_API_HOST` and `ANUM_WEB_HOST`, so the redirect URI to register with each provider is `https://<API>/api/v1/email/oauth/callback`. Each provider stays "not set up" until its id and secret are filled in. Create the OAuth clients as [Email: owner setup](email.md#owner-setup) describes, add the values to `.env` over SSH (`nano ~/anum/infra/oracle/.env`), then `cd ~/anum/infra/oracle && docker compose up -d api`. Mail traffic leaves the VM only to the providers' API hosts; the background sync runs every five minutes with PostgreSQL.
 
 ## Check the Deployment
 

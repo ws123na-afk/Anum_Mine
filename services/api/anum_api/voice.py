@@ -517,6 +517,11 @@ def _prepare_ask(
         tier, reply = VoiceRiskTier.CONFIRM, confirm_reply(proposal, arabic)
     elif intent == VoiceIntent.STATUS:
         reply = status_reply(facts, arabic)
+    elif intent == VoiceIntent.EMAIL:
+        # Read-only inbox facts from the synced metadata (docs/email.md#voice).
+        from .email_inbox import voice_email_reply
+
+        reply = voice_email_reply(context, text, arabic)
     elif intent in SMALL_TALK:
         reply = small_talk_reply(intent, name, facts, arabic)
     return _PreparedAsk(

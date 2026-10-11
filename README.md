@@ -96,6 +96,7 @@ x-user-roles: owner,member
 - [Skills](docs/skills.md)
 - [Workspace files](docs/files.md)
 - [Tools and integrations](docs/tools-and-integrations.md)
+- [Email: the unified inbox](docs/email.md)
 - [Automation](docs/automation.md)
 - [Approvals and risk](docs/approvals-and-risk.md)
 - [Notifications and phone push](docs/notifications.md)

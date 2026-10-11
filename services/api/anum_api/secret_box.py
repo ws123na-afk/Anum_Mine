@@ -45,6 +45,13 @@ class SecretCipher:
             # Never include the token or key material in the error.
             raise SecretDecryptionError("stored secret could not be decrypted") from exc
 
+    def decrypt_fresh(self, token: str, ttl_seconds: int) -> str:
+        """Decrypt a token created at most ``ttl_seconds`` ago (OAuth ``state`` values)."""
+        try:
+            return self._fernet.decrypt(token.encode("ascii"), ttl=ttl_seconds).decode("utf-8")
+        except (InvalidToken, ValueError, UnicodeEncodeError) as exc:
+            raise SecretDecryptionError("token is invalid or expired") from exc
+
     def is_current(self, token: str) -> bool:
         """True when the first (encrypting) key decrypts the token: nothing to rotate."""
         try:

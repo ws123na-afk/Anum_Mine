@@ -56,6 +56,7 @@ class Provenance(StrEnum):
     FILE = "file"
     USER_SPEECH = "user_speech"
     WEB = "web"
+    EMAIL = "email"
 
 
 def _attribute(value: str) -> str:

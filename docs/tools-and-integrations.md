@@ -61,3 +61,8 @@ Support a small internal tool set, one external REST integration, one MCP-style 
 ## Later
 
 Add per-integration sandboxes, webhook subscriptions, OAuth flows, rate-limit dashboards, organization-level connector policies, and workspace credentials for more integrations (today only the external REST webhook accepts one). Not built: a tenant cannot add a new integration endpoint of its own; integrations come from the operator's Settings.
+Add integration catalogs, per-integration sandboxes, webhook subscriptions, OAuth flows, rate-limit dashboards, and organization-level connector policies.
+
+## Email
+
+The unified inbox registers `search_email`, `read_email`, `mark_email_read` (low), `archive_email`, `draft_reply` (medium) and `send_email` (high, always approved with the payload hash), and the integrations `email_gmail`, `email_outlook` and `email_zoho`. See [Email: the unified inbox](email.md).

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from anum_api.db import email_repository as _email_tables  # noqa: F401 - registers the email tables
 from anum_api.db.models import Base
 
 
@@ -27,6 +28,10 @@ def test_tenant_scoped_tables_include_tenant_id() -> None:
         "workspace_files",
         "notification_preferences",
         "user_preferences",
+        "email_accounts",
+        "email_messages",
+        "email_drafts",
+        "email_oauth_requests",
         "audit_records",
         "workspace_invitations",
         "workspaces",

@@ -18,6 +18,9 @@ import '../features/developer/developer_controller.dart';
 import '../features/developer/developer_repository.dart';
 import '../features/whatsapp/whatsapp_controller.dart';
 import '../features/whatsapp/whatsapp_repository.dart';
+import '../features/email/email_controller.dart';
+import '../features/email/email_repository.dart';
+import '../features/email/inbox_screen.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/workspace/destinations.dart';
 import '../features/workspace/files_repository.dart';
@@ -56,6 +59,7 @@ abstract final class AnumRoutes {
   static const files = '/files';
   static const voice = '/voice';
   static const developer = '/developer';
+  static const inbox = '/inbox';
 }
 
 /// Why [apiUrl] cannot be used by a release build, or null when it can.
@@ -95,6 +99,7 @@ class _AnumAppState extends State<AnumApp> {
   final _navigator = GlobalKey<NavigatorState>();
   final _messenger = GlobalKey<ScaffoldMessengerState>();
   late final WhatsAppController whatsapp;
+  late final EmailController email;
 
   /// Set when the build's configuration is unsafe; the app then shows only
   /// this message and creates no clients.
@@ -182,6 +187,7 @@ class _AnumAppState extends State<AnumApp> {
     voice.developer = voiceDeveloper;
     // WhatsApp inbox (docs/whatsapp.md): owners and members; owners approve.
     whatsapp = WhatsAppController(ApiWhatsAppRepository(api));
+    email = EmailController(ApiEmailRepository(api));
     locale = LocaleController()..restore();
     auth.addListener(_onAuthChanged);
     auth.restore();
@@ -288,6 +294,7 @@ class _AnumAppState extends State<AnumApp> {
     chatDeveloper.dispose();
     voiceDeveloper.dispose();
     whatsapp.dispose();
+    email.dispose();
     locale.dispose();
     super.dispose();
   }
@@ -347,6 +354,7 @@ class _AnumAppState extends State<AnumApp> {
                       automationsController: automations,
                       chatDeveloper: chatDeveloper,
                       whatsappController: whatsapp,
+                      emailController: email,
                       workspaceName: auth.workspaceName,
                     )
                   : AuthFlow(controller: auth),
@@ -382,6 +390,13 @@ class _AnumAppState extends State<AnumApp> {
             _AuthenticatedDestination(auth: auth, child: _workspace(index)),
       );
     }
+    if (name == AnumRoutes.inbox) {
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+            auth: auth, child: InboxScreen(controller: email)),
+      );
+    }
     if (name != null &&
         name.startsWith('/tasks/') &&
         name.length > '/tasks/'.length) {
@@ -408,6 +423,7 @@ class _AnumAppState extends State<AnumApp> {
         automationsController: automations,
         chatDeveloper: chatDeveloper,
         whatsappController: whatsapp,
+        emailController: email,
         workspaceName: auth.workspaceName,
         initialIndex: index,
       );

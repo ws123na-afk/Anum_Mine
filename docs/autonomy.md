@@ -85,7 +85,7 @@ A tool is reversible when its definition names a compensating tool (`undo_tool`)
 
 ## Storage
 
-Migration `0031_autonomy` (expand only): `autonomy_guardrails` (one row per tenant, JSON settings), `workspace_autonomy_settings`, `autonomy_rules` and `autonomy_proposals` (unique per pattern), `autonomy_actions` (feed index on tenant, workspace, created_at, id) and `autonomy_recipients`. Every table has forced RLS on `anum.tenant_id` (and `anum.workspace_id` for the workspace tables); nothing is granted to a cross-tenant role. The in-memory backend keeps the same data in process. Every change is audited in the same transaction (`autonomy.settings_updated`, `autonomy.guardrails_updated`, `autonomy.rule_created`, `autonomy.rule_deleted`, `autonomy.proposal_*`, `autonomy.action_*`, `autonomy.undo_failed`).
+Migration `0034_autonomy` (expand only): `autonomy_guardrails` (one row per tenant, JSON settings), `workspace_autonomy_settings`, `autonomy_rules` and `autonomy_proposals` (unique per pattern), `autonomy_actions` (feed index on tenant, workspace, created_at, id) and `autonomy_recipients`. Every table has forced RLS on `anum.tenant_id` (and `anum.workspace_id` for the workspace tables); nothing is granted to a cross-tenant role. The in-memory backend keeps the same data in process. Every change is audited in the same transaction (`autonomy.settings_updated`, `autonomy.guardrails_updated`, `autonomy.rule_created`, `autonomy.rule_deleted`, `autonomy.proposal_*`, `autonomy.action_*`, `autonomy.undo_failed`).
 
 ## Tests
 

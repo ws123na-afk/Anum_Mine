@@ -51,6 +51,7 @@ class IntegrationKind(StrEnum):
     SEARCH = "search"
     # An external system an agent tool calls (the REST webhook behind external.action).
     TOOL = "tool"
+    EMAIL = "email"
 
 
 class CredentialMetadata(BaseModel):
@@ -483,6 +484,18 @@ class IntegrationRegistry:
             }
         )
 
+    def switched_off(self, integration_id: str, context: TenantContext) -> bool:
+        """True only when an owner turned ``integration_id`` off for the caller's workspace.
+
+        Unlike ``configuration().enabled`` this ignores the operator default, for
+        integrations whose setup is checked elsewhere (the mail providers).
+        """
+        if integration_id not in self._definitions:
+            return False
+        with self._open_store(context) as store:
+            stored = store.get(context, integration_id)
+        return stored is not None and not stored.enabled
+
     def workspace_enabled(self, integration_id: str) -> Callable[[TenantContext], bool]:
         """A check for tools: is ``integration_id`` on for the caller's workspace?
 
@@ -662,8 +675,50 @@ def default_integration_registry(settings: Settings) -> IntegrationRegistry:
             ),
             searxng_integration(settings),
             external_webhook_integration(settings),
+            *email_integrations(),
         ]
     )
+
+
+def email_integrations() -> list[IntegrationDefinition]:
+    """The three mail providers behind the unified inbox (anum_api/email_inbox.py, docs/email.md).
+
+    Configured when the operator set the provider's OAuth client (``ANUM_EMAIL_*``). A
+    workspace owner can switch a provider off here: connecting, syncing, reading and the
+    email tools then refuse that provider's mailboxes in that workspace.
+    """
+    from .email_inbox import email_settings, integration_id, provider_client, provider_problems, provider_scopes
+    from .email_providers import PROVIDER_NAMES, EmailProvider
+
+    definitions = []
+    for provider in EmailProvider:
+        problems = provider_problems(provider, email_settings)
+        host = provider_client(provider, email_settings).api_host if not problems else {
+            EmailProvider.GMAIL: "gmail.googleapis.com",
+            EmailProvider.OUTLOOK: "graph.microsoft.com",
+            EmailProvider.ZOHO: f"mail.zoho.{email_settings.zoho_data_centre}",
+        }[provider]
+
+        def probe(host: str = host) -> Awaitable[None]:
+            return tcp_probe(host, 443)
+
+        definitions.append(
+            IntegrationDefinition(
+                id=integration_id(provider),
+                name=PROVIDER_NAMES[provider],
+                kind=IntegrationKind.EMAIL,
+                endpoint=f"https://{host}",
+                configured=not problems,
+                disabled_detail=None if not problems else (
+                    "Not set up: the server needs " + ", ".join(problems) + " (docs/email.md)."
+                ),
+                credentials=CredentialMetadata(
+                    configured=not problems, source="oauth", scopes=provider_scopes(provider)
+                ),
+                probe=probe,
+            )
+        )
+    return definitions
 
 
 def searxng_integration(settings: Settings) -> IntegrationDefinition:

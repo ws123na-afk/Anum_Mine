@@ -257,6 +257,19 @@ services:
       # Private web search (the searxng service below); a workspace owner can switch
       # the web_search tool off under Integrations.
       ANUM_SEARXNG_URL: http://searxng:8080
+      # Unified inbox (docs/email.md): the owner's own OAuth clients; a provider stays
+      # "not set up" while its client id or secret is empty. The redirect URI to
+      # register is https://<API>/api/v1/email/oauth/callback.
+      ANUM_EMAIL_PUBLIC_API_URL: https://${ANUM_API_HOST}
+      ANUM_EMAIL_WEB_URL: https://${ANUM_WEB_HOST}
+      ANUM_EMAIL_GOOGLE_CLIENT_ID: ${ANUM_EMAIL_GOOGLE_CLIENT_ID:-}
+      ANUM_EMAIL_GOOGLE_CLIENT_SECRET: ${ANUM_EMAIL_GOOGLE_CLIENT_SECRET:-}
+      ANUM_EMAIL_MICROSOFT_CLIENT_ID: ${ANUM_EMAIL_MICROSOFT_CLIENT_ID:-}
+      ANUM_EMAIL_MICROSOFT_CLIENT_SECRET: ${ANUM_EMAIL_MICROSOFT_CLIENT_SECRET:-}
+      ANUM_EMAIL_MICROSOFT_TENANT: ${ANUM_EMAIL_MICROSOFT_TENANT:-common}
+      ANUM_EMAIL_ZOHO_CLIENT_ID: ${ANUM_EMAIL_ZOHO_CLIENT_ID:-}
+      ANUM_EMAIL_ZOHO_CLIENT_SECRET: ${ANUM_EMAIL_ZOHO_CLIENT_SECRET:-}
+      ANUM_EMAIL_ZOHO_DATA_CENTRE: ${ANUM_EMAIL_ZOHO_DATA_CENTRE:-com}
       # Errors to GlitchTip (profile `monitoring`) or any Sentry-compatible server; empty
       # is off. monitoring.sh sets http://<key>@glitchtip:8000/<project> (the private
       # network, no hairpin through the public address). Scrubbed to types, frames,
