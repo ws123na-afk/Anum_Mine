@@ -5,7 +5,8 @@ import { apiErrorFromResponse } from './errors';
 import type { ApiCurrentMembership } from './policy';
 import * as workspaces from './workspaces';
 
-const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
+// The one API base URL for every module. Deployments compile VITE_ANUM_API_URL in (apps/web/Dockerfile, infra/oracle/compose.yaml).
+export const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
 export const defaultTenantContext: TenantContext = {
   tenantId: 'tenant_local',

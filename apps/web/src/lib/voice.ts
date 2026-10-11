@@ -1,8 +1,7 @@
 import type { Task } from '@anum/contracts';
-import { authHeaders } from './api';
+import { apiBaseUrl, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
 
-const apiBaseUrl = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
 export type TranscriptRetention = 'session' | '30_days' | 'permanent';
 export type VoiceSessionStatus = 'active' | 'completed' | 'cancelled';
