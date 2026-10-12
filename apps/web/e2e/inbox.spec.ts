@@ -120,7 +120,7 @@ test('connecting goes to the provider and finishes when the browser comes back',
   await expect(page.getByText('No mailbox is connected yet. Connect one below')).toBeVisible();
   await page.getByLabel('Only visible to me (a private mailbox)').check();
   await page.getByRole('button', { name: 'Connect Gmail / Google Workspace' }).click();
-  await expect(page).toHaveURL(/accounts\.google\.com/);
+  await expect(page).toHaveURL(/^https:\/\/accounts\.google\.com\//);
   expect(calls.start).toEqual([{ provider: 'gmail', visibility: 'private' }]);
 
   await page.goto('/?email_connect=eoc_123#inbox');
