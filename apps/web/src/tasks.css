@@ -1,6 +1,8 @@
 /* Tasks view (TasksView.tsx): server-side filters, bulk actions, keyset paging, task detail,
    run history, step timeline and activity. Spacing comes from the shared --d-s* tokens. */
-.taskFilters { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr)); }
+/* 200px columns: a date field cannot shrink below its own "mm/dd/yyyy" editor (about 190px in DejaVu Sans,
+   the fallback font on CI runners without Inter), so narrower columns let it spill past the panel. */
+.taskFilters { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 .taskFilters .taskSearch { grid-column: 1 / -1; }
 .taskFilters .field { margin-top: var(--d-s3); }
 .taskFilterBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); justify-content: space-between; margin-top: var(--d-s3); }
