@@ -412,6 +412,16 @@ From the October 2026 skills audit ([report](audits/2026-10-12-full-skills-audit
 - JSON calls (`HttpApiTransport`) give up after five minutes, longer than a model call with its server retries; a hung or unreachable server becomes the app's "could not be reached" error (`ApiException` with status 0) instead of an endless spinner, and a proxy's HTML 502/503 keeps its status code. Streams keep their own timeouts (`HttpEventStream`). `test/http_api_transport_test.dart`.
 - Links from the server or from social platforms (a marketing post's public link, a connect page) open in the browser only when they are absolute `https` URLs (`mkHttpsLink`); anything else (`intent:`, `file:`, `tel:`, plain `http:`) is not launched and the screen says the link could not be opened.
 
+### Screen Privacy
+
+Owner decision of 12 October 2026: screenshots of the app are blocked where the platform allows it.
+
+- Android: `MainActivity` sets `FLAG_SECURE` on its window before Flutter starts. Screenshots and screen recordings come out black, the recent-apps thumbnail is blank, and the app does not show on insecure external displays or casts. Sign-in runs in a Custom Tab (the browser's own activity), which this does not cover.
+- iOS: iOS has no supported way to block a screenshot. `PrivacyCover` (`ios/Runner/AppDelegate.swift`) puts a plain cover in the app's background colour over every window while the scene is inactive (so the app-switcher snapshot shows nothing) and while the screen is captured (recording, AirPlay mirroring or screen sharing: `sceneCaptureState` on iOS 17 and later, `UIScreen.isCaptured` before). A screenshot taken while the app is active still shows the screen. The "secure text field layer" trick that blanks iOS screenshots was not used: it relies on the private internal layout of `UITextField`, which has changed between iOS versions, and wrapping Flutter's view in it can break touch and accessibility, so it is too fragile to ship.
+- Web and desktop: a browser page or a webview cannot block screenshots or screen recording; nothing is attempted there ([Security](security.md)).
+
+Device checks are in the [checklist](#real-device-test-checklist).
+
 ### Typed JSON Parsing
 
 Models and repositories read API responses and the stored session through `JsonReader` (`lib/data/json_read.dart`, exported by `api_models.dart`): `string`, `integer`, `number`, `boolean`, `date`, `object`, `objects` and `strings`, each with an `opt…` variant that returns null (or an empty list for `optObjects`) when the field is missing or null. A field that is missing or has the wrong type fails with one `JsonShapeException`, a `FormatException` whose message names the field path and the expected type, for example `Unexpected response: "data[1].approvers[0]" should be an object, found a string.` Valid payloads read exactly as the casts they replaced did (numbers accept ints and doubles; optional fields keep their defaults). Every caller that handled the old cast errors catches all errors (`catch (e)` or `on Object`), so a malformed response still lands in the screen's error state, now with that sentence as its message; the stored-session reader still clears an unreadable session. Tolerant reads that never fail (budget usage numbers, invitation timestamps, the approval policy's `updated_at`, the retrieval step's metadata) keep checking types themselves. `test/json_parsing_test.dart` covers missing fields, wrong types and wrong list elements on the main models and repositories.
@@ -431,6 +441,8 @@ Install and identity
 - [ ] A Keycloak user without `default_workspace_id` and with several workspaces gets the workspace list after sign-in; after a choice, sign-out and sign-in open the same workspace.
 - [ ] On Android, install the new build over one that stored a session with `flutter_secure_storage` 9 (any build before the 10.x upgrade): the session survives (the plugin migrates it to its new ciphers) or, if migration fails, the app shows the sign-in screen instead of crashing.
 - [ ] On iOS, install the new build over one that stored a session before the device-only keychain class: the session survives the first launch, and a restore of an encrypted backup onto another device asks for sign-in.
+- [ ] Android: a screenshot and a screen recording of any screen come out black, and the recent-apps card is blank.
+- [ ] iOS: the app-switcher card shows the plain cover, not the workspace; starting a screen recording or AirPlay mirroring covers the app until it stops; returning to the app removes the cover at once.
 - [ ] Airplane mode during refresh keeps the session and shows the offline state; reconnecting recovers.
 - [ ] A release build refuses a plain-HTTP API or issuer.
 
