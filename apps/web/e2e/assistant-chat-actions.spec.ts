@@ -43,6 +43,13 @@ async function mockApi(page: Page, extra: Conv[] = []) {
       if (before) rest = rest.slice(rest.findIndex((c) => c.id === before) + 1);
       return json([...(before ? [] : pinned), ...rest.slice(0, limit)]);
     }
+    if (path === '/api/v1/conversations' && method === 'POST') {
+      // Asking before the list has loaded starts a new conversation.
+      const created: Conv = { id: `conv_new_${++next}`, title: '', created_at: now, updated_at: now, pinned: false, pinned_at: null };
+      conversations.unshift(created);
+      turns.set(created.id, []);
+      return json(created, 201);
+    }
     const one = /^\/api\/v1\/conversations\/([^/]+)$/.exec(path);
     if (one && method === 'GET') {
       const c = conversations.find((x) => x.id === one[1]);
@@ -94,6 +101,8 @@ async function mockApi(page: Page, extra: Conv[] = []) {
         user = { id: `t_${++next}`, conversation_id: id, role: 'user', content: body.content ?? '', status: 'complete', created_at: now };
         list.push(user);
       }
+      const owner = conversations.find((c) => c.id === id);
+      if (owner && !owner.title) owner.title = user.content;
       const text = user.content.startsWith('Code') ? CODE_ANSWER : `Answer ${++version} to: ${user.content}`;
       const assistant: Turn = { id: `t_${++next}`, conversation_id: id, role: 'assistant', content: text, status: 'complete', created_at: now, feedback: null };
       list.push(assistant);
@@ -295,6 +304,8 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, 
     await expect(answer.getByRole('button', { name: 'Copy answer' })).toBeVisible();
     await answer.getByRole('button', { name: 'Copy answer' }).scrollIntoViewIfNeeded();
     await expect(answer.getByRole('button', { name: 'Copy answer' })).toBeInViewport();
+    // On a phone the answer and the composer may not fit one screen: each must be reachable by scrolling.
+    await page.getByRole('button', { name: 'Send', exact: true }).scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
     expect(await noOverflow(page)).toBe(true);
     const results = await new AxeBuilder({ page }).include('.chatLayout').analyze();

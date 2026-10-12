@@ -104,6 +104,12 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
   const log = useRef<HTMLDivElement | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const stick = useRef(true);
+  // Set once the person asks something: the first list load then no longer opens the newest
+  // conversation over their question (that would abort the reply they are waiting for).
+  const acted = useRef(false);
+  // Each open (and each ask) takes a new token; a conversation that finishes loading after a
+  // later open or ask began never replaces what is on screen.
+  const openToken = useRef(0);
 
   const open = useCallback(async (id: string | null) => {
     controller.current?.abort();
@@ -115,8 +121,10 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
     setAtBottom(true);
     if (!id) { setTurns([]); setOpenMeta(null); return; }
     setOpening(true);
+    const token = ++openToken.current;
     try {
       const detail = await getConversation(id);
+      if (token !== openToken.current) return;
       const stored = fromStored(detail.turns, detail.reports);
       setTurns(stored);
       setOpenMeta({ id: detail.id, title: detail.title, created_at: detail.created_at, updated_at: detail.updated_at, agent_id: detail.agent_id, pinned: detail.pinned, pinned_at: detail.pinned_at });
@@ -127,6 +135,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
       if (unrated.length) void getRatings('chat', unrated.slice(-100)).then((r) => setRatings((current) => ({ ...Object.fromEntries(r.ratings.map((x) => [x.subject_id, x.rating])), ...current }))).catch(() => undefined);
     }
     catch (e) {
+      if (token !== openToken.current) return;
       setTurns([]);
       setOpenMeta(null);
       if (e instanceof ApiError && e.status === 404) {
@@ -135,7 +144,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
         setNotice(t('chat.chatDeleted'));
       } else setNotice(explain(e, 'chat.loadConversationFailed'));
     }
-    finally { setOpening(false); }
+    finally { if (token === openToken.current) setOpening(false); }
   }, []);
 
   const loadList = useCallback(async (openFirst: boolean, target: string | null = null, q = '') => {
@@ -148,7 +157,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
       setListState('ready');
       // Opened from the Memory view: that conversation, even when it is older than the list.
       if (target) await open(target);
-      else if (openFirst && items[0]) await open(items[0].id);
+      else if (openFirst && items[0] && !acted.current) await open(items[0].id);
     } catch (e) {
       setListState('error');
       setListError(explain(e, 'chat.loadListFailed'));
@@ -206,6 +215,10 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
 
   async function ask(body: AskBody) {
     if (streaming) return;
+    acted.current = true;
+    // A conversation still loading would replace this question when it arrives: keep the question.
+    openToken.current++;
+    setOpening(false);
     if (!online) { setNotice(t('chat.offline')); return; }
     setNotice(null);
     setBudget(null);
@@ -351,7 +364,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
 
   const row = (c: Conversation) => <li key={c.id} className={c.id === activeId ? 'active' : ''}>
     <button type="button" className="chatListItem" aria-current={c.id === activeId ? 'true' : undefined} onClick={() => void open(c.id)} disabled={streaming && c.id !== activeId}>
-      <span dir="auto">{c.pinned && <Pin className="chatPinMark" aria-label={t('chat.pinnedMark')} />}{conversationTitle(c)}</span><time dateTime={c.updated_at}>{when(c.updated_at)}</time>
+      <span dir="auto">{c.pinned && <Pin className="chatPinMark" aria-hidden="true" />}{conversationTitle(c)}</span><time dateTime={c.updated_at}>{when(c.updated_at)}</time>
     </button>
     <ActionMenu className="iconButton chatRowMenu" label={t('chat.actionsFor', { title: conversationTitle(c) })} items={[
       { id: 'rename', label: t('chat.rename'), icon: <Pencil aria-hidden="true" />, disabled: streaming, onSelect: () => setPending({ kind: 'rename', conversation: c, title: c.title }) },
@@ -384,7 +397,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
     </aside>
     <section className="surface chatPanel" aria-label={t('chat.panel')}>
       <header className="chatHeader">
-        <Sparkles aria-hidden="true" /><h2 dir="auto">{active?.pinned && <Pin className="chatPinMark" aria-label={t('chat.pinnedMark')} />}{title}</h2>
+        <Sparkles aria-hidden="true" /><h2 dir="auto">{active?.pinned && <><Pin className="chatPinMark" aria-hidden="true" /><span className="visuallyHidden">{t('chat.pinnedMark')}: </span></>}{title}</h2>
         {streaming && <span className="statusBadge warning">{t('chat.answering')}</span>}
         {active && <StarButton starred={stars.ids.has(active.id)} label={conversationTitle(active)} onToggle={() => void stars.toggle(active.id)} />}
         {active && <ActionMenu className="iconButton" label={t('chat.conversationActions')} items={conversationMenu} />}
