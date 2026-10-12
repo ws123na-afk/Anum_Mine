@@ -113,7 +113,7 @@ Registered in the API's and the worker's tool registry:
 
 Each declares its autonomy category (`whatsapp`) and kind (`read`, `read`, `draft`, `reply`, `reply`); none is undoable, since a sent message cannot be taken back.
 
-All need the `owner` or `member` role. A task that mentions WhatsApp ("Which WhatsApp customers are waiting for a reply?") selects the `anum.whatsapp-inbox` skill and lists the conversations; replies are drafted and sent from the inbox, where the person sees what goes out. Tool output (customer text) is untrusted data and reaches prompts only through `tool_output_prompt_block`.
+All need the `owner` or `member` role. A task that mentions WhatsApp ("Which WhatsApp customers are waiting for a reply?") selects the `anum.whatsapp-inbox` skill and lists the conversations; replies are drafted and sent from the inbox, where the person sees what goes out. Tool output (customer text) is untrusted data and reaches prompts only through `tool_output_prompt_block`. Asked in the Assistant chat ("what's waiting on WhatsApp?", "ماذا ينتظر في واتساب؟"), the question runs as such a task and the reply carries a card with the conversations (unread, needs a reply, window closed) that open in WhatsApp ([Conversations: tools in chat](conversations.md#tools-in-chat)).
 
 ## API
 

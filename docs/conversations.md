@@ -6,11 +6,13 @@ remembers what was said. It is the main Ask experience in the web console (the
 
 ## What it is and is not
 
-- **Text only.** The chat assistant has no tools. It cannot approve, delete, pay, send
-  messages or change permissions, so the runtime's tool mediation and approvals are never
-  bypassed: anything that changes state is a task, which runs under the workspace's
-  approval policy. The system prompt tells the model so, and it suggests creating a task
-  when the user wants something done.
+- **Governed tool use, never a tool call from the chat model.** Plain conversation stays
+  text only: the chat model has no tools and cannot approve, delete, pay, send messages or
+  change permissions. A question that needs workspace data or an action ("ANUM, any urgent
+  customer emails?", "what's waiting on WhatsApp?", "send the report to the bank") is turned
+  into a **task** and run through the runtime exactly like `POST /api/v1/tasks/{id}/run`
+  (planner, skills, `ToolPolicy`, governance, autonomy, approvals, audit); the outcome
+  streams back as a card ([Tools in chat](#tools-in-chat)).
 - **Tyre data, read-only.** A tyre question is answered from the workspace's synced
   tyre data: ANUM (not the model) picks one of the read-only tyre tools from the
   user's own words, `ToolPolicy` decides it (a policy pack can deny it), the call is
@@ -41,7 +43,7 @@ All under `/api/v1/conversations`, with the usual tenant context. Listing and re
 | `DELETE /{id}` | `204`; its turns go with it |
 | `POST /{id}/ask` `{"content"}` or `{"retry_turn_id"}` | `200` `text/event-stream` (below) |
 
-A turn is `{id, conversation_id, role: user|assistant, content, status: complete|cancelled|failed, created_at}`.
+A turn is `{id, conversation_id, role: user|assistant, content, status: complete|cancelled|failed, created_at, card}`; `card` is null for plain conversation.
 
 `retry_turn_id` asks the latest question again (the **Retry** button) without storing a
 second copy of it; any other turn id answers `409`. The monthly model budget is checked
@@ -55,6 +57,7 @@ before anything is stored: when it is used up the ask answers `402`
 | Event | Data |
 | --- | --- |
 | `turn` | `{"user_turn": turn, "memories_used": [memory id, ...]}` once the question is stored; the ids of the memories recalled into this question (empty when none) |
+| `tool` | `{"card": card}` when the question ran as a task: first `running`, then the settled card ([Tools in chat](#tools-in-chat)) |
 | `delta` | `{"text": "..."}` for each piece of the reply as the model produces it |
 | `done` | `{"assistant_turn": turn, "report": card or null}` when the reply is complete and stored; `report` when the answer was a structured analysis ([Reports](reports.md#chat-answer-cards)) |
 | `error` | `{"code", "message", "assistant_turn"}`: `model_unavailable` (generic message; only the error class is logged) or `model_budget_exceeded` |
@@ -77,6 +80,79 @@ retried once text has been shown, so a slow model can no longer hang the UI for 
 minutes of hidden retries.
 
 A structured answer ends with an `anum-report` block that the server removes from the stored turn and stores as a private report; `GET /api/v1/conversations/{id}` returns those cards in `reports` ([Reports](reports.md#chat-answer-cards)).
+
+## Tools in chat
+
+`anum_api/chat_tools.py`. Which questions become tasks is decided from the **user's own
+words only**, with the runtime's own skill selection (`SkillRegistry.select`, Arabic
+triggers included) plus a few file words; nothing in an email, a WhatsApp message, a web
+page or a file can select a tool, change its arguments or approve anything (threat model
+G3/G5).
+
+| The question mentions | Task's planned tool | Card |
+| --- | --- | --- |
+| WhatsApp (`whatsapp`, `واتساب`) | `list_whatsapp_conversations` (`needs_reply` when it asks what is waiting) | results: conversations, links to WhatsApp |
+| mail (`email`, `inbox`, `gmail`, `بريد`, `ايميل` …) | `search_email` (filters from the words, [Email](email.md#tools-for-tasks-chat-and-voice)) | results: messages, links to Inbox |
+| an action (`send`, `delete`, `pay`, `publish` …) | `external.action` (high risk) | approval |
+| the web (`search`, `web`, `news`, `ابحث` …; only where SearXNG is configured) | `web_search` | results: links that open in a new tab |
+| files (`file`, `document`, `contract`, `pdf`, `ملف`, `مستند` …) | `anum.respond` with workspace retrieval | results: the answer, the files and notes used |
+
+Anything else is plain conversation and streams as before. How it runs:
+
+1. The question is stored, then a task (title from the question, `created_by` the asker)
+   is created in its own committed unit of work with its `task.created` event, so it is
+   in Tasks whatever happens next. A `tool` event with a `running` card follows.
+2. The task runs in a second unit of work through `AgentRuntime` with the API's tool
+   registry, retriever and, with `ANUM_RUNTIME_BACKEND=temporal`, the durable dispatcher.
+   Inline runs are bounded (150 s). Queued runs are followed for 45 s; after that the card
+   stays `running` and is refreshed when the conversation is opened again.
+3. The settled card streams as a second `tool` event. For results from mail, WhatsApp and
+   the web the fast model writes a one to three sentence answer above the card, streamed as
+   `delta`s: its prompt holds the untrusted-data rules, then the tool output serialized and
+   wrapped by `tool_output_prompt_block` (provenance label, random-nonce markers, forged
+   markers defanged), and the question is the only user message. If that call fails, the
+   tool's own summary is the answer. Approval, failed and running cards get a fixed line.
+4. `done` carries the assistant turn with its card; the card is stored on the turn
+   (`conversation_turns.card`, migration `0047_chat_cards`, nullable JSONB, covered by the
+   table's user-scoped forced RLS).
+
+**Card** `{state, category, task_id, run_id, tool, summary, items, total, approval, error_code}`:
+`state` is `running`, `results`, `approval`, `failed`, `cancelled` or `denied`; `category`
+is `email`, `whatsapp`, `web`, `files` or `action`. `items` (at most 10 of `total`) are
+`{kind: email|whatsapp|web|file|memory, id, title, subtitle, detail, at, badges, url}`;
+`url` is set for http(s) web results only. `approval` is
+`{id, action, risk_level, status, reason, payload_hash, arguments, target, expires_at, can_decide}`
+(`can_decide`: the asker holds `approval:decide`, i.e. is an owner).
+
+- **Approvals.** Side effects pause exactly as in tasks. The card shows the action, risk,
+  target, arguments (secrets redacted) and the **payload hash**; Approve and Reject call the
+  ordinary `POST /api/v1/approvals/{id}/approve|reject` with that hash, so the two-person
+  rule, approver chains, expiry and target checks all apply. Members see that a workspace
+  owner decides, with a way to Approvals. `GET /conversations/{id}` refreshes cards that
+  were `running` or `approval` from their task (approved, rejected, expired, finished), in
+  a short read-only session in the caller's RLS scope.
+- **Failures.** A model or service failure while planning leaves the task `created` (it
+  is saved; run it from Tasks) and the card `failed` with `task_failed`; a used-up budget
+  gives `model_budget_exceeded`; an unreachable durable runtime `runtime_unavailable`; a
+  timeout `task_timeout`. Messages never carry provider details. A caller without
+  `task:run` gets a `denied` card and no task. **Stop** while the task runs rolls the run
+  back (the task stays `created`) and stores a `cancelled` card.
+- **Memory and learning.** Tool turns are never mined for memories (the reply quotes
+  mailbox, WhatsApp or web data, not the user). The user's learned chat style and
+  preferences still shape the written answer; drafting tasks get them in the runtime as
+  for any task ([What ANUM learned](learning.md)).
+- **Clients.** Web (`ChatCardView.tsx`) and Flutter (`lib/features/chat/chat_card_view.dart`)
+  render every state in English and Arabic; only a results card shows the written answer,
+  the other cards speak for themselves. Item links open Inbox (that message), WhatsApp
+  (that conversation), Files, Memory, the task or Approvals; on the phone app they open
+  Inbox, WhatsApp, Tasks, Approvals or Resources. Mail and web text is rendered as text.
+- **Tests.** `services/api/tests/test_chat_tools.py` (routing, results, WhatsApp, files,
+  approval through the approvals route, rejection, member, failures, budget, Stop, and
+  prompt injection from email and WhatsApp text staying data);
+  `apps/web/test/chatCards.test.ts`, `apps/web/e2e/assistant-chat-tools.spec.ts` (cards,
+  Approve with the hash, members, Arabic, five viewport sizes);
+  `apps/mobile/test/chat/chat_cards_test.dart` (models, every state, Approve, 403, Arabic,
+  320 px at 200 percent text to 1440 px, tap targets).
 
 ## Long-term memory
 
@@ -110,7 +186,7 @@ they live in `conversations` and `conversation_turns` (migration `0018_conversat
 under forced RLS whose policies check `anum.tenant_id`, `anum.workspace_id` and
 `anum.user_id`, like voice sessions. Turns reference their conversation by
 `(tenant_id, workspace_id, user_id, conversation_id)` with `ON DELETE CASCADE` and are
-ordered by an identity column. Only the retention purge looks across tenants, through
+ordered by an identity column. A turn's task card is the nullable JSONB `card` column (migration `0047_chat_cards`, expand only). Only the retention purge looks across tenants, through
 the discovery-only maintenance role (below); no other role is granted anything on these
 tables.
 
