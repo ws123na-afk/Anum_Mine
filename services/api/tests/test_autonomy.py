@@ -25,6 +25,7 @@ from anum_api.agent_tools import (
 from anum_api.autonomy import (
     ActionFilter,
     ActionKind,
+    AutonomyFacts,
     AutonomyLevel,
     AutonomyMode,
     AutonomyRule,
@@ -215,6 +216,55 @@ def test_first_contact_without_template_or_without_recipient_always_asks() -> No
     assert _decide(free_text, known={"a@shop.example"}).guardrail == Guardrail.TEMPLATE
     unknown = _profile("whatsapp.send_template", category="whatsapp", kind="send", template="order_status")
     assert _decide(unknown).mode == AutonomyMode.ASK
+    unknown_reply = _profile("whatsapp.reply_template", category="whatsapp", kind="reply", template="order_status")
+    assert _decide(unknown_reply).guardrail == Guardrail.FIRST_CONTACT
+
+
+def _facts_decide(profile, facts: AutonomyFacts, settings: WorkspaceAutonomySettings | None = None,  # type: ignore[no-untyped-def]
+                  rules: list[AutonomyRule] | None = None):
+    cfg = effective(settings or WorkspaceAutonomySettings(), OrganizationGuardrails())
+    return decide(profile, cfg, rules or [], now=NOW, known=set(), count_today=lambda **_: 0, facts=facts)
+
+
+def test_connector_facts_make_who_wrote_first_known_and_own_the_category_templates() -> None:
+    template = _profile("send_whatsapp_template", RiskLevel.MEDIUM, category="whatsapp", kind="reply", to="966500000001", template="order_update")
+    listed = AutonomyFacts(known_recipients=frozenset({"+966500000001"}), approved_templates=("order_update",),
+                           templates_source="WhatsApp's approved templates are the auto-send list.")
+    assert _facts_decide(template, listed).mode == AutonomyMode.NOTIFY
+    # Without the customer having written first, it is first contact.
+    assert _facts_decide(template, listed.model_copy(update={"known_recipients": frozenset()})).guardrail == Guardrail.FIRST_CONTACT
+    # The connector's list replaces the workspace list for its category: no second list to keep in sync.
+    unlisted = listed.model_copy(update={"approved_templates": ()})
+    decision = _facts_decide(template, unlisted, WorkspaceAutonomySettings(approved_templates=["order_update"]))
+    assert decision.guardrail == Guardrail.TEMPLATE and "auto-send list" in decision.reason
+    # Facts never lift the other checks: quiet hours, levels, blocked recipients.
+    quiet = WorkspaceAutonomySettings(quiet_hours=QuietHours(start="11:00", end="13:00"))
+    assert _facts_decide(template, listed, quiet).guardrail == Guardrail.QUIET_HOURS
+    asks = WorkspaceAutonomySettings(category_levels={ToolCategory.WHATSAPP: AutonomyLevel.ASK_ALWAYS})
+    assert _facts_decide(template, listed, asks).mode == AutonomyMode.ASK
+    blocked = WorkspaceAutonomySettings(blocked_recipients=["+966500000001"])
+    assert _facts_decide(template, listed, blocked).mode == AutonomyMode.BLOCK
+    # The connector's list is the only way in: a rule cannot add a template beside it, and
+    # approvals of WhatsApp templates are not counted towards such a rule.
+    rule = AutonomyRule(id="r", tenant_id=TENANT, workspace_id=WORKSPACE, pattern_key="send_whatsapp_template|template=order_update",
+                        tool="send_whatsapp_template", template="order_update", category=ToolCategory.WHATSAPP,
+                        action_kind=ActionKind.REPLY, level=AutonomyLevel.ACT_AND_NOTIFY, source=RuleSource.PROPOSAL,
+                        created_by="x", created_at=NOW)
+    off_list = _facts_decide(template, unlisted, rules=[rule])
+    assert off_list.mode == AutonomyMode.ASK and off_list.guardrail == Guardrail.TEMPLATE and not off_list.proposable
+    assert _facts_decide(template, listed, quiet).proposable is False
+    always_ask = rule.model_copy(update={"level": AutonomyLevel.ASK_ALWAYS})
+    assert _facts_decide(template, listed, rules=[always_ask]).guardrail == Guardrail.RULE
+
+
+def test_free_text_always_asks_even_with_a_rule_for_its_pattern() -> None:
+    free_text = _profile("send_whatsapp", category="whatsapp", kind="reply", to="966500000001", text="hello")
+    rule = AutonomyRule(id="r", tenant_id=TENANT, workspace_id=WORKSPACE, pattern_key="send_whatsapp", tool="send_whatsapp",
+                        category=ToolCategory.WHATSAPP, action_kind=ActionKind.REPLY, level=AutonomyLevel.ACT_AND_NOTIFY,
+                        source=RuleSource.MANUAL, created_by="x", created_at=NOW)
+    facts = AutonomyFacts(known_recipients=frozenset({"+966500000001"}), approved_templates=())
+    decision = _facts_decide(free_text, facts, rules=[rule])
+    assert decision.mode == AutonomyMode.ASK and decision.guardrail == Guardrail.TEMPLATE and not decision.proposable
 
 
 @pytest.mark.parametrize(

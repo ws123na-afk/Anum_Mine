@@ -22,19 +22,37 @@ The category level is a **ceiling** over ANUM's recommendation for the kind of a
 | `update`, `other` | ask, unless the platform already lets the tool run without approval (then silent for low risk, notify for medium) |
 | `delete`, `price_change`, `stock_change`, `payment`, `merge_code` | **always ask** (protected) |
 
-A tool declares its kind and category on its `ToolDefinition` (`category`, `action_kind`). Undeclared values are guessed from the tool name (`gmail.send_message` is email/send, `noon.update_price` is commerce/price change), cautiously: a medium or high-risk tool whose name merely sounds like a read is `other` and asks. Connector tools on other branches should declare both.
+A tool declares its kind and category on its `ToolDefinition` (`category`, `action_kind`). Undeclared values are guessed from the tool name (`gmail.send_message` is email/send, `noon.update_price` is commerce/price change), cautiously: a medium or high-risk tool whose name merely sounds like a read is `other` and asks. Connector tools declare both; the email and WhatsApp tools do:
+
+| Tool | Category / kind | Risk | Without approval |
+|---|---|---|---|
+| `search_email`, `read_email`, `list_whatsapp_conversations`, `read_whatsapp` | read | low | silently |
+| `draft_whatsapp_reply` | whatsapp / draft | low | silently |
+| `draft_reply` | email / draft | medium | acts and notifies |
+| `mark_email_read` | email / update | low | silently, **Undo** for 24 hours (sets the read state back) |
+| `archive_email` | email / archive | medium | acts and notifies, **Undo** for 24 hours (`unarchive_email` moves it back) on Gmail and Zoho Mail; Outlook archives are not undoable from ANUM (Microsoft Graph gives a moved message a new id) |
+| `unarchive_email` | email / update | low | the compensating tool |
+| `send_whatsapp_template` | whatsapp / reply | medium | acts and notifies only with an approved template to a known recipient (below) |
+| `send_whatsapp`, `send_email` | reply / send | high | **never**: free text always asks |
 
 ## Always asks
 
 Whatever the level, a rule or the approval history, these always ask:
 
 - money, prices, stock, deleting, merging code (the protected kinds);
-- **first contact** with a recipient not contacted before in this category, and a `send` whose recipients ANUM cannot read from the arguments;
+- **first contact** with a recipient not contacted before in this category and not vouched for by the tool's connector (below), and a `reply` or `send` whose recipients ANUM cannot read from the arguments;
 - **bulk** sends above the workspace's recipients threshold (default 5);
 - an amount above the workspace's amount threshold (default 0) or a price change above its percentage threshold (default 0);
-- free-text messages (a `reply` or `send` without a template, unless an owner made a rule for that exact pattern with a template).
+- free-text messages: a `reply` or `send` without a template always asks, whatever the level, a rule or the approval history. Only a message with a template can act on its own, and only when the template is approved for its category (below) or an owner made a rule for that exact tool-and-template pattern (not for WhatsApp, whose auto-send list is the only way).
 
 Recipients become known when a call to them completes, approved or autonomous. They are stored only as SHA-256 digests of tenant, workspace, category and the normalized address (`autonomy_recipients`), never the address itself.
+
+### Connector facts: who wrote first, and whose templates
+
+A connector registers a facts function with its tools (`ToolRegistry.register(..., autonomy_facts=...)`, returning `AutonomyFacts`); the runtime reads it at every evaluation (planning, execution, the Temporal worker's re-check), in the caller's tenant context. A failure to read it propagates, so a call never acts on a guess. Facts can only make a recipient known and name a category's approved templates; they never lift protected kinds, bulk, thresholds, levels, quiet hours, caps, blocked recipients or the tool policy.
+
+- **WhatsApp**: the customer of the conversation a send names is known when they have written to the business in it (an inbound message, so the 24-hour window has a start). A number that never wrote, or a conversation holding only echoes from the phone app, is first contact and asks. The whatsapp category's **approved templates are the owner's auto-send list** (WhatsApp > Templates, *Send without asking*): that list is the one place they are kept, and the workspace's approved templates below do not apply to WhatsApp, so there is no second list to keep in sync. Because that list owns the category's templates, no rule can add a WhatsApp template beside it and ANUM does not suggest one from repeated approvals (put the template on the list instead); a rule can still make a listed template always ask ("Always ask for this"). Ticking a template off makes it ask again at once.
+- **Email**: the sender of the message being answered (`in_reply_to`, a message the caller may see) is known; anyone else on the reply is first contact unless ANUM wrote to them before. Email has no templates, so `send_email` is free text and always asks; the fact only changes the recorded reason.
 
 ## Guardrails (organization floors)
 
@@ -49,11 +67,11 @@ Organization administrators (`organization_policy:manage`, the `org_admin` role;
 | `daily_caps` | Autonomous actions per day per category or tool name; above the cap the call asks. Without a cap a category allows 200 a day. Reads and drafts are not counted. |
 | `quiet_hours` | `{start, end, timezone}` (a window may cross midnight); inside it nothing with an effect runs on its own, it asks. |
 
-A workspace (`PUT /api/v1/autonomy/settings`, owners) may be stricter but never looser: a setting above a floor answers `422` naming each problem; a floor lowered later caps the stored value at evaluation. Workspaces add their own caps, quiet hours and blocked lists (the union applies), approved templates and `proposal_after` (approvals before a suggestion, default 3).
+A workspace (`PUT /api/v1/autonomy/settings`, owners) may be stricter but never looser: a setting above a floor answers `422` naming each problem; a floor lowered later caps the stored value at evaluation. Workspaces add their own caps, quiet hours and blocked lists (the union applies), approved templates (for templated tools whose connector does not own its list; WhatsApp's are its auto-send list) and `proposal_after` (approvals before a suggestion, default 3).
 
 ## Rules and "ask once, remember"
 
-A rule sets the level for one exact pattern: a tool, optionally with a template (`whatsapp.send_template|template=order_status`). Owners add rules that raise autonomy (`POST /api/v1/autonomy/rules`); anyone who runs tasks can add an `ask_always` rule, and "Always ask for this" on an activity entry does that for its pattern (`POST /api/v1/autonomy/actions/{id}/tighten`). Only owners delete rules. A raising rule is refused (`422`) for protected kinds, for messages without a template, for `act_silently` on a tool that is not low risk, and above the category's ceiling. Rules never lift first contact, bulk, thresholds, quiet hours, caps or guardrails.
+A rule sets the level for one exact pattern: a tool, optionally with a template (`whatsapp.send_template|template=order_status`). Owners add rules that raise autonomy (`POST /api/v1/autonomy/rules`); anyone who runs tasks can add an `ask_always` rule, and "Always ask for this" on an activity entry does that for its pattern (`POST /api/v1/autonomy/actions/{id}/tighten`). Only owners delete rules. A raising rule is refused (`422`) for protected kinds, for messages without a template, for `act_silently` on a tool that is not low risk, and above the category's ceiling; a message without a template asks even if such a rule exists. Rules never lift first contact, bulk, thresholds, quiet hours, caps or guardrails.
 
 When an owner approves the same pattern repeatedly (`proposal_after` times), ANUM records a **suggestion** (`autonomy.proposal_created` event and audit record) to let that pattern act and notify, for example "auto-send order-status replies on WhatsApp". Nothing changes until an owner accepts it (`POST /api/v1/autonomy/proposals/{id}/accept`, which creates the rule); declining keeps asking and the pattern is never suggested again. Protected kinds, unclassified (`other`) tools, free-text messages and patterns a policy keeps asking for are never counted.
 
@@ -89,10 +107,12 @@ Migration `0034_autonomy` (expand only): `autonomy_guardrails` (one row per tena
 
 ## Tests
 
-`services/api/tests/test_autonomy.py` (evaluation, floors, thresholds, quiet hours, caps, classification, policy combination, runtime inline and durable, proposals, undo, feed, tighten, permissions), `test_postgres_autonomy.py` (the whole loop as the app role, RLS isolation between workspaces and tenants, check constraints), `test_migrations.py`; web `test/autonomy.test.ts` and `e2e/autonomy.spec.ts` (including the five responsive-gate sizes), the accessibility gate for both views; Flutter `test/autonomy_test.dart` (models, controllers, screens at 320 to 1440 wide and 200% text).
+`services/api/tests/test_autonomy.py` (evaluation, floors, thresholds, quiet hours, caps, classification, connector facts, free text, policy combination, runtime inline and durable, proposals, undo, feed, tighten, permissions), `test_whatsapp.py` (the auto-send list as approved templates, first contact, quiet hours, caps, blocked numbers, the medium-risk switch and the category level), `test_email.py` (declared kinds, archive and mark-read acting with Undo at Gmail and Zoho, no Undo for Outlook, quiet hours, the answered sender being known while free text asks), `test_postgres_autonomy.py` (the whole loop as the app role, RLS isolation between workspaces and tenants, check constraints), `test_migrations.py`; web `test/autonomy.test.ts` and `e2e/autonomy.spec.ts` (including the five responsive-gate sizes), the accessibility gate for both views; Flutter `test/autonomy_test.dart` (models, controllers, screens at 320 to 1440 wide and 200% text).
 
 ## Not built yet
 
-- The email, WhatsApp and commerce connector tools live on their own branches; they become autonomous once their `ToolDefinition`s declare `category`, `action_kind` and, where reversible, `undo_tool` and `undo_window_seconds` with `output["undo"]`.
+- The commerce connector tools live on their own branch; they become autonomous once their `ToolDefinition`s declare `category`, `action_kind` and, where reversible, `undo_tool` and `undo_window_seconds` with `output["undo"]`.
+- An Outlook archive cannot be undone from ANUM (the moved message gets a new Graph id that ANUM does not track); Gmail and Zoho Mail archives can.
+- A person's own clicks in the email inbox (mark read, archive) go through the same policy but are the person's actions, so they are audited, not listed in the autonomy activity feed.
 - Push delivery of the notification to phones (the event reaches the web; the Flutter app shows the feed).
 - The Flutter client does not edit quiet hours, caps, blocked lists or organization guardrails, and its autonomy strings are English only.

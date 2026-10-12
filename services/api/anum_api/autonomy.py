@@ -278,6 +278,27 @@ def profile_call(call: ToolCall, definition: ToolDefinition | None) -> ActionPro
     )
 
 
+class AutonomyFacts(BaseModel):
+    """What the tool's own module knows about one call, for autonomy (docs/autonomy.md).
+
+    A connector registers a facts function with its tools (``ToolRegistry.register``);
+    the runtime asks it at every evaluation, in the caller's tenant context. It can only
+    make a message's recipients *known* (they wrote to us first: a WhatsApp customer who
+    messaged the business, the sender of the email being answered) and name the
+    category's approved templates when the connector owns that list (WhatsApp's auto-send
+    list). It never lifts any other check.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    # Normalized recipients this call answers (``normalize_recipient``).
+    known_recipients: frozenset[str] = frozenset()
+    # The approved templates for this call's category; ``None`` keeps the workspace list.
+    approved_templates: tuple[str, ...] | None = None
+    # Where an owner approves templates for this category, named when a template asks.
+    templates_source: str | None = None
+
+
 # -- settings ------------------------------------------------------------------------
 
 
@@ -854,6 +875,7 @@ def decide(
     known: set[str] | None = None,
     count_today: Any = None,
     platform_allows: bool = False,
+    facts: AutonomyFacts | None = None,
 ) -> AutonomyDecision:
     """The autonomy decision for one call (pure; the caller supplies the data).
 
@@ -866,9 +888,20 @@ def decide(
     needs a low-risk tool. ``platform_allows`` (the tool policy lets the call run without
     approval) makes the recommendation for kinds without one follow the tool's risk:
     silent when low, notify when medium, so autonomy never asks for what ran before
-    unless a level, a rule or a guardrail says so.
+    unless a level, a rule or a guardrail says so. ``facts`` (from the tool's module) adds
+    recipients who wrote to us first and may name the category's approved templates; such
+    a list is then the only way a template of that category acts (no rule or suggestion
+    adds one beside it). A message without a template always asks, whatever rule exists.
     """
-    known = known or set()
+    known = set(known or set())
+    if facts is not None:
+        known |= set(facts.known_recipients)
+    approved_templates = (
+        list(facts.approved_templates) if facts is not None and facts.approved_templates is not None else cfg.approved_templates
+    )
+    template_hint = (
+        f" {facts.templates_source}" if facts is not None and facts.templates_source else ""
+    )
     blocked = _blocked_recipient(profile, cfg)
     if blocked is not None:
         return AutonomyDecision(
@@ -904,7 +937,12 @@ def decide(
     # always asks). Per-call guardrails (first contact, bulk, thresholds) still count: a
     # rule for the pattern never lifts them.
     proposable = profile.kind != ActionKind.OTHER and (profile.kind not in MESSAGE_KINDS or profile.template is not None)
-    if profile.kind == ActionKind.SEND and not profile.recipients:
+    # A connector that owns its category's approved templates (WhatsApp's auto-send list)
+    # is the one place a template is allowed: no rule or suggestion adds one beside it.
+    connector_templates = facts is not None and facts.approved_templates is not None
+    if connector_templates and profile.kind in MESSAGE_KINDS:
+        proposable = False
+    if profile.kind in MESSAGE_KINDS and not profile.recipients:
         return _ask(profile, "ANUM cannot tell who this message goes to, so it asks.", Guardrail.FIRST_CONTACT)
     if profile.kind in MESSAGE_KINDS and profile.recipients and any(r not in known for r in profile.recipients):
         return _ask(profile, "First contact with a new recipient always asks.", Guardrail.FIRST_CONTACT, proposable=proposable)
@@ -928,6 +966,14 @@ def decide(
             proposable=proposable,
         )
 
+    if profile.kind in MESSAGE_KINDS and profile.template is None:
+        # Free text written for this message: no level, rule or history lets it go alone.
+        return _ask(profile, "Free-text messages always ask before they are sent.", Guardrail.TEMPLATE)
+    if connector_templates and profile.kind in MESSAGE_KINDS and profile.template not in approved_templates:
+        return _ask(
+            profile, "Messages act on their own only to known recipients with an approved template." + template_hint, Guardrail.TEMPLATE
+        )
+
     ceiling = cfg.category_levels.get(profile.category, AutonomyLevel.ACT_SILENTLY)
     rule = next((r for r in rules if r.pattern_key == profile.pattern_key), None)
     if rule is not None:
@@ -943,10 +989,10 @@ def decide(
                 if platform_allows
                 else AutonomyLevel.ASK_ALWAYS
             )
-        if profile.kind in MESSAGE_KINDS and (profile.template is None or profile.template not in cfg.approved_templates):
+        if profile.kind in MESSAGE_KINDS and profile.template not in approved_templates:
             return _ask(
                 profile,
-                "Messages act on their own only to known recipients with an approved template.",
+                "Messages act on their own only to known recipients with an approved template." + template_hint,
                 Guardrail.TEMPLATE,
                 proposable=proposable,
             )
@@ -1013,7 +1059,13 @@ class AutonomyEngine:
         )
 
     def evaluate(
-        self, profile: ActionProfile, context: TenantContext, *, now: datetime | None = None, platform_allows: bool = False
+        self,
+        profile: ActionProfile,
+        context: TenantContext,
+        *,
+        now: datetime | None = None,
+        platform_allows: bool = False,
+        facts: AutonomyFacts | None = None,
     ) -> AutonomyDecision:
         now = now or utc_now()
         cfg = self.config(context)
@@ -1027,7 +1079,7 @@ class AutonomyEngine:
 
         return decide(
             profile, cfg, self.store.list_rules(context),
-            now=now, known=known, count_today=count_today, platform_allows=platform_allows,
+            now=now, known=known, count_today=count_today, platform_allows=platform_allows, facts=facts,
         )
 
 

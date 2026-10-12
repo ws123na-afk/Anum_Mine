@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from anum_api import main, whatsapp
 from anum_api.agent_tools import ToolCall
 from anum_api.authorization import ROLE_PERMISSIONS, Permission, Role
+from anum_api.autonomy import autonomy_memory_store
 from anum_api.model_budget import memory_model_budget_store
 from anum_api.model_gateway import ModelCallMetadata, ModelResponse, ModelUsage
 from anum_api.schemas import RiskLevel, TenantContext, utc_now
@@ -110,12 +111,14 @@ def meta(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeMeta]:
     monkeypatch.setattr(whatsapp_settings, "graph_api_url", "https://graph.facebook.com")
     whatsapp.reset_limits()
     whatsapp_store.clear()
+    autonomy_memory_store.clear()
     memory_model_budget_store.clear()
     for collection in (store.tasks, store.runs, store.approvals, store.events, store.audit_records):
         collection.clear()
     store.approval_policies.clear()
     yield fake
     whatsapp_store.clear()
+    autonomy_memory_store.clear()
     whatsapp.reset_limits()
 
 
@@ -573,30 +576,107 @@ def test_rejected_reply_shows_as_not_sent() -> None:
 
 
 def test_template_needs_approval_unless_on_the_auto_send_list(meta: FakeMeta) -> None:
+    """The auto-send list is the whatsapp category's approved templates in the autonomy
+    policy (docs/autonomy.md): one list, edited in WhatsApp > Templates."""
     connect()
     deliver(inbound(age=timedelta(hours=40)))
     conversation = only_conversation()
+    url = f"{BASE}/conversations/{conversation['id']}/send"
     template = {"name": "order_update", "language": "en_US", "parameters": ["Ahmed", "A-1001"]}
-    waiting = client.post(f"{BASE}/conversations/{conversation['id']}/send", headers=MEMBER, json={"template": template}).json()
+    waiting = client.post(url, headers=MEMBER, json={"template": template}).json()
     assert waiting["outcome"] == "awaiting_approval" and meta.sent == []
     assert waiting["approval"]["risk_level"] == "medium"
     assert "auto-send list" in waiting["approval"]["reason"]
     assert waiting["message"]["body"] == "Hi Ahmed, your order A-1001 is on its way."
 
+    # The Autonomy page's own template list does not apply to WhatsApp: no second list to keep in sync.
+    assert client.put("/api/v1/autonomy/settings", headers=OWNER, json={"approved_templates": ["order_update"]}).status_code == 200
+    assert client.post(url, headers=MEMBER, json={"template": template}).json()["outcome"] == "awaiting_approval"
+
     client.put(f"{BASE}/account", headers=OWNER, json={"phone_number_id": PHONE_ID, "business_account_id": WABA_ID, "auto_send_templates": ["order_update"]})
-    sent = client.post(f"{BASE}/conversations/{conversation['id']}/send", headers=MEMBER, json={"template": template}).json()
+    sent = client.post(url, headers=MEMBER, json={"template": template}).json()
     assert sent["outcome"] == "sent", sent
     assert meta.sent[-1]["template"] == {
         "name": "order_update", "language": {"code": "en_US"},
         "components": [{"type": "body", "parameters": [{"type": "text", "text": "Ahmed"}, {"type": "text", "text": "A-1001"}]}],
     }
+    # It acted on its own, so it is in the activity feed and announced (act and notify).
+    feed = client.get("/api/v1/autonomy/actions", headers=OWNER).json()["items"]
+    assert [(item["tool"], item["category"], item["level"], item["template"]) for item in feed] == [
+        ("send_whatsapp_template", "whatsapp", "act_and_notify", "order_update")
+    ]
+    assert [e for e in store.events if e.type == "autonomy.action_taken"]
 
     # A workspace rule that medium-risk actions need approval wins over the auto-send list.
     policy = client.put("/api/v1/approval-policy", headers=OWNER, json={"two_person_rule": False, "medium_risk_requires_approval": True})
     assert policy.status_code == 200
-    again = client.post(f"{BASE}/conversations/{conversation['id']}/send", headers=MEMBER, json={"template": template}).json()
+    again = client.post(url, headers=MEMBER, json={"template": template}).json()
     assert again["outcome"] == "awaiting_approval"
     client.put("/api/v1/approval-policy", headers=OWNER, json={"two_person_rule": False, "medium_risk_requires_approval": False})
+
+    # So does the workspace's autonomy level for WhatsApp.
+    assert client.put("/api/v1/autonomy/settings", headers=OWNER, json={"category_levels": {"whatsapp": "ask_always"}}).status_code == 200
+    asked = client.post(url, headers=MEMBER, json={"template": template}).json()
+    assert asked["outcome"] == "awaiting_approval" and "asks before whatsapp" in asked["approval"]["reason"]
+    assert len(meta.sent) == 1
+
+
+def test_auto_send_still_asks_in_quiet_hours_over_caps_for_free_text_and_blocks_blocked(meta: FakeMeta) -> None:
+    connect()
+    deliver(inbound())
+    conversation = only_conversation()
+    url = f"{BASE}/conversations/{conversation['id']}/send"
+    client.put(f"{BASE}/account", headers=OWNER, json={"phone_number_id": PHONE_ID, "business_account_id": WABA_ID, "auto_send_templates": ["order_update"]})
+    template = {"name": "order_update", "language": "en_US", "parameters": ["Ahmed", "A-1001"]}
+
+    # Free text always asks, even with the window open and templates auto-sent.
+    text = client.post(url, headers=OWNER, json={"text": "Yes, it is in stock."}).json()
+    assert text["outcome"] == "awaiting_approval" and text["approval"]["risk_level"] == "high"
+
+    # Quiet hours: nothing with an effect runs on its own, the template asks.
+    now = utc_now()
+    quiet = {"start": (now - timedelta(hours=1)).strftime("%H:%M"), "end": (now + timedelta(hours=1)).strftime("%H:%M"), "timezone": "UTC"}
+    assert client.put("/api/v1/autonomy/settings", headers=OWNER, json={"quiet_hours": quiet}).status_code == 200
+    held = client.post(url, headers=MEMBER, json={"template": template}).json()
+    assert held["outcome"] == "awaiting_approval" and "Quiet hours" in held["approval"]["reason"]
+
+    # A reached daily cap asks too.
+    assert client.put("/api/v1/autonomy/settings", headers=OWNER, json={"daily_caps": {"whatsapp": 0}}).status_code == 200
+    capped = client.post(url, headers=MEMBER, json={"template": template}).json()
+    assert capped["outcome"] == "awaiting_approval" and "daily cap" in capped["approval"]["reason"]
+
+    # Without them, the customer wrote to the business, so the template goes out on its own.
+    assert client.put("/api/v1/autonomy/settings", headers=OWNER, json={}).status_code == 200
+    assert client.post(url, headers=MEMBER, json={"template": template}).json()["outcome"] == "sent"
+
+    # A blocked number is refused even for an auto-send template.
+    assert client.put("/api/v1/autonomy/settings", headers=OWNER, json={"blocked_recipients": [f"+{CUSTOMER}"]}).status_code == 200
+    blocked = client.post(url, headers=MEMBER, json={"template": template})
+    assert blocked.status_code == 403 and "blocked list" in blocked.json()["error"]["message"]
+    assert len(meta.sent) == 1
+
+
+def test_first_contact_asks_even_for_an_auto_send_template(meta: FakeMeta) -> None:
+    connect()
+    deliver(inbound())
+    conversation = only_conversation()
+    client.put(f"{BASE}/account", headers=OWNER, json={"phone_number_id": PHONE_ID, "business_account_id": WABA_ID, "auto_send_templates": ["order_update"]})
+    # A conversation the customer never wrote in (for example only echoes from the phone app).
+    with open_whatsapp_store(CONTEXT) as wa:
+        row = wa.get_conversation(conversation["id"])
+        assert row is not None
+        row.last_inbound_at = None
+        wa.save_conversation(row)
+    template = {"name": "order_update", "language": "en_US", "parameters": ["Ahmed", "A-1001"]}
+    first = client.post(f"{BASE}/conversations/{conversation['id']}/send", headers=MEMBER, json={"template": template}).json()
+    assert first["outcome"] == "awaiting_approval" and "First contact" in first["approval"]["reason"]
+    assert meta.sent == []
+
+    # The inbox vouches only for the conversation's own customer.
+    facts = whatsapp.autonomy_facts(
+        ToolCall(name="send_whatsapp_template", arguments={"conversation_id": conversation["id"], "to": "966511111111"}), CONTEXT
+    )
+    assert facts.known_recipients == frozenset() and facts.approved_templates == ("order_update",)
 
 
 def test_template_problems_are_refused_before_anything_is_queued(meta: FakeMeta) -> None:
@@ -636,6 +716,15 @@ def test_tool_definitions_and_risk() -> None:
     assert {definitions[name].risk_level for name in ("list_whatsapp_conversations", "read_whatsapp", "draft_whatsapp_reply")} == {RiskLevel.LOW}
     assert all(d.required_roles == {"owner", "member"} for d in definitions.values())
     assert set(whatsapp.TOOLS) <= main.tool_registry.names
+    # Declared for the autonomy policy, not guessed from the names (docs/autonomy.md).
+    assert {name: (d.category, d.action_kind) for name, d in definitions.items()} == {
+        "list_whatsapp_conversations": ("whatsapp", "read"),
+        "read_whatsapp": ("whatsapp", "read"),
+        "draft_whatsapp_reply": ("whatsapp", "draft"),
+        "send_whatsapp": ("whatsapp", "reply"),
+        "send_whatsapp_template": ("whatsapp", "reply"),
+    }
+    assert all(d.undo_tool is None for d in definitions.values())  # a sent message cannot be taken back
 
 
 def run_tool(name: str, **arguments: Any) -> Any:

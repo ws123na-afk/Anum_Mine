@@ -73,18 +73,34 @@ class ToolPolicyDecision(BaseModel):
 
 
 ToolHandler = Callable[[ToolCall, TenantContext], Awaitable[ToolResult]]
+# What a connector knows about one call for autonomy (returns ``autonomy.AutonomyFacts``).
+AutonomyFactsProvider = Callable[[ToolCall, TenantContext], Any]
 
 
 class ToolRegistry:
     def __init__(self) -> None:
         self._definitions: dict[str, ToolDefinition] = {}
         self._handlers: dict[str, ToolHandler] = {}
+        self._facts: dict[str, AutonomyFactsProvider] = {}
 
-    def register(self, definition: ToolDefinition, handler: ToolHandler) -> None:
+    def register(
+        self, definition: ToolDefinition, handler: ToolHandler, *, autonomy_facts: AutonomyFactsProvider | None = None
+    ) -> None:
         if definition.name in self._definitions:
             raise ValueError(f"tool already registered: {definition.name}")
         self._definitions[definition.name] = definition
         self._handlers[definition.name] = handler
+        if autonomy_facts is not None:
+            self._facts[definition.name] = autonomy_facts
+
+    def autonomy_facts(self, call: ToolCall, context: TenantContext) -> Any:
+        """The tool module's facts for autonomy (``autonomy.AutonomyFacts``), or None.
+
+        Read in the caller's tenant context; a failure propagates, so a call never acts
+        on a guess (docs/autonomy.md).
+        """
+        provider = self._facts.get(call.name)
+        return provider(call, context) if provider is not None else None
 
     @property
     def names(self) -> set[str]:

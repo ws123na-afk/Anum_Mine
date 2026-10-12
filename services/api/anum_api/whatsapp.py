@@ -44,6 +44,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .agent_tools import ToolCall, ToolDefinition, ToolPolicyDecision, ToolPolicyOutcome, ToolRegistry, ToolResult
 from .audit import AuditRecord
 from .authorization import Permission
+from .autonomy import AutonomyFacts, normalize_recipient
 from .dependencies import _unit_of_work, has_permission, repository_context, require_permission, tenant_context
 from .events import CanonicalEventName, create_event
 from .hardening import InMemoryTokenBucket, client_key
@@ -1039,31 +1040,71 @@ async def template_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     )
 
 
+AUTO_SEND_SOURCE = (
+    "WhatsApp's approved templates are the owner's auto-send list (WhatsApp > Templates, Send without asking)."
+)
+
+
+def autonomy_facts(call: ToolCall, context: TenantContext) -> AutonomyFacts:
+    """What the inbox knows about a send, for the autonomy policy (docs/autonomy.md).
+
+    * The customer is a **known recipient** when the call answers the conversation it
+      names and that customer has written to the business in it (an inbound message, so
+      ``last_inbound_at`` is set). A number that never wrote (or a conversation holding
+      only echoes from the phone app) is first contact and asks.
+    * The whatsapp category's **approved templates** are the owner's auto-send list: the
+      one place they are kept. The Autonomy page's own template list does not apply here.
+    """
+    with open_whatsapp_store(context) as store:
+        account = store.get_account()
+        conversation = store.get_conversation(str(call.arguments.get("conversation_id") or ""))
+    known: frozenset[str] = frozenset()
+    to = call.arguments.get("to")
+    if (
+        conversation is not None
+        and isinstance(to, str)
+        and to == conversation.wa_id
+        and conversation.last_inbound_at is not None
+    ):
+        known = frozenset({normalize_recipient(to)})
+    templates = tuple(account.auto_send_templates) if account is not None else ()
+    return AutonomyFacts(known_recipients=known, approved_templates=templates, templates_source=AUTO_SEND_SOURCE)
+
+
 def tool_definitions(cfg: WhatsAppSettings | None = None) -> list[ToolDefinition]:
+    """The five WhatsApp tools, each with its autonomy category and kind of action.
+
+    Both sends go into an existing conversation, so they are replies: the free-form one
+    never carries a template and always asks (high risk, and autonomy never lets free text
+    go alone); the template one may act and notify under docs/autonomy.md.
+    """
     people = frozenset({"owner", "member"})
     target = graph_host(cfg)
+    wa = "whatsapp"
     return [
         ToolDefinition(name=LIST_TOOL, description="List the workspace's WhatsApp conversations (read-only).",
-                       risk_level=RiskLevel.LOW, required_roles=people, idempotent=True),
+                       risk_level=RiskLevel.LOW, required_roles=people, idempotent=True, category=wa, action_kind="read"),
         ToolDefinition(name=READ_TOOL, description="Read one WhatsApp conversation's recent messages (read-only).",
-                       risk_level=RiskLevel.LOW, required_roles=people, idempotent=True),
+                       risk_level=RiskLevel.LOW, required_roles=people, idempotent=True, category=wa, action_kind="read"),
         ToolDefinition(name=DRAFT_TOOL, description="Draft a reply to a WhatsApp conversation; sends nothing.",
-                       risk_level=RiskLevel.LOW, required_roles=people, timeout_seconds=60),
+                       risk_level=RiskLevel.LOW, required_roles=people, timeout_seconds=60, category=wa, action_kind="draft"),
         ToolDefinition(name=SEND_TOOL, description="Send a free-form WhatsApp reply inside the 24-hour customer-service window.",
-                       risk_level=RiskLevel.HIGH, required_roles=people, target=target),
+                       risk_level=RiskLevel.HIGH, required_roles=people, target=target, category=wa, action_kind="reply"),
         ToolDefinition(name=TEMPLATE_TOOL, description="Send an approved WhatsApp message template.",
-                       risk_level=RiskLevel.MEDIUM, required_roles=people, target=target),
+                       risk_level=RiskLevel.MEDIUM, required_roles=people, target=target, category=wa, action_kind="reply"),
     ]
 
 
 HANDLERS = {LIST_TOOL: list_tool, READ_TOOL: read_tool, DRAFT_TOOL: draft_tool, SEND_TOOL: send_tool, TEMPLATE_TOOL: template_tool}
+# Calls whose recipients and templates the inbox can vouch for.
+FACTS = {SEND_TOOL: autonomy_facts, TEMPLATE_TOOL: autonomy_facts}
 
 
 def register_whatsapp_tools(registry: ToolRegistry, cfg: WhatsAppSettings | None = None) -> ToolRegistry:
     """Add the five WhatsApp tools to a runtime's registry (the API's and the worker's)."""
     for definition in tool_definitions(cfg):
         if definition.name not in registry.names:
-            registry.register(definition, HANDLERS[definition.name])
+            registry.register(definition, HANDLERS[definition.name], autonomy_facts=FACTS.get(definition.name))
     return registry
 
 
@@ -1447,9 +1488,12 @@ def _checkpoint(runtime: AgentRuntime, task: Task, run: Any, context: TenantCont
             "risk_level": decision.risk_level.value,
             "policy_outcome": decision.outcome.value,
             "governance_rules": list(decision.governance_rules),
+            "autonomy_mode": (decision.autonomy or {}).get("mode"),
+            "autonomy_reason": (decision.autonomy or {}).get("reason"),
         },
     )
     run.steps.append(proposal)
+    run.checkpoint.autonomy = decision.autonomy
     run.checkpoint.phase = RunPhase.TOOL_READY
     run.checkpoint.version += 1
     run.checkpoint.tool_call = call.model_dump(mode="json")
@@ -1468,8 +1512,11 @@ async def send(
     repository: AnumRepository = Depends(repository_context),
 ) -> SendResponse:
     """Ask to send a reply. Free-form text always waits for approval (and needs the 24-hour
-    window); a template is sent at once only when it is on the owner's auto-send list and
-    no workspace or organization rule asks for approval."""
+    window). Whether a template goes out at once is decided by the runtime's tool policy and
+    autonomy policy together (docs/autonomy.md): the auto-send list is the whatsapp
+    category's approved templates, the customer must have written in this conversation,
+    and the workspace's approval switches, organization rules, autonomy level, quiet hours
+    and daily caps all still apply."""
     require_permission(context, Permission.WHATSAPP_REPLY)
     text = (payload.text or "").strip()
     if bool(text) == bool(payload.template):
@@ -1487,7 +1534,6 @@ async def send(
     if setup_problems():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WhatsApp is not usable: " + ", ".join(setup_problems()))
 
-    auto_send = False
     if text:
         if not conversation.is_window_open(now):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=window_refusal(conversation, now))
@@ -1511,11 +1557,10 @@ async def send(
         problem = template_problem(template, chosen.name, chosen.language, chosen.parameters)
         if problem:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=problem)
-        auto_send = chosen.name in account.auto_send_templates
         use = TemplateUse(name=chosen.name, language=chosen.language, parameters=chosen.parameters)
         body = fill_template(template.body if template else "", chosen.parameters)
         message = _outbound(context, conversation, body=body, kind="template",
-                            status_=MessageStatus.SENDING if auto_send else MessageStatus.AWAITING_APPROVAL, template=use)
+                            status_=MessageStatus.AWAITING_APPROVAL, template=use)
         call = ToolCall(
             name=TEMPLATE_TOOL,
             arguments={"conversation_id": conversation.id, "to": conversation.wa_id, "template": chosen.name,
@@ -1541,13 +1586,6 @@ async def send(
             store.save_message(message)
         _audit(repository, context, "whatsapp.send.blocked", conversation.id, "denied", {"tool": call.name, "task_id": task.id})
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Not sent: {decision.reason}")
-    if decision.outcome == ToolPolicyOutcome.ALLOW and not auto_send:
-        decision = ToolPolicyDecision(
-            outcome=ToolPolicyOutcome.REQUIRE_APPROVAL,
-            reason="Template replies that are not on the owner's auto-send list need approval.",
-            risk_level=decision.risk_level,
-            governance_rules=decision.governance_rules,
-        )
     if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
         runtime._pause_for_approval(task, run, context, call, decision)
         repository.save_task(task)
@@ -1560,17 +1598,31 @@ async def send(
         outcome: Literal["sent", "awaiting_approval", "failed"] = "awaiting_approval"
         detail = "Waiting for approval. An owner approves it here or under Approvals; then it is sent."
     else:
+        message.status = MessageStatus.SENDING
         with open_whatsapp_store(context) as store:
             store.save_message(message)
+        # The runtime evaluates again before running (quiet hours may have just begun).
         executed = runtime.begin_execution(task, run, context)
         if executed is not None:
             await runtime.finish_execution(task, run, context, executed)
         repository.save_task(task)
         repository.save_run(run)
-        with open_whatsapp_store(context) as store:
-            message = store.get_message(message.id) or message
-        outcome = "sent" if message.status == MessageStatus.SENT else "failed"
-        detail = "Sent." if outcome == "sent" else (message.error or run.result or "Not sent.")
+        if executed is None and run.checkpoint.phase == RunPhase.WAITING_APPROVAL and run.checkpoint.approval_id:
+            approval = repository.get_approval(run.checkpoint.approval_id, context)
+            message.status = MessageStatus.AWAITING_APPROVAL
+            message.approval_id = approval.id if approval else None
+            with open_whatsapp_store(context) as store:
+                store.save_message(message)
+            outcome = "awaiting_approval"
+            detail = "Waiting for approval. An owner approves it here or under Approvals; then it is sent."
+        else:
+            with open_whatsapp_store(context) as store:
+                message = store.get_message(message.id) or message
+                if executed is None and message.status == MessageStatus.SENDING:
+                    message.status, message.error = MessageStatus.NOT_SENT, "Not sent: " + (run.steps[-1].summary if run.steps else "blocked by policy.")
+                    store.save_message(message)
+            outcome = "sent" if message.status == MessageStatus.SENT else "failed"
+            detail = "Sent." if outcome == "sent" else (message.error or run.result or "Not sent.")
     _audit(
         repository, context, "whatsapp.send.requested", conversation.id,
         metadata={"tool": call.name, "task_id": task.id, "outcome": outcome,

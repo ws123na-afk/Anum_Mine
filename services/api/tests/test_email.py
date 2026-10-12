@@ -18,8 +18,11 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from anum_api import email_inbox, main
+from anum_api.agent_planning import AgentPlanner
 from anum_api.agent_skills import default_skill_registry
+from anum_api.agent_tools import ToolCall
 from anum_api.authorization import ROLE_PERMISSIONS, Permission, Role
+from anum_api.autonomy import autonomy_memory_store
 from anum_api.email_inbox import (
     AccountStatus,
     Category,
@@ -278,6 +281,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeMail]:
     gateway = FakeGateway()
     email_inbox.set_model_gateway(gateway)
     email_backend.clear()
+    autonomy_memory_store.clear()
     memory_model_budget_store.clear()
     main.integration_registry.memory_configurations.clear()
     for collection in (store.tasks, store.runs, store.approvals, store.events, store.audit_records):
@@ -285,6 +289,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeMail]:
     mail.gateway = gateway  # type: ignore[attr-defined]
     yield mail
     email_backend.clear()
+    autonomy_memory_store.clear()
     email_inbox.set_model_gateway(None)
     main.integration_registry.memory_configurations.clear()
 
@@ -552,6 +557,122 @@ def test_a_provider_switched_off_under_integrations_is_refused(fake: FakeMail) -
     assert "turned off" in detail["body_error"]
     health = {item["id"]: item for item in client.get("/api/v1/integrations", headers=OWNER).json()}
     assert health["email_gmail"]["kind"] == "email" and health["email_gmail"]["status"] == "disabled"
+
+
+# -- autonomy (docs/autonomy.md) ------------------------------------------------------------
+
+
+def run_on_its_own(monkeypatch: pytest.MonkeyPatch, call: ToolCall, who: dict[str, str] = OWNER) -> dict[str, Any]:
+    """A task whose planner picks ``call``: the runtime applies tool policy and autonomy."""
+    monkeypatch.setattr(AgentPlanner, "_select_tool", lambda self, prompt, skills, response: call)
+    task = client.post("/api/v1/tasks", headers=who, json={"title": "Tidy the inbox", "prompt": "Archive that email"}).json()
+    response = client.post(f"/api/v1/tasks/{task['id']}/run", headers=who)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def feed_item(tool: str) -> dict[str, Any]:
+    items = client.get("/api/v1/autonomy/actions", headers=OWNER).json()["items"]
+    return next(item for item in items if item["tool"] == tool)
+
+
+def test_tools_declare_their_autonomy_category_kind_and_undo() -> None:
+    definitions = {definition.name: definition for definition, _ in email_inbox.TOOL_DEFINITIONS}
+    assert {name: (d.category, d.action_kind, d.undo_tool) for name, d in definitions.items()} == {
+        "search_email": ("email", "read", None),
+        "read_email": ("email", "read", None),
+        "mark_email_read": ("email", "update", "mark_email_read"),
+        "archive_email": ("email", "archive", "unarchive_email"),
+        "unarchive_email": ("email", "update", None),
+        "draft_reply": ("email", "draft", None),
+        "send_email": ("email", "send", None),
+    }
+    assert definitions["archive_email"].undo_window_seconds == definitions["mark_email_read"].undo_window_seconds == 24 * 3600
+    assert set(email_inbox.EMAIL_TOOLS) <= main.tool_registry.names
+
+
+def test_archive_on_its_own_acts_notifies_and_can_be_undone(fake: FakeMail, monkeypatch: pytest.MonkeyPatch) -> None:
+    connect()
+    first = next(m for m in messages()["items"] if m["subject"] == "Question about tyres")
+    body = run_on_its_own(monkeypatch, ToolCall(name="archive_email", arguments={"message_id": first["id"]}))
+    assert body["approval"] is None and body["task"]["status"] == "completed", body
+    assert "INBOX" not in fake.gmail["g1"]["labelIds"]
+    item = feed_item("archive_email")
+    assert item["level"] == "act_and_notify" and item["category"] == "email" and item["undo_available"] and item["undo_token"]
+    assert [e for e in store.events if e.type == "autonomy.action_taken"][0].payload["undo_until"]
+
+    undone = client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=OWNER, json={"undo_token": item["undo_token"]})
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["status"] == "undone"
+    assert "INBOX" in fake.gmail["g1"]["labelIds"]
+    assert messages(archived=True)["items"] == []
+
+
+def test_mark_read_on_its_own_is_silent_and_undo_restores_unread(fake: FakeMail, monkeypatch: pytest.MonkeyPatch) -> None:
+    connect()
+    first = next(m for m in messages()["items"] if m["subject"] == "Question about tyres")
+    run_on_its_own(monkeypatch, ToolCall(name="mark_email_read", arguments={"message_id": first["id"], "read": True}))
+    assert "UNREAD" not in fake.gmail["g1"]["labelIds"]
+    item = feed_item("mark_email_read")
+    assert item["level"] == "act_silently" and item["undo_available"]
+    assert not [e for e in store.events if e.type == "autonomy.action_taken"]  # silent: listed, not announced
+    client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=OWNER, json={"undo_token": item["undo_token"]})
+    assert "UNREAD" in fake.gmail["g1"]["labelIds"]
+
+
+def test_outlook_archive_is_not_offered_as_undoable_and_zoho_moves_back(fake: FakeMail, monkeypatch: pytest.MonkeyPatch) -> None:
+    connect("outlook")
+    outlook = messages()["items"][0]
+    run_on_its_own(monkeypatch, ToolCall(name="archive_email", arguments={"message_id": outlook["id"]}))
+    item = feed_item("archive_email")
+    assert item["reversible"] is False and item["undo_available"] is False
+
+    email_backend.clear()
+    autonomy_memory_store.clear()
+    connect("zoho")
+    zoho = messages()["items"][0]
+    run_on_its_own(monkeypatch, ToolCall(name="archive_email", arguments={"message_id": zoho["id"]}))
+    item = feed_item("archive_email")
+    client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=OWNER, json={"undo_token": item["undo_token"]})
+    assert [update["mode"] for update in fake.zoho_updates] == ["archiveMails", "unArchiveMails"]
+
+
+def test_archive_in_quiet_hours_or_with_email_set_to_ask_waits_for_approval(fake: FakeMail, monkeypatch: pytest.MonkeyPatch) -> None:
+    connect()
+    first = messages()["items"][0]
+    now = utc_now()
+    quiet = {"start": (now - timedelta(hours=1)).strftime("%H:%M"), "end": (now + timedelta(hours=1)).strftime("%H:%M"), "timezone": "UTC"}
+    assert client.put("/api/v1/autonomy/settings", headers=OWNER, json={"quiet_hours": quiet}).status_code == 200
+    held = run_on_its_own(monkeypatch, ToolCall(name="archive_email", arguments={"message_id": first["id"]}))
+    assert held["approval"] is not None and "Quiet hours" in held["approval"]["reason"]
+    assert client.put("/api/v1/autonomy/settings", headers=OWNER, json={"category_levels": {"email": "ask_always"}}).status_code == 200
+    asked = run_on_its_own(monkeypatch, ToolCall(name="archive_email", arguments={"message_id": first["id"]}))
+    assert asked["approval"] is not None and "asks before email" in asked["approval"]["reason"]
+    assert all("INBOX" in m["labelIds"] for m in fake.gmail.values())
+
+
+def test_the_sender_being_answered_is_known_but_free_text_always_asks(fake: FakeMail) -> None:
+    connect()
+    first = next(m for m in messages()["items"] if m["subject"] == "Question about tyres")
+    draft = client.post(f"/api/v1/email/messages/{first['id']}/drafts", headers=MEMBER, json={"body": "Hello Sara, yes."}).json()["draft"]
+
+    def autonomy_of(approval: dict[str, Any]) -> dict[str, Any]:
+        run = next(r for r in store.runs.values() if r.checkpoint.approval_id == approval["id"])
+        return run.checkpoint.autonomy or {}
+
+    reply = client.post(f"/api/v1/email/drafts/{draft['id']}/send-approval", headers=MEMBER).json()["approval"]
+    assert reply["risk_level"] == "high"
+    # Sara wrote to us, so this is not first contact; it still asks because it is free text.
+    assert (autonomy_of(reply)["mode"], autonomy_of(reply)["guardrail"]) == ("ask", "template")
+
+    client.patch(f"/api/v1/email/drafts/{draft['id']}", headers=MEMBER, json={"cc": ["team@shop.example"]})
+    widened = client.post(f"/api/v1/email/drafts/{draft['id']}/send-approval", headers=MEMBER).json()["approval"]
+    assert (autonomy_of(widened)["mode"], autonomy_of(widened)["guardrail"]) == ("ask", "first_contact")
+    assert fake.gmail_sent == []
+
+    facts = email_inbox.send_autonomy_facts(ToolCall(name="send_email", arguments={"in_reply_to": first["id"]}), CONTEXT)
+    assert facts.known_recipients == frozenset({"sara@gmail.com"})
+    assert email_inbox.send_autonomy_facts(ToolCall(name="send_email", arguments={"in_reply_to": "nope"}), CONTEXT).known_recipients == frozenset()
 
 
 # -- AI triage, drafts and sending ----------------------------------------------------------

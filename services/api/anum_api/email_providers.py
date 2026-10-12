@@ -449,6 +449,14 @@ class MailProviderClient:
     async def archive(self, token: str, message: MessageMeta, *, account_ref: str | None) -> None:
         raise NotImplementedError
 
+    # True when an archived message keeps its id and can be moved back (``unarchive``):
+    # Gmail (labels) and Zoho (archive flag). Microsoft Graph gives a moved message a new
+    # id, so an Outlook archive is not reversible from ANUM.
+    supports_unarchive: bool = False
+
+    async def unarchive(self, token: str, message: MessageMeta, *, account_ref: str | None) -> None:
+        raise MailProviderError(409, f"ANUM cannot move archived {self.label} messages back; move it to the inbox in the mail app.")
+
     async def save_draft(self, token: str, outgoing: OutgoingMessage, *, account_ref: str | None) -> str | None:
         raise NotImplementedError
 
@@ -679,6 +687,11 @@ class GmailClient(MailProviderClient):
 
     async def archive(self, token: str, message: MessageMeta, *, account_ref: str | None) -> None:
         await self._modify(token, message, [], ["INBOX"])
+
+    supports_unarchive = True
+
+    async def unarchive(self, token: str, message: MessageMeta, *, account_ref: str | None) -> None:
+        await self._modify(token, message, ["INBOX"], [])
 
     def _raw(self, outgoing: OutgoingMessage) -> dict[str, Any]:
         message: dict[str, Any] = {"raw": base64.urlsafe_b64encode(build_mime(outgoing)).decode("ascii")}
@@ -1152,6 +1165,11 @@ class ZohoClient(MailProviderClient):
 
     async def archive(self, token: str, message: MessageMeta, *, account_ref: str | None) -> None:
         await self._update(token, account_ref, "archiveMails", message)
+
+    supports_unarchive = True
+
+    async def unarchive(self, token: str, message: MessageMeta, *, account_ref: str | None) -> None:
+        await self._update(token, account_ref, "unArchiveMails", message)
 
     def _payload(self, outgoing: OutgoingMessage) -> dict[str, Any]:
         payload: dict[str, Any] = {

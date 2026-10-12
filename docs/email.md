@@ -44,8 +44,11 @@ At most `ANUM_EMAIL_SYNC_MAX_MESSAGES` new messages per pass. Syncs run when the
 | `read_email` | low | One message's text (capped) and attachment list. |
 | `mark_email_read` | low | Read or unread at the provider. |
 | `archive_email` | medium | Out of the inbox at the provider. |
+| `unarchive_email` | low | Back to the inbox (Gmail and Zoho Mail): the undo of `archive_email`. |
 | `draft_reply` | medium | Model or given text, saved as a draft; sends nothing. |
 | `send_email` | high | Sends an approved draft. |
+
+Every tool declares its [autonomy](autonomy.md) category (`email`) and kind: `read` for search and read, `update` for read state and moving back, `archive`, `draft` and `send`. When a task's tool call runs on its own, it is listed under Activity: reading silently, marking read silently and archiving with a notification, both with **Undo** for 24 hours (`mark_email_read` sets the read state back; `unarchive_email` moves the message back). Outlook archives are not undoable from ANUM, because Microsoft Graph gives a moved message a new id. `send_email` is free text, so it always asks for approval, whatever the autonomy settings; the sender of the message being answered counts as a known recipient (anyone else on the reply is first contact), which only changes the recorded reason. The workspace's quiet hours, daily caps, autonomy level for email, blocked recipients and the medium-risk approval switch apply to archiving and drafting as to every tool.
 
 A task such as "ANUM, any urgent customer emails?" selects the `anum.email` skill and runs `search_email` with filters taken from the person's own words (urgent, customer, order, invoice, supplier, unread), never from model output. The web Inbox's buttons call the same tools under `ToolPolicy`: allowed calls run at once and are audited; a call that workspace or organization policy pauses becomes a task waiting for approval. Voice answers "any urgent customer emails?" from the synced metadata (read-only, no model call) and points to the Inbox for replies. The Assistant chat has no tools (docs/conversations.md); ask in a task or by voice.
 

@@ -121,7 +121,10 @@ class AgentRuntime:
             return decision
         profile = profile_call(call, definition)  # type: ignore[arg-type]
         verdict = AutonomyEngine(store).evaluate(
-            profile, context, platform_allows=decision.outcome == ToolPolicyOutcome.ALLOW
+            profile,
+            context,
+            platform_allows=decision.outcome == ToolPolicyOutcome.ALLOW,
+            facts=self.tools.autonomy_facts(call, context),
         )
         return apply_autonomy(decision, profile, verdict)
 

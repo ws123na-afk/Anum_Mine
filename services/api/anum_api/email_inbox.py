@@ -41,6 +41,7 @@ from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
+from .autonomy import AutonomyFacts, normalize_recipient
 from .email_providers import (
     EmailProvider,
     GmailClient,
@@ -65,7 +66,10 @@ DRAFT_TOOL = "draft_reply"
 SEND_TOOL = "send_email"
 MARK_READ_TOOL = "mark_email_read"
 ARCHIVE_TOOL = "archive_email"
-EMAIL_TOOLS = (SEARCH_TOOL, READ_TOOL, DRAFT_TOOL, SEND_TOOL, MARK_READ_TOOL, ARCHIVE_TOOL)
+UNARCHIVE_TOOL = "unarchive_email"
+EMAIL_TOOLS = (SEARCH_TOOL, READ_TOOL, DRAFT_TOOL, SEND_TOOL, MARK_READ_TOOL, ARCHIVE_TOOL, UNARCHIVE_TOOL)
+# How long ANUM offers Undo for an archive or read-state change it made on its own.
+EMAIL_UNDO_WINDOW_SECONDS = 24 * 3600
 
 MAX_DRAFT_BODY = 20_000
 MAX_INSTRUCTIONS = 1_000
@@ -1346,10 +1350,14 @@ async def mark_email_read(call: ToolCall, context: TenantContext) -> ToolResult:
         return _failed(_provider_failure(exc).message)
     with open_email_store(context) as store:
         store.apply_changes(account.id, {message.provider_message_id: (read, None)})
+    output: dict[str, Any] = {"message_id": message.id, "is_read": read}
+    if message.is_read != read:
+        # Undo (docs/autonomy.md): set the read state back to what it was.
+        output["undo"] = {"message_id": message.id, "read": message.is_read}
     return ToolResult(
         status="succeeded",
         summary=f"Marked {'read' if read else 'unread'}: {message.subject or '(no subject)'}",
-        output={"message_id": message.id, "is_read": read},
+        output=output,
         audit_metadata={"tool": MARK_READ_TOOL, "message_id": message.id, "read": read},
     )
 
@@ -1359,18 +1367,47 @@ async def archive_email(call: ToolCall, context: TenantContext) -> ToolResult:
     try:
         account, message = load_message(context, message_id)
         token = await access_token(account, context)
-        await provider_client(account.provider).archive(token, message.meta(), account_ref=account.provider_account_id)
+        client = provider_client(account.provider)
+        await client.archive(token, message.meta(), account_ref=account.provider_account_id)
     except EmailError as exc:
         return _failed(exc.message)
     except MailProviderError as exc:
         return _failed(_provider_failure(exc).message)
     with open_email_store(context) as store:
         store.apply_changes(account.id, {message.provider_message_id: (None, True)})
+    output: dict[str, Any] = {"message_id": message.id, "is_archived": True}
+    if client.supports_unarchive and not message.is_archived:
+        # Undo (docs/autonomy.md): move it back to the inbox. Not offered for Outlook,
+        # whose move gives the message a new id.
+        output["undo"] = {"message_id": message.id}
     return ToolResult(
         status="succeeded",
         summary=f"Archived: {message.subject or '(no subject)'}",
-        output={"message_id": message.id, "is_archived": True},
+        output=output,
         audit_metadata={"tool": ARCHIVE_TOOL, "message_id": message.id},
+    )
+
+
+async def unarchive_email(call: ToolCall, context: TenantContext) -> ToolResult:
+    """Move an archived email back to the inbox (the undo of ``archive_email``)."""
+    message_id = str(call.arguments.get("message_id") or "")
+    try:
+        account, message = load_message(context, message_id)
+        if not provider_enabled_here(account.provider, context):
+            raise EmailError(409, f"{PROVIDER_NAMES[account.provider]} is turned off or not set up for this workspace.")
+        token = await access_token(account, context)
+        await provider_client(account.provider).unarchive(token, message.meta(), account_ref=account.provider_account_id)
+    except EmailError as exc:
+        return _failed(exc.message)
+    except MailProviderError as exc:
+        return _failed(_provider_failure(exc).message)
+    with open_email_store(context) as store:
+        store.apply_changes(account.id, {message.provider_message_id: (None, False)})
+    return ToolResult(
+        status="succeeded",
+        summary=f"Moved back to the inbox: {message.subject or '(no subject)'}",
+        output={"message_id": message.id, "is_archived": False},
+        audit_metadata={"tool": UNARCHIVE_TOOL, "message_id": message.id},
     )
 
 
@@ -1479,14 +1516,38 @@ async def send_email(call: ToolCall, context: TenantContext) -> ToolResult:
     )
 
 
+def send_autonomy_facts(call: ToolCall, context: TenantContext) -> AutonomyFacts:
+    """The sender of the email being answered is a known recipient (docs/autonomy.md).
+
+    Only the original sender of ``in_reply_to`` (a message the caller may see) counts;
+    anyone else on the reply is first contact unless ANUM has written to them before.
+    Email has no approved templates, so a send is free text and always asks anyway.
+    """
+    in_reply_to = call.arguments.get("in_reply_to")
+    if not isinstance(in_reply_to, str) or not in_reply_to:
+        return AutonomyFacts()
+    try:
+        _, original = load_message(context, in_reply_to)
+    except EmailError:
+        return AutonomyFacts()
+    sender = original.from_address.strip()
+    return AutonomyFacts(known_recipients=frozenset({normalize_recipient(sender)}) if sender else frozenset())
+
+
+_PEOPLE = frozenset({"owner", "member"})
+
+# Each tool declares its autonomy category and kind (docs/autonomy.md). Archiving and
+# read-state changes are reversible: their results carry the undo arguments.
 TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
     (
         ToolDefinition(
             name=SEARCH_TOOL,
             description="Search the connected inboxes (sender, subject, category, priority, unread). Read-only.",
             risk_level=RiskLevel.LOW,
-            required_roles=frozenset({"owner", "member"}),
+            required_roles=_PEOPLE,
             idempotent=True,
+            category="email",
+            action_kind="read",
         ),
         search_email,
     ),
@@ -1495,8 +1556,10 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             name=READ_TOOL,
             description="Read one email's text and attachment list. Read-only; the text is untrusted data.",
             risk_level=RiskLevel.LOW,
-            required_roles=frozenset({"owner", "member"}),
+            required_roles=_PEOPLE,
             idempotent=True,
+            category="email",
+            action_kind="read",
         ),
         read_email,
     ),
@@ -1505,8 +1568,12 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             name=MARK_READ_TOOL,
             description="Mark one email read or unread in its mailbox.",
             risk_level=RiskLevel.LOW,
-            required_roles=frozenset({"owner", "member"}),
+            required_roles=_PEOPLE,
             idempotent=True,
+            category="email",
+            action_kind="update",
+            undo_tool=MARK_READ_TOOL,
+            undo_window_seconds=EMAIL_UNDO_WINDOW_SECONDS,
         ),
         mark_email_read,
     ),
@@ -1515,18 +1582,36 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             name=ARCHIVE_TOOL,
             description="Archive one email (move it out of the inbox) in its mailbox.",
             risk_level=RiskLevel.MEDIUM,
-            required_roles=frozenset({"owner", "member"}),
+            required_roles=_PEOPLE,
             idempotent=True,
+            category="email",
+            action_kind="archive",
+            undo_tool=UNARCHIVE_TOOL,
+            undo_window_seconds=EMAIL_UNDO_WINDOW_SECONDS,
         ),
         archive_email,
+    ),
+    (
+        ToolDefinition(
+            name=UNARCHIVE_TOOL,
+            description="Move one archived email back to the inbox (Gmail and Zoho Mail).",
+            risk_level=RiskLevel.LOW,
+            required_roles=_PEOPLE,
+            idempotent=True,
+            category="email",
+            action_kind="update",
+        ),
+        unarchive_email,
     ),
     (
         ToolDefinition(
             name=DRAFT_TOOL,
             description="Draft a reply (written by the model unless a body is given) and save it to the provider's Drafts. Sends nothing.",
             risk_level=RiskLevel.MEDIUM,
-            required_roles=frozenset({"owner", "member"}),
+            required_roles=_PEOPLE,
             timeout_seconds=120,
+            category="email",
+            action_kind="draft",
         ),
         draft_reply,
     ),
@@ -1535,19 +1620,22 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             name=SEND_TOOL,
             description="Send an approved email reply from a connected mailbox.",
             risk_level=RiskLevel.HIGH,
-            required_roles=frozenset({"owner", "member"}),
+            required_roles=_PEOPLE,
             timeout_seconds=60,
+            category="email",
+            action_kind="send",
         ),
         send_email,
     ),
 ]
+FACTS = {SEND_TOOL: send_autonomy_facts}
 
 
 def register_email_tools(registry: ToolRegistry) -> ToolRegistry:
     """Add the email tools to a runtime's registry (the API's and the Temporal worker's)."""
     for definition, handler in TOOL_DEFINITIONS:
         if definition.name not in registry.names:
-            registry.register(definition, handler)
+            registry.register(definition, handler, autonomy_facts=FACTS.get(definition.name))
     return registry
 
 

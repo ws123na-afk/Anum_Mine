@@ -65,4 +65,4 @@ Add integration catalogs, per-integration sandboxes, webhook subscriptions, OAut
 
 ## Email
 
-The unified inbox registers `search_email`, `read_email`, `mark_email_read` (low), `archive_email`, `draft_reply` (medium) and `send_email` (high, always approved with the payload hash), and the integrations `email_gmail`, `email_outlook` and `email_zoho`. See [Email: the unified inbox](email.md).
+The unified inbox registers `search_email`, `read_email`, `mark_email_read`, `unarchive_email` (low), `archive_email`, `draft_reply` (medium) and `send_email` (high, always approved with the payload hash), and the integrations `email_gmail`, `email_outlook` and `email_zoho`. See [Email: the unified inbox](email.md).

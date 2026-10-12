@@ -65,7 +65,7 @@ Migration `0033_whatsapp` adds four forced-RLS tables scoped to tenant and works
 |---|---|---|---|
 | Read conversations, templates, media (`whatsapp:read`) | yes | yes | no |
 | Draft and ask to send (`whatsapp:reply`) | yes | yes | no |
-| Connect, check, test, disconnect, auto-send list (`whatsapp:manage`) | yes | no | no |
+| Connect, check, test, disconnect, auto-send list (the whatsapp approved templates) (`whatsapp:manage`) | yes | no | no |
 | Approve a send (`approval:decide`) | yes | no | no |
 
 Customer conversations are personal data, so viewers do not see them; the view tells them who can.
@@ -85,7 +85,13 @@ Customer text is **untrusted data** (threat model G3/G5): each message is wrappe
 `POST /api/v1/whatsapp/conversations/{id}/send` with `{"text": ...}` or `{"template": {"name", "language", "parameters"}}` creates a task whose single tool call goes through `ToolPolicy`:
 
 - **Free-form text** is `send_whatsapp`, risk **high**: always paused for approval. The approval shows the recipient, the text, the target `graph.facebook.com` and the payload hash; an owner approves in the inbox (web or phone) or under Approvals with that hash (`POST /api/v1/approvals/{id}/approve {"payload_hash": ...}`), and only then is it sent. Two-person and organization approval rules apply as for every approval.
-- **A template** is `send_whatsapp_template`, risk **medium**. It is sent at once only when the template is on the owner's **auto-send list** (WhatsApp > Templates, *Send without asking*: meant for low-risk replies such as order status) *and* neither the workspace's approval policy (medium-risk actions need approval) nor an organization rule asks for approval. Anything else waits for approval like free-form text. Before anything is queued the API checks that the template exists in that language, is approved and gets the right number of parameters; the tool checks again when it runs.
+- **A template** is `send_whatsapp_template`, risk **medium**, a `reply` in the whatsapp category of the [autonomy policy](autonomy.md#connector-facts-who-wrote-first-and-whose-templates). The owner's **auto-send list** (WhatsApp > Templates, *Send without asking*: meant for low-risk replies such as order status) *is* the whatsapp category's list of approved templates; there is no second list on the Autonomy page to keep in sync. A template is sent at once, and announced in Activity ("ANUM acted on its own"), only when all of these hold:
+  - it is on the auto-send list (no autonomy rule can add a template beside it; an "Always ask for this" rule makes a listed one ask);
+  - the customer has written to the business in this conversation (first contact always asks);
+  - neither the workspace's approval policy (medium-risk actions need approval, two-person rule) nor an organization approval rule or policy pack asks;
+  - the workspace's autonomy level for WhatsApp is not *Always ask* (organization ceilings apply), it is not inside quiet hours, the daily cap is not reached and no recipient is blocked (a blocked number is refused, even with an approval).
+
+  Anything else waits for approval like free-form text, and the approval says why. Before anything is queued the API checks that the template exists in that language, is approved and gets the right number of parameters; the tool checks again when it runs, and the runtime evaluates the policy again just before sending.
 
 A rejected or expired approval marks the message *not sent*. Sent messages then follow Meta's delivery statuses. Each request and send is audited (`whatsapp.send.requested`, `tool.call` with counts only, `whatsapp.account.saved`, `whatsapp.test.sent`, ...); message text is not copied into audit metadata.
 
@@ -100,6 +106,8 @@ Registered in the API's and the worker's tool registry:
 | `draft_whatsapp_reply` | low | a suggested reply (budgeted), sends nothing |
 | `send_whatsapp` | high | free-form reply inside the window, after approval |
 | `send_whatsapp_template` | medium | approved template, as above |
+
+Each declares its autonomy category (`whatsapp`) and kind (`read`, `read`, `draft`, `reply`, `reply`); none is undoable, since a sent message cannot be taken back.
 
 All need the `owner` or `member` role. A task that mentions WhatsApp ("Which WhatsApp customers are waiting for a reply?") selects the `anum.whatsapp-inbox` skill and lists the conversations; replies are drafted and sent from the inbox, where the person sees what goes out. Tool output (customer text) is untrusted data and reaches prompts only through `tool_output_prompt_block`.
 
@@ -128,7 +136,7 @@ Deployment settings (`ANUM_WHATSAPP_*`, all optional): `GRAPH_API_URL` (https, d
 
 ## Tests
 
-`services/api/tests/test_whatsapp.py` runs everything against a fake Graph API (`httpx.MockTransport`): setup and secrets, the verification challenge, signature checks, idempotent and stale deliveries, rate and size limits, media limits and host allowlist, rules and model triage with untrusted labels, the window, approve-to-send, templates and the auto-send list, rejections and Meta errors, the agent tools and the planner. `tests/test_postgres_whatsapp.py` checks encryption at rest, persistence, tenant and workspace isolation, the cross-tenant phone number rule, webhook routing through `anum_maintenance` and that role's narrow grants. No test calls Meta.
+`services/api/tests/test_whatsapp.py` runs everything against a fake Graph API (`httpx.MockTransport`): setup and secrets, the verification challenge, signature checks, idempotent and stale deliveries, rate and size limits, media limits and host allowlist, rules and model triage with untrusted labels, the window, approve-to-send, templates and the auto-send list as the autonomy policy's approved templates (first contact, quiet hours, caps, blocked numbers, the medium-risk switch and the category level still ask or block), rejections and Meta errors, the agent tools and the planner. `tests/test_postgres_whatsapp.py` checks encryption at rest, persistence, tenant and workspace isolation, the cross-tenant phone number rule, webhook routing through `anum_maintenance` and that role's narrow grants. No test calls Meta.
 
 ## Not done yet
 
