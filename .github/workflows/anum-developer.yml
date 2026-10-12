@@ -140,7 +140,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies for the checks
         run: |
-          pnpm install --frozen-lockfile=false
+          pnpm install --frozen-lockfile
           python -m pip install --disable-pip-version-check "pip==24.3.1"
           python -m pip install --disable-pip-version-check -e "services/api[test]"
 

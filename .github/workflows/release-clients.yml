@@ -338,7 +338,7 @@ jobs:
         with:
           # Pinned by commit, so the toolchain is named here instead of in the ref.
           toolchain: stable
-      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm install --frozen-lockfile
       - name: Import the Windows code-signing certificate
         id: windows_cert
         if: runner.os == 'Windows'

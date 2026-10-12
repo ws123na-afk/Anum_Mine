@@ -19,6 +19,8 @@ Python backend code should use FastAPI, typed request and response models, depen
 
 React+TypeScript+Vite code should use shared generated API types, predictable state management, accessible components, and clear task timelines. The web app should be reusable inside Tauri.
 
+Dependencies: every `package.json` names exact versions (no `latest`), and CI installs with `pnpm install --frozen-lockfile`, so a change to any `package.json` must commit the matching `pnpm-lock.yaml` (run `pnpm install` locally; never edit the lockfile by hand). Owner decision of 12 October 2026 ([Full skills audit](audits/2026-10-12-full-skills-audit.md)).
+
 ## Testing
 
 The baseline should include unit tests, integration tests with local services, contract tests, RLS tests, authorization tests, workflow tests, and model gateway adapter tests with mocks.
