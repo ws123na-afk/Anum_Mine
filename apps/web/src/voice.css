@@ -159,7 +159,8 @@
   aspect-ratio: 1; height: min(100%, clamp(220px, 50cqmin, 560px)); margin: 0; max-width: 100%; pointer-events: auto; width: auto;
 }
 .voiceSpaceTalk .voiceOrbIcon { font-size: 0; }
-.voiceSpace .spaceOrb ~ * .voiceSpaceFallback, .voiceSpace .spaceOrb .voiceSpaceFallback { display: none; }
+/* The CSS orb inside the talk button shows only when the scene has no 2D canvas. */
+.voiceSpace .spaceOrb:not(.spaceFallback) .voiceSpaceFallback { display: none; }
 .voiceSpaceFallback { display: contents; }
 .voiceSpace[data-state="listening"] .voiceSpaceTalk .voiceOrbIcon { opacity: .95; }
 .voiceSpacePanel {

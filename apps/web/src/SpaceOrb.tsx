@@ -76,9 +76,17 @@ export function SpaceOrb({ mode, variant, getLevel, fallback, orbAnchor, floorAn
     </button>
   </div> : null;
 
-  if (unavailable) return <>{fallback}{typeof children === 'function' ? children(null) : children}</>;
+  // Without a 2D canvas there is no scene to pause, so no Pause or Shooting star.
+  const overlay = typeof children === 'function' ? children(variant === 'full' && !unavailable ? controls : null) : children;
+  // Without a 2D canvas the compact orb shows its fallback inside the outer orb button; the full
+  // scene keeps its sized container and its children (the talk button and the page's controls), so
+  // speech can still be started and stopped.
+  if (unavailable) {
+    if (variant !== 'full') return <>{fallback}</>;
+    return <div className={`spaceOrb ${variant} spaceFallback${className ? ` ${className}` : ''}`} data-space-mode={mode}>{fallback}{overlay}</div>;
+  }
   return <div ref={stage} className={`spaceOrb ${variant}${className ? ` ${className}` : ''}`} data-space-mode={mode} data-space-paused={paused ? 'true' : undefined}>
     <canvas ref={canvas} className="spaceCanvas" aria-hidden="true" />
-    {typeof children === 'function' ? children(controls) : children}
+    {overlay}
   </div>;
 }

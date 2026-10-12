@@ -416,3 +416,23 @@ for (const locale of ['en', 'ar'] as const) {
     }
   });
 }
+
+test('without a 2D canvas the page keeps the CSS orb as its talk button', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, ...args: Parameters<typeof original>) {
+      return this.classList.contains('spaceCanvas') ? null : original.apply(this, args);
+    } as typeof original;
+  });
+  await mockVoice(page);
+  await page.goto('/#voice');
+  const voice = page.locator('.voiceSpace');
+  await expect(voice.locator('.spaceOrb.spaceFallback')).toBeVisible();
+  const talk = voice.getByRole('button', { name: 'Tap to talk' });
+  await expect(talk.locator('.voiceOrbBlob')).toHaveCount(3);
+  await expect(talk.locator('.voiceOrbBlob').first()).toBeVisible();
+  // No scene to pause, so no Pause or Shooting star; talking still works.
+  await expect(voice.getByRole('button', { name: 'Pause' })).toHaveCount(0);
+  await talk.click();
+  await expect(voice.locator('.spaceOrb')).toHaveAttribute('data-space-mode', 'listening');
+});
