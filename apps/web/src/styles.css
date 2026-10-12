@@ -522,7 +522,9 @@ code { unicode-bidi: isolate; }
   .userText { display: none; }
   /* Search takes its own row under the actions, so the workspace switcher never squeezes the icons. */
   .topbar { flex-wrap: wrap; gap: var(--d-s2); }
-  .topActions { flex: 1 1 auto; }
+  /* The actions may wrap and the switcher gives way, so wider fonts never push the row past the page. */
+  .topActions { flex: 1 1 auto; flex-wrap: wrap; }
+  .topbar .topActions .workspaceSwitch { max-width: min(100%, 220px); }
   .searchTrigger { flex-basis: 100%; max-width: none; order: 2; }
 }
 /* Below 760px the sidebar becomes a top bar with a horizontally scrolling nav strip

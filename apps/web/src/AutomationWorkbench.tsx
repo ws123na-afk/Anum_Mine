@@ -43,7 +43,8 @@ export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 
   const [notice, setNotice] = useState<string | null>(null);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  useEffect(() => { const timer = setTimeout(() => { setDebounced(query); setOffset(0); }, 250); return () => clearTimeout(timer); }, [query]);
+  // Only a changed search goes back to the first page; the mount (query unchanged) must not undo a page the person already moved to.
+  useEffect(() => { if (query === debounced) return; const timer = setTimeout(() => { setDebounced(query); setOffset(0); }, 250); return () => clearTimeout(timer); }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (focus) { setSelectedId(focus.workflowId); setMode('view'); setPane('detail'); } }, [focus]);
   useEffect(() => {
     let live = true;
