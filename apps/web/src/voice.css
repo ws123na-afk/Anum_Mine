@@ -109,6 +109,7 @@
 .voiceSettings button.secondary { border-radius: 999px; margin-top: var(--d-s3); min-height: 44px; padding: 8px 16px; }
 
 @media (prefers-reduced-motion: reduce) {
+  .voiceFocusHint { animation-duration: .01s; animation-delay: 2s; }
   .voiceOrb, .voiceOrbBlob, .voiceOrbGlow, .voiceOrbHalo { animation: none !important; transition: none !important; }
 }
 @media (prefers-reduced-transparency: reduce) { .voiceDock { backdrop-filter: none; background: var(--d-surface-2); } }
@@ -142,10 +143,27 @@
 /* Over the scene: the bar on top, the orb in the free middle, the panel at the bottom. Only the
    controls take the pointer; elsewhere the cursor and touch reach the scene (tilt). */
 .voiceSpaceLayout {
-  display: grid; gap: var(--d-s3); grid-template-rows: auto minmax(0, 1fr) auto; inset: 0; padding: var(--d-s4) var(--d-s6) var(--d-s5);
+  display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; inset: 0; padding: var(--d-s4) var(--d-s6) var(--d-s5);
   pointer-events: none; position: absolute;
 }
-.voiceSpaceLayout > :is(.voiceSpaceBar, .voiceSpacePanel) { pointer-events: auto; }
+.voiceSpaceLayout > .voiceSpaceBar, .voiceSpaceBottom > *, .voiceSpaceBrief > * { pointer-events: auto; }
+/* The bottom of the scene: the conversation panel when it is on, else one line and what waits. */
+.voiceSpaceBottom { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; min-height: 0; min-width: 0; }
+.voiceSpaceBottom > .voiceSpacePanel { width: min(100%, 820px); }
+.voiceSpaceBrief { display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); justify-items: center; max-width: min(100%, 680px); min-width: 0; pointer-events: none; width: 100%; }
+.voiceBriefLine {
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); background: var(--v-glass); border: 1px solid var(--v-glass-line); border-radius: 999px;
+  color: var(--d-muted); display: flex; font-size: 15px; gap: var(--d-s2); max-width: 100%; min-height: 40px; align-items: center; padding: 8px 18px;
+}
+.voiceBriefState { color: var(--d-sky); flex: none; font-weight: 650; }
+.voiceBriefText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voiceBriefText::before { color: var(--d-faint); content: "·"; margin-inline-end: var(--d-s2); }
+.voiceDecision {
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); background: rgba(6, 11, 26, .86); border: 1px solid rgb(252 211 141 / .45);
+  border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2); display: grid; gap: var(--d-s2); max-width: 100%; padding: var(--d-s3) var(--d-s4);
+}
+.voiceDecision p { color: var(--d-text); font-size: 15px; overflow-wrap: anywhere; }
+.voiceDecision .voiceConfirm { margin-top: 0; }
 .voiceSpaceBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .voiceSpace :is(.voiceBadge, .voicePill, .voiceIconButton, .spaceControls button) {
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); background: var(--v-glass); border-color: var(--v-glass-line); color: var(--d-text);
@@ -163,10 +181,11 @@
 .voiceSpace .spaceOrb:not(.spaceFallback) .voiceSpaceFallback { display: none; }
 .voiceSpaceFallback { display: contents; }
 .voiceSpace[data-state="listening"] .voiceSpaceTalk .voiceOrbIcon { opacity: .95; }
+/* The conversation panel (Conversation button): status, the turns, the message box. */
 .voiceSpacePanel {
   backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); background: var(--v-glass);
   border: 1px solid var(--v-glass-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2); display: grid; gap: var(--d-s3);
-  grid-template-rows: auto minmax(0, 1fr) auto; justify-self: center; max-height: min(44cqh, 480px); min-height: 0; overflow: hidden;
+  grid-template-rows: auto minmax(0, 1fr) auto; max-height: min(44cqh, 480px); min-height: 0; overflow: hidden;
   padding: var(--d-s4) var(--d-s5); width: min(100%, 820px);
 }
 .voiceSpaceScroll { display: grid; gap: var(--d-s3); min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
@@ -181,7 +200,7 @@
 .voiceSpace .voiceTurn.assistant { background: rgba(20, 29, 59, .8); }
 /* The dock stays at the bottom of the panel while the conversation scrolls above it. */
 .voiceSpace .voiceDock { background: rgba(9, 15, 34, .94); box-shadow: none; position: static; }
-.voiceSpaceBar .voiceConsoleMeta { justify-content: flex-end; }
+.voiceSpaceBar .voiceConsoleMeta { flex: 1 1 auto; justify-content: flex-end; min-width: 0; }
 /* Voice settings: a gear in the bar that opens a glass card under it (Escape closes it). */
 .voiceSpaceSettings { border: 0; padding: 0; position: relative; }
 .voiceSpace .voiceSpaceSettings > summary { color: var(--d-text); display: inline-grid; gap: 0; list-style: none; padding: 0; }
@@ -194,6 +213,10 @@
 }
 @media (max-width: 1100px) {
   .workspace.view-voice > .topbar { padding: var(--d-s3) var(--d-s5); }
+  /* Icon-only Pause, Shooting star and wake switch, so the bar stays one row; their names stay
+     for screen readers and in the tooltip. */
+  .voiceSpace .spaceControls button span, .voiceSpace .voicePillText { border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  .voiceSpace .spaceControls button, .voiceSpace .voicePill { justify-content: center; min-width: 44px; padding: 8px 12px; }
   .voiceSpaceLayout { padding: var(--d-s3) var(--d-s5) var(--d-s4); }
 }
 /* Phones: the sidebar is a top bar, so the shell stacks it over the page and the page takes the rest. */
@@ -204,10 +227,36 @@
   .voiceSpaceLayout { gap: var(--d-s2); padding: var(--d-s2) var(--d-s3) var(--d-s3); }
   .voiceSpacePanel { gap: var(--d-s2); max-height: min(42cqh, 420px); padding: var(--d-s3); }
   .voiceSpace .voiceGreeting { font-size: 18px; }
-  /* Icon-only Pause, Shooting star and wake switch; their names stay for screen readers. */
-  .voiceSpace .spaceControls button span, .voiceSpace .voicePillText, .voiceSpace .voiceBadgeText { border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
-  .voiceSpace .spaceControls button, .voiceSpace .voicePill { justify-content: center; min-width: 44px; padding: 8px 12px; }
+  /* One row of controls that scrolls sideways if it must; the settings gear stays outside it so
+     its card is never clipped. */
+  .voiceSpace .voiceBadgeText { border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  .voiceSpaceBar { flex-wrap: nowrap; }
+  .voiceSpaceBar .voiceConsoleMeta { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+  .voiceSpaceBar .voiceConsoleMeta::-webkit-scrollbar { display: none; }
+  .voiceSpaceBar .voiceConsoleMeta > *, .voiceSpaceBar .spaceControls { flex: none; flex-wrap: nowrap; }
 }
+/* Focus mode (docs/voice.md#full-screen-focus): only the scene and the orb. The browser's full
+   screen shows the scene alone; the overlay (no element full screen, iPhone Safari) covers the app
+   shell. No bar, no panel, no buttons: a faint caption and a hint that fades. */
+.voiceSpace.focus.overlay { inset: 0; position: fixed; z-index: 200; }
+.voiceSpace:fullscreen { height: 100%; width: 100%; }
+.voiceSpace.focus .voiceSpaceStage.spaceOrb.full { border-top: 0; }
+.voiceSpace.focus :is(.voiceSpaceBar, .voiceSpaceBottom) { display: none; }
+.voiceSpace.focus .voiceSpaceLayout { grid-template-rows: minmax(0, 1fr) auto; padding: var(--d-s5); }
+.voiceSpace.focus .voiceSpaceTalk.voiceOrb { height: min(100%, clamp(240px, 58cqmin, 720px)); }
+.voiceSpace.focus .voiceSpaceTalk .voiceOrbIcon { opacity: 0; }
+.voiceFocusText { display: grid; gap: var(--d-s2); justify-items: center; min-height: 3.2em; pointer-events: none; text-align: center; }
+.voiceFocusCaption {
+  color: rgba(238, 241, 248, .72); display: -webkit-box; font-size: clamp(15px, 1.6vw, 19px); line-height: 1.45; max-width: min(64ch, 92vw);
+  overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; transition: opacity 600ms ease;
+}
+.voiceFocusCaption:empty { opacity: 0; }
+.voiceFocusHint {
+  animation: voiceFocusHint 2.4s ease forwards; background: rgba(6, 11, 26, .6); border: 1px solid var(--v-glass-line); border-radius: 999px;
+  color: var(--d-muted); font-size: 13px; inset-block-start: var(--d-s5); inset-inline: 0; margin: 0 auto; padding: 6px 14px; position: absolute; width: max-content;
+}
+@keyframes voiceFocusHint { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
 /* Short scenes (small phones, landscape): the panel gives the orb more room. */
 @media (max-height: 700px) {
   .voiceSpacePanel { max-height: 36cqh; }

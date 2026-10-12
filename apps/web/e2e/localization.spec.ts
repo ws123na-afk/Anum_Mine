@@ -230,6 +230,8 @@ test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ 
   expect(await noHorizontalOverflow(page)).toBe(true);
 
   await page.goto('/#voice');
+  // The conversation panel (with the example phrases and settings text) is opened for this check.
+  await page.evaluate(() => localStorage.setItem('anum.voice.chat', 'on'));
   await page.reload();
   await expect(page.getByRole('region', { name: /^المساعد الصوتي/ })).toBeVisible();
   await expect(page.getByText('جرّب أن تقول')).toBeVisible();

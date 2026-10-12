@@ -3060,6 +3060,7 @@ export const en = {
   'call.more.interruptions': 'Times you cut in',
   'call.more.privacy': 'The microphone and camera turn off when you end the call or leave this page. Camera frames are never stored; only text is kept, as the transcript setting says.',
   'call.notice.voiceFallback': 'The chosen voice could not play, so the device voice was used.',
+  'call.notice.away': 'Muted while you were away. Unmute to keep talking.',
   'call.notice.taskCreated': 'Task created: {title}',
   'call.approvalsWaiting': { one: "{count} approval waiting for you", other: "{count} approvals waiting for you" },
   'call.problem.mic-denied': 'The microphone is blocked. Allow it in the browser\'s site settings (the icon at the start of the address bar), then try again. You can type in Chat meanwhile.',

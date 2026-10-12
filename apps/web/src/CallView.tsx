@@ -84,6 +84,27 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
   }, []);
   // Leaving the page hangs up: the microphone and camera never stay on behind another view.
   useEffect(() => () => { engine.current?.hangUp(); void engine.current?.finish(false); }, []);
+  // Leaving the tab (hidden, another window focused, the page closing) mutes the call and stops
+  // the reply; it stays muted until the caller unmutes (docs/voice.md#leaving-the-tab).
+  useEffect(() => {
+    const leave = () => {
+      const current = engine.current;
+      if (!current || current.snapshot.phase === 'idle' || current.snapshot.phase === 'ended' || current.snapshot.muted) return;
+      current.interrupt();
+      current.setMuted(true);
+      setNotice(t('call.notice.away'));
+    };
+    const hidden = () => { if (document.visibilityState === 'hidden') leave(); };
+    const blurred = () => window.setTimeout(() => { if (!document.hasFocus()) leave(); }, 150);
+    document.addEventListener('visibilitychange', hidden);
+    window.addEventListener('blur', blurred);
+    window.addEventListener('pagehide', leave);
+    return () => {
+      document.removeEventListener('visibilitychange', hidden);
+      window.removeEventListener('blur', blurred);
+      window.removeEventListener('pagehide', leave);
+    };
+  }, []);
   useEffect(() => { if (video.current) video.current.srcObject = camera; }, [camera]);
   useEffect(() => () => camera?.getTracks().forEach((track) => track.stop()), [camera]);
   useEffect(() => { if (chatOpen) logEnd.current?.scrollIntoView({ block: 'nearest' }); }, [chatOpen, snapshot?.turns.length]);
