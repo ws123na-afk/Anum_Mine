@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
@@ -6,6 +7,7 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'library_models.dart';
 import 'library_repository.dart';
+import '../reports/report_sections_view.dart';
 
 /// Favorites, knowledge base and reports on the phone (docs/knowledge-base.md,
 /// docs/reports.md): the same API and rules as the web report centre.
@@ -659,7 +661,61 @@ class ReportDetailScreen extends StatefulWidget {
 class _ReportDetailScreenState extends State<ReportDetailScreen> {
   Report? _report;
   Object? _error;
-  bool _busy = false, _starred = false;
+  bool _busy = false, _starred = false, _asking = false;
+  final _question = TextEditingController();
+
+  @override
+  void dispose() {
+    _question.dispose();
+    super.dispose();
+  }
+
+  /// Saves the CSV in the workspace's files and copies a share link.
+  Future<void> _saveToFiles(Report report) async {
+    final l = context.anum;
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    setState(() => _busy = true);
+    try {
+      final saved = await widget.repository.saveReportToFiles(report.id);
+      await Clipboard.setData(ClipboardData(text: saved.link.toString()));
+      messenger.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 8),
+        content: Text(l.f('reportExported', {'name': saved.fileName})),
+        action: SnackBarAction(
+            label: l.t('reportOpenFiles'),
+            onPressed: () => navigator.pushNamed('/files')),
+      ));
+    } on Object catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(
+            SnackBar(content: Text(_failure(context, e, 'libManageDenied'))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// "Ask ANUM to analyze further": creates the task and opens it.
+  Future<void> _ask(Report report) async {
+    final question = _question.text.trim();
+    if (question.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    setState(() => _asking = true);
+    try {
+      final task = await widget.repository.askAboutReport(report.id, question);
+      _question.clear();
+      await navigator.pushNamed('/tasks/${Uri.encodeComponent(task)}');
+    } on Object catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(
+            SnackBar(content: Text(_failure(context, e, 'libManageDenied'))));
+      }
+    } finally {
+      if (mounted) setState(() => _asking = false);
+    }
+  }
 
   @override
   void initState() {
@@ -781,7 +837,12 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           Text(report.summary, style: TextStyle(color: p.text)),
         ],
         const SizedBox(height: AnumSpacing.sm),
-        if (report.metrics.isNotEmpty) MetricChips(report.metrics),
+        if (report.metrics.isNotEmpty && report.layout.isEmpty)
+          MetricChips(report.metrics),
+        if (!report.layout.isEmpty) ...[
+          ReportSectionsView(layout: report.layout),
+          const SizedBox(height: AnumSpacing.sm),
+        ],
         for (final h in report.highlights)
           Padding(
             padding: const EdgeInsets.only(top: AnumSpacing.xxs),
@@ -834,6 +895,11 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                       }, 'libSaved'),
               icon: const Icon(Icons.description_outlined),
               label: Text(l.t('libSaveMd')),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _saveToFiles(report),
+              icon: const Icon(Icons.ios_share),
+              label: Text(l.t('reportSaveToFiles')),
             ),
             OutlinedButton.icon(
               onPressed: _busy
@@ -889,6 +955,12 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           )
         else
           Text(l.t('libReadOnly'), style: TextStyle(color: p.muted)),
+        const SizedBox(height: AnumSpacing.md),
+        ReportAskBar(
+          controller: _question,
+          busy: _asking,
+          onSend: () => _ask(report),
+        ),
       ],
     );
   }

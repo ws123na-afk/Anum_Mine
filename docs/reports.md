@@ -150,6 +150,31 @@ mailboxes, conversations whose window is open) and links to Approvals.
 
 The CSV is not attached to the email: the body carries the text and the Markdown table.
 
+## Typed sections (the dynamic workspace)
+
+A report may also carry `sections` and optional `tabs` (up to 8 names), stored in the same `reports` row (migration `0045_reports_calendar` adds the two JSONB columns, empty by default). The ANUM 360 app draws them as the "dynamic workspace" of the mockups ([redesign](design/anum360.md), report preview). A section has an `id` (unique, lowercase), an optional `title` and an optional `tab` (one of `tabs`; none means the first tab). Section types:
+
+| `type` | Holds | Shown as |
+|---|---|---|
+| `metrics` | 1 to 12 metrics: `label`, numeric `value`, `prefix`/`suffix` unit, `decimals`, `change_pct`, `higher_is_better`, `caption` | Metric tiles with the change and an arrow, green when the change is good news and red when it is not (a cost going up is bad) |
+| `series` | 1 to 60 ordered points (`label`, `value`) and a unit | Bars; the latest is selected and its value printed; tapping a bar selects it; each bar keeps a 48 px target and many bars scroll sideways |
+| `breakdown` | 1 to 12 non-negative parts | A donut with a legend that prints every share; more than six parts fold into "Other" |
+| `ranked` | 1 to 100 items with `value`, `change_pct`, `detail` | Bars against the largest value with the change; the first five, then "Show all" |
+| `text` | `body` up to 4,000 characters | Plain text |
+
+Invalid layouts (a tab that does not exist, duplicate tab names or section ids, a negative breakdown part, an unknown type) are refused with 422. An older app that meets a newer section type shows "this app cannot show it yet" instead of dropping it. Producers send sections through `create_report(context, ReportCreate(..., tabs=[...], sections=[...]), kind=...)`; the Markdown body gets a "Sections" table and, when the report has no data table, the CSV export is the sections flattened to `tab, section, type, label, value, unit, change_pct, detail` (text cells that a spreadsheet would run as a formula are prefixed with `'`; numbers are left alone).
+
+Two more routes:
+
+| Route | Who | Does |
+|---|---|---|
+| `POST /api/v1/reports/{id}/files` | readers with `file:upload` (members, owners) | Saves the CSV in the workspace's files (same quota, type rules, RLS and retrieval indexing as an upload; `files.save_generated_file`) and returns the file and a short-lived download link (`files.file_link`) |
+| `POST /api/v1/reports/{id}/ask` | readers with `task:create` | "Ask ANUM to analyze further": creates a task whose prompt is the question plus the report (summary, metrics, highlights, sections, the first 40 data rows) as labelled data, not instructions, capped at 8,000 characters. The task runs and asks for approvals like any other |
+
+Both are audited (`report.saved_to_files`, `report.asked`).
+
+In the Flutter app the report screen (`ReportDetailScreen`, also at the route `/reports/<id>`; the list at `/reports`) shows the sections with `ReportSectionsView` (`lib/features/reports/`): tab chips, metric tiles (two per row on phones, four from 760 px), bar and donut charts drawn with `CustomPainter` (no chart package was added; `fl_chart` is not a dependency), the ranked list, **Save to Files and copy a link**, and the "Ask ANUM to analyze further" bar, which opens the new task. Chart colours (`ReportChartColors`) are the fixed categorical order of the dataviz reference palette, checked with its validator against the app's dark (`#111829`) and light surfaces: lightness band, chroma, colour-blind and normal-vision separation pass in both; three light-mode slots are below 3:1 contrast, so every chart prints its values as text.
+
 ## Not in this change
 
 - A built-in marketing generator (that module does not exist yet).
@@ -157,3 +182,4 @@ The CSV is not attached to the email: the body carries the text and the Markdown
 - Sharing from the phone app: the Flutter report screen downloads and stars; sharing is on
   the web.
 - A server-side PDF (see above).
+- Typed sections: no agent tool fills them yet, and export to Files is CSV only (a PDF needs a PDF library on the API).

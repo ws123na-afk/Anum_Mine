@@ -9,6 +9,7 @@ import 'package:anum_mobile/features/chat/chat_models.dart';
 import 'package:anum_mobile/features/library/library_models.dart';
 import 'package:anum_mobile/features/library/library_repository.dart';
 import 'package:anum_mobile/features/library/library_screens.dart';
+import 'package:anum_mobile/features/reports/report_sections.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
@@ -118,6 +119,21 @@ class FakeLibrary implements LibraryRepository {
   Future<bool> saveReport(Report report, String format) async {
     saved.add(format == 'csv' ? reportCsv(report) : report.bodyMarkdown);
     return true;
+  }
+
+  @override
+  Future<ReportExport> saveReportToFiles(String id) async {
+    calls.add('files:$id');
+    return ReportExport(
+        fileId: 'file_1',
+        fileName: 'tyre-cost.csv',
+        link: Uri.parse('https://api.example.com/api/v1/files/links/example'));
+  }
+
+  @override
+  Future<String> askAboutReport(String id, String question) async {
+    calls.add('ask:$id:$question');
+    return 'task_1';
   }
 
   @override

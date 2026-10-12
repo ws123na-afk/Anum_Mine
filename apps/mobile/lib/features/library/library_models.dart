@@ -4,6 +4,7 @@
 library;
 
 import '../../data/json_read.dart';
+import '../reports/report_sections.dart';
 
 const favoriteTypes = [
   'conversation',
@@ -172,6 +173,7 @@ class Report extends ReportSummary {
     required this.canManage,
     required this.createdBy,
     this.conversationId,
+    this.layout = const ReportLayout(),
   });
 
   factory Report.fromReader(JsonReader r) {
@@ -198,6 +200,7 @@ class Report extends ReportSummary {
       canManage: r.optBool('can_manage') ?? false,
       createdBy: r.optString('created_by') ?? '',
       conversationId: r.optObject('source')?.optString('conversation_id'),
+      layout: ReportLayout.fromReader(r),
     );
   }
 
@@ -206,6 +209,9 @@ class Report extends ReportSummary {
   final String bodyMarkdown, createdBy;
   final bool canManage;
   final String? conversationId;
+
+  /// Typed sections and tabs, when the producer sent them (docs/reports.md).
+  final ReportLayout layout;
 }
 
 /// The data snapshot as CSV (the same table the API's CSV export holds);
@@ -222,6 +228,11 @@ String reportCsv(Report report) {
   if (report.columns.isNotEmpty) {
     lines.add(report.columns.map(cell).join(','));
     for (final row in report.rows) {
+      lines.add(row.map(cell).join(','));
+    }
+  } else if (!report.layout.isEmpty) {
+    lines.add(sectionColumns.map(cell).join(','));
+    for (final row in sectionRows(report.layout)) {
       lines.add(row.map(cell).join(','));
     }
   } else {

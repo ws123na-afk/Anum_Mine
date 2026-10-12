@@ -28,9 +28,9 @@ The owner's mockups for the ANUM 360 redesign are in [`anum360-mockups/`](anum36
 | Plan and confirmation | The steps and agents ANUM will use; Edit, Proceed or Start execution | Planner preview; approvals for risky steps |
 | Executing and live activity | Agents running in parallel with progress and a timeline; keep working in background | Task runs and the event stream (SSE) |
 | Results and next steps | Summary, details and files; approve, share, ask a follow-up; suggested next actions | Run outputs, files, approvals |
-| Report preview | A tyre cost report with metrics, trend and high-cost vehicles | The tyre planning module (TyrePulse data) |
-| Email summary | Urgent emails with priority filters | The email inbox module |
-| Calendar and meeting scheduled | Next actions and the meeting with its attendees | The meetings and calendar modules |
+| Report preview | A tyre cost report with metrics, trend and high-cost vehicles | [Reports](../reports.md) with typed sections (`/reports/<id>`), produced by the tyre planning module (TyrePulse data) |
+| Email summary | Urgent emails with priority filters | The email inbox module (`/email/summary`, [email](../email.md)) |
+| Calendar and meeting scheduled | Next actions and the meeting with its attendees | [Calendar](../calendar.md) (`/calendar`, `/calendar/events/<id>`); meeting summaries are the meetings module |
 | Agents, agent detail | Specialised agents, their skills, memory and settings | Custom agents and skills APIs |
 | Tasks, automations, integrations | Lists with filters and toggles | Tasks, automations and integrations APIs |
 | Proactive insights | Things ANUM noticed, with one-tap actions and dismiss | The learning and autonomy modules |

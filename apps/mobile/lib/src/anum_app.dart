@@ -29,6 +29,7 @@ import '../features/email/email_repository.dart';
 import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
 import '../features/commerce/commerce_repository.dart';
+import '../features/reports/workspace_tool_routes.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/team/team_repository.dart';
 import '../features/workspace/destinations.dart';
@@ -128,6 +129,7 @@ class _AnumAppState extends State<AnumApp> {
   late final WhatsAppController whatsapp;
   late final EmailController email;
   late final CommandController command;
+  late final WorkspaceToolRoutes tools;
 
   /// Set when the build's configuration is unsafe; the app then shows only
   /// this message and creates no clients.
@@ -233,6 +235,7 @@ class _AnumAppState extends State<AnumApp> {
             upload: fileTransfer.upload))
       ..onSettled = _commandSettled;
     library = ApiLibraryRepository(api, saver: const FilePickerExportSaver());
+    tools = WorkspaceToolRoutes(api: api, library: library, email: email);
     locale = LocaleController()..restore();
     theme = ThemeController()..restore();
     intro = IntroController()..restore();
@@ -267,6 +270,7 @@ class _AnumAppState extends State<AnumApp> {
       voiceDeveloper.reset();
       whatsapp.reset();
       command.reset();
+      tools.reset();
     }
     if (auth.phase == AuthPhase.ready && workspace.currentUserId == null) {
       _rememberUser();
@@ -363,6 +367,7 @@ class _AnumAppState extends State<AnumApp> {
     whatsapp.dispose();
     email.dispose();
     command.dispose();
+    tools.dispose();
     locale.dispose();
     theme.dispose();
     intro.dispose();
@@ -508,6 +513,9 @@ class _AnumAppState extends State<AnumApp> {
                 : QuickCommandsScreen(controller: command)),
       );
     }
+    final tool = tools.route(settings,
+        (child) => _AuthenticatedDestination(auth: auth, child: child));
+    if (tool != null) return tool;
     if (name == AnumRoutes.inbox) {
       return MaterialPageRoute<void>(
         settings: settings,

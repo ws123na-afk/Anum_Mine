@@ -104,6 +104,8 @@ x-user-roles: owner,member
 - [Calls & Meetings](docs/meetings.md)
 - [Tools and integrations](docs/tools-and-integrations.md)
 - [Email: the unified inbox](docs/email.md)
+- [Reports](docs/reports.md)
+- [Calendar and next actions](docs/calendar.md)
 - [Automation](docs/automation.md)
 - [Approvals and risk](docs/approvals-and-risk.md)
 - [Notifications and phone push](docs/notifications.md)

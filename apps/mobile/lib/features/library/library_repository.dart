@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
 import '../privacy/privacy_repository.dart' show PrivacyExportSaver;
+import '../reports/report_sections.dart';
 import 'library_models.dart';
 
 /// Favorites, knowledge base and reports API (docs/knowledge-base.md,
@@ -20,6 +21,12 @@ abstract interface class LibraryRepository {
 
   /// Saves the report as CSV or Markdown; false when the save was cancelled.
   Future<bool> saveReport(Report report, String format);
+
+  /// Saves the report's CSV in the workspace's files; returns a share link.
+  Future<ReportExport> saveReportToFiles(String id);
+
+  /// "Ask ANUM to analyze further": the id of the task it created.
+  Future<String> askAboutReport(String id, String question);
 
   Future<List<KnowledgeCollection>> collections();
   Future<KnowledgeCollection> createCollection(String name, String visibility);
@@ -156,6 +163,26 @@ class ApiLibraryRepository implements LibraryRepository {
         : utf8.encode(report.bodyMarkdown);
     return saver.save(reportFileName(report, csv ? 'csv' : 'md'), bytes);
   }
+
+  @override
+  Future<ReportExport> saveReportToFiles(String id) async {
+    final value = JsonReader(await api.request(
+        'POST', '/api/v1/reports/${Uri.encodeComponent(id)}/files'));
+    final file = value.object('file');
+    return ReportExport(
+      fileId: file.string('id'),
+      fileName: file.string('name'),
+      link: api.baseUri.resolve(
+          value.object('link').string('url').replaceFirst(RegExp(r'^/'), '')),
+    );
+  }
+
+  @override
+  Future<String> askAboutReport(String id, String question) async =>
+      JsonReader(await api.request(
+              'POST', '/api/v1/reports/${Uri.encodeComponent(id)}/ask',
+              body: {'question': question.trim()}))
+          .string('id');
 
   @override
   Future<List<KnowledgeCollection>> collections() async =>

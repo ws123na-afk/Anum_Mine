@@ -24,7 +24,7 @@ At most `ANUM_EMAIL_SYNC_MAX_MESSAGES` new messages per pass. Syncs run when the
 
 ### Reading
 
-`GET /api/v1/email/messages` (filters: mailbox, category, priority, unread, archived, `q` over sender, subject and snippet; keyset paging with `before`), `GET /api/v1/email/messages/{id}` (thread, drafts, plain text of the body capped at `ANUM_EMAIL_BODY_MAX_BYTES`; HTML is converted to text and never rendered), `GET .../attachments/{attachment_id}` (download only: `Content-Disposition: attachment`, `nosniff`, a sandboxing CSP, a safe content-type allowlist, capped at `ANUM_EMAIL_ATTACHMENT_MAX_BYTES`).
+`GET /api/v1/email/messages` (filters: mailbox, category, priority, unread, archived, `urgent` (true: priority high; false: anything else, untriaged included), `replied` (a reply from ANUM was sent), `q` over sender, subject and snippet; keyset paging with `before`), `GET /api/v1/email/messages/{id}` (thread, drafts, plain text of the body capped at `ANUM_EMAIL_BODY_MAX_BYTES`; HTML is converted to text and never rendered), `GET .../attachments/{attachment_id}` (download only: `Content-Disposition: attachment`, `nosniff`, a sandboxing CSP, a safe content-type allowlist, capped at `ANUM_EMAIL_ATTACHMENT_MAX_BYTES`).
 
 Every id that reaches a provider URL path (message, attachment, draft, folder, reply and Zoho account ids) must match a strict id pattern (letters, digits, `+/=_-`, at most 2048 characters, no dots) and is percent-encoded; the hosts are fixed (Zoho's data centre from an allow-list, Microsoft's tenant from settings, checked as dot-separated labels). A bad attachment id in the request answers 422; a stored id that fails the check answers 409 (sync the mailbox again) and nothing is sent to the provider.
 
@@ -65,6 +65,10 @@ A task such as "ANUM, any urgent customer emails?" selects the `anum.email` skil
 ### Routing to department assistants
 
 At the end of a sync, new mail in a **shared** mailbox (never a private one, never the first history sync, never sent, draft or bulk mail) is offered with its subject and preview to department assistants that opted into email; a keyword match becomes a work item, once per open thread. Best effort: a routing failure never fails the sync ([Team work](team-work.md#inbound-routing)).
+
+## Email summary (mobile)
+
+The Flutter route `/email/summary` (`?tab=urgent|replied|other`) is the ANUM 360 email summary: the urgent and unread counts from `GET /api/v1/email/summary`, the All / Urgent (`urgent=true`) / Replied (`replied=true`) / Other (`urgent=false&replied=false`) tabs with sender initials, subject and a High / Medium / Low priority pill, paging, and View all emails (the inbox). Opening a message shows it with its drafts and the approve-to-send card, as in the inbox.
 
 ## Owner setup
 
