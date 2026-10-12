@@ -23,6 +23,11 @@ export interface WaAccount {
   owner_test_number: string | null;
   auto_send_templates: string[];
   triage_enabled: boolean;
+  /** The workspace's history retention in days (null: the server default; 0: kept until deleted). Absent from older servers. */
+  message_retention_days?: number | null;
+  /** What applies now, and the server default (ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS). Absent from older servers. */
+  effective_message_retention_days?: number;
+  default_message_retention_days?: number;
   status: AccountStatus | null;
   last_error: string | null;
   last_checked_at: string | null;
@@ -110,6 +115,16 @@ export interface AccountForm {
   ownerTestNumber: string;
   triageEnabled: boolean;
   autoSend: string[];
+  /** '' follows the server default; '0' keeps messages until deleted; otherwise days. */
+  retention: string;
+}
+
+/** The history retention choices offered (days; 0 keeps messages until they are deleted). */
+export const RETENTION_CHOICES = [0, 30, 90, 180, 365, 730];
+
+/** A retention in words: "Until deleted" or "90 days" (in the current locale). */
+export function retentionLabel(days: number): string {
+  return days > 0 ? t('privacy.days', { count: days }) : t('wa.setup.retention.keep');
 }
 
 export const MAX_TEXT = 4096;
@@ -128,6 +143,7 @@ export function emptyForm(account: WaAccount | null): AccountForm {
     ownerTestNumber: account?.owner_test_number ?? '',
     triageEnabled: account?.triage_enabled ?? true,
     autoSend: account?.auto_send_templates ?? [],
+    retention: account?.message_retention_days == null ? '' : String(account.message_retention_days),
   };
 }
 
@@ -150,6 +166,7 @@ export function accountBody(form: AccountForm, configured: boolean): { ok: true;
     owner_test_number: test || null,
     triage_enabled: form.triageEnabled,
     auto_send_templates: [...new Set(form.autoSend)].sort(),
+    message_retention_days: form.retention === '' ? null : Number(form.retention),
   };
   if (form.accessToken.trim()) value.access_token = form.accessToken.trim();
   if (form.appSecret.trim()) value.app_secret = form.appSecret.trim();

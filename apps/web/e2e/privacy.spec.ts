@@ -1,9 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // Settings -> Privacy (docs/privacy.md): what is stored, retention, Download my data and Delete my data.
-const counts = { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 1, voice_transcript_segments: 3, notification_preferences: 1, user_preferences: 1 };
+const counts = { conversations: 2, conversation_turns: 6, private_memories: 1, retrieval_index_entries: 1, voice_sessions: 1, voice_transcript_segments: 3, notification_preferences: 1, user_preferences: 1, email_mailboxes: 1, email_messages: 3, email_drafts: 1 };
 const zero = Object.fromEntries(Object.keys(counts).map((key) => [key, 0]));
-const shared = { tasks_created: 4, approvals_decided: 1, shared_memories_created: 0, files_uploaded: 2 };
+const shared = { tasks_created: 4, approvals_decided: 1, shared_memories_created: 0, files_uploaded: 2, email_mailboxes_connected: 0, email_drafts_sent: 0, whatsapp_messages_sent: 2, autonomy_actions_requested: 1 };
+const revokeNote = 'ANUM deleted me@example.com and its tokens, but could not withdraw its access at Zoho Mail. Remove ANUM in your Zoho Mail account’s security settings (third-party apps).';
 
 function summary(privateCounts: Record<string, number>, memory = 'on') {
   return {
@@ -44,7 +45,7 @@ async function mockApi(page: Page, options: { summaryStatus?: number; exportStat
       calls.deleted.push(request.postDataJSON());
       const deleted = current;
       current = { ...zero };
-      return json({ deleted, kept: shared, account_note: summary(current).account_note, shared_note: summary(current).shared_note });
+      return json({ deleted, kept: shared, account_note: summary(current).account_note, shared_note: summary(current).shared_note, notes: [revokeNote] });
     }
     return route.abort();
   });
@@ -58,6 +59,8 @@ test('a member sees what is stored, downloads it and deletes their private data 
   await expect(page.getByRole('button', { name: 'Privacy' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'What ANUM stores about you' })).toBeVisible();
   await expect(page.getByText('Assistant conversations').first()).toBeVisible();
+  await expect(page.getByText('Private mailboxes you connected', { exact: true })).toBeVisible();
+  await expect(page.getByText('WhatsApp messages you sent', { exact: true })).toBeVisible();
   await expect(page.getByText(/Deleted after 30 days without activity/)).toBeVisible();
   await expect(page.getByText(/sent to Anthropic \(Claude\)/)).toBeVisible();
   await expect(page.getByTestId('privacy-memory')).toContainText('After each reply, a second short call to the same provider picks out lasting facts');
@@ -75,7 +78,7 @@ test('a member sees what is stored, downloads it and deletes their private data 
   await expect(remove).toBeDisabled();
   await page.getByLabel('Type DELETE MY DATA to confirm').fill('DELETE MY DATA');
   await remove.click();
-  await expect(page.getByText(/Deleted 16 private items\. 7 shared workspace records stay\./)).toBeVisible();
+  await expect(page.getByText(/Deleted 21 private items\. 10 shared workspace records stay\. ANUM deleted me@example\.com/)).toBeVisible();
   expect(calls.deleted).toEqual([{ confirm: 'DELETE MY DATA' }]);
   await expect(page.getByText('Nothing private is stored for you here yet.', { exact: false })).toBeVisible();
 });

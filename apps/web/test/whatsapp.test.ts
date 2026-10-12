@@ -4,7 +4,7 @@ import { afterEach, describe, test } from 'node:test';
 import { setLocale } from '../src/lib/i18n.ts';
 import {
   accountBody, categoryLabel, contactLabel, emptyForm, fillTemplate, mergeMessages, opensInline, parameterCount, provenanceLabel,
-  randomVerifyToken, sendableTemplates, statusTone, webhookUrl, windowLabel, windowState, type WaAccount, type WaMessage, type WaTemplate,
+  RETENTION_CHOICES, randomVerifyToken, retentionLabel, sendableTemplates, statusTone, webhookUrl, windowLabel, windowState, type WaAccount, type WaMessage, type WaTemplate,
 } from '../src/lib/whatsapp.ts';
 
 afterEach(() => setLocale('en'));
@@ -29,8 +29,25 @@ describe('account form', () => {
     assert.ok(update.ok);
     assert.deepEqual(update.value, {
       phone_number_id: '106540352242922', business_account_id: '102290129340398', owner_test_number: '966500000999',
-      triage_enabled: true, auto_send_templates: ['order_update'],
+      triage_enabled: true, auto_send_templates: ['order_update'], message_retention_days: null,
     });
+  });
+
+  test('history retention: the server default, until deleted, or a number of days', () => {
+    assert.equal(emptyForm({ ...account, message_retention_days: 90 }).retention, '90');
+    assert.equal(emptyForm({ ...account, message_retention_days: 0 }).retention, '0');
+    assert.equal(emptyForm(account).retention, '');
+    const body = (retention: string) => {
+      const result = accountBody({ ...emptyForm(account), retention }, true);
+      assert.ok(result.ok);
+      return result.value.message_retention_days;
+    };
+    assert.equal(body(''), null);
+    assert.equal(body('0'), 0);
+    assert.equal(body('365'), 365);
+    assert.equal(retentionLabel(0), 'Until deleted');
+    assert.equal(retentionLabel(30), '30 days');
+    assert.deepEqual(RETENTION_CHOICES, [0, 30, 90, 180, 365, 730]);
   });
 
   test('ids, verify token and test number are checked before sending', () => {

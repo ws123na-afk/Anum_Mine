@@ -192,6 +192,33 @@ void main() {
     expect(providerLabel('openai_compatible'), contains('OpenAI-compatible'));
   });
 
+  test(
+      'a deletion lists email, WhatsApp and autonomy counts and the server notes',
+      () {
+    final result = PrivacyDeleteResult.fromJson({
+      'deleted': {'email_mailboxes': 1, 'email_messages': 4, 'email_drafts': 2},
+      'kept': {'whatsapp_messages_sent': 3, 'autonomy_actions_requested': 1},
+      'account_note': 'Ask your administrator.',
+      'notes': ['Remove ANUM in your Zoho Mail account settings.'],
+    });
+    expect(
+        result.deleted.map((item) => item.label),
+        containsAll(<String>[
+          'Private mailboxes you connected',
+          'Email details synced from those mailboxes',
+          'Email drafts you never sent',
+        ]));
+    expect(
+        result.kept.map((item) => item.key),
+        containsAll(
+            <String>['whatsapp_messages_sent', 'autonomy_actions_requested']));
+    expect(result.sentence,
+        'Deleted 7 private items. 4 shared workspace records stay. Remove ANUM in your Zoho Mail account settings.');
+    // Older servers send no notes.
+    expect(PrivacyDeleteResult.fromJson({'deleted': {}, 'kept': {}}).sentence,
+        'There was nothing private to delete.');
+  });
+
   test('the memory sentence follows the caller\'s own state, not the flag', () {
     PrivacySummary of(String memory) =>
         PrivacySummary.fromJson(_summary(_counts, memory: memory));

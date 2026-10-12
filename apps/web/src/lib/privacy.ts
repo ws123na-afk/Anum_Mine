@@ -17,9 +17,13 @@ const PRIVATE_KEYS: (keyof PrivateCounts)[] = [
   'voice_sessions', 'voice_transcript_segments', 'notification_preferences', 'user_preferences',
   'push_devices', 'meetings', 'meeting_transcript_segments', 'meeting_recordings', 'meeting_connections',
   'learning_signals', 'learned_items', 'favorites', 'private_collections', 'private_reports',
+  'email_mailboxes', 'email_messages', 'email_drafts',
 ];
 
-const SHARED_KEYS: (keyof SharedCounts)[] = ['tasks_created', 'approvals_decided', 'shared_memories_created', 'files_uploaded'];
+const SHARED_KEYS: (keyof SharedCounts)[] = [
+  'tasks_created', 'approvals_decided', 'shared_memories_created', 'files_uploaded',
+  'email_mailboxes_connected', 'email_drafts_sent', 'whatsapp_messages_sent', 'autonomy_actions_requested',
+];
 
 const rowLabel = (key: string) => t(`privacy.row.${key}` as MessageKey);
 
@@ -153,5 +157,7 @@ export function deletedSentence(result: DeleteResult): string {
   const removed = totalOf(result.deleted);
   const kept = totalOf(result.kept);
   const head = t('privacy.deleted', { count: removed });
-  return kept ? `${head} ${t('privacy.keptAfter', { count: kept })}` : head;
+  // The server's own sentences, e.g. a mailbox provider where ANUM could not withdraw its access.
+  const parts = [head, kept ? t('privacy.keptAfter', { count: kept }) : '', ...(result.notes ?? [])];
+  return parts.filter(Boolean).join(' ');
 }

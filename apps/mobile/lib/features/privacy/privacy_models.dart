@@ -24,6 +24,9 @@ const _privateLabels = <String, String>{
   'favorites': 'Your favorites',
   'private_collections': 'Private knowledge collections',
   'private_reports': 'Private reports',
+  'email_mailboxes': 'Private mailboxes you connected',
+  'email_messages': 'Email details synced from those mailboxes',
+  'email_drafts': 'Email drafts you never sent',
 };
 
 const _sharedLabels = <String, String>{
@@ -31,6 +34,10 @@ const _sharedLabels = <String, String>{
   'approvals_decided': 'Approvals you decided',
   'shared_memories_created': 'Shared memories you added',
   'files_uploaded': 'Files you uploaded',
+  'email_mailboxes_connected': 'Workspace mailboxes you connected',
+  'email_drafts_sent': 'Emails you sent or sent for approval',
+  'whatsapp_messages_sent': 'WhatsApp messages you sent',
+  'autonomy_actions_requested': 'Actions ANUM took for you',
 };
 
 List<PrivacyCount> _counts(JsonReader json, Map<String, String> labels) => [
@@ -181,7 +188,10 @@ String providerLabel(String provider) =>
 /// `POST /api/v1/privacy/delete`: what went, what stayed.
 class PrivacyDeleteResult {
   const PrivacyDeleteResult(
-      {required this.deleted, required this.kept, required this.accountNote});
+      {required this.deleted,
+      required this.kept,
+      required this.accountNote,
+      this.notes = const []});
 
   factory PrivacyDeleteResult.fromJson(Map<String, Object?> body) {
     final json = JsonReader(body);
@@ -189,6 +199,7 @@ class PrivacyDeleteResult {
       deleted: _counts(json.object('deleted'), _privateLabels),
       kept: _counts(json.object('kept'), _sharedLabels),
       accountNote: json.optString('account_note') ?? '',
+      notes: json.optStrings('notes') ?? const [],
     );
   }
 
@@ -196,14 +207,19 @@ class PrivacyDeleteResult {
   final List<PrivacyCount> kept;
   final String accountNote;
 
+  /// The server's own sentences about what still needs the caller (e.g. a
+  /// mailbox provider where ANUM could not withdraw its access).
+  final List<String> notes;
+
   String get sentence {
     final removed = totalOf(deleted), stayed = totalOf(kept);
     final head = removed > 0
         ? 'Deleted $removed private ${removed == 1 ? 'item' : 'items'}.'
         : 'There was nothing private to delete.';
-    return stayed > 0
+    final base = stayed > 0
         ? '$head $stayed shared workspace ${stayed == 1 ? 'record stays' : 'records stay'}.'
         : head;
+    return [base, ...notes].join(' ');
   }
 }
 

@@ -12,7 +12,7 @@ const connected = {
   configured: true, can_manage: true, webhook_path: '/api/v1/whatsapp/webhook', deployment_problems: [], phone_number_id: '106540352242922',
   business_account_id: '102290129340398', display_phone_number: '+966 11 000 0000', verified_name: 'Tyre Shop', quality_rating: 'GREEN',
   access_token_hint: '...oken', app_secret_set: true, verify_token_set: true, owner_test_number: '966500000999', auto_send_templates: [],
-  triage_enabled: true, status: 'connected', last_error: null, last_checked_at: minutesAgo(30), last_webhook_at: minutesAgo(2), updated_at: minutesAgo(60), updated_by: 'user_local',
+  triage_enabled: true, message_retention_days: null, effective_message_retention_days: 365, default_message_retention_days: 365, status: 'connected', last_error: null, last_checked_at: minutesAgo(30), last_webhook_at: minutesAgo(2), updated_at: minutesAgo(60), updated_by: 'user_local',
 };
 const notConnected = { ...connected, configured: false, phone_number_id: null, business_account_id: null, display_phone_number: null, verified_name: null, status: null, access_token_hint: null, app_secret_set: false, verify_token_set: false, owner_test_number: null, last_webhook_at: null };
 
@@ -183,11 +183,14 @@ test('an owner connects the number from Setup; the form says what is missing', a
   await page.getByLabel('App secret').fill('example-secret');
   await page.getByRole('button', { name: 'Generate' }).click();
   await page.getByLabel('Your own WhatsApp number (for the test)').fill('+966 500 000 999');
+  const retention = page.getByLabel('Keep message history');
+  await expect(retention.locator('option').first()).toHaveText('Server default (365 days)');
+  await retention.selectOption('90');
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Connected as Tyre Shop' })).toBeVisible();
   expect(sent.saves).toHaveLength(1);
   const saved = sent.saves[0];
-  expect(saved).toMatchObject({ phone_number_id: '106540352242922', business_account_id: '102290129340398', access_token: 'example-token', app_secret: 'example-secret', owner_test_number: '966500000999' });
+  expect(saved).toMatchObject({ phone_number_id: '106540352242922', business_account_id: '102290129340398', access_token: 'example-token', app_secret: 'example-secret', owner_test_number: '966500000999', message_retention_days: 90 });
   expect(String(saved.verify_token)).toMatch(/^[A-Za-z0-9_-]{32}$/);
   await expect(page.getByLabel('Permanent access token (system user)')).toHaveValue('');
 });

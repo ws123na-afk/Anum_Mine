@@ -54,6 +54,12 @@ export interface PrivacyPrivateCounts {
   favorites?: number;
   private_collections?: number;
   private_reports?: number;
+  /** Private mailboxes the caller connected (docs/email.md). Absent from older servers. */
+  email_mailboxes?: number;
+  /** Message metadata synced from those mailboxes (bodies are never stored). Absent from older servers. */
+  email_messages?: number;
+  /** The caller's drafts that never left ANUM, and every draft in their private mailboxes. Absent from older servers. */
+  email_drafts?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */
@@ -62,6 +68,14 @@ export interface PrivacySharedCounts {
   approvals_decided: number;
   shared_memories_created: number;
   files_uploaded: number;
+  /** Workspace mailboxes the caller connected. Absent from older servers. */
+  email_mailboxes_connected?: number;
+  /** The caller's emails sent, or waiting for approval, from workspace mailboxes. Absent from older servers. */
+  email_drafts_sent?: number;
+  /** WhatsApp messages the caller sent or asked to send (docs/whatsapp.md). Absent from older servers. */
+  whatsapp_messages_sent?: number;
+  /** Actions ANUM took on its own for the caller's requests (docs/autonomy.md). Absent from older servers. */
+  autonomy_actions_requested?: number;
 }
 
 export interface PrivacyRetention {
@@ -161,6 +175,11 @@ export interface PrivacyDeleteResult {
   kept: PrivacySharedCounts;
   account_note: string;
   shared_note: string;
+  /**
+   * What still needs the caller, e.g. a mailbox provider where ANUM could not withdraw its
+   * access. Absent from older servers.
+   */
+  notes?: string[];
 }
 
 // --------------------------------------------------------------------------- user preferences

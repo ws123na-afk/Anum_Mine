@@ -12,7 +12,7 @@ import { describeError, isBudgetExceeded, isPermissionDenied, budgetMessage, Api
 import { formatDateTime, t } from './lib/i18n';
 import {
   FILTERS, MAX_TEXT, PAGE, accountBody, categoryLabel, contactLabel, emptyForm, fillTemplate, filterLabel, mergeMessages, opensInline,
-  provenanceLabel, randomVerifyToken, sendableTemplates, statusLabel, statusTone, templateKey, webhookUrl, windowLabel, windowState,
+  provenanceLabel, RETENTION_CHOICES, randomVerifyToken, retentionLabel, sendableTemplates, statusLabel, statusTone, templateKey, webhookUrl, windowLabel, windowState,
   type AccountForm, type ConversationFilter, type WaAccount, type WaConversation, type WaMessage, type WaSuggestion, type WaTemplate,
 } from './lib/whatsapp';
 import * as wa from './lib/whatsappApi';
@@ -524,7 +524,7 @@ function SetupView({ account, onSaved, onDisconnected }: { account: WaAccount; o
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const ids = { phone: useId(), waba: useId(), token: useId(), secret: useId(), verify: useId(), test: useId() };
+  const ids = { phone: useId(), waba: useId(), token: useId(), secret: useId(), verify: useId(), test: useId(), retention: useId(), retentionNote: useId() };
   const url = webhookUrl(api.apiBaseUrl, account.webhook_path);
   const set = (patch: Partial<AccountForm>) => setForm((current) => ({ ...current, ...patch }));
 
@@ -600,7 +600,14 @@ function SetupView({ account, onSaved, onDisconnected }: { account: WaAccount; o
             </span>
           </label>
           <label className="field" htmlFor={ids.test}><span>{t('wa.setup.testNumber')}</span><input id={ids.test} dir="ltr" inputMode="tel" autoComplete="off" value={form.ownerTestNumber} placeholder="9665XXXXXXXX" onChange={(e) => set({ ownerTestNumber: e.target.value })} /></label>
+          <label className="field" htmlFor={ids.retention}><span>{t('wa.setup.retention')}</span>
+            <select id={ids.retention} aria-describedby={ids.retentionNote} value={form.retention} onChange={(e) => set({ retention: e.target.value })}>
+              <option value="">{t('wa.setup.retention.default', { value: retentionLabel(account.default_message_retention_days ?? 0) })}</option>
+              {[...new Set([...RETENTION_CHOICES, ...(form.retention ? [Number(form.retention)] : [])])].sort((a, b) => a - b).map((days) => <option key={days} value={String(days)}>{retentionLabel(days)}</option>)}
+            </select>
+          </label>
         </div>
+        <p className="muted waFootnote" id={ids.retentionNote}>{t('wa.setup.retentionNote')}</p>
         <label className="waCheck"><input type="checkbox" checked={form.triageEnabled} onChange={(e) => set({ triageEnabled: e.target.checked })} /><span>{t('wa.setup.triage')}</span></label>
         <p className="muted waFootnote">{t('wa.setup.secretsNote')}</p>
         <div className="actions"><button type="submit" disabled={busy !== null}><Plug aria-hidden="true" />{busy === 'save' ? t('wa.setup.saving') : account.configured ? t('wa.setup.save') : t('wa.setup.connect')}</button></div>
