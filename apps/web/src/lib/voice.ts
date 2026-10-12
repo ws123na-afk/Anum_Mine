@@ -318,19 +318,88 @@ export function prepareNaturalVoice(): Promise<void> {
   return loadKokoro().then(() => undefined);
 }
 
+// The reply's loudness for the space orb (docs/voice.md#the-space-orb). Natural and server voices
+// play through an <audio> element, which is routed through an AnalyserNode when an AudioContext is
+// already running (a suspended one would silence the reply, so then it plays directly). System
+// voices give no audio to measure: each word boundary is a pulse that fades, an approximation.
+let outputContext: AudioContext | null = null;
+let outputAnalyser: AnalyserNode | null = null;
+let outputSource: MediaElementAudioSourceNode | null = null;
+let measuredAudio: HTMLAudioElement | null = null;
+let outputData: Uint8Array<ArrayBuffer> | null = null;
+let systemSpeaking = false;
+let lastBoundary = 0;
+
+/**
+ * Measure a reply's <audio> for the orb (this module's natural and server voices, and the call's
+ * server voice). Call before play(); the element is released when it ends or the next one starts.
+ */
+export function trackOutputAudio(audio: HTMLAudioElement): void {
+  releaseOutput();
+  measuredAudio = audio;
+  try {
+    if (typeof AudioContext === 'undefined') return;
+    outputContext ??= new AudioContext();
+    if (outputContext.state !== 'running') { void outputContext.resume().catch(() => undefined); return; }
+    if (!outputAnalyser) {
+      outputAnalyser = outputContext.createAnalyser();
+      outputAnalyser.fftSize = 256;
+      outputAnalyser.connect(outputContext.destination);
+      outputData = new Uint8Array(outputAnalyser.frequencyBinCount);
+    }
+    outputSource = outputContext.createMediaElementSource(audio);
+    outputSource.connect(outputAnalyser);
+  } catch {
+    outputSource = null;
+  }
+}
+
+function releaseOutput(): void {
+  try { outputSource?.disconnect(); } catch { /* already disconnected */ }
+  outputSource = null;
+  measuredAudio = null;
+}
+
+/** Stop measuring `audio` if it is the one measured (it ended or was stopped). */
+export function releaseOutputAudio(audio: HTMLAudioElement | null): void {
+  if (audio && audio === measuredAudio) releaseOutput();
+}
+
+/** The reply audio's level, 0..1, while a reply plays; 0 when nothing plays. Read once per frame. */
+export function outputAmplitude(now = performance.now()): number {
+  if (measuredAudio && !measuredAudio.paused && !measuredAudio.ended) {
+    if (!outputSource || !outputAnalyser || !outputData) return 0.35;
+    outputAnalyser.getByteFrequencyData(outputData);
+    let sum = 0;
+    for (const value of outputData) sum += value;
+    return Math.min(1, sum / outputData.length / 90);
+  }
+  if (systemSpeaking) return boundaryPulse(now - lastBoundary);
+  return 0;
+}
+
+/** A system voice's level from the time since its last word boundary: a pulse that fades. */
+export function boundaryPulse(sinceBoundaryMs: number): number {
+  return 0.2 + 0.6 * Math.exp(-Math.max(0, sinceBoundaryMs) / 180);
+}
+
 export function stopSpeaking(): void {
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  systemSpeaking = false;
   currentAudio?.pause();
+  releaseOutputAudio(currentAudio);
   currentAudio = null;
 }
 
 function playBlob(blob: Blob, options: SpeakOptions): Promise<void> {
   const url = URL.createObjectURL(blob);
-  currentAudio = new Audio(url);
-  currentAudio.onplay = () => options.onStart?.();
-  currentAudio.onended = () => { URL.revokeObjectURL(url); options.onEnd?.(); };
-  currentAudio.onerror = () => { URL.revokeObjectURL(url); options.onEnd?.(); };
-  return currentAudio.play();
+  const audio = new Audio(url);
+  currentAudio = audio;
+  trackOutputAudio(audio);
+  audio.onplay = () => options.onStart?.();
+  audio.onended = () => { URL.revokeObjectURL(url); releaseOutputAudio(audio); options.onEnd?.(); };
+  audio.onerror = () => { URL.revokeObjectURL(url); releaseOutputAudio(audio); options.onEnd?.(); };
+  return audio.play();
 }
 
 async function speakWithSystemVoice(text: string, options: SpeakOptions): Promise<void> {
@@ -343,9 +412,10 @@ async function speakWithSystemVoice(text: string, options: SpeakOptions): Promis
   const named = options.voice ? voices.find((voice) => voice.name === options.voice) : undefined;
   const chosen = named ?? rankVoices(voices, options.locale)[0];
   if (chosen) utterance.voice = chosen;
-  utterance.onstart = () => options.onStart?.();
-  utterance.onend = () => options.onEnd?.();
-  utterance.onerror = () => options.onEnd?.();
+  utterance.onstart = () => { systemSpeaking = true; lastBoundary = performance.now(); options.onStart?.(); };
+  utterance.onboundary = () => { lastBoundary = performance.now(); };
+  utterance.onend = () => { systemSpeaking = false; options.onEnd?.(); };
+  utterance.onerror = () => { systemSpeaking = false; options.onEnd?.(); };
   window.speechSynthesis.speak(utterance);
 }
 

@@ -122,7 +122,7 @@ test('tap the mic, speak, and the reply comes back without pressing send', async
   await fakeMicrophone(page);
   await page.addInitScript(() => localStorage.setItem('anum.voice.wake', 'off'));
   await page.goto('/#voice');
-  // The orb opens the full screen and starts listening there (docs/voice.md#the-orb).
+  // The orb opens the full screen and starts listening there (docs/voice.md#the-space-orb).
   await page.getByRole('button', { name: 'Tap to talk' }).click();
   const full = page.getByRole('dialog', { name: 'Layla voice assistant' });
   await expect(full).toBeVisible();

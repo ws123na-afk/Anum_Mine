@@ -194,6 +194,13 @@ export class CallEngine {
     for (const listener of this.listeners) listener(this.state);
   }
 
+  /** The caller's microphone level (0..1) for the orb; 0 when muted, closed or not measurable. */
+  micLevel(): number {
+    if (!this.mic || this.state.muted || !this.active) return 0;
+    const level = this.mic.level();
+    return level > 0 ? Math.min(1, level) : 0;
+  }
+
   private get active() { return !['idle', 'ending', 'ended'].includes(this.state.phase); }
 
   /** Opens the microphone and the session. Problems (blocked microphone, offline) are reported, not thrown. */

@@ -112,31 +112,33 @@
 .voiceSettings .muted { margin: var(--d-s3) 0 0; }
 .voiceSettings button.secondary { border-radius: 999px; margin-top: var(--d-s3); min-height: 44px; padding: 8px 16px; }
 
-/* The orb full screen (OrbFullscreen.tsx): the page's navy with the orb's own halo, content-sized
-   text under the orb, everything inside the viewport at every size. */
+/* The orb full screen (OrbFullscreen.tsx): the space stage takes the free height, the text sits
+   under it at its own height (long answers scroll inside), nothing leaves the viewport. */
 .orbFullscreen {
-  align-items: center; background: radial-gradient(900px 640px at 50% 38%, rgba(79, 70, 229, .22), transparent 70%) var(--d-bg);
-  display: grid; inset: 0; justify-items: center; overflow-y: auto; padding: var(--d-s6) var(--d-s4); position: fixed; z-index: 60;
+  background: var(--d-bg); display: grid; gap: var(--d-s3); grid-template-rows: minmax(0, 1fr) auto; height: 100dvh; inset: 0;
+  overflow: hidden; padding: var(--d-s4); position: fixed; z-index: 60;
 }
 .orbFullscreenClose {
-  align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-text); display: inline-flex;
-  height: 48px; inset-inline-end: var(--d-s4); justify-content: center; position: fixed; top: var(--d-s4); width: 48px; z-index: 1;
+  align-items: center; background: rgba(12, 26, 41, .82); border: 1px solid #284b60; border-radius: 999px; color: #e8faff; display: inline-flex;
+  height: 48px; inset-inline-end: calc(var(--d-s4) + 10px); justify-content: center; position: fixed; top: calc(var(--d-s4) + 10px); width: 48px; z-index: 3;
 }
-.orbFullscreenClose:hover { background: var(--d-glass-3); }
+.orbFullscreenClose:hover { background: #183247; }
+.orbFullscreenClose:focus-visible { outline: 2px solid #90e9ff; outline-offset: 3px; }
 .orbFullscreenClose svg { height: 22px; width: 22px; }
-.orbFullscreenStage { align-items: center; display: flex; flex-direction: column; gap: var(--d-s3); max-width: min(720px, 100%); text-align: center; }
-.orbFullscreen .voiceOrb { margin-bottom: var(--d-s5); max-width: 86vw; }
+.orbFullscreen > .spaceOrb.full { min-height: 0; }
+.orbFullscreenText { display: grid; gap: var(--d-s1); justify-items: center; margin-inline: auto; max-height: 34dvh; max-width: min(760px, 100%); min-height: 0; overflow-y: auto; text-align: center; }
+.orbFullscreenText p { margin: 0; }
 .orbFullscreenState { color: var(--d-sky); font-size: 18px; font-weight: 650; }
 .orbFullscreenHeard { color: var(--d-muted); font-size: 16px; overflow-wrap: anywhere; }
-.orbFullscreenAnswer { color: var(--d-text); font-size: 20px; font-weight: 550; line-height: 1.45; max-height: 30vh; overflow-wrap: anywhere; overflow-y: auto; }
-.orbFullscreenHint { color: var(--d-faint); font-size: 13px; margin-top: var(--d-s2); }
-.orbFullscreen[data-state="listening"] .voiceOrbHalo { animation: voiceRing 1.8s ease-out infinite; border-color: rgba(125, 211, 252, .55); }
-.orbFullscreen[data-state="thinking"] .voiceOrbHalo { animation: voiceSpin 1.4s linear infinite; border-color: transparent; border-top-color: var(--d-violet); }
-.orbFullscreen[data-state="speaking"] .voiceOrbGlow { animation: voiceBreathe 1.6s ease-in-out infinite; opacity: .9; }
+.orbFullscreenAnswer { color: var(--d-text); font-size: 19px; font-weight: 550; line-height: 1.45; overflow-wrap: anywhere; }
+.orbFullscreenHint { color: var(--d-faint); font-size: 13px; }
 @media (max-width: 480px) {
-  .orbFullscreen { padding: var(--d-s7) var(--d-s4) var(--d-s5); }
-  .orbFullscreenAnswer { font-size: 17px; }
+  .orbFullscreen { gap: var(--d-s2); padding: var(--d-s2); }
+  .orbFullscreenClose { inset-inline-end: calc(var(--d-s2) + 8px); top: calc(var(--d-s2) + 8px); }
+  .orbFullscreenAnswer { font-size: 16px; }
+  .orbFullscreenHint { display: none; }
 }
+@media (max-height: 560px) { .orbFullscreenHint, .orbFullscreenHeard { display: none; } .orbFullscreenText { max-height: 28dvh; } }
 
 @media (prefers-reduced-motion: reduce) {
   .voiceOrb, .voiceOrbBlob, .voiceOrbGlow, .voiceOrbHalo { animation: none !important; transition: none !important; }

@@ -14,6 +14,7 @@ import {
   hasVoiceServer,
   listSystemVoices,
   naturalVoiceSupports,
+  outputAmplitude,
   playWakeChime,
   rankVoices,
   speakAndWait,
@@ -27,8 +28,9 @@ import {
   type VoiceSession,
   type WakeListener,
 } from './lib/voice';
-import { Orb3D } from './Orb3D';
 import { OrbFullscreen } from './OrbFullscreen';
+import { SpaceOrb } from './SpaceOrb';
+import { voiceSpaceMode } from './lib/spaceMode';
 import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import './voice.css';
 import { takeSentences } from './lib/chat';
@@ -86,9 +88,8 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
   const [voice, setVoice] = useState<ReplyVoice>(() => stored('anum.voice.reply', 'natural'));
   const [muted, setMuted] = useState(false);
   const [notice, setNotice] = useState('');
-  const [level, setLevel] = useState(0);
   const [pendingApprovals, setPendingApprovals] = useState(0);
-  // The orb full screen (docs/voice.md#the-orb): opened by the orb or the Full screen button.
+  // The orb full screen (docs/voice.md#the-space-orb): opened by the orb or the Full screen button.
   const [fullscreen, setFullscreen] = useState(false);
   // Sized by width and height so the greeting and dock stay above the fold on short laptop screens.
   const [orbSize] = useState(() => Math.round(Math.max(180, Math.min(window.innerWidth < 480 ? 208 : window.innerWidth < 860 ? 248 : 296, window.innerHeight * 0.3))));
@@ -103,7 +104,9 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
   const sequence = useRef(0);
   const heard = useRef('');
   const followUp = useRef(false);
-  const meter = useRef<{ stream: MediaStream; context: AudioContext; frame: number } | null>(null);
+  // The microphone's analyser while listening; the orb reads it once per frame (no loop of its own).
+  const meter = useRef<{ stream: MediaStream; context: AudioContext; analyser: AnalyserNode; data: Uint8Array<ArrayBuffer> } | null>(null);
+  const meterGeneration = useRef(0);
   const logEnd = useRef<HTMLLIElement | null>(null);
   const askRef = useRef<(text?: string) => Promise<void>>(async () => undefined);
   // The streamed reply in flight; aborting it stops the model and the spoken queue.
@@ -157,33 +160,41 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
 
   async function startMeter() {
     if (!navigator.mediaDevices?.getUserMedia) return;
+    stopMeter();
+    const generation = meterGeneration.current;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Listening ended (or restarted) while the browser was asking: release this microphone.
+      if (generation !== meterGeneration.current) { stream.getTracks().forEach((track) => track.stop()); return; }
       const context = new AudioContext();
       const analyser = context.createAnalyser();
       analyser.fftSize = 256;
       context.createMediaStreamSource(stream).connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      const tick = () => {
-        analyser.getByteFrequencyData(data);
-        const average = data.reduce((sum, value) => sum + value, 0) / data.length;
-        setLevel(Math.min(1, average / 90));
-        if (meter.current) meter.current.frame = requestAnimationFrame(tick);
-      };
-      meter.current = { stream, context, frame: requestAnimationFrame(tick) };
+      meter.current = { stream, context, analyser, data: new Uint8Array(analyser.frequencyBinCount) };
     } catch {
       // The level meter is decorative; recognition still works without it.
     }
   }
 
   function stopMeter() {
+    meterGeneration.current += 1;
     if (!meter.current) return;
-    cancelAnimationFrame(meter.current.frame);
     meter.current.stream.getTracks().forEach((track) => track.stop());
     void meter.current.context.close();
     meter.current = null;
-    setLevel(0);
   }
+
+  /** The level the orb shows: the microphone while listening, the reply audio while speaking. */
+  const orbLevel = useCallback(() => {
+    if (meter.current) {
+      const { analyser, data } = meter.current;
+      analyser.getByteFrequencyData(data);
+      let sum = 0;
+      for (const value of data) sum += value;
+      return Math.min(1, sum / data.length / 90);
+    }
+    return outputAmplitude();
+  }, []);
 
   async function startListening(holdToTalk = false, followUpTurn = false) {
     if (state === 'listening' || state === 'thinking') return;
@@ -404,7 +415,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
   function onDraftKey(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void ask(); }
   }
-  const orbScale = state === 'listening' ? 1 + level * 0.1 : 1;
+  const spaceMode = voiceSpaceMode(state, pendingApprovals > 0);
   const modeInfo = modeLabel(mode);
   const caption = notice || (state === 'listening' ? (draft || t('voice.goAhead')) : state === 'idle' && !needsTap ? idleHint : '');
 
@@ -428,16 +439,16 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
       <button
         type="button"
         className="voiceOrb voiceTalk"
-        style={{ transform: `scale(${orbScale})`, width: orbSize, height: orbSize }}
+        style={{ width: orbSize, height: orbSize }}
         onClick={onStageOrbClick}
         disabled={state === 'thinking'}
         aria-label={state === 'listening' ? t('voice.stopListening') : state === 'speaking' ? t('voice.stopSpeaking') : t('voice.tapToTalk')}
       >
         <span className="voiceOrbHalo" aria-hidden="true" />
         <span className="voiceOrbGlow" aria-hidden="true" />
-        {/* One live WebGL scene at a time: the page orb rests while the full screen is open. */}
+        {/* One live space scene at a time: the page orb rests while the full screen is open. */}
         {fullscreen ? <><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>
-          : <Orb3D state={state} alert={pendingApprovals > 0} level={level} size={orbSize} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />}
+          : <SpaceOrb variant="compact" mode={spaceMode} getLevel={orbLevel} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />}
         <span className="voiceOrbIcon" aria-hidden="true">{state === 'listening' ? <Square size={26} /> : state === 'speaking' ? <VolumeX size={28} /> : <Mic size={30} />}</span>
       </button>
       <h2 className="voiceGreeting" dir="auto">{greeting(name, locale, hour)}</h2>
@@ -453,7 +464,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
     </div>
 
     {developer.panel}
-    {fullscreen && <OrbFullscreen name={name} state={state} level={level} alert={pendingApprovals > 0} stateLabel={stateText[state]}
+    {fullscreen && <OrbFullscreen name={name} mode={spaceMode} getLevel={orbLevel} stateLabel={stateText[state]}
       heard={state === 'listening' ? (draft || t('voice.goAhead')) : [...turns].reverse().find((turn) => turn.speaker === 'you' && turn.text)?.text ?? ''}
       answer={state === 'listening' ? '' : [...turns].reverse().find((turn) => turn.speaker === 'assistant' && turn.text)?.text ?? notice}
       talkLabel={state === 'listening' ? t('voice.stopListening') : state === 'speaking' ? t('voice.stopSpeaking') : t('voice.tapToTalk')}

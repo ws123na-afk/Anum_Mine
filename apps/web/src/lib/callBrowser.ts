@@ -4,7 +4,7 @@
 import type { AudioRecorder, Frame, MicHandle, Recognizer, Speaker } from './callEngine';
 import { frameSize } from './call';
 import { serverSpeech } from './callApi';
-import { speakAndWait, stopSpeaking, type ReplyVoice } from './voice';
+import { releaseOutputAudio, speakAndWait, stopSpeaking, trackOutputAudio, type ReplyVoice } from './voice';
 
 /** Opens the microphone with echo cancellation, so the reply's sound is not heard as the caller. */
 export async function openMicrophone(): Promise<MicHandle> {
@@ -152,11 +152,14 @@ export function createCallSpeaker(settings: () => { engine: ReplyEngine; locale:
           void serverSpeech(sessionId, text, fetching.signal).then((blob) => {
             if (done) return;
             const url = URL.createObjectURL(blob);
-            audio = new Audio(url);
-            audio.onplay = onStart;
-            audio.onended = () => { URL.revokeObjectURL(url); finish(); };
-            audio.onerror = () => { URL.revokeObjectURL(url); finish(); };
-            void audio.play().catch(() => finish());
+            const playing = new Audio(url);
+            audio = playing;
+            // The orb's speaking bars follow this audio (docs/voice.md#the-space-orb).
+            trackOutputAudio(playing);
+            playing.onplay = onStart;
+            playing.onended = () => { URL.revokeObjectURL(url); releaseOutputAudio(playing); finish(); };
+            playing.onerror = () => { URL.revokeObjectURL(url); releaseOutputAudio(playing); finish(); };
+            void playing.play().catch(() => finish());
           }).catch((error: unknown) => {
             if (done) return;
             onFallback(error instanceof Error ? error.message : 'Server voice unavailable');
@@ -171,6 +174,7 @@ export function createCallSpeaker(settings: () => { engine: ReplyEngine; locale:
       fetching?.abort();
       fetching = null;
       audio?.pause();
+      releaseOutputAudio(audio);
       audio = null;
       stopSpeaking();
       settle?.();

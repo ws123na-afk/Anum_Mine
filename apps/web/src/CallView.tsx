@@ -3,14 +3,15 @@
 // End), the transcript panel and the end-of-call summary. The loop is lib/callEngine.ts.
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ArrowUp, Camera, CameraOff, Check, Download, Ellipsis, MessageSquareText, Mic, MicOff, Phone, PhoneOff, Send, ShieldAlert, SwitchCamera, Volume2, VolumeX, X } from 'lucide-react';
-import { Orb3D, type OrbState } from './Orb3D';
+import { SpaceOrb } from './SpaceOrb';
+import { callSpaceMode } from './lib/spaceMode';
 import { formatNumber, t, type MessageKey } from './lib/i18n';
 import { budgetFallbackMessage } from './lib/errors';
 import { callLocaleFor, DEVICE_ONLY, engineCost, formatCallTime, isArabicLocale, latencyVerdict, serverEngine, type VoiceCapabilities } from './lib/call';
 import { CallEngine, type CallProblem, type CallSnapshot } from './lib/callEngine';
 import { callApi, getVoiceCapabilities } from './lib/callApi';
 import { captureFrame, createCallRecognizer, createCallSpeaker, openCamera, openMicrophone, type Facing, type ReplyEngine } from './lib/callBrowser';
-import { detectRecognitionMode, naturalVoiceSupports, type TranscriptRetention } from './lib/voice';
+import { detectRecognitionMode, naturalVoiceSupports, outputAmplitude, type TranscriptRetention } from './lib/voice';
 import './voice.css';
 import './call.css';
 
@@ -24,15 +25,6 @@ function store(key: string, value: string) {
 const LOCALE_LABELS: Record<string, string> = { 'en-US': 'English (US)', 'en-GB': 'English (UK)', 'ar-SA': 'العربية (السعودية)', 'ar-AE': 'العربية (الإمارات)' };
 
 type Stage = 'lobby' | 'call' | 'ending' | 'ended';
-
-function orbState(snapshot: CallSnapshot | null): OrbState {
-  switch (snapshot?.phase) {
-    case 'listening': case 'hearing': return 'listening';
-    case 'thinking': return 'thinking';
-    case 'speaking': return 'speaking';
-    default: return 'idle';
-  }
-}
 
 function problemText(problem: CallProblem, capabilities: VoiceCapabilities): string {
   switch (problem.kind) {
@@ -229,6 +221,9 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
     else if (chatOpen) setChatOpen(false);
   }, [moreOpen, chatOpen]);
   useEffect(() => { window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [onKey]);
+  // The orb's bars (docs/voice.md#the-space-orb): the reply audio while the assistant speaks, the
+  // caller's microphone otherwise. Read once per frame by the orb's own loop.
+  const orbLevel = useCallback(() => engine.current?.snapshot.phase === 'speaking' ? outputAmplitude() : engine.current?.micLevel() ?? 0, []);
 
   const elapsed = snapshot?.startedAt ? Math.max(0, Math.floor(((snapshot.endedAt ?? now) - snapshot.startedAt) / 1000)) : 0;
   const statusKey: MessageKey = !snapshot ? 'call.status.connecting'
@@ -322,6 +317,7 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
   const phase = snapshot?.phase ?? 'connecting';
   const orbSize = camera ? 120 : Math.round(Math.max(150, Math.min(220, window.innerHeight * 0.26)));
   const pending = snapshot?.pendingApprovals ?? 0;
+  const spaceMode = callSpaceMode(phase, pending > 0);
   return <section className={`callScreen ${chatOpen ? 'withChat' : ''}`} aria-label={t('call.screen', { name })} data-phase={phase}>
     <header className="callTop">
       <div className="callWho">
@@ -355,7 +351,7 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
         >
           <span className="voiceOrbHalo" aria-hidden="true" />
           <span className="voiceOrbGlow" aria-hidden="true" />
-          <Orb3D state={orbState(snapshot)} alert={pending > 0} level={phase === 'hearing' ? 0.6 : 0} size={orbSize} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />
+          <SpaceOrb variant="compact" mode={spaceMode} getLevel={orbLevel} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />
         </button>
         <p className={`callCaption ${snapshot?.caption ? 'live' : ''}`} dir="auto">{snapshot?.caption || lastAssistant?.text || t('call.hint')}</p>
         {problem && <div className="callProblem" role="alert">
