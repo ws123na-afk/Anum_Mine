@@ -86,8 +86,10 @@ A structured answer ends with an `anum-report` block that the server removes fro
 ## Tools in chat
 
 `anum_api/chat_tools.py`. Which questions become tasks is decided from the **user's own
-words only**, with the runtime's own skill selection (`SkillRegistry.select`, Arabic
-triggers included) plus a few file words; nothing in an email, a WhatsApp message, a web
+words only**: the skills `SkillRegistry.select` picks (Arabic triggers included) and the
+tool `agent_planning.choose_tool_call` plans for them, the same call a task, the command
+plan preview and team assignment use, plus a few file words for workspace retrieval. A
+team assignment ("ask Ahmed to ...") and plain conversation get no card; nothing in an email, a WhatsApp message, a web
 page or a file can select a tool, change its arguments or approve anything (threat model
 G3/G5).
 

@@ -212,9 +212,11 @@ def _events(response) -> list[tuple[str, dict]]:  # type: ignore[no-untyped-def]
 
 
 def test_structured_chat_answer_becomes_a_private_report_card(client: TestClient) -> None:
+    # A question no tool answers (a tyre question would run the tyre tools as a task and get
+    # a tool card instead, docs/conversations.md#tools-in-chat).
     app.dependency_overrides[voice_model_gateway] = lambda: ReportingGateway()
     conversation = client.post("/api/v1/conversations", headers=H, json={}).json()
-    response = client.post(f"/api/v1/conversations/{conversation['id']}/ask", headers=H, json={"content": "Tyre cost?"})
+    response = client.post(f"/api/v1/conversations/{conversation['id']}/ask", headers=H, json={"content": "How did our costs move last month?"})
     done = _events(response)[-1]
     assert done[0] == "done"
     assert done[1]["assistant_turn"]["content"] == "Your tyre cost rose 8%."
