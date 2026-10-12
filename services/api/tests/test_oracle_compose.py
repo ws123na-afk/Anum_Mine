@@ -1094,3 +1094,27 @@ def test_module_settings_from_the_example_pass_the_apis_validation(monkeypatch: 
     assert WhatsAppSettings(_env_file=None).message_retention_days == 0
     settings = _settings(monkeypatch, environment)
     assert settings.learning_enabled is True and settings.learning_signal_retention_days == 180
+
+
+def test_owner_integrations_reach_the_api_with_callbacks_on_the_real_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every integration in docs/integrations-setup.md can be switched on from infra/oracle/.env."""
+    from anum_api.marketing.config import MarketingSettings
+
+    environment = _api_environment()
+    for key in (
+        "ANUM_SMTP_HOST", "ANUM_SMTP_PASSWORD", "ANUM_TRANSCRIPTION_PROVIDER", "ANUM_ZOOM_CLIENT_ID",
+        "ANUM_MICROSOFT_CLIENT_SECRET", "ANUM_MARKETING_META_APP_ID", "ANUM_MARKETING_GOOGLE_CLIENT_SECRET",
+        "ANUM_EXTERNAL_WEBHOOK_URL", "ANUM_DEVELOPER_TENANT_ID", "ANUM_COMMERCE_SYNC_ENABLED",
+    ):
+        assert key in environment, key
+    example = _example()
+    assert environment["ANUM_MEETINGS_OAUTH_REDIRECT_URI"] == f"https://{example['ANUM_WEB_HOST']}/meetings/connected"
+    assert environment["ANUM_MARKETING_OAUTH_REDIRECT_URL"] == f"https://{example['ANUM_WEB_HOST']}/marketing/callback"
+    assert environment["ANUM_MARKETING_PUBLIC_API_URL"] == f"https://{example['ANUM_API_HOST']}"
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    marketing = MarketingSettings(_env_file=None)
+    assert marketing.oauth_redirect_url.endswith("/marketing/callback")
+    settings = _settings(monkeypatch, environment)
+    assert settings.transcription_provider == "none" and settings.smtp_port == 587
+    assert settings.meetings_oauth_redirect_uri.startswith("https://")

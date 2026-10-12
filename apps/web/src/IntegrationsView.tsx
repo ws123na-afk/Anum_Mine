@@ -7,6 +7,8 @@ import { canSwitchIntegration, credentialBody, credentialSource, integrationCoun
 import * as catalog from './lib/catalogApi';
 import { formatDateTime, t } from './lib/i18n';
 import { useIsOwner } from './useIsOwner';
+import { ConnectionSetup } from './ConnectionSetup';
+import type { View } from './lib/shell';
 import './governance.css';
 import './catalog.css';
 
@@ -18,14 +20,15 @@ function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
   return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>;
 }
 
-/** Live integration health with its history, and per-workspace controls for owners. */
-export function IntegrationsView() {
+/** Connection setup first, then the live health of the services with per-workspace controls for owners. */
+export function IntegrationsView({ onGo }: { onGo?: (view: View) => void } = {}) {
   const [items, setItems] = useState<IntegrationState[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ id: string; text: string; error?: boolean } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const owner = useIsOwner();
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,7 +51,9 @@ export function IntegrationsView() {
   };
   const counts = integrationCounts(items);
   return <>
-    <section className="moduleIntro"><div><p className="eyebrow">{t('integrations.eyebrow')}</p><h2>{t('integrations.title')}</h2><p>{t('integrations.intro')}</p></div><button type="button" onClick={() => void load()} disabled={loading}><RefreshCw aria-hidden="true" />{t('integrations.refresh')}</button></section>
+    <section className="moduleIntro"><div><p className="eyebrow">{t('integrations.eyebrow')}</p><h2>{t('integrations.title')}</h2><p>{t('integrations.intro')}</p></div><button type="button" onClick={() => { setReloadKey((n) => n + 1); void load(); }} disabled={loading}><RefreshCw aria-hidden="true" />{t('integrations.refresh')}</button></section>
+    <ConnectionSetup onGo={onGo} reloadKey={reloadKey} />
+    <h2 className="integrationsHealthTitle">{t('integrations.healthTitle')}</h2>
     {loading && !items.length && <Notice>{t('integrations.loading')}</Notice>}
     {loadError && <Notice error>{loadError}</Notice>}
     {owner === false && <Notice>{t('integrations.memberNotice')}</Notice>}

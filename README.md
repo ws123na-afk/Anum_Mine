@@ -105,6 +105,7 @@ x-user-roles: owner,member
 - [Workspace files](docs/files.md)
 - [Calls & Meetings](docs/meetings.md)
 - [Tools and integrations](docs/tools-and-integrations.md)
+- [Connecting integrations: the owner's runbook](docs/integrations-setup.md)
 - [Email: the unified inbox](docs/email.md)
 - [Reports](docs/reports.md)
 - [Calendar and next actions](docs/calendar.md)

@@ -355,6 +355,10 @@ The API passes the mail settings from `.env` through (`infra/oracle/compose.yaml
 
 The API refuses to start with a value outside these ranges; `docker compose logs api` names the variable. WhatsApp credentials are per workspace (encrypted in the database), never in `.env`.
 
+### Other integrations
+
+`.env` also carries, empty by default, the settings for notification email (`ANUM_SMTP_*`), recording transcription (`ANUM_TRANSCRIPTION_*`), Zoom and Teams transcripts (`ANUM_ZOOM_*`, `ANUM_MICROSOFT_*`), the marketing apps (`ANUM_MARKETING_*`), background commerce sync (`ANUM_COMMERCE_SYNC_ENABLED`), the outbound webhook (`ANUM_EXTERNAL_WEBHOOK_*`) and developer mode (`ANUM_DEVELOPER_*`). The compose file derives the callback URLs from your host names: `https://<WEB>/meetings/connected` (`ANUM_MEETINGS_OAUTH_REDIRECT_URI`), `https://<WEB>/marketing/callback` (`ANUM_MARKETING_OAUTH_REDIRECT_URL`) and `https://<API>` for marketing media (`ANUM_MARKETING_PUBLIC_API_URL`). **Integrations > Connection setup** in the web app shows which are set up and what is missing; [Connecting integrations](integrations-setup.md) has the console steps for each.
+
 ## Check the Deployment
 
 **Smoke test.** `install.sh` ends with it; run it again any time, on the VM as `ubuntu` (no sudo):
