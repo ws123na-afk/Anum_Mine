@@ -48,3 +48,10 @@ condition = "AND"
 paths = ['''^infra/keycloak/two_factor\.py$''']
 regexTarget = "secret"
 regexes = ['''^anum-2fa-unless-passkey$''']
+
+[[allowlists]]
+description = "Apple sign-in setup checks that a pasted .p8 has its PEM header and footer; the text is the check and its error message, never key material"
+condition = "AND"
+paths = ['''^infra/keycloak/social_login\.py$''']
+regexTarget = "match"
+regexes = ['''^-----BEGIN PRIVATE KEY-----"\) and key\.endswith\("-----END PRIVATE KEY-----"\)\):\s+raise KcadmError\(\s+"the Apple private key must be the whole AuthKey_<KEYID>\.p8 file, from "\s+"-----BEGIN PRIVATE KEY-----$''']
