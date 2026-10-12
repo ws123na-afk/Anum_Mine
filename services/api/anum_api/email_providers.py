@@ -80,6 +80,14 @@ class MailProviderError(Exception):
         super().__init__(message)
 
 
+class InvalidReferenceError(MailProviderError):
+    """An id that would reach a provider URL path failed the strict id pattern.
+
+    ``status`` is 422 when the id came with the request and 409 when it came from a stored
+    record (sync the account again); the request is never sent.
+    """
+
+
 class HistoryExpiredError(MailProviderError):
     """The incremental cursor is too old; a full resync is needed."""
 
@@ -302,6 +310,28 @@ def build_mime(message: OutgoingMessage) -> bytes:
 _GRAPH_DELTA_PATH = re.compile(r"/v1\.0/me/mailFolders\('[A-Za-z0-9._=-]{1,512}'\)/messages/delta")
 _GRAPH_PAGING_KEYS = ("$deltatoken", "$skiptoken")
 _GRAPH_TOKEN = re.compile(r"[A-Za-z0-9._~=%-]{1,4096}")
+
+
+# Every id that reaches a provider URL path: Gmail, Graph and Zoho message, attachment, draft,
+# folder and account ids are base64/base64url-like or numeric. No dots, so no "." or ".."
+# segment; "/" and "+" are percent-encoded by ``quote(..., safe="")``.
+_PROVIDER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9+/=_-]{0,2047}")
+# Microsoft tenant (operator setting): an alias (common, organizations, consumers), a GUID or a
+# domain; dot-separated labels only, so it can never add a path segment or another host.
+_MICROSOFT_TENANT = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,62}(?:\.[A-Za-z0-9][A-Za-z0-9-]{0,62}){0,5}")
+
+
+def valid_provider_id(value: object) -> bool:
+    return isinstance(value, str) and _PROVIDER_ID.fullmatch(value) is not None
+
+
+def _path_id(value: str | None, what: str, *, from_request: bool = False) -> str:
+    """``value`` checked against the strict id pattern and percent-encoded for one path segment."""
+    if not valid_provider_id(value):
+        if from_request:
+            raise InvalidReferenceError(422, f"The {what} is not valid.")
+        raise InvalidReferenceError(409, f"The stored {what} is not valid; sync the mailbox again.")
+    return quote(str(value), safe="")
 
 
 def _graph_delta_query(link: str) -> str | None:
@@ -560,10 +590,12 @@ class GmailClient(MailProviderClient):
         return MailboxProfile(address=address)
 
     async def _meta(self, token: str, message_id: str) -> MessageMeta | None:
+        if not valid_provider_id(message_id):
+            return None  # a history entry with an unusable id is skipped, never requested
         params: list[tuple[str, str]] = [("format", "metadata")]
         params.extend(("metadataHeaders", name) for name in self.METADATA_HEADERS)
         status, body = await self.http.request(
-            "GET", f"{self.API}/messages/{quote(message_id, safe='')}", token=token,
+            "GET", f"{self.API}/messages/{_path_id(message_id, 'message id')}", token=token,
             params=httpx.QueryParams(params), allow=frozenset({404}),
         )
         if status == 404 or not isinstance(body, dict):
@@ -647,7 +679,7 @@ class GmailClient(MailProviderClient):
 
     async def _full(self, token: str, message: MessageMeta) -> dict[str, Any]:
         _, body = await self.http.request(
-            "GET", f"{self.API}/messages/{quote(message.provider_message_id, safe='')}", token=token, params={"format": "full"}
+            "GET", f"{self.API}/messages/{_path_id(message.provider_message_id, 'message id')}", token=token, params={"format": "full"}
         )
         return body if isinstance(body, dict) else {}
 
@@ -687,7 +719,7 @@ class GmailClient(MailProviderClient):
     ) -> bytes:
         _, body = await self.http.request(
             "GET",
-            f"{self.API}/messages/{quote(message.provider_message_id, safe='')}/attachments/{quote(attachment_id, safe='')}",
+            f"{self.API}/messages/{_path_id(message.provider_message_id, 'message id')}/attachments/{_path_id(attachment_id, 'attachment id', from_request=True)}",
             token=token,
             # base64 grows the payload by a third.
             max_bytes=max_bytes * 4 // 3 + 4096,
@@ -700,7 +732,7 @@ class GmailClient(MailProviderClient):
     async def _modify(self, token: str, message: MessageMeta, add: list[str], remove: list[str]) -> None:
         await self.http.request(
             "POST",
-            f"{self.API}/messages/{quote(message.provider_message_id, safe='')}/modify",
+            f"{self.API}/messages/{_path_id(message.provider_message_id, 'message id')}/modify",
             token=token,
             json_body={"addLabelIds": add, "removeLabelIds": remove},
         )
@@ -727,7 +759,7 @@ class GmailClient(MailProviderClient):
         return str((body or {}).get("id") or "") or None
 
     async def delete_draft(self, token: str, draft_id: str, *, account_ref: str | None) -> None:
-        await self.http.request("DELETE", f"{self.API}/drafts/{quote(draft_id, safe='')}", token=token, allow=frozenset({404}))
+        await self.http.request("DELETE", f"{self.API}/drafts/{_path_id(draft_id, 'draft id')}", token=token, allow=frozenset({404}))
 
     async def send(self, token: str, outgoing: OutgoingMessage, *, account_ref: str | None) -> str | None:
         _, body = await self.http.request("POST", f"{self.API}/messages/send", token=token, json_body=self._raw(outgoing))
@@ -788,6 +820,8 @@ class OutlookClient(MailProviderClient):
 
     def __init__(self, oauth: OAuthClient, transport: httpx.AsyncBaseTransport | None = None, *, tenant: str = "common") -> None:
         super().__init__(oauth, transport)
+        if not _MICROSOFT_TENANT.fullmatch(tenant):
+            raise ValueError("ANUM_EMAIL_MICROSOFT_TENANT must be common, organizations, consumers, a tenant id or a domain")
         self.tenant = tenant
         base = f"https://login.microsoftonline.com/{quote(tenant, safe='')}/oauth2/v2.0"
         self.auth_url = f"{base}/authorize"
@@ -894,7 +928,7 @@ class OutlookClient(MailProviderClient):
         return result
 
     async def body(self, token: str, message: MessageMeta, *, account_ref: str | None, max_bytes: int) -> MessageBody:
-        message_url = f"{self.API}/messages/{quote(message.provider_message_id, safe='')}"
+        message_url = f"{self.API}/messages/{_path_id(message.provider_message_id, 'message id')}"
         _, body = await self.http.request(
             "GET", message_url, token=token, params={"$select": "body"},
             headers={"prefer": 'outlook.body-content-type="text"'},
@@ -927,7 +961,7 @@ class OutlookClient(MailProviderClient):
     ) -> bytes:
         _, data = await self.http.request(
             "GET",
-            f"{self.API}/messages/{quote(message.provider_message_id, safe='')}/attachments/{quote(attachment_id, safe='')}/$value",
+            f"{self.API}/messages/{_path_id(message.provider_message_id, 'message id')}/attachments/{_path_id(attachment_id, 'attachment id', from_request=True)}/$value",
             token=token,
             raw=True,
             max_bytes=max_bytes,
@@ -936,13 +970,13 @@ class OutlookClient(MailProviderClient):
 
     async def mark_read(self, token: str, message: MessageMeta, read: bool, *, account_ref: str | None) -> None:
         await self.http.request(
-            "PATCH", f"{self.API}/messages/{quote(message.provider_message_id, safe='')}", token=token, json_body={"isRead": read}
+            "PATCH", f"{self.API}/messages/{_path_id(message.provider_message_id, 'message id')}", token=token, json_body={"isRead": read}
         )
 
     async def archive(self, token: str, message: MessageMeta, *, account_ref: str | None) -> None:
         await self.http.request(
             "POST",
-            f"{self.API}/messages/{quote(message.provider_message_id, safe='')}/move",
+            f"{self.API}/messages/{_path_id(message.provider_message_id, 'message id')}/move",
             token=token,
             json_body={"destinationId": "archive"},
         )
@@ -962,7 +996,7 @@ class OutlookClient(MailProviderClient):
         if outgoing.reply_to:
             _, body = await self.http.request(
                 "POST",
-                f"{self.API}/messages/{quote(outgoing.reply_to, safe='')}/createReply",
+                f"{self.API}/messages/{_path_id(outgoing.reply_to, 'reply message id')}/createReply",
                 token=token,
                 json_body={"message": self._message(outgoing, include_subject=False)},
             )
@@ -974,14 +1008,14 @@ class OutlookClient(MailProviderClient):
 
     async def delete_draft(self, token: str, draft_id: str, *, account_ref: str | None) -> None:
         await self.http.request(
-            "DELETE", f"{self.API}/messages/{quote(draft_id, safe='')}", token=token, allow=frozenset({404})
+            "DELETE", f"{self.API}/messages/{_path_id(draft_id, 'draft id')}", token=token, allow=frozenset({404})
         )
 
     async def send(self, token: str, outgoing: OutgoingMessage, *, account_ref: str | None) -> str | None:
         if outgoing.reply_to:
             await self.http.request(
                 "POST",
-                f"{self.API}/messages/{quote(outgoing.reply_to, safe='')}/reply",
+                f"{self.API}/messages/{_path_id(outgoing.reply_to, 'reply message id')}/reply",
                 token=token,
                 json_body={"message": self._message(outgoing, include_subject=False)},
             )
@@ -1034,6 +1068,7 @@ class ZohoClient(MailProviderClient):
         super().__init__(oauth, transport)
         if data_centre not in ZOHO_DATA_CENTRES:
             raise ValueError("unknown Zoho data centre")
+        data_centre = ZOHO_DATA_CENTRES[ZOHO_DATA_CENTRES.index(data_centre)]  # the constant itself
         self.accounts_base = f"https://accounts.zoho.{data_centre}/oauth/v2"
         self.api_host = f"mail.zoho.{data_centre}"
         self.api = f"https://mail.zoho.{data_centre}/api/accounts"
@@ -1092,7 +1127,7 @@ class ZohoClient(MailProviderClient):
         return MailboxProfile(address=address, display_name=_clean(first.get("displayName"), 200) or None, provider_account_id=account_id)
 
     async def _inbox_folder(self, token: str, account_ref: str) -> str:
-        data = await self._get(token, f"{self.api}/{quote(account_ref, safe='')}/folders")
+        data = await self._get(token, f"{self.api}/{_path_id(account_ref, 'account id')}/folders")
         for folder in data or []:
             if isinstance(folder, dict) and str(folder.get("folderType", "")).lower() == "inbox":
                 return str(folder.get("folderId"))
@@ -1119,7 +1154,7 @@ class ZohoClient(MailProviderClient):
         while len(result.upserts) < limit:
             data = await self._get(
                 token,
-                f"{self.api}/{quote(account_ref, safe='')}/messages/view",
+                f"{self.api}/{_path_id(account_ref, 'account id')}/messages/view",
                 {"folderId": folder, "start": start, "limit": page, "sortorder": "false", "includeto": "true"},
             )
             items = [item for item in data or [] if isinstance(item, dict)]
@@ -1143,8 +1178,8 @@ class ZohoClient(MailProviderClient):
         if not account_ref or not message.folder_id:
             raise MailProviderError(400, "The Zoho Mail message has no folder; sync the account again.")
         return (
-            f"{self.api}/{quote(account_ref, safe='')}/folders/{quote(message.folder_id, safe='')}"
-            f"/messages/{quote(message.provider_message_id, safe='')}"
+            f"{self.api}/{_path_id(account_ref, 'account id')}/folders/{_path_id(message.folder_id, 'folder id')}"
+            f"/messages/{_path_id(message.provider_message_id, 'message id')}"
         )
 
     async def body(self, token: str, message: MessageMeta, *, account_ref: str | None, max_bytes: int) -> MessageBody:
@@ -1171,7 +1206,7 @@ class ZohoClient(MailProviderClient):
     ) -> bytes:
         _, data = await self.http.request(
             "GET",
-            f"{self._message_url(account_ref, message)}/attachments/{quote(attachment_id, safe='')}",
+            f"{self._message_url(account_ref, message)}/attachments/{_path_id(attachment_id, 'attachment id', from_request=True)}",
             token=token,
             auth_scheme="Zoho-oauthtoken",
             raw=True,
@@ -1184,7 +1219,7 @@ class ZohoClient(MailProviderClient):
             raise MailProviderError(400, "The Zoho Mail account id is missing; connect the account again.", reauth=True)
         await self.http.request(
             "PUT",
-            f"{self.api}/{quote(account_ref, safe='')}/updatemessage",
+            f"{self.api}/{_path_id(account_ref, 'account id')}/updatemessage",
             token=token,
             auth_scheme="Zoho-oauthtoken",
             json_body={"mode": mode, "messageId": [message.provider_message_id]},
@@ -1218,7 +1253,7 @@ class ZohoClient(MailProviderClient):
             return None
         payload = {**self._payload(outgoing), "mode": "draft"}
         _, body = await self.http.request(
-            "POST", f"{self.api}/{quote(account_ref, safe='')}/messages", token=token,
+            "POST", f"{self.api}/{_path_id(account_ref, 'account id')}/messages", token=token,
             auth_scheme="Zoho-oauthtoken", json_body=payload,
         )
         data = (body or {}).get("data") if isinstance(body, dict) else None
@@ -1233,9 +1268,9 @@ class ZohoClient(MailProviderClient):
         if not account_ref:
             raise MailProviderError(400, "The Zoho Mail account id is missing; connect the account again.", reauth=True)
         payload = self._payload(outgoing)
-        url = f"{self.api}/{quote(account_ref, safe='')}/messages"
+        url = f"{self.api}/{_path_id(account_ref, 'account id')}/messages"
         if outgoing.reply_to:
-            url = f"{url}/{quote(outgoing.reply_to, safe='')}"
+            url = f"{url}/{_path_id(outgoing.reply_to, 'reply message id')}"
             payload["action"] = "reply"
         _, body = await self.http.request("POST", url, token=token, auth_scheme="Zoho-oauthtoken", json_body=payload)
         data = (body or {}).get("data") if isinstance(body, dict) else None

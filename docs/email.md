@@ -26,6 +26,8 @@ At most `ANUM_EMAIL_SYNC_MAX_MESSAGES` new messages per pass. Syncs run when the
 
 `GET /api/v1/email/messages` (filters: mailbox, category, priority, unread, archived, `q` over sender, subject and snippet; keyset paging with `before`), `GET /api/v1/email/messages/{id}` (thread, drafts, plain text of the body capped at `ANUM_EMAIL_BODY_MAX_BYTES`; HTML is converted to text and never rendered), `GET .../attachments/{attachment_id}` (download only: `Content-Disposition: attachment`, `nosniff`, a sandboxing CSP, a safe content-type allowlist, capped at `ANUM_EMAIL_ATTACHMENT_MAX_BYTES`).
 
+Every id that reaches a provider URL path (message, attachment, draft, folder, reply and Zoho account ids) must match a strict id pattern (letters, digits, `+/=_-`, at most 2048 characters, no dots) and is percent-encoded; the hosts are fixed (Zoho's data centre from an allow-list, Microsoft's tenant from settings, checked as dot-separated labels). A bad attachment id in the request answers 422; a stored id that fails the check answers 409 (sync the mailbox again) and nothing is sent to the provider.
+
 ### AI triage and drafts
 
 - At sync, deterministic rules put each message in one category (`order`, `customer_question`, `supplier`, `invoice`, `spam_marketing`, `personal`, `other`) and a priority (`high`, `normal`, `low`). No model, no cost.

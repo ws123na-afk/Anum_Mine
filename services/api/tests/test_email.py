@@ -5,6 +5,7 @@ Every provider call goes to an ``httpx.MockTransport``; nothing leaves the proce
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from collections.abc import Iterator
@@ -34,7 +35,18 @@ from anum_api.email_inbox import (
     rules_triage,
     tool_arguments_from_prompt,
 )
-from anum_api.email_providers import EmailProvider, html_to_text, normalize_body
+from anum_api.email_providers import (
+    EmailProvider,
+    GmailClient,
+    InvalidReferenceError,
+    MessageMeta,
+    OAuthClient,
+    OutgoingMessage,
+    OutlookClient,
+    ZohoClient,
+    html_to_text,
+    normalize_body,
+)
 from anum_api.model_budget import memory_model_budget_store
 from anum_api.model_gateway import ModelCallMetadata, ModelResponse, ModelUsage
 from anum_api.schemas import TenantContext, utc_now
@@ -506,6 +518,57 @@ def test_message_body_is_plain_text_capped_and_attachments_download_safely(fake:
     fake.gmail["g1"]["payload"]["parts"][0]["body"]["data"] = b64("x" * 10000)
     capped = client.get(f"/api/v1/email/messages/{first['id']}", headers=OWNER).json()
     assert capped["body_truncated"] is True and len(capped["body"]) == 4096
+
+
+def test_bad_attachment_ids_from_the_request_are_refused(fake: FakeMail) -> None:
+    # CodeQL py/partial-ssrf: a route id never shapes a provider URL path.
+    connect()
+    first = next(m for m in messages()["items"] if m["subject"] == "Question about tyres")
+    for bad in ("att.1", "-att", "x" * 3000):
+        refused = client.get(f"/api/v1/email/messages/{first['id']}/attachments/{bad}", headers=OWNER)
+        assert refused.status_code == 422, refused.text
+        assert "attachment id is not valid" in refused.json()["error"]["message"]
+
+
+def _meta(message_id: str, folder_id: str | None = None) -> MessageMeta:
+    return MessageMeta(
+        provider_message_id=message_id, thread_id="t1", subject="s", from_address="a@example.com", from_name=None,
+        to=[], cc=[], snippet="", labels=[], received_at=utc_now(), is_read=False, is_archived=False,
+        has_attachments=False, folder_id=folder_id,
+    )
+
+
+def test_stored_ids_are_checked_before_any_provider_request() -> None:
+    sent: list[httpx.Request] = []
+    transport = httpx.MockTransport(lambda request: sent.append(request) or httpx.Response(200, json={}))
+    oauth = OAuthClient(client_id="example", client_secret="example", redirect_uri="https://app.example.com/cb")
+    gmail, outlook, zoho = GmailClient(oauth, transport), OutlookClient(oauth, transport), ZohoClient(oauth, transport)
+
+    async def refused(call: Any) -> InvalidReferenceError:
+        with pytest.raises(InvalidReferenceError) as caught:
+            await call
+        return caught.value
+
+    for bad in ("../../other", "a.b", "a?b=c", "a b", "x" * 3000):
+        stored = asyncio.run(refused(gmail.mark_read("token", _meta(bad), True, account_ref=None)))
+        assert stored.status == 409 and "sync the mailbox again" in stored.message
+        assert asyncio.run(refused(outlook.delete_draft("token", bad, account_ref=None))).status == 409
+        assert asyncio.run(refused(zoho.mark_read("token", _meta("1", "9"), True, account_ref=bad))).status == 409
+        reply = OutgoingMessage(from_address="a@example.com", to=("b@example.com",), cc=(), subject="s", body="b", reply_to=bad)
+        assert asyncio.run(refused(outlook.send("token", reply, account_ref=None))).status == 409
+    from_request = asyncio.run(refused(gmail.attachment("token", _meta("g1"), "a/../b.c", account_ref=None, max_bytes=10)))
+    assert from_request.status == 422
+    assert sent == []
+    failure = email_inbox._provider_failure(from_request)
+    assert failure.status == 422
+    # Operator settings that name a host part are checked too.
+    with pytest.raises(ValueError):
+        OutlookClient(oauth, transport, tenant="evil.example/x")
+    with pytest.raises(ValueError):
+        ZohoClient(oauth, transport, data_centre="evil.example")
+    assert OutlookClient(oauth, transport, tenant="contoso.onmicrosoft.com").token_url.startswith(
+        "https://login.microsoftonline.com/contoso.onmicrosoft.com/"
+    )
 
 
 def test_html_to_text_and_normalize_body() -> None:

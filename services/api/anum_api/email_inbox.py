@@ -45,6 +45,7 @@ from .autonomy import AutonomyFacts, normalize_recipient
 from .email_providers import (
     EmailProvider,
     GmailClient,
+    InvalidReferenceError,
     MailProviderClient,
     MailProviderError,
     MessageMeta,
@@ -53,6 +54,7 @@ from .email_providers import (
     OutlookClient,
     PROVIDER_NAMES,
     ZohoClient,
+    valid_provider_id,
 )
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .schemas import RiskLevel, TenantContext, new_id, utc_now
@@ -767,6 +769,8 @@ class EmailError(Exception):
 
 
 def _provider_failure(exc: MailProviderError) -> EmailError:
+    if isinstance(exc, InvalidReferenceError):
+        return EmailError(exc.status, exc.message)
     if exc.reauth:
         return EmailError(409, f"{exc.message} Reconnect the mailbox under Inbox > Accounts.")
     if exc.status == 413:
@@ -988,6 +992,8 @@ SAFE_ATTACHMENT_TYPES = frozenset({
 
 async def fetch_attachment(context: TenantContext, message_id: str, attachment_id: str) -> tuple[bytes, str, str]:
     """Bytes, safe filename and content type of one attachment (size-capped)."""
+    if not valid_provider_id(attachment_id):
+        raise EmailError(422, "This attachment id is not valid.")
     account, message = load_message(context, message_id)
     body = await fetch_body(context, account, message)
     found = next((item for item in body.attachments if item["id"] == attachment_id), None)
@@ -1002,7 +1008,7 @@ async def fetch_attachment(context: TenantContext, message_id: str, attachment_i
     token = await access_token(account, context)
     try:
         data = await provider_client(account.provider).attachment(
-            token, message.meta(), attachment_id, account_ref=account.provider_account_id,
+            token, message.meta(), str(found["id"]), account_ref=account.provider_account_id,
             max_bytes=email_settings.attachment_max_bytes,
         )
     except MailProviderError as exc:
