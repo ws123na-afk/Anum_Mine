@@ -37,7 +37,7 @@ from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from enum import StrEnum
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, unquote, urlencode, urlsplit
 
 import httpx
 
@@ -296,6 +296,29 @@ def build_mime(message: OutgoingMessage) -> bytes:
 
 
 # -- transport --------------------------------------------------------------------------------
+
+
+# Graph may name the inbox by its folder id in the links it returns.
+_GRAPH_DELTA_PATH = re.compile(r"/v1\.0/me/mailFolders\('[A-Za-z0-9._=-]{1,512}'\)/messages/delta")
+_GRAPH_PAGING_KEYS = ("$deltatoken", "$skiptoken")
+_GRAPH_TOKEN = re.compile(r"[A-Za-z0-9._~=%-]{1,4096}")
+
+
+def _graph_delta_query(link: str) -> str | None:
+    """The paging query (``$skiptoken=...`` or ``$deltatoken=...``) of a Graph inbox delta link,
+    or None when the link is anything else.
+
+    Only the token is kept; the request is always rebuilt on the fixed Graph host and path.
+    The token is passed through as Graph wrote it (already URL-encoded, ``$`` unescaped).
+    """
+    parts = urlsplit(link)
+    if parts.scheme != "https" or parts.netloc != "graph.microsoft.com" or not _GRAPH_DELTA_PATH.fullmatch(unquote(parts.path)):
+        return None
+    for pair in parts.query.split("&"):
+        key, _, value = pair.partition("=")
+        if key in _GRAPH_PAGING_KEYS and _GRAPH_TOKEN.fullmatch(value):
+            return f"{key}={value}"
+    return None
 
 
 class _Http:
@@ -826,11 +849,13 @@ class OutlookClient(MailProviderClient):
     ) -> SyncResult:
         headers = {"prefer": "odata.maxpagesize=50"}
         result = SyncResult(full=not cursor)
-        if cursor and cursor.startswith(f"{self.API}/"):
-            url: str | None = cursor
+        delta_url = f"{self.API}/mailFolders('inbox')/messages/delta"
+        resumed = _graph_delta_query(cursor) if cursor else None
+        if resumed is not None:
+            url: str | None = f"{delta_url}?{resumed}"
             params: dict[str, str] | None = None
         else:
-            url = f"{self.API}/mailFolders('inbox')/messages/delta"
+            url = delta_url
             params = {
                 "$select": self.SELECT,
                 "$filter": f"receivedDateTime ge {since.strftime('%Y-%m-%dT%H:%M:%SZ')}",
@@ -858,9 +883,14 @@ class OutlookClient(MailProviderClient):
             if delta_link:
                 result.cursor = str(delta_link)
                 break
-            url = str(next_link) if next_link and str(next_link).startswith(f"{self.API}/") else None
-            if next_link and url is None:
+            if not next_link:
+                url = None
+                continue
+            # Never request the link Graph sent: page the same fixed path with only its paging token.
+            paging = _graph_delta_query(str(next_link))
+            if paging is None:
                 raise MailProviderError(502, "Microsoft Graph returned a paging link to another host.")
+            url = f"{delta_url}?{paging}"
         return result
 
     async def body(self, token: str, message: MessageMeta, *, account_ref: str | None, max_bytes: int) -> MessageBody:

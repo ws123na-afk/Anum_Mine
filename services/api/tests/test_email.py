@@ -831,3 +831,23 @@ def test_account_model_never_exposes_tokens() -> None:
     )
     view = email_inbox.account_view(account, (0, 0), CONTEXT, True)
     assert "cipher" not in view.model_dump_json()
+
+
+def test_graph_paging_keeps_only_the_token_of_an_inbox_delta_link() -> None:
+    from anum_api.email_providers import _graph_delta_query
+
+    base = "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages/delta"
+    assert _graph_delta_query(f"{base}?$skiptoken=page2") == "$skiptoken=page2"
+    assert _graph_delta_query(f"{base}?$deltatoken=a%2Bb-1") == "$deltatoken=a%2Bb-1"
+    assert _graph_delta_query("https://graph.microsoft.com/v1.0/me/mailFolders('AQMkAD-1=')/messages/delta?$deltatoken=x") == "$deltatoken=x"
+    for hostile in (
+        "https://evil.example/v1.0/me/mailFolders('inbox')/messages/delta?$skiptoken=x",
+        "http://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages/delta?$skiptoken=x",
+        "https://graph.microsoft.com:8443/v1.0/me/mailFolders('inbox')/messages/delta?$skiptoken=x",
+        "https://graph.microsoft.com/v1.0/users/other/messages?$skiptoken=x",
+        f"{base}?$skiptoken=a&b=1#frag",
+        f"{base}?$skiptoken=x/../../admin",
+        f"{base}?$top=5",
+        "10",
+    ):
+        assert _graph_delta_query(hostile) in (None, "$skiptoken=a"), hostile
