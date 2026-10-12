@@ -789,3 +789,18 @@ def test_rotation_retention_migration_is_expand_only_with_narrow_discovery() -> 
     assert all("anum_maintenance" in line and "ciphertext" not in line and "name" not in line for line in grants)
     assert upgrade.count("for select to anum_maintenance") == 5
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_chat_depth_migration_is_expand_only_and_grants_nothing() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0051_chat_depth.py").read_text(encoding="utf-8")
+    assert 'revision = "0051_chat_depth"' in revision_text and len("0051_chat_depth") <= 32
+    assert 'down_revision = "0046_home"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0051_chat_depth.py"]
+    assert not [path for path in others if 'down_revision = "0046_home"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Three nullable columns and a check that accepts null: the previous release keeps working.
+    assert upgrade.count("op.add_column(") == 3 and upgrade.count("nullable=true") == 3
+    assert "feedback is null or feedback in ('up', 'down')" in upgrade
+    assert "drop" not in upgrade and "alter_column" not in upgrade and "grant " not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade

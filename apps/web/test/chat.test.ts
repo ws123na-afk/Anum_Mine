@@ -63,9 +63,9 @@ describe('ask reducer', () => {
     assert.equal(turns.at(-1)?.status, 'cancelled');
     assert.equal(canRetry(turns), true);
     assert.match(turns.at(-1)?.id ?? '', /^local-/);
-    // Retry keeps the stopped partial (the server stored it too) and adds one new pending reply.
+    // Retry replaces the stopped partial (the server deletes it too) with one new pending reply.
     const retried = startAsk(turns, null);
-    assert.equal(retried.length, 5);
+    assert.equal(retried.length, 4);
     assert.deepEqual(retried.slice(0, 3).map((t) => t.id), ['u1', 'a1', 'u2']);
     assert.equal(retried.filter((t) => t.id === PENDING_ASSISTANT).length, 1);
     assert.equal(retried.at(-1)?.id, PENDING_ASSISTANT);

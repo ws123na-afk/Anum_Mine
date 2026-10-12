@@ -12,10 +12,11 @@ application role inside each user's tenant, workspace and user RLS context.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import and_, delete, exists, func, or_, select, text, tuple_, update
 from sqlalchemy.orm import Session
 
 from anum_api.chat_tools import ChatCard
@@ -23,6 +24,8 @@ from anum_api.conversations import (
     Conversation,
     ConversationCreate,
     ConversationTurn,
+    ListCursor,
+    Rating,
     TurnRole,
     TurnStatus,
 )
@@ -43,6 +46,8 @@ def _conversation(record: ConversationRecord) -> Conversation:
         created_at=record.created_at,
         updated_at=record.updated_at,
         agent_id=record.agent_id,
+        pinned=record.pinned_at is not None,
+        pinned_at=record.pinned_at,
     )
 
 
@@ -55,7 +60,15 @@ def _turn(record: ConversationTurnRecord) -> ConversationTurn:
         status=TurnStatus(record.status),
         created_at=record.created_at,
         card=_card(record.card),
+        feedback=record.feedback if record.feedback in ("up", "down") else None,  # type: ignore[arg-type]
+        feedback_reason=record.feedback_reason,
     )
+
+
+def _like(query: str) -> str:
+    """A case-insensitive LIKE pattern matching ``query`` literally."""
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def _card(value: object) -> ChatCard | None:
@@ -105,17 +118,68 @@ class SqlAlchemyConversationStore:
         self.session.flush()
         return _conversation(record)
 
-    def list(self, context: TenantContext, limit: int, agent_id: str | None = None) -> list[Conversation]:
+    def list(
+        self,
+        context: TenantContext,
+        limit: int,
+        agent_id: str | None = None,
+        *,
+        query: str | None = None,
+        before: ListCursor | None = None,
+    ) -> list[Conversation]:
         agent_filter = (
             ConversationRecord.agent_id.is_(None) if agent_id is None else ConversationRecord.agent_id == agent_id
         )
-        records = self.session.scalars(
+        filters = [*self._scope(), agent_filter]
+        if query:
+            pattern = _like(query)
+            filters.append(
+                or_(
+                    ConversationRecord.title.ilike(pattern, escape="\\"),
+                    exists().where(
+                        ConversationTurnRecord.tenant_id == ConversationRecord.tenant_id,
+                        ConversationTurnRecord.workspace_id == ConversationRecord.workspace_id,
+                        ConversationTurnRecord.user_id == ConversationRecord.user_id,
+                        ConversationTurnRecord.conversation_id == ConversationRecord.id,
+                        ConversationTurnRecord.content.ilike(pattern, escape="\\"),
+                    ),
+                )
+            )
+        pinned: list[ConversationRecord] = []
+        if before is None:
+            # Pinned conversations lead the first page only; the cursor pages the rest.
+            pinned = list(
+                self.session.scalars(
+                    select(ConversationRecord)
+                    .where(*filters, ConversationRecord.pinned_at.is_not(None))
+                    .order_by(ConversationRecord.pinned_at.desc(), ConversationRecord.id.desc())
+                ).all()
+            )
+        rest_filters = [*filters, ConversationRecord.pinned_at.is_(None)]
+        if before is not None:
+            rest_filters.append(
+                tuple_(ConversationRecord.updated_at, ConversationRecord.id) < tuple_(before.updated_at, before.id)
+            )
+        rest = self.session.scalars(
             select(ConversationRecord)
-            .where(*self._scope(), agent_filter)
+            .where(and_(*rest_filters))
             .order_by(ConversationRecord.updated_at.desc(), ConversationRecord.id.desc())
             .limit(limit)
         ).all()
-        return [_conversation(record) for record in records]
+        return [_conversation(record) for record in [*pinned, *rest]]
+
+    def count_pinned(self, context: TenantContext, agent_id: str | None = None) -> int:
+        agent_filter = (
+            ConversationRecord.agent_id.is_(None) if agent_id is None else ConversationRecord.agent_id == agent_id
+        )
+        return int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(ConversationRecord)
+                .where(*self._scope(), agent_filter, ConversationRecord.pinned_at.is_not(None))
+            )
+            or 0
+        )
 
     def get(self, conversation_id: str, context: TenantContext) -> Conversation | None:
         record = self.session.scalar(
@@ -178,6 +242,43 @@ class SqlAlchemyConversationStore:
             .where(*self._scope(), ConversationRecord.id == conversation.id)
             .values(title=title)
         )
+
+    def set_pinned(self, conversation: Conversation, pinned: bool) -> None:
+        self.session.execute(
+            update(ConversationRecord)
+            .where(*self._scope(), ConversationRecord.id == conversation.id)
+            .values(pinned_at=func.coalesce(ConversationRecord.pinned_at, utc_now()) if pinned else None)
+        )
+
+    def delete_turns(self, conversation: Conversation, turn_ids: Sequence[str]) -> int:
+        if not turn_ids:
+            return 0
+        result = self.session.execute(
+            delete(ConversationTurnRecord).where(
+                *self._turn_scope(conversation.id), ConversationTurnRecord.id.in_(list(turn_ids))
+            )
+        )
+        removed = int(result.rowcount or 0)  # type: ignore[attr-defined]
+        if removed:
+            self.session.execute(
+                update(ConversationRecord)
+                .where(*self._scope(), ConversationRecord.id == conversation.id)
+                .values(updated_at=utc_now())
+            )
+        return removed
+
+    def set_feedback(
+        self, conversation: Conversation, turn_id: str, rating: Rating | None, reason: str | None
+    ) -> ConversationTurn | None:
+        record = self.session.scalar(
+            select(ConversationTurnRecord).where(*self._turn_scope(conversation.id), ConversationTurnRecord.id == turn_id)
+        )
+        if record is None:
+            return None
+        record.feedback = rating
+        record.feedback_reason = reason if rating is not None else None
+        self.session.flush()
+        return _turn(record)
 
     def delete(self, conversation: Conversation) -> None:
         # Turns go with it (ON DELETE CASCADE), under the same RLS context.

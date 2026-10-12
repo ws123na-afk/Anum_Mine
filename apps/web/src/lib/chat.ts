@@ -2,7 +2,7 @@
 // an incremental server-sent-events parser, the chat transcript reducer, sentence
 // splitting for speaking a reply while it streams, and the auto-scroll rule.
 // No browser or Vite APIs, so `pnpm test:unit` exercises them directly.
-import type { ReportCard } from '@anum/contracts';
+import type { ConversationRating, ReportCard } from '@anum/contracts';
 import { t as msg } from './i18n.ts';
 
 export type TurnStatus = 'complete' | 'cancelled' | 'failed';
@@ -56,6 +56,9 @@ export interface ChatTurn {
   status: TurnStatus;
   created_at: string;
   card?: ChatCard | null;
+  /** The user's thumbs on an answer (stored on the turn, docs/conversations.md#message-actions). */
+  feedback?: ConversationRating | null;
+  feedback_reason?: string | null;
 }
 
 export interface Conversation {
@@ -65,6 +68,9 @@ export interface Conversation {
   updated_at: string;
   /** A thread with an agent (docs/agents.md); absent or null for the Assistant's own. */
   agent_id?: string | null;
+  /** Pinned conversations lead the list. */
+  pinned?: boolean;
+  pinned_at?: string | null;
 }
 
 export interface ConversationDetail extends Conversation {
@@ -130,6 +136,7 @@ export interface UiTurn {
   /** A structured answer's report card ("View Full Report"). */
   report?: ReportCard;
   card?: ChatCard | null;
+  feedback?: ConversationRating | null;
 }
 
 export const PENDING_USER = 'pending-user';
@@ -141,7 +148,8 @@ export function fromStored(turns: ChatTurn[], reports: ReportCard[] = []): UiTur
   return turns.map((t) => {
     const report = cards.get(t.id);
     const card = asCard(t.card);
-    return report ? { id: t.id, role: t.role, content: t.content, status: t.status, card, report } : { id: t.id, role: t.role, content: t.content, status: t.status, card };
+    const feedback = t.feedback === 'up' || t.feedback === 'down' ? t.feedback : null;
+    return report ? { id: t.id, role: t.role, content: t.content, status: t.status, card, feedback, report } : { id: t.id, role: t.role, content: t.content, status: t.status, card, feedback };
   });
 }
 
@@ -172,9 +180,21 @@ export function cardAfterDecision(card: ChatCard, decision: { task: { status: st
   return { ...card, approval, state: 'running' };
 }
 
-/** Show the question at once and an empty reply that fills as it streams. A retry reuses the stored question. */
-export function startAsk(turns: UiTurn[], question: string | null): UiTurn[] {
-  const next = turns.filter((t) => t.status !== 'streaming' && t.status !== 'sending');
+/**
+ * Show the question at once and an empty reply that fills as it streams. A retry (no
+ * question) reuses the stored question and replaces the replies after it, as the server
+ * does; an edit (`editTurnId`) replaces that question and everything after it.
+ */
+export function startAsk(turns: UiTurn[], question: string | null, editTurnId?: string): UiTurn[] {
+  let next = turns.filter((t) => t.status !== 'streaming' && t.status !== 'sending');
+  if (editTurnId) {
+    const index = next.findIndex((t) => t.id === editTurnId);
+    if (index >= 0) next = next.slice(0, index);
+  } else if (question === null) {
+    let last = next.length - 1;
+    while (last >= 0 && next[last].role === 'assistant') last--;
+    next = next.slice(0, last + 1);
+  }
   if (question !== null) next.push({ id: PENDING_USER, role: 'user', content: question, status: 'sending' });
   next.push({ id: PENDING_ASSISTANT, role: 'assistant', content: '', status: 'streaming' });
   return next;
@@ -205,7 +225,7 @@ export function applyAskEvent(turns: UiTurn[], event: SseEvent): UiTurn[] {
     const reply = asTurn(data.assistant_turn);
     const report = asReportCard(data.report);
     return turns.map((t) => t.id === PENDING_ASSISTANT
-      ? reply ? { id: reply.id, role: 'assistant', content: reply.content, status: reply.status, card: asCard(reply.card) ?? t.card ?? null, ...(report ? { report } : {}) } : { ...t, id: `local-${++localTurns}`, status: 'complete' }
+      ? reply ? { id: reply.id, role: 'assistant', content: reply.content, status: reply.status, card: asCard(reply.card) ?? t.card ?? null, feedback: null, ...(report ? { report } : {}) } : { ...t, id: `local-${++localTurns}`, status: 'complete' }
       : t);
   }
   if (event.event === 'error') {
@@ -250,6 +270,53 @@ export function canRetry(turns: UiTurn[]): boolean {
   return Boolean(last && last.role === 'assistant' && (last.status === 'failed' || last.status === 'cancelled') && retryTarget(turns));
 }
 
+/** A turn the server stored (not a placeholder or a turn settled only on this screen). */
+export function isStored(turn: UiTurn): boolean {
+  return !turn.id.startsWith('pending') && !turn.id.startsWith('local-');
+}
+
+/** Regenerate is offered on the latest answer once it is complete and its question was stored. */
+export function canRegenerate(turns: UiTurn[], turn: UiTurn): boolean {
+  const last = turns[turns.length - 1];
+  return Boolean(last && last.id === turn.id && turn.role === 'assistant' && turn.status === 'complete' && isStored(turn) && retryTarget(turns));
+}
+
+/** The turns a delete removes: a question with the replies that answered it, or one reply alone (as the server does). */
+export function deletionSpan(turns: UiTurn[], id: string): string[] {
+  const index = turns.findIndex((t) => t.id === id);
+  if (index < 0) return [];
+  const span = [turns[index].id];
+  if (turns[index].role === 'user') {
+    for (const turn of turns.slice(index + 1)) {
+      if (turn.role === 'user') break;
+      span.push(turn.id);
+    }
+  }
+  return span;
+}
+
+/** How many turns after `id` an edit of that question would replace. */
+export function laterTurns(turns: UiTurn[], id: string): number {
+  const index = turns.findIndex((t) => t.id === id);
+  return index < 0 ? 0 : turns.length - index - 1;
+}
+
+/** Pinned first (newest pin first), then by latest activity; ids unique, first seen wins. */
+export function orderConversations(items: Conversation[]): Conversation[] {
+  const seen = new Set<string>();
+  const unique = items.filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
+  const key = (c: Conversation) => (c.pinned ? `1${c.pinned_at ?? ''}` : `0${c.updated_at}`);
+  return unique.sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : a.id < b.id ? 1 : -1));
+}
+
+/** The keyset cursor for the page after `page`, or null when it was the last one. */
+export function nextCursor(page: Conversation[], limit: number): { before_updated_at: string; before_id: string } | null {
+  const rest = page.filter((c) => !c.pinned);
+  if (rest.length < limit) return null;
+  const last = rest[rest.length - 1];
+  return { before_updated_at: last.updated_at, before_id: last.id };
+}
+
 const SENTENCE_END = /([.!?。؟…]+["'”’)\]]*)(\s+)|(\n+)/g;
 
 /**
@@ -284,4 +351,27 @@ export function isNearBottom(box: { scrollTop: number; scrollHeight: number; cli
 
 export function conversationTitle(conversation: Conversation): string {
   return conversation.title.trim() || msg('chat.newConversation');
+}
+
+/**
+ * The conversation as Markdown, for "Copy conversation" and "Download .md": a title,
+ * then each message under who said it. Answers keep their own Markdown; questions are
+ * quoted so their text never turns into headings or lists of the export.
+ */
+export function conversationMarkdown(title: string, turns: UiTurn[], labels: { you: string; assistant: string }, exportedAt?: string): string {
+  const parts = [`# ${title.replace(/\s+/g, ' ').trim()}`];
+  if (exportedAt) parts.push(`_${exportedAt}_`);
+  for (const turn of turns) {
+    const text = turn.content.trim();
+    if (!text) continue;
+    if (turn.role === 'user') parts.push(`## ${labels.you}`, text.split('\n').map((line) => `> ${line}`.trimEnd()).join('\n'));
+    else parts.push(`## ${labels.assistant}`, text);
+  }
+  return `${parts.join('\n\n')}\n`;
+}
+
+/** A safe file name for a downloaded conversation: letters, digits and dashes, in any script. */
+export function exportFileName(title: string): string {
+  const slug = title.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  return `${slug || 'conversation'}.md`;
 }

@@ -43,12 +43,21 @@ All under `/api/v1/conversations`, with the usual tenant context. Listing and re
 | `GET /?agent_id=` | the caller's 50 most recently active conversations: the Assistant's own without `agent_id`, that agent's threads with it |
 | `GET /{id}` | the conversation with all its turns, oldest first |
 | `DELETE /{id}` | `204`; its turns go with it |
-| `POST /{id}/ask` `{"content"}` or `{"retry_turn_id"}` | `200` `text/event-stream` (below) |
+| `GET /?q=&limit=&before_updated_at=&before_id=` | as above, filtered: `q` (at most 200 characters) matches the title or any message, case-insensitively and literally; pinned conversations come first on the first page only; `limit` (1 to 100, default 50) unpinned ones per page, and the next page starts after the last of them (both cursor fields, or neither: `422`) |
+| `PATCH /{id}` `{"title"?, "pinned"?}` | the conversation: rename (1 to 80 characters; it then stays when the first question is edited) and/or pin; at most 20 pinned (`409`) |
+| `DELETE /{id}/turns/{turn_id}` | `204`: a question goes with the answers to it, an answer goes alone; `404` for a message that is not the caller's |
+| `PUT /{id}/turns/{turn_id}/feedback` `{"rating": "up"\|"down"\|null, "reason"?}` | `{turn, learning_recorded, learning_message}`: the rating is stored on the answer (`feedback`, `feedback_reason`, migration `0051_chat_depth`) whatever the learning setting, and is also a learning signal while learning is on ([learning](learning.md)); only a complete answer (`409` otherwise) |
+| `POST /{id}/ask` `{"content"}`, `{"retry_turn_id"}` or `{"edit_turn_id", "content"}` | `200` `text/event-stream` (below) |
 
 A turn is `{id, conversation_id, role: user|assistant, content, status: complete|cancelled|failed, created_at, card}`; `card` is null for plain conversation.
 
-`retry_turn_id` asks the latest question again (the **Retry** button) without storing a
-second copy of it; any other turn id answers `409`. The monthly model budget is checked
+`retry_turn_id` asks the latest question again (**Retry** after a failure, **Regenerate**
+after a complete answer) without storing a second copy of it; the earlier replies to it are
+replaced. Any other turn id answers `409`. `edit_turn_id` (**Edit and resend**) replaces that
+stored question and every turn after it with `content`; an automatic title follows an edited
+first question. All of these run in the caller's user-scoped RLS context like every other
+conversation route; none reaches another user's, workspace's or tenant's rows
+(`tests/test_conversation_actions.py`, `tests/test_postgres_conversation_actions.py`). The monthly model budget is checked
 before anything is stored: when it is used up the ask answers `402`
 `model_budget_exceeded` like a task run ([Model gateway](model-gateway.md#monthly-budgets)).
 
@@ -253,6 +262,34 @@ that a workspace owner or admin must give the member role; a question the server
 stored is marked "Not sent"; a stopped reply is marked "Stopped" (with "before any
 answer" when nothing had arrived); a long history opens scrolled to the newest message.
 The view loads on first visit like the other views and uses the shared theme tokens only.
+
+## Message actions
+
+Web (`ChatView.tsx`, `MessageActions.tsx`, `MessageMarkdown.tsx`, `AiAnswer.tsx`; pure logic in
+`lib/chat.ts`, `lib/markdown.ts`, `lib/highlight.ts`, `lib/clipboard.ts`):
+
+- **Every answer:** Copy answer (Markdown as written), More copy options (with formatting, or
+  plain text), Regenerate (latest complete answer), Helpful / Not helpful (stored on the answer;
+  pressing again clears it; a reason for Not helpful), Edit to teach (learning only), Delete
+  answer. **Every question:** Copy, Edit and resend (in place; says how many later messages it
+  replaces), Delete (with its answers). Deletes ask first. Actions are always visible, have
+  spoken names, and "Copied" is announced through a polite live region.
+- **Rendering:** a safe Markdown reader (headings, lists with their start number, pipe tables
+  with alignment that scroll inside themselves, quotes, rules, strikethrough, links) rendered as
+  React text nodes only; links only for `http(s)` and `mailto`, opened in a new tab with
+  `rel="noopener noreferrer nofollow"`; fenced code shows its language, is highlighted by a small
+  tokenizer and has its own Copy button; code reads left to right in Arabic, every other block
+  takes its direction from its text.
+- **Conversations:** search (server-side, as you type), Pinned and Recent groups, Show older
+  conversations (keyset paging), and per-row and header menus to Rename, Pin or Unpin, Copy the
+  conversation as Markdown, Download it as `.md`, and Delete it.
+- **Composer:** Enter sends, Shift+Enter adds a line, Escape stops a streaming reply; the
+  remaining characters show in the last 1,000 of 8,000; offline, sending is disabled and the
+  reason is shown.
+- **Other modules:** a task's answer (Tasks) and a command's result (Command Center) use the same
+  renderer and Copy actions (`AiAnswer`); voice replies and meeting summaries have Copy.
+- Tests: `test/chatActions.test.ts`, `test/markdown.test.ts`, `e2e/assistant-chat-actions.spec.ts`.
+- Not done yet: the same actions in the Flutter app (below still describes the earlier chat).
 
 ## Mobile (Flutter)
 

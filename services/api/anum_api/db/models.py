@@ -1031,6 +1031,8 @@ class ConversationRecord(Base, WorkspaceScopedMixin):
     agent_id: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Pinned to the top of the list (migration 0051_chat_depth); null when not pinned.
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         _workspace_fk("conversations"),
@@ -1050,6 +1052,9 @@ class ConversationTurnRecord(Base, WorkspaceScopedMixin):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # The card of a question run as a task (migration 0047_chat_cards); null for plain chat.
     card: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # The user's thumbs on an answer (migration 0051_chat_depth): 'up', 'down' or null.
+    feedback: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    feedback_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Insertion order: turns are read back in the order they were written.
     seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
 

@@ -3,6 +3,7 @@
 // running, what is open, what came out and what needs the person next. Everything shown comes from
 // the workspace's API; every API call goes through lib/commandApi.ts.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { AiAnswer } from './AiAnswer';
 import {
   ArrowRight, BarChart3, Bot, Check, ChevronLeft, ChevronRight, Circle, CircleAlert, CircleCheck, Ellipsis, FileText, Files, Globe, Keyboard, LayoutGrid,
   Lightbulb, ListTodo, LoaderCircle, Mail, MessageCircle, MessageSquare, Mic, Paperclip, RefreshCw, RotateCcw, Search, Square, SquareCheck, Workflow, X,
@@ -286,7 +287,7 @@ export function CommandCenter({ tasks, approvals, loading, userName, autoFocus, 
           {phase.seconds !== null && <span className="phaseTime">{t('command.seconds', { count: phase.seconds })}</span>}
         </li>)}</ol>}
         {focusStatus === 'waiting_approval' && <div className="actions"><button type="button" onClick={() => onGo('approvals')}>{t('command.tracker.review')}</button></div>}
-        {focusTask && focusRun?.result && focusStatus === 'completed' && <div className="trackerResult"><p dir="auto">{focusRun.result}</p></div>}
+        {focusTask && focusRun?.result && focusStatus === 'completed' && <div className="trackerResult"><AiAnswer text={focusRun.result} /></div>}
         {focusTask && !inFlight && <div className="actions"><button type="button" className="secondary" onClick={() => onOpenTask(focusTask.id)}>{t('command.tracker.open')}</button>{focusStatus === 'failed' && <button type="button" onClick={() => void retry(focusTask.id)}><RotateCcw aria-hidden="true" />{t('command.tracker.retry')}</button>}</div>}
       </section>
 
