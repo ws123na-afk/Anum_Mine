@@ -447,25 +447,19 @@ class Planner:
         self.phase = phase
         self.overwrite = overwrite_edited
         self.org_admin = is_organization_admin(context)
-        self.owner = "owner" in {role.strip().lower() for role in context.roles}
         self.now = utc_now()
         with open_setup_plan_ledger(context) as ledger:
             self.ledger = {entry.item_key: entry for entry in ledger.entries(context, blueprint.id)}
         self.pending_installs: set[str] = set()
+        self._catalog: dict[str, Any] | None = None
         self.active_agents = {a.key for a in blueprint.agents if phase == Phase.ALL or a.key in blueprint.pilot_agents}
 
     # ---- shared rules
 
-    def _ledger_key(self, key: str) -> str:
-        return key
-
     def _existing(self, key: str) -> LedgerEntry | None:
+        """The item's ledger row; a stale claim (an apply that stopped) counts as none."""
         entry = self.ledger.get(key)
-        if entry is not None and entry.state == LedgerState.CLAIMED and not entry.stale_claim(self.now):
-            return entry
-        if entry is not None and entry.state == LedgerState.CLAIMED:
-            return None  # a stale claim: plan the item again (the claim is retaken)
-        return entry
+        return None if entry is not None and entry.stale_claim(self.now) else entry
 
     def item(self, key: str, section: Section, kind: str, name: str, action: ItemAction, code: str, reason: str, **extra: Any) -> PlanItem:
         return PlanItem(key=key, section=section, kind=kind, name=name, action=action, reason_code=code, reason=reason, **extra)
@@ -596,17 +590,18 @@ class Planner:
                 continue
             facts = [f"{r.effect.replace('_', ' ')}: {r.action}" for r in pack.rules]
             entry = self._existing(pack.key)
-            found = next((p for p in packs if (entry and p.id == entry.target_id) or p.name.casefold() == pack.name.casefold()), None)
+            # Only an active pack is in force: one someone archived is not "present".
+            found = next((p for p in packs if p.active and ((entry and p.id == entry.target_id) or p.name.casefold() == pack.name.casefold())), None)
 
             def create_pack(pack: BlueprintPolicyPack = pack) -> Applied:
                 created = gov.create_policy_pack(gov.PolicyPackCreate(
                     name=pack.name, description=pack.description,
                     rules=[gov.PolicyRule(action=r.action, effect=gov.PolicyEffect(r.effect), conditions=r.conditions) for r in pack.rules]), self.context)
-                activated = gov.activate_policy_pack(created.id, self.context)
-                return Applied(target_id=activated.id, target_version=activated.version)
+                # A new pack version is stored active (and replaces older versions of the same name).
+                return Applied(target_id=created.id, target_version=created.version)
 
             out.append(self._tenant_object(pack.key, "policy_pack", pack.name, entry, found.id if found else None, facts, link, create_pack,
-                                           "A policy pack, published and activated. Its rules only add approvals; they never loosen policy."))
+                                           "A policy pack, published active. Its rules only add approvals; they never loosen policy."))
 
         # Role templates
         for template in self.bp.role_templates:
@@ -708,6 +703,9 @@ class Planner:
         ours = entry is not None and entry.origin == LedgerOrigin.CREATED and entry.fingerprint == fingerprint(list(limits))
         if limits[0] is not None and abs(limits[0] - usd) < 0.005:
             action, code, reason, run = ItemAction.PRESENT, "already_set", "Already set to the plan's amount.", None
+        elif limits[0] is None and entry is not None and entry.origin == LedgerOrigin.CREATED and not self.overwrite:
+            action, code, reason, run = (ItemAction.KEPT, "removed_by_owner",
+                                         "The limit the plan set was removed; the plan leaves it. Choose 'Replace my changes' to set it again.", None)
         elif limits[0] is None:
             action, code, reason, run = ItemAction.CREATE, "will_create", "Sets this workspace's monthly AI cost limit.", save
         elif ours and usd > limits[0]:
@@ -733,8 +731,6 @@ class Planner:
         with skills_api.open_skill_store(self.context) as store:
             versions = {(v.skill_id, v.version): v for v in store.list_versions(self.context)}
             installations = {i.skill_id: i for i in store.list_installations(self.context)}
-        self.skill_versions = versions
-        self.skill_installations = installations
         out: list[Planned] = []
         for skill in self.bp.skills:
             used_by = ", ".join(self.bp.agent(a).name for a in skill.agents)
@@ -822,7 +818,13 @@ class Planner:
                 dropped.append(f"{name} ({refusal})")
             else:
                 tools.append(name)
-        catalog = {skill.id: skill for skill in catalog_skills(self.context)}
+        # Planning reads the skill catalog once; writing an agent reads it fresh (installs just ran).
+        if assume_pending:
+            if self._catalog is None:
+                self._catalog = {skill.id: skill for skill in catalog_skills(self.context)}
+            catalog = self._catalog
+        else:
+            catalog = {skill.id: skill for skill in catalog_skills(self.context)}
         allowed = set(tools) | {ALWAYS_ALLOWED_TOOL}
         skills: list[str] = []
         for skill_id in agent.builtin_skills:
@@ -859,6 +861,7 @@ class Planner:
             AgentStatus,
             can_edit,
             create_agent,
+            delete_agent,
             open_agent_store,
             update_agent,
         )
@@ -893,9 +896,14 @@ class Planner:
             def create(agent: BlueprintAgent = agent, active: bool = active) -> Applied:
                 fields, _, _ = self._agent_fields(agent, assume_pending=False)
                 view = _run(create_agent(AgentProfileCreate.model_validate(fields), self.context))
-                version = view.version
                 if not active:
-                    view = _run(update_agent(view.id, AgentProfileUpdate(status=AgentStatus.PAUSED, version=version), self.context))
+                    # Agents are created active; a plan agent outside the phase is paused at once, and
+                    # removed again if that fails, so it never stays active by mistake.
+                    try:
+                        view = _run(update_agent(view.id, AgentProfileUpdate(status=AgentStatus.PAUSED, version=view.version), self.context))
+                    except Exception:
+                        _run(delete_agent(view.id, self.context))
+                        raise
                 return Applied(target_id=view.id, target_version=view.version)
 
             if self.busy(entry):
@@ -935,8 +943,13 @@ class Planner:
                                              "Only the agent's creator or a workspace owner can change it.", link=link, facts=facts, week=agent.week), agent.key, False))
                 continue
 
-            def update(agent_id: str = current.id, version: int = current.version, changes: dict[str, Any] = changes) -> Applied:
-                view = _run(update_agent(agent_id, AgentProfileUpdate.model_validate({**changes, "version": version}), self.context))
+            def update(agent: BlueprintAgent = agent, profile: Any = current, status_change: str | None = changes.get("status")) -> Applied:
+                # Recomputed now, so a skill whose install failed in this apply is left out, not refused.
+                fields, _, _ = self._agent_fields(agent, assume_pending=False)
+                now_changes = {k: v for k, v in fields.items() if k in compare and _plain(getattr(profile, k)) != v}
+                if status_change:
+                    now_changes["status"] = status_change
+                view = _run(update_agent(profile.id, AgentProfileUpdate.model_validate({**now_changes, "version": profile.version}), self.context))
                 return Applied(target_id=view.id, target_version=view.version)
 
             what = "turns it on" if changes.keys() == {"status"} else f"updates {', '.join(sorted(changes))}"
@@ -1050,7 +1063,6 @@ class Planner:
 
     def automations(self) -> list[Planned]:
         from . import automation as auto
-        from .automation_triggers import TriggerCondition, TriggerCreate, TriggerKind
 
         workflows = auto.current_engine().list_workflows(self.context)
         by_id = {w.id: w for w in workflows}
@@ -1085,7 +1097,6 @@ class Planner:
             by_name = next((w for w in workflows if w.name.casefold() == automation.name.casefold()), None)
 
             def create(automation: BlueprintAutomation = automation) -> Applied:
-                trig = automation.trigger
                 payload = auto.WorkflowCreate(
                     name=automation.name,
                     description=f"Setup plan automation #{automation.number}. Created turned off: run it by hand, check the result, then turn it on.",
@@ -1095,17 +1106,13 @@ class Planner:
                 )
                 workflow = auto.create_workflow(payload, self.context)
                 details: dict[str, Any] = {"schedules": [], "triggers": []}
-                # Turned off first, so it cannot run before its schedule and triggers exist (also off).
-                auto.disable_workflow(workflow.id, self.context)
-                if trig.get("type") == "schedule":
-                    schedule = auto.create_schedule(auto.ScheduleCreate(workflow_id=workflow.id, name=automation.name, cron=trig["cron"],
-                                                                        timezone=self.bp.timezone, enabled=False), self.context)
-                    details["schedules"].append(schedule.id)
-                for event in trig.get("events", []) if trig.get("type") == "event" else []:
-                    created = auto.create_trigger(TriggerCreate(
-                        workflow_id=workflow.id, name=f"{automation.name} ({event})", kind=TriggerKind.EVENT, event_type=event,
-                        conditions=[TriggerCondition(**c) for c in trig.get("conditions", [])], enabled=False), self.context)
-                    details["triggers"].append(created.trigger.id)
+                try:
+                    self._finish_automation(workflow.id, automation, details)
+                except Exception:
+                    # Half-built: removed again (its schedules and triggers with it), so the next apply
+                    # creates it whole instead of linking a workflow without its trigger by name.
+                    auto.delete_workflow(workflow.id, self.context)
+                    raise
                 return Applied(target_id=workflow.id, target_version=workflow.version, details=details)
 
             link = Link(view="automation", id=(current or by_name).id if (current or by_name) else None)
@@ -1114,6 +1121,24 @@ class Planner:
                                               "You need permission to manage automations.", create,
                                               "Created turned off with its schedule or trigger also off.", week=automation.week))
         return out
+
+    def _finish_automation(self, workflow_id: str, automation: BlueprintAutomation, details: dict[str, Any]) -> None:
+        """Turn the new workflow off, then add its schedule or event triggers, also off."""
+        from . import automation as auto
+        from .automation_triggers import TriggerCondition, TriggerCreate, TriggerKind
+
+        trig = automation.trigger
+        # Turned off first, so it cannot run before its schedule and triggers exist (also off).
+        auto.disable_workflow(workflow_id, self.context)
+        if trig.get("type") == "schedule":
+            schedule = auto.create_schedule(auto.ScheduleCreate(workflow_id=workflow_id, name=automation.name, cron=trig["cron"],
+                                                                timezone=self.bp.timezone, enabled=False), self.context)
+            details["schedules"].append(schedule.id)
+        for event in trig.get("events", []) if trig.get("type") == "event" else []:
+            created = auto.create_trigger(TriggerCreate(
+                workflow_id=workflow_id, name=f"{automation.name} ({event})", kind=TriggerKind.EVENT, event_type=event,
+                conditions=[TriggerCondition(**c) for c in trig.get("conditions", [])], enabled=False), self.context)
+            details["triggers"].append(created.trigger.id)
 
 
 def _plain(value: Any) -> Any:
@@ -1206,6 +1231,8 @@ def _ledger_entry(blueprint: Blueprint, context: TenantContext, planned: Planned
 
 def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyRequest) -> ApplyResult:
     preview, planned = build_preview(blueprint, context, request.phase, request.overwrite_edited)
+    with open_setup_plan_ledger(context) as ledger:
+        recorded = {e.item_key: e for e in ledger.entries(context, blueprint.id) if e.state == LedgerState.APPLIED}
     outcomes: dict[str, int] = {}
     for step in planned:
         item = step.item
@@ -1216,11 +1243,13 @@ def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyReque
         else:
             creating = item.action in {ItemAction.CREATE, ItemAction.PRESENT}
             claim = _ledger_entry(blueprint, context, step, LedgerState.CLAIMED)
+            # Creating again over an applied row (a removed object, a cleared budget) takes that row
+            # over with a compare-and-set, so a concurrent apply cannot create it a second time.
+            previous = recorded.get(step.ledger_key) if creating else None
             try:
                 if creating:
                     with open_setup_plan_ledger(context) as ledger:
-                        # Re-creating a removed object replaces its own applied row.
-                        claimed = ledger.save(claim) is not None if item.reason_code == "recreate" else ledger.claim(claim)
+                        claimed = ledger.reclaim(claim, previous) if previous is not None else ledger.claim(claim)
                     if not claimed:
                         item.outcome = Outcome.BUSY
                         item.error = "Another apply is creating it right now; apply again in a minute."
@@ -1240,7 +1269,8 @@ def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyReque
                 if creating:
                     try:
                         with open_setup_plan_ledger(context) as ledger:
-                            ledger.release(claim)
+                            # Put the applied row back, so a removed object stays "removed", not "new".
+                            ledger.release(claim) if previous is None else ledger.save(previous)
                     except Exception:  # pragma: no cover - the stale claim is retaken after CLAIM_STALE_AFTER
                         logger.warning("setup_plan_release_failed", extra={"anum_plan": blueprint.id, "anum_item": item.key})
                 item.outcome = Outcome.FAILED

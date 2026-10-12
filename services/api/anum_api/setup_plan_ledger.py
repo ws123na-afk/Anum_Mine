@@ -72,6 +72,7 @@ class LedgerEntry(BaseModel):
 class SetupPlanLedger(Protocol):
     def entries(self, context: TenantContext, plan_id: str) -> list[LedgerEntry]: ...
     def claim(self, entry: LedgerEntry) -> bool: ...
+    def reclaim(self, entry: LedgerEntry, previous: LedgerEntry) -> bool: ...
     def save(self, entry: LedgerEntry) -> LedgerEntry: ...
     def release(self, entry: LedgerEntry) -> None: ...
 
@@ -107,6 +108,15 @@ class InMemorySetupPlanLedger:
         with self._lock:
             existing = self.rows.get(self._key(entry))
             if existing is not None and not existing.stale_claim(utc_now()):
+                return False
+            self.rows[self._key(entry)] = entry.model_copy(deep=True)
+            return True
+
+    def reclaim(self, entry: LedgerEntry, previous: LedgerEntry) -> bool:
+        """Turn the applied row ``previous`` into this claim, only if nobody changed it since."""
+        with self._lock:
+            row = self.rows.get(self._key(entry))
+            if row is None or row.state != LedgerState.APPLIED or row.updated_at != previous.updated_at:
                 return False
             self.rows[self._key(entry)] = entry.model_copy(deep=True)
             return True

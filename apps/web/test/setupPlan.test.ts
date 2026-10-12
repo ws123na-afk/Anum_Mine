@@ -13,8 +13,9 @@ const item = (key: string, over: Partial<SetupPlanItem> = {}): SetupPlanItem => 
 });
 
 describe('setup plan items', () => {
-  test('only create and update count as changes', () => {
+  test('create, update and linking an existing object count as changes', () => {
     assert.equal(changeCount({ items: [item('a'), item('b', { action: 'update' }), item('c', { action: 'present' }), item('d', { action: 'skipped' })] }), 2);
+    assert.equal(changeCount({ items: [item('c', { action: 'present', reason_code: 'found_by_name' })] }), 1);
   });
   test('filter by section, words (name, reason, facts) and changes only, keeping failures', () => {
     const items = [

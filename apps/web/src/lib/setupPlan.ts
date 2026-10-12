@@ -49,8 +49,9 @@ export function groupBySection(items: readonly SetupPlanItem[]): { section: Setu
   return SECTION_ORDER.map((section) => ({ section, items: items.filter((item) => item.section === section) })).filter((group) => group.items.length > 0);
 }
 
-/** How many items applying the plan would create or update. */
-export const changeCount = (preview: Pick<SetupPlanPreview, 'items'>): number => preview.items.filter((item) => CHANGING.has(item.action)).length;
+/** How many items applying the plan would create, update, or link (an existing object with the plan's name is recorded, not changed). */
+export const changeCount = (preview: Pick<SetupPlanPreview, 'items'>): number =>
+  preview.items.filter((item) => CHANGING.has(item.action) || item.reason_code === 'found_by_name').length;
 
 export interface RolloutWeek { week: number; title: string; pilot: boolean; names: string[] }
 

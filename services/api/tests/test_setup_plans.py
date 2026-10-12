@@ -377,3 +377,75 @@ def test_a_removed_item_stays_removed_unless_replaced(client: TestClient) -> Non
     assert item["action"] == "kept" and item["reason_code"] == "removed_by_owner"
     replaced = apply(client, overwrite_edited=True)
     assert next(i for i in replaced["items"] if i["key"] == "k07")["outcome"] == "created"
+
+
+def test_a_paused_agent_that_cannot_be_paused_is_removed_not_left_active(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import agent_profiles
+
+    real = agent_profiles.update_agent
+
+    async def refuse(agent_id, payload, context):  # type: ignore[no-untyped-def]
+        raise RuntimeError("store unavailable")
+
+    monkeypatch.setattr(agent_profiles, "update_agent", refuse)
+    result = apply(client)
+    names = agents(client)
+    # Only the pilot agents exist; every non-pilot agent failed and was removed again.
+    assert set(names) == {"GROUP — Chief of Staff", "GALLERY — Customer Care", "GROUP — Finance Controller"}
+    assert all(agent["status"] == "active" for agent in names.values())
+    assert sum(1 for i in items(result, "agents") if i["outcome"] == "failed") == 9
+    monkeypatch.setattr(agent_profiles, "update_agent", real)
+    again = apply(client)
+    assert sum(1 for i in items(again, "agents") if i["outcome"] == "created") == 9
+    assert sum(1 for a in agents(client).values() if a["status"] == "active") == 3
+
+
+def test_a_half_built_automation_is_removed_and_created_whole_next_time(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    real = automation_module.create_schedule
+
+    def broken(payload, context):  # type: ignore[no-untyped-def]
+        raise RuntimeError("schedule store unavailable")
+
+    monkeypatch.setattr(automation_module, "create_schedule", broken)
+    result = apply(client)
+    brief = next(i for i in result["items"] if i["key"] == "auto01")
+    assert brief["outcome"] == "failed" and "schedule store unavailable" in brief["error"]
+    names = {w["name"] for w in client.get("/api/v1/automation/workflows?limit=200", headers=ADMIN).json()}
+    assert "GROUP — Morning Brief" not in names and "GALLERY — Classify New Messages" in names
+    monkeypatch.setattr(automation_module, "create_schedule", real)
+    assert next(i for i in apply(client)["items"] if i["key"] == "auto01")["outcome"] == "created"
+    schedules = client.get("/api/v1/automation/schedules", headers=ADMIN).json()
+    assert [s["name"] for s in schedules].count("GROUP — Morning Brief") == 1
+
+
+def test_a_cleared_budget_stays_cleared_unless_replaced(client: TestClient) -> None:
+    apply(client)
+    assert client.put("/api/v1/model-budgets/workspace", headers=ADMIN, json={"monthly_cost_limit_usd": None, "monthly_token_limit": None}).status_code == 200
+    budget = next(i for i in preview(client)["items"] if i["key"] == "budget")
+    assert budget["action"] == "kept" and budget["reason_code"] == "removed_by_owner"
+    replaced = apply(client, overwrite_edited=True)
+    assert next(i for i in replaced["items"] if i["key"] == "budget")["outcome"] == "created"
+    assert client.get("/api/v1/model-budgets", headers=ADMIN).json()["workspace"]["budget"]["monthly_cost_limit_usd"] == pytest.approx(92.58)
+
+
+def test_reclaiming_a_removed_item_is_compare_and_set(client: TestClient) -> None:
+    from anum_api.setup_plan_ledger import LedgerState
+
+    apply(client)
+    row = next(r for r in memory_setup_plan_ledger.rows.values() if r.item_key == "k03")
+    claim = row.model_copy(update={"state": LedgerState.CLAIMED, "updated_at": utc_now()})
+    assert memory_setup_plan_ledger.reclaim(claim, row) is True
+    # A second apply that read the same applied row loses the race.
+    assert memory_setup_plan_ledger.reclaim(claim, row) is False
+
+
+def test_an_archived_policy_pack_is_not_reported_as_in_force(client: TestClient) -> None:
+    apply(client)
+    pack = next(p for p in client.get("/api/v1/policy-packs", headers=ADMIN).json() if p["name"].startswith("COMMS"))
+    assert client.post(f"/api/v1/policy-packs/{pack['id']}/archive", headers=ADMIN).status_code == 200
+    item = next(i for i in preview(client)["items"] if i["key"] == "p_comms")
+    assert item["action"] == "kept" and item["reason_code"] == "removed_by_owner"
+    again = apply(client, overwrite_edited=True)
+    assert next(i for i in again["items"] if i["key"] == "p_comms")["outcome"] == "created"
+    active = [p for p in client.get("/api/v1/policy-packs", headers=ADMIN).json() if p["name"].startswith("COMMS") and p["active"]]
+    assert len(active) == 1 and active[0]["version"] == 2

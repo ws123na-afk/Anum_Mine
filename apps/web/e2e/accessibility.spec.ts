@@ -41,6 +41,7 @@ const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'budgets', ready: (page) => expect(page.locator('.budgetCard').first()).toBeVisible() },
   { hash: 'policy', ready: (page) => expect(page.locator('.policySwitch').first()).toBeVisible() },
   { hash: 'governance', ready: (page) => expect(page.locator('.govRow').first()).toBeVisible() },
+  { hash: 'setup', ready: (page) => expect(page.locator('.planRollout')).toBeVisible() },
   { hash: 'voice', ready: (page) => expect(page.locator('.voiceEmpty')).toBeVisible() },
 ];
 

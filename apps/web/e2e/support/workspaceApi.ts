@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
 import { handleMeetings } from './meetingsApi';
@@ -195,6 +196,8 @@ const agent = {
   autonomy: { read: 'auto', write: 'ask', external: 'ask' }, knowledge_mode: 'none', knowledge_sources: [], sharing: 'workspace', template_id: 'fleet',
 };
 
+const setupPlanPreview = () => JSON.parse(readFileSync(new URL('./setupPlanFixture.json', import.meta.url), 'utf8'));
+
 export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions = {}): Promise<void> {
   const team = createTeamMock(teamOptions);
   await page.route('http://localhost:8000/**', async (route) => {
@@ -271,6 +274,10 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
         can_manage: true, can_rollback: true,
       });
     }
+    // Setup plan (docs/setup-plan.md): the API's real pilot preview and checklist.
+    if (path === '/api/v1/setup-plans') return json([setupPlanPreview().plan]);
+    if (path.startsWith('/api/v1/setup-plans/') && path.endsWith('/preview')) return json(setupPlanPreview());
+    if (path.startsWith('/api/v1/setup-plans/') && path.endsWith('/checks')) return json(JSON.parse(readFileSync(new URL('./setupPlanChecks.json', import.meta.url), 'utf8')));
     if (path === '/api/v1/organization/governance') return json({ tenant_id: 'tenant_local', policy_packs: 0, active_policy_packs: 0, role_templates: 0, approval_rules: 0, memory_governance_configured: false, can_manage_organization_policy: true });
     if (path === '/api/v1/enterprise/operations') return json({ tenant_id: 'tenant_local', active_regions: 1, healthy_targets: 1, degraded_targets: 0, installed_packages: 1, failover_ready: false, generated_at: now });
     if (path === '/api/v1/routing/targets') return json([{ id: 'configured-model', region: 'local', provider: 'anthropic', model: 'claude', status: 'unverified', modalities: ['text'], sensitivity: ['standard'], cost_per_1k_tokens: 0, latency_ms: 1 }]);

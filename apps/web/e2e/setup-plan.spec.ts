@@ -132,6 +132,7 @@ test('the whole plan and "Replace my changes" are sent as chosen, and items can 
   await page.getByRole('button', { name: 'Apply whole plan' }).click();
   await expect(page.getByRole('alertdialog')).toContainText('Replace my changes is on');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
+  await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
   expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: true, plan_version: 1 });
 });

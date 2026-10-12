@@ -108,6 +108,21 @@ class SqlAlchemySetupPlanLedger:
         ).first()
         return taken is not None
 
+    def reclaim(self, entry: LedgerEntry, previous: LedgerEntry) -> bool:
+        """Compare-and-set: the applied row becomes this claim only if it is unchanged since read."""
+        self._check_scope(entry)
+        taken = self.session.execute(
+            update(SetupPlanItemRecord)
+            .where(
+                self._row(entry),
+                SetupPlanItemRecord.state == LedgerState.APPLIED.value,
+                SetupPlanItemRecord.updated_at == previous.updated_at,
+            )
+            .values(**_values(entry))
+            .returning(SetupPlanItemRecord.item_key)
+        ).first()
+        return taken is not None
+
     def save(self, entry: LedgerEntry) -> LedgerEntry:
         self._check_scope(entry)
         values = _values(entry)
