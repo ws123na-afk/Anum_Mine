@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlertTriangle, BarChart3, Bot, Briefcase, Calendar, ChevronDown, CircleDot, Crown, Download, FileText, Heart, LayoutList, Mail,
+  AlertTriangle, BarChart3, Bot, Briefcase, Calendar, ChevronDown, ChevronRight, CircleDot, Crown, Download, Eye, FileText, Heart, LayoutList, Mail,
   Network, Phone, Plus, Printer, RefreshCw, Search, ShieldCheck, ShoppingCart, Sparkles, Truck, User, UserRound, Wrench,
 } from 'lucide-react';
 import type { AgentProfile } from '@anum/contracts';
@@ -15,7 +15,8 @@ import { describeError, isPermissionDenied } from './lib/errors';
 import { CATALOGS, formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
 import { groupName, itemName } from './lib/integrationSetup';
 import {
-  autonomyRules, buildOrgChart, departmentAliases, filterMembers, loadOrgSources, NO_FILTER, REFRESH_MS, toolOptions, visibleMembers,
+  autonomyRules, balanceColumns, buildOrgChart, columnsForWidth, departmentAliases, departmentCounts, departmentHealth, departmentLead, filterMembers,
+  loadOrgSources, NO_FILTER, orgKpis, REFRESH_MS, toolOptions, visibleMembers, type ProfileRef,
   type MemberFilter, type OrgChart, type OrgDepartment, type OrgMember, type OrgSources, type ToolChip,
 } from './lib/orgChart';
 import { DEFAULT_PALETTE, imageFileName, orgChartSvg, type ImageModel, type ImagePalette } from './lib/orgChartImage';
@@ -32,7 +33,7 @@ const ICONS: Record<string, typeof Bot> = {
   briefcase: Briefcase, user: User, sparkles: Sparkles, wrench: Wrench, chart: BarChart3, 'shopping-cart': ShoppingCart, heart: Heart,
 };
 const LAYOUT_KEY = 'anum.orgChart.layout';
-const ALIASES = departmentAliases([CATALOGS.en, CATALOGS.ar] as unknown as Record<string, unknown>[]);
+export const ALIASES = departmentAliases([CATALOGS.en, CATALOGS.ar] as unknown as Record<string, unknown>[]);
 
 /** Opens another part of the app when the shell gave no callback: the hash names the view on load. */
 export function openByHash(view: string): void {
@@ -110,8 +111,8 @@ async function svgToPng(svg: string, width: number, height: number): Promise<Blo
     const img = new Image();
     img.src = url;
     await img.decode();
-    // Twice the size for sharp text, kept under the browsers' canvas limit.
-    const scale = Math.max(1, Math.min(2, 16000 / height, 16000 / width));
+    // Twice the size for sharp text, kept under the browsers' canvas limits (side and area).
+    const scale = Math.min(2, 16000 / height, 16000 / width, Math.sqrt(16_000_000 / (width * height)));
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale);
     const ctx = canvas.getContext('2d');
@@ -136,12 +137,15 @@ function useOwner(role: Role, people: OrgSources['people']): Owner & { workspace
   const owner = people?.find((p) => p.role === 'owner');
   const name = isYou ? displayName(auth.currentClaims()) ?? me?.display_name ?? null : owner?.display_name ?? null;
   const shown = name ?? (isYou ? t('org.owner.you') : t('org.owner.title'));
-  const roleLine = isYou ? t('org.owner.youRole') : `${t('org.owner.youRole')} · ${t('org.owner.notYou', { role: role ? t(`org.role.${role}` as MessageKey) : '' })}`;
+  // While the caller's role is still loading, say only "Owner".
+  const roleLine = isYou || !role ? t('org.owner.youRole') : `${t('org.owner.youRole')} · ${t('org.owner.notYou', { role: t(`org.role.${role}` as MessageKey) })}`;
   return { name: shown, role: roleLine, initials: name ? initials(name) : '★', isYou, workspace };
 }
 
-export function OrgChartView({ role, onOpenAgent, onEditAgent, onCreate, onOpenApprovals, onOpenTasks, onOpenBudgets, onGo }: {
+export function OrgChartView({ role, onOpenProfile, onOpenAgent, onEditAgent, onCreate, onOpenApprovals, onOpenTasks, onOpenBudgets, onGo }: {
   role: Role;
+  /** Opens a member's full profile page (linkable: `#agents/team/<kind>/<id>`). */
+  onOpenProfile: (ref: ProfileRef) => void;
   onOpenAgent: (id: string) => void;
   onEditAgent: (agent: AgentProfile) => void;
   onCreate: () => void;
@@ -170,7 +174,7 @@ export function OrgChartView({ role, onOpenAgent, onEditAgent, onCreate, onOpenA
     if (!quiet) { setState('loading'); setError(null); }
     setRefreshing(true);
     try {
-      setSources(await loadOrgSources(api.apiRequest));
+      setSources(await loadOrgSources(api.apiRequest, Date.now(), quiet ? sources : null));
       setUpdated(Date.now()); setState('ready'); setError(null);
     } catch (e) {
       if (quiet && sources) { setError(t('org.err.refresh', { reason: describeError(e) })); return; }
@@ -240,9 +244,10 @@ export function OrgChartView({ role, onOpenAgent, onEditAgent, onCreate, onOpenA
       ? <div className="emptyState"><Network aria-hidden="true" /><h3>{t('org.emptyTitle')}</h3><p>{canCreate ? t('org.emptyText') : t('org.emptyViewer')}</p>
           {canCreate && <div className="actions"><button type="button" onClick={onCreate}><Plus aria-hidden="true" />{t('org.createAgent')}</button></div>}</div>
       : layout === 'chart'
-        ? <OrgTree chart={chart} owner={owner} onSelect={setSelected} onGo={go} />
-        : <OrgTable chart={chart} onSelect={setSelected} onGo={go} />}
+        ? <OrgTree chart={chart} owner={owner} onOpen={(m) => onOpenProfile({ kind: m.kind, id: m.id })} onPeek={setSelected} onGo={go} />
+        : <OrgTable chart={chart} onSelect={(m) => onOpenProfile({ kind: m.kind, id: m.id })} onGo={go} />}
     {selected && <OrgMemberDrawer member={selected} sources={sources} role={role} onClose={() => setSelected(null)} onOpenAgent={onOpenAgent}
+      onOpenProfile={(m) => { setSelected(null); onOpenProfile({ kind: m.kind, id: m.id }); }}
       onEditAgent={onEditAgent} onGo={go} onOpenBudgets={onOpenBudgets} onChanged={() => void load(true)} />}
     {chart.members > 0 && createPortal(<OrgPrint chart={chart} sources={sources} owner={owner} />, document.body)}
   </div>;
@@ -258,40 +263,64 @@ function OrgSkeleton() {
 
 // ---------------------------------------------------------------------------- chart
 
-function OrgTree({ chart, owner, onSelect, onGo }: { chart: OrgChart; owner: Owner & { workspace: string | null }; onSelect: (m: OrgMember) => void; onGo: (view: OrgGo) => void }) {
-  return <ul className="orgTree" aria-label={t('org.treeLabel')}>
-    <li className="orgLevel">
-      <article className="surface orgNode orgOwner" aria-labelledby="org-owner-name">
-        <span className="orgInitials" aria-hidden="true">{owner.initials}</span>
-        <div className="orgNodeText">
-          <h3 id="org-owner-name" dir="auto"><Crown aria-hidden="true" />{owner.name}</h3>
-          <p className="muted">{owner.role}{owner.workspace ? <> · <bdi>{owner.workspace}</bdi></> : null}</p>
-        </div>
-      </article>
-      <ApprovalStrip chart={chart} onGo={onGo} />
-      <ul>
-        <li className="orgLevel">
-          <article className="surface orgNode orgAnum" aria-labelledby="org-anum-name">
-            <span className="orgAnumMark" aria-hidden="true"><Sparkles /></span>
-            <div className="orgNodeText">
-              <h3 id="org-anum-name">ANUM</h3>
-              <p className="muted">{t('org.anum.role')}</p>
-              <p className="orgAnumStats">
-                <span>{t('org.anum.members', { count: chart.members })}</span>
-                <span>{t('org.anum.departments', { count: chart.departments.length })}</span>
-                <span>{t('org.count.running', { count: chart.running })}</span>
-                {chart.anumRunning > 0 && <span>{t('org.anum.own', { count: chart.anumRunning })}</span>}
-              </p>
-              <p className="muted orgAnumDuty">{t('org.anum.duty')}</p>
-            </div>
-          </article>
-          <ul className="orgDepts">
-            {chart.departments.map((dept) => <DepartmentCard key={dept.key} dept={dept} onSelect={onSelect} onGo={onGo} />)}
-          </ul>
-        </li>
+function OrgTree({ chart, owner, onOpen, onPeek, onGo }: {
+  chart: OrgChart; owner: Owner & { workspace: string | null }; onOpen: (m: OrgMember) => void; onPeek: (m: OrgMember) => void; onGo: (view: OrgGo) => void;
+}) {
+  const kpis = orgKpis(chart);
+  const box = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(() => typeof window === 'undefined' ? 3 : columnsForWidth(Math.max(320, window.innerWidth - 320)));
+  useEffect(() => {
+    const element = box.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => setColumns(columnsForWidth(entry.contentRect.width)));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const stacks = balanceColumns(chart.departments, columns);
+  const tile = (label: string, value: number | null, tone: string, action?: () => void, hint?: string) => {
+    const shown = value === null ? '—' : String(value);
+    return <div className={`orgKpi tone-${tone}`}>
+      <dt>{label}</dt>
+      <dd>{action ? <button type="button" className="orgKpiLink" onClick={action} aria-label={`${label}: ${shown}. ${hint ?? ''}`}>{shown}</button> : shown}</dd>
+    </div>;
+  };
+  return <div className="orgTree" role="group" aria-label={t('org.treeLabel')}>
+    <section className="surface orgBand" aria-label={t('org.band')}>
+      <div className="orgBandChain">
+        <article className="orgChip orgOwnerChip" aria-labelledby="org-owner-name">
+          <span className="orgInitials" aria-hidden="true">{owner.initials}</span>
+          <div className="orgNodeText">
+            <h3 id="org-owner-name" dir="auto"><Crown aria-hidden="true" />{owner.name}</h3>
+            <p className="muted">{owner.role}{owner.workspace ? <> · <bdi>{owner.workspace}</bdi></> : null}</p>
+          </div>
+        </article>
+        <ChevronRight className="orgBandArrow flipRtl" aria-hidden="true" />
+        <article className="orgChip orgAnumChip" aria-labelledby="org-anum-name">
+          <span className="orgAnumMark" aria-hidden="true"><Sparkles /></span>
+          <div className="orgNodeText">
+            <h3 id="org-anum-name">ANUM <span className="orgAnumRole">{t('org.anum.role')}</span></h3>
+            <p className="muted">{t('org.anum.duty')}</p>
+          </div>
+        </article>
+        <ApprovalStrip chart={chart} onGo={onGo} />
+      </div>
+      <dl className="orgKpis">
+        {tile(t('org.kpi.agents'), kpis.agents, 'neutral')}
+        {tile(t('org.kpi.running'), kpis.running, kpis.running ? 'sky' : 'neutral')}
+        {tile(t('org.kpi.approvals'), kpis.approvals, kpis.approvals ? 'warn' : 'neutral', kpis.approvals !== null ? () => onGo('approvals') : undefined, t('org.strip.open'))}
+        {tile(t('org.kpi.failed'), kpis.failedToday, kpis.failedToday ? 'stop' : 'neutral')}
+        {tile(t('org.kpi.tools'), kpis.toolsNotConnected, kpis.toolsNotConnected ? 'warn' : 'neutral', () => onGo('integrations'), t('org.kpi.toolsOpen'))}
+        {tile(t('org.kpi.withoutAgent'), kpis.withoutAgent, 'neutral', () => onGo('tasks'), t('org.drawer.openTask'))}
+      </dl>
+    </section>
+    <div className="orgBranches" ref={box}>
+      <ul className="orgColumns" style={{ '--org-cols': stacks.length } as CSSProperties} aria-label={t('org.departments')}>
+        {stacks.map((stack, i) => <li key={i} className="orgColumn">
+          <ul className="orgStack">{stack.map((dept) => <DepartmentCard key={dept.key} dept={dept} onOpen={onOpen} onPeek={onPeek} onGo={onGo} />)}</ul>
+        </li>)}
       </ul>
-    </li>
-  </ul>;
+    </div>
+  </div>;
 }
 
 function ApprovalStrip({ chart, onGo }: { chart: OrgChart; onGo: (view: OrgGo) => void }) {
@@ -303,55 +332,84 @@ function ApprovalStrip({ chart, onGo }: { chart: OrgChart; onGo: (view: OrgGo) =
   </div>;
 }
 
-function DepartmentCard({ dept, onSelect, onGo }: { dept: OrgDepartment; onSelect: (m: OrgMember) => void; onGo: (view: OrgGo) => void }) {
+function DepartmentCard({ dept, onOpen, onPeek, onGo }: { dept: OrgDepartment; onOpen: (m: OrgMember) => void; onPeek: (m: OrgMember) => void; onGo: (view: OrgGo) => void }) {
   const [open, setOpen] = useState(() => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 767px)').matches);
   const [all, setAll] = useState(false);
   const bodyId = useId();
-  const { shown, hidden } = visibleMembers(dept, all);
-  const agents = dept.members.filter((m) => m.kind !== 'person').length;
-  const people = dept.members.length - agents;
+  const agents = dept.members.filter((m) => m.kind === 'agent');
+  const others = dept.members.filter((m) => m.kind !== 'agent');
+  const { shown, hidden } = visibleMembers({ members: agents }, all);
+  const counts = departmentCounts(dept);
+  const health = departmentHealth(dept);
+  const lead = departmentLead(dept);
+  const healthText = health.tone === 'stop' ? t('org.health.attention', { count: health.attention })
+    : health.tone === 'warn' ? t('org.count.approvals', { count: health.approvals }) : t('org.health.ok');
   return <li className="orgDept">
-    <section className="surface orgDeptCard" aria-labelledby={`${bodyId}-h`}>
+    <section className={`surface orgDeptCard health-${health.tone}`} aria-labelledby={`${bodyId}-h`}>
       <h3 id={`${bodyId}-h`} className="orgDeptHead">
         <button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
           <span className="orgDeptName" dir="auto">{departmentLabel(dept)}</span>
-          <span className="orgDeptStats">
-            {t('org.dept.agents', { count: agents })}{people ? ` · ${t('org.dept.people', { count: people })}` : ''}
-            {dept.running ? ` · ${t('org.count.running', { count: dept.running })}` : ''}
-            {dept.approvals ? ` · ${t('org.count.approvals', { count: dept.approvals })}` : ''}
-          </span>
+          <span className={`orgHealth tone-${health.tone}`}><span className="orgDot" aria-hidden="true" />{healthText}</span>
+          <span className="orgDeptStats">{[
+            t('org.dept.agents', { count: counts.agents }),
+            counts.assistants ? t('org.dept.assistants', { count: counts.assistants }) : '',
+            counts.people ? t('org.dept.people', { count: counts.people }) : '',
+            dept.running ? t('org.count.running', { count: dept.running }) : '',
+          ].filter(Boolean).join(' · ')}</span>
           <ChevronDown className="orgChevron" aria-hidden="true" />
         </button>
       </h3>
-      <div id={bodyId} hidden={!open}>
-        <ul className="orgMembers">{shown.map((m) => <li key={`${m.kind}:${m.id}`}><MemberNode member={m} onSelect={onSelect} onGo={onGo} /></li>)}</ul>
-        {(hidden > 0 || all) && dept.members.length > 4 && <button type="button" className="secondary orgShowAll" aria-expanded={all} onClick={() => setAll(!all)}>
-          {all ? t('org.showFewer') : t('org.showAll', { count: dept.members.length })}</button>}
+      <div id={bodyId} hidden={!open} className="orgDeptBody">
+        <p className="orgLead"><span className="muted">{t('org.dept.lead')}</span>{' '}
+          {lead ? <><button type="button" className="linkButton" onClick={() => onOpen(lead)} dir="auto">{lead.name}</button> <span className="muted">· {t(`org.kind.${lead.kind}` as MessageKey)}</span></>
+            : <span className="muted">{t('org.dept.noLead')}</span>}</p>
+        {shown.length > 0 && <ul className="orgMembers">{shown.map((m) => <li key={m.id}><MemberNode member={m} onOpen={onOpen} onPeek={onPeek} onGo={onGo} /></li>)}</ul>}
+        {(hidden > 0 || all) && agents.length > 4 && <button type="button" className="secondary orgShowAll" aria-expanded={all} onClick={() => setAll(!all)}>
+          {all ? t('org.showFewer') : t('org.showAll', { count: agents.length })}</button>}
+        {others.length > 0 && <ul className="orgCompact" aria-label={t('org.dept.others')}>{others.map((m) => <li key={`${m.kind}:${m.id}`}>
+          {m.kind === 'person' ? <span className="agentAvatar orgAvatar xs orgPerson" aria-hidden="true"><UserRound /></span> : <Avatar icon={m.icon} color={m.color} small />}
+          <span className="orgCompactText">
+            <button type="button" className="orgOpen" onClick={() => onOpen(m)} dir="auto">{m.name}</button>
+            <small className="muted" dir="auto">{roleText(m)}</small>
+          </span>
+          <StatusPill member={m} />
+        </li>)}</ul>}
       </div>
     </section>
   </li>;
 }
 
-function MemberNode({ member, onSelect, onGo }: { member: OrgMember; onSelect: (m: OrgMember) => void; onGo: (view: OrgGo) => void }) {
-  const counts = countsText(member);
-  const skills = member.skills.slice(0, 3);
+/** An agent's role line: kind, category and who can use it. */
+export function agentRole(member: OrgMember): string {
+  if (!member.agent) return roleText(member);
+  return [t('org.kind.agent'), t(`agents.category.${member.agent.category}` as MessageKey), t(`agents.sharing.${member.agent.sharing}` as MessageKey)].join(' · ');
+}
+
+function MemberNode({ member, onOpen, onPeek, onGo }: { member: OrgMember; onOpen: (m: OrgMember) => void; onPeek: (m: OrgMember) => void; onGo: (view: OrgGo) => void }) {
+  const skills = member.skills.slice(0, 2);
+  const tools = member.tools.slice(0, 3);
+  const meter = (value: number, label: string, tone: string) => <li className={value ? `tone-${tone}` : ''}><strong>{value}</strong> {label}</li>;
   return <article className={`orgMember is-${member.kind} status-${member.status}`}>
     <div className="orgMemberHead">
-      {member.kind === 'person' ? <span className="agentAvatar orgAvatar sm orgPerson" aria-hidden="true"><UserRound /></span> : <Avatar icon={member.icon} color={member.color} small />}
-      <div className="orgMemberTitle">
-        <h4 dir="auto"><button type="button" className="orgOpen" onClick={() => onSelect(member)} aria-haspopup="dialog">{member.name}</button></h4>
-        <StatusPill member={member} />
-      </div>
+      <Avatar icon={member.icon} color={member.color} small />
+      <h4 dir="auto"><button type="button" className="orgOpen" onClick={() => onOpen(member)}>{member.name}</button></h4>
+      <button type="button" className="iconButton orgPeek" onClick={() => onPeek(member)} aria-label={t('org.peek', { name: member.name })} title={t('org.peek', { name: member.name })}><Eye aria-hidden="true" /></button>
     </div>
-    <p className="orgRole" dir="auto">{roleText(member)}</p>
-    {counts && <p className={`orgWork ${member.approvals || member.failed ? 'isHot' : ''}`}>{counts}</p>}
+    <p className="orgRole"><StatusPill member={member} /><span>{agentRole(member)}</span></p>
+    <p className="orgMission" dir="auto" title={member.description}>{member.description || t('agents.noDescription')}</p>
+    <ul className="orgMeters" aria-label={t('org.col.work')}>
+      {meter(member.running, t('org.meter.running'), 'sky')}
+      {meter(member.approvals, t('org.meter.approvals'), 'warn')}
+      {meter(member.failed, t('org.meter.failed'), 'stop')}
+    </ul>
     {member.unavailable > 0 && <p className="orgWarn"><AlertTriangle aria-hidden="true" />{t('org.unavailable', { count: member.unavailable })}</p>}
-    {skills.length > 0 && <p className="orgSkills"><span className="visuallyHidden">{t('org.skills')}: </span>
-      {skills.map((s) => <span key={s.id} className="orgSkill" dir="auto">{s.name}</span>)}
-      {member.skills.length > 3 && <span className="orgSkill isMore">{t('org.more', { count: member.skills.length - 3 })}</span>}</p>}
-    {member.tools.length > 0 && <ul className="orgTools" aria-label={t('org.toolsOf', { name: member.name })}>
-      {member.tools.map((chip) => <li key={chip.key}><ToolButton chip={chip} onGo={onGo} /></li>)}
-    </ul>}
+    <div className="orgChips">
+      {skills.map((s) => <span key={s.id} className="orgSkill" dir="auto"><span className="visuallyHidden">{t('org.skills')}: </span>{s.name}</span>)}
+      {member.skills.length > 2 && <span className="orgSkill isMore">{t('org.more', { count: member.skills.length - 2 })}</span>}
+      {tools.map((chip) => <ToolButton key={chip.key} chip={chip} onGo={onGo} />)}
+      {member.tools.length > 3 && <span className="orgSkill isMore">{t('org.more', { count: member.tools.length - 3 })}</span>}
+      {skills.length === 0 && tools.length === 0 && <span className="muted orgNone">{t('org.noSkillsTools')}</span>}
+    </div>
   </article>;
 }
 
@@ -407,7 +465,7 @@ function OrgTable({ chart, onSelect, onGo }: { chart: OrgChart; onSelect: (m: Or
           <th scope="col">{t('org.col.status')}</th><th scope="col">{t('org.col.work')}</th><th scope="col">{t('org.col.skills')}</th><th scope="col">{t('org.col.tools')}</th>
         </tr></thead>
         <tbody>{rows.map((m) => <tr key={`${m.kind}:${m.id}`}>
-          <th scope="row" data-label={t('org.col.name')}><button type="button" className="orgOpen" aria-haspopup="dialog" onClick={() => onSelect(m)} dir="auto">{m.name}</button>
+          <th scope="row" data-label={t('org.col.name')}><button type="button" className="orgOpen" onClick={() => onSelect(m)} dir="auto">{m.name}</button>
             <small className="muted">{t(`org.kind.${m.kind}` as MessageKey)}</small></th>
           <td data-label={t('org.col.department')} dir="auto">{departmentLabel(m.department)}</td>
           <td data-label={t('org.col.role')} dir="auto" className="orgCellRole">{roleText(m)}</td>
@@ -439,7 +497,8 @@ export function imageModel(chart: OrgChart, owner: Owner & { workspace: string |
     anum: { name: 'ANUM', role: t('org.anum.role'), stats: [t('org.anum.members', { count: chart.members }), t('org.count.running', { count: chart.running })].join(' · ') },
     departments: chart.departments.map((d) => ({
       name: departmentLabel(d),
-      stats: [t('org.dept.agents', { count: d.members.filter((m) => m.kind !== 'person').length }), d.running ? t('org.count.running', { count: d.running }) : '', d.approvals ? t('org.count.approvals', { count: d.approvals }) : ''].filter(Boolean).join(' · '),
+      stats: [t('org.dept.agents', { count: departmentCounts(d).agents }), departmentCounts(d).assistants ? t('org.dept.assistants', { count: departmentCounts(d).assistants }) : '',
+        departmentCounts(d).people ? t('org.dept.people', { count: departmentCounts(d).people }) : '', d.running ? t('org.count.running', { count: d.running }) : '', d.approvals ? t('org.count.approvals', { count: d.approvals }) : ''].filter(Boolean).join(' · '),
       members: d.members.map((m) => ({ name: m.name, role: roleText(m), status: m.kind === 'person' ? 'person' : m.status, statusLabel: statusText(m), counts: countsText(m), skills: memberSkills(m), tools: memberTools(m) })),
     })),
     strip: chart.approvals === null ? t('org.strip.title') : `${t('org.strip.title')} · ${chart.approvals ? t('org.strip.waiting', { count: chart.approvals }) : t('org.strip.none')}`,

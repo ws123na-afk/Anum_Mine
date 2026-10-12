@@ -231,7 +231,8 @@ export function buildOrgChart(input: OrgInputs, now: number = Date.now()): OrgCh
     departments.set(where.key, dept);
   };
   for (const agent of input.agents) {
-    const tools = [...agent.allowed_tools, ...agent.allowed_skills.flatMap((id) => skillTools.get(id) ?? [])];
+    // Every agent answers in text (`anum.respond`), so it is always counted, once.
+    const tools = ['anum.respond', ...agent.allowed_tools, ...agent.allowed_skills.flatMap((id) => skillTools.get(id) ?? [])];
     const { chips, builtin } = toolChips(tools, input.setup);
     const counts = { running: running.get(agent.id) ?? 0, approvals: approvals.get(agent.id) ?? 0, failed: failed.get(agent.id) ?? 0, unavailable: agent.unavailable_tools.length + agent.unavailable_skills.length };
     place(departmentKey(agent.department, input.aliases), {
@@ -287,6 +288,8 @@ export interface OrgSources {
   catalog: AgentCatalog | null;
   people: TeamPerson[] | null;
   policy: { two_person_rule: boolean; medium_risk_requires_approval: boolean } | null;
+  /** When the rarely changing sources (catalog, setup, people, assistants, policy) were read. */
+  staticAt: number;
   /** What could not be read, as API errors, for one quiet note (the chart still shows). */
   partial: { source: 'assistants' | 'tasks' | 'approvals' | 'setup' | 'catalog' | 'people' | 'policy'; error: unknown }[];
 }
@@ -295,8 +298,14 @@ export interface OrgSources {
 const MAX_AGENT_PAGES = 3;
 export const AGENT_CHART_PAGE = 100;
 
-export function openTasksPath(): string {
+/** Open tasks are read at most this many pages of 100. */
+export const MAX_OPEN_TASK_PAGES = 5;
+/** Catalog, setup, people, assistants and policy are re-read after this long. */
+export const STATIC_TTL_MS = 5 * 60_000;
+
+export function openTasksPath(cursor: string | null = null): string {
   const query = new URLSearchParams({ limit: '100' });
+  if (cursor) query.set('cursor', cursor);
   for (const status of OPEN_STATUSES) query.append('status', status);
   return `/api/v1/tasks?${query}`;
 }
@@ -312,7 +321,7 @@ const isPage = (value: unknown): value is { items: AgentProfile[]; next_cursor: 
  * Everything the chart reads. The agents list is required (its failure, including 403, is the
  * caller's error state); every other source fails soft and is listed in `partial`.
  */
-export async function loadOrgSources(request: Requester, now: number = Date.now()): Promise<OrgSources> {
+export async function loadOrgSources(request: Requester, now: number = Date.now(), previous: OrgSources | null = null): Promise<OrgSources> {
   const agents: AgentProfile[] = [];
   let cursor: string | null = null;
   for (let page = 0; page < MAX_AGENT_PAGES; page += 1) {
@@ -329,25 +338,40 @@ export async function loadOrgSources(request: Requester, now: number = Date.now(
     try { return await run(); } catch (error) { partial.push({ source, error }); return null; }
   };
   const list = <T>(value: unknown): T[] | null => Array.isArray(value) ? value as T[] : null;
+  // Sources that rarely change are reused from the last load for a few minutes (live refreshes
+  // then read only agents, tasks and approvals).
+  const reuse = previous && now - previous.staticAt < STATIC_TTL_MS && !previous.partial.length ? previous : null;
+  const fixed = <T>(value: T | undefined, run: () => Promise<T | null>): Promise<T | null> => reuse ? Promise.resolve(value ?? null) : run();
   const [assistants, open, failed, approvals, setup, catalog, people, policy] = await Promise.all([
-    soft('assistants', async () => list<AssistantProfile>(await request('/api/v1/assistants', { method: 'GET' }))),
-    soft('tasks', async () => list<ApiTask>(await request(openTasksPath(), { method: 'GET' })) ?? []),
+    fixed(reuse?.assistants ?? undefined, () => soft('assistants', async () => list<AssistantProfile>(await request('/api/v1/assistants', { method: 'GET' })))),
+    soft('tasks', async () => {
+      // Open tasks page by page (newest first), so counts and approval owners stay right in busy workspaces.
+      const rows: ApiTask[] = [];
+      let after: string | null = null;
+      for (let page = 0; page < MAX_OPEN_TASK_PAGES; page += 1) {
+        const batch: ApiTask[] = list<ApiTask>(await request(openTasksPath(after), { method: 'GET' })) ?? [];
+        rows.push(...batch);
+        if (batch.length < 100) break;
+        after = batch[batch.length - 1].id;
+      }
+      return rows;
+    }),
     soft('tasks', async () => list<ApiTask>(await request(failedTasksPath(now), { method: 'GET' })) ?? []),
     soft('approvals', async () => list<ApiApproval>(await request('/api/v1/approvals', { method: 'GET' }))),
-    soft('setup', async () => {
+    fixed(reuse?.setup ?? undefined, () => soft('setup', async () => {
       const value = await request<IntegrationSetup>('/api/v1/integrations/setup', { method: 'GET' });
       return value && Array.isArray(value.items) ? value : null;
-    }),
-    soft('catalog', async () => request<AgentCatalog>('/api/v1/agents/catalog', { method: 'GET' })),
-    soft('people', async () => list<TeamPerson>(await request('/api/v1/team/people', { method: 'GET' }))),
-    soft('policy', async () => request<OrgSources['policy']>('/api/v1/approval-policy', { method: 'GET' })),
+    })),
+    fixed<AgentCatalog>(reuse?.catalog ?? undefined, () => soft('catalog', async () => request<AgentCatalog>('/api/v1/agents/catalog', { method: 'GET' }))),
+    fixed(reuse?.people ?? undefined, () => soft('people', async () => list<TeamPerson>(await request('/api/v1/team/people', { method: 'GET' })))),
+    fixed(reuse?.policy ?? undefined, () => soft('policy', async () => request<OrgSources['policy']>('/api/v1/approval-policy', { method: 'GET' }))),
   ]);
   const tasks = new Map<string, ApiTask>();
   for (const task of [...(open ?? []), ...(failed ?? [])]) tasks.set(task.id, task);
   return {
     agents, assistants, tasks: [...tasks.values()], approvals, setup,
     skills: Array.isArray(catalog?.skills) ? catalog.skills : [], catalog: catalog && Array.isArray(catalog.tools) ? catalog : null,
-    people, policy: policy && typeof policy === 'object' ? policy : null, partial,
+    people, policy: policy && typeof policy === 'object' ? policy : null, partial, staticAt: reuse ? reuse.staticAt : now,
   };
 }
 
@@ -415,4 +439,155 @@ export function agentTasksPath(agentId: string, cursor: string | null = null, li
   const query = new URLSearchParams({ agent_id: agentId, limit: String(limit) });
   if (cursor) query.set('cursor', cursor);
   return `/api/v1/tasks?${query}`;
+}
+
+// ---------------------------------------------------------------- header KPIs and department health
+
+export interface OrgKpis { agents: number; running: number; approvals: number | null; failedToday: number; toolsNotConnected: number; withoutAgent: number }
+
+/** The header strip: one number each, from the same data as the chart. */
+export function orgKpis(chart: OrgChart): OrgKpis {
+  const members = chart.departments.flatMap((d) => d.members);
+  const notConnected = new Set<string>();
+  for (const m of members) for (const chip of m.tools) if (chip.status === 'not_configured' || chip.status === 'error' || chip.status === 'ready') notConnected.add(chip.key);
+  return {
+    agents: members.filter((m) => m.kind === 'agent').length,
+    running: chart.running,
+    approvals: chart.approvals,
+    failedToday: members.reduce((sum, m) => sum + m.failed, 0),
+    toolsNotConnected: notConnected.size,
+    withoutAgent: chart.anumRunning + chart.anumApprovals,
+  };
+}
+
+export type DepartmentHealth = { tone: 'ok' | 'warn' | 'stop'; approvals: number; attention: number };
+
+/** Healthy, waiting for you, or needing attention (failed work or missing tools). */
+export function departmentHealth(dept: Pick<OrgDepartment, 'members'>): DepartmentHealth {
+  const approvals = dept.members.reduce((sum, m) => sum + m.approvals, 0);
+  const attention = dept.members.filter((m) => m.status === 'error').length;
+  return { tone: attention ? 'stop' : approvals ? 'warn' : 'ok', approvals, attention };
+}
+
+/** Who leads a department: its first enabled assistant, else its first person, else nobody. */
+export function departmentLead(dept: Pick<OrgDepartment, 'members'>): OrgMember | null {
+  return dept.members.find((m) => m.kind === 'assistant' && m.status !== 'off')
+    ?? dept.members.find((m) => m.kind === 'assistant')
+    ?? dept.members.find((m) => m.kind === 'person') ?? null;
+}
+
+export function departmentCounts(dept: Pick<OrgDepartment, 'members'>): { agents: number; assistants: number; people: number } {
+  const count = (kind: OrgMember['kind']) => dept.members.filter((m) => m.kind === kind).length;
+  return { agents: count('agent'), assistants: count('assistant'), people: count('person') };
+}
+
+/** How tall a department draws, in agent cards (its header and the compact people rows are smaller). */
+export function departmentWeight(dept: Pick<OrgDepartment, 'members'>, limit = COLLAPSED_MEMBERS): number {
+  const agents = dept.members.filter((m) => m.kind === 'agent').length;
+  const compact = dept.members.length - agents;
+  return 0.75 + Math.min(agents, limit) + (agents > limit ? 0.3 : 0) + compact * 0.3;
+}
+
+/**
+ * Departments in `columns` stacks of similar height: the tallest are placed first, each on the
+ * shortest stack, then every stack keeps the chart's department order top to bottom.
+ */
+export function balanceColumns<T extends Pick<OrgDepartment, 'members'>>(depts: readonly T[], columns: number): T[][] {
+  const n = Math.max(1, Math.min(columns, depts.length || 1));
+  const stacks: { dept: T; at: number }[][] = Array.from({ length: n }, () => []);
+  const heights = Array.from({ length: n }, () => 0);
+  const order = depts.map((dept, at) => ({ dept, at, weight: departmentWeight(dept) })).sort((a, b) => b.weight - a.weight || a.at - b.at);
+  for (const item of order) {
+    const column = heights.indexOf(Math.min(...heights));
+    stacks[column].push(item);
+    heights[column] += item.weight + 0.15;
+  }
+  // The column holding the first department comes first, so Sales stays top left.
+  return stacks.map((stack) => stack.sort((a, b) => a.at - b.at))
+    .sort((a, b) => (a[0]?.at ?? Infinity) - (b[0]?.at ?? Infinity)).map((stack) => stack.map((item) => item.dept));
+}
+
+/** Columns that fit a width: cards stay at least ~320px wide, never more than four. */
+export function columnsForWidth(width: number): number {
+  return Math.max(1, Math.min(4, Math.floor((width + 16) / 336)));
+}
+
+// ---------------------------------------------------------------- profile page
+
+export type ProfileKind = OrgMember['kind'];
+export interface ProfileRef { kind: ProfileKind; id: string }
+export const PROFILE_TABS = {
+  agent: ['overview', 'work', 'skills', 'approvals', 'activity', 'performance'],
+  assistant: ['overview', 'work', 'skills'],
+  person: ['overview', 'work'],
+} as const;
+export type ProfileTab = (typeof PROFILE_TABS)[ProfileKind][number];
+
+/** `#agents/team/agent/<id>` and friends: a profile anyone can link to. */
+export function profileHash(ref: ProfileRef, tab?: ProfileTab): string {
+  return `#agents/team/${ref.kind}/${encodeURIComponent(ref.id)}${tab && tab !== 'overview' ? `/${tab}` : ''}`;
+}
+
+export function parseProfileHash(hash: string): (ProfileRef & { tab: ProfileTab }) | null {
+  const match = /^#?agents\/team\/(agent|assistant|person)\/([^/]+)(?:\/([a-z]+))?$/.exec(hash);
+  if (!match) return null;
+  const kind = match[1] as ProfileKind;
+  let id: string;
+  try { id = decodeURIComponent(match[2]); } catch { return null; }
+  const tabs = PROFILE_TABS[kind] as readonly string[];
+  const tab = (match[3] && tabs.includes(match[3]) ? match[3] : 'overview') as ProfileTab;
+  return { kind, id, tab };
+}
+
+/** `#agents/team`: the org chart tab itself. */
+export const TEAM_HASH = '#agents/team';
+
+// ---------------------------------------------------------------- performance
+
+export interface TaskStats { total: number; completed: number; failed: number; cancelled: number; open: number; successRate: number | null }
+
+/** Counts from `GET /api/v1/tasks/summary`; success rate is completed of finished (completed or failed). */
+export function taskStats(byStatus: Readonly<Record<string, number>>): TaskStats {
+  const get = (key: string) => Number(byStatus[key] ?? 0);
+  const completed = get('completed'), failed = get('failed'), cancelled = get('cancelled');
+  const open = get('created') + get('queued') + get('running') + get('waiting_approval');
+  const finished = completed + failed;
+  return { total: completed + failed + cancelled + open, completed, failed, cancelled, open, successRate: finished ? completed / finished : null };
+}
+
+/**
+ * Average time from a task's creation to its last update, for finished tasks: the API stores no
+ * separate start and end, so this is an upper bound of the run time (docs/org-chart.md#performance).
+ */
+export function averageDurationMs(tasks: readonly Pick<ApiTask, 'status' | 'created_at' | 'updated_at'>[]): number | null {
+  const spans = tasks.filter((t) => t.status === 'completed')
+    .map((t) => Date.parse(t.updated_at) - Date.parse(t.created_at)).filter((ms) => Number.isFinite(ms) && ms >= 0);
+  return spans.length ? spans.reduce((a, b) => a + b, 0) / spans.length : null;
+}
+
+export function summaryPath(agentId: string, days: number, now: number): string {
+  return `/api/v1/tasks/summary?${new URLSearchParams({ agent_id: agentId, created_after: new Date(now - days * 86_400_000).toISOString() })}`;
+}
+
+export function agentTasksByStatusPath(agentId: string, statuses: readonly string[], limit = 20, extra: Record<string, string> = {}): string {
+  const query = new URLSearchParams({ agent_id: agentId, limit: String(limit), ...extra });
+  for (const status of statuses) query.append('status', status);
+  return `/api/v1/tasks?${query}`;
+}
+
+/** Approvals on this agent's tasks: pending first, then newest. */
+export function approvalsForTasks<T extends Pick<ApiApproval, 'task_id' | 'status' | 'created_at'>>(approvals: readonly T[], taskIds: ReadonlySet<string>): T[] {
+  return approvals.filter((a) => taskIds.has(a.task_id))
+    .sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending') || b.created_at.localeCompare(a.created_at));
+}
+
+/** A duration in the largest sensible unit, for `Intl.NumberFormat` with `style: "unit"`. */
+export function durationParts(ms: number): { value: number; unit: 'second' | 'minute' | 'hour' | 'day' } {
+  const s = ms / 1000;
+  if (s < 90) return { value: Math.round(s), unit: 'second' };
+  const m = s / 60;
+  if (m < 90) return { value: Math.round(m), unit: 'minute' };
+  const h = m / 60;
+  if (h < 36) return { value: Math.round(h * 10) / 10, unit: 'hour' };
+  return { value: Math.round((h / 24) * 10) / 10, unit: 'day' };
 }

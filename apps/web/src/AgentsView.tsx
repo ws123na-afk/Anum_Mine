@@ -10,7 +10,9 @@ import type { Task } from '@anum/contracts';
 import { AgentSkillsPanel } from './AgentSkillsPanel';
 import { ChatView } from './ChatView';
 import { ConfirmDialog } from './Dialog';
-import { OrgChartView, type OrgGo } from './OrgChartView';
+import { OrgChartView, openByHash, type OrgGo } from './OrgChartView';
+import { OrgProfile } from './OrgProfile';
+import { parseProfileHash, profileHash, TEAM_HASH, type ProfileRef, type ProfileTab } from './lib/orgChart';
 import * as api from './lib/api';
 import {
   agentsApi, ALWAYS_ON_TOOL, CATEGORIES, COLORS, DESCRIPTION_MAX, DETAIL_TABS, draftBody, draftChanges, draftFromAgent,
@@ -56,7 +58,13 @@ function useRole(): 'owner' | 'member' | 'viewer' | null {
   return role;
 }
 
-type Mode = { kind: 'list' } | { kind: 'detail'; id: string } | { kind: 'wizard'; agent: AgentProfile | null };
+type Mode = { kind: 'list' } | { kind: 'detail'; id: string } | { kind: 'wizard'; agent: AgentProfile | null } | { kind: 'profile'; target: ProfileRef & { tab: ProfileTab } };
+
+/** What the URL hash opens: a member's profile (`#agents/team/...`), the org chart tab (`#agents/team`) or the list. */
+function modeFromHash(): Mode {
+  const target = typeof window === 'undefined' ? null : parseProfileHash(window.location.hash);
+  return target ? { kind: 'profile', target } : { kind: 'list' };
+}
 type ListTab = 'agents' | 'org';
 const TAB_KEY = 'anum.agents.tab';
 
@@ -69,8 +77,23 @@ export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenB
   /** Opens Integrations, Assistants, Team or Automation from the org chart (without it, the URL hash does). */
   onGo?: (view: OrgGo) => void;
 }) {
-  const [mode, setMode] = useState<Mode>({ kind: 'list' });
-  const [tab, setTabState] = useState<ListTab>(readTab);
+  const [mode, setMode] = useState<Mode>(modeFromHash);
+  const [tab, setTabState] = useState<ListTab>(() => typeof window !== 'undefined' && window.location.hash.startsWith(TEAM_HASH) ? 'org' : readTab());
+  // Back and Forward move between the org chart and the profiles opened from it.
+  useEffect(() => {
+    const onPop = () => { const next = modeFromHash(); if (next.kind === 'profile' || window.location.hash.startsWith('#agents')) { setMode(next); if (next.kind === 'profile') setTabState('org'); } };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  const openProfile = (ref: ProfileRef) => {
+    window.history.pushState({ anumProfile: true }, '', profileHash(ref));
+    go({ kind: 'profile', target: { ...ref, tab: 'overview' } });
+  };
+  const leaveProfile = () => {
+    if ((window.history.state as { anumProfile?: boolean } | null)?.anumProfile) { window.history.back(); return; }
+    window.history.replaceState(null, '', TEAM_HASH);
+    setTab('org'); go({ kind: 'list' });
+  };
   const setTab = (next: ListTab) => { setTabState(next); try { localStorage.setItem(TAB_KEY, next); } catch { /* storage blocked */ } };
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -83,15 +106,21 @@ export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenB
   useEffect(() => { void loadCatalog(); }, [loadCatalog]);
   const top = useRef<HTMLDivElement>(null);
   const go = (next: Mode, message: string | null = null) => {
+    // Leaving a profile for the agent page or the editor drops its address, so a reload or a later Back does not reopen it.
+    if (next.kind !== 'profile' && window.location.hash.startsWith(`${TEAM_HASH}/`)) window.history.replaceState(null, '', next.kind === 'list' ? TEAM_HASH : '#agents');
     setMode(next); setFlash(message);
     window.requestAnimationFrame(() => top.current?.focus());
   };
   return <div className="agentsView" ref={top} tabIndex={-1}>
     {flash && <Notice>{flash}</Notice>}
     {mode.kind === 'list' && <nav className="settingsTabs agentTabs agentViewTabs" aria-label={t('org.tabs')}>
-      {(['agents', 'org'] as const).map((value) => <button key={value} type="button" aria-current={tab === value ? 'page' : undefined} onClick={() => setTab(value)}>{t(`org.tab.${value}`)}</button>)}
+      {(['agents', 'org'] as const).map((value) => <button key={value} type="button" aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); window.history.replaceState(null, '', value === 'org' ? TEAM_HASH : '#agents'); }}>{t(`org.tab.${value}`)}</button>)}
     </nav>}
-    {mode.kind === 'list' && tab === 'org' && <OrgChartView role={role} onOpenAgent={(id) => go({ kind: 'detail', id })} onEditAgent={(agent) => go({ kind: 'wizard', agent })}
+    {mode.kind === 'profile' && <OrgProfile key={`${mode.target.kind}:${mode.target.id}`} target={mode.target} role={role} onBack={leaveProfile}
+      onTab={(next) => { window.history.replaceState(window.history.state, '', profileHash(mode.target, next)); setMode({ kind: 'profile', target: { ...mode.target, tab: next } }); }}
+      onOpenAgent={(id) => go({ kind: 'detail', id })} onEditAgent={(agent) => go({ kind: 'wizard', agent })} onOpenBudgets={onOpenBudgets}
+      onGo={(view) => { if (view === 'approvals' && onOpenApprovals) onOpenApprovals(); else if (view === 'tasks' && onOpenTasks) onOpenTasks(); else if (onGo) onGo(view); else openByHash(view); }} />}
+    {mode.kind === 'list' && tab === 'org' && <OrgChartView role={role} onOpenProfile={openProfile} onOpenAgent={(id) => go({ kind: 'detail', id })} onEditAgent={(agent) => go({ kind: 'wizard', agent })}
       onCreate={() => go({ kind: 'wizard', agent: null })} onOpenApprovals={onOpenApprovals} onOpenTasks={onOpenTasks} onOpenBudgets={onOpenBudgets} onGo={onGo} />}
     {mode.kind === 'list' && tab === 'agents' && <AgentList catalog={catalog} catalogError={catalogError} role={role} onRetryCatalog={() => void loadCatalog()}
       onOpen={(id) => go({ kind: 'detail', id })} onCreate={() => go({ kind: 'wizard', agent: null })} onOpenSkills={onOpenSkills} />}

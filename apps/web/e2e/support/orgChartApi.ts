@@ -69,7 +69,7 @@ export async function mockOrgChart(page: Page, options: OrgMockOptions = {}) {
     task('task_mail1', 'waiting_approval', 'agent_outreach', 'Email Al Noor Transport about the pilot'),
     task('task_mail2', 'waiting_approval', 'agent_outreach', 'Follow up with Desert Logistics'),
     task('task_wa', 'failed', 'agent_care', 'Reply to a customer about delivery times', hourAgo),
-    task('task_done', 'completed', 'agent_fleet', 'September purchase plan', hourAgo),
+    { ...task('task_done', 'completed', 'agent_fleet', 'September purchase plan', new Date(Date.now() - 3 * 3_600_000).toISOString()), updated_at: hourAgo },
     task('task_anum', 'queued', null, 'Weekly summary for the owner'),
     task('task_anum_ap', 'waiting_approval', null, 'Share the board pack'),
   ];
@@ -115,7 +115,42 @@ export async function mockOrgChart(page: Page, options: OrgMockOptions = {}) {
       }
       return json(found);
     }
-    if (/^\/api\/v1\/agents\/[^/]+\/(skills|memories)$/.test(path)) return json({ items: [], next_cursor: null, total: 0, ready: 0, attention: 0 });
+    const loadout = /^\/api\/v1\/agents\/([^/]+)\/skills$/.exec(path);
+    if (loadout) {
+      const found = agents.find((a) => a.id === loadout[1]);
+      if (!found) return envelope(404, 'not_found', 'Agent not found.');
+      const allowed = new Set([...(found.allowed_tools as string[]), 'anum.respond']);
+      const items = (found.allowed_skills as string[]).map((id) => {
+        const skill = catalog.skills.find((k) => k.id === id);
+        const tools = (skill?.required_tools ?? []).map((name) => ({ name, registered: true, allowed: allowed.has(name), granted: null }));
+        const missing = tools.filter((tool) => !tool.allowed).length;
+        return { id, name: skill?.name ?? id, description: skill?.description ?? '', source: skill?.source ?? 'unknown', version: '1.0.0', latest_version: '1.0.0', risk_level: 'low',
+          state: missing ? 'needs_tools' : 'ready', reason: missing ? 'Allow the missing tools on this agent so the skill can run.' : null, activation: skill?.source === 'installed' ? 'always' : 'on_request',
+          triggers: ['plan', 'tyres'], loads_instructions: false, upgrade_available: false, tools };
+      });
+      return json({ agent_id: found.id, agent_version: found.version, can_edit: true, items, ready: items.filter((i) => i.state === 'ready').length, attention: items.filter((i) => i.state !== 'ready').length });
+    }
+    if (/^\/api\/v1\/agents\/[^/]+\/memories$/.test(path)) return json({ items: [], next_cursor: null, total: 0 });
+    if (path === '/api/v1/tasks/summary') {
+      const agentId = url.searchParams.get('agent_id');
+      const by: Record<string, number> = {};
+      for (const row of tasks.filter((t) => !agentId || t.agent_id === agentId)) by[String(row.status)] = (by[String(row.status)] ?? 0) + 1;
+      // Fleet Planner's history: 4 finished in the last week, 11 in the last month, plus one older failure.
+      if (agentId === 'agent_fleet') { const days = (Date.now() - Date.parse(url.searchParams.get('created_after') ?? now)) / 86_400_000; by.completed = (by.completed ?? 0) + (days > 8 ? 11 : 4); by.failed = (by.failed ?? 0) + 1; }
+      return json({ total: Object.values(by).reduce((a, b) => a + b, 0), by_status: by, archived: 0, creators: ['user_local'] });
+    }
+    if (path === '/api/v1/work-items/workload') return json({ generated_at: now, unassigned_open: 1, rows: [
+      { assignee_type: 'user', assignee_id: 'user_aisha', name: 'Aisha Rahman', open: 3, in_progress: 1, blocked: 0, overdue: 1, due_this_week: 2, estimate_hours: 30, capacity_hours: 40, load_percent: 75 },
+    ] });
+    if (path === '/api/v1/work-items') {
+      const id = url.searchParams.get('assignee_id');
+      const items = id === 'user_aisha' || id === 'asst_sales' ? [1, 2].map((n) => ({
+        id: `work_${id}_${n}`, tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', title: n === 1 ? 'Book tyre fitting for truck 7' : 'Quote for Desert Logistics', description: '', status: n === 1 ? 'in_progress' : 'todo',
+        priority: 'high', assignee_type: url.searchParams.get('assignee_type'), assignee_id: id, assignee_name: null, created_by: 'user_local', created_by_name: 'Sara Haddad', due_at: now, follow_up_at: null,
+        completed_at: null, reminder_sent_at: null, estimate_hours: 2, source: 'manual', source_detail: {}, agent_task_id: null, version: 1, created_at: hourAgo, updated_at: now, overdue: n === 1,
+      })) : [];
+      return json({ items, total: items.length, limit: 20, offset: 0, next_offset: null });
+    }
     if (path === '/api/v1/assistants') return json(options.empty ? [] : [
       { id: 'asst_sales', department: 'sales', name: 'Sales desk', instructions: 'Answer price questions and draft quotes.', allowed_tools: ['anum.respond', 'team.assign_task'], routing_keywords: ['price', 'quote'], inbound_channels: ['whatsapp'], autonomy: 'suggest', enabled: true, created_by: 'user_local', created_at: now, updated_at: now },
       { id: 'asst_support', department: 'support', name: 'Support desk', instructions: 'Triage complaints.', allowed_tools: ['anum.respond', 'read_whatsapp'], routing_keywords: ['late', 'broken'], inbound_channels: ['email', 'whatsapp'], autonomy: 'observe', enabled: false, created_by: 'user_local', created_at: now, updated_at: now },

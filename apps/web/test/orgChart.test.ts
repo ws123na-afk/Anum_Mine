@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { AgentProfile, AssistantProfile, TeamPerson } from '@anum/contracts';
 import {
-  agentTasksPath, autonomyRules, buildOrgChart, departmentAliases, departmentKey, failedTasksPath, familyStatus, filterMembers, loadOrgSources,
-  memberStatus, NO_FILTER, openTasksPath, toolChips, toolOptions, visibleMembers, type OrgInputs,
+  agentTasksByStatusPath, agentTasksPath, approvalsForTasks, autonomyRules, averageDurationMs, balanceColumns, buildOrgChart, columnsForWidth,
+  departmentAliases, departmentCounts, departmentHealth, departmentKey, departmentLead, departmentWeight, durationParts, failedTasksPath, familyStatus,
+  filterMembers, loadOrgSources, memberStatus, NO_FILTER, openTasksPath, orgKpis, parseProfileHash, profileHash, summaryPath, taskStats, toolChips,
+  toolOptions, visibleMembers, type OrgInputs,
 } from '../src/lib/orgChart.ts';
 import { columnsFor, escapeXml, fit, imageFileName, memberHeight, orgChartSvg, wrap, type ImageModel } from '../src/lib/orgChartImage.ts';
 import { ApiError } from '../src/lib/errors.ts';
@@ -115,6 +117,7 @@ describe('buildOrgChart', () => {
     assert.equal(sales.approvals, 1);
     assert.deepEqual(sales.skills, [{ id: 'anum.email', name: 'Email' }]);
     assert.deepEqual(sales.tools[0].tools, ['read_email', 'send_email'], 'tools its skills need count too');
+    assert.equal(sales.builtin, 1, 'text answers, counted once');
     const fleet = chart.departments[1].members[0];
     assert.deepEqual([fleet.status, fleet.running, fleet.failed], ['error', 1, 1]);
     assert.equal(fleet.department.key, 'operations');
@@ -137,11 +140,79 @@ describe('buildOrgChart', () => {
     assert.deepEqual(filterMembers(chart, { ...NO_FILTER, kind: 'person', q: 'dispatcher' }).map((m) => m.id), ['p1']);
     assert.deepEqual(toolOptions(chart).map((c) => c.key), ['fleet_data', 'group:email']);
   });
+  test('the header KPIs and department health, lead and counts', () => {
+    assert.deepEqual(orgKpis(chart), { agents: 4, running: 2, approvals: 2, failedToday: 1, toolsNotConnected: 1, withoutAgent: 2 }, 'fleet data is set up but not connected');
+    const [sales, operations] = chart.departments;
+    assert.deepEqual(departmentHealth(sales), { tone: 'warn', approvals: 1, attention: 0 });
+    assert.deepEqual(departmentHealth(operations), { tone: 'stop', approvals: 0, attention: 1 });
+    assert.equal(departmentLead(sales)?.name, 'Sales desk', 'an assistant leads, even when it is off and nobody else is there');
+    assert.equal(departmentLead(operations)?.id, 'p1');
+    assert.equal(departmentLead(chart.departments[3]), null);
+    assert.deepEqual(departmentCounts(sales), { agents: 1, assistants: 1, people: 0 });
+    const notConnected = buildOrgChart({ ...input, setup: { items: setup.items.map((i) => ({ ...i, status: 'not_configured' as const })) } });
+    assert.equal(orgKpis(notConnected).toolsNotConnected, 2);
+  });
   test('large departments collapse to the first few', () => {
     const many = { members: Array.from({ length: 9 }, (_, i) => chart.departments[0].members[0] && { ...chart.departments[0].members[0], id: `m${i}` }) };
     assert.equal(visibleMembers(many, false).shown.length, 4);
     assert.equal(visibleMembers(many, false).hidden, 5);
     assert.equal(visibleMembers(many, true).hidden, 0);
+  });
+});
+
+describe('balanced columns', () => {
+  const dept = (name: string, agents: number, people = 0) => ({ name, members: [
+    ...Array.from({ length: agents }, () => ({ kind: 'agent' as const })), ...Array.from({ length: people }, () => ({ kind: 'person' as const })),
+  ] }) as unknown as Parameters<typeof departmentWeight>[0] & { name: string };
+  test('tallest first onto the shortest stack, chart order within a stack, first department top left', () => {
+    const depts = [dept('sales', 2, 1), dept('support', 1, 1), dept('ops', 2, 1), dept('finance', 1, 1), dept('marketing', 5), dept('none', 1)];
+    const stacks = balanceColumns(depts, 3);
+    assert.equal(stacks.length, 3);
+    assert.equal(stacks[0][0].name, 'sales');
+    assert.deepEqual(stacks.flat().map((d) => d.name).sort(), depts.map((d) => d.name).sort());
+    for (const stack of stacks) assert.deepEqual(stack.map((d) => depts.indexOf(d)), [...stack.map((d) => depts.indexOf(d))].sort((a, b) => a - b));
+    const heights = stacks.map((stack) => stack.reduce((sum, d) => sum + departmentWeight(d), 0));
+    assert.ok(Math.max(...heights) - Math.min(...heights) <= 2, `balanced: ${heights.join(', ')}`);
+  });
+  test('never more stacks than departments, at least one', () => {
+    assert.equal(balanceColumns([dept('a', 1)], 4).length, 1);
+    assert.equal(balanceColumns([], 3).length, 1);
+    assert.deepEqual([300, 680, 1067, 1400, 2400].map(columnsForWidth), [1, 2, 3, 4, 4]);
+    assert.equal(departmentWeight(dept('big', 9, 2)), 0.75 + 4 + 0.3 + 0.6);
+  });
+});
+
+describe('profile page', () => {
+  test('hashes round-trip, unknown tabs fall back to the overview', () => {
+    assert.equal(profileHash({ kind: 'agent', id: 'agent 1' }), '#agents/team/agent/agent%201');
+    assert.equal(profileHash({ kind: 'agent', id: 'a' }, 'performance'), '#agents/team/agent/a/performance');
+    assert.deepEqual(parseProfileHash('#agents/team/agent/agent%201/work'), { kind: 'agent', id: 'agent 1', tab: 'work' });
+    assert.deepEqual(parseProfileHash('#agents/team/person/u1/performance'), { kind: 'person', id: 'u1', tab: 'overview' });
+    assert.equal(parseProfileHash('#agents/team/robot/x'), null);
+    assert.equal(parseProfileHash('#agents'), null);
+    assert.equal(parseProfileHash('#agents/team/agent/%E0%A4%A'), null);
+  });
+  test('performance from task counts and timestamps', () => {
+    assert.deepEqual(taskStats({ completed: 12, failed: 1, cancelled: 2, running: 1, waiting_approval: 1 }), { total: 17, completed: 12, failed: 1, cancelled: 2, open: 2, successRate: 12 / 13 });
+    assert.equal(taskStats({}).successRate, null);
+    assert.equal(averageDurationMs([
+      { status: 'completed', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T02:00:00Z' },
+      { status: 'completed', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T04:00:00Z' },
+      { status: 'failed', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-02T00:00:00Z' },
+    ]), 3 * 3_600_000);
+    assert.equal(averageDurationMs([]), null);
+    assert.deepEqual([45_000, 12 * 60_000, 3.5 * 3_600_000, 50 * 3_600_000].map(durationParts), [
+      { value: 45, unit: 'second' }, { value: 12, unit: 'minute' }, { value: 3.5, unit: 'hour' }, { value: 2.1, unit: 'day' },
+    ]);
+  });
+  test('paths and the agent’s approvals', () => {
+    assert.equal(summaryPath('a', 7, Date.parse('2026-10-12T00:00:00Z')), '/api/v1/tasks/summary?agent_id=a&created_after=2026-10-05T00%3A00%3A00.000Z');
+    assert.equal(agentTasksByStatusPath('a', ['failed', 'cancelled'], 5, { cursor: 't1' }), '/api/v1/tasks?agent_id=a&limit=5&cursor=t1&status=failed&status=cancelled');
+    const rows = approvalsForTasks([
+      { task_id: 't1', status: 'approved', created_at: '2026-10-03' }, { task_id: 't2', status: 'pending', created_at: '2026-10-01' },
+      { task_id: 'other', status: 'pending', created_at: '2026-10-04' }, { task_id: 't1', status: 'rejected', created_at: '2026-10-05' },
+    ], new Set(['t1', 't2']));
+    assert.deepEqual(rows.map((r) => [r.task_id, r.status]), [['t2', 'pending'], ['t1', 'rejected'], ['t1', 'approved']]);
   });
 });
 
@@ -185,11 +256,40 @@ describe('loadOrgSources', () => {
     assert.ok(calls.includes(openTasksPath()));
     assert.ok(calls.some((c) => c.includes('created_after=2026-10-11T12%3A00%3A00.000Z')));
   });
+  test('open tasks page through, and rarely changing sources are reused for a few minutes', async () => {
+    const calls: string[] = [];
+    const open = Array.from({ length: 150 }, (_, i) => ({ id: `t${i}`, status: 'running', agent_id: 'a' }));
+    const request = async <T>(path: string): Promise<T> => {
+      calls.push(path);
+      if (path.startsWith('/api/v1/agents?')) return { items: [agent('a')], next_cursor: null, counts: {} } as T;
+      if (path.startsWith('/api/v1/tasks?') && path.includes('status=running')) {
+        const cursor = new URL(path, 'http://x').searchParams.get('cursor');
+        return (cursor ? open.slice(open.findIndex((t) => t.id === cursor) + 1) : open).slice(0, 100) as T;
+      }
+      if (path === '/api/v1/agents/catalog') return { tools: [], skills: [], templates: [], icons: [], autonomy_floor: { read: 'auto', write: 'ask', external: 'ask' } } as T;
+      if (path === '/api/v1/integrations/setup') return setup as T;
+      if (path === '/api/v1/approval-policy') return { two_person_rule: false, medium_risk_requires_approval: false } as T;
+      return [] as T;
+    };
+    const first = await loadOrgSources(request, 1_000_000);
+    assert.equal(first.tasks.length, 150);
+    assert.ok(calls.some((c) => c.includes('cursor=t99')));
+    calls.length = 0;
+    const again = await loadOrgSources(request, 1_000_000 + 60_000, first);
+    assert.ok(!calls.includes('/api/v1/agents/catalog') && !calls.includes('/api/v1/team/people'), 'static sources reused');
+    assert.equal(again.staticAt, 1_000_000);
+    assert.equal(again.setup, first.setup);
+    calls.length = 0;
+    const later = await loadOrgSources(request, 1_000_000 + 10 * 60_000, first);
+    assert.ok(calls.includes('/api/v1/agents/catalog'), 'and re-read after the time to live');
+    assert.equal(later.staticAt, 1_000_000 + 10 * 60_000);
+  });
   test('an agents failure is the caller’s error', async () => {
     await assert.rejects(loadOrgSources(async () => { throw new ApiError(403, 'forbidden', 'No.'); }), (e: unknown) => e instanceof ApiError && e.status === 403);
   });
   test('paths', () => {
     assert.equal(openTasksPath(), '/api/v1/tasks?limit=100&status=created&status=queued&status=running&status=waiting_approval');
+    assert.equal(openTasksPath('t9'), '/api/v1/tasks?limit=100&cursor=t9&status=created&status=queued&status=running&status=waiting_approval');
     assert.match(failedTasksPath(0), /status=failed/);
     assert.equal(agentTasksPath('a 1', 't9', 10), '/api/v1/tasks?agent_id=a+1&limit=10&cursor=t9');
   });

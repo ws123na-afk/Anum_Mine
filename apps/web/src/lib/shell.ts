@@ -59,6 +59,8 @@ export function viewFromHash(hash: string): View {
   // A report or collection opened by link (docs/reports.md, docs/knowledge-base.md).
   if (id.startsWith('reports/')) return 'reports';
   if (id.startsWith('knowledge/')) return 'knowledge';
+  // The AI team org chart and a member's profile (docs/org-chart.md#profile-page).
+  if (id.startsWith('agents/')) return 'agents';
   // A Marketing tab opened by link (#marketing-calendar, docs/marketing.md).
   if (id.startsWith('marketing-')) return 'marketing';
   return isView(id) ? id : 'home';

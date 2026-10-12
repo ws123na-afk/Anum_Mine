@@ -3,7 +3,7 @@
 // current and recent tasks, latest result and last error, who owns it, and the actions the API
 // already supports (open, edit, pause or resume, assign a task through the governed task path).
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
-import { AlertTriangle, CircleDot, ExternalLink, Pause, Pencil, Play, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CircleDot, ExternalLink, MessageSquare, Pause, Pencil, Play, RefreshCw } from 'lucide-react';
 import type { AgentProfile } from '@anum/contracts';
 import { Drawer } from './Dialog';
 import * as api from './lib/api';
@@ -19,18 +19,18 @@ import {
 const agents = agentsApi(api.apiRequest, api.apiRequestVoid);
 const PAGE = 10;
 
-function Notice({ text, error }: { text: string; error?: boolean }) {
+export function Notice({ text, error }: { text: string; error?: boolean }) {
   return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{text}</p>;
 }
 
 /** Why a section could not load: who can see it, or what failed. */
-function why(error: unknown, action: MessageKey): string {
+export function why(error: unknown, action: MessageKey): string {
   if (isPermissionDenied(error)) return t('org.drawer.denied', { message: describeError(error) });
   return t(action, { reason: describeError(error) });
 }
 
-export function OrgMemberDrawer({ member, sources, role, onClose, onOpenAgent, onEditAgent, onGo, onOpenBudgets, onChanged }: {
-  member: OrgMember; sources: OrgSources; role: 'owner' | 'member' | 'viewer' | null; onClose: () => void;
+export function OrgMemberDrawer({ member, sources, role, onClose, onOpenAgent, onOpenProfile, onEditAgent, onGo, onOpenBudgets, onChanged }: {
+  member: OrgMember; sources: OrgSources; role: 'owner' | 'member' | 'viewer' | null; onClose: () => void; onOpenProfile: (member: OrgMember) => void;
   onOpenAgent: (id: string) => void; onEditAgent: (agent: AgentProfile) => void; onGo: (view: OrgGo) => void;
   onOpenBudgets?: () => void; onChanged: () => void;
 }) {
@@ -40,6 +40,7 @@ export function OrgMemberDrawer({ member, sources, role, onClose, onOpenAgent, o
         <span className={`orgStatus is-${member.kind === 'person' ? 'person' : member.status}`}><span className="orgDot" aria-hidden="true" />{statusText(member)}</span>
         <span>{t(`org.kind.${member.kind}` as MessageKey)} · <bdi>{departmentLabel(member.department)}</bdi></span>
       </p>
+      <div className="actions orgDrawerActions"><button type="button" onClick={() => onOpenProfile(member)}><ExternalLink aria-hidden="true" />{t('org.profile.open')}</button></div>
       {member.agent && <AgentProfilePanel member={member} agent={member.agent} sources={sources} onClose={onClose} onOpenAgent={onOpenAgent}
         onEditAgent={onEditAgent} onGo={onGo} onOpenBudgets={onOpenBudgets} onChanged={onChanged} />}
       {member.assistant && <AssistantPanel member={member} onGo={onGo} role={role} />}
@@ -74,7 +75,7 @@ function AgentProfilePanel({ member, agent: initial, sources, onClose, onOpenAge
   const fixes = [...agent.unavailable_tools, ...agent.unavailable_skills];
   return <>
     <div className="actions orgDrawerActions">
-      <button type="button" onClick={() => { onClose(); onOpenAgent(agent.id); }}><ExternalLink aria-hidden="true" />{t('org.drawer.open')}</button>
+      <button type="button" className="secondary" onClick={() => { onClose(); onOpenAgent(agent.id); }}><MessageSquare aria-hidden="true" />{t('org.drawer.open')}</button>
       {agent.can_edit && <button type="button" className="secondary" onClick={() => { onClose(); onEditAgent(agent); }}><Pencil aria-hidden="true" />{t('agents.edit')}</button>}
       {agent.can_edit && <button type="button" className="secondary" disabled={busy} onClick={() => void togglePause()}>
         {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}{paused ? t('agents.resume') : t('agents.pause')}</button>}
@@ -116,7 +117,7 @@ function AgentProfilePanel({ member, agent: initial, sources, onClose, onOpenAge
         <small dir="ltr">{chip.tools.join(', ')}</small>
         <small>{t(`org.toolHint.${chip.status}` as MessageKey, { name: chipLabel(chip), status: chipStatus(chip) })}</small>
       </li>)}</ul>}
-      <p className="muted">{t('org.drawer.builtin', { count: member.builtin + 1 })}</p>
+      <p className="muted">{t('org.drawer.builtin', { count: member.builtin })}</p>
       {!sources.setup && <p className="muted">{t('org.drawer.setupUnknown')}</p>}
     </Section>
 
@@ -143,7 +144,7 @@ function AgentProfilePanel({ member, agent: initial, sources, onClose, onOpenAge
   </>;
 }
 
-function AssignTask({ agent, onRan, onGo, onOpenBudgets }: { agent: AgentProfile; onRan: () => void; onGo: (view: OrgGo) => void; onOpenBudgets?: () => void }) {
+export function AssignTask({ agent, onRan, onGo, onOpenBudgets }: { agent: AgentProfile; onRan: () => void; onGo: (view: OrgGo) => void; onOpenBudgets?: () => void }) {
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<api.RunTaskResult | null>(null);
