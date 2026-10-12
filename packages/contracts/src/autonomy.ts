@@ -2,11 +2,11 @@
 // and the activity feed of what it did. Client-side shapes (camelCase) of the
 // /api/v1/autonomy routes; the web maps the API's snake_case fields onto them.
 
-export type ToolCategory = 'email' | 'whatsapp' | 'commerce' | 'developer' | 'files' | 'tasks' | 'general';
+export type ToolCategory = 'email' | 'whatsapp' | 'commerce' | 'developer' | 'files' | 'tasks' | 'marketing' | 'general';
 export type AutonomyLevel = 'ask_always' | 'act_and_notify' | 'act_silently';
 export type ActionKind =
   | 'read' | 'draft' | 'create' | 'reply' | 'send' | 'archive' | 'pause' | 'update'
-  | 'delete' | 'price_change' | 'stock_change' | 'payment' | 'merge_code' | 'other';
+  | 'delete' | 'price_change' | 'stock_change' | 'payment' | 'merge_code' | 'publish' | 'other';
 export type AutonomousActionStatus = 'done' | 'undone';
 export type AutonomyProposalStatus = 'collecting' | 'pending' | 'accepted' | 'declined';
 export type AutonomyRuleSource = 'manual' | 'proposal' | 'tighten';

@@ -79,7 +79,7 @@ export async function submitVoiceCommand(
   });
 }
 
-export type VoiceIntent = 'question' | 'status' | 'create_task' | 'visual_only' | 'identity' | 'greeting' | 'thanks';
+export type VoiceIntent = 'question' | 'status' | 'marketing_summary' | 'create_task' | 'visual_only' | 'identity' | 'greeting' | 'thanks';
 export type VoiceRiskTier = 'read' | 'confirm' | 'visual_only';
 
 export interface VoiceAskResult {

@@ -25,6 +25,8 @@ import '../commerce/commerce_screen.dart';
 import '../library/library_models.dart' show Favorite;
 import '../library/library_repository.dart';
 import '../library/library_screens.dart';
+import '../marketing/marketing_controller.dart';
+import '../marketing/marketing_screen.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/theme/theme_controller.dart';
@@ -57,6 +59,7 @@ class WorkspaceHome extends StatefulWidget {
       this.themeController,
       this.developerController,
       this.automationsController,
+      this.marketingController,
       this.chatDeveloper,
       this.whatsappController,
       this.emailController,
@@ -82,6 +85,9 @@ class WorkspaceHome extends StatefulWidget {
   /// Automations (search, paging, schedules, runs). Built from the workspace
   /// repository's API client when not given.
   final AutomationsController? automationsController;
+
+  /// Social media marketing (docs/marketing.md), opened from the menu.
+  final MarketingController? marketingController;
 
   /// "build ..." in the Assistant; the voice one lives on the voice controller.
   final DeveloperAssist? chatDeveloper;
@@ -191,6 +197,8 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   void _openWhatsApp() =>
       _push(WhatsAppScreen(controller: widget.whatsappController!));
   void _openInbox() => _push(InboxScreen(controller: widget.emailController!));
+  void _openMarketing() =>
+      _push(MarketingScreen(controller: widget.marketingController!));
   void _openGovernance(GovernanceSection section) => _push(GovernanceScreen(
       controller: widget.governanceController, initialSection: section));
   void _openResources(int tab, String title) => _push(Scaffold(
@@ -563,6 +571,8 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
           ],
           if (widget.whatsappController != null)
             page('whatsapp', Icons.forum_outlined, _openWhatsApp),
+          if (widget.marketingController != null)
+            page('mk.title', Icons.campaign_outlined, _openMarketing),
           if (_showDeveloper)
             destination('developer', Icons.construction_outlined,
                 WorkspaceDestination.developer),

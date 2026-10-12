@@ -3,7 +3,7 @@
 // Text comes from the message catalogs (docs/web-localization.md).
 import { CATALOGS, t, type MessageKey } from './i18n.ts';
 
-export type FileKind = 'text' | 'markdown' | 'data' | 'image' | 'pdf' | 'document' | 'archive';
+export type FileKind = 'text' | 'markdown' | 'data' | 'image' | 'pdf' | 'document' | 'archive' | 'video';
 export type IndexStatus = 'indexed' | 'stale' | 'failed' | 'skipped' | 'pending';
 
 export interface ApiFileIndex { status: IndexStatus; error: string | null; chunk_count: number; embedding_model: string | null; indexed_at: string | null }

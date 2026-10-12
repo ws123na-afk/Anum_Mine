@@ -20,7 +20,7 @@ The category level is a **ceiling** over ANUM's recommendation for the kind of a
 | `archive`, `pause`, `create` | act and notify |
 | `reply`, `send` | act and notify **only** to known recipients with an approved template; otherwise ask |
 | `update`, `other` | ask, unless the platform already lets the tool run without approval (then silent for low risk, notify for medium) |
-| `delete`, `price_change`, `stock_change`, `payment`, `merge_code` | **always ask** (protected) |
+| `delete`, `price_change`, `stock_change`, `payment`, `merge_code`, `publish` (social posts, [Marketing](marketing.md)) | **always ask** (protected) |
 
 A tool declares its kind and category on its `ToolDefinition` (`category`, `action_kind`). Undeclared values are guessed from the tool name (`gmail.send_message` is email/send, `noon.update_price` is commerce/price change), cautiously: a medium or high-risk tool whose name merely sounds like a read is `other` and asks. Connector tools declare both; the email and WhatsApp tools do:
 

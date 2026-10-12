@@ -4,7 +4,7 @@
 import { t, type MessageKey } from './i18n.ts';
 
 export type View =
-  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
+  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'marketing' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'developer' | 'organisations';
 
@@ -24,7 +24,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'files', 'memory', 'reports', 'skills'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'marketing', 'files', 'memory', 'reports', 'skills'] },
   { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'developer', 'organisations'] },
 ];
@@ -57,6 +57,8 @@ export function viewFromHash(hash: string): View {
   // A report or collection opened by link (docs/reports.md, docs/knowledge-base.md).
   if (id.startsWith('reports/')) return 'reports';
   if (id.startsWith('knowledge/')) return 'knowledge';
+  // A Marketing tab opened by link (#marketing-calendar, docs/marketing.md).
+  if (id.startsWith('marketing-')) return 'marketing';
   return isView(id) ? id : 'home';
 }
 

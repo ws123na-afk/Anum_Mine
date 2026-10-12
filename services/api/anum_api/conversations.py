@@ -51,12 +51,12 @@ from .conversation_memory import (
     recall_memories,
     remember_after_reply,
 )
-from .dependencies import require_permission, tenant_context
+from .dependencies import has_permission, require_permission, tenant_context
 from .learning import SignalKind, Surface
 from .learning_store import learned_instructions, new_signal, record_server_signal
 from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
-from .prompt_provenance import with_untrusted_rules
+from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .reports import REPORT_BLOCK_INSTRUCTIONS, ReportCard, cards_for_conversation, save_chat_report, split_report_block
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
@@ -244,6 +244,21 @@ def open_conversation_store(context: TenantContext) -> Iterator[ConversationStor
 
     with open_scoped_store(context, conversation_store, sql_store, user_scoped=True) as store:
         yield store
+
+
+def marketing_blocks(context: TenantContext, question: str) -> list[str]:
+    """For "how did last week's Instagram posts do?": the marketing summary tool's numbers,
+    as a labelled data block the reply can quote (docs/marketing.md#assistant)."""
+    from .marketing.tools import days_in, is_arabic, is_marketing_question, platform_in, summary_for
+
+    if not is_marketing_question(question) or not has_permission(context, Permission.MARKETING_READ):
+        return []
+    try:
+        text = summary_for(context, platform=platform_in(question), days=days_in(question), arabic=is_arabic(question))
+    except Exception:
+        logger.warning("conversation_marketing_summary_failed", extra={"anum_conversation": {"event": "marketing_summary_failed"}})
+        return []
+    return [label_untrusted(text, source=Provenance.TOOL_OUTPUT, origin="marketing.summary")]
 
 
 def title_from(question: str) -> str:
@@ -498,7 +513,7 @@ async def ask_in_conversation(
     messages = build_messages(
         history,
         user_turn.content,
-        memory_blocks=recall.blocks,
+        memory_blocks=[*recall.blocks, *marketing_blocks(context, user_turn.content)],
         learned_block=learned_instructions(context, surface=Surface.CHAT.value),
         data_blocks=[grounding.block] if grounding else (),
     )

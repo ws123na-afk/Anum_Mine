@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'marketing_strings.dart';
+
 class AnumLocalizations {
   const AnumLocalizations(this.locale);
   final Locale locale;
@@ -9,7 +11,12 @@ class AnumLocalizations {
   static const delegate = _AnumDelegate();
   static AnumLocalizations of(BuildContext context) =>
       Localizations.of<AnumLocalizations>(context, AnumLocalizations)!;
-  String t(String key) => (isArabic ? _ar : _en)[key] ?? _en[key] ?? key;
+  String t(String key) =>
+      (isArabic ? _ar : _en)[key] ??
+      (isArabic ? marketingAr : marketingEn)[key] ??
+      _en[key] ??
+      marketingEn[key] ??
+      key;
 
   /// [t] with each `{name}` placeholder replaced by its value.
   String f(String key, Map<String, Object> values) {

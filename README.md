@@ -92,6 +92,7 @@ x-user-roles: owner,member
 - [WhatsApp Business inbox](docs/whatsapp.md)
 - [Commerce: Amazon, noon and the own store](docs/commerce.md)
 - [Tyre planning](docs/tyre-planning.md)
+- [Social media marketing](docs/marketing.md)
 - [Memory](docs/memory.md)
 - [What ANUM learned: feedback, style, routines and improvement notes](docs/learning.md)
 - [Knowledge base and favorites](docs/knowledge-base.md)

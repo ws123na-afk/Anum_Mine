@@ -7,8 +7,9 @@ Covers every workspace model provider key (``workspace_model_configs.api_key_cip
 every workspace integration credential (``integration_credentials.ciphertext``), every
 developer-mode project token (``developer_projects.token_ciphertext``, migration 0031),
 every tyre planning source credential (``tyre_connections.secret_ciphertext``,
-migration 0037) and every Calls & Meetings Zoom/Teams token
-(``meeting_connector_accounts``, migration 0043) in every tenant. See
+migration 0037), every Calls & Meetings Zoom/Teams token
+(``meeting_connector_accounts``, migration 0043) and every connected marketing account's
+access and refresh token (``marketing_accounts``, docs/marketing.md) in every tenant. See
 docs/runbooks.md#rotating-anum_secrets_key.
 
 How it crosses tenants without bypassing RLS (migration 0009, ``anum_api.maintenance``):
@@ -36,6 +37,7 @@ import json
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 from sqlalchemy import text
 
@@ -567,6 +569,97 @@ def rotate_meeting_connector_tokens(
         after = (rows[-1].tenant_id, rows[-1].workspace_id, rows[-1].user_id, rows[-1].provider)
 
 
+# Marketing account tokens (migration 0040_marketing): discovered by id, rotated per row.
+_DISCOVER_ACCOUNTS = text(
+    """
+    select id, tenant_id, workspace_id
+    from marketing_accounts
+    where id > :after
+    order by id
+    limit :limit
+    """
+)
+_LOCK_ACCOUNT = text(
+    """
+    select access_token_ciphertext, refresh_token_ciphertext
+    from marketing_accounts
+    where id = :id and tenant_id = :tenant_id and workspace_id = :workspace_id
+    for update
+    """
+)
+_REWRITE_ACCOUNT = text(
+    """
+    update marketing_accounts
+    set access_token_ciphertext = :access_new, refresh_token_ciphertext = :refresh_new
+    where id = :id and tenant_id = :tenant_id and workspace_id = :workspace_id
+      and access_token_ciphertext is not distinct from :access_old
+      and refresh_token_ciphertext is not distinct from :refresh_old
+    """
+)
+
+
+def _rotate_account(session_factory: SessionFactory, cipher: SecretCipher, row: Any, report: RotationReport) -> None:
+    scope = {"id": row.id, "tenant_id": row.tenant_id, "workspace_id": row.workspace_id}
+    with scoped_unit(session_factory, row.tenant_id, row.workspace_id) as session:
+        found = session.execute(_LOCK_ACCOUNT, scope).one_or_none()
+        if found is None or (found.access_token_ciphertext is None and found.refresh_token_ciphertext is None):
+            report.changed_concurrently += 1
+            return
+        old = (found.access_token_ciphertext, found.refresh_token_ciphertext)
+        if all(value is None or cipher.is_current(value) for value in old):
+            report.already_current += 1
+            return
+        try:
+            new = tuple(None if value is None else cipher.rotate(value) for value in old)
+        except SecretDecryptionError:
+            report.failed += 1
+            report.failures.append({"tenant_id": row.tenant_id, "workspace_id": row.workspace_id})
+            return
+        if report.dry_run:
+            report.rotated += 1
+            session.rollback()
+            return
+        updated = session.execute(
+            _REWRITE_ACCOUNT,
+            {**scope, "access_new": new[0], "refresh_new": new[1], "access_old": old[0], "refresh_old": old[1]},
+        ).rowcount
+        if updated != 1:
+            report.changed_concurrently += 1
+            return
+        from .db.repository import SqlAlchemyRepository
+
+        SqlAlchemyRepository(session, created_by_user_id=ACTOR).record_audit(
+            AuditRecord(
+                id=new_id("audit"), tenant_id=row.tenant_id, workspace_id=row.workspace_id, actor=ACTOR, action=ACTION,
+                target=f"marketing_account:{row.id}", outcome="succeeded", correlation_id=report.correlation_id,
+                created_at=utc_now(), metadata={"store": "marketing_accounts", "result": "re-encrypted"},
+            )
+        )
+        report.rotated += 1
+
+
+def rotate_marketing_tokens(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt connected marketing accounts' tokens (both columns in one update)."""
+    report = RotationReport(dry_run=dry_run, correlation_id=correlation_id or new_id("rotate_secrets"))
+    after = ""
+    while True:
+        rows = discover(maintenance_session_factory or session_factory, _DISCOVER_ACCOUNTS, {"after": after, "limit": batch_size})
+        for row in rows:
+            report.scanned += 1
+            _rotate_account(session_factory, cipher, row, report)
+        if len(rows) < batch_size:
+            return report
+        after = rows[-1].id
+
+
 def _configuration_problem() -> str | None:
     if settings.repository_backend != "postgresql":
         return "rotate_secrets needs ANUM_REPOSITORY_BACKEND=postgresql (the memory backend stores nothing at rest)"
@@ -605,8 +698,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     # Provider keys, integration and tyre credentials at the top level (as before); project
     # and meeting connector tokens nested.
-    print(json.dumps({**asdict(report), "developer_projects": asdict(projects), "meeting_connectors": asdict(connectors)}, indent=2))
-    return 1 if report.failed or projects.failed or connectors.failed else 0
+    marketing = rotate_marketing_tokens(
+        cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id
+    )
+    print(json.dumps({**asdict(report), "developer_projects": asdict(projects), "meeting_connectors": asdict(connectors), "marketing_accounts": asdict(marketing)}, indent=2))
+    return 1 if report.failed or projects.failed or connectors.failed or marketing.failed else 0
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through main()

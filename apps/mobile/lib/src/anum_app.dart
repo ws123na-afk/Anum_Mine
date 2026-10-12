@@ -30,6 +30,8 @@ import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
 import '../features/commerce/commerce_repository.dart';
 import '../features/reports/workspace_tool_routes.dart';
+import '../features/marketing/marketing_controller.dart';
+import '../features/marketing/marketing_repository.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/team/team_repository.dart';
 import '../features/workspace/destinations.dart';
@@ -115,6 +117,7 @@ class _AnumAppState extends State<AnumApp> {
   late final ThemeController theme;
   late final IntroController intro;
   late final DeveloperController developer;
+  late final MarketingController marketing;
   late final DeveloperAssist chatDeveloper;
   late final DeveloperAssist voiceDeveloper;
   late final LibraryRepository library;
@@ -211,6 +214,8 @@ class _AnumAppState extends State<AnumApp> {
     tyre = TyreController(ApiTyreRepository(api));
     final developerRepository = ApiDeveloperRepository(api);
     developer = DeveloperController(developerRepository);
+    // Social media marketing (docs/marketing.md).
+    marketing = MarketingController(ApiMarketingRepository(api));
     chatDeveloper = DeveloperAssist(
         repository: developerRepository,
         source: 'text',
@@ -266,6 +271,7 @@ class _AnumAppState extends State<AnumApp> {
       developer.reset();
       commerce.reset();
       tyre.reset();
+      marketing.reset();
       chatDeveloper.reset();
       voiceDeveloper.reset();
       whatsapp.reset();
@@ -361,6 +367,7 @@ class _AnumAppState extends State<AnumApp> {
     developer.dispose();
     commerce.dispose();
     tyre.dispose();
+    marketing.dispose();
     push.dispose();
     chatDeveloper.dispose();
     voiceDeveloper.dispose();
@@ -428,6 +435,7 @@ class _AnumAppState extends State<AnumApp> {
                       themeController: theme,
                       developerController: developer,
                       automationsController: automations,
+                      marketingController: marketing,
                       chatDeveloper: chatDeveloper,
                       whatsappController: whatsapp,
                       emailController: email,
@@ -548,6 +556,7 @@ class _AnumAppState extends State<AnumApp> {
         themeController: theme,
         developerController: developer,
         automationsController: automations,
+        marketingController: marketing,
         chatDeveloper: chatDeveloper,
         whatsappController: whatsapp,
         emailController: email,

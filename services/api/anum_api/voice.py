@@ -487,6 +487,21 @@ class _PreparedAsk:
     reply: str | None
 
 
+def _marketing_reply(context: TenantContext, text: str, arabic: bool) -> str:
+    """The marketing summary tool's answer, spoken (read-only, from the last pulled numbers)."""
+    from .authorization import Permission
+    from .dependencies import has_permission
+    from .marketing.tools import days_in, platform_in, summary_for
+
+    if not has_permission(context, Permission.MARKETING_READ):
+        return "أرقام التسويق متاحة لأعضاء مساحة العمل فقط." if arabic else "Marketing numbers are for members of this workspace."
+    try:
+        return summary_for(context, platform=platform_in(text), days=days_in(text), arabic=arabic)[:MAX_REPLY_CHARS]
+    except Exception:
+        logger.warning("voice_marketing_summary_failed", extra={"anum_voice": {"event": "marketing_summary_failed"}})
+        return "لم أستطع قراءة أرقام التسويق الآن. افتح صفحة التسويق." if arabic else "I couldn't read the marketing numbers just now. Open Marketing to see them."
+
+
 def _prepare_ask(
     session_id: str,
     payload: VoiceAskCreate,
@@ -530,6 +545,8 @@ def _prepare_ask(
         from .email_inbox import voice_email_reply
 
         reply = voice_email_reply(context, text, arabic)
+    elif intent == VoiceIntent.MARKETING_SUMMARY:
+        reply = _marketing_reply(context, text, arabic)
     elif intent in SMALL_TALK:
         reply = small_talk_reply(intent, name, facts, arabic)
     elif intent == VoiceIntent.QUESTION:

@@ -25,6 +25,8 @@ MAX_REPLY_CHARS = 1200
 class VoiceIntent(StrEnum):
     QUESTION = "question"
     STATUS = "status"
+    # "How did last week's Instagram posts do?" (docs/marketing.md#assistant): read-only.
+    MARKETING_SUMMARY = "marketing_summary"
     CREATE_TASK = "create_task"
     VISUAL_ONLY = "visual_only"
     IDENTITY = "identity"
@@ -102,6 +104,10 @@ def classify(text: str, name: str = "Anum") -> tuple[VoiceIntent, str | None]:
     if match:
         proposal = text[match.end():].strip(" .")
         return VoiceIntent.CREATE_TASK, proposal or None
+    from .marketing.tools import is_marketing_question
+
+    if is_marketing_question(text):
+        return VoiceIntent.MARKETING_SUMMARY, None
     if _STATUS.search(text):
         return VoiceIntent.STATUS, None
     if _EMAIL.search(text):

@@ -5,11 +5,13 @@ import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { teamEn } from './team.en.ts';
+import { marketingEn } from './marketing.en.ts';
 
 export const en = {
   // ---- Commerce (commerce.en.ts) ----
   ...commerceEn,
   ...teamEn,
+  ...marketingEn,
   // ---- Common ----
   'common.listAnd': '{head} and {last}',
   'common.listSeparator': ', ',
@@ -2199,6 +2201,7 @@ export const en = {
   'autonomy.category.developer': 'Developer',
   'autonomy.category.files': 'Files',
   'autonomy.category.tasks': 'Tasks',
+  'autonomy.category.marketing': 'Marketing (social posts)',
   'autonomy.category.general': 'General',
   'autonomy.kind.read': 'Reading and analysis',
   'autonomy.kind.draft': 'Drafts',
@@ -2213,6 +2216,7 @@ export const en = {
   'autonomy.kind.stock_change': 'Stock changes',
   'autonomy.kind.payment': 'Money and payments',
   'autonomy.kind.merge_code': 'Merging code',
+  'autonomy.kind.publish': 'Publishing posts',
   'autonomy.kind.other': 'Other actions',
   'autonomy.patternWithTemplate': '{tool} with template {template}',
   'autonomy.levels.title': 'Level by area',

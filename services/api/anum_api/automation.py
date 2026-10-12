@@ -2179,6 +2179,15 @@ def current_engine() -> AutomationEngine:
 
 # Scheduler --------------------------------------------------------------------------
 
+# Other due work that runs on the same loop (one pass each, in the pass thread): the
+# marketing publisher (docs/marketing.md#publishing). A failing pass is logged and does not
+# stop the schedules or the other passes.
+_SCHEDULER_PASSES: dict[str, Callable[[], int]] = {}
+
+
+def register_scheduler_pass(name: str, run: Callable[[], int]) -> None:
+    _SCHEDULER_PASSES[name] = run
+
 
 class AutomationScheduler:
     """Background loop that fires due schedules (``ANUM_AUTOMATION_SCHEDULER_ENABLED``).
@@ -2223,6 +2232,11 @@ class AutomationScheduler:
                 woken.extend(started)
         # After the fires are committed: feature step actions (for example tyre reports).
         dispatch_step_actions([*runs, *woken], self.engine_provider, since=started_at)
+        for name, run in list(_SCHEDULER_PASSES.items()):
+            try:
+                run()
+            except Exception:
+                logger.exception("Scheduler pass %s failed", name)
         return runs
 
     def start(self) -> None:

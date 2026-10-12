@@ -680,3 +680,26 @@ def test_reports_calendar_migration_is_expand_only_with_forced_rls() -> None:
     assert "current_setting('anum.workspace_id', true)" in revision_text
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade
+
+
+def test_marketing_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0040_marketing.py").read_text(encoding="utf-8")
+    assert 'revision = "0040_marketing"' in revision_text and len("0040_marketing") <= 32
+    assert 'down_revision = "0049_automation_triggers"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0040_marketing.py"]
+    assert not [path for path in others if 'down_revision = "0049_automation_triggers"' in path.read_text(encoding="utf-8")]
+    lowered = revision_text.lower()
+    upgrade = lowered.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    for table in ("marketing_accounts", "marketing_campaigns", "marketing_posts", "marketing_preferences"):
+        assert f'"{table}"' in lowered
+    assert upgrade.count("op.create_table(") == 4
+    assert "enable row level security" in lowered and "force row level security" in lowered
+    assert "with check (" in lowered
+    assert "current_setting('anum.tenant_id', true)" in lowered and "current_setting('anum.workspace_id', true)" in lowered
+    # The maintenance role discovers due posts and token rows by id and scope only, never content.
+    assert "grant select (id, tenant_id, workspace_id) on marketing_accounts to anum_maintenance" in upgrade
+    assert "grant select (id, tenant_id, workspace_id, status, scheduled_at, next_attempt_at) " in upgrade
+    assert "text" not in upgrade.split("grant select (id, tenant_id, workspace_id, status", 1)[1].split(")", 1)[0]
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "add_column" not in upgrade

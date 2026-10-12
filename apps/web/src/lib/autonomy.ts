@@ -6,7 +6,7 @@ import type {
 } from '@anum/contracts';
 import { CATALOGS, formatDateTime, t, type MessageKey } from './i18n.ts';
 
-export const CATEGORIES: readonly ToolCategory[] = ['email', 'whatsapp', 'commerce', 'developer', 'files', 'tasks', 'general'];
+export const CATEGORIES: readonly ToolCategory[] = ['email', 'whatsapp', 'commerce', 'developer', 'files', 'tasks', 'marketing', 'general'];
 export const LEVELS: readonly AutonomyLevel[] = ['ask_always', 'act_and_notify', 'act_silently'];
 const RANK: Record<AutonomyLevel, number> = { ask_always: 0, act_and_notify: 1, act_silently: 2 };
 

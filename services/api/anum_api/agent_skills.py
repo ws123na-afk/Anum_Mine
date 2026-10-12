@@ -153,6 +153,18 @@ def default_skill_registry() -> SkillRegistry:
                 risk_level=RiskLevel.MEDIUM,
             ),
             SkillManifest(
+                id="anum.marketing",
+                version="1.0.0",
+                name="Social media marketing",
+                description="Drafts posts, asks to publish them (with approval) and reports how posts performed.",
+                triggers=frozenset(
+                    {"instagram", "facebook", "linkedin", "tiktok", "youtube", "tweet", "tweets", "twitter", "social",
+                     "marketing", "campaign", "hashtags", "reel", "reels", "shorts"}
+                ),
+                # Selectable only where the marketing tools are registered.
+                required_tools=frozenset({"marketing.draft_social_post", "marketing.schedule_post", "marketing.summary"}),
+            ),
+            SkillManifest(
                 id="anum.external-action",
                 version="1.0.0",
                 name="External action",

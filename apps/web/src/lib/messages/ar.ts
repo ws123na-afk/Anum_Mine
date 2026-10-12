@@ -6,11 +6,13 @@ import type { Message } from './types.ts';
 import { commerceAr } from './commerce.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
 import { teamAr } from './team.ar.ts';
+import { marketingAr } from './marketing.ar.ts';
 
 export const ar: Record<MessageKey, Message> = {
   // ---- Commerce (commerce.ar.ts) ----
   ...commerceAr,
   ...teamAr,
+  ...marketingAr,
   // ---- Common ----
   'common.listAnd': '{head} و{last}',
   'common.listSeparator': '، ',
@@ -2214,6 +2216,7 @@ export const ar: Record<MessageKey, Message> = {
   'autonomy.category.developer': 'المطوّر',
   'autonomy.category.files': 'الملفات',
   'autonomy.category.tasks': 'المهام',
+  'autonomy.category.marketing': 'التسويق (منشورات التواصل)',
   'autonomy.category.general': 'عام',
   'autonomy.kind.read': 'القراءة والتحليل',
   'autonomy.kind.draft': 'المسودات',
@@ -2228,6 +2231,7 @@ export const ar: Record<MessageKey, Message> = {
   'autonomy.kind.stock_change': 'تغييرات المخزون',
   'autonomy.kind.payment': 'المال والمدفوعات',
   'autonomy.kind.merge_code': 'دمج الشيفرة',
+  'autonomy.kind.publish': 'نشر المنشورات',
   'autonomy.kind.other': 'إجراءات أخرى',
   'autonomy.patternWithTemplate': '{tool} بالقالب {template}',
   'autonomy.levels.title': 'المستوى حسب المجال',

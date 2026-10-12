@@ -122,6 +122,7 @@ from .commerce.api import router as commerce_router
 from .commerce.scheduler import build_commerce_scheduler
 from .commerce.tools import register_commerce_tools
 from .calendar_api import router as calendar_router
+from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .user_preferences import router as user_preferences_router
 from .push import push_dispatcher, router as push_router
 from .developer_watch import build_developer_watcher
@@ -138,7 +139,7 @@ from .knowledge_base import router as knowledge_router
 from .reports import router as reports_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
-from .automation import build_automation_scheduler, router as automation_router
+from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
 from .organisations import router as organisations_router
@@ -290,6 +291,7 @@ app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(calendar_router)
+app.include_router(marketing_router)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 app.include_router(commerce_router)
@@ -313,16 +315,18 @@ app.include_router(organisations_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
-))))))
+)))))))
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).
 configure_tool_catalog(tool_registry.definition)
 # A workspace owner can switch a mail provider off under Integrations (email_<provider>).
 email_inbox.integration_enabled = lambda context, integration_id: not integration_registry.switched_off(integration_id, context)
+# Approved social posts publish at their time on every scheduler pass (docs/marketing.md#publishing).
+register_scheduler_pass("marketing_publisher", run_due_posts)
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)

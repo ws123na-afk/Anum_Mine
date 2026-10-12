@@ -48,7 +48,7 @@ class AgentPlanner:
         planner = route_gateway(self.model_gateway, ModelRoute.CAPABLE)
         prompt = f"{learned_block}\n\nTask:\n{task.prompt}" if learned_block else task.prompt
         response = await self._generate(planner, prompt, context_blocks)
-        call = self._select_tool(task.prompt, selected, response)
+        call = _marketing_call(task, selected) or self._select_tool(task.prompt, selected, response)
         return PlanResult(
             plan=AgentPlan(
                 objective=task.prompt,
@@ -131,3 +131,14 @@ def choose_tool_call(
         # (threat model G5); the tool caps its length.
         return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
     return ToolCall(name="anum.respond", arguments={"text": planned_text})
+
+
+def _marketing_call(task: Task, skills: Sequence[SkillManifest]) -> ToolCall | None:
+    """Drafts, publish requests and performance questions about the workspace's own social
+    accounts (docs/marketing.md#assistant), chosen from the user's own prompt. Publishing
+    pauses for approval."""
+    if not any(skill.id == "anum.marketing" for skill in skills):
+        return None
+    from .marketing.tools import planned_call
+
+    return planned_call(task, task.prompt)

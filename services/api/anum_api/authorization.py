@@ -106,6 +106,12 @@ class Permission(StrEnum):
     CALENDAR_READ = "calendar:read"
     CALENDAR_WRITE = "calendar:write"
     CALENDAR_MANAGE = "calendar:manage"
+    # Social media marketing (docs/marketing.md): everyone reads plans and results,
+    # members and owners draft and ask for posts, owners connect accounts and turn on
+    # auto-posting. Publishing itself is a governed tool that waits for an approval.
+    MARKETING_READ = "marketing:read"
+    MARKETING_WRITE = "marketing:write"
+    MARKETING_MANAGE = "marketing:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -160,6 +166,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.MEETING_READ,
         Permission.WORK_READ,
         Permission.CALENDAR_READ,
+        Permission.MARKETING_READ,
     }
 )
 
@@ -192,6 +199,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.MEETING_CREATE,
             Permission.WORK_MANAGE,
             Permission.CALENDAR_WRITE,
+            Permission.MARKETING_WRITE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

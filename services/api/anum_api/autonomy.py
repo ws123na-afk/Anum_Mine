@@ -60,6 +60,8 @@ class ToolCategory(StrEnum):
     DEVELOPER = "developer"
     FILES = "files"
     TASKS = "tasks"
+    # Social media posts (docs/marketing.md).
+    MARKETING = "marketing"
     GENERAL = "general"
 
 
@@ -91,12 +93,14 @@ class ActionKind(StrEnum):
     STOCK_CHANGE = "stock_change"
     PAYMENT = "payment"
     MERGE_CODE = "merge_code"
+    # Publishing to a social account in the business's name (docs/marketing.md).
+    PUBLISH = "publish"
     OTHER = "other"
 
 
 # Always ask, whatever the level, rule or approval history.
 PROTECTED_KINDS = frozenset(
-    {ActionKind.DELETE, ActionKind.PRICE_CHANGE, ActionKind.STOCK_CHANGE, ActionKind.PAYMENT, ActionKind.MERGE_CODE}
+    {ActionKind.DELETE, ActionKind.PRICE_CHANGE, ActionKind.STOCK_CHANGE, ActionKind.PAYMENT, ActionKind.MERGE_CODE, ActionKind.PUBLISH}
 )
 MESSAGE_KINDS = frozenset({ActionKind.REPLY, ActionKind.SEND})
 # Actions without side effects: not counted against daily caps, not held by quiet hours.
@@ -127,12 +131,14 @@ _CATEGORY_PREFIXES: tuple[tuple[tuple[str, ...], ToolCategory], ...] = (
     (("developer", "github", "git", "code"), ToolCategory.DEVELOPER),
     (("files", "file", "drive"), ToolCategory.FILES),
     (("tasks", "task", "todo"), ToolCategory.TASKS),
+    (("marketing", "social"), ToolCategory.MARKETING),
 )
 # Checked in order against the words of the tool's last name segment (``update_price`` ->
 # ``update``, ``price``); a word matches a name word that starts with it (``reprice`` does
 # not, ``pricing`` does). The first kind found wins, so effects are found before reads.
 _KIND_WORDS: tuple[tuple[tuple[str, ...], ActionKind], ...] = (
     (("merge",), ActionKind.MERGE_CODE),
+    (("publish",), ActionKind.PUBLISH),
     (("delete", "remove", "purge", "destroy", "trash"), ActionKind.DELETE),
     (("refund", "pay", "charge", "transfer", "purchase", "spend", "invoice"), ActionKind.PAYMENT),
     (("price", "pricing", "reprice"), ActionKind.PRICE_CHANGE),

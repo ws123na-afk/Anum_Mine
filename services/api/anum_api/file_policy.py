@@ -40,6 +40,8 @@ class FileKind(StrEnum):
     PDF = "pdf"
     DOCUMENT = "document"
     ARCHIVE = "archive"
+    # Marketing media (docs/marketing.md): short videos for Reels, TikTok and YouTube.
+    VIDEO = "video"
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,9 @@ ALLOWED_TYPES: tuple[AllowedType, ...] = (
     AllowedType("application/vnd.oasis.opendocument.spreadsheet", FileKind.DOCUMENT, (".ods",)),
     AllowedType("application/vnd.oasis.opendocument.presentation", FileKind.DOCUMENT, (".odp",)),
     AllowedType("application/zip", FileKind.ARCHIVE, (".zip",)),
+    AllowedType("video/mp4", FileKind.VIDEO, (".mp4", ".m4v")),
+    AllowedType("video/quicktime", FileKind.VIDEO, (".mov",)),
+    AllowedType("video/webm", FileKind.VIDEO, (".webm",)),
 )
 _BY_EXTENSION = {extension: allowed for allowed in ALLOWED_TYPES for extension in allowed.extensions}
 _BY_TYPE = {allowed.content_type: allowed for allowed in ALLOWED_TYPES}
@@ -92,7 +97,7 @@ _ALIASES = {
 _GENERIC_TYPES = frozenset({"", "application/octet-stream", "binary/octet-stream"})
 ACCEPTED_SUMMARY = (
     "text (.txt, .md, .csv, .json, .yaml, .xml), images (.png, .jpg, .gif, .webp), PDF, "
-    "Office and OpenDocument files (.docx, .xlsx, .pptx, .odt, .ods, .odp) and .zip"
+    "Office and OpenDocument files (.docx, .xlsx, .pptx, .odt, .ods, .odp), .zip and video (.mp4, .mov, .webm)"
 )
 
 
@@ -130,6 +135,11 @@ def content_matches_type(content: bytes, allowed: AllowedType) -> bool:
     head = content[:4096]
     if allowed.content_type == "image/webp":
         return head[:4] == b"RIFF" and head[8:12] == b"WEBP"
+    if allowed.content_type in {"video/mp4", "video/quicktime"}:
+        # ISO base media: a box size, then "ftyp" (QuickTime may start with other atoms).
+        return head[4:8] in {b"ftyp", b"moov", b"mdat", b"wide", b"free"}
+    if allowed.content_type == "video/webm":
+        return head.startswith(b"\x1a\x45\xdf\xa3")
     if allowed.content_type in _ZIP_CONTAINERS:
         return head.startswith(_SIGNATURES["application/zip"])
     if allowed.content_type in _SIGNATURES:
