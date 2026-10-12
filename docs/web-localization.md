@@ -35,6 +35,17 @@ Layout uses logical CSS properties (`margin-inline-start`, `padding-inline-end`,
 
 Text people or the model wrote keeps its own direction with `dir="auto"`: chat messages and each block of an answer, task titles and instructions, memory contents, approval reasons, and server-written notes. An English answer therefore reads left to right inside the Arabic interface, and an Arabic one right to left inside the English interface. Ids, hashes, tool names and URLs are `dir="ltr"` (`code` is also `unicode-bidi: isolate`).
 
+## Fonts
+
+Owner decision of 12 October 2026 ([Full skills audit](audits/2026-10-12-full-skills-audit.md)): the web app, the desktop app (which shows the web build) and the phone app use the same two typefaces, self-hosted, never from a font CDN.
+
+- `public/fonts/inter-latin-var.woff2` (Inter cut to Latin, variable weight 100 to 900, about 76 KB) and `public/fonts/noto-sans-arabic-var.woff2` (Noto Sans Arabic, variable weight, about 180 KB), both under the SIL Open Font License (`OFL-Inter.txt`, `OFL-NotoSansArabic.txt` next to them). They are built from the Google Fonts variable sources with fontTools (subset, then the optical-size or width axis pinned).
+- `public/fonts/fonts.css` declares them with `font-display: swap`; the Arabic face has an Arabic `unicode-range`, so it downloads only when a page shows Arabic. `index.html` preloads only the Latin face.
+- The stack is `Inter, "Noto Sans Arabic"`, then the system fallbacks (`ui-sans-serif, system-ui, …, sans-serif`), so text still shows while the fonts load or if they fail.
+- Same origin only: the CSP's `font-src 'self' data:` and `style-src 'self'` already cover them. The files are not content-hashed, so nginx serves them with `no-cache` (revalidated with an ETag).
+
+`test/fonts.test.ts` checks the files, the preload, the stack and the CSP.
+
 ## What is translated
 
 Translated: the shell (navigation with its More, Admin and Workspaces groups, the top bar's search and command palette, notifications bell and user menu, event-stream status, workspace switcher, Add workspace, sign-in, the archived-workspace banner), the Command Center home (`command.*` keys; its example requests are real Arabic, not transliterations, and its speaking-language pills offer English and Arabic only, because there is no Urdu catalog), Assistant chat, Settings (This workspace, Notifications with phone push and registered phones, Workspace onboarding, Model gateway, Notifications, Chat memory, Language), Privacy, Memory, Tasks (including Sources used), Approvals, the WhatsApp inbox (customer text keeps its own direction with `dir="auto"`), Developer mode (requests, projects, and the developer confirmation and project choice in chat and voice; `e2e/developer.spec.ts` checks it in Arabic with axe), and the Audit log (filters, table, detail drawer, export messages; `audit.*` and `workspaceAdmin.*` keys). The modal confirmation and drawer (`src/Dialog.tsx`) are translated too; Integrations, Skills, Agents, the Enterprise marketplace catalog, and Automations (list, detail, composer, schedules with their preview, run history and automation alerts; the cron description comes from the API in English).

@@ -1,0 +1,22 @@
+/* Self-hosted type (owner decision 12 Oct 2026, docs/web-localization.md#fonts).
+   Inter (Latin) and Noto Sans Arabic, variable weight 100-900, SIL Open Font License
+   (OFL-Inter.txt, OFL-NotoSansArabic.txt). Same origin, so the CSP's font-src 'self'
+   covers them. The Arabic face downloads only when a page shows Arabic text
+   (unicode-range); index.html preloads only the Latin face. */
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0100-017F, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20A0-20CF, U+2122, U+2190-2199, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Noto Sans Arabic";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/noto-sans-arabic-var.woff2") format("woff2");
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF, U+200C-200F, U+2066-2069, U+FB50-FDFF, U+FE70-FEFF;
+}

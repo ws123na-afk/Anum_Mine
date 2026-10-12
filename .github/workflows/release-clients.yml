@@ -148,8 +148,11 @@ jobs:
           flutter pub get
           jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" --arg web "$PRODUCTION_WEB_APP_URL" \
             '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer} + (if $web == "" then {} else {ANUM_WEB_APP_URL: $web} end)' > "$RUNNER_TEMP/production.json"
+          # Obfuscated Dart (owner decision 12 Oct); the symbols to read crash stack traces are
+          # uploaded below as anum-android-symbols-<build number> (docs/mobile.md#crash-symbols).
           flutter build appbundle --release \
             --build-name="$VERSION" --build-number="$BUILD_NUMBER" \
+            --obfuscate --split-debug-info=build/symbols \
             --dart-define-from-file="$RUNNER_TEMP/production.json"
           aab=build/app/outputs/bundle/release/app-release.aab
           mv "$aab" "build/app/outputs/bundle/release/anum-$VERSION-$BUILD_NUMBER.aab"
@@ -173,6 +176,14 @@ jobs:
           path: |
             apps/mobile/build/app/outputs/bundle/release/*.aab
             apps/mobile/build/app/outputs/bundle/release/*.sha256
+          if-no-files-found: error
+      - name: Upload Dart symbols
+        if: steps.config.outputs.build == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: anum-android-symbols-${{ env.BUILD_NUMBER }}
+          path: apps/mobile/build/symbols/
+          retention-days: 90
           if-no-files-found: error
       - name: Upload to the Play internal track
         if: steps.config.outputs.build == 'true' && steps.config.outputs.play == 'true'
@@ -228,6 +239,7 @@ jobs:
         run: >-
           flutter build ios --release --no-codesign
           --build-name="$VERSION" --build-number="$BUILD_NUMBER"
+          --obfuscate --split-debug-info=build/symbols
           --dart-define=ANUM_API_URL=https://api.anum.invalid/
           --dart-define=ANUM_OIDC_ISSUER=https://id.anum.invalid/realms/anum
       - name: Write the App Store Connect API key
@@ -250,8 +262,11 @@ jobs:
         run: |
           jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" --arg web "$PRODUCTION_WEB_APP_URL" \
             '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer} + (if $web == "" then {} else {ANUM_WEB_APP_URL: $web} end)' > "$RUNNER_TEMP/production.json"
+          # --config-only writes the obfuscation settings into Generated.xcconfig, so the
+          # xcodebuild archive below compiles obfuscated Dart and writes the symbols to build/symbols.
           flutter build ios --release --config-only \
             --build-name="$VERSION" --build-number="$BUILD_NUMBER" \
+            --obfuscate --split-debug-info=build/symbols \
             --dart-define-from-file="$RUNNER_TEMP/production.json"
           auth=(
             -allowProvisioningUpdates
@@ -285,6 +300,14 @@ jobs:
           path: |
             apps/mobile/build/ios/ipa/*.ipa
             apps/mobile/build/ios/ipa/*.sha256
+          if-no-files-found: error
+      - name: Upload Dart symbols
+        if: steps.config.outputs.signed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: anum-ios-symbols-${{ env.BUILD_NUMBER }}
+          path: apps/mobile/build/symbols/
+          retention-days: 90
           if-no-files-found: error
       - name: Upload to TestFlight
         if: steps.config.outputs.signed == 'true' && steps.config.outputs.upload == 'true'
@@ -338,7 +361,7 @@ jobs:
         with:
           # Pinned by commit, so the toolchain is named here instead of in the ref.
           toolchain: stable
-      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm install --frozen-lockfile
       - name: Import the Windows code-signing certificate
         id: windows_cert
         if: runner.os == 'Windows'

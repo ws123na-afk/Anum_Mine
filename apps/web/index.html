@@ -9,6 +9,9 @@
     <!-- The page colour before the stylesheet arrives, so loading never flashes white (docs/design/anum360.md#theme). -->
     <style>html{background:#070b1a;color-scheme:dark}html[data-theme="light"]{background:#f4f6fb;color-scheme:light}</style>
     <script src="/theme-init.js"></script>
+    <!-- Self-hosted Inter and Noto Sans Arabic (public/fonts); only the Latin face is preloaded. -->
+    <link rel="preload" href="/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/fonts/fonts.css" />
   </head>
   <body>
     <div id="root"></div>

@@ -186,6 +186,12 @@ The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary c
 
 Voice calls add no plugin. `camera` (its default `camera_android_camerax`) and `image_picker_android` declare only `com.android.library` and keep Kotlin sources, so like `file_picker` 11 they need AGP built-in Kotlin and would compile nothing here; live camera video and server speech (recorder and audio player) in calls wait for `android.builtInKotlin=true`. Until then **Video** picks a photo with `file_picker` (already a dependency).
 
+## Fonts
+
+Owner decision of 12 October 2026: the app bundles the theme's typefaces instead of falling back to the system font. `assets/fonts` holds Inter (cut to Latin) and Noto Sans Arabic as static instances at weights 400, 500, 600, 700 and 800 (about 110 KB and 146 KB each, about 1.3 MB in all), built with fontTools from the variable Google Fonts sources, the same sources as the web's variable files ([Web localization](web-localization.md#fonts)). Static files are used because Flutter picks a font file per `FontWeight`; with one variable file it would synthesise bold instead of using the weight axis. The app uses no weight above 800 except one `w900`, which falls back to 800.
+
+The theme's stack is `Inter` with `Noto Sans Arabic`, `Noto Naskh Arabic` and `Arial` as fallbacks, so Arabic uses the bundled face and anything missing still falls back to the system. Both fonts are under the SIL Open Font License; the licence texts ship as assets (`assets/fonts/OFL-*.txt`) and `registerFontLicenses()` (`lib/src/font_licenses.dart`, called in `main`) adds them to the licence page (Profile, About, View licenses). `test/fonts_test.dart` checks the declared files, the fallback order and the licence registration.
+
 ## Release Builds
 
 Production configuration is passed at build time; there are no flavours. Keep the values in a JSON file outside the repository (or generate it in CI) and pass it with `--dart-define-from-file`:
@@ -274,6 +280,18 @@ Rolling back a store release:
 - App Store: before release, remove the build from review or from the TestFlight groups. After release, pause the phased release if it is still running, then ship a fixed build through an expedited review; an approved version cannot be replaced by an older one.
 
 The pipeline has not run yet: it needs the keys and secrets above, and no signed build or macOS job can be run from a Linux development container. `services/api/tests/test_mobile_release.py` checks that the deployed realm's `anum-flutter` client registers exactly `com.anum.app:/oauth2redirect` (no wildcards) as its redirect and post-logout redirect, that the app's defaults, the Android `appAuthRedirectScheme` and applicationId, and the iOS URL scheme and bundle identifier agree with it, and that the workflow uploads `com.anum.app` and keeps the desktop jobs gated.
+
+### Crash Symbols
+
+Store builds compile obfuscated Dart (`--obfuscate --split-debug-info=build/symbols`, owner decision of 12 October 2026, [Full skills audit](audits/2026-10-12-full-skills-audit.md)): class and function names in the binary are replaced, which makes the app harder to reverse engineer, and a Dart stack trace from a release build shows obfuscated names and addresses. CI's release app bundle uses the same flags, so a pull request proves an obfuscated build compiles.
+
+The release workflow uploads each build's symbol files as an artifact named `anum-android-symbols-<build number>` or `anum-ios-symbols-<build number>` (for example `app.android-arm64.symbols`, `app.ios-arm64.symbols`), kept for 90 days. Keep the symbols of every build that reaches testers or a store longer than that: download the artifact from the run and store it with the release evidence. To read a crash:
+
+1. Find the build number of the crashing app (Play Console or App Store Connect shows it with the crash; it is also the version code / `CFBundleVersion`).
+2. Download that build's symbols artifact from the "Release clients" run and unzip it, for example to `symbols/`.
+3. Save the stack trace to `trace.txt` and run, from `apps/mobile`: `flutter symbolize -i trace.txt -d symbols/app.android-arm64.symbols` (use the file for the device's architecture; `app.ios-arm64.symbols` for iPhones).
+
+Native (Java, Kotlin, Swift) frames are not affected by Dart obfuscation; Play Console and Xcode Organizer symbolicate those as before.
 
 ### Owner Checklist (Windows)
 
@@ -400,6 +418,16 @@ From the October 2026 skills audit ([report](audits/2026-10-12-full-skills-audit
 - JSON calls (`HttpApiTransport`) give up after five minutes, longer than a model call with its server retries; a hung or unreachable server becomes the app's "could not be reached" error (`ApiException` with status 0) instead of an endless spinner, and a proxy's HTML 502/503 keeps its status code. Streams keep their own timeouts (`HttpEventStream`). `test/http_api_transport_test.dart`.
 - Links from the server or from social platforms (a marketing post's public link, a connect page) open in the browser only when they are absolute `https` URLs (`mkHttpsLink`); anything else (`intent:`, `file:`, `tel:`, plain `http:`) is not launched and the screen says the link could not be opened.
 
+### Screen Privacy
+
+Owner decision of 12 October 2026: screenshots of the app are blocked where the platform allows it.
+
+- Android: `MainActivity` sets `FLAG_SECURE` on its window before Flutter starts. Screenshots and screen recordings come out black, the recent-apps thumbnail is blank, and the app does not show on insecure external displays or casts. Sign-in runs in a Custom Tab (the browser's own activity), which this does not cover.
+- iOS: iOS has no supported way to block a screenshot. `PrivacyCover` (`ios/Runner/AppDelegate.swift`) puts a plain cover in the app's background colour over every window while the scene is inactive (so the app-switcher snapshot shows nothing) and while the screen is captured (recording, AirPlay mirroring or screen sharing: `sceneCaptureState` on iOS 17 and later, `UIScreen.isCaptured` before). A screenshot taken while the app is active still shows the screen. The "secure text field layer" trick that blanks iOS screenshots was not used: it relies on the private internal layout of `UITextField`, which has changed between iOS versions, and wrapping Flutter's view in it can break touch and accessibility, so it is too fragile to ship.
+- Web and desktop: a browser page or a webview cannot block screenshots or screen recording; nothing is attempted there ([Security](security.md)).
+
+Device checks are in the [checklist](#real-device-test-checklist).
+
 ### Typed JSON Parsing
 
 Models and repositories read API responses and the stored session through `JsonReader` (`lib/data/json_read.dart`, exported by `api_models.dart`): `string`, `integer`, `number`, `boolean`, `date`, `object`, `objects` and `strings`, each with an `opt…` variant that returns null (or an empty list for `optObjects`) when the field is missing or null. A field that is missing or has the wrong type fails with one `JsonShapeException`, a `FormatException` whose message names the field path and the expected type, for example `Unexpected response: "data[1].approvers[0]" should be an object, found a string.` Valid payloads read exactly as the casts they replaced did (numbers accept ints and doubles; optional fields keep their defaults). Every caller that handled the old cast errors catches all errors (`catch (e)` or `on Object`), so a malformed response still lands in the screen's error state, now with that sentence as its message; the stored-session reader still clears an unreadable session. Tolerant reads that never fail (budget usage numbers, invitation timestamps, the approval policy's `updated_at`, the retrieval step's metadata) keep checking types themselves. `test/json_parsing_test.dart` covers missing fields, wrong types and wrong list elements on the main models and repositories.
@@ -419,6 +447,8 @@ Install and identity
 - [ ] A Keycloak user without `default_workspace_id` and with several workspaces gets the workspace list after sign-in; after a choice, sign-out and sign-in open the same workspace.
 - [ ] On Android, install the new build over one that stored a session with `flutter_secure_storage` 9 (any build before the 10.x upgrade): the session survives (the plugin migrates it to its new ciphers) or, if migration fails, the app shows the sign-in screen instead of crashing.
 - [ ] On iOS, install the new build over one that stored a session before the device-only keychain class: the session survives the first launch, and a restore of an encrypted backup onto another device asks for sign-in.
+- [ ] Android: a screenshot and a screen recording of any screen come out black, and the recent-apps card is blank.
+- [ ] iOS: the app-switcher card shows the plain cover, not the workspace; starting a screen recording or AirPlay mirroring covers the app until it stops; returning to the app removes the cover at once.
 - [ ] Airplane mode during refresh keeps the session and shows the offline state; reconnecting recovers.
 - [ ] A release build refuses a plain-HTTP API or issuer.
 
