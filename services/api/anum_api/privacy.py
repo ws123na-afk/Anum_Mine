@@ -143,6 +143,10 @@ class PrivateCounts(BaseModel):
     # Home (migration 0046_home, docs/home.md): pinned apps, dismissed or snoozed insights,
     # and the greeting name (tenant-wide).
     home_items: int = 0
+    # Custom agents (migration 0041_agent_profiles, docs/agents.md): the caller's private
+    # agents and those agents' memories.
+    private_agents: int = 0
+    private_agent_memories: int = 0
 
     @property
     def total(self) -> int:
@@ -178,6 +182,9 @@ class SharedCounts(BaseModel):
     # they added (docs/automation.md#triggers).
     calendar_events_created: int = 0
     automation_triggers_created: int = 0
+    # Agents the caller owns and shared with the workspace, with their memories.
+    shared_agents_owned: int = 0
+    shared_agent_memories: int = 0
 
 
 class EmailCounts(BaseModel):
@@ -320,12 +327,41 @@ def workspace_records_created(context: TenantContext) -> dict[str, list[Any]]:
     }
 
 
+def agents_owned(store: "PrivacyStore", context: TenantContext) -> list[tuple[Any, list[Any]]]:
+    """The agents the caller owns in this workspace (private and shared), each with its memories."""
+    agents = store.agents()
+    owned = [agent for agent in agents.list(context) if agent.owner_user_id == context.user_id]
+    owned.sort(key=lambda agent: (agent.created_at, agent.id))
+    return [(agent, agents.list_memories(context, agent.id)) for agent in owned]
+
+
+def _is_private_agent(agent: Any) -> bool:
+    return str(agent.sharing) != "workspace"
+
+
+def delete_private_agents(store: "PrivacyStore", context: TenantContext) -> None:
+    """A private agent is the caller's personal data: it goes with its memories (cascade).
+    An agent shared with the workspace is a workspace record other members use: it stays."""
+    agents = store.agents()
+    for agent, _memories in agents_owned(store, context):
+        if _is_private_agent(agent):
+            agents.delete(context, agent.id)
+
+
 def other_module_counts(store: "PrivacyStore", context: TenantContext) -> tuple[dict[str, int], dict[str, int]]:
     team = team_data(store, context)
     tyre = tyre_data(store, context)
     created = workspace_records_created(context)
+    owned = agents_owned(store, context)
+    private_agents = [(agent, memories) for agent, memories in owned if _is_private_agent(agent)]
+    shared_agents = [(agent, memories) for agent, memories in owned if not _is_private_agent(agent)]
     return (
-        {"team_notifications": len(team["notifications"]), "team_profile": int(team["profile"] is not None)},
+        {
+            "team_notifications": len(team["notifications"]),
+            "team_profile": int(team["profile"] is not None),
+            "private_agents": len(private_agents),
+            "private_agent_memories": sum(len(memories) for _, memories in private_agents),
+        },
         {
             "work_items_created": len(team["work_items_created"]),
             "work_items_assigned": len(team["work_items_assigned"]),
@@ -333,6 +369,8 @@ def other_module_counts(store: "PrivacyStore", context: TenantContext) -> tuple[
             "tyre_reports_created": len(tyre["reports"]),
             "commerce_connectors_created": len(commerce_connectors_created(store, context)),
             **{name: len(items) for name, items in created.items()},
+            "shared_agents_owned": len(shared_agents),
+            "shared_agent_memories": sum(len(memories) for _, memories in shared_agents),
         },
     )
 
@@ -426,6 +464,7 @@ class PrivacyStore(Protocol):
     def commerce(self) -> Any: ...
     def delete_team_private(self) -> None: ...
     def home(self) -> HomeStore: ...
+    def agents(self) -> Any: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
     def record_audit(self, record: AuditRecord) -> None: ...
@@ -591,6 +630,11 @@ class InMemoryPrivacyStore:
         from .commerce.store import commerce_store
 
         return commerce_store
+
+    def agents(self) -> Any:
+        from .agent_profiles import agent_store
+
+        return agent_store
 
     def delete_team_private(self) -> None:
         from .team_store import memory_team_store
@@ -786,6 +830,7 @@ class InMemoryPrivacyStore:
         self._delete_email()
         self.delete_team_private()
         self.home().delete_all(self.context)
+        delete_private_agents(self, self.context)
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -986,6 +1031,10 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
         "marketing_accounts_connected": {"access_token_ciphertext", "refresh_token_ciphertext"},
         "automation_triggers_created": {"secret_ciphertext"},
     }
+    yield (
+        "agents_owned",
+        [{**_dump(agent), "memories": [_dump(memory) for memory in memories]} for agent, memories in agents_owned(store, context)],
+    )
     yield (
         "workspace_records_created",
         {name: [_dump(item, exclude=excluded.get(name)) for item in items] for name, items in created.items()},

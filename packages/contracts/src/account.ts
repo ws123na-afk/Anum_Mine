@@ -63,6 +63,9 @@ export interface PrivacyPrivateCounts {
   /** The caller's in-app team notifications and member profile (docs/team-work.md). Absent from older servers. */
   team_notifications?: number;
   team_profile?: number;
+  /** The caller's private custom agents and their memories (docs/agents.md). Absent from older servers. */
+  private_agents?: number;
+  private_agent_memories?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */
@@ -93,6 +96,9 @@ export interface PrivacySharedCounts {
   /** Calendar events they created and automation triggers they added. Absent from older servers. */
   calendar_events_created?: number;
   automation_triggers_created?: number;
+  /** Agents the caller owns and shared with the workspace, and their memories (kept). Absent from older servers. */
+  shared_agents_owned?: number;
+  shared_agent_memories?: number;
 }
 
 export interface PrivacyRetention {

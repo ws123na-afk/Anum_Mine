@@ -29,6 +29,8 @@ const _privateLabels = <String, String>{
   'email_drafts': 'Email drafts you never sent',
   'team_notifications': 'Your team notifications',
   'team_profile': 'Your team profile (name, email, title)',
+  'private_agents': 'Your private agents',
+  'private_agent_memories': 'Memories of your private agents',
 };
 
 const _sharedLabels = <String, String>{
@@ -49,6 +51,8 @@ const _sharedLabels = <String, String>{
   'marketing_campaigns_created': 'Marketing campaigns you created',
   'calendar_events_created': 'Calendar events you created',
   'automation_triggers_created': 'Automation triggers you added',
+  'shared_agents_owned': 'Agents you shared with the workspace',
+  'shared_agent_memories': 'Memories of the agents you shared',
 };
 
 List<PrivacyCount> _counts(JsonReader json, Map<String, String> labels) => [

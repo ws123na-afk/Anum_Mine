@@ -339,8 +339,10 @@ void main() {
                       controller: controller, onOpenChatMemory: () {}))));
           await tester.pumpAndSettle();
           final text = find.byKey(const Key('privacy-memory'));
+          // The count rows grow with every module: at 320 px and 200% text
+          // the sentence sits past the default 50 scrolls.
           await tester.scrollUntilVisible(text, 200,
-              scrollable: find.byType(Scrollable).first);
+              maxScrolls: 100, scrollable: find.byType(Scrollable).first);
           await tester.pumpAndSettle();
           final rect = tester.getRect(text);
           expect(rect.left, greaterThanOrEqualTo(0));
@@ -403,7 +405,7 @@ void main() {
       (tester) async {
     final transport = _PrivacyTransport();
     final controller = PrivacyController(await _repository(transport));
-    await tester.binding.setSurfaceSize(const Size(390, 3400));
+    await tester.binding.setSurfaceSize(const Size(390, 3800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester
         .pumpWidget(MaterialApp(home: PrivacyScreen(controller: controller)));
@@ -468,7 +470,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    await tester.binding.setSurfaceSize(const Size(390, 3400));
+    await tester.binding.setSurfaceSize(const Size(390, 3800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     String? copied;
     tester.binding.defaultBinaryMessenger

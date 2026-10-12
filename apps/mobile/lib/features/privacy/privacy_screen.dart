@@ -149,7 +149,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                     _Message(text: c.exportMessage!, error: c.exportFailed),
                   _Heading('Delete my data'),
                   Text(
-                      'Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, notification preferences, what ANUM learned from you, the private mailboxes you connected (ANUM also withdraws its access at the provider) the email drafts you never sent, and your team notifications and team profile in this workspace, and resets your preferences (such as Remember things from my chats) in every workspace of this organization. This cannot be undone.'),
+                      'Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, notification preferences, what ANUM learned from you, the private mailboxes you connected (ANUM also withdraws its access at the provider) the email drafts you never sent, your team notifications and team profile, and your private agents with their memories in this workspace, and resets your preferences (such as Remember things from my chats) in every workspace of this organization. This cannot be undone.'),
                   const SizedBox(height: AnumSpacing.xs),
                   Text(
                       'Kept: ${sharedTotal == 0 ? 'shared workspace records (none created by you)' : '$sharedTotal shared workspace ${sharedTotal == 1 ? 'record' : 'records'} you created or decided'}. A workspace owner can remove them.',

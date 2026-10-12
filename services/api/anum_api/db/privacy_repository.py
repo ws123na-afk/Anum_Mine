@@ -28,6 +28,7 @@ from anum_api.privacy import (
     email_counts,
     learning_counts,
     module_counts,
+    delete_private_agents,
     other_module_counts,
 )
 from anum_api.whatsapp_store import Message as WhatsAppMessage
@@ -41,6 +42,7 @@ from anum_api.meetings import Meeting
 from anum_api.meetings import TranscriptSegment as MeetingTranscriptSegment
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
 
+from .agent_profiles_repository import SqlAlchemyAgentStore
 from .autonomy_repository import SqlAlchemyAutonomyStore
 from .commerce_repository import SqlAlchemyCommerceStore
 from .team_repository import SqlAlchemyTeamStore
@@ -333,6 +335,10 @@ class SqlAlchemyPrivacyStore:
     def commerce(self) -> SqlAlchemyCommerceStore:
         return SqlAlchemyCommerceStore(self.session, self.context)
 
+    def agents(self) -> SqlAlchemyAgentStore:
+        """The caller's view of agents (their private ones and shared ones), in this transaction."""
+        return SqlAlchemyAgentStore(self.session, self.context)
+
     def delete_team_private(self) -> None:
         """The caller's notifications (RLS admits only the recipient) and member profile."""
         params = self._scope_params()
@@ -504,6 +510,7 @@ class SqlAlchemyPrivacyStore:
         )
         self.delete_team_private()
         self.home().delete_all(self.context)
+        delete_private_agents(self, self.context)
         self.session.flush()
         return deleted
 
