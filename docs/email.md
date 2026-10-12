@@ -83,7 +83,9 @@ Set these on the API (`services/api/.env` locally, `infra/oracle/.env` on the Or
 | `ANUM_EMAIL_ZOHO_CLIENT_ID`, `ANUM_EMAIL_ZOHO_CLIENT_SECRET`, `ANUM_EMAIL_ZOHO_DATA_CENTRE` | Zoho API console client; data centre `com`, `eu`, `in`, `com.au`, `jp`, `ca`, `sa` or `com.cn`. |
 | Optional | `ANUM_EMAIL_INITIAL_SYNC_DAYS` (30), `ANUM_EMAIL_SYNC_MAX_MESSAGES` (200), `ANUM_EMAIL_SYNC_INTERVAL_SECONDS` (300, 0 = off), `ANUM_EMAIL_BODY_MAX_BYTES` (256 KiB), `ANUM_EMAIL_ATTACHMENT_MAX_BYTES` (10 MiB), `ANUM_EMAIL_OAUTH_STATE_TTL_SECONDS` (900). |
 
-`ANUM_SECRETS_KEY` encrypts the tokens; rotating it with `python -m anum_api.rotate_secrets` does not cover mailbox tokens yet, so keep the old key in the list until mailboxes are reconnected.
+`ANUM_SECRETS_KEY` encrypts the tokens; after rotating it, `python -m anum_api.rotate_secrets` re-encrypts every mailbox's tokens, including mailboxes waiting to be reconnected ([Runbooks](runbooks.md#rotating-anum_secrets_key)). Pending connections and OAuth `state` values expire within `ANUM_EMAIL_OAUTH_STATE_TTL_SECONDS` and are not rotated: keep the old key for at least that long.
+
+The Helm chart, the Oracle compose stack and `render.yaml` pass these settings; client secrets go only into the deployment's secret store (the chart's `secrets.app`, refused in `config`).
 
 ### Gmail / Google Workspace (Google Cloud console)
 
@@ -113,5 +115,4 @@ Then restart the API, open **Inbox** in the web app and choose **Connect**.
 - Mailboxes are connected from the web app; the Flutter app lists, reads, drafts and approves sending, and points to the web for connecting and attachment downloads.
 - Composing a brand-new message (not a reply) exists in the `send_email` tool path but has no screen yet.
 - Zoho drafts saved by ANUM stay in Zoho's Drafts after sending or discarding (deleting them needs the drafts folder id); Zoho read-state changes to older messages are picked up only when re-read.
-- Mailbox tokens are not re-encrypted by `rotate_secrets` yet.
-- Privacy export and "delete my data" do not include mailboxes; disconnecting deletes everything ANUM holds for a mailbox.
+- Message bodies are never stored, so retention applies to metadata only: it stays while the mailbox is connected. Privacy export and "Delete my data" cover the caller's mailboxes and drafts ([Privacy](privacy.md)); disconnecting deletes everything ANUM holds for a mailbox.

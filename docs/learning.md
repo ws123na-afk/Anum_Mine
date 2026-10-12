@@ -41,7 +41,7 @@ Derived from the newest 200 accepted and edited drafts, counting what the user *
 - **language**: Arabic, English or mixed by script share, overall and **per contact** (email address or phone number the draft was for);
 - **emoji**: whether at least 30% of sent drafts use them.
 
-The user can override each field (`PUT /api/v1/learning/profile`, null keeps what was learned, an empty greeting or sign-off means none), set the language per contact and add free-text notes. **Reset style** (`POST /api/v1/learning/profile/reset` with `{"confirm": true}`) forgets the drafts it came from and the overrides; the switch, preferences, routines and notes stay. Settings changes and resets are audited (`learning.settings_changed`, `learning.profile_reset`).
+The user can override each field (`PUT /api/v1/learning/profile`, null keeps what was learned, an empty greeting or sign-off means none), set the language per contact and add free-text notes. **Reset style** (`POST /api/v1/learning/profile/reset` with `{"confirm": true}`) forgets the drafts it came from and the overrides; the switch, preferences, routines and notes stay. Settings changes, overrides and resets are audited (`learning.settings_changed`, `learning.profile_updated` with the names of the fields set, `learning.profile_reset`). So are feedback (`learning.feedback_recorded`, kind and surface), deleted signals, learned preferences created, changed or deleted (the scope's kind only, never a contact or the text), routine detection and deletion, note refreshes and dismissed suggestions; audit records hold ids and counts, never what the user wrote.
 
 ### The learned block in prompts
 

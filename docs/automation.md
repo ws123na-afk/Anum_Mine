@@ -22,6 +22,8 @@ NATS JetStream should carry domain events that notify clients, workers, and inte
 
 Automations must run under an explicit actor and tenant context. They should have scopes, expiration, audit history, and clear cancellation. High-risk automated actions require policy-backed approval or preauthorization.
 
+Every change a person makes is audited: workflows and schedules created, edited, paused, resumed or deleted (`automation.workflow.*`, `automation.schedule.*`), and runs started, cancelled, resumed or retried by hand (`automation.run.started`, `.cancelled`, `.resumed`, `.retried`, with the workflow id and the run's status). Scheduled fires are the scheduler's and appear in the run history.
+
 ## Implementation
 
 `/api/v1/automation` manages automations (workflows), their schedules and their runs (`anum_api/automation.py`). The web page is **Automations** (`apps/web/src/AutomationWorkbench.tsx`); the Flutter app has the same screens (`apps/mobile/lib/features/workspace/automations_screen.dart`, `lib/features/automations/`).

@@ -61,7 +61,9 @@ Some jobs must find work in every tenant:
 - the voice transcript purge (expired 30-day transcripts, [Voice](voice.md#storage-and-retention));
 - the retrieval index purge (index rows of expired memories, [Memory](memory.md#retention); migration `0015_retrieval_retention`);
 - the conversation retention purge (conversations idle past `ANUM_CONVERSATION_RETENTION_DAYS`, [Conversations](conversations.md#retention); migration `0019_conversation_retention`);
-- `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key, and developer projects with an encrypted token: `id`, `tenant_id` and `workspace_id` only, migration `0032_developer_projects`; [Runbooks](runbooks.md#rotating-anum_secrets_key)).
+- `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key or integration credential, developer projects with an encrypted token, every WhatsApp account, every mailbox that holds an OAuth token, tyre connections, meeting connectors, and commerce connectors and customers that hold a ciphertext: ids and scope only, never a ciphertext; migrations `0030`, `0032`, `0033`, `0035`, `0037_tyre_planning`, `0038_commerce`, `0043_meetings` and `0050_rotation_retention`; [Runbooks](runbooks.md#rotating-anum_secrets_key));
+- the email background sync (connected mailboxes due a sync, [Email](email.md); migration `0035_email_inbox`);
+- the WhatsApp retention purge (workspaces with conversations at least a day old; each workspace's retention is read inside its own RLS context, [WhatsApp](whatsapp.md#retention); migration `0050_rotation_retention`).
 - the developer watcher (developer requests still in progress, refreshed so phone push can announce a ready pull request, [Notifications](notifications.md#developer-mode); migration `0027_push_devices`).
 
 They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automation`):
@@ -76,13 +78,18 @@ They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automa
    | `voice_sessions` | `id`, `tenant_id`, `workspace_id`, `user_id`, `expires_at` | `expires_at <= now() and transcript_purged_at is null` |
    | `workspace_model_configs` | `tenant_id`, `workspace_id` | `api_key_ciphertext is not null` |
    | `retrieval_sources` (`0015`) | `tenant_id`, `workspace_id`, `source_type`, `source_id`, `source_expires_at` | `source_type = 'memory' and source_expires_at <= now()` |
-   | `whatsapp_accounts` (`0031`) | `tenant_id`, `workspace_id`, `phone_number_id`, `verify_token_hash` | `true` (the WhatsApp webhook finds the workspace that owns a phone number id, and whether any workspace saved a verify token; never the encrypted token or app secret, [WhatsApp](whatsapp.md#webhook)) |
+   | `whatsapp_accounts` (`0033`) | `tenant_id`, `workspace_id`, `phone_number_id`, `verify_token_hash` | `true` (the WhatsApp webhook finds the workspace that owns a phone number id, and whether any workspace saved a verify token; never the encrypted token or app secret, [WhatsApp](whatsapp.md#webhook)) |
    | `tyre_connections` (`0037`) | `tenant_id`, `workspace_id` | `secret_ciphertext is not null` |
    | `work_items` (`0039`) | `id`, `tenant_id`, `workspace_id`, `status`, `due_at`, `follow_up_at`, `reminder_sent_at` | open, and due without a reminder yet or past its follow-up time |
    | `user_notifications` (`0039`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `email_status`, `email_attempts` | `email_status = 'pending' and email_attempts < 3` |
    | `conversations` (`0019`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `updated_at` | `updated_at <= now() - interval '1 day'` (the purge then filters on the configured retention) |
    | `developer_requests` (`0026`) | `id`, `tenant_id`, `workspace_id`, `status` | `status in ('queued', 'coding', 'ci_running', 'ci_failed', 'waiting_approval')` |
-   | `developer_projects` (`0031`) | `id`, `tenant_id`, `workspace_id` | `token_ciphertext is not null` |
+   | `developer_projects` (`0032`) | `id`, `tenant_id`, `workspace_id` | `token_ciphertext is not null` |
+   | `integration_credentials` (`0030`) | `tenant_id`, `workspace_id`, `integration_id` | `true` (every row holds a ciphertext; key rotation) |
+   | `email_accounts` (`0035`, `0050`) | `id`, `tenant_id`, `workspace_id`, `connected_by`, `status`, `last_sync_at` | `status <> 'reauth_required'` (background sync) or `access_token_enc is not null or refresh_token_enc is not null` (key rotation, `0050`). Permissive policies are OR-ed, so the sync query repeats its `status` filter itself. Never a token or an address. |
+   | `commerce_connectors` (`0038`, `0050`) | `id`, `tenant_id`, `workspace_id`, `enabled`, `next_sync_at` | `enabled and next_sync_at <= now()` (background sync) or `credentials_ciphertext is not null` (key rotation, `0050`); never the credentials |
+   | `commerce_customers` (`0050`) | `id`, `tenant_id`, `workspace_id` | any of the four buyer-detail ciphertexts is not null (key rotation); never a name, address or ciphertext |
+   | `whatsapp_conversations` (`0050`) | `tenant_id`, `workspace_id`, `created_at` | `created_at < now() - interval '1 day'` (the retention purge; the retention itself is read as the application role) |
 
 2. **Act.** Each discovered scope gets its own transaction as the application role, with that tenant, workspace (and user) set as RLS context. Every content read (transcript text, workflow steps, ciphertexts) and every write is checked by the normal tenant-isolation policies. Audit records are written there too.
 
@@ -94,7 +101,7 @@ Deployment:
 - Grant it to the operator login that runs the purge and rotation commands.
 - Like `anum_outbox_relay`, the role is cluster-wide and survives a downgrade.
 
-`tests/test_postgres_automation.py`, `tests/test_postgres_voice.py`, `tests/test_postgres_rotate_secrets.py`, `tests/test_postgres_retrieval.py` and `tests/test_postgres_conversations.py` check that the role sees only those rows and columns and cannot write; the last three also check that a grant `WITH INHERIT FALSE` keeps the application role's own reads in one workspace while an inheriting grant would not.
+`tests/test_postgres_automation.py`, `tests/test_postgres_voice.py`, `tests/test_postgres_rotate_secrets.py` (including WhatsApp and mailbox secrets), `tests/test_postgres_whatsapp_retention.py`, `tests/test_postgres_retrieval.py` and `tests/test_postgres_conversations.py` check that the role sees only those rows and columns and cannot write; the last three also check that a grant `WITH INHERIT FALSE` keeps the application role's own reads in one workspace while an inheriting grant would not.
 
 ## Membership Directory Role
 

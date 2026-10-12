@@ -57,7 +57,19 @@ Migration `0033_whatsapp` adds four forced-RLS tables scoped to tenant and works
 | `whatsapp_conversations` | one per customer: last message preview and time, last inbound time (the 24-hour window), unread count, category, summary and suggestion |
 | `whatsapp_messages` | every message in and out: kind, text, media metadata (id, type, file name, caption), template use, delivery status and error, the approval and task of a sent reply |
 
-`phone_number_id` is unique across tenants so a delivery maps to exactly one workspace. Media bytes are never stored: `GET /api/v1/whatsapp/messages/{id}/media` fetches the file from Meta on demand, only from `https` URLs on Meta's media hosts, without redirects, up to `ANUM_WHATSAPP_MEDIA_MAX_BYTES` (16 MiB; 413 above), and serves it `no-store` with `nosniff` (only images, audio and video inline). Re-encrypt stored tokens after rotating `ANUM_SECRETS_KEY` by re-saving them in Setup (`rotate_secrets` covers model keys only today).
+`phone_number_id` is unique across tenants so a delivery maps to exactly one workspace. Media bytes are never stored: `GET /api/v1/whatsapp/messages/{id}/media` fetches the file from Meta on demand, only from `https` URLs on Meta's media hosts, without redirects, up to `ANUM_WHATSAPP_MEDIA_MAX_BYTES` (16 MiB; 413 above), and serves it `no-store` with `nosniff` (only images, audio and video inline). After rotating `ANUM_SECRETS_KEY`, `python -m anum_api.rotate_secrets` re-encrypts every workspace's access token and app secret ([Runbooks](runbooks.md#rotating-anum_secrets_key)).
+
+## Retention
+
+Each workspace chooses how long its WhatsApp history is kept: **Keep message history** in Setup (`message_retention_days` on `PUT /api/v1/whatsapp/account`, migration `0050_rotation_retention`): the server default, until deleted (`0`), or a number of days (1 to 3650). Omitting the field on a save keeps the saved choice; `null` follows the default again. `GET /account` returns the choice, what applies (`effective_message_retention_days`) and the default (`default_message_retention_days`). The deployment default is `ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS` (default `0`, kept until deleted); it also applies to history left after a number is disconnected.
+
+The daily retention job (`python -m anum_api.voice_retention`, reported under `whatsapp`; `python -m anum_api.whatsapp_retention [--dry-run]` runs this part alone, `anum_api/whatsapp_retention.py`) deletes, per workspace:
+
+- messages older than the retention, except those awaiting approval or being sent;
+- conversations with no message left whose last message is older than the retention (their preview, summary and suggestion go with them);
+- contacts with no conversation left that were last updated before the cutoff.
+
+It finds workspaces as `anum_maintenance`, which may read only `tenant_id`, `workspace_id` and `created_at` of conversations at least a day old, and deletes as the application role inside each workspace's RLS context, where the setting is read ([Multi-tenancy](multi-tenancy.md#maintenance-role)). Output: counts only. The change of setting is audited (`whatsapp.account.saved` with `message_retention_days`). Tests: `tests/test_postgres_whatsapp_retention.py`.
 
 ## Who can do what
 
@@ -131,7 +143,9 @@ All need the `owner` or `member` role. A task that mentions WhatsApp ("Which Wha
 | `GET /api/v1/whatsapp/messages/{id}/media` | `whatsapp:read` |
 | `GET, POST /api/v1/whatsapp/webhook` | public, signature verified |
 
-Deployment settings (`ANUM_WHATSAPP_*`, all optional): `GRAPH_API_URL` (https, default `https://graph.facebook.com`), `GRAPH_API_VERSION` (`v23.0`), `WEBHOOK_MAX_BODY_BYTES`, `MEDIA_MAX_BYTES`, `REPLAY_WINDOW_HOURS`, `WEBHOOK_RATE_PER_SECOND`, `WEBHOOK_BURST`, `TEMPLATE_CACHE_SECONDS`, `TRIAGE_ON_ARRIVAL`. They are in the Helm chart's `config` and in `render.yaml`.
+Deployment settings (`ANUM_WHATSAPP_*`, all optional): `GRAPH_API_URL` (https, default `https://graph.facebook.com`), `GRAPH_API_VERSION` (`v23.0`), `WEBHOOK_MAX_BODY_BYTES`, `MEDIA_MAX_BYTES`, `REPLAY_WINDOW_HOURS`, `WEBHOOK_RATE_PER_SECOND`, `WEBHOOK_BURST`, `TEMPLATE_CACHE_SECONDS`, `TRIAGE_ON_ARRIVAL`, `MESSAGE_RETENTION_DAYS`. They are in the Helm chart's `config` (which refuses values the API would refuse at startup), the Oracle compose stack and `render.yaml`.
+
+Every state-changing route writes an audit record without secrets or message text, except the per-view read marker and Meta's webhook deliveries (`tests/audit_probe.py`, [Audit log](governance-and-scale.md#audit-log)); a health check is `whatsapp.account.checked`, a suggested reply `whatsapp.draft.suggested`.
 
 ## Clients
 
@@ -148,5 +162,4 @@ Deployment settings (`ANUM_WHATSAPP_*`, all optional): `GRAPH_API_URL` (https, d
 - Template parameters for headers and buttons: only body parameters are sent.
 - Template creation from ANUM: templates are created and approved in WhatsApp Manager.
 - Read receipts and typing indicators are not sent to customers.
-- `python -m anum_api.rotate_secrets` does not yet re-encrypt WhatsApp tokens; re-save them after a key rotation.
 - Template sending and media download from the Flutter app.

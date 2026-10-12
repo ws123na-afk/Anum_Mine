@@ -10,7 +10,7 @@ All three actions act on the caller's own data in the **current tenant and works
 |---|---|
 | `GET /api/v1/privacy` | Counts (never content) of the caller's private data and of the shared records they created, retention from the server's configuration, the model provider their messages go to, whether their chats are remembered (`model_provider.conversation_memory`, below), `privacy_policy_url`, the confirmation phrase and the export limit. |
 | `GET /api/v1/privacy/export` | The caller's data as one JSON file (`Content-Disposition: attachment`, `Cache-Control: no-store`). |
-| `POST /api/v1/privacy/delete` | Body `{"confirm": "DELETE MY DATA"}`. Deletes the caller's private data; returns `deleted` and `kept` counts. Any other phrase is `422` and nothing is deleted. |
+| `POST /api/v1/privacy/delete` | Body `{"confirm": "DELETE MY DATA"}`. Deletes the caller's private data; returns `deleted` and `kept` counts and `notes` (sentences about what still needs the caller, such as a mail provider where ANUM could not withdraw its access). Any other phrase is `422` and nothing is deleted. |
 
 Every workspace role (viewer, member, owner) may use them for their own data: owners see the same page and have no extra power here. A caller without an active role in the workspace gets `403`; with OIDC a deactivated membership is refused before the route runs. The web and mobile pages explain a `403` ("ask a workspace owner to restore your membership").
 
@@ -52,6 +52,11 @@ Format `anum.privacy-export/v1`, sections in this order:
 | `files_uploaded` | Metadata of files the caller uploaded (name, type, size, SHA-256, time) with a `download_path` (`/api/v1/files/{id}/content`). |
 | `meetings_imported` | Meetings the caller imported ([Calls & Meetings](meetings.md#privacy)): notes, transcript lines and the recording's metadata with a `download_path`. |
 | `meeting_connections` | The caller's connected Zoom and Microsoft accounts (provider, account, dates). The OAuth tokens are never exported. |
+| `email.mailboxes_connected` | Every mailbox the caller connected ([Email](email.md)), private and workspace: provider, address, visibility, status, scopes and sync health. Never the OAuth tokens, the sync cursor or the token expiry. |
+| `email.drafts_written` | Every reply draft the caller created, with its full text, recipients, status and provenance (`source`, model). |
+| `email.private_mailbox_messages` | The message metadata synced from the caller's **private** mailboxes (sender, recipients, subject, snippet, labels, triage). Bodies are never stored by ANUM, so none are exported; messages of workspace mailboxes belong to the workspace and are not included. |
+| `whatsapp_messages_sent` | WhatsApp messages the caller sent or asked to send ([WhatsApp](whatsapp.md)), with their text and status. Customer messages are the workspace's and are not included. |
+| `autonomy_actions_requested` | Actions ANUM took on its own for the caller's requests ([Autonomy](autonomy.md)): tool, summary, target, level and undo state. Never the undo token or the tool's undo arguments. |
 | `not_included` | Plain sentences listing what is not in the file (below). |
 
 **Files are linked, not embedded.** File bytes can be up to 25 MiB each and are workspace records; embedding them would make the export unbounded. The signed-in user downloads each file from its `download_path` (the Files page does the same).
@@ -62,7 +67,7 @@ Not included: audit records (the workspace's security log, ids and counts only; 
 
 ## What deletion removes and keeps
 
-Removed, in one transaction:
+Removed, in one transaction (after the mailbox revocations below):
 
 - conversations and their turns;
 - private memories and their retrieval index rows (`retrieval_sources` with `owner_user_id` = caller; chunks cascade);
@@ -73,11 +78,16 @@ Removed, in one transaction:
 - what ANUM learned from the caller in this workspace: every row of `learning_signals`, `learning_profiles`, `learning_preferences`, `learning_routines`, `learning_notes` and `learning_suggestions` (migration `0036_learning`; counted as `learning_signals` and `learned_items`). Automations created from an accepted routine are workspace records and stay;
 - the meetings the caller imported, with their transcript lines and recording files (rows in the transaction, bytes after it commits), and the caller's Zoom and Teams connections (migration `0043_meetings`, [Calls & Meetings](meetings.md#privacy)); meetings other members imported are kept;
 - the caller's favorites, private knowledge collections (with their items) and private reports (migration `0042_library`; counted as `favorites`, `private_collections` and `private_reports`). Notes in a private collection are private memories and go with them; shared collections and reports stay;
-- the caller's `user_preferences` row (migration `0025_user_preferences`). It is per user and tenant, not per workspace, so deleting from any workspace resets it everywhere in that organization; the defaults apply again ("Remember things from my chats" back on).
+- the caller's `user_preferences` row (migration `0025_user_preferences`). It is per user and tenant, not per workspace, so deleting from any workspace resets it everywhere in that organization; the defaults apply again ("Remember things from my chats" back on);
+- the **private** mailboxes the caller connected, with their tokens, synced message metadata and every draft in them (counted as `email_mailboxes`, `email_messages`); before the transaction ANUM revokes each mailbox's grant at the provider where the provider has a revoke call (Google, Zoho), as disconnecting does. Where it cannot (Microsoft has no per-app revoke call; a provider error; an unreadable token) the deletion still happens and the response's `notes` tell the caller to remove ANUM in that account's security settings;
+- the caller's email drafts that never left ANUM (status `draft`, `failed` or `discarded`, in any mailbox; counted with the drafts of their private mailboxes as `email_drafts`), and their pending mailbox connections (`email_oauth_requests`).
 
 Kept, and counted in the response and on the page:
 
 - tasks, runs, approvals (and approval-chain decisions), shared memories and files the caller created: they belong to the workspace and other members rely on them. A workspace owner can delete them through their own pages;
+- workspace mailboxes the caller connected (`email_mailboxes_connected`) and the caller's emails sent or waiting for approval from them (`email_drafts_sent`): they are the workspace's correspondence. An owner disconnects a mailbox under Inbox;
+- WhatsApp messages the caller sent (`whatsapp_messages_sent`): they are part of the customer's conversation with the business, and follow the workspace's [WhatsApp retention](whatsapp.md#retention);
+- actions ANUM took for the caller (`autonomy_actions_requested`): the workspace's activity record ([Autonomy](autonomy.md));
 - audit records: they are the workspace's security record and hold ids and counts, not content;
 - the Keycloak account: ANUM does not delete identity accounts. The page says to ask the workspace owner or organization administrator, who removes the user in Keycloak and deactivates the membership.
 
@@ -90,7 +100,7 @@ With PostgreSQL every read and delete runs in one transaction whose RLS context 
 Both actions write an audit record in the caller's workspace with the caller as actor and target, and counts only:
 
 - `privacy.export`, outcome `success` with `format`, `bytes` and per-section counts, or `refused_too_large` with the limit;
-- `privacy.delete`, outcome `success` with the `deleted` and `kept` counts.
+- `privacy.delete`, outcome `success` with the `deleted` and `kept` counts and `mailboxes_revoked_at_provider`.
 
 ## Configuration
 
@@ -99,6 +109,12 @@ Both actions write an audit record in the caller's workspace with the caller as 
 | `ANUM_PRIVACY_POLICY_URL` | empty | Public `http(s)` URL of the deployment's privacy policy, shown on the Privacy page. Empty: the page says the organization has not published one. |
 | `ANUM_PRIVACY_EXPORT_MAX_BYTES` | `26214400` | Largest export the API builds. |
 | `ANUM_CONVERSATION_RETENTION_DAYS` | `30` | Shown as the conversation retention ([Conversations](conversations.md#retention)). |
+
+## Retention of email and WhatsApp data
+
+- **Email bodies are never stored.** `email_messages` holds metadata and triage only (no body, HTML or raw column; `test_email.py::test_message_bodies_are_never_stored` guards it); a body is fetched from the provider when a message is opened and never written to the database. Synced metadata stays while the mailbox is connected and is deleted with it.
+- **WhatsApp messages** follow the workspace's retention ([WhatsApp](whatsapp.md#retention)): an owner chooses how long history is kept, or the deployment default `ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS` applies (default `0`, kept until deleted). The daily retention job deletes older messages.
+- **What ANUM learned**: feedback signals past `ANUM_LEARNING_SIGNAL_RETENTION_DAYS` (default 180) are deleted ([What ANUM learned](learning.md)).
 
 The API exposes `Content-Disposition` to browsers (CORS `expose_headers`) so the web app can name the downloaded file.
 
