@@ -62,7 +62,7 @@ test('orders page through, filter and open with buyer details for the owner', as
   await expect(detail.getByText('Example Buyer')).toBeVisible();
   await detail.getByRole('button', { name: 'Close the order' }).click();
   await page.getByPlaceholder('Order number or SKU').fill('nothing-matches');
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.getByText('No order matches these filters.')).toBeVisible();
 });
 
@@ -71,7 +71,7 @@ test('a price change is proposed and waits for approval with its payload hash', 
   await page.goto('/#commerce');
   await tab(page, 'Catalogue').click();
   await page.getByPlaceholder(/SKU, title, brand or size/).fill('2055516');
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.getByText('MX-2055516 · Michelin · 205/55R16 · 91V · DOT 23/2025')).toBeVisible();
   await page.getByRole('button', { name: 'Change price' }).first().click();
   const input = page.getByLabel('New price (SAR)');

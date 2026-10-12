@@ -60,11 +60,11 @@ test('a memory from a chat names its conversation, opens it and can be deleted',
   await expect(note.getByRole('button', { name: /Open chat/ })).toHaveCount(0);
 
   await row.getByRole('button', { name: 'Open chat Planning the Lisbon trip' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Assistant' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'AI Chat' })).toBeVisible();
   await expect(page.getByText('Noted.')).toBeVisible();
   await expect(page.getByText('I prefer short answers with code samples.')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Knowledge Base', exact: true }).click();
   const again = page.locator('.memoryRow').filter({ hasText: 'short answers with code samples' });
   await again.getByRole('button', { name: 'Delete memory' }).click();
   await again.getByRole('button', { name: 'Delete', exact: true }).click();

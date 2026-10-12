@@ -77,7 +77,7 @@ test('the Assistant, Approvals, Memory, Notifications and Privacy read in Arabic
   // The pending count on the navigation is announced, not just shown.
   await expect(page.getByLabel('موافقة واحدة معلّقة')).toBeVisible();
 
-  await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'الذاكرة' }).click();
+  await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'قاعدة المعرفة' }).click();
   await expect(page.getByText(/خاصة بك · من «.?Release planning.?»/)).toBeVisible();
   await expect(page.getByRole('radio', { name: 'من محادثاتي' })).toBeVisible();
 
@@ -143,7 +143,7 @@ test('Integrations, Skills and the marketplace read in Arabic, right to left, wi
   await expect(page.getByRole('button', { name: 'اختبار الاتصال' }).first()).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 
-  await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'المهارات' }).click();
+  await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'متجر ANUM' }).click();
   await expect(page.getByLabel('البحث في المهارات')).toBeVisible();
   // Arabic plural forms: two skills uses the dual.
   await expect(page.getByText('2 من مهارتين')).toBeVisible();

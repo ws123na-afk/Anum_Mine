@@ -7,7 +7,7 @@ import './dialog.css';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function useModal(onClose: () => void) {
+export function useModal(onClose: () => void) {
   const panel = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -60,5 +60,17 @@ export function Drawer({ title, children, onClose }: { title: string; children: 
       </header>
       <div className="drawerBody">{children}</div>
     </aside>
+  </div>;
+}
+
+/** A plain modal dialog (forms, the command palette) with the same keyboard basics. */
+export function Modal({ title, titleHidden, className, children, onClose }: { title: string; titleHidden?: boolean; className?: string; children: ReactNode; onClose: () => void }) {
+  const panel = useModal(onClose);
+  const titleId = useId();
+  return <div className="dialogBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className={`surface dialogPanel ${className ?? ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={panel}>
+      <h2 id={titleId} className={titleHidden ? 'visuallyHidden' : undefined}>{title}</h2>
+      {children}
+    </div>
   </div>;
 }

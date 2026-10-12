@@ -6,6 +6,7 @@ import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 // English and Arabic. Serious and critical violations fail the run; the message lists each rule,
 // its help text and the offending selectors so the fix is clear from the CI log.
 const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
+  { hash: 'home', ready: (page) => expect(page.locator('.commandPanel .listRow').first()).toBeVisible() },
   { hash: 'assistant', ready: (page) => expect(page.locator('.chatTurn.assistant').first()).toBeVisible() },
   { hash: 'inbox', ready: async (page) => { await page.locator('.inboxRow').first().click(); await expect(page.locator('.inboxDraftCard').first()).toBeVisible(); } },
   { hash: 'tasks', ready: (page) => expect(page.locator('.recordButton').first()).toBeVisible() },

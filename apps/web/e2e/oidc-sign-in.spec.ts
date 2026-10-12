@@ -130,6 +130,8 @@ test('signs in with authorization code + PKCE, calls the API with the bearer tok
   expect(provider.tokenRequests.at(-1)?.get('grant_type')).toBe('refresh_token');
   expect(provider.tokenRequests.at(-1)?.get('refresh_token')).toBe('refresh-e2e');
 
+  // Sign out lives in the account menu (top bar).
+  await page.getByRole('button', { name: /Account menu/ }).click();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to ANUM' })).toBeVisible();
   expect(provider.logout?.get('client_id')).toBe('anum-web');

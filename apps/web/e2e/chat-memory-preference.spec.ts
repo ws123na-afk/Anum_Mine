@@ -72,7 +72,7 @@ test('the switch in Settings saves at once and leads to the chat memories, which
   await expect.poll(() => state.puts).toEqual([{ remember_conversations: false }]);
 
   await section.getByRole('button', { name: 'Review or delete memories from my chats' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Memory' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Knowledge Base' })).toBeVisible();
   await expect(page.getByRole('radio', { name: 'From my chats' })).toBeChecked();
   await expect.poll(() => state.memoryQueries.at(-1)).toBe('?source_type=conversation');
   const list = page.getByRole('region', { name: 'Memories from my chats' });

@@ -31,7 +31,7 @@ function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
 
 const when = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
 
-export function InboxView({ onOpenBudgets, onOpenApprovals }: { onOpenBudgets?: () => void; onOpenApprovals?: () => void } = {}) {
+export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: { onOpenBudgets?: () => void; onOpenApprovals?: () => void; initialMessageId?: string | null } = {}) {
   const owner = useIsOwner();
   const [setup, setSetup] = useState<EmailSetup | null>(null);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
@@ -45,7 +45,8 @@ export function InboxView({ onOpenBudgets, onOpenApprovals }: { onOpenBudgets?: 
   const [cursor, setCursor] = useState<string | null>(null);
   const [listState, setListState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [listError, setListError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  // A message opened from global search starts selected.
+  const [selected, setSelected] = useState<string | null>(initialMessageId ?? null);
   const [busy, setBusy] = useState<string | null>(null);
   const [privateConnect, setPrivateConnect] = useState(false);
   const autoSynced = useRef(false);

@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
 
-// One mocked workspace with something on every main view (Assistant, Tasks, Approvals, Memory,
+// One mocked workspace with something on every main view (the Command Center home, Assistant, Tasks, Approvals, Memory,
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, What ANUM learned), for the accessibility and localization specs. Every request the views make
 // is answered; anything else is aborted so a new, unmocked call shows up as a failure.
