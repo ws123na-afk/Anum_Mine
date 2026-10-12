@@ -71,14 +71,14 @@ def _split_parts(sentence: str) -> _Parts | None:
     if lead:
         rest = sentence[lead.end():]
         # The first " to " after at least one character: the person's name is short.
-        cuts = [m.start() for m in _TO.finditer(rest) if m.start() > 0 and rest[m.start() + 4:]]
+        cuts = [m.start() for m in _TO.finditer(rest) if 0 < m.start() and m.start() + 4 < len(rest)]
         if cuts:
             return _Parts(person=rest[: cuts[0]], work=rest[cuts[0] + 4:], kind="ask")
     lead = _ASSIGN_LEAD.match(sentence)
     if lead:
         rest = sentence[lead.end():]
         # The last such " to ": the work itself may contain "to".
-        cuts = [m.start() for m in _TO.finditer(rest) if m.start() > 0 and rest[m.start() + 4:]]
+        cuts = [m.start() for m in _TO.finditer(rest) if 0 < m.start() and m.start() + 4 < len(rest)]
         if cuts:
             return _Parts(person=rest[cuts[-1] + 4:], work=rest[: cuts[-1]], kind="assign")
     match = _ARABIC.match(sentence)
@@ -92,7 +92,7 @@ def _split_due(tail: str, arabic: bool) -> tuple[str, str] | None:
     word, bare = (_ARABIC_DUE_WORD, _ARABIC_DUE_BARE) if arabic else (_DUE_WORD, _DUE_BARE)
     best: tuple[int, str] | None = None
     for found in word.finditer(tail):
-        if tail[found.end():]:
+        if found.end() < len(tail):
             best = (found.start(), tail[found.end():])
             break
     trailing = bare.search(tail)

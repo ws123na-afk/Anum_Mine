@@ -20,6 +20,22 @@ AnumTone mkTone(String status) => switch (status) {
       _ => AnumTone.neutral,
     };
 
+/// Opens a checked https [link] in the browser; says so when it could not
+/// (no usable link, no browser, or the launch failed).
+Future<void> _openLink(BuildContext context, Uri? link) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final failed = context.anum.t('linkOpenFailed');
+  var opened = false;
+  if (link != null) {
+    try {
+      opened = await launchUrl(link, mode: LaunchMode.externalApplication);
+    } on Object {
+      opened = false;
+    }
+  }
+  if (!opened) messenger?.showSnackBar(SnackBar(content: Text(failed)));
+}
+
 String _when(BuildContext context, DateTime? value) {
   if (value == null) return context.anum.t('mk.notScheduled');
   final local = value.toLocal();
@@ -299,11 +315,9 @@ class PostTile extends StatelessWidget {
                       spacing: AnumSpacing.xs,
                       runSpacing: AnumSpacing.xs,
                       children: [
-                        if (post.externalUrl != null)
+                        if (mkHttpsLink(post.externalUrl) case final link?)
                           TextButton.icon(
-                              onPressed: () => launchUrl(
-                                  Uri.parse(post.externalUrl!),
-                                  mode: LaunchMode.externalApplication),
+                              onPressed: () => _openLink(context, link),
                               icon: const Icon(Icons.open_in_new),
                               label: Text(l.t('mk.open'))),
                         if (c.canWrite && post.canSchedule)
@@ -617,10 +631,10 @@ class _AccountsTab extends StatelessWidget {
                                 : () async {
                                     final url =
                                         await c.startConnect(provider.provider);
-                                    if (url != null) {
-                                      await launchUrl(Uri.parse(url),
-                                          mode: LaunchMode.externalApplication);
+                                    if (url == null || !context.mounted) {
+                                      return;
                                     }
+                                    await _openLink(context, mkHttpsLink(url));
                                   },
                             child: Text(
                                 l.f('mk.connect', {'name': provider.label}))),

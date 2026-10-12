@@ -316,3 +316,14 @@ List<String> parseHashtags(String value) {
   }
   return tags;
 }
+
+/// [value] as a link the app may hand to the browser: an absolute `https`
+/// URL with a host, or null. Post links and connect pages come from the
+/// server and the social platforms, so other schemes (`intent:`, `file:`,
+/// `tel:`, `http:`) are never launched.
+Uri? mkHttpsLink(String? value) {
+  if (value == null) return null;
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return null;
+  return uri;
+}

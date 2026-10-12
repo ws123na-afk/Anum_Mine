@@ -32,7 +32,6 @@ from .insights import low_stock, sales_summary
 from .models import (
     AMAZON_MARKETPLACES,
     CHANNEL_LABELS,
-    NOON_MARKETPLACES,
     OPEN_ORDER_STATUSES,
     Channel,
     Listing,

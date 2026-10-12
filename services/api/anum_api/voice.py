@@ -344,7 +344,7 @@ def _final_user_segment(store: VoiceSessionStore, session: VoiceSession, segment
     segment = store.get_segment(session.id, segment_id)
     if not segment or segment.role != TranscriptRole.USER or not segment.is_final:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A final user transcript segment is required",
         )
     return segment
