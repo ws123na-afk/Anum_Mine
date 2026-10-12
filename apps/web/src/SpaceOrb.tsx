@@ -58,7 +58,12 @@ export function SpaceOrb({ mode, variant, getLevel, fallback, controls = false, 
 
   useEffect(() => { scene.current?.setMode(mode); }, [mode]);
 
-  if (unavailable) return <>{fallback}</>;
+  // Without a 2D canvas the compact orb shows its fallback inside the outer orb button; the full
+  // view keeps its children (the talk button) so speech can still be started and stopped.
+  if (unavailable) {
+    if (variant !== 'full') return <>{fallback}</>;
+    return <div className={`spaceOrb ${variant} spaceFallback`} data-space-mode={mode}>{fallback}{children}</div>;
+  }
   return <div ref={stage} className={`spaceOrb ${variant}`} data-space-mode={mode} data-space-paused={paused ? 'true' : undefined}>
     <canvas ref={canvas} className="spaceCanvas" aria-hidden="true" />
     {children}
