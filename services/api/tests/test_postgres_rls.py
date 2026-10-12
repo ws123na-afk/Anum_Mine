@@ -65,6 +65,8 @@ TENANT_TABLES = {
     "meetings",
     "meeting_transcript_segments",
     "meeting_connector_accounts",
+    "commands",
+    "quick_commands",
     "audit_records",
     "workspace_invitations",
     "workspace_memberships",

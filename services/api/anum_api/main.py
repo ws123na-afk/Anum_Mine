@@ -131,6 +131,7 @@ from .learning_store import new_signal, record_server_signal
 from . import delivery
 from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
+from .commands import router as commands_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -277,6 +278,8 @@ event_runtime.add_listener(push_dispatcher.submit)
 app.include_router(autonomy_router)
 app.include_router(learning_router)
 app.include_router(meetings_router)
+# ANUM Command (docs/command.md): plan preview, command records, quick commands.
+app.include_router(commands_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

@@ -175,3 +175,4 @@ export * from './account.js';
 export * from './autonomy.js';
 export * from './learning.js';
 export * from './commerce.js';
+export * from './command.js';

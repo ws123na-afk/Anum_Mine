@@ -85,6 +85,7 @@ x-user-roles: owner,member
 - [Multi-tenancy](docs/multi-tenancy.md)
 - [Agent runtime](docs/agent-runtime.md)
 - [Tasks and agent runs](docs/tasks.md)
+- [ANUM Command: plan, run and follow one request](docs/command.md)
 - [Model gateway](docs/model-gateway.md)
 - [Conversations](docs/conversations.md)
 - [Developer mode](docs/developer-mode.md)

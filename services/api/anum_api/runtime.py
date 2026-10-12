@@ -116,17 +116,7 @@ class AgentRuntime:
         Read through the run's repository (same unit of work and RLS scope). A failure
         to read it propagates like the governance rules: the call never runs on a guess.
         """
-        store = store_of(self.repository)
-        if store is None or definition is None or decision.outcome == ToolPolicyOutcome.BLOCK:
-            return decision
-        profile = profile_call(call, definition)  # type: ignore[arg-type]
-        verdict = AutonomyEngine(store).evaluate(
-            profile,
-            context,
-            platform_allows=decision.outcome == ToolPolicyOutcome.ALLOW,
-            facts=self.tools.autonomy_facts(call, context),
-        )
-        return apply_autonomy(decision, profile, verdict)
+        return with_workspace_autonomy(self.repository, call, definition, decision, context, tools=self.tools)
 
     async def run_task(self, task: Task, context: TenantContext) -> tuple[AgentRun, Approval | None]:
         """Plan and, when policy allows, execute in one call (the inline backend)."""
@@ -871,3 +861,31 @@ class AgentRuntime:
             correlation_id=correlation_id,
         )
         self.repository.record_event(envelope.event)
+
+
+def with_workspace_autonomy(
+    repository: AnumRepository,
+    call: ToolCall,
+    definition: object,
+    decision: ToolPolicyDecision,
+    context: TenantContext,
+    *,
+    tools: ToolRegistry,
+) -> ToolPolicyDecision:
+    """The tool policy ``decision`` with the workspace's autonomy policy applied.
+
+    Shared by the runtime and the command plan preview (docs/command.md), so a preview
+    says "needs approval" exactly when a run would pause for one.
+    """
+    store = store_of(repository)
+    if store is None or definition is None or decision.outcome == ToolPolicyOutcome.BLOCK:
+        return decision
+    profile = profile_call(call, definition)  # type: ignore[arg-type]
+    verdict = AutonomyEngine(store).evaluate(
+        profile,
+        context,
+        platform_allows=decision.outcome == ToolPolicyOutcome.ALLOW,
+        # Connector facts (amounts, recipients) exactly as a run would see them.
+        facts=tools.autonomy_facts(call, context),
+    )
+    return apply_autonomy(decision, profile, verdict)

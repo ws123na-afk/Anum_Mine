@@ -17,6 +17,7 @@ from anum_api.conversations import Conversation, ConversationTurn
 from anum_api.files import FileRecord
 from anum_api.memory import MemoryNote
 from anum_api.onboarding import NotificationPreferences
+from anum_api.commands import privacy_counts as command_privacy_counts
 from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by, learning_counts
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
 from anum_api.push import PushDevice
@@ -27,6 +28,7 @@ from anum_api.meetings import TranscriptSegment as MeetingTranscriptSegment
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
 
 from .conversation_repository import _conversation, _turn
+from .command_repository import SqlAlchemyCommandStore
 from .learning_repository import SqlAlchemyLearningStore
 from .meetings_repository import SqlAlchemyConnectionStore, SqlAlchemyMeetingStore, _meeting, _segment as _meeting_segment
 from .memory_repository import SqlAlchemyMemoryRepository
@@ -203,6 +205,10 @@ class SqlAlchemyPrivacyStore:
         """The caller's learning rows, in this same transaction and RLS context."""
         return SqlAlchemyLearningStore(self.session, self.context)
 
+    def commands(self) -> SqlAlchemyCommandStore:
+        """The caller's commands and quick commands, in this same transaction."""
+        return SqlAlchemyCommandStore(self.session, self.context)
+
     def _file_filter(self):  # type: ignore[no-untyped-def]
         return (*self._in_workspace(WorkspaceFileRecord), WorkspaceFileRecord.created_by == self.context.user_id)
 
@@ -293,6 +299,7 @@ class SqlAlchemyPrivacyStore:
             meeting_transcript_segments=self._count(MeetingTranscriptSegmentRecord, *self._meeting_segment_filter()),
             meeting_recordings=self._count(WorkspaceFileRecord, *self._recording_filter()),
             meeting_connections=self._count(MeetingConnectorAccountRecord, *self._mine(MeetingConnectorAccountRecord)),
+            **command_privacy_counts(self.commands()),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -330,6 +337,7 @@ class SqlAlchemyPrivacyStore:
         self.session.execute(delete(MeetingTranscriptSegmentRecord).where(*self._meeting_segment_filter()))
         self.session.execute(delete(MeetingRecord).where(*self._meeting_filter()))
         self.session.execute(delete(MeetingConnectorAccountRecord).where(*self._mine(MeetingConnectorAccountRecord)))
+        self.commands().delete_all()
         self.session.flush()
         return deleted
 

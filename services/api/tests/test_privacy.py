@@ -162,6 +162,8 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "meeting_transcript_segments": 0,
         "meeting_recordings": 0,
         "meeting_connections": 0,
+        "commands": 0,
+        "quick_commands": 0,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -334,6 +336,8 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "meeting_transcript_segments": 0,
         "meeting_recordings": 0,
         "meeting_connections": 0,
+        "commands": 0,
+        "quick_commands": 0,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]
@@ -393,7 +397,7 @@ def test_build_export_is_valid_json_with_every_section() -> None:
     parsed = json.loads(body)
     assert set(sections) == {
         "identity", "conversations", "memories", "voice_sessions", "tasks_created",
-        "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "learning", "files_uploaded",
+        "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "learning", "commands", "files_uploaded",
         "meetings_imported", "meeting_connections",
     }
     assert parsed["notification_preferences"] is None

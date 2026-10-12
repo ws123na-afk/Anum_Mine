@@ -44,6 +44,8 @@ TABLES_IN_DELETE_ORDER = (
     "tyre_alerts",
     "tyre_snapshots",
     "tyre_connections",
+    "commands",
+    "quick_commands",
     "whatsapp_messages",
     "whatsapp_conversations",
     "whatsapp_contacts",

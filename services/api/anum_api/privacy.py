@@ -52,6 +52,9 @@ from .authorization import Permission
 from .conversations import Conversation, ConversationTurn
 from .dependencies import require_permission, tenant_context
 from .files import FileRecord
+from .commands import CommandStore
+from .commands import privacy_counts as command_privacy_counts
+from .commands import privacy_export as command_privacy_export
 from .learning_store import LearningStore
 from .memory import MemoryNote
 from .onboarding import NotificationPreferences
@@ -105,6 +108,10 @@ class PrivateCounts(BaseModel):
     meeting_transcript_segments: int = 0
     meeting_recordings: int = 0
     meeting_connections: int = 0
+    # ANUM Command history and saved quick commands (migration 0044_commands,
+    # docs/command.md); the tasks a command created stay with the workspace.
+    commands: int = 0
+    quick_commands: int = 0
 
     @property
     def total(self) -> int:
@@ -193,6 +200,7 @@ class PrivacyStore(Protocol):
     def meetings_created(self) -> list[tuple[Meeting, list[MeetingTranscriptSegment]]]: ...
     def meeting_recordings(self) -> list[FileRecord]: ...
     def meeting_connections(self) -> list[StoredConnection]: ...
+    def commands(self) -> CommandStore: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
     def record_audit(self, record: AuditRecord) -> None: ...
@@ -332,6 +340,11 @@ class InMemoryPrivacyStore:
 
         return sorted(connection_store.list_connections(self.context), key=lambda item: item.provider.value)
 
+    def commands(self) -> CommandStore:
+        from .commands import memory_command_store
+
+        return memory_command_store.bind(self.context)
+
     def _private_sources(self) -> list[Any]:
         from .retrieval import memory_retrieval_store
 
@@ -363,6 +376,7 @@ class InMemoryPrivacyStore:
             meeting_transcript_segments=sum(len(rows) for _, rows in meetings),
             meeting_recordings=len(self.meeting_recordings()),
             meeting_connections=len(self.meeting_connections()),
+            **command_privacy_counts(self.commands()),
         )
         return private, self._shared_counts()
 
@@ -417,6 +431,7 @@ class InMemoryPrivacyStore:
                 file_store.records.pop(record.id, None)
         for connection in self.meeting_connections():
             connection_store.delete(self.context, connection.provider)
+        self.commands().delete_all()
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -566,6 +581,7 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     # Platform, label and dates only: the push token is never exported.
     yield ("push_devices", [_dump(device) for device in store.push_devices()])
     yield ("learning", learning_export(store.learning()))
+    yield ("commands", command_privacy_export(store.commands()))
     yield (
         "files_uploaded",
         [

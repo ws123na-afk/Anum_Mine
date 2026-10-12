@@ -35,13 +35,35 @@ class SkillRegistry:
         return self._manifests.get(skill_id)
 
     def select(self, prompt: str, available_tools: set[str]) -> list[SkillManifest]:
-        words = set(re.findall(r"[a-z0-9_-]+", prompt.lower()))
+        words = prompt_words(prompt)
         return [
             manifest
             for manifest in self._manifests.values()
             if (not manifest.triggers or bool(words & manifest.triggers))
             and manifest.required_tools <= available_tools
         ]
+
+
+_ARABIC = re.compile(r"[؀-ۿ]")
+
+
+def prompt_words(prompt: str) -> set[str]:
+    """The words a skill trigger can match, in English and Arabic.
+
+    Arabic words also count without a leading conjunction ("و", and) or article ("ال",
+    the), so "وأرسل" (and send) and "البريد" (the mail) match "أرسل" and "بريد".
+    """
+    words: set[str] = set()
+    for word in re.findall(r"[\w-]+", prompt.lower()):
+        words.add(word)
+        if not _ARABIC.match(word):
+            continue
+        bare = word[1:] if word.startswith("و") and len(word) > 3 else word
+        words.add(bare)
+        for variant in (word, bare):
+            if variant.startswith("ال") and len(variant) > 4:
+                words.add(variant[2:])
+    return words
 
 
 def default_skill_registry() -> SkillRegistry:
@@ -58,7 +80,10 @@ def default_skill_registry() -> SkillRegistry:
                 version="1.0.0",
                 name="Document drafting",
                 description="Drafts and summarizes text without external side effects.",
-                triggers=frozenset({"draft", "write", "summarize", "prepare"}),
+                # Arabic: write, summarize (with and without shadda), summary, prepare, draft.
+                triggers=frozenset(
+                    {"draft", "write", "summarize", "prepare", "اكتب", "لخص", "لخّص", "ملخص", "جهز", "حضر", "مسودة"}
+                ),
                 required_tools=frozenset({"anum.respond"}),
             ),
             SkillManifest(
@@ -66,7 +91,9 @@ def default_skill_registry() -> SkillRegistry:
                 version="1.0.0",
                 name="Web search",
                 description="Looks things up on the web through the deployment's private SearXNG.",
-                triggers=frozenset({"search", "web", "internet", "online", "lookup", "google", "news"}),
+                triggers=frozenset(
+                    {"search", "web", "internet", "online", "lookup", "google", "news", "ابحث", "إنترنت", "انترنت", "أخبار", "اخبار"}
+                ),
                 # Selectable only where ANUM_SEARXNG_URL registered the tool.
                 required_tools=frozenset({"web_search"}),
             ),
@@ -75,7 +102,7 @@ def default_skill_registry() -> SkillRegistry:
                 version="1.0.0",
                 name="WhatsApp inbox",
                 description="Reads the workspace's WhatsApp conversations; replies are drafted and sent from the inbox with approval.",
-                triggers=frozenset({"whatsapp"}),
+                triggers=frozenset({"whatsapp", "واتساب", "واتس"}),
                 required_tools=frozenset({"list_whatsapp_conversations"}),
             ),
             SkillManifest(
@@ -83,7 +110,12 @@ def default_skill_registry() -> SkillRegistry:
                 version="1.0.0",
                 name="Email inbox",
                 description="Finds and summarises emails in the connected Gmail, Outlook and Zoho mailboxes.",
-                triggers=frozenset({"email", "emails", "e-mail", "e-mails", "inbox", "mail", "mails", "gmail", "outlook", "zoho"}),
+                triggers=frozenset(
+                    {
+                        "email", "emails", "e-mail", "e-mails", "inbox", "mail", "mails", "gmail", "outlook", "zoho",
+                        "بريد", "بريدي", "إيميل", "ايميل", "إيميلات", "ايميلات", "إيميلاتي", "ايميلاتي",
+                    }
+                ),
                 # Selectable wherever the email tools are registered (docs/email.md).
                 required_tools=frozenset({"search_email"}),
             ),
@@ -117,7 +149,10 @@ def default_skill_registry() -> SkillRegistry:
                 name="External action",
                 description="Plans governed actions that affect systems outside ANUM.",
                 triggers=frozenset(
-                    {"delete", "send", "publish", "spend", "pay", "permission", "credential"}
+                    {
+                        "delete", "send", "publish", "spend", "pay", "permission", "credential",
+                        "أرسل", "ارسل", "احذف", "انشر", "ادفع",
+                    }
                 ),
                 required_tools=frozenset({"external.action"}),
                 risk_level=RiskLevel.HIGH,

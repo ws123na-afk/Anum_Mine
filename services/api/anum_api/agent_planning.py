@@ -75,42 +75,52 @@ class AgentPlanner:
         skills: list[SkillManifest],
         response: ModelResponse,
     ) -> ToolCall:
-        if any(skill.id == "anum.whatsapp-inbox" for skill in skills):
-            # Read-only: which conversations need attention. Replies are drafted and sent
-            # from the inbox, where a person approves them (docs/whatsapp.md#agent-tools).
-            words = set(prompt.lower().split())
-            waiting = bool(words & {"reply", "replies", "unanswered", "answer", "waiting"})
-            return ToolCall(
-                name="list_whatsapp_conversations",
-                arguments={"filter": "needs_reply" if waiting else "all", "limit": 20},
-            )
-        if any(skill.id == "anum.email" for skill in skills):
-            # Mail questions read the inbox; filters come from the user's own words (threat
-            # model G5). Sending is never planned here: it is a draft approved in the Inbox.
-            from .email_inbox import SEARCH_TOOL, tool_arguments_from_prompt
+        return choose_tool_call(prompt, skills, response.text)
 
-            return ToolCall(name=SEARCH_TOOL, arguments=tool_arguments_from_prompt(prompt))
-        if any(skill.id == "anum.commerce" for skill in skills):
-            # Parsed from the user's own prompt only (threat model G5); None falls through.
-            from .commerce.tools import plan_call
 
-            call = plan_call(prompt)
-            if call is not None:
-                if call.name == "anum.respond" and "text" not in call.arguments:
-                    call.arguments["text"] = response.text
-                return call
-        if any(skill.id == "anum.external-action" for skill in skills):
-            return ToolCall(
-                name="external.action",
-                arguments={"action": prompt, "planned_response": response.text},
-            )
-        if any(skill.id == "anum.tyre-planning" for skill in skills):
-            # Read-only tyre tools; the tool and its arguments come from the user's own words.
-            from .tyre.tools import choose_call
+def choose_tool_call(prompt: str, skills: Sequence[SkillManifest], planned_text: str) -> ToolCall:
+    """The one tool call a task's prompt and selected skills lead to.
 
-            return choose_call(prompt)
-        if any(skill.id == "anum.web-search" for skill in skills):
-            # The query is the user's own prompt, never retrieved text or model output
-            # (threat model G5); the tool caps its length.
-            return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
-        return ToolCall(name="anum.respond", arguments={"text": response.text})
+    Deterministic and free of model output except ``planned_text`` (the model's answer,
+    used only by ``anum.respond``), so the command plan preview (docs/command.md) can show
+    exactly which tool a step will use before anything runs.
+    """
+    if any(skill.id == "anum.whatsapp-inbox" for skill in skills):
+        # Read-only: which conversations need attention. Replies are drafted and sent
+        # from the inbox, where a person approves them (docs/whatsapp.md#agent-tools).
+        words = set(prompt.lower().split())
+        waiting = bool(words & {"reply", "replies", "unanswered", "answer", "waiting"})
+        return ToolCall(
+            name="list_whatsapp_conversations",
+            arguments={"filter": "needs_reply" if waiting else "all", "limit": 20},
+        )
+    if any(skill.id == "anum.email" for skill in skills):
+        # Mail questions read the inbox; filters come from the user's own words (threat
+        # model G5). Sending is never planned here: it is a draft approved in the Inbox.
+        from .email_inbox import SEARCH_TOOL, tool_arguments_from_prompt
+
+        return ToolCall(name=SEARCH_TOOL, arguments=tool_arguments_from_prompt(prompt))
+    if any(skill.id == "anum.commerce" for skill in skills):
+        # Parsed from the user's own prompt only (threat model G5); None falls through.
+        from .commerce.tools import plan_call
+
+        call = plan_call(prompt)
+        if call is not None:
+            if call.name == "anum.respond" and "text" not in call.arguments:
+                call.arguments["text"] = planned_text
+            return call
+    if any(skill.id == "anum.external-action" for skill in skills):
+        return ToolCall(
+            name="external.action",
+            arguments={"action": prompt, "planned_response": planned_text},
+        )
+    if any(skill.id == "anum.tyre-planning" for skill in skills):
+        # Read-only tyre tools; the tool and its arguments come from the user's own words.
+        from .tyre.tools import choose_call
+
+        return choose_call(prompt)
+    if any(skill.id == "anum.web-search" for skill in skills):
+        # The query is the user's own prompt, never retrieved text or model output
+        # (threat model G5); the tool caps its length.
+        return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
+    return ToolCall(name="anum.respond", arguments={"text": planned_text})

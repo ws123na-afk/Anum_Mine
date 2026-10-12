@@ -600,3 +600,20 @@ def test_tyre_planning_migration_is_expand_only_with_forced_rls_and_a_discovery_
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade
     assert "server_default=sa.true()" in upgrade  # the new notification column has a default
+
+
+def test_commands_migration_is_expand_only_with_per_user_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0044_commands.py").read_text(encoding="utf-8")
+    assert 'revision = "0044_commands"' in revision_text and len("0044_commands") <= 32
+    assert 'down_revision = "0043_meetings"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0044_commands.py"]
+    assert not [path for path in others if 'down_revision = "0043_meetings"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    for setting in ("anum.tenant_id", "anum.workspace_id", "anum.user_id"):
+        assert f"current_setting('{setting}', true)" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
