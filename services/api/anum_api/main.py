@@ -146,6 +146,7 @@ from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
 from .reports import router as reports_router
 from .agent_policy import AgentRunProfile
+from .agent_skill_loadout import agent_run_profile
 from .agent_profiles import NOT_FOUND as AGENT_NOT_FOUND, AgentStatus, configure_runtime_catalog, load_agent
 from .agent_profiles import router as agents_router
 from .phase5 import router as phase5_router
@@ -1036,7 +1037,7 @@ async def retry_task(
                 check_model_budget(context)
                 task = _get_task_for_context(task_id, context, repository, for_update=True)
                 _check_retryable(task, context, repository)
-                agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+                agent = agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
                 previous = repository.find_run_for_task(task.id, context)
                 _record_task_event(
                     repository,
@@ -1060,7 +1061,7 @@ async def retry_task(
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
             _check_retryable(task, context, repository)
             # A retry as an agent uses the agent as it is now (docs/agents.md).
-            return AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+            return agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
 
         def retried(repository: AnumRepository, task: Task, previous_run_id: str | None) -> None:
             _record_task_event(
@@ -1097,7 +1098,7 @@ async def run_task(
                 check_model_budget(context)
                 task = _get_task_for_context(task_id, context, repository, for_update=True)
                 _check_runnable(task, context, repository)
-                agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+                agent = agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
                 runtime = AgentRuntime(
                     budgeted_model_gateway(context, model_gateway),
                     repository,
@@ -1113,7 +1114,7 @@ async def run_task(
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
             _check_runnable(task, context, repository)
             # A task as an agent runs with a snapshot of the agent as it is now (docs/agents.md).
-            return AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+            return agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
 
         return await _run_inline_task(context, task_id, check, unit_of_work=units)
 

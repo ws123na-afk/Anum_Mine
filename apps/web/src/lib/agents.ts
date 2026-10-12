@@ -3,14 +3,16 @@
 import type {
   AgentAutonomy, AgentAutonomyLevel, AgentCatalog, AgentCatalogSkill, AgentCatalogTool, AgentCategory, AgentKnowledgeMode,
   AgentKnowledgeSource, AgentMemory, AgentMemoryPage, AgentModelRoute, AgentPage, AgentProfile, AgentProfileFields,
-  AgentProfileUpdate, AgentSharing, AgentStatus, AgentTemplate, AgentToolCategory,
+  AgentProfileUpdate, AgentSharing, AgentSkillLoadout, AgentSkillState, AgentSkillStateName, AgentSkillTool, AgentStatus,
+  AgentTemplate, AgentToolCategory, SkillUsage, SkillUsagePage,
 } from '@anum/contracts';
 import type { MessageKey } from './i18n.ts';
 
 export type {
   AgentAutonomy, AgentAutonomyLevel, AgentCatalog, AgentCatalogSkill, AgentCatalogTool, AgentCategory, AgentKnowledgeMode,
   AgentKnowledgeSource, AgentMemory, AgentMemoryPage, AgentModelRoute, AgentPage, AgentProfile, AgentProfileFields,
-  AgentProfileUpdate, AgentSharing, AgentStatus, AgentTemplate, AgentToolCategory,
+  AgentProfileUpdate, AgentSharing, AgentSkillLoadout, AgentSkillState, AgentSkillStateName, AgentSkillTool, AgentStatus,
+  AgentTemplate, AgentToolCategory, SkillUsage, SkillUsagePage,
 };
 
 export const AGENT_PAGE_SIZE = 24;
@@ -201,6 +203,74 @@ export function mergeById<T extends { id: string }>(first: readonly T[], more: r
   return [...first, ...more.filter((item) => !seen.has(item.id))];
 }
 
+// ---------------------------------------------------------------------------- skills an agent loads
+
+/** Badge tone for a loadout state (always shown with its text label). */
+export function skillStateTone(state: AgentSkillStateName): 'success' | 'warning' | 'dangerTone' | 'neutral' {
+  if (state === 'ready') return 'success';
+  if (state === 'needs_tools' || state === 'disabled') return 'warning';
+  if (state === 'blocked' || state === 'unavailable') return 'dangerTone';
+  return 'neutral';
+}
+
+/** Ready skills first, then the ones that need attention; by name within each group. */
+export function sortLoadout(items: readonly AgentSkillState[]): AgentSkillState[] {
+  const rank = (s: AgentSkillState) => (s.state === 'ready' ? 0 : 1);
+  return [...items].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+/** Registered tools a skill needs that the agent does not allow yet but the caller may give it. */
+export function allowableMissingTools(item: AgentSkillState, catalog: AgentCatalog | null): string[] {
+  if (!catalog) return [];
+  const usable = new Set(catalog.tools.filter((tool) => tool.available_to_you && !tool.always_on).map((tool) => tool.name));
+  return item.tools.filter((tool) => tool.registered && !tool.allowed && tool.granted !== false && usable.has(tool.name)).map((tool) => tool.name);
+}
+
+/** The PATCH that adds a skill (and, for a built-in one, the tools it needs that the caller may give). */
+export function attachSkillChanges(agent: AgentProfile, skill: AgentCatalogSkill, catalog: AgentCatalog): AgentProfileUpdate {
+  const next = toggleSkill(draftFromAgent(agent), skill, true, catalog);
+  return { allowed_skills: [...next.allowed_skills].sort(), allowed_tools: [...next.allowed_tools].sort(), version: agent.version };
+}
+
+/** The PATCH that removes a skill; the tools stay (other skills or the agent may use them). */
+export function detachSkillChanges(agent: AgentProfile, skillId: string): AgentProfileUpdate {
+  return { allowed_skills: agent.allowed_skills.filter((id) => id !== skillId), version: agent.version };
+}
+
+/** The PATCH that allows more tools on the agent. */
+export function allowToolsChanges(agent: AgentProfile, tools: readonly string[]): AgentProfileUpdate {
+  return { allowed_tools: [...new Set([...agent.allowed_tools, ...tools])].sort(), version: agent.version };
+}
+
+/** Catalog skills the agent does not load yet, matching a search over name, id, description and tools. */
+export function addableSkills(catalog: AgentCatalog | null, loaded: readonly string[], query: string): AgentCatalogSkill[] {
+  if (!catalog) return [];
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const have = new Set(loaded);
+  return catalog.skills
+    .filter((skill) => !have.has(skill.id))
+    .filter((skill) => words.every((word) => `${skill.name} ${skill.id} ${skill.description} ${skill.required_tools.join(' ')}`.toLowerCase().includes(word)))
+    .sort((a, b) => (a.source === b.source ? a.name.localeCompare(b.name) : a.source === 'installed' ? -1 : 1));
+}
+
+/** Loaded skills matching a search (shown once the list is long). */
+export function filterLoadout(items: readonly AgentSkillState[], query: string): AgentSkillState[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return items.filter((item) => words.every((word) => `${item.name} ${item.id} ${item.description} ${item.tools.map((t) => t.name).join(' ')}`.toLowerCase().includes(word)));
+}
+
+/** Skill names for an agent card: the first few by catalog name, and how many more. */
+export function skillNames(agent: AgentProfile, catalog: AgentCatalog | null, max = 3): { names: string[]; more: number } {
+  const byId = new Map((catalog?.skills ?? []).map((skill) => [skill.id, skill.name]));
+  const names = agent.allowed_skills.map((id) => byId.get(id) ?? id);
+  return { names: names.slice(0, max), more: Math.max(0, names.length - max) };
+}
+
+/** Usage by skill id, for the Skills page. */
+export function usageById(page: SkillUsagePage | null): Map<string, SkillUsage> {
+  return new Map((page?.items ?? []).map((item) => [item.skill_id, item]));
+}
+
 // ---------------------------------------------------------------------------- API
 
 type Requester = <T>(path: string, init: RequestInit) => Promise<T>;
@@ -216,6 +286,8 @@ export function agentsApi(request: Requester, requestVoid: VoidRequester) {
     remove: (id: string) => requestVoid(`/api/v1/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     memories: (id: string, q: string, cursor?: string | null) => request<AgentMemoryPage>(memoryListPath(id, q, cursor), { method: 'GET' }),
     addMemory: (id: string, content: string) => request<AgentMemory>(`/api/v1/agents/${encodeURIComponent(id)}/memories`, { method: 'POST', body: JSON.stringify({ content }) }),
+    skills: (id: string) => request<AgentSkillLoadout>(`/api/v1/agents/${encodeURIComponent(id)}/skills`, { method: 'GET' }),
+    skillUsage: () => request<SkillUsagePage>('/api/v1/agents/skills/usage', { method: 'GET' }),
     removeMemory: (id: string, memoryId: string) => requestVoid(`/api/v1/agents/${encodeURIComponent(id)}/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' }),
   };
 }

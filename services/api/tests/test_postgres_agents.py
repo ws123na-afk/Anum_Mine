@@ -176,6 +176,39 @@ def test_run_as_an_agent_on_postgresql(client: TestClient) -> None:
     assert latest["checkpoint"]["agent"]["version"] == 1
 
 
+def test_agents_load_installed_skills_on_postgresql(client: TestClient) -> None:
+    """docs/agents.md#skills: the loadout, the usage and a run read skills and agents under RLS."""
+    org_admin = headers("user_admin", "owner,org_admin")
+    published = client.post(
+        "/api/v1/skills/versions", headers=org_admin,
+        json={"skill_id": "acme.pg-notes", "version": "1.0.0", "name": "Notes", "description": "House style",
+              "instructions": "Write one line per change.", "required_tools": ["anum.respond"]},
+    )
+    assert published.status_code == 201, published.text
+    installed = client.post(
+        "/api/v1/skills/installations", headers=headers("user_boss", "owner"),
+        json={"skill_id": "acme.pg-notes", "version": "1.0.0", "approved_tools": ["anum.respond"]},
+    )
+    assert installed.status_code == 201, installed.text
+    shared = _create(client, name="Team", sharing="workspace", allowed_skills=["acme.pg-notes"])
+    _create(client, name="Mine", allowed_skills=["acme.pg-notes"])
+    agent_store.clear()  # restart: read back from PostgreSQL
+
+    loadout = client.get(f"/api/v1/agents/{shared['id']}/skills", headers=headers("user_other")).json()
+    assert [(i["id"], i["state"], i["version"]) for i in loadout["items"]] == [("acme.pg-notes", "ready", "1.0.0")]
+    usage = client.get("/api/v1/agents/skills/usage", headers=headers("user_other")).json()["items"]
+    assert [a["name"] for a in usage[0]["agents"]] == ["Team"]  # the private agent stays private under RLS
+    assert client.get("/api/v1/agents/skills/usage", headers=headers(tenant_id=TENANT_B, workspace_id=WORKSPACE_B)).json()["items"] == []
+
+    task = client.post(
+        "/api/v1/tasks", headers=headers("user_other"), json={"title": "Notes", "prompt": "Summarize", "agent_id": shared["id"]}
+    ).json()
+    run = client.post(f"/api/v1/tasks/{task['id']}/run", headers=headers("user_other")).json()
+    assert run["run"]["checkpoint"]["agent"]["loaded_skills"][0]["instructions"] == "Write one line per change."
+    model_step = next(step for step in run["run"]["steps"] if step["type"] == "model_call")
+    assert model_step["metadata"]["loaded_skills"] == [{"id": "acme.pg-notes", "version": "1.0.0"}]
+
+
 def test_agent_chat_threads_on_postgresql(client: TestClient) -> None:
     agent = _create(client, name="Chatty")
     general = client.post("/api/v1/conversations", headers=headers(), json={}).json()

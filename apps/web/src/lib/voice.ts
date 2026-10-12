@@ -1,3 +1,4 @@
+import { automatedBrowser, chooseRecognitionMode, type AvailabilityProbe, type RecognitionMode } from './recognitionMode';
 import type { Task } from '@anum/contracts';
 import { apiBaseUrl, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -180,7 +181,7 @@ type SpeechRecognitionConstructor = (new () => SpeechRecognitionLike) & {
   available?: (options: { langs: string[]; processLocally: boolean }) => Promise<string>;
 };
 
-export type RecognitionMode = 'on-device' | 'cloud' | 'typing';
+export type { RecognitionMode };
 
 function recognitionConstructor(): SpeechRecognitionConstructor | undefined {
   const browserWindow = window as typeof window & {
@@ -199,19 +200,12 @@ export function baseRecognitionMode(): RecognitionMode {
   return recognitionConstructor() ? 'cloud' : 'typing';
 }
 
-/** Call only from a user gesture: some headless/embedded Chromium builds crash on `available()`. */
-export async function detectRecognitionMode(locale: string): Promise<RecognitionMode> {
-  const Constructor = recognitionConstructor();
-  if (!Constructor) return 'typing';
-  if (typeof Constructor.available === 'function') {
-    try {
-      const availability = await Constructor.available({ langs: [locale], processLocally: true });
-      if (availability === 'available') return 'on-device';
-    } catch {
-      // Older implementations reject the options object; treat as cloud.
-    }
-  }
-  return 'cloud';
+/**
+ * Call only from a user gesture. Automated (headless) browsers skip the on-device probe, which
+ * crashes their renderer (lib/recognitionMode.ts).
+ */
+export async function detectRecognitionMode(locale: string, automated: boolean = automatedBrowser()): Promise<RecognitionMode> {
+  return chooseRecognitionMode(recognitionConstructor() as AvailabilityProbe | undefined, locale, automated);
 }
 
 export function createPushToTalk(

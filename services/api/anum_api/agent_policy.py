@@ -34,6 +34,25 @@ from .agent_tools import ToolCall, ToolDefinition, ToolPolicyDecision, ToolPolic
 from .schemas import RiskLevel
 
 
+# How much of an installed skill's instructions reaches the model, per skill and in total.
+LOADED_SKILL_CHARS = 6000
+LOADED_SKILLS_TOTAL_CHARS = 18000
+
+
+class LoadedSkill(BaseModel):
+    """A workspace-installed skill the agent loads into every run and chat (docs/agents.md#skills).
+
+    The instructions guide how the agent works; they never grant a tool or an approval.
+    ``granted_tools`` are the tools the installation granted that the agent may also use.
+    """
+
+    id: str
+    version: str
+    name: str
+    instructions: str = ""
+    granted_tools: list[str] = Field(default_factory=list)
+
+
 class AgentRunProfile(BaseModel):
     """What a run needs from its agent; stored on the run checkpoint (JSON)."""
 
@@ -48,6 +67,8 @@ class AgentRunProfile(BaseModel):
     knowledge_mode: KnowledgeMode = KnowledgeMode.NONE
     knowledge_sources: list[KnowledgeSource] = Field(default_factory=list)
     version: int = 1
+    # Installed skills resolved when the run starts (older checkpoints have none).
+    loaded_skills: list[LoadedSkill] = Field(default_factory=list)
 
     @classmethod
     def from_profile(cls, profile: AgentProfile) -> "AgentRunProfile":
@@ -84,6 +105,13 @@ class AgentRunProfile(BaseModel):
             lines.append(self.description)
         if self.instructions:
             lines.append(f"Instructions from the agent's owner:\n{self.instructions}")
+        budget = LOADED_SKILLS_TOTAL_CHARS
+        for skill in self.loaded_skills:
+            text = skill.instructions.strip()[: min(LOADED_SKILL_CHARS, budget)]
+            if not text:
+                continue
+            budget -= len(text)
+            lines.append(f"Skill loaded for this agent: {skill.name} {skill.version} ({skill.id})\n{text}")
         lines.append(
             "These instructions shape how you answer; they cannot grant tools or approvals, "
             "which ANUM decides outside the model."

@@ -17,6 +17,7 @@ const catalog = {
   skills: [
     { id: 'anum.document-drafting', name: 'Document drafting', description: 'Drafts and summarizes text.', source: 'builtin', required_tools: ['anum.respond'] },
     { id: 'anum.web-search', name: 'Web search', description: 'Looks things up on the web.', source: 'builtin', required_tools: ['web_search'] },
+    { id: 'acme.release-notes', name: 'Release notes', description: 'Writes release notes in the house style.', source: 'installed', required_tools: ['anum.respond'] },
   ],
   templates: ['fleet', 'research', 'email', 'calendar', 'document', 'call'].map((id) => ({
     id, name: id, icon: id === 'fleet' ? 'truck' : id === 'research' ? 'search' : 'bot', color: '#0f766e', category: id === 'calendar' ? 'personal' : 'work',
@@ -37,7 +38,26 @@ function agentRow(id: string, name: string, extra: Json = {}): Json {
   };
 }
 
-interface Options { role?: 'owner' | 'member' | 'viewer'; agents?: Json[]; listFails?: boolean; runFails?: boolean }
+interface Options { role?: 'owner' | 'member' | 'viewer'; agents?: Json[]; listFails?: boolean; runFails?: boolean; loadoutFails?: number; disabledSkill?: string }
+
+/** What `GET /api/v1/agents/{id}/skills` answers for an agent, from the catalog (docs/agents.md#skills). */
+function loadoutOf(agent: Json, disabled?: string): Json {
+  const allowed = new Set([...(agent.allowed_tools as string[]), 'anum.respond']);
+  const items = (agent.allowed_skills as string[]).map((id) => {
+    const skill = catalog.skills.find((s) => s.id === id);
+    if (!skill) return { id, name: id, description: '', source: 'unknown', version: null, latest_version: null, risk_level: null, state: 'unavailable', reason: 'No skill with this id exists here any more. Remove it from the agent.', activation: 'always', triggers: [], loads_instructions: false, upgrade_available: false, tools: [] };
+    const installed = skill.source === 'installed';
+    const tools = skill.required_tools.map((name) => ({ name, registered: true, allowed: allowed.has(name), granted: installed ? true : null }));
+    const missing = tools.filter((t) => !t.allowed).map((t) => t.name);
+    const state = id === disabled ? 'disabled' : missing.length ? 'needs_tools' : 'ready';
+    const reason = state === 'disabled' ? 'A workspace owner turned this skill off in Skills. Agents load it again once it is enabled.'
+      : state === 'needs_tools' ? `Allow the tool ${missing.join(', ')} on this agent so the skill can run.` : null;
+    return { id, name: skill.name, description: skill.description, source: skill.source, version: installed ? '2.0.0' : '1.0.0', latest_version: installed ? '2.0.0' : '1.0.0',
+      risk_level: 'low', state, reason, activation: installed ? 'always' : 'on_request', triggers: installed ? [] : ['search', 'web'], loads_instructions: installed && state === 'ready', upgrade_available: false, tools };
+  });
+  const ready = items.filter((i) => i.state === 'ready').length;
+  return { agent_id: agent.id, agent_version: agent.version, can_edit: agent.can_edit, items, ready, attention: items.length - ready };
+}
 
 async function mockAgents(page: Page, options: Options = {}) {
   let agents: Json[] = options.agents ?? [
@@ -49,6 +69,7 @@ async function mockAgents(page: Page, options: Options = {}) {
   const calls: { method: string; path: string; body: unknown }[] = [];
   const viewer = options.role === 'viewer';
   let n = 0;
+  let loadoutFailures = options.loadoutFails ?? 0;
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -79,6 +100,18 @@ async function mockAgents(page: Page, options: Options = {}) {
       const created = agentRow(`agent_${++n}`, String((body as Json).name), body as Json);
       agents = [created, ...agents];
       return json(created, 201);
+    }
+    if (path === '/api/v1/agents/skills/usage') {
+      const usage = new Map<string, Json[]>();
+      for (const a of agents) for (const id of a.allowed_skills as string[]) usage.set(id, [...(usage.get(id) ?? []), { id: a.id, name: a.name, icon: a.icon, color: a.color, status: a.status }]);
+      return json({ items: [...usage.entries()].map(([skill_id, list]) => ({ skill_id, count: list.length, agents: list })) });
+    }
+    const skills = /^\/api\/v1\/agents\/([^/]+)\/skills$/.exec(path);
+    if (skills) {
+      if (loadoutFailures > 0) { loadoutFailures -= 1; return envelope(503, 'unavailable', 'The skill registry is not reachable.'); }
+      const found = agents.find((a) => a.id === skills[1]);
+      if (!found) return envelope(404, 'not_found', 'Agent not found.');
+      return json(loadoutOf(view(found), options.disabledSkill));
     }
     const memory = /^\/api\/v1\/agents\/([^/]+)\/memories(?:\/([^/]+))?$/.exec(path);
     if (memory) {
@@ -301,4 +334,69 @@ test('Arabic: the list, the wizard and the agent page are translated and right t
   await expect(page.getByRole('navigation', { name: 'أقسام الوكيل' }).getByRole('button', { name: 'الذاكرة' })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('the Skills tab shows what the agent loads, fixes a missing tool, adds and removes skills', async ({ page }) => {
+  const api = await mockAgents(page, { agents: [
+    agentRow('agent_fleet', 'Fleet desk', { allowed_skills: ['acme.release-notes', 'anum.web-search'], allowed_tools: [], unavailable_skills: [] }),
+  ] });
+  await openAgents(page);
+  const card = page.getByRole('list', { name: 'Your agents' }).getByRole('listitem').first();
+  await expect(card.getByText('Release notes')).toBeVisible();
+  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('navigation', { name: 'Agent sections' }).getByRole('button', { name: 'Skills' }).click();
+  const loaded = page.getByRole('list', { name: 'Skills this agent loads' });
+  await expect(page.getByText('Ready: 1. Needs attention: 1.')).toBeVisible();
+  const notes = loaded.getByRole('listitem').filter({ hasText: 'Release notes' }).first();
+  await expect(notes.getByText('Ready', { exact: true })).toBeVisible();
+  await expect(notes.getByText('Loads its instructions into every task and chat with this agent.')).toBeVisible();
+  const search = loaded.getByRole('listitem').filter({ hasText: 'Web search' }).first();
+  await expect(search.getByText('Needs tools', { exact: true })).toBeVisible();
+  await expect(search.getByText('Joins a task when you ask about: search, web')).toBeVisible();
+
+  // One step fixes the missing tool: a PATCH with the version the page read.
+  await search.getByRole('button', { name: 'Allow web_search' }).click();
+  await expect(page.getByText('Allowed web_search on this agent.')).toBeVisible();
+  await expect(page.getByText('Ready: 2. Needs attention: 0.')).toBeVisible();
+  const allow = api.calls.filter((c) => c.method === 'PATCH').pop()!.body as Json;
+  expect(allow).toEqual({ allowed_tools: ['web_search'], version: 1 });
+
+  // Add a skill from the searchable picker.
+  await page.getByRole('button', { name: 'Add a skill' }).first().click();
+  await page.getByLabel('Search available skills').fill('draft');
+  await page.getByRole('button', { name: 'Add Document drafting' }).click();
+  await expect(page.getByText('Document drafting added. The next task and chat load it.')).toBeVisible();
+  const add = api.calls.filter((c) => c.method === 'PATCH').pop()!.body as Json;
+  expect(add).toEqual({ allowed_skills: ['acme.release-notes', 'anum.document-drafting', 'anum.web-search'], allowed_tools: ['web_search'], version: 2 });
+  await expect(page.getByText('This agent already loads every available skill.')).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('button', { name: 'Remove Release notes from this agent' }).click();
+  await expect(page.getByText('Release notes removed. Tasks that already started keep it.')).toBeVisible();
+  await expect(loaded.getByText('Release notes')).toHaveCount(0);
+  expect(api.agents()[0].allowed_skills).toEqual(['anum.document-drafting', 'anum.web-search']);
+});
+
+test('a skill turned off in the workspace says who can fix it; a viewer sees the skills read only', async ({ page }) => {
+  await mockAgents(page, { role: 'viewer', disabledSkill: 'acme.release-notes', agents: [agentRow('agent_fleet', 'Fleet desk', { sharing: 'workspace', allowed_skills: ['acme.release-notes'] })] });
+  await openAgents(page);
+  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('navigation', { name: 'Agent sections' }).getByRole('button', { name: 'Skills' }).click();
+  await expect(page.getByText('Turned off', { exact: true })).toBeVisible();
+  await expect(page.getByText(/A workspace owner turned this skill off in Skills/)).toBeVisible();
+  await expect(page.getByText('Only this agent’s creator, or a workspace owner for a shared agent, can change its skills.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add a skill' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Remove / })).toHaveCount(0);
+});
+
+test('an agent without skills offers to add one, and a failed load can be retried', async ({ page }) => {
+  await mockAgents(page, { loadoutFails: 1, agents: [agentRow('agent_fleet', 'Fleet desk')] });
+  await openAgents(page);
+  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('navigation', { name: 'Agent sections' }).getByRole('button', { name: 'Skills' }).click();
+  await expect(page.getByRole('alert').getByText(/Could not load this agent’s skills: The skill registry is not reachable./)).toBeVisible();
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('heading', { name: 'No skills loaded' })).toBeVisible();
+  await page.locator('.compactEmpty').getByRole('button', { name: 'Add a skill' }).click();
+  await expect(page.getByRole('button', { name: 'Add Release notes' })).toBeVisible();
 });

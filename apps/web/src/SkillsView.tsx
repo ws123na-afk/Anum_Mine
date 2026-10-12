@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CircleDot, History, Info, PackageCheck, PauseCircle, PlayCircle, Plus, RefreshCw, Search, ShieldAlert, Trash2, Undo2, X } from 'lucide-react';
+import { Bot, CircleDot, History, Info, PackageCheck, PauseCircle, PlayCircle, Plus, RefreshCw, Search, ShieldAlert, Sparkles, Trash2, Undo2, X } from 'lucide-react';
 import * as api from './lib/api';
+import { agentsApi, usageById, type AgentCatalogSkill, type SkillUsage, type SkillUsagePage } from './lib/agents';
 import { describeError, isPermissionDenied } from './lib/errors';
-import { approvalTone, emptyPublishDraft, filterSkills, groupSkills, historyLabel, pageOf, publishBody, rollbackTargets, type PublishDraft, type SkillDetail, type SkillFilter, type SkillGroup, type SkillVersionLike } from './lib/catalog';
+import { approvalTone, emptyPublishDraft, filterBuiltins, filterSkills, groupSkills, historyLabel, pageOf, usageNames, publishBody, rollbackTargets, type PublishDraft, type SkillDetail, type SkillFilter, type SkillGroup, type SkillVersionLike } from './lib/catalog';
 import * as catalog from './lib/catalogApi';
 import { getGovernanceSummary } from './lib/governanceApi';
 import { formatDateTime, t } from './lib/i18n';
@@ -12,6 +13,42 @@ import './features.css';
 import './catalog.css';
 
 const PAGE = 12;
+const agentsCalls = agentsApi(api.apiRequest, api.apiRequestVoid);
+
+/** Built-in skills and which agents load each skill (the agent catalog and usage, any member). */
+function useSkillAgents() {
+  const [builtins, setBuiltins] = useState<AgentCatalogSkill[]>([]);
+  const [usage, setUsage] = useState<SkillUsagePage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const [catalog, page] = await Promise.all([agentsCalls.catalog(), agentsCalls.skillUsage()]);
+      setBuiltins(catalog.skills.filter((skill) => skill.source === 'builtin')); setUsage(page); setError(null);
+    } catch (e) { setError(t('skills.usageFailed', { error: describeError(e) })); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  return { builtins, usage: useMemo(() => usageById(usage), [usage]), error, load };
+}
+
+/** "Loaded by Fleet desk and 2 more", or that no agent loads it yet. */
+function UsedBy({ usage }: { usage: SkillUsage | undefined }) {
+  if (!usage || usage.count === 0) return <p className="skillUsedBy none"><Bot aria-hidden="true" />{t('skills.usedByNone')}</p>;
+  const { shown, more } = usageNames(usage.agents.map((agent) => agent.name));
+  const names = shown.join(t('common.listSeparator'));
+  return <p className="skillUsedBy"><span className="skillUsedAvatars" aria-hidden="true">{usage.agents.slice(0, 3).map((agent) => <span key={agent.id} style={{ background: agent.color }} />)}</span>
+    {more ? t('skills.usedByMore', { names, count: more }) : t('skills.usedBy', { names })}</p>;
+}
+
+function AgentsUsing({ usage, onOpenAgents }: { usage: SkillUsage | undefined; onOpenAgents?: () => void }) {
+  return <section aria-labelledby="skill-agents"><h4 id="skill-agents"><Bot size={16} aria-hidden="true" /> {t('skills.agentsTitle')}</h4>
+    {!usage || usage.count === 0 ? <p className="featureMeta">{t('skills.agentsNone')}</p>
+      : <ul className="skillAgentList">{usage.agents.map((agent) => <li key={agent.id}>
+        <span className="skillAgentDot" style={{ background: agent.color }} aria-hidden="true" /><span dir="auto">{agent.name}</span>
+        {agent.status === 'paused' && <span className="statusBadge warning">{t('skills.agentPaused')}</span>}
+      </li>)}</ul>}
+    {onOpenAgents && <button type="button" className="linkButton" onClick={onOpenAgents}>{t('skills.openAgents')}</button>}
+  </section>;
+}
 const when = (iso: string) => formatDateTime(iso);
 const failure = (e: unknown, who: string) => isPermissionDenied(e) ? t('skills.notAllowed', { error: describeError(e), who }) : describeError(e);
 const ownersOnly = () => t('skills.ownersOnly');
@@ -98,7 +135,7 @@ function InstallDialog({ group, version, busy, onConfirm, onCancel }: { group: S
   </Dialog>;
 }
 
-function DetailDialog({ skillId, owner, onInstall, onChanged, onClose }: { skillId: string; owner: boolean | null; onInstall(version: SkillVersionLike): void; onChanged(): void; onClose(): void }) {
+function DetailDialog({ skillId, owner, usage, onOpenAgents, onInstall, onChanged, onClose }: { skillId: string; owner: boolean | null; usage: SkillUsage | undefined; onOpenAgents?: () => void; onInstall(version: SkillVersionLike): void; onChanged(): void; onClose(): void }) {
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ text: string; error?: boolean } | null>(null);
@@ -124,6 +161,7 @@ function DetailDialog({ skillId, owner, onInstall, onChanged, onClose }: { skill
         {detail.tools.length === 0 ? <p className="featureMeta">{t('skills.versionNoTools')}</p> :
           <ul className="catalogToolList">{detail.tools.map((tool) => <li key={tool.name}><code dir="ltr">{tool.name}</code><span className={`statusBadge ${approvalTone(tool.approval)}`}>{tool.risk_level ? riskLabel(tool.risk_level) : t('skills.unavailable')}</span>{detail.installation && <span className={`statusBadge ${tool.granted ? 'success' : 'neutral'}`}>{tool.granted ? t('skills.granted') : t('skills.notGranted')}</span>}<small dir="auto">{tool.description ? `${tool.description} ` : ''}{tool.approval_text}{tool.target ? ` ${t('skills.contacts', { host: tool.target })}` : ''}</small></li>)}</ul>}
       </section>
+      <AgentsUsing usage={usage} onOpenAgents={onOpenAgents} />
       <section aria-labelledby="skill-versions"><h4 id="skill-versions">{t('skills.versionsTitle')}</h4>
         <ul className="catalogVersionList">{detail.versions.map((v) => {
           const installed = detail.installation?.version === v.version;
@@ -174,8 +212,10 @@ function PublishDialog({ onClose, onPublished }: { onClose(): void; onPublished(
   </Dialog>;
 }
 
-export function SkillsView() {
+export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {}) {
   const s = useSkills();
+  const agentsOf = useSkillAgents();
+  const [confirmDisable, setConfirmDisable] = useState<string | null>(null);
   const owner = useIsOwner();
   const admin = useOrgAdmin();
   const [query, setQuery] = useState('');
@@ -188,21 +228,25 @@ export function SkillsView() {
   const groups = useMemo(() => groupSkills(s.versions, s.installs), [s.versions, s.installs]);
   const filtered = filterSkills(groups, query, filter);
   const { shown, remaining } = pageOf(filtered, pages, PAGE);
+  const builtins = filterBuiltins(agentsOf.builtins, query, filter);
+  const affects = (skillId: string) => agentsOf.usage.get(skillId)?.count ?? 0;
+  const toggle = (g: SkillGroup) => { setConfirmDisable(null); void s.toggle(g.skillId, g.state === 'disabled').then(() => agentsOf.load()); };
   useEffect(() => setPages(1), [query, filter]);
   const install = async (group: SkillGroup, version: SkillVersionLike, tools: string[]) => {
     if (await s.act(async () => { await api.installSkill(group.skillId, version.version, tools); return t('skills.installed', { name: version.name, version: version.version }); })) { setInstalling(null); setDetails(null); }
   };
-  const uninstall = (skillId: string) => void s.act(async () => { await api.uninstallSkill(skillId); setConfirmRemove(null); return t('skills.uninstalled'); });
+  const uninstall = (skillId: string) => void s.act(async () => { await api.uninstallSkill(skillId); setConfirmRemove(null); return t('skills.uninstalled'); }).then(() => agentsOf.load());
   const stateLabel = (g: SkillGroup) => g.state === 'available' ? t('skills.state.available') : g.state === 'installed' ? t('skills.state.installed') : t('skills.state.disabled');
   return <>
     <section className="moduleIntro"><div><p className="eyebrow">{t('skills.eyebrow')}</p><h2>{t('skills.title')}</h2><p>{t('skills.intro')}</p></div>
-      <div className="actions">{admin && <button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button>}<button type="button" className="secondary" onClick={() => void s.load()} disabled={s.loading}><RefreshCw aria-hidden="true" />{t('skills.refresh')}</button></div></section>
+      <div className="actions">{admin && <button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button>}<button type="button" className="secondary" onClick={() => { void s.load(); void agentsOf.load(); }} disabled={s.loading}><RefreshCw aria-hidden="true" />{t('skills.refresh')}</button></div></section>
     <Feedback error={s.error} note={s.note} loading={s.loading && !groups.length} label={t('skills.loadingLabel')} />
+    {agentsOf.error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{agentsOf.error}</p>}
     {owner === false && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('skills.ownersOnlyAsk')}</p>}
-    {groups.length > 0 && <div className="surface catalogToolbar" role="search">
+    {(groups.length > 0 || agentsOf.builtins.length > 0) && <div className="surface catalogToolbar" role="search">
       <label className="field"><span>{t('skills.search')}</span><input type="search" value={query} placeholder={t('skills.searchPlaceholder')} onChange={(e) => setQuery(e.target.value)} /></label>
-      <fieldset className="catalogSegments"><legend>{t('skills.show')}</legend>{(['all', 'installed', 'available'] as const).map((f) => <label key={f}><input type="radio" name="skill-filter" checked={filter === f} onChange={() => setFilter(f)} />{t(`skills.filter.${f}`)}</label>)}</fieldset>
-      <p className="featureMeta" aria-live="polite">{t('skills.count', { shown: filtered.length, count: groups.length })}</p>
+      <fieldset className="catalogSegments"><legend>{t('skills.show')}</legend>{(['all', 'installed', 'available', 'builtin'] as const).map((f) => <label key={f}><input type="radio" name="skill-filter" checked={filter === f} onChange={() => setFilter(f)} />{t(`skills.filter.${f}`)}</label>)}</fieldset>
+      <p className="featureMeta" aria-live="polite">{t('skills.count', { shown: filtered.length + builtins.length, count: groups.length + agentsOf.builtins.length })}</p>
     </div>}
     <div className="integrationGrid">{shown.map((g) => {
       const toolsOf = (g.install ? g.versions.find((v) => v.version === g.install!.version) ?? g.latest : g.latest).required_tools;
@@ -214,6 +258,7 @@ export function SkillsView() {
           <p dir="auto">{g.description}</p>
           <div className="tagRow">{toolsOf.map((x) => <span key={x} dir="ltr">{x}</span>)}</div>
           <small>{g.upgrade ? t('skills.cardMetaUpgrade', { versions, risk: riskLabel(g.latest.risk_level), version: g.upgrade.version }) : t('skills.cardMeta', { versions, risk: riskLabel(g.latest.risk_level) })}</small>
+          <UsedBy usage={agentsOf.usage.get(g.skillId)} />
         </div>
         <div className="featureSkillActions">
           <span className={`statusBadge ${g.state === 'installed' ? 'success' : g.state === 'disabled' ? 'warning' : 'neutral'}`}>{stateLabel(g)}</span>
@@ -221,21 +266,33 @@ export function SkillsView() {
           {owner && !g.install && <button type="button" disabled={s.busy} onClick={() => setInstalling({ group: g, version: g.latest })}>{t('skills.install')}</button>}
           {owner && g.upgrade && <button type="button" className="secondary" disabled={s.busy} onClick={() => setInstalling({ group: g, version: g.upgrade! })}>{t('skills.upgrade', { version: g.upgrade.version })}</button>}
           {owner && g.install && <>
-            <button type="button" className="secondary" disabled={s.busy} onClick={() => void s.toggle(g.skillId, g.state === 'disabled')}>{g.state === 'installed' ? <><PauseCircle aria-hidden="true" />{t('skills.disable')}</> : <><PlayCircle aria-hidden="true" />{t('skills.enable')}</>}</button>
+            {confirmDisable === g.skillId
+              ? <span className="featureConfirm"><span className="skillAffects">{t('skills.affectsAgents', { count: affects(g.skillId) })}</span><button type="button" className="danger" disabled={s.busy} onClick={() => toggle(g)}>{t('skills.confirmDisable')}</button><button type="button" className="secondary" onClick={() => setConfirmDisable(null)}>{t('common.cancel')}</button></span>
+              : <button type="button" className="secondary" disabled={s.busy} onClick={() => g.state === 'installed' && affects(g.skillId) > 0 ? setConfirmDisable(g.skillId) : toggle(g)}>{g.state === 'installed' ? <><PauseCircle aria-hidden="true" />{t('skills.disable')}</> : <><PlayCircle aria-hidden="true" />{t('skills.enable')}</>}</button>}
             {confirmRemove === g.skillId
-              ? <span className="featureConfirm"><button type="button" className="danger" disabled={s.busy} onClick={() => uninstall(g.skillId)}>{t('skills.uninstall')}</button><button type="button" className="secondary" onClick={() => setConfirmRemove(null)}>{t('common.cancel')}</button></span>
+              ? <span className="featureConfirm">{affects(g.skillId) > 0 && <span className="skillAffects">{t('skills.affectsAgents', { count: affects(g.skillId) })}</span>}<button type="button" className="danger" disabled={s.busy} onClick={() => uninstall(g.skillId)}>{t('skills.uninstall')}</button><button type="button" className="secondary" onClick={() => setConfirmRemove(null)}>{t('common.cancel')}</button></span>
               : <button type="button" className="iconButton" aria-label={t('skills.uninstallNamed', { name: g.name })} onClick={() => setConfirmRemove(g.skillId)}><Trash2 aria-hidden="true" /></button>}
           </>}
         </div>
       </article>;
     })}</div>
+    {builtins.length > 0 && <section className="skillBuiltins" aria-labelledby="skills-builtin-h">
+      <div className="skillBuiltinsHead"><h3 id="skills-builtin-h">{t('skills.builtinTitle')}</h3><p className="featureMeta">{t('skills.builtinNote')}</p></div>
+      <ul className="skillBuiltinGrid">{builtins.map((b) => <li key={b.id} className="surface skillBuiltin">
+        <span className="skillBuiltinIcon" aria-hidden="true"><Sparkles /></span>
+        <div><h4 dir="auto">{b.name} <span className="statusBadge neutral">{t('skills.state.builtin')}</span></h4>
+          <p dir="auto">{b.description}</p>
+          <div className="tagRow">{b.required_tools.map((x) => <span key={x} dir="ltr">{x}</span>)}</div>
+          <UsedBy usage={agentsOf.usage.get(b.id)} /></div>
+      </li>)}</ul>
+    </section>}
     {remaining > 0 && <div className="catalogMore"><button type="button" className="secondary" onClick={() => setPages(pages + 1)}>{t('skills.showMore', { count: Math.min(remaining, PAGE) })}</button></div>}
-    {!s.loading && !s.error && !groups.length && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('skills.emptyTitle')}</h3>
+    {!s.loading && !s.error && !groups.length && filter !== 'builtin' && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('skills.emptyTitle')}</h3>
       {admin ? <><p>{t('skills.emptyAdmin')}</p><button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button></>
         : <p>{t('skills.emptyOther')}</p>}</div>}
-    {groups.length > 0 && !filtered.length && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('skills.noMatchTitle')}</h3><p>{t('skills.noMatchText', { query })}</p><button type="button" className="secondary" onClick={() => { setQuery(''); setFilter('all'); }}>{t('skills.clearSearch')}</button></div>}
+    {(groups.length > 0 || filter === 'builtin') && !filtered.length && !builtins.length && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('skills.noMatchTitle')}</h3><p>{t('skills.noMatchText', { query })}</p><button type="button" className="secondary" onClick={() => { setQuery(''); setFilter('all'); }}>{t('skills.clearSearch')}</button></div>}
     {installing && <InstallDialog group={installing.group} version={installing.version} busy={s.busy} onCancel={() => setInstalling(null)} onConfirm={(tools) => void install(installing.group, installing.version, tools)} />}
-    {details && !installing && <DetailDialog skillId={details} owner={owner} onClose={() => setDetails(null)} onChanged={() => void s.load()} onInstall={(v) => { const g = groups.find((x) => x.skillId === details); if (g) setInstalling({ group: g, version: v }); }} />}
+    {details && !installing && <DetailDialog skillId={details} owner={owner} usage={agentsOf.usage.get(details)} onOpenAgents={onOpenAgents} onClose={() => setDetails(null)} onChanged={() => void s.load()} onInstall={(v) => { const g = groups.find((x) => x.skillId === details); if (g) setInstalling({ group: g, version: v }); }} />}
     {publishing && <PublishDialog onClose={() => setPublishing(false)} onPublished={(text) => { setPublishing(false); void s.act(async () => text, adminsOnly); }} />}
   </>;
 }

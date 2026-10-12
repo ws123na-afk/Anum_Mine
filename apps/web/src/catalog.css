@@ -83,6 +83,30 @@
 .marketRow .statusBadge { gap: 4px; margin-inline-end: var(--d-s1); vertical-align: middle; }
 .marketActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
 
+/* Skills and the agents that load them (docs/skills.md#agents-that-load-a-skill). */
+.skillUsedBy { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 12.5px; gap: 6px; margin-top: var(--d-s2); }
+.skillUsedBy.none { color: var(--d-faint); }
+.skillUsedBy > svg { height: 14px; width: 14px; }
+.skillUsedAvatars { display: inline-flex; }
+.skillUsedAvatars span { border: 2px solid var(--d-surface-2); border-radius: 50%; display: inline-block; height: 16px; width: 16px; }
+.skillUsedAvatars span + span { margin-inline-start: -6px; }
+.skillAffects { color: var(--d-warn); flex: 1 1 100%; font-size: 12.5px; }
+.skillAgentList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.skillAgentList li { align-items: center; display: flex; gap: var(--d-s2); min-width: 0; }
+.skillAgentDot { border-radius: 50%; flex: none; height: 10px; width: 10px; }
+.featureDialog .linkButton { background: none; border: 0; color: var(--d-sky); font-size: 13px; font-weight: 600; justify-self: start; min-height: 32px; padding: 0; text-decoration: underline; }
+.skillBuiltins { display: grid; gap: var(--d-s3); margin-top: var(--d-s5); }
+.skillBuiltinsHead { display: grid; gap: 2px; }
+.skillBuiltinGrid { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); list-style: none; margin: 0; padding: 0; }
+.skillBuiltin { align-items: start; display: grid; gap: var(--d-s3); grid-template-columns: 36px minmax(0, 1fr); padding: var(--d-s4); }
+.skillBuiltin > div { min-width: 0; }
+.skillBuiltin h4 { align-items: center; display: flex; flex-wrap: wrap; font-size: 15px; gap: var(--d-s2); margin: 0; }
+.skillBuiltin p { color: var(--d-muted); font-size: 13.5px; margin-top: 4px; overflow-wrap: anywhere; }
+.skillBuiltin p.skillUsedBy { font-size: 12.5px; margin-top: var(--d-s2); }
+.skillBuiltin .tagRow { margin-top: var(--d-s2); }
+.skillBuiltinIcon { align-items: center; background: linear-gradient(135deg, rgba(79, 139, 255, .2), rgba(181, 107, 255, .2)); border: 1px solid var(--d-line-strong); border-radius: 10px; display: inline-flex; height: 36px; justify-content: center; width: 36px; }
+.skillBuiltinIcon svg { height: 16px; width: 16px; }
+
 @media (max-width: 640px) {
   .catalogForm { grid-template-columns: minmax(0, 1fr); }
   .catalogRow.marketRow { grid-template-columns: 24px minmax(0, 1fr); }
