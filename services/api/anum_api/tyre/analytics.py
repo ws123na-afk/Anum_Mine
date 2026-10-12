@@ -25,7 +25,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from .model import Assumptions, Cost, Inspection, PressureReading, Tyre, TyreDataset, TyreStatus, Vehicle
+from .model import Assumptions, Cost, Inspection, Tyre, TyreDataset, TyreStatus, Vehicle
 
 Z_95 = 1.96
 MAX_POINTS = 60

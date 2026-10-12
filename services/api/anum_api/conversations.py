@@ -65,7 +65,6 @@ from .model_budget import ModelBudgetExceededError, budget_exceeded_message, che
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .reports import REPORT_BLOCK_INSTRUCTIONS, ReportCard, cards_for_conversation, save_chat_report, split_report_block
-from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings

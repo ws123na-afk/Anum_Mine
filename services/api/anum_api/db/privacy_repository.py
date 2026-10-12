@@ -55,7 +55,7 @@ from .email_repository import _draft as _email_draft
 from .email_repository import _message as _email_message
 from .home_repository import SqlAlchemyHomeStore
 from .learning_repository import SqlAlchemyLearningStore
-from .meetings_repository import SqlAlchemyConnectionStore, SqlAlchemyMeetingStore, _meeting, _segment as _meeting_segment
+from .meetings_repository import SqlAlchemyConnectionStore, _meeting, _segment as _meeting_segment
 from .memory_repository import SqlAlchemyMemoryRepository
 from .models import (
     AgentRunRecord,

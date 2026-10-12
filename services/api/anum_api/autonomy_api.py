@@ -227,7 +227,7 @@ async def put_autonomy(
     problems = floor_violations(payload, guardrails)
     if problems:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Above the organization's guardrails: " + "; ".join(problems)
             + ". Lower these values, or ask an organization administrator to change the guardrails.",
         )
@@ -390,7 +390,7 @@ async def create_rule(
     definition = _registry(request).definition(payload.tool)
     if definition is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"No tool named {payload.tool!r} is available in this deployment.",
         )
     store = _store(repository)
@@ -399,7 +399,7 @@ async def create_rule(
     cfg = effective(store.get_settings(context) or WorkspaceAutonomySettings(), store.get_guardrails(context) or OrganizationGuardrails())
     refusal = _check_raise(payload.level, category, kind, definition.risk_level, template, cfg)
     if refusal:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=refusal)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=refusal)
     source = RuleSource.TIGHTEN if payload.level == AutonomyLevel.ASK_ALWAYS else RuleSource.MANUAL
     return _save_rule(repository, context, store, tool=payload.tool, template=template, category=category, kind=kind, level=payload.level, source=source)
 
