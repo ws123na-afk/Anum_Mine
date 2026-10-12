@@ -12,6 +12,7 @@ import {
   base64UrlEncode,
   decodeJwtClaims,
   isLoopbackRedirect,
+  isOtherProviderReturn,
   oidcConfigFromEnv,
   pkceChallenge,
   randomToken,
@@ -302,5 +303,19 @@ describe('desktop loopback sign-in (RFC 8252)', () => {
       ['oidc_loopback_authorize', { authorizationUrl: 'https://id.example.test/auth' }],
       ['oidc_open_browser', { url: 'https://id.example.test/logout' }],
     ]);
+  });
+});
+
+describe('isOtherProviderReturn', () => {
+  test('leaves the Zoom/Teams and marketing consent returns to their own pages', () => {
+    assert.equal(isOtherProviderReturn(new URL('https://app.example.test/meetings/connected?code=c&state=s')), true);
+    assert.equal(isOtherProviderReturn(new URL('https://app.example.test/meetings/connected/?code=c&state=s')), true);
+    assert.equal(isOtherProviderReturn(new URL('https://app.example.test/marketing/callback?code=c&state=mkt.abc')), true);
+    assert.equal(isOtherProviderReturn(new URL('https://app.example.test/?error=access_denied&state=mkt.abc')), true);
+  });
+
+  test('treats every other code and state as an ANUM sign-in return', () => {
+    assert.equal(isOtherProviderReturn(new URL('https://app.example.test/?code=c&state=abc')), false);
+    assert.equal(isOtherProviderReturn(new URL('https://app.example.test/marketing/callback?code=c&state=abc')), false);
   });
 });

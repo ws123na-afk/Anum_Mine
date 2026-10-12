@@ -8,7 +8,7 @@
 // RFC 8252 loopback redirect (http://127.0.0.1:<port>/callback) served by the shell, instead of
 // loading the identity provider inside the webview. See docs/desktop.md, "Sign-In".
 import { desktopShell } from './desktop';
-import { OidcClient, OidcError, oidcConfigFromEnv, type SignInRequestOptions, type TokenSet } from './oidc';
+import { OidcClient, OidcError, isOtherProviderReturn, oidcConfigFromEnv, type SignInRequestOptions, type TokenSet } from './oidc';
 import { pendingAccount, type PendingAccount } from './signIn';
 
 export type AuthStatus =
@@ -85,8 +85,9 @@ async function refreshTokens(): Promise<TokenSet | null> {
 export async function initAuth(): Promise<AuthStatus> {
   if (!client) return { kind: 'local' };
   const url = new URL(window.location.href);
-  // The Zoom/Teams sign-in also returns code and state, to its own page (docs/meetings.md).
-  if (client.isRedirectCallback(url) && !url.pathname.endsWith('/meetings/connected')) {
+  // Zoom/Teams and the marketing platforms also return code and state, to their own pages
+  // (docs/meetings.md, docs/marketing.md): leave those to the page that started them.
+  if (client.isRedirectCallback(url) && !isOtherProviderReturn(url)) {
     // Code and state are single-use; drop them from the address bar and history either way.
     const clean = `${url.origin}${url.pathname}`;
     try {

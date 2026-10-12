@@ -313,6 +313,53 @@ services:
       ANUM_SENTRY_DSN: ${ANUM_SENTRY_DSN:-}
       # Phone push through Firebase Cloud Messaging; empty is off (docs/notifications.md).
       ANUM_FCM_SERVICE_ACCOUNT_JSON: ${ANUM_FCM_SERVICE_ACCOUNT_JSON:-}
+      # Owner integrations (docs/integrations-setup.md). Each one stays "not set up" under
+      # Integrations > Connection setup until its values are filled in infra/oracle/.env.
+      # Notification email (docs/team-work.md#notifications); empty host is off.
+      ANUM_SMTP_HOST: ${ANUM_SMTP_HOST:-}
+      ANUM_SMTP_PORT: ${ANUM_SMTP_PORT:-587}
+      ANUM_SMTP_SECURITY: ${ANUM_SMTP_SECURITY:-starttls}
+      ANUM_SMTP_USERNAME: ${ANUM_SMTP_USERNAME:-}
+      ANUM_SMTP_PASSWORD: ${ANUM_SMTP_PASSWORD:-}
+      ANUM_SMTP_FROM: ${ANUM_SMTP_FROM:-}
+      # Meeting recordings to text (docs/meetings.md); none = transcript files only.
+      ANUM_TRANSCRIPTION_PROVIDER: ${ANUM_TRANSCRIPTION_PROVIDER:-none}
+      ANUM_TRANSCRIPTION_BASE_URL: ${ANUM_TRANSCRIPTION_BASE_URL:-}
+      ANUM_TRANSCRIPTION_MODEL: ${ANUM_TRANSCRIPTION_MODEL:-}
+      ANUM_TRANSCRIPTION_API_KEY: ${ANUM_TRANSCRIPTION_API_KEY:-}
+      # Zoom and Teams transcripts (docs/meetings.md#connectors). The redirect URL to
+      # register with both apps is the web app's /meetings/connected page.
+      ANUM_MEETINGS_OAUTH_REDIRECT_URI: https://${ANUM_WEB_HOST}/meetings/connected
+      ANUM_ZOOM_CLIENT_ID: ${ANUM_ZOOM_CLIENT_ID:-}
+      ANUM_ZOOM_CLIENT_SECRET: ${ANUM_ZOOM_CLIENT_SECRET:-}
+      ANUM_MICROSOFT_CLIENT_ID: ${ANUM_MICROSOFT_CLIENT_ID:-}
+      ANUM_MICROSOFT_CLIENT_SECRET: ${ANUM_MICROSOFT_CLIENT_SECRET:-}
+      ANUM_MICROSOFT_TENANT: ${ANUM_MICROSOFT_TENANT:-organizations}
+      # Social media marketing (docs/marketing.md). Register the web app's
+      # /marketing/callback page as the redirect URL in every platform app.
+      ANUM_MARKETING_OAUTH_REDIRECT_URL: https://${ANUM_WEB_HOST}/marketing/callback
+      ANUM_MARKETING_PUBLIC_API_URL: https://${ANUM_API_HOST}
+      ANUM_MARKETING_META_APP_ID: ${ANUM_MARKETING_META_APP_ID:-}
+      ANUM_MARKETING_META_APP_SECRET: ${ANUM_MARKETING_META_APP_SECRET:-}
+      ANUM_MARKETING_LINKEDIN_CLIENT_ID: ${ANUM_MARKETING_LINKEDIN_CLIENT_ID:-}
+      ANUM_MARKETING_LINKEDIN_CLIENT_SECRET: ${ANUM_MARKETING_LINKEDIN_CLIENT_SECRET:-}
+      ANUM_MARKETING_X_CLIENT_ID: ${ANUM_MARKETING_X_CLIENT_ID:-}
+      ANUM_MARKETING_X_CLIENT_SECRET: ${ANUM_MARKETING_X_CLIENT_SECRET:-}
+      ANUM_MARKETING_TIKTOK_CLIENT_KEY: ${ANUM_MARKETING_TIKTOK_CLIENT_KEY:-}
+      ANUM_MARKETING_TIKTOK_CLIENT_SECRET: ${ANUM_MARKETING_TIKTOK_CLIENT_SECRET:-}
+      ANUM_MARKETING_TIKTOK_DIRECT_POST: ${ANUM_MARKETING_TIKTOK_DIRECT_POST:-false}
+      ANUM_MARKETING_GOOGLE_CLIENT_ID: ${ANUM_MARKETING_GOOGLE_CLIENT_ID:-}
+      ANUM_MARKETING_GOOGLE_CLIENT_SECRET: ${ANUM_MARKETING_GOOGLE_CLIENT_SECRET:-}
+      # Sales channels sync in the background (docs/commerce.md); false = "Sync now" only.
+      ANUM_COMMERCE_SYNC_ENABLED: ${ANUM_COMMERCE_SYNC_ENABLED:-false}
+      # The outbound REST webhook behind the external.action tool (always approved).
+      ANUM_EXTERNAL_WEBHOOK_URL: ${ANUM_EXTERNAL_WEBHOOK_URL:-}
+      ANUM_EXTERNAL_WEBHOOK_API_KEY: ${ANUM_EXTERNAL_WEBHOOK_API_KEY:-}
+      # Developer mode (docs/developer-mode.md): your organization and, optionally, one
+      # workspace; the GitHub token can also be stored per project in the app.
+      ANUM_DEVELOPER_TENANT_ID: ${ANUM_DEVELOPER_TENANT_ID:-}
+      ANUM_DEVELOPER_WORKSPACE_ID: ${ANUM_DEVELOPER_WORKSPACE_ID:-}
+      ANUM_DEVELOPER_GITHUB_TOKEN: ${ANUM_DEVELOPER_GITHUB_TOKEN:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
       interval: 30s

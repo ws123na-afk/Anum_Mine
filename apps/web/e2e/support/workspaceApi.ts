@@ -61,6 +61,20 @@ const integrations = [
   health('valkey', 'Valkey', 'cache', 'degraded'), health('postgresql', 'PostgreSQL + pgvector', 'database', 'connected'), health('nats', 'NATS JetStream', 'event_bus', 'disabled'),
   health('external-webhook', 'External REST webhook', 'tool', 'connected', { accepts_workspace_credential: true, workspace_credential: { integration_id: 'external-webhook', configured: true, hint: '…abcd', updated_by: 'user_local', updated_at: now } }),
 ];
+// Integrations > Connection setup (docs/integrations-setup.md): one of each state.
+const setupItem = (id: string, group: string, status: string, over: Record<string, unknown> = {}) => ({
+  id, group, status, connect_view: null, connections: null, failing: 0, missing: [], redirect_urls: [], doc: '1-ai-model', checkable: false, ...over,
+});
+export const connectionSetup = {
+  can_view_setup: true,
+  can_check: true,
+  items: [
+    setupItem('model', 'ai', 'connected', { connect_view: 'settings', checkable: true }),
+    setupItem('email_gmail', 'email', 'not_configured', { connect_view: 'inbox', missing: ['ANUM_EMAIL_GOOGLE_CLIENT_ID', 'ANUM_EMAIL_GOOGLE_CLIENT_SECRET'], redirect_urls: ['https://api.example.com/api/v1/email/oauth/callback'], doc: '5-email-gmail-outlook-and-zoho' }),
+    setupItem('whatsapp', 'messaging', 'error', { connect_view: 'whatsapp', connections: 1, failing: 1, redirect_urls: ['https://api.example.com/api/v1/whatsapp/webhook'], doc: '6-whatsapp-business', checkable: true }),
+    setupItem('commerce', 'commerce', 'ready', { connect_view: 'commerce', connections: 0, doc: '15-sales-channels-amazon-noon-and-your-own-store' }),
+  ],
+};
 const skillVersion = (version: string, tools: string[]) => ({ id: `sv_${version}`, skill_id: 'acme.release-notes', version, name: 'Release notes', description: 'Drafts release notes from merged work.', instructions: 'Summarize.', required_tools: tools, risk_level: 'medium', publisher_tenant_id: 'tenant_local', created_by: 'user_local', created_at: now });
 const skillVersions = [skillVersion('1.0.0', ['anum.respond']), skillVersion('2.0.0', ['anum.respond', 'external.action']), { ...skillVersion('1.0.0', ['web_search']), id: 'sv_search', skill_id: 'acme.search', name: 'Web research' }];
 const skillInstall = { id: 'si_1', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', skill_version_id: 'sv_1.0.0', skill_id: 'acme.release-notes', version: '1.0.0', approved_tools: ['anum.respond'], enabled: true, installed_by: 'user_local', installed_at: now };
@@ -245,6 +259,7 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/audit-records') return json({ items: [{ id: 'audit_1', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', actor: 'user_local', action: 'workspace_member.role_change', target: 'user_member', outcome: 'success', correlation_id: 'corr_1', created_at: now, metadata: { role: 'viewer' } }], next_cursor: null, retention: 'Audit records are kept for as long as the workspace exists, including after it is archived. They are append-only: nobody can edit or delete them, owners included.' });
     // Integrations, Skills, Agents and Enterprise (docs/tools-and-integrations.md, docs/skills.md).
     if (path === '/api/v1/integrations') return json(integrations);
+    if (path === '/api/v1/integrations/setup') return json(connectionSetup);
     if (path === '/api/v1/skills/versions') return json(skillVersions);
     if (path === '/api/v1/skills/installations') return json([skillInstall]);
     if (path === '/api/v1/skills/acme.release-notes') {

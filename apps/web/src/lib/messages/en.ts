@@ -10,6 +10,7 @@ import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { voiceEn } from './en.voice.ts';
 import { chatEn } from './chat.en.ts';
+import { setupEn } from './setup.en.ts';
 
 export const en = {
   // ---- Commerce (commerce.en.ts) ----
@@ -17,6 +18,7 @@ export const en = {
   ...teamEn,
   ...marketingEn,
   ...chatEn,
+  ...setupEn,
   // ---- Common ----
   'common.listAnd': '{head} and {last}',
   'common.listSeparator': ', ',
@@ -1220,7 +1222,8 @@ export const en = {
   // ---- Integrations ----
   'integrations.eyebrow': 'Connected systems',
   'integrations.title': 'Integrations',
-  'integrations.intro': "Live health of the services this deployment uses. Owners test a connection, turn an integration off for this workspace and store the workspace's own token where an integration accepts one. ANUM always connects to the endpoint the operator configured.",
+  'integrations.healthTitle': 'Service health',
+  'integrations.intro': 'Connect the services ANUM works with and see what each one still needs, then watch the live health of the services this deployment runs on.',
   'integrations.refresh': 'Refresh',
   'integrations.loading': 'Loading integrations...',
   'integrations.loadFailed': 'Could not load integrations: {error} Check that the API is reachable, then Refresh.',

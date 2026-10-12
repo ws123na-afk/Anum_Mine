@@ -11,6 +11,7 @@ import { ownerAr } from './ar.owner.ts';
 import { governanceAr } from './ar.governance.ts';
 import { voiceAr } from './ar.voice.ts';
 import { chatAr } from './chat.ar.ts';
+import { setupAr } from './setup.ar.ts';
 
 export const ar: Record<MessageKey, Message> = {
   // ---- Commerce (commerce.ar.ts) ----
@@ -18,6 +19,7 @@ export const ar: Record<MessageKey, Message> = {
   ...teamAr,
   ...marketingAr,
   ...chatAr,
+  ...setupAr,
   // ---- Common ----
   'common.listAnd': '{head} و{last}',
   'common.listSeparator': '، ',
@@ -1221,7 +1223,8 @@ export const ar: Record<MessageKey, Message> = {
   // ---- Integrations ----
   'integrations.eyebrow': 'الأنظمة المتصلة',
   'integrations.title': 'التكاملات',
-  'integrations.intro': 'الحالة الحية للخدمات التي يستخدمها هذا النشر. يختبر المالكون الاتصال، ويوقفون التكامل لمساحة العمل هذه، ويحفظون رمز مساحة العمل الخاص حيث يقبل التكامل ذلك. يتصل أنوم دائمًا بنقطة النهاية التي أعدّها المشغّل.',
+  'integrations.healthTitle': 'صحة الخدمات',
+  'integrations.intro': 'اربط الخدمات التي يعمل معها ANUM واعرف ما يحتاجه كل منها، ثم تابع الحالة الحية للخدمات التي يعمل عليها هذا النشر.',
   'integrations.refresh': 'تحديث',
   'integrations.loading': 'جارٍ تحميل التكاملات...',
   'integrations.loadFailed': 'تعذّر تحميل التكاملات: {error} تحقّق من إمكانية الوصول إلى واجهة البرمجة، ثم اضغط تحديث.',

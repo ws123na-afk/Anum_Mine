@@ -98,6 +98,17 @@ export async function pkceChallenge(verifier: string, crypto: OidcDependencies['
 }
 
 /** True for an RFC 8252 section 7.3 loopback redirect: plain HTTP to a loopback IP literal, never `localhost`. */
+/**
+ * Redirects that bring `code` and `state` back to the web app for something other than ANUM
+ * sign-in: the Zoom/Teams connector page (/meetings/connected, docs/meetings.md) and the social
+ * platforms' consent (`state` starting `mkt.`, docs/marketing.md). Start-up must leave them to
+ * their own pages; treating them as a sign-in return signs the person out and loses the code.
+ */
+export function isOtherProviderReturn(url: URL): boolean {
+  if (url.pathname.replace(/\/+$/, '').endsWith('/meetings/connected')) return true;
+  return (url.searchParams.get('state') ?? '').startsWith('mkt.');
+}
+
 export function isLoopbackRedirect(value: string): boolean {
   let url: URL;
   try {
