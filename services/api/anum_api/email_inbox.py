@@ -883,7 +883,7 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
         logger.warning(
             "email_sync_failed provider=%s",
             account.provider.value,
-            extra={"anum_email": {"event": "sync_failed", "account_id": account_id, "reauth": reauth}},
+            extra={"anum_email": {"event": "sync_failed", "account_id": account_id.replace("\r", "").replace("\n", ""), "reauth": reauth}},
         )
         return account
     except BaseException:
