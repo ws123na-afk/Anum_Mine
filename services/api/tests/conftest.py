@@ -84,6 +84,8 @@ TABLES_IN_DELETE_ORDER = (
     "marketing_accounts",
     "marketing_preferences",
     "agent_memories",
+    "setup_plan_checks",
+    "setup_plan_items",
     "agent_profiles",
     "retrieval_chunks",
     "retrieval_sources",

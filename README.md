@@ -144,6 +144,7 @@ x-user-roles: owner,member
 - [Repository structure](docs/repository-structure.md)
 - [Scaling](docs/scaling.md)
 - [Governance and scale](docs/governance-and-scale.md)
+- [Setup plan: apply a business blueprint](docs/setup-plan.md)
 - [ADR-0001: Foundation](docs/decisions/ADR-0001-foundation.md)
 - [ADR-0002: Custom agent runtime](docs/decisions/ADR-0002-custom-agent-runtime.md)
 

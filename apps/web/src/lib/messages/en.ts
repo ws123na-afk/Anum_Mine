@@ -8,6 +8,7 @@ import { teamEn } from './team.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
+import { setupPlanEn } from './setupPlan.en.ts';
 import { voiceEn } from './en.voice.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
 import { chatEn } from './chat.en.ts';
@@ -3755,6 +3756,7 @@ export const en = {
   // ---- Owner screens, Governance, Enterprise and Voice (their own files) ----
   ...ownerEn,
   ...governanceEn,
+  ...setupPlanEn,
   ...voiceEn,
 } satisfies Record<string, Message>;
 

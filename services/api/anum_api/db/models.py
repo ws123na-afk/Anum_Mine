@@ -1571,3 +1571,56 @@ class AgentMemoryRecord(Base, WorkspaceScopedMixin):
         CheckConstraint("source in ('manual', 'task')", name="ck_agent_memories_source"),
         Index("ix_agent_memories_agent", "tenant_id", "workspace_id", "agent_id", text("created_at DESC")),
     )
+
+
+class SetupPlanItemRecord(Base):
+    """What a setup plan applied, per blueprint item (migration ``0052_setup_plans``).
+
+    ``workspace_id`` is the workspace for workspace-level items and ``''`` for tenant-level
+    ones (policy packs, approval rules, role templates, memory governance, published skill
+    versions, created workspaces); the RLS policy admits the request's workspace and ``''``.
+    """
+
+    __tablename__ = "setup_plan_items"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    item_key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False)
+    origin: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_id: Mapped[str | None] = mapped_column(String(160))
+    target_version: Mapped[int | None] = mapped_column(Integer)
+    fingerprint: Mapped[str | None] = mapped_column(String(64))
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    plan_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    applied_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _tenant_fk("setup_plan_items"),
+        CheckConstraint("state in ('claimed', 'applied')", name="ck_setup_plan_items_state"),
+        CheckConstraint("origin in ('created', 'linked')", name="ck_setup_plan_items_origin"),
+    )
+
+
+class SetupPlanCheckRecord(Base):
+    """A Week 1 pilot check a person recorded (migration ``0052_setup_plans``); tenant-level."""
+
+    __tablename__ = "setup_plan_checks"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    check_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    note: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    evidence: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _tenant_fk("setup_plan_checks"),
+        CheckConstraint("status in ('pass', 'fail', 'not_run')", name="ck_setup_plan_checks_status"),
+    )
