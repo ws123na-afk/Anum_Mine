@@ -13,6 +13,9 @@ import 'command_strings.dart';
 import 'command_widgets.dart';
 import 'quick_commands_screen.dart';
 
+/// Tyre planning's route (`AnumRoutes.tyres`), where TyrePulse is connected.
+const tyresRoute = '/tyres';
+
 /// ANUM Command: speak or type one request, confirm the plan, follow the
 /// agents live and act on the results (docs/command.md).
 class CommandScreen extends StatefulWidget {
@@ -632,6 +635,20 @@ class _CommandScreenState extends State<CommandScreen> {
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: context.palette.muted)),
           ],
+          // A tyre step with the tyre tools but no saved connection: connect it
+          // under Tyre planning (docs/tyre-planning.md), then plan again.
+          if (!step.connected &&
+              step.agent.id == 'tyre' &&
+              step.tool != null &&
+              step.tool != 'anum.respond')
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).pushNamed(tyresRoute),
+                icon: const Icon(Icons.link),
+                label: Text(s.t('connectTyre')),
+              ),
+            ),
           if (step.approval == ApprovalNeed.blocked) ...[
             const SizedBox(height: AnumSpacing.xs),
             Text(step.approvalReason,

@@ -1,4 +1,5 @@
 import 'package:anum_mobile/data/api_client.dart';
+import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/features/command/command.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
@@ -164,6 +165,45 @@ void main() {
     await tester.tap(find.text('Approve'));
     await _settle(tester);
     expect(repository.approvals, ['approval_1']);
+    await finish(tester);
+  });
+
+  testWidgets('a tyre step without a connection links to Tyre planning',
+      (tester) async {
+    repository.plan = CommandPlan.fromJson(JsonReader(planJson([
+      planStepJson(1, 'tyre', 'Check the PMV tyre report',
+          tool: 'tyre_fleet_summary',
+          connected: false,
+          note: 'Connect TyrePulse under Tyre planning first.'),
+    ])));
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final opened = <String>[];
+    await tester.pumpWidget(MaterialApp(
+      theme: AnumTheme.dark(),
+      localizationsDelegates: const [
+        AnumLocalizations.delegate,
+        ...GlobalMaterialLocalizations.delegates,
+      ],
+      onGenerateRoute: (settings) {
+        opened.add(settings.name ?? '');
+        return MaterialPageRoute<void>(builder: (_) => const SizedBox());
+      },
+      home: MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: CommandScreen(controller: controller),
+      ),
+    ));
+    await controller.submit('Check the PMV tyre report');
+    await _settle(tester);
+    expect(find.text('Not connected'), findsOneWidget);
+    final connect = find.text('Connect TyrePulse under Tyre planning');
+    await tester.ensureVisible(connect);
+    await _settle(tester);
+    await tester.tap(connect);
+    await _settle(tester);
+    expect(opened, ['/tyres']);
     await finish(tester);
   });
 

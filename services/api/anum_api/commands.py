@@ -122,10 +122,17 @@ _AGENT_NOTES: dict[AgentId, tuple[str, str]] = {
         "لا يوجد تقويم متصل بـ ANUM بعد: هذه الخطوة تجهّز مسودة الاجتماع (الوقت والحضور والجدول) لترسلها بنفسك.",
     ),
     AgentId.TYRE: (
-        "TyrePulse is not connected to ANUM yet: this step answers from the files and notes in this workspace.",
-        "TyrePulse غير متصل بـ ANUM بعد: هذه الخطوة تجيب من الملفات والملاحظات الموجودة في مساحة العمل.",
+        "Tyre planning is not available on this server: this step answers from the files and notes in this workspace.",
+        "تخطيط الإطارات غير متاح على هذا الخادم: هذه الخطوة تجيب من الملفات والملاحظات الموجودة في مساحة العمل.",
     ),
 }
+
+# A tyre step whose tools exist but whose workspace has no tyre data connected yet: the
+# run would fail with "Connect your tyre data first" (docs/tyre-planning.md).
+_TYRE_CONNECT_NOTE = (
+    "Connect TyrePulse under Tyre planning first: until then this step cannot read your fleet data.",
+    "اربط TyrePulse من شاشة تخطيط الإطارات أولًا: حتى ذلك الحين لا تستطيع هذه الخطوة قراءة بيانات أسطولك.",
+)
 
 _TOOL_AGENTS: dict[str, AgentId] = {
     "search_email": AgentId.EMAIL,
@@ -159,10 +166,18 @@ def agent_view(agent: AgentId, locale: str) -> CommandAgent:
     return CommandAgent(id=agent, name=arabic if locale == "ar" else english)
 
 
+def _tyre_tools() -> frozenset[str]:
+    from .tyre.tools import TOOL_NAMES
+
+    return frozenset(TOOL_NAMES)
+
+
 def _agent_for(tool_name: str, skills: list[SkillManifest], words: set[str]) -> AgentId:
     agent = _TOOL_AGENTS.get(tool_name)
     if agent is not None:
         return agent
+    if tool_name in _tyre_tools():
+        return AgentId.TYRE
     if tool_name.startswith("commerce.") or any(skill.id == "anum.commerce" for skill in skills):
         return AgentId.COMMERCE
     if words & _CALENDAR_WORDS:
@@ -325,7 +340,7 @@ class Planner:
             ToolPolicyOutcome.REQUIRE_APPROVAL: ApprovalNeed.REQUIRED,
             ToolPolicyOutcome.BLOCK: ApprovalNeed.BLOCKED,
         }[decision.outcome]
-        note = _AGENT_NOTES.get(agent)
+        note = self._note(agent, call.name)
         arabic = self.locale == "ar"
         return PlanStep(
             position=position,
@@ -348,6 +363,26 @@ class Planner:
             connected=note is None,
             note=None if note is None else (note[1] if arabic else note[0]),
         )
+
+    _tyre_connection: bool | None = None
+
+    def _tyre_connected(self) -> bool:
+        """Whether the workspace saved a tyre data connection (one cached read per plan)."""
+        if self._tyre_connection is None:
+            from .tyre.store import open_tyre_store
+
+            try:
+                with open_tyre_store(self.context) as store:
+                    self._tyre_connection = store.get_connection(self.context) is not None
+            except Exception:  # unreadable: say "connect", the run reports the real error
+                self._tyre_connection = False
+        return self._tyre_connection
+
+    def _note(self, agent: AgentId, tool_name: str) -> tuple[str, str] | None:
+        """What a step does instead when its agent has no live integration, else None."""
+        if agent == AgentId.TYRE and tool_name in _tyre_tools():
+            return None if self._tyre_connected() else _TYRE_CONNECT_NOTE
+        return _AGENT_NOTES.get(agent)
 
     def plan(self, text: str) -> CommandPlan:
         """Clauses become steps; a clause that names no agent of its own (or only asks for a

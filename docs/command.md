@@ -56,7 +56,9 @@ Response `CommandPlan`:
 
 - `approval` is `none`, `required` (a run of this step will pause for approval) or `blocked` (policy refuses the tool; the step cannot be confirmed). It is the runtime's own decision: the tool policy, the workspace's approval policy, the organization's governance rules and the workspace's autonomy policy ([Approvals and risk](approvals-and-risk.md), [Autonomy](autonomy.md)).
 - `agent.id` is one of `email`, `whatsapp`, `commerce`, `research`, `action`, `calendar`, `tyre`, `writer` and `general`; `name` is in the request's language.
-- `connected: false` marks an agent with no live integration yet (`calendar`, `tyre`); `note` says what the step does instead (drafts the meeting for the person to send; answers from the workspace's files and notes).
+- `connected: false` marks a step that cannot reach live data, and `note` says what happens instead:
+  - `calendar`: no calendar is connected to ANUM yet, so the step drafts the meeting for the person to send.
+  - `tyre`: the step uses the tyre planning tools (`tyre_fleet_summary`, `tyres_due`, `purchase_plan`, `tyre_alerts`, [Tyre planning](tyre-planning.md)). It is `connected: true` once the workspace has saved a TyrePulse connection; without one the note says "Connect TyrePulse under Tyre planning first" (the run would fail with "Connect your tyre data first"). On a server without the tyre tools, the step answers from the workspace's files and notes.
 
 ### `POST /api/v1/commands`
 
@@ -153,7 +155,7 @@ A quick command is `{"id", "title", "text", "category", "position", "use_count",
 No model is involved, so a preview is instant, free and the same every time:
 
 1. **Clauses.** The request is split at sentence ends (not inside "10 a.m."), commas (not inside "10,000"), the Arabic comma, "then"/"after that"/"ثم", and "and" or "و" followed by a new verb ("... and schedule a meeting", "... وأرسل التقرير"). Leading "and", "then" and "please" are dropped.
-2. **Routing.** Each clause goes through the runtime's own skill selection (`SkillRegistry.select`, English and Arabic triggers) and tool choice (`agent_planning.choose_tool_call`), exactly as a task with that text would be planned when it runs. The tool decides the agent (`search_email` is the email agent, `list_whatsapp_conversations` WhatsApp, a `commerce.*` tool commerce, `web_search` research, `external.action` action); a clause answered by the model (`anum.respond`) is a calendar, tyre data or report step by its words, otherwise the general assistant.
+2. **Routing.** Each clause goes through the runtime's own skill selection (`SkillRegistry.select`, English and Arabic triggers) and tool choice (`agent_planning.choose_tool_call`), exactly as a task with that text would be planned when it runs. The tool decides the agent (`search_email` is the email agent, `list_whatsapp_conversations` WhatsApp, a `commerce.*` tool commerce, a tyre planning tool tyre data, `web_search` research, `external.action` action); a clause answered by the model (`anum.respond`) is a calendar, tyre data or report step by its words, otherwise the general assistant.
 3. **Steps.** A clause that names no agent of its own (or only asks for a summary) joins the step before it, as does a clause for the same agent, so "check my emails, find today's urgent items, prepare a summary" is one email step. At most 8 steps; the rest of a longer request stays in the last one.
 4. **Policy.** Each step's tool is evaluated with the runtime's tool policy and the workspace's autonomy policy (`runtime.with_workspace_autonomy`), so the preview says "needs approval" exactly when the run would pause.
 
@@ -168,6 +170,6 @@ Steps run in parallel and independently: a later step does not see an earlier st
 
 ## Not done yet
 
-- **Calendar and TyrePulse.** There is no calendar or TyrePulse integration: such steps are planned as drafts and answers (`connected: false` with a note), never as invites sent or fleet data queried.
+- **Calendar.** There is no calendar integration: calendar steps are planned as drafts (`connected: false` with a note), never as invites sent.
 - **Image understanding.** A photo attached from the Command screen is stored as a workspace file and listed in the command's Files, but the model gateway has no vision input, so its pixels are not read.
 - **Steps that depend on each other** run in parallel without each other's results (see "How the plan is made").

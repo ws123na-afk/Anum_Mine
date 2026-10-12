@@ -35,6 +35,11 @@ MOCKUP = (
     "vehicles, and schedule a meeting with the team tomorrow at 10 a.m. Then send the summary to the team."
 )
 
+NO_TYRE = (
+    "Check my emails, prepare a summary, and schedule a meeting with the team tomorrow at 10 a.m. "
+    "Then send the summary to the team."
+)
+
 
 def setup_function() -> None:
     store.tasks.clear()
@@ -94,20 +99,48 @@ def test_preview_groups_clauses_into_agent_steps_with_the_runtime_tools_and_appr
     plan = _preview(MOCKUP)
     assert [(step["agent"]["id"], step["tool"]["name"], step["approval"]) for step in plan["steps"]] == [
         ("email", "search_email", "none"),
-        ("tyre", "anum.respond", "none"),
+        ("tyre", "tyre_fleet_summary", "none"),
         ("calendar", "anum.respond", "none"),
         ("action", "external.action", "required"),
     ]
     first, tyre, calendar, send = plan["steps"]
     assert first["instruction"] == "Check my emails, find today's urgent items, prepare a summary"
     assert [skill["id"] for skill in first["skills"]] == ["anum.document-drafting", "anum.email"]
-    assert tyre["connected"] is False and "TyrePulse" in tyre["note"]
+    # The tyre tools exist but no TyrePulse connection is saved in this workspace.
+    assert tyre["connected"] is False and "Connect TyrePulse under Tyre planning" in tyre["note"]
     assert calendar["connected"] is False and "calendar" in calendar["note"]
     assert send["risk_level"] == "high" and send["approval_reason"]
     assert plan["approvals_required"] == 1 and plan["blocked"] == 0
     assert [agent["id"] for agent in plan["agents"]] == ["email", "tyre", "calendar", "action"]
     # Read-only: nothing was created and no audit record written.
     assert store.tasks == {} and store.audit_records == []
+
+
+def test_a_saved_tyre_connection_makes_the_tyre_agent_connected() -> None:
+    from anum_api.schemas import TenantContext, utc_now
+    from anum_api.tyre.model import SourceKind
+    from anum_api.tyre.store import TyreConnection, memory_tyre_store
+
+    now = utc_now()
+    memory_tyre_store.save_connection(
+        TyreConnection(
+            tenant_id="tenant_a", workspace_id="workspace_a", kind=SourceKind.SUPABASE_REST,
+            endpoint="https://example.supabase.co", created_by="user_owner", updated_by="user_owner",
+            created_at=now, updated_at=now,
+        )
+    )
+    try:
+        (step,) = _preview("Check the PMV tyre report")["steps"]
+        assert step["agent"]["id"] == "tyre" and step["tool"]["name"] == "tyre_fleet_summary"
+        assert step["connected"] is True and step["note"] is None
+        # Another workspace has no connection.
+        other = {**owner, "x-workspace-id": "workspace_other"}
+        (elsewhere,) = _preview("Check the PMV tyre report", other)["steps"]
+        assert elsewhere["connected"] is False
+    finally:
+        memory_tyre_store.delete_connection(
+            TenantContext(tenant_id="tenant_a", workspace_id="workspace_a", user_id="user_owner")
+        )
 
 
 def test_preview_in_arabic_names_agents_in_arabic() -> None:
@@ -125,7 +158,14 @@ def test_preview_and_runtime_agree_on_which_steps_pause_for_approval() -> None:
     _run_all(command)
     view = _view(command["id"])
     for step in view["steps"]:
-        expected = "waiting_approval" if step["approval"] == "required" else "completed"
+        # A tyre step without a saved connection fails, as its plan warned.
+        expected = (
+            "waiting_approval"
+            if step["approval"] == "required"
+            else "failed"
+            if step["agent"]["id"] == "tyre"
+            else "completed"
+        )
         assert step["status"] == expected, step
 
 
@@ -192,18 +232,18 @@ def test_create_makes_one_task_per_confirmed_step_in_the_confirmed_order() -> No
 
 
 def test_live_view_approve_all_and_completion() -> None:
-    command = _create()
+    command = _create(NO_TYRE)
     _run_all(command)
     view = _view(command["id"])
     assert view["status"] == "waiting_approval" and 0 < view["progress"] < 1
-    assert view["completed_steps"] == 3 and view["pending_approvals"] == 1
+    assert view["completed_steps"] == 2 and view["pending_approvals"] == 1
     (pending,) = view["pending"]
     assert len(pending["payload_hash"]) == 64
     # Timeline: the tasks' events, oldest first, each tied to its step and agent.
     times = [entry["at"] for entry in view["timeline"]]
-    assert times == sorted(times) and {entry["position"] for entry in view["timeline"]} == {1, 2, 3, 4}
+    assert times == sorted(times) and {entry["position"] for entry in view["timeline"]} == {1, 2, 3}
     assert {"task.created", "agent_run.completed", "approval.requested"} <= {entry["type"] for entry in view["timeline"]}
-    assert [item["kind"] for item in view["files"]] == ["run_log"] * 4
+    assert [item["kind"] for item in view["files"]] == ["run_log"] * 3
     assert view["files"][0]["path"].endswith("/export?format=markdown")
     # Approve all: one approval at a time, each with the hash the client displayed.
     approved = client.post(
