@@ -39,18 +39,68 @@ _WEEKDAYS = {
 # whitespace run can overlap a ``.+`` run: matching stays linear on hostile input (ReDoS).
 MAX_COMMAND_CHARS = 2000
 _LEAD = re.compile(r"^(?:hey |ok )?anum ?[,:]? ?", re.IGNORECASE)
-_ASK = re.compile(r"^(?:please )?(?:ask|tell|remind|get|have) (?P<person>.+?) to (?P<work>.+)$", re.IGNORECASE)
-_ASSIGN = re.compile(r"^(?:please )?assign (?P<work>.+) to (?P<person>.+)$", re.IGNORECASE)
+# The lead-in only; who and what are split with plain string searches below, so no two
+# unbounded runs can overlap on hostile input (CodeQL polynomial-regex).
+_ASK_LEAD = re.compile(r"^(?:please )?(?:ask|tell|remind|get|have) ", re.IGNORECASE)
+_ASSIGN_LEAD = re.compile(r"^(?:please )?assign ", re.IGNORECASE)
 _ARABIC = re.compile(
     r"^(?:من فضلك )?(?:اطلب من|اطلبي من|ذكّر|ذكر|كلّف|كلف) (?P<person>\S+) (?:أن |ان |ب)?(?P<work>.+)$"
 )
-_DUE_SPLIT = re.compile(
-    r" (?:by|before|on|due|until|no later than) (?P<when>.+)$| (?P<bare>(?:today|tonight|tomorrow|this week|next week|in \d{1,3} (?:days?|weeks?))(?: at \d{1,2}(?::\d{2})? ?(?:am|pm)?)?)$",
+_TO = re.compile(r"(?= to )", re.IGNORECASE)  # every " to " position, overlapping ones included
+_DUE_WORD = re.compile(r" (?:by|before|on|due|until|no later than) ", re.IGNORECASE)
+_DUE_BARE = re.compile(
+    r" (?P<bare>(?:today|tonight|tomorrow|this week|next week|in \d{1,3} (?:days?|weeks?))(?: at \d{1,2}(?::\d{2})? ?(?:am|pm)?)?)$",
     re.IGNORECASE,
 )
-_ARABIC_DUE_SPLIT = re.compile(r" (?:قبل|بحلول|يوم|في|خلال) (?P<when>.+)$| (?P<bare>اليوم|غدا|غداً|بكرة|بكره)$")
+_ARABIC_DUE_WORD = re.compile(r" (?:قبل|بحلول|يوم|في|خلال) ")
+_ARABIC_DUE_BARE = re.compile(r" (?P<bare>اليوم|غدا|غداً|بكرة|بكره)$")
 _TIME_TAIL = re.compile(r" (?:at|الساعة) \d{1,2}(?::\d{2})? ?(?:am|pm|ص|م)?$", re.IGNORECASE)
 _TIME = re.compile(r" ?(?:at |الساعة )?(?P<h>\d{1,2})(?::(?P<m>\d{2}))? ?(?P<ap>am|pm|ص|م)?$", re.IGNORECASE)
+
+
+@dataclass
+class _Parts:
+    person: str
+    work: str
+    kind: str  # "ask", "assign" or "arabic"
+
+
+def _split_parts(sentence: str) -> _Parts | None:
+    """Who and what in ``sentence``, matching the old ``(.+?) to (.+)`` / ``(.+) to (.+)`` rules."""
+    lead = _ASK_LEAD.match(sentence)
+    if lead:
+        rest = sentence[lead.end():]
+        # The first " to " after at least one character: the person's name is short.
+        cuts = [m.start() for m in _TO.finditer(rest) if m.start() > 0 and rest[m.start() + 4:]]
+        if cuts:
+            return _Parts(person=rest[: cuts[0]], work=rest[cuts[0] + 4:], kind="ask")
+    lead = _ASSIGN_LEAD.match(sentence)
+    if lead:
+        rest = sentence[lead.end():]
+        # The last such " to ": the work itself may contain "to".
+        cuts = [m.start() for m in _TO.finditer(rest) if m.start() > 0 and rest[m.start() + 4:]]
+        if cuts:
+            return _Parts(person=rest[cuts[-1] + 4:], work=rest[: cuts[-1]], kind="assign")
+    match = _ARABIC.match(sentence)
+    if match:
+        return _Parts(person=match.group("person"), work=match.group("work"), kind="arabic")
+    return None
+
+
+def _split_due(tail: str, arabic: bool) -> tuple[str, str] | None:
+    """(text before the due date, the due date) for the leftmost due phrase in ``tail``."""
+    word, bare = (_ARABIC_DUE_WORD, _ARABIC_DUE_BARE) if arabic else (_DUE_WORD, _DUE_BARE)
+    best: tuple[int, str] | None = None
+    for found in word.finditer(tail):
+        if tail[found.end():]:
+            best = (found.start(), tail[found.end():])
+            break
+    trailing = bare.search(tail)
+    if trailing and (best is None or trailing.start() < best[0]):
+        best = (trailing.start(), trailing.group("bare"))
+    if best is None:
+        return None
+    return tail[: best[0]], best[1]
 
 
 def _normalise(text: str) -> str:
@@ -158,27 +208,22 @@ def resolve_when(text: str, now: datetime, zone: ZoneInfo) -> datetime:
 
 def parse_command(text: str, now: datetime, zone: ZoneInfo) -> ParsedCommand:
     sentence = _LEAD.sub("", _normalise(text)).strip().rstrip(".!؟?")
-    arabic = False
-    match = _ASK.match(sentence) or _ASSIGN.match(sentence)
-    if match is None:
-        match = _ARABIC.match(sentence)
-        arabic = match is not None
-    if match is None:
+    parts = _split_parts(sentence)
+    if parts is None:
         raise CommandError(
             "Start with who and what, for example: ask Ahmed to call the supplier by Thursday, "
             "or assign the stock count to Sara by tomorrow."
         )
-    person = match.group("person").strip().strip(",")
-    work = match.group("work").strip()
+    person = parts.person.strip().strip(",")
+    work = parts.work.strip()
     due_text: str | None = None
     # "assign X to Ahmed by Thursday": the due date trails the person.
-    tail_source = "person" if match.re is _ASSIGN else "work"
+    tail_source = "person" if parts.kind == "assign" else "work"
     tail = person if tail_source == "person" else work
-    splitter = _ARABIC_DUE_SPLIT if arabic else _DUE_SPLIT
-    found = splitter.search(tail)
+    found = _split_due(tail, parts.kind == "arabic")
     if found:
-        due_text = (found.group("when") or found.group("bare")).strip()
-        tail = tail[: found.start()].strip()
+        due_text = found[1].strip()
+        tail = found[0].strip()
         if tail_source == "person":
             person = tail
         else:
@@ -194,7 +239,7 @@ def parse_command(text: str, now: datetime, zone: ZoneInfo) -> ParsedCommand:
 def looks_like_assignment(text: str) -> bool:
     """True when ``text`` has the shape of an assignment (no lookup, no date check)."""
     sentence = _LEAD.sub("", _normalise(text)).strip().rstrip(".!؟?")
-    return bool(_ASK.match(sentence) or _ASSIGN.match(sentence) or _ARABIC.match(sentence))
+    return _split_parts(sentence) is not None
 
 
 def match_people(name: str, people: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:

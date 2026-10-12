@@ -78,8 +78,24 @@ def test_patterns_are_linear_without_the_length_cap(text: str) -> None:
     # The cap is defence in depth: each pattern is linear on 100 KB of normalised text too.
     normalised = " ".join(text.split()) + " " + "a " * 50_000 + "by"
     started = time.perf_counter()
-    for pattern in (team_commands._LEAD, team_commands._ASK, team_commands._ASSIGN, team_commands._ARABIC):
+    for pattern in (team_commands._LEAD, team_commands._ASK_LEAD, team_commands._ASSIGN_LEAD, team_commands._ARABIC):
         pattern.match(normalised)
-    for pattern in (team_commands._DUE_SPLIT, team_commands._ARABIC_DUE_SPLIT, team_commands._TIME_TAIL):
+    for pattern in (team_commands._DUE_BARE, team_commands._ARABIC_DUE_BARE, team_commands._TIME_TAIL):
         pattern.search(normalised)
+    for pattern in (team_commands._TO, team_commands._DUE_WORD, team_commands._ARABIC_DUE_WORD):
+        sum(1 for _ in pattern.finditer(normalised))
+    for prefix in ("ask a to ", "assign a to ", ""):
+        team_commands._split_parts(prefix + normalised)
+    team_commands._split_due(normalised, False)
+    team_commands._split_due(normalised, True)
+    assert time.perf_counter() - started < 1.0
+
+
+@pytest.mark.parametrize("prefix", ["ask a to ", "assign a to ", "ask ", "assign "])
+def test_repeated_to_runs_are_linear(prefix: str) -> None:
+    hostile = prefix + "a to " * 20_000 + "a"
+    started = time.perf_counter()
+    team_commands._split_parts(hostile)
+    team_commands._split_due(" في a" * 20_000, True)
+    team_commands._split_due(" by a" * 20_000, False)
     assert time.perf_counter() - started < 1.0
