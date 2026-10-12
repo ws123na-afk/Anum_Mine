@@ -18,8 +18,10 @@ never anyone else's (docs/privacy.md):
   never truncated.
 - ``POST /api/v1/privacy/delete`` with ``{"confirm": "DELETE MY DATA"}`` deletes the
   caller's user-private data: conversations (and turns), private memories and their
-  retrieval index rows, voice sessions (and transcripts), notification preferences and
-  the phones registered for push in this workspace.
+  retrieval index rows, voice sessions (and transcripts), notification preferences,
+  the phones registered for push in this workspace, the
+  meetings they imported (transcripts, notes and recording files: recordings are
+  personal data, docs/meetings.md#privacy) and their Zoom/Teams connections.
   Workspace-shared records the caller created (tasks, runs, approvals, shared memories,
   files) are kept and counted; the sign-in account lives in the identity provider and
   is not deleted by ANUM.
@@ -58,6 +60,9 @@ from .request_context import current_correlation_id
 from .schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership, new_id, utc_now
 from .settings import settings
 from .user_preferences import ConversationMemoryState, UserPreferences, conversation_memory_state
+from .meeting_connectors import StoredConnection
+from .meetings import Meeting
+from .meetings import TranscriptSegment as MeetingTranscriptSegment
 from .voice import TRANSCRIPT_RETENTION_DAYS, TranscriptRetention, TranscriptSegment, VoiceSession
 
 logger = logging.getLogger("anum.privacy")
@@ -95,6 +100,11 @@ class PrivateCounts(BaseModel):
     # the style profile, learned preferences, routines, notes and suggestions.
     learning_signals: int = 0
     learned_items: int = 0
+    # Meetings the caller imported, with transcripts and recordings (migration 0043_meetings).
+    meetings: int = 0
+    meeting_transcript_segments: int = 0
+    meeting_recordings: int = 0
+    meeting_connections: int = 0
 
     @property
     def total(self) -> int:
@@ -180,6 +190,9 @@ class PrivacyStore(Protocol):
     def push_devices(self) -> list[PushDevice]: ...
     def files_uploaded(self) -> list[FileRecord]: ...
     def learning(self) -> LearningStore: ...
+    def meetings_created(self) -> list[tuple[Meeting, list[MeetingTranscriptSegment]]]: ...
+    def meeting_recordings(self) -> list[FileRecord]: ...
+    def meeting_connections(self) -> list[StoredConnection]: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
     def record_audit(self, record: AuditRecord) -> None: ...
@@ -297,6 +310,27 @@ class InMemoryPrivacyStore:
         from .learning_store import learning_data
 
         return learning_data.bound(self.context)
+    def meetings_created(self) -> list[tuple[Meeting, list[MeetingTranscriptSegment]]]:
+        from .meetings import meeting_store
+
+        mine = sorted(
+            (
+                meeting
+                for meeting in list(meeting_store.meetings.values())
+                if self._scoped(meeting.tenant_id, meeting.workspace_id) and meeting.created_by == self.context.user_id
+            ),
+            key=lambda meeting: (meeting.created_at, meeting.id),
+        )
+        return [(meeting.model_copy(deep=True), meeting_store.all_segments(self.context, meeting.id)) for meeting in mine]
+
+    def meeting_recordings(self) -> list[FileRecord]:
+        ids = {meeting.recording_file_id for meeting, _ in self.meetings_created() if meeting.recording_file_id}
+        return [record for record in self.files_uploaded() if record.id in ids]
+
+    def meeting_connections(self) -> list[StoredConnection]:
+        from .meeting_connectors import connection_store
+
+        return sorted(connection_store.list_connections(self.context), key=lambda item: item.provider.value)
 
     def _private_sources(self) -> list[Any]:
         from .retrieval import memory_retrieval_store
@@ -310,6 +344,7 @@ class InMemoryPrivacyStore:
     def counts(self) -> tuple[PrivateCounts, SharedCounts]:
         conversations = self.conversations()
         voice = self.voice_sessions()
+        meetings = self.meetings_created()
         from .voice import voice_store
 
         private = PrivateCounts(
@@ -324,6 +359,10 @@ class InMemoryPrivacyStore:
             user_preferences=int(self.user_preferences() is not None),
             push_devices=len(self.push_devices()),
             **learning_counts(self.learning()),
+            meetings=len(meetings),
+            meeting_transcript_segments=sum(len(rows) for _, rows in meetings),
+            meeting_recordings=len(self.meeting_recordings()),
+            meeting_connections=len(self.meeting_connections()),
         )
         return private, self._shared_counts()
 
@@ -366,6 +405,18 @@ class InMemoryPrivacyStore:
         for device in push_device_store.list(self.context):
             push_device_store.delete(self.context, device.id)
         self.learning().delete_all()
+        from .files import file_store
+        from .meeting_connectors import connection_store
+        from .meetings import meeting_store
+
+        recordings = self.meeting_recordings()
+        for meeting, _rows in self.meetings_created():
+            meeting_store.delete(self.context, meeting.id)
+        with file_store._lock:
+            for record in recordings:
+                file_store.records.pop(record.id, None)
+        for connection in self.meeting_connections():
+            connection_store.delete(self.context, connection.provider)
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -526,10 +577,39 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
             for record in store.files_uploaded()
         ],
     )
+    yield from _meeting_sections(store)
+
+
+def _meeting_sections(store: PrivacyStore) -> Iterator[tuple[str, Any]]:
+    recordings = {record.id: record for record in store.meeting_recordings()}
+    yield (
+        "meetings_imported",
+        [
+            {
+                **_dump(meeting),
+                "transcript": [_dump(row) for row in rows],
+                "recording": (
+                    {
+                        **_dump(recordings[meeting.recording_file_id], exclude={"storage_key"}),
+                        "download_path": f"/api/v1/files/{meeting.recording_file_id}/content",
+                    }
+                    if meeting.recording_file_id in recordings
+                    else None
+                ),
+            }
+            for meeting, rows in store.meetings_created()
+        ],
+    )
+    yield (
+        "meeting_connections",
+        # Which accounts are connected; the OAuth tokens themselves are never exported.
+        [_dump(item, exclude={"token_ciphertext", "tenant_id", "workspace_id"}) for item in store.meeting_connections()],
+    )
 
 
 NOT_INCLUDED = [
-    "File contents: each uploaded file is listed with a download_path; download it while signed in.",
+    "File contents: each uploaded file (and meeting recording) is listed with a download_path; download it while signed in.",
+    "Zoom and Microsoft sign-in tokens: connected accounts are listed, the tokens are not exported.",
     "Audit records: the workspace's security log (ids and counts, not content); ask a workspace owner for an audit export.",
     "Workspace records created by others, and other users' private data.",
     "Your sign-in account (name, email, password, two-factor): held by the identity provider; ask your administrator.",
@@ -675,7 +755,16 @@ async def delete_my_data(payload: DeleteMyData, context: TenantContext = Depends
             detail=f"Type {DELETE_CONFIRMATION} exactly to confirm. Nothing was deleted.",
         )
     with open_privacy_store(context) as store:
+        recording_keys = [record.storage_key for record in store.meeting_recordings()]
         deleted = store.delete_private()
         _, kept = store.counts()
         _audit(store, context, "privacy.delete", "success", {"deleted": deleted.model_dump(), "kept": kept.model_dump()})
+    # Recording bytes go only after their rows are gone (as a file delete does).
+    from .files import file_store
+
+    for key in recording_keys:
+        try:
+            file_store.storage.delete(key)
+        except Exception as exc:  # the metadata is gone, so the bytes are unreachable
+            logger.warning("privacy_recording_delete_failed error_class=%s", type(exc).__name__)
     return DeleteResult(deleted=deleted, kept=kept)

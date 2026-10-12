@@ -85,6 +85,11 @@ class Permission(StrEnum):
     TYRE_READ = "tyre:read"
     TYRE_OPERATE = "tyre:operate"
     TYRE_MANAGE = "tyre:manage"
+    # Calls & Meetings (docs/meetings.md): every member reads; owners and members import
+    # and edit their own meetings; only owners change or delete anyone's.
+    MEETING_READ = "meeting:read"
+    MEETING_CREATE = "meeting:create"
+    MEETING_MANAGE = "meeting:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -133,6 +138,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.AUTOMATION_READ,
         Permission.COMMERCE_READ,
         Permission.TYRE_READ,
+        Permission.MEETING_READ,
     }
 )
 
@@ -159,6 +165,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.EMAIL_ACT,
             Permission.COMMERCE_OPERATE,
             Permission.TYRE_OPERATE,
+            Permission.MEETING_CREATE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

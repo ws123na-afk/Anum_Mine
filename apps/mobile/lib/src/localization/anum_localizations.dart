@@ -395,6 +395,139 @@ class AnumLocalizations {
     'inboxHash': 'Payload hash: {hash}',
     'inboxApprove': 'Approve and send',
     'inboxApproveOwners': 'Only workspace owners can approve sending.',
+    // Calls & Meetings (lib/features/meetings, docs/meetings.md).
+    "cancel": "Cancel",
+    "meetings": "Meetings",
+    "meetings.intro":
+        "Summaries from recordings and transcripts. No bot joins your meetings.",
+    "meetings.viewerNote":
+        "You can read meetings. Importing them needs a member or owner role; ask a workspace owner.",
+    "meetings.noModel":
+        "No model is connected, so transcripts are saved but not summarised yet. Connect one in Settings.",
+    "meetings.import": "Import a meeting",
+    "meetings.importing": "Importing…",
+    "meetings.recentActivity": "Recent activity",
+    "meetings.callSummary": "Call summary: {title}",
+    "meetings.search": "Search titles, summaries and transcripts",
+    "meetings.allStatuses": "All statuses",
+    "meetings.status.queued": "Queued",
+    "meetings.status.transcribing": "Transcribing",
+    "meetings.status.analyzing": "Summarising",
+    "meetings.status.ready": "Ready",
+    "meetings.status.needs_model": "Needs a model",
+    "meetings.status.failed": "Failed",
+    "meetings.source.recording": "Recording",
+    "meetings.source.transcript": "Transcript file",
+    "meetings.source.zoom": "Zoom",
+    "meetings.source.teams": "Microsoft Teams",
+    "meetings.loading": "Loading meetings…",
+    "meetings.deniedTitle": "No access to meetings",
+    "meetings.denied":
+        "Seeing meetings needs a viewer, member or owner role in this workspace. Ask a workspace owner for access.",
+    "meetings.loadFailed": "Meetings could not be loaded",
+    "meetings.noMatch": "No meetings match",
+    "meetings.noMatchText":
+        "Try other words, or clear the search and status filter.",
+    "meetings.clearSearch": "Clear search",
+    "meetings.empty": "No meetings yet",
+    "meetings.emptyText":
+        "Import a recording or a transcript to get a summary with decisions and action items.",
+    "meetings.emptyReadOnly":
+        "When members import meetings, their summaries appear here.",
+    "meetings.loadMore": "Load more ({shown} of {total})",
+    "meetings.way.transcript": "Transcript file",
+    "meetings.way.recording": "Recording",
+    "meetings.way.zoom": "Zoom",
+    "meetings.way.teams": "Teams",
+    "meetings.title": "Title (defaults to the file name)",
+    "meetings.language": "Language",
+    "meetings.language.auto": "Detect automatically",
+    "meetings.language.en": "English",
+    "meetings.language.ar": "Arabic",
+    "meetings.setup.transcriptionTitle":
+        "Recording transcription is not set up",
+    "meetings.setup.transcriptionText":
+        "ANUM never invents a transcript. A server administrator can connect a local Whisper server or a hosted speech-to-text service; until then, import a transcript file or a Zoom or Teams transcript.",
+    "meetings.recordingHint":
+        "Audio or video. It is stored in Files and transcribed on the server.",
+    "meetings.transcriptHint":
+        "WebVTT (.vtt), SubRip (.srt), text (.txt) or Word (.docx). Speakers and times are kept.",
+    "meetings.uploading": "Uploading",
+    "meetings.chooseRecording": "Choose a recording",
+    "meetings.chooseTranscript": "Choose a transcript file",
+    "meetings.upload.empty": "{name} is empty.",
+    "meetings.upload.type": "{name} is not a supported file. Use {allowed}.",
+    "meetings.upload.size": "{name} is larger than this server allows.",
+    "meetings.upload.cancelled": "Upload cancelled.",
+    "meetings.connector.notSetUp": "{provider} is not set up on this server",
+    "meetings.connector.adminSetup":
+        "A server administrator registers the OAuth app and sets its client id and secret (see the Calls & Meetings guide).",
+    "meetings.connector.connectWeb": "Connect {provider} in the web app",
+    "meetings.connector.connectWebText":
+        "Sign in to your account once from Calls & Meetings in the web app; its meetings then appear here too.",
+    "meetings.connector.connectedAs": "{provider} connected as {account}",
+    "meetings.connector.none":
+        "No {provider} meetings with a transcript in the last 30 days.",
+    "meetings.connector.imported": "Imported",
+    "meetings.connector.import": "Import",
+    "meetings.meeting": "Meeting",
+    "meetings.missing": "This meeting no longer exists in this workspace.",
+    "meetings.working.queued": "Waiting to be processed…",
+    "meetings.working.transcribing":
+        "Transcribing the recording. Long recordings take a few minutes.",
+    "meetings.working.analyzing": "Writing the summary…",
+    "meetings.editDenied":
+        "Only the person who imported this meeting or a workspace owner can change or delete it.",
+    "meetings.processing": "Processing started.",
+    "meetings.retry": "Retry",
+    "meetings.summarize": "Summarize",
+    "meetings.summarizeAgain": "Summarize again",
+    "meetings.delete": "Delete",
+    "meetings.deleteTitle": "Delete this meeting?",
+    "meetings.deleteText":
+        "This deletes the meeting, its transcript and its recording. Tasks created from it stay.",
+    "meetings.summary": "Summary",
+    "meetings.aiLabel": "AI-generated · {model}",
+    "meetings.truncated":
+        "The transcript was longer than the model limit, so only its first part was summarised.",
+    "meetings.checkNotes":
+        "Check the notes against the transcript before you act on them.",
+    "meetings.decisions": "Decisions",
+    "meetings.noDecisions": "No decisions were recorded.",
+    "meetings.actionItems": "Action items",
+    "meetings.noActions": "No action items were found.",
+    "meetings.doneOf": "Done: {text}",
+    "meetings.noOwner": "No owner",
+    "meetings.noDate": "No date",
+    "meetings.taskCreated": "Task created",
+    "meetings.createTask": "Create task",
+    "meetings.taskDone":
+        "Task created. Running it follows the workspace approval policy.",
+    "meetings.approvalNote":
+        "Each item becomes a task only when you create it, and its run asks for approval when the policy says so.",
+    "meetings.followUp": "Follow-up email",
+    "meetings.to": "To",
+    "meetings.toHint": "Separate addresses with commas.",
+    "meetings.subject": "Subject",
+    "meetings.body": "Message",
+    "meetings.saveDraft": "Save draft",
+    "meetings.saved": "Draft saved.",
+    "meetings.copy": "Copy",
+    "meetings.copied": "Copied to the clipboard.",
+    "meetings.send": "Send with approval",
+    "meetings.sent":
+        "Approval requested. The email is sent once it is approved in Approvals.",
+    "meetings.sendNote":
+        "Sending saves a reply draft in {mailbox} and asks for approval first.",
+    "meetings.noEmailTool":
+        "Connect a mailbox under Inbox in the web app to send from ANUM. Until then, copy the draft.",
+    "meetings.handedOff":
+        "Waiting for approval in Approvals; once approved it is sent from {mailbox}.",
+    "meetings.transcript": "Transcript ({count} lines)",
+    "meetings.searchTranscript": "Search the transcript",
+    "meetings.noLines": "No lines match.",
+    "meetings.moreLines": "Showing {shown} of {total} lines.",
+    "meetings.loadMoreLines": "Load more lines",
   };
   static const _ar = <String, String>{
     // ANUM 360 shell, sign-in and profile (redesign).
@@ -760,6 +893,135 @@ class AnumLocalizations {
     'inboxHash': 'بصمة الحمولة: {hash}',
     'inboxApprove': 'الموافقة والإرسال',
     'inboxApproveOwners': 'يوافق على الإرسال مالكو مساحة العمل فقط.',
+    // Calls & Meetings (lib/features/meetings, docs/meetings.md).
+    "cancel": "إلغاء",
+    "meetings": "الاجتماعات",
+    "meetings.intro":
+        "ملخصات من التسجيلات والنصوص. لا ينضم أي روبوت إلى اجتماعاتك.",
+    "meetings.viewerNote":
+        "يمكنك قراءة الاجتماعات. يتطلب استيرادها دور عضو أو مالك؛ اطلب ذلك من مالك مساحة العمل.",
+    "meetings.noModel":
+        "لا يوجد نموذج متصل، لذلك تُحفظ النصوص ولا تُلخَّص بعد. اربط نموذجًا من الإعدادات.",
+    "meetings.import": "استيراد اجتماع",
+    "meetings.importing": "جارٍ الاستيراد…",
+    "meetings.recentActivity": "النشاط الأخير",
+    "meetings.callSummary": "ملخص مكالمة: {title}",
+    "meetings.search": "ابحث في العناوين والملخصات والنصوص",
+    "meetings.allStatuses": "كل الحالات",
+    "meetings.status.queued": "في الانتظار",
+    "meetings.status.transcribing": "جارٍ التفريغ",
+    "meetings.status.analyzing": "جارٍ التلخيص",
+    "meetings.status.ready": "جاهز",
+    "meetings.status.needs_model": "يحتاج نموذجًا",
+    "meetings.status.failed": "فشل",
+    "meetings.source.recording": "تسجيل",
+    "meetings.source.transcript": "ملف نص",
+    "meetings.source.zoom": "Zoom",
+    "meetings.source.teams": "Microsoft Teams",
+    "meetings.loading": "جارٍ تحميل الاجتماعات…",
+    "meetings.deniedTitle": "لا وصول إلى الاجتماعات",
+    "meetings.denied":
+        "يتطلب عرض الاجتماعات دور مشاهد أو عضو أو مالك في مساحة العمل هذه. اطلب الوصول من مالك مساحة العمل.",
+    "meetings.loadFailed": "تعذّر تحميل الاجتماعات",
+    "meetings.noMatch": "لا توجد اجتماعات مطابقة",
+    "meetings.noMatchText": "جرّب كلمات أخرى، أو امسح البحث وتصفية الحالة.",
+    "meetings.clearSearch": "مسح البحث",
+    "meetings.empty": "لا توجد اجتماعات بعد",
+    "meetings.emptyText":
+        "استورد تسجيلًا أو نصًا لتحصل على ملخص بالقرارات والمهام.",
+    "meetings.emptyReadOnly":
+        "عندما يستورد الأعضاء اجتماعات تظهر ملخصاتها هنا.",
+    "meetings.loadMore": "تحميل المزيد ({shown} من {total})",
+    "meetings.way.transcript": "ملف نص",
+    "meetings.way.recording": "تسجيل",
+    "meetings.way.zoom": "Zoom",
+    "meetings.way.teams": "Teams",
+    "meetings.title": "العنوان (اسم الملف افتراضيًا)",
+    "meetings.language": "اللغة",
+    "meetings.language.auto": "اكتشاف تلقائي",
+    "meetings.language.en": "الإنجليزية",
+    "meetings.language.ar": "العربية",
+    "meetings.setup.transcriptionTitle": "تفريغ التسجيلات غير مُعدّ",
+    "meetings.setup.transcriptionText":
+        "لا يختلق ANUM نصًا أبدًا. يمكن لمسؤول الخادم ربط خادم Whisper محلي أو خدمة مستضافة لتحويل الكلام إلى نص؛ وحتى ذلك الحين استورد ملف نص أو نصًا من Zoom أو Teams.",
+    "meetings.recordingHint":
+        "صوت أو فيديو. يُحفظ في الملفات ويُفرَّغ على الخادم.",
+    "meetings.transcriptHint":
+        "WebVTT (.vtt) أو SubRip (.srt) أو نص (.txt) أو Word (.docx). تُحفظ أسماء المتحدثين والأوقات.",
+    "meetings.uploading": "جارٍ الرفع",
+    "meetings.chooseRecording": "اختر تسجيلًا",
+    "meetings.chooseTranscript": "اختر ملف نص",
+    "meetings.upload.empty": "الملف {name} فارغ.",
+    "meetings.upload.type": "الملف {name} غير مدعوم. استخدم {allowed}.",
+    "meetings.upload.size": "الملف {name} أكبر مما يسمح به هذا الخادم.",
+    "meetings.upload.cancelled": "أُلغي الرفع.",
+    "meetings.connector.notSetUp": "{provider} غير مُعدّ على هذا الخادم",
+    "meetings.connector.adminSetup":
+        "يسجّل مسؤول الخادم تطبيق OAuth ويضبط معرّف العميل والسر (راجع دليل المكالمات والاجتماعات).",
+    "meetings.connector.connectWeb": "اربط {provider} من تطبيق الويب",
+    "meetings.connector.connectWebText":
+        "سجّل الدخول إلى حسابك مرة واحدة من المكالمات والاجتماعات في تطبيق الويب، ثم تظهر اجتماعاته هنا أيضًا.",
+    "meetings.connector.connectedAs": "{provider} مرتبط بالحساب {account}",
+    "meetings.connector.none":
+        "لا توجد اجتماعات في {provider} لها نص خلال آخر 30 يومًا.",
+    "meetings.connector.imported": "مستورد",
+    "meetings.connector.import": "استيراد",
+    "meetings.meeting": "اجتماع",
+    "meetings.missing": "لم يعد هذا الاجتماع موجودًا في مساحة العمل هذه.",
+    "meetings.working.queued": "في انتظار المعالجة…",
+    "meetings.working.transcribing":
+        "جارٍ تفريغ التسجيل. تستغرق التسجيلات الطويلة بضع دقائق.",
+    "meetings.working.analyzing": "جارٍ كتابة الملخص…",
+    "meetings.editDenied":
+        "لا يغيّر هذا الاجتماع أو يحذفه إلا من استورده أو مالك مساحة العمل.",
+    "meetings.processing": "بدأت المعالجة.",
+    "meetings.retry": "إعادة المحاولة",
+    "meetings.summarize": "تلخيص",
+    "meetings.summarizeAgain": "التلخيص من جديد",
+    "meetings.delete": "حذف",
+    "meetings.deleteTitle": "حذف هذا الاجتماع؟",
+    "meetings.deleteText":
+        "يحذف هذا الاجتماع ونصه وتسجيله. تبقى المهام التي أُنشئت منه.",
+    "meetings.summary": "الملخص",
+    "meetings.aiLabel": "مولَّد بالذكاء الاصطناعي · {model}",
+    "meetings.truncated":
+        "كان النص أطول من حد النموذج، فلُخِّص الجزء الأول منه فقط.",
+    "meetings.checkNotes": "راجع الملاحظات مقابل النص قبل التصرف بناءً عليها.",
+    "meetings.decisions": "القرارات",
+    "meetings.noDecisions": "لم تُسجَّل قرارات.",
+    "meetings.actionItems": "المهام المطلوبة",
+    "meetings.noActions": "لم يُعثر على مهام مطلوبة.",
+    "meetings.doneOf": "منجز: {text}",
+    "meetings.noOwner": "بلا مسؤول",
+    "meetings.noDate": "بلا تاريخ",
+    "meetings.taskCreated": "أُنشئت مهمة",
+    "meetings.createTask": "إنشاء مهمة",
+    "meetings.taskDone":
+        "أُنشئت المهمة. يخضع تشغيلها لسياسة الموافقات في مساحة العمل.",
+    "meetings.approvalNote":
+        "يصبح كل بند مهمة فقط عندما تنشئها، ويطلب تشغيلها موافقة حين تقتضي السياسة ذلك.",
+    "meetings.followUp": "بريد المتابعة",
+    "meetings.to": "إلى",
+    "meetings.toHint": "افصل العناوين بفواصل.",
+    "meetings.subject": "الموضوع",
+    "meetings.body": "الرسالة",
+    "meetings.saveDraft": "حفظ المسودة",
+    "meetings.saved": "حُفظت المسودة.",
+    "meetings.copy": "نسخ",
+    "meetings.copied": "نُسخت إلى الحافظة.",
+    "meetings.send": "إرسال بعد الموافقة",
+    "meetings.sent": "طُلبت الموافقة. تُرسل الرسالة بعد الموافقة عليها.",
+    "meetings.sendNote":
+        "يحفظ الإرسال مسودة رد في {mailbox} ويطلب الموافقة أولًا.",
+    "meetings.noEmailTool":
+        "اربط صندوق بريد من البريد الوارد في تطبيق الويب للإرسال من ANUM. حتى ذلك الحين انسخ المسودة.",
+    "meetings.handedOff":
+        "بانتظار الموافقة في صفحة الموافقات؛ بعدها تُرسل من {mailbox}.",
+    "meetings.transcript": "النص ({count} سطر)",
+    "meetings.searchTranscript": "ابحث في النص",
+    "meetings.noLines": "لا توجد أسطر مطابقة.",
+    "meetings.moreLines": "يظهر {shown} من {total} سطر.",
+    "meetings.loadMoreLines": "تحميل أسطر أخرى",
   };
 }
 

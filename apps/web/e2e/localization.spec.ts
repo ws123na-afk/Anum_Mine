@@ -116,6 +116,19 @@ test('the audit log and this workspace read in Arabic, right to left, without ho
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
 
+test('Calls & Meetings reads in Arabic, right to left, with the Arabic transcript', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await useSavedLocale(page, 'ar');
+  await page.goto('/#meetings?meeting=meeting_ar');
+  await expect(page.getByRole('heading', { level: 1, name: 'المكالمات والاجتماعات' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'النشاط الأخير' })).toBeVisible();
+  const detail = page.locator('.meetingDetail');
+  await expect(detail.getByRole('heading', { name: 'المهام المطلوبة' })).toBeVisible();
+  await expect(detail.locator('.transcriptLines')).toHaveAttribute('dir', 'rtl');
+  await expect(detail.getByRole('heading', { name: 'النص (سطران)' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
+
 test('Files reads in Arabic, right to left, with Arabic plurals', async ({ page }) => {
   await mockWorkspaceApi(page);
   await useSavedLocale(page, 'ar');

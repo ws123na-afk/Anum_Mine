@@ -15,7 +15,7 @@ export interface CountRow { key: string; label: string; value: number }
 const PRIVATE_KEYS: (keyof PrivateCounts)[] = [
   'conversations', 'conversation_turns', 'private_memories', 'retrieval_index_entries',
   'voice_sessions', 'voice_transcript_segments', 'notification_preferences', 'user_preferences',
-  'push_devices',
+  'push_devices', 'meetings', 'meeting_transcript_segments', 'meeting_recordings', 'meeting_connections',
   'learning_signals', 'learned_items',
 ];
 

@@ -306,6 +306,36 @@ class Settings(BaseSettings):
     push_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     # Events waiting for delivery in each process; beyond this the oldest are dropped.
     push_max_pending: int = Field(default=1000, ge=10, le=100_000)
+    # Calls & Meetings (anum_api/meetings.py, docs/meetings.md). Recording uploads are
+    # capped at ``meeting_recording_max_bytes`` (hosted Whisper APIs accept 25 MB) and
+    # transcript files at ``meeting_transcript_max_bytes``. The analysis prompt holds at
+    # most ``meeting_analysis_max_chars`` of transcript (the rest is marked truncated) and
+    # the answer at most ``meeting_analysis_max_tokens``.
+    meeting_recording_max_bytes: int = Field(default=25 * 1024 * 1024, ge=1024 * 1024, le=512 * 1024 * 1024)
+    meeting_transcript_max_bytes: int = Field(default=5 * 1024 * 1024, ge=64 * 1024, le=50 * 1024 * 1024)
+    meeting_analysis_max_chars: int = Field(default=60_000, ge=2_000, le=400_000)
+    meeting_analysis_max_tokens: int = Field(default=2_000, ge=256, le=16_000)
+    # Speech-to-text for recordings (anum_api/transcription.py). "none" (default): only
+    # transcript files and Zoom/Teams transcripts can be imported. "openai-compatible":
+    # POST {base_url}/audio/transcriptions, which a local Whisper server (faster-whisper
+    # server, Speaches, whisper.cpp server, LocalAI) or a hosted provider (OpenAI, Groq)
+    # answers. "deepgram": Deepgram's hosted pre-recorded API, with speaker labels.
+    transcription_provider: str = Field(default="none", pattern="^(none|openai-compatible|deepgram)$")
+    transcription_base_url: str = Field(default="", max_length=500)
+    transcription_model: str = Field(default="", max_length=200)
+    transcription_api_key: SecretStr | None = None
+    transcription_timeout_seconds: float = Field(default=600.0, gt=0, le=3600)
+    # Zoom and Microsoft Teams transcript connectors (anum_api/meeting_connectors.py).
+    # Each needs an OAuth app the owner registers (docs/meetings.md#connectors); empty
+    # client ids switch the connector off. ``meetings_oauth_redirect_uri`` is the web
+    # app's callback page, for example https://app.example.com/meetings/connected, and
+    # must be registered as the redirect URL of both apps.
+    zoom_client_id: str = Field(default="", max_length=200)
+    zoom_client_secret: SecretStr | None = None
+    microsoft_client_id: str = Field(default="", max_length=200)
+    microsoft_client_secret: SecretStr | None = None
+    microsoft_tenant: str = Field(default="organizations", pattern=r"^[A-Za-z0-9.\-]{1,100}$")
+    meetings_oauth_redirect_uri: str = Field(default="", max_length=500, pattern=r"^(|https?://\S+)$")
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",

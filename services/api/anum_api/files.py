@@ -788,3 +788,57 @@ def delete_file(file_id: str, context: TenantContext = Depends(tenant_context)) 
 
     forget_file(context, file_id)
     return Response(status_code=204)
+
+
+# --------------------------------------------------------------------------- shared helpers
+
+
+def store_workspace_file(context: TenantContext, name: str, content: bytes, content_type: str) -> FileRecord:
+    """Store bytes then metadata under the workspace quota; never leave unreachable bytes behind.
+
+    Used by meeting recordings (docs/meetings.md), which are workspace files too.
+    """
+    name = _valid_name(name)
+    quota = settings.files_workspace_quota_bytes
+    with open_file_metadata_store(context) as store:
+        current = store.usage(context)
+    if current.used_bytes + len(content) > quota:
+        raise _quota_error(current, len(content))
+    digest = hashlib.sha256(content).hexdigest()
+    file_id = new_id("file")
+    try:
+        key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
+    record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+                        name=name, content_type=content_type, size_bytes=len(content), sha256=digest,
+                        storage_key=key, created_by=context.user_id, created_at=utc_now())
+    file_store.storage.put(key, content, content_type)
+    try:
+        with open_file_metadata_store(context) as store:
+            store.add(record, quota)
+    except StorageQuotaExceeded as exc:
+        file_store.storage.delete(key)
+        raise _quota_error(exc.usage, len(content)) from exc
+    except BaseException:
+        file_store.storage.delete(key)
+        raise
+    return record
+
+
+def remove_workspace_file(context: TenantContext, file_id: str) -> bool:
+    """Delete one file's metadata, then (after that commit) its bytes and retrieval chunks."""
+    with open_file_metadata_store(context) as store:
+        record = store.get(context, file_id)
+        if record is None:
+            return False
+        store.delete(context, file_id)
+    file_store.storage.delete(record.storage_key)
+    from .retrieval_api import forget_file
+
+    forget_file(context, file_id)
+    return True
+
+
+def valid_file_name(value: str) -> str:
+    return _valid_name(value)

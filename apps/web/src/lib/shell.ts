@@ -4,7 +4,7 @@
 import { t, type MessageKey } from './i18n.ts';
 
 export type View =
-  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'integrations' | 'tyre' | 'commerce' | 'files' | 'memory' | 'skills'
+  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'integrations' | 'tyre' | 'commerce' | 'files' | 'memory' | 'skills'
   | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'developer';
 
@@ -21,7 +21,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'integrations', 'tyre', 'commerce', 'files', 'memory', 'skills'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'integrations', 'tyre', 'commerce', 'files', 'memory', 'skills'] },
   { group: 'more', views: ['inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'developer'] },
 ];
@@ -42,6 +42,7 @@ export const viewLabel = (view: View): string => t(`nav.${view}` as MessageKey);
 export function viewFromHash(hash: string): View {
   const id = hash.replace(/^#/, '');
   if (id.startsWith('invitation=')) return 'members';
+  if (id.startsWith('meetings?')) return 'meetings';
   if (id === 'privacy' || id === 'language' || id === 'notifications') return 'settings';
   return isView(id) ? id : 'home';
 }

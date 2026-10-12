@@ -108,7 +108,8 @@ from .tasks import (
     normalize_query,
 )
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
-from .hardening import docs_routes, enforce_startup_policy, install_hardening
+from .hardening import BodyLimitRule, docs_routes, enforce_startup_policy, install_hardening
+from .meetings import router as meetings_router
 from .voice import router as voice_router
 from .voice_call import call_router as voice_call_router
 from .conversations import router as conversations_router
@@ -201,6 +202,11 @@ install_hardening(
     settings,
     upload_path_prefix=files_router.prefix,
     upload_max_bytes=settings.max_upload_body_bytes,
+    # Meeting recordings and transcript files (docs/meetings.md) have their own caps.
+    extra_upload_rules=(
+        BodyLimitRule("POST", f"{meetings_router.prefix}/recordings", settings.meeting_recording_max_bytes + 1024),
+        BodyLimitRule("POST", f"{meetings_router.prefix}/transcripts", settings.meeting_transcript_max_bytes + 1024),
+    ),
 )
 app.add_middleware(
     CORSMiddleware,
@@ -270,6 +276,7 @@ app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
 app.include_router(autonomy_router)
 app.include_router(learning_router)
+app.include_router(meetings_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

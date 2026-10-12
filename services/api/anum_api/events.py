@@ -67,6 +67,9 @@ class CanonicalEventName(StrEnum):
     COMMERCE_ALERT_RAISED = "commerce.alert.raised"
     # Tyre planning: new critical or warning alerts after a sync (docs/tyre-planning.md#alerts).
     TYRE_ALERTS_RAISED = "tyre_alerts.raised"
+    MEETING_IMPORTED = "meeting.imported"
+    MEETING_SUMMARIZED = "meeting.summarized"
+    MEETING_FAILED = "meeting.failed"
 
 
 class PublicationStatus(StrEnum):

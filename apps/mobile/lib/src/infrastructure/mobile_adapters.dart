@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
+import '../../features/meetings/meetings_repository.dart';
 import '../../features/auth/workspace_selection.dart';
 import '../../features/workspace/api_workspace_repository.dart';
 import '../../features/workspace/files_repository.dart';
@@ -94,7 +95,10 @@ class SecureWorkspacePreferenceStore implements WorkspacePreferenceStore {
 /// Workspace file bytes (docs/files.md#mobile): streamed uploads with
 /// progress and cancel, previews and downloads through short-lived links.
 class HttpWorkspaceFileTransfer
-    implements WorkspaceFileTransfer, FileStreamTransfer {
+    implements
+        WorkspaceFileTransfer,
+        FileStreamTransfer,
+        MeetingUploadTransfer {
   HttpWorkspaceFileTransfer({
     required this.baseUri,
     required this.sessions,
@@ -118,8 +122,8 @@ class HttpWorkspaceFileTransfer
     return sessionHeaders(session);
   }
 
-  Uri _uploadUri(String name) =>
-      baseUri.resolve('api/v1/files').replace(queryParameters: {'name': name});
+  Uri _uploadUri(String endpoint, Map<String, String> query) =>
+      baseUri.resolve(endpoint).replace(queryParameters: query);
 
   @override
   Future<JsonMap> upload(String path) async {
@@ -136,12 +140,25 @@ class HttpWorkspaceFileTransfer
     required String name,
     required void Function(int sent, int total) onProgress,
     required UploadCancellation cancellation,
+  }) =>
+      uploadTo('api/v1/files', {'name': name}, path,
+          onProgress: onProgress, cancellation: cancellation);
+
+  /// Streams the file at [path] to [endpoint] (Files, or a meeting
+  /// recording or transcript import, docs/meetings.md) with progress.
+  @override
+  Future<JsonMap> uploadTo(
+    String endpoint,
+    Map<String, String> query,
+    String path, {
+    required void Function(int sent, int total) onProgress,
+    required UploadCancellation cancellation,
   }) async {
     final file = File(path);
     final total = await file.length();
     final client = _uploadClient();
     var sent = 0;
-    final request = http.StreamedRequest('POST', _uploadUri(name))
+    final request = http.StreamedRequest('POST', _uploadUri(endpoint, query))
       ..headers.addAll({
         ...await _headers(),
         'content-type': 'application/octet-stream',

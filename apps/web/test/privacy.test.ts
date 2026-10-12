@@ -22,7 +22,7 @@ const apiError = (status: number, detail: string | null = null) => Object.assign
 
 describe('count rows', () => {
   test('list every private and shared count with a label, in a stable order', () => {
-    assert.deepEqual(privateRows(summary.private).map((row) => row.value), [2, 6, 1, 1, 1, 3, 1, 1, 2, 2, 3]);
+    assert.deepEqual(privateRows(summary.private).map((row) => row.value), [2, 6, 1, 1, 1, 3, 1, 1, 2, 0, 0, 0, 0, 2, 3]);
     assert.equal(privateRows(summary.private).at(-2)?.label, 'Feedback ANUM learned from');
     assert.equal(privateRows(summary.private)[0].label, 'Assistant conversations');
     assert.deepEqual(sharedRows(summary.shared).map((row) => row.key), ['tasks_created', 'approvals_decided', 'shared_memories_created', 'files_uploaded']);

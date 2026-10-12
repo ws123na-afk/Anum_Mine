@@ -45,6 +45,11 @@ export interface PrivacyPrivateCounts {
   learning_signals?: number;
   /** The style profile, learned preferences, routines, notes and suggestions. Absent from older servers. */
   learned_items?: number;
+  /** Meetings the caller imported, their transcript lines, recordings and Zoom/Teams connections (docs/meetings.md). Absent from older servers. */
+  meetings?: number;
+  meeting_transcript_segments?: number;
+  meeting_recordings?: number;
+  meeting_connections?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */
@@ -136,6 +141,10 @@ export interface PrivacyExport {
     suggestions: Array<Record<string, unknown>>;
   };
   files_uploaded: Array<Record<string, unknown> & { id: string; download_path: string }>;
+  /** Meetings the caller imported with transcripts and recording links (docs/meetings.md). Absent from older servers. */
+  meetings_imported?: Array<Record<string, unknown> & { id: string; transcript: Array<Record<string, unknown>>; recording: (Record<string, unknown> & { download_path: string }) | null }>;
+  /** Connected Zoom/Microsoft accounts; never the OAuth tokens. */
+  meeting_connections?: Array<Record<string, unknown> & { provider: string; account_label: string }>;
 }
 
 /** `POST /api/v1/privacy/delete` with `{"confirm": delete_confirmation}`. */

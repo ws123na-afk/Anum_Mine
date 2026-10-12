@@ -76,7 +76,8 @@ async function refreshTokens(): Promise<TokenSet | null> {
 export async function initAuth(): Promise<AuthStatus> {
   if (!client) return { kind: 'local' };
   const url = new URL(window.location.href);
-  if (client.isRedirectCallback(url)) {
+  // The Zoom/Teams sign-in also returns code and state, to its own page (docs/meetings.md).
+  if (client.isRedirectCallback(url) && !url.pathname.endsWith('/meetings/connected')) {
     // Code and state are single-use; drop them from the address bar and history either way.
     const clean = `${url.origin}${url.pathname}`;
     try {

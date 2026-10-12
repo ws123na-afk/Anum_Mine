@@ -57,6 +57,8 @@ class Provenance(StrEnum):
     USER_SPEECH = "user_speech"
     WEB = "web"
     EMAIL = "email"
+    # An imported meeting transcript (recording, file, Zoom or Teams): what other people said.
+    MEETING_TRANSCRIPT = "meeting_transcript"
 
 
 def _attribute(value: str) -> str:

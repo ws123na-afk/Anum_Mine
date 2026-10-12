@@ -455,7 +455,14 @@ def docs_routes(config: Any) -> dict[str, str | None]:
 # ---------------------------------------------------------------------------
 
 
-def install_hardening(app: Any, config: Any, *, upload_path_prefix: str, upload_max_bytes: int) -> None:
+def install_hardening(
+    app: Any,
+    config: Any,
+    *,
+    upload_path_prefix: str,
+    upload_max_bytes: int,
+    extra_upload_rules: Iterable[BodyLimitRule] = (),
+) -> None:
     """Add the hardening middlewares to ``app``.
 
     Starlette runs the most recently added middleware first, so the resulting order
@@ -467,7 +474,13 @@ def install_hardening(app: Any, config: Any, *, upload_path_prefix: str, upload_
     app.add_middleware(
         BodySizeLimitMiddleware,
         max_bytes=config.max_request_body_bytes,
-        rules=[BodyLimitRule("POST", upload_path_prefix, max(upload_max_bytes, config.max_request_body_bytes))],
+        rules=[
+            BodyLimitRule("POST", upload_path_prefix, max(upload_max_bytes, config.max_request_body_bytes)),
+            *(
+                BodyLimitRule(rule.method, rule.path_prefix, max(rule.max_bytes, config.max_request_body_bytes))
+                for rule in extra_upload_rules
+            ),
+        ],
     )
     app.state.rate_limiter = None
     if config.rate_limit_enabled:

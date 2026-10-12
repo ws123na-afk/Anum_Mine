@@ -15,7 +15,8 @@ module adds what a call needs on top of the session:
   answered by the workspace's vision model and streamed like ``/ask/stream``. The frame
   is sent to the model once and never stored or logged.
 - ``POST /sessions/{id}/summary``: the end-of-call summary, saved as a conversation
-  with the call's transcript when asked (there is no Calls & Meetings module yet).
+  with the call's transcript when asked. It summarizes a talk with the assistant;
+  calls and meetings with other people are Calls & Meetings (meetings.py).
 
 Nothing here changes tasks or approvals: a call has the same read-only assistant as
 the Voice view, so actions asked for by voice are proposed and need a tap on screen.

@@ -21,10 +21,14 @@ from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by, learning_
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
 from anum_api.push import PushDevice
 from anum_api.user_preferences import UserPreferences
+from anum_api.meeting_connectors import StoredConnection
+from anum_api.meetings import Meeting
+from anum_api.meetings import TranscriptSegment as MeetingTranscriptSegment
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
 
 from .conversation_repository import _conversation, _turn
 from .learning_repository import SqlAlchemyLearningStore
+from .meetings_repository import SqlAlchemyConnectionStore, SqlAlchemyMeetingStore, _meeting, _segment as _meeting_segment
 from .memory_repository import SqlAlchemyMemoryRepository
 from .models import (
     AgentRunRecord,
@@ -32,6 +36,9 @@ from .models import (
     ApprovalRecord,
     ConversationRecord,
     ConversationTurnRecord,
+    MeetingConnectorAccountRecord,
+    MeetingRecord,
+    MeetingTranscriptSegmentRecord,
     MemoryRecord,
     NotificationPreferenceRecord,
     PushDeviceRecord,
@@ -207,6 +214,49 @@ class SqlAlchemyPrivacyStore:
         ).all()
         return [_file(row) for row in rows]
 
+    # -- meetings (migration 0026) -------------------------------------------------------
+
+    def _meeting_filter(self):  # type: ignore[no-untyped-def]
+        return (*self._in_workspace(MeetingRecord), MeetingRecord.created_by == self.context.user_id)
+
+    def _my_meeting_ids(self):  # type: ignore[no-untyped-def]
+        return select(MeetingRecord.id).where(*self._meeting_filter())
+
+    def _meeting_segment_filter(self):  # type: ignore[no-untyped-def]
+        return (
+            *self._in_workspace(MeetingTranscriptSegmentRecord),
+            MeetingTranscriptSegmentRecord.meeting_id.in_(self._my_meeting_ids()),
+        )
+
+    def meetings_created(self) -> list[tuple[Meeting, list[MeetingTranscriptSegment]]]:
+        rows = self.session.scalars(
+            select(MeetingRecord).where(*self._meeting_filter()).order_by(MeetingRecord.created_at, MeetingRecord.id)
+        ).all()
+        found = []
+        for row in rows:
+            segments = self.session.scalars(
+                select(MeetingTranscriptSegmentRecord)
+                .where(*self._in_workspace(MeetingTranscriptSegmentRecord), MeetingTranscriptSegmentRecord.meeting_id == row.id)
+                .order_by(MeetingTranscriptSegmentRecord.seq)
+            ).all()
+            found.append((_meeting(row), [_meeting_segment(segment) for segment in segments]))
+        return found
+
+    def _recording_filter(self):  # type: ignore[no-untyped-def]
+        recording_ids = select(MeetingRecord.recording_file_id).where(
+            *self._meeting_filter(), MeetingRecord.recording_file_id.is_not(None)
+        )
+        return (*self._file_filter(), WorkspaceFileRecord.id.in_(recording_ids))
+
+    def meeting_recordings(self) -> list[FileRecord]:
+        rows = self.session.scalars(
+            select(WorkspaceFileRecord).where(*self._recording_filter()).order_by(WorkspaceFileRecord.created_at)
+        ).all()
+        return [_file(row) for row in rows]
+
+    def meeting_connections(self) -> list[StoredConnection]:
+        return sorted(SqlAlchemyConnectionStore(self.session).list_connections(self.context), key=lambda item: item.provider.value)
+
     # -- counts --------------------------------------------------------------------------
 
     def _private_source_count(self) -> int:
@@ -239,6 +289,10 @@ class SqlAlchemyPrivacyStore:
             user_preferences=self._count(UserPreferenceRecord, *self._user_preference_filter()),
             push_devices=self._count(PushDeviceRecord, *self._push_device_filter()),
             **learning_counts(self.learning()),
+            meetings=self._count(MeetingRecord, *self._meeting_filter()),
+            meeting_transcript_segments=self._count(MeetingTranscriptSegmentRecord, *self._meeting_segment_filter()),
+            meeting_recordings=self._count(WorkspaceFileRecord, *self._recording_filter()),
+            meeting_connections=self._count(MeetingConnectorAccountRecord, *self._mine(MeetingConnectorAccountRecord)),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -270,6 +324,12 @@ class SqlAlchemyPrivacyStore:
         self.session.execute(delete(UserPreferenceRecord).where(*self._user_preference_filter()))
         self.session.execute(delete(PushDeviceRecord).where(*self._push_device_filter()))
         self.learning().delete_all()
+        # Meetings the caller imported: recording file rows first (the route deletes the
+        # bytes after commit), then transcript lines and the meetings themselves.
+        self.session.execute(delete(WorkspaceFileRecord).where(*self._recording_filter()))
+        self.session.execute(delete(MeetingTranscriptSegmentRecord).where(*self._meeting_segment_filter()))
+        self.session.execute(delete(MeetingRecord).where(*self._meeting_filter()))
+        self.session.execute(delete(MeetingConnectorAccountRecord).where(*self._mine(MeetingConnectorAccountRecord)))
         self.session.flush()
         return deleted
 

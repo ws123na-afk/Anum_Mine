@@ -93,6 +93,8 @@ A tyre planning sync (or an assumptions change) that raises new critical or warn
 
 Workspace invitations and membership management ([Identity](identity.md#invitations-and-membership-management)) emit `workspace_invitation.created`, `workspace_invitation.accepted`, `workspace_invitation.resent`, `workspace_invitation.revoked`, `workspace_member.added`, `workspace_member.role_changed`, `workspace_member.deactivated` and `workspace_member.reactivated`. The workspace lifecycle ([Identity](identity.md#workspace-lifecycle)) emits `workspace.created` (in the new workspace), `workspace.renamed`, `workspace.archived` and `workspace.restored`. Payloads carry ids, roles, the expiry and whether an invitation is email-bound; never the invitation token or the invitee's email (the email is kept in the audit record only).
 
+[Calls & Meetings](meetings.md) emit `meeting.imported`, `meeting.summarized` and `meeting.failed` (subject: the meeting id). Payloads carry the title, source, linked agent, action item count or error code; never transcript text.
+
 ## Now
 
 Define event naming, publish core task and approval events to NATS JetStream, persist enough event history for task timelines, and stream relevant events to clients.

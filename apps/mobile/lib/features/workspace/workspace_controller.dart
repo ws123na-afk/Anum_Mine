@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
+import '../meetings/meetings_controller.dart';
+import '../meetings/meetings_repository.dart';
 import 'files_controller.dart';
 import 'files_repository.dart';
 import 'task_management.dart';
@@ -7,11 +9,17 @@ import 'workspace_models.dart';
 import 'workspace_repository.dart';
 
 class WorkspaceController extends ChangeNotifier {
-  WorkspaceController(this.repository, {FilesRepository? files}) {
+  WorkspaceController(this.repository,
+      {FilesRepository? files, MeetingsRepository? meetings}) {
     if (files != null) {
       filesController = FilesController(files, onChanged: load);
     }
+    if (meetings != null) meetingsController = MeetingsController(meetings);
   }
+
+  /// Calls & Meetings (docs/meetings.md#mobile). Null when the app wires no
+  /// meetings API.
+  MeetingsController? meetingsController;
   final WorkspaceRepository repository;
 
   /// The Files tab (docs/files.md#mobile): paged list, uploads with progress,

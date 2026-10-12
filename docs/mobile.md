@@ -104,6 +104,16 @@ To regenerate (for example after a Flutter template change), delete the folders,
 ## Tyre planning
 
 **Home > Tyre planning** (route `/tyres`, `lib/features/tyre/`) shows the fleet tyre dashboard, the tyres due in a month (previous and next month, search, paging) and the open alerts, which members and owners acknowledge ([Tyre planning](tyre-planning.md)). Connecting the data source, mapping and reports stay on the web; with nothing synced the screen says who does that. A tapped "Tyre alerts" push opens `/tyres/alerts`. Tests: `test/tyre/tyre_test.dart` (every state, Arabic, 320 to 1440 wide at 200% text).
+## Calls & Meetings
+
+The **Meetings** tab under Resources ([Calls & Meetings](meetings.md), code `lib/features/meetings/`):
+- the list, with search, a status filter and paging;
+- "Call summary" recent activity;
+- import of a transcript file or recording through the streamed upload (`HttpWorkspaceFileTransfer.uploadTo`), with progress and cancel;
+- import from an already connected Zoom or Teams account; connecting happens in the web app;
+- a detail page: AI-labelled summary, decisions, action items (done, **Create task**), the follow-up draft (save, copy, send with approval from a connected mailbox) and the searchable transcript, right to left for Arabic meetings.
+
+Every state is handled: loading, empty with an import action, error with retry, viewer and permission notes. Tests: `test/meetings_test.dart` (API client, list and detail, Arabic RTL, 320 to 1440 widths at 200% text).
 
 ## Phone push
 

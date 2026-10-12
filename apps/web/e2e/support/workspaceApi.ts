@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
+import { handleMeetings } from './meetingsApi';
 
 // One mocked workspace with something on every main view (the Command Center home, Assistant, Tasks, Approvals, Memory,
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
@@ -236,6 +237,8 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     // Commerce (docs/commerce.md): one Amazon and one own-store connection with data on every tab.
     const commerce = commerceReply(commerceFixture, method, url, request.postData() ? request.postDataJSON() : null);
     if (commerce) return json(commerce.body, commerce.status);
+    // Calls & Meetings (docs/meetings.md).
+    if (path.startsWith('/api/v1/meetings') && await handleMeetings(route)) return;
     if (path === '/api/v1/marketplace/installs') return json([{ package_id: 'acme.crm-sync', version: '1.2.0', enabled: true, installed_by: 'user_local', installed_at: now }]);
     if (path === '/api/v1/email/setup') return json(emailSetup);
     if (path === '/api/v1/email/accounts' && method === 'GET') return json([emailAccount]);

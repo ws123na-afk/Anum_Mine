@@ -1228,3 +1228,91 @@ class LearningSuggestionRecord(Base, WorkspaceScopedMixin):
         _workspace_fk("learning_suggestions"),
         UniqueConstraint("tenant_id", "workspace_id", "user_id", "fingerprint", name="uq_learning_suggestions_fingerprint"),
     )
+
+
+# Calls & Meetings (migration 0026_meetings, docs/meetings.md). Meetings and their
+# transcript lines belong to the workspace (tenant and workspace RLS); connector accounts
+# hold one user's encrypted OAuth tokens (tenant, workspace *and* user RLS).
+
+
+class MeetingRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "meetings"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    language: Mapped[str] = mapped_column(String(8), nullable=False)
+    requested_language: Mapped[str] = mapped_column(String(8), nullable=False)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int | None] = mapped_column()
+    agent_skill_id: Mapped[str | None] = mapped_column(String(160))
+    recording_file_id: Mapped[str | None] = mapped_column(String(80))
+    source_file_name: Mapped[str | None] = mapped_column(String(255))
+    external_id: Mapped[str | None] = mapped_column(String(512))
+    segment_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(40))
+    error: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    decisions: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    action_items: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    follow_up: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("meetings"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_meetings_scope_id"),
+        Index("ix_meetings_scope_created", "tenant_id", "workspace_id", "created_at"),
+        Index(
+            "uq_meetings_external",
+            "tenant_id",
+            "workspace_id",
+            "source",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id is not null"),
+        ),
+    )
+
+
+class MeetingTranscriptSegmentRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "meeting_transcript_segments"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    meeting_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    seq: Mapped[int] = mapped_column(nullable=False)
+    speaker: Mapped[str | None] = mapped_column(String(120))
+    start_ms: Mapped[int | None] = mapped_column(BigInteger)
+    end_ms: Mapped[int | None] = mapped_column(BigInteger)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "meeting_id"],
+            ["meetings.tenant_id", "meetings.workspace_id", "meetings.id"],
+            name="fk_meeting_transcript_segments_meeting",
+            ondelete="CASCADE",
+        ),
+        Index("ix_meeting_segments_meeting_seq", "tenant_id", "workspace_id", "meeting_id", "seq"),
+    )
+
+
+class MeetingConnectorAccountRecord(Base):
+    __tablename__ = "meeting_connector_accounts"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20), primary_key=True)
+    account_label: Mapped[str] = mapped_column(String(200), nullable=False)
+    external_user_id: Mapped[str | None] = mapped_column(String(200))
+    scopes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    token_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("meeting_connector_accounts"),)

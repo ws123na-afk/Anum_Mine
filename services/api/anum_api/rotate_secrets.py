@@ -5,9 +5,11 @@
 
 Covers every workspace model provider key (``workspace_model_configs.api_key_ciphertext``),
 every workspace integration credential (``integration_credentials.ciphertext``), every
-developer-mode project token (``developer_projects.token_ciphertext``, migration 0031)
-and every tyre planning source credential (``tyre_connections.secret_ciphertext``,
-migration 0037) in every tenant. See docs/runbooks.md#rotating-anum_secrets_key.
+developer-mode project token (``developer_projects.token_ciphertext``, migration 0031),
+every tyre planning source credential (``tyre_connections.secret_ciphertext``,
+migration 0037) and every Calls & Meetings Zoom/Teams token
+(``meeting_connector_accounts``, migration 0043) in every tenant. See
+docs/runbooks.md#rotating-anum_secrets_key.
 
 How it crosses tenants without bypassing RLS (migration 0009, ``anum_api.maintenance``):
 
@@ -458,6 +460,113 @@ def rotate_developer_project_tokens(
         after = (rows[-1].tenant_id, rows[-1].workspace_id, rows[-1].id)
 
 
+# Calls & Meetings connector tokens (migration 0043_meetings): user-private rows, so each
+# is rewritten with the tenant, workspace *and* user set as RLS context.
+_DISCOVER_CONNECTORS = text(
+    """
+    select tenant_id, workspace_id, user_id, provider
+    from meeting_connector_accounts
+    where (tenant_id, workspace_id, user_id, provider) > (:after_tenant, :after_workspace, :after_user, :after_provider)
+    order by tenant_id, workspace_id, user_id, provider
+    limit :limit
+    """
+)
+_LOCK_CONNECTOR = text(
+    """
+    select token_ciphertext
+    from meeting_connector_accounts
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and user_id = :user_id and provider = :provider
+    for update
+    """
+)
+_REWRITE_CONNECTOR = text(
+    """
+    update meeting_connector_accounts
+    set token_ciphertext = :new
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and user_id = :user_id
+      and provider = :provider and token_ciphertext = :old
+    """
+)
+
+
+def _audit_connector(session, scope: dict[str, str], correlation_id: str, outcome: str, result: str) -> None:  # type: ignore[no-untyped-def]
+    from .db.repository import SqlAlchemyRepository
+
+    SqlAlchemyRepository(session, created_by_user_id=ACTOR).record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=scope["tenant_id"],
+            workspace_id=scope["workspace_id"],
+            actor=ACTOR,
+            action=ACTION,
+            target=f"meeting_connector:{scope['provider']}",
+            outcome=outcome,
+            correlation_id=correlation_id,
+            created_at=utc_now(),
+            metadata={"store": "meeting_connector_accounts", "result": result},
+        )
+    )
+
+
+def _rotate_connector(
+    session_factory: SessionFactory, cipher: SecretCipher, scope: dict[str, str], report: RotationReport
+) -> None:
+    with scoped_unit(session_factory, scope["tenant_id"], scope["workspace_id"], user_id=scope["user_id"]) as session:
+        ciphertext = session.execute(_LOCK_CONNECTOR, scope).scalar_one_or_none()
+        if ciphertext is None:
+            report.changed_concurrently += 1  # disconnected since discovery
+            return
+        if cipher.is_current(ciphertext):
+            report.already_current += 1
+            return
+        try:
+            rotated = cipher.rotate(ciphertext)
+        except SecretDecryptionError:
+            report.failed += 1
+            report.failures.append(dict(scope))
+            if not report.dry_run:
+                _audit_connector(session, scope, report.correlation_id, "failed", "undecryptable")
+            return
+        if report.dry_run:
+            report.rotated += 1
+            session.rollback()
+            return
+        if session.execute(_REWRITE_CONNECTOR, {**scope, "new": rotated, "old": ciphertext}).rowcount != 1:
+            report.changed_concurrently += 1
+            return
+        _audit_connector(session, scope, report.correlation_id, "succeeded", "re-encrypted")
+        report.rotated += 1
+
+
+def rotate_meeting_connector_tokens(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    report = RotationReport(dry_run=dry_run, correlation_id=correlation_id or new_id("rotate_secrets"))
+    after = ("", "", "", "")
+    while True:
+        rows = discover(
+            maintenance_session_factory or session_factory,
+            _DISCOVER_CONNECTORS,
+            {
+                "after_tenant": after[0], "after_workspace": after[1], "after_user": after[2],
+                "after_provider": after[3], "limit": batch_size,
+            },
+        )
+        for row in rows:
+            report.scanned += 1
+            scope = {"tenant_id": row.tenant_id, "workspace_id": row.workspace_id, "user_id": row.user_id, "provider": row.provider}
+            _rotate_connector(session_factory, cipher, scope, report)
+        if len(rows) < batch_size:
+            return report
+        after = (rows[-1].tenant_id, rows[-1].workspace_id, rows[-1].user_id, rows[-1].provider)
+
+
 def _configuration_problem() -> str | None:
     if settings.repository_backend != "postgresql":
         return "rotate_secrets needs ANUM_REPOSITORY_BACKEND=postgresql (the memory backend stores nothing at rest)"
@@ -491,9 +600,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     projects = rotate_developer_project_tokens(
         cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id
     )
-    # Provider keys, integration and tyre credentials at the top level (as before); project tokens nested.
-    print(json.dumps({**asdict(report), "developer_projects": asdict(projects)}, indent=2))
-    return 1 if report.failed or projects.failed else 0
+    connectors = rotate_meeting_connector_tokens(
+        cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id
+    )
+    # Provider keys, integration and tyre credentials at the top level (as before); project
+    # and meeting connector tokens nested.
+    print(json.dumps({**asdict(report), "developer_projects": asdict(projects), "meeting_connectors": asdict(connectors)}, indent=2))
+    return 1 if report.failed or projects.failed or connectors.failed else 0
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through main()

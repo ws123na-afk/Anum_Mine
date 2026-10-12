@@ -7,6 +7,7 @@ import 'work_status.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
 import 'files_screen.dart';
+import '../meetings/meetings_screen.dart';
 
 /// Files, memory, skills and integrations: the workspace's resources.
 class ResourcesScreen extends StatefulWidget {
@@ -28,7 +29,7 @@ class ResourcesScreen extends StatefulWidget {
 class _ResourcesScreenState extends State<ResourcesScreen>
     with SingleTickerProviderStateMixin {
   late final _tabs =
-      TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
+      TabController(length: 5, vsync: this, initialIndex: widget.initialTab);
 
   @override
   void dispose() {
@@ -70,11 +71,12 @@ class _ResourcesScreenState extends State<ResourcesScreen>
                   unselectedLabelColor: p.muted,
                   indicatorColor: p.violet,
                   dividerColor: p.line,
-                  tabs: const [
+                  tabs: [
                     Tab(text: 'Files'),
                     Tab(text: 'Memory'),
                     Tab(text: 'Skills'),
                     Tab(text: 'Services'),
+                    Tab(text: AnumLocalizations.maybeOf(context).t('meetings')),
                   ],
                 ),
                 Expanded(
@@ -84,6 +86,7 @@ class _ResourcesScreenState extends State<ResourcesScreen>
                         controller: c, focusMemoryId: widget.focusMemoryId),
                     _SkillsTab(controller: c),
                     _ServicesTab(controller: c),
+                    _MeetingsTab(controller: c),
                   ]),
                 ),
               ]),
@@ -138,6 +141,33 @@ abstract final class ResourcesTab {
   static const memory = 1;
   static const skills = 2;
   static const services = 3;
+
+  /// Calls & Meetings (docs/meetings.md#mobile).
+  static const meetings = 4;
+}
+
+class _MeetingsTab extends StatelessWidget {
+  const _MeetingsTab({required this.controller});
+  final WorkspaceController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final meetings = controller.meetingsController;
+    if (meetings == null) {
+      return _tabList(context, controller.load, [
+        AnumSurface(
+          child: AnumEmpty(
+            icon: Icons.phone_disabled_outlined,
+            title: AnumLocalizations.maybeOf(context).t('meetings'),
+            message:
+                'This build of the app has no connection to the meetings API.',
+          ),
+        ),
+      ]);
+    }
+    return MeetingsTab(
+        controller: meetings, currentUserId: controller.currentUserId);
+  }
 }
 
 /// Opens the Memory tab on its own page with [memoryId] scrolled into view

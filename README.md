@@ -98,6 +98,7 @@ x-user-roles: owner,member
 - [Store data safety and app privacy answers](docs/store-data-safety.md)
 - [Skills](docs/skills.md)
 - [Workspace files](docs/files.md)
+- [Calls & Meetings](docs/meetings.md)
 - [Tools and integrations](docs/tools-and-integrations.md)
 - [Email: the unified inbox](docs/email.md)
 - [Automation](docs/automation.md)

@@ -12,6 +12,8 @@ const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'tasks', ready: (page) => expect(page.locator('.recordButton').first()).toBeVisible() },
   { hash: 'approvals', ready: (page) => expect(page.locator('.approvalDetail').first()).toBeVisible() },
   { hash: 'memory', ready: (page) => expect(page.locator('.memoryRow').first()).toBeVisible() },
+  { hash: 'meetings', ready: (page) => expect(page.locator('.meetingsTable .memoryRow').first()).toBeVisible() },
+  { hash: 'meetings?meeting=meeting_pmv', ready: (page) => expect(page.locator('.transcriptLines li').first()).toBeVisible() },
   { hash: 'files', ready: (page) => expect(page.locator('.filesTable .memoryRow').first()).toBeVisible() },
   { hash: 'commerce', ready: (page) => expect(page.locator('.cmChart svg')).toBeVisible() },
   { hash: 'settings', ready: (page) => expect(page.locator('.chatMemorySetting input[type="checkbox"]')).toBeVisible() },

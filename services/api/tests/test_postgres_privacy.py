@@ -202,6 +202,10 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "push_devices": 0,
         "learning_signals": 1,
         "learned_items": 2,
+        "meetings": 0,
+        "meeting_transcript_segments": 0,
+        "meeting_recordings": 0,
+        "meeting_connections": 0,
     }
     assert summary["shared"]["tasks_created"] == 1
 

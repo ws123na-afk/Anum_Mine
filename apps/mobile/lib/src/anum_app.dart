@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import '../data/api_client.dart';
 import '../data/session_store.dart';
 import '../features/autonomy/autonomy_repository.dart';
+import '../features/meetings/meetings_repository.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/automations/automation_repository.dart';
 import '../features/automations/automations_controller.dart';
@@ -171,6 +172,7 @@ class _AnumAppState extends State<AnumApp> {
     workspace = WorkspaceController(
       ApiWorkspaceRepository(api, fileTransfer: fileTransfer),
       files: ApiFilesRepository(api, transfer: fileTransfer),
+      meetings: ApiMeetingsRepository(api, transfer: fileTransfer),
     );
     // Streamed replies for the Assistant and voice (docs/conversations.md).
     final events = HttpEventStreamClient(
