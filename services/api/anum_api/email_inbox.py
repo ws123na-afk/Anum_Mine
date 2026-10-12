@@ -907,7 +907,8 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
             arrived = _arrived_for_routing(store, stored, incoming)
         except Exception as exc:  # routing is best effort; the sync itself goes on
             logger.warning("email_auto_route_skipped error_class=%s", type(exc).__name__,
-                           extra={"anum_email": {"event": "auto_route_skipped", "account_id": account_id}})
+                           extra={"anum_email": {"event": "auto_route_skipped",
+                                                  "account_id": account_id.replace("\r", "").replace("\n", "")}})
             arrived = []
         store.upsert_messages(incoming)
         if result.removed:
