@@ -77,7 +77,8 @@ Nothing the model writes acts on its own.
 
 - `GET /api/v1/meetings?q=&status=&offset=&limit=` lists newest first, at most 100 per page, with `total`. `q` searches titles, summaries and transcript text (case-insensitive; `%` and `_` are literal).
 - `GET /api/v1/meetings/{id}/transcript?q=&speaker=&offset=&limit=` pages the transcript (at most 500 lines) with the list of speakers.
-- **Recent activity** in the apps lists "Call summary: <title>" for the newest ready meetings, with their agent. Call mode's own end-of-call summary ([Voice](voice.md#call-mode)) is a talk with the assistant and stays an Assistant conversation; it is never listed here.
+- **Recent activity** in the mobile app lists "Call summary: <title>" for the newest ready meetings, with their agent. Call mode's own end-of-call summary ([Voice](voice.md#call-mode)) is a talk with the assistant and stays an Assistant conversation; it is never listed here.
+- **Web page** ([page layout](design/anum360.md#page-layout)): a summary band of meetings and their open, overdue (open past `due_date`) and done action items, counted from `GET /meetings` pages of 100 (at most the newest 500 meetings; the band says when it counted fewer than all); the meeting list next to the open meeting (30/70, opening on the newest); and a **Zoom & Teams** tab in the list pane with each connector's state from `GET /meetings/setup` and its meetings from `GET /meetings/connectors/{provider}/meetings`, ready to import. Rows show the open action items.
 - Events `meeting.imported`, `meeting.summarized` and `meeting.failed` feed the [event stream](events.md); their payloads carry the id, title, source, agent and counts, never transcript text.
 
 ## Roles

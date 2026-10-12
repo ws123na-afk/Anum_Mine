@@ -138,6 +138,13 @@ collections, search and Ask). `knowledge` is a tab of `memory` in `apps/web/src/
 (`TABS_OF`), so it lights up the same entry and stays out of the sidebar and the command
 palette. **Favorites** is under More and **Reports** in the main group.
 
+## Web page layout
+
+The Knowledge Base follows the shared [page layout](design/anum360.md#page-layout). Both tabs open with a summary band from `GET /api/v1/retrieval/status`: memories and files indexed (of the sources of each type in the index), sources that failed to index, and the search passages with the embedding model (or how many sources need re-indexing).
+
+- **Memories**: one toolbar row (search, All / From my chats / Task notes, the **Chat memory** status chip that opens the switch, Re-index and **Add memory**, which opens a dialog), then the memories in one table grouped by where they came from (from your chats, task notes, other notes) with their source, date, index state and delete.
+- **Collections**: one row to ask or search the knowledge base with **New collection** (a dialog) at its end; the collection list next to the open collection, which shows its items table straight away (title and kind, tags, index state, size, date) with filters, paging and **Add** (upload, note or existing file, in a dialog), Re-index, Edit (a dialog), Delete and the star. With no collection yet, the create form is the page's empty state.
+
 ## States the clients handle
 
 Loading; empty with the next action (create a collection, add a note, star something);

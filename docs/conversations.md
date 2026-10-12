@@ -242,10 +242,19 @@ number from 0 to 3650, as the API would at startup.
 
 ## Web
 
-The **Assistant** view (default view, first in the navigation) is a chat panel:
+The **AI Chat** page ([page layout](design/anum360.md#page-layout)) has one header row
+(title, subtitle, **Talk to** and **New chat**) and three panes that fill the window:
 
-- the conversation list with **New conversation**; on narrow screens the list collapses
-  above the chat;
+- the conversation list with search (`GET /conversations?q=`); **Talk to** lists the
+  agents from `GET /api/v1/agents` and switches the list to that agent's threads
+  (`?agent_id=`), and a new chat from there is with that agent;
+- the thread, full height;
+- the **context rail** (from 1280px wide; narrower, a button in the chat header opens it
+  in a drawer), described below.
+
+On narrow screens the list stacks above the chat. Inside an agent's page the chat is
+embedded and keeps two columns without the header or rail. The chat panel:
+
 - the reply appears as it streams, rendered by the same safe renderer as task answers
   (React text nodes only, so model output can never inject markup);
 - **Stop** aborts the request (`AbortController`); the partial reply stays, marked
@@ -262,6 +271,23 @@ that a workspace owner or admin must give the member role; a question the server
 stored is marked "Not sent"; a stopped reply is marked "Stopped" (with "before any
 answer" when nothing had arrived); a long history opens scrolled to the newest message.
 The view loads on first visit like the other views and uses the shared theme tokens only.
+
+### Context rail
+
+What the open conversation used and produced, all from the API (`apps/web/src/ChatContextRail.tsx`,
+helpers `chatContext` and `memoriesFromChat` in `src/lib/pageSummary.ts`):
+
+- **Conversation**: who it is with, questions asked and answered, started and last active;
+- **Sources used**: the records the answers' task cards returned (files, memories, email,
+  WhatsApp, web pages, orders, tyres), each opening its view;
+- **Saved to memory**: the memories remembered from this chat
+  (`GET /api/v1/memories?source_type=conversation`, matched on `provenance.source_id`), each
+  opening the Knowledge Base;
+- **Tasks and approvals**: the tasks the questions ran as and the approvals they asked for.
+
+Each section has its own empty state and a failed memory load offers to load again.
+Plain chat answers do not record their retrieval sources on the turn, so only task-card
+answers list sources; recording retrieval sources on every turn needs an API change.
 
 ## Message actions
 

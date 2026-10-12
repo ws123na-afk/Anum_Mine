@@ -78,8 +78,10 @@ test('the switch in Settings saves at once and leads to the chat memories, which
   const list = page.getByRole('region', { name: 'Memories from my chats' });
   await expect(list.locator('.memoryRow')).toHaveCount(2);
   await expect(list.getByText('Launch is on Friday.')).toHaveCount(0);
-  // The Memory view shows the same switch, still off.
-  await expect(page.getByRole('region', { name: 'Chat memory' }).getByRole('checkbox', { name: 'Remember things from my chats' })).not.toBeChecked();
+  // The Memory view shows the same switch behind its status chip, still off.
+  await page.getByRole('button', { name: 'Chat memory: Off' }).click();
+  await expect(page.getByRole('dialog').getByRole('checkbox', { name: 'Remember things from my chats' })).not.toBeChecked();
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Delete all from my chats' }).click();
   await page.getByRole('button', { name: 'Delete all', exact: true }).click();
@@ -94,6 +96,7 @@ test('the switch in Settings saves at once and leads to the chat memories, which
 test('a failed save keeps the previous choice and says what to do', async ({ page }) => {
   await mockApi(page, { failSave: true });
   await page.goto('/#memory');
+  await page.getByRole('button', { name: /^Chat memory/ }).click();
   const section = page.getByRole('region', { name: 'Chat memory' });
   const toggle = section.getByRole('checkbox', { name: 'Remember things from my chats' });
   await toggle.uncheck();
@@ -104,6 +107,7 @@ test('a failed save keeps the previous choice and says what to do', async ({ pag
 test('when the organization keeps chat memory off, the reason and who can change it are shown', async ({ page }) => {
   await mockApi(page, { state: 'off_for_organization' });
   await page.goto('/#memory');
+  await page.getByRole('button', { name: /^Chat memory/ }).click();
   const section = page.getByRole('region', { name: 'Chat memory' });
   await expect(section.getByText('Off for your organization')).toBeVisible();
   await expect(section.getByText(/An organization administrator can allow/)).toBeVisible();

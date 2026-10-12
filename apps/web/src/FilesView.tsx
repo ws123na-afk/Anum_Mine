@@ -1,12 +1,17 @@
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { CircleDot, Download, FileText, Image as ImageIcon, Lock, Pencil, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { CircleDot, Copy, Download, FileText, Image as ImageIcon, Link2, Lock, Pencil, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import * as api from './lib/api';
+import type { RetrievalIndexStatus } from './lib/capabilities';
 import { describeError, isPermissionDenied, ApiError } from './lib/errors';
 import {
   sortOptions, canReindex, fileTypeLabel, formatBytes, indexBadge, mergePage, parseMarkdown, previewMode, progressText,
-  renameProblem, uploadProblem, uploaderLabel, usageMeter, PAGE_SIZE, type ApiFile, type ApiFileUsage, type Block, type Inline, type SortValue,
+  renameProblem, uploadProblem, uploaderLabel, usageMeter, PAGE_SIZE, type ApiFile, type ApiFileLink, type ApiFileUsage, type Block, type Inline, type SortValue,
 } from './lib/files';
-import { formatDateTime, t } from './lib/i18n';
+import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
+import { FILE_INDEX_FILTERS, FILE_TYPE_FILTERS, figure, filterFiles, indexCounts, type FileIndexFilter, type FileTypeFilter } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { copyText } from './lib/clipboard';
+import { PageHeader, PageSummary, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { rich } from './rich';
 import './admin.css';
 import './files.css';
@@ -15,28 +20,38 @@ const PdfPreview = lazy(() => import('./PdfPreview'));
 
 type Detail = { state: 'loading' } | { state: 'ready'; file: ApiFile } | { state: 'missing' } | { state: 'denied' } | { state: 'error'; message: string };
 type List = { state: 'loading' } | { state: 'ready' } | { state: 'denied' } | { state: 'error'; message: string };
+type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'error' };
 interface Upload { key: string; name: string; size: number; loaded: number; state: 'uploading' | 'failed' | 'cancelled'; error?: string; abort: AbortController }
 
 
 /**
- * Workspace files (docs/files.md): upload with progress and cancel, search, sort and keyset paging,
- * usage against the workspace quota, and a detail panel with preview, rename, re-index, download and
- * delete. "Sources used" on a run opens a file here by id (`focusFileId`).
+ * Documents (docs/files.md): the summary band (files, storage, indexed, failed), the file list with
+ * search, sort, type and index-state filters and keyset paging next to a preview pane (preview,
+ * rename, re-index, share link, download and delete), and uploads with progress and cancel.
+ * "Sources used" on a run opens a file here by id (`focusFileId`).
  */
 export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string | null; onFocusChange(fileId: string | null): void }) {
   const picker = useRef<HTMLInputElement>(null);
   const searchId = useId();
+  const wide = useMediaQuery(SPLIT_QUERY);
   const [items, setItems] = useState<ApiFile[]>([]);
   const [list, setList] = useState<List>({ state: 'loading' });
   const [more, setMore] = useState(false), [paging, setPaging] = useState(false);
-  const [usage, setUsage] = useState<ApiFileUsage | null>(null);
+  const [usage, setUsage] = useState<Load<ApiFileUsage>>({ state: 'loading' });
+  const [index, setIndex] = useState<Load<RetrievalIndexStatus>>({ state: 'loading' });
   const [draft, setDraft] = useState(''), [query, setQuery] = useState(''), [sort, setSort] = useState<SortValue>('created_at:desc');
+  const [typeFilter, setTypeFilter] = useState<FileTypeFilter>(''), [indexFilter, setIndexFilter] = useState<FileIndexFilter>('');
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [note, setNote] = useState<string | null>(null), [problem, setProblem] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  // Moves focus into the preview pane only when a person picked the file (not the default pick).
+  const [picked, setPicked] = useState(() => (focusFileId ? 1 : 0));
+  // A file opened by link ("Sources used") counts as the pick: closing it never reopens the first file.
+  const autoPicked = useRef(Boolean(focusFileId));
   const me = api.currentUserId();
 
-  const loadUsage = useCallback(() => api.getFileUsage().then(setUsage, () => setUsage(null)), []);
+  const loadUsage = useCallback(() => api.getFileUsage().then((value) => setUsage({ state: 'ready', value }), () => setUsage({ state: 'error' })), []);
+  const loadIndex = useCallback(() => api.getRetrievalStatus().then((value) => setIndex({ state: 'ready', value }), () => setIndex({ state: 'error' })), []);
   const load = useCallback(async () => {
     setList((current) => current.state === 'ready' ? current : { state: 'loading' });
     try {
@@ -47,7 +62,15 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
     }
   }, [query, sort]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { void loadUsage(); }, [loadUsage]);
+  useEffect(() => { void loadUsage(); void loadIndex(); }, [loadUsage, loadIndex]);
+
+  const shown = filterFiles(items, { type: typeFilter, index: indexFilter });
+  // On a wide screen the preview pane opens on the first file, once.
+  useEffect(() => {
+    if (!wide || autoPicked.current || focusFileId || list.state !== 'ready' || !shown[0]) return;
+    autoPicked.current = true;
+    onFocusChange(shown[0].id);
+  }, [wide, focusFileId, list.state, shown, onFocusChange]);
 
   async function loadMore() {
     const last = items.at(-1);
@@ -66,7 +89,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
   async function startUploads(files: File[]) {
     setNote(null); setProblem(null);
     // The limits decide what is refused before sending; read them if they have not arrived yet.
-    let limits = usage ?? await api.getFileUsage().catch(() => null);
+    let limits = usage.state === 'ready' ? usage.value : await api.getFileUsage().catch(() => null);
     for (const file of files) {
       const refusal = uploadProblem(file, limits);
       const key = `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`;
@@ -78,7 +101,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
         setUploads((u) => u.filter((x) => x.key !== key));
         setNote(t('files.uploaded', { name: created.name, detail: indexBadge(created.index).detail }));
         if (limits) limits = { ...limits, used_bytes: limits.used_bytes + created.size_bytes, file_count: limits.file_count + 1 };
-        await Promise.all([load(), loadUsage()]);
+        await Promise.all([load(), loadUsage(), loadIndex()]);
       } catch (e) {
         const cancelled = e instanceof DOMException && e.name === 'AbortError';
         setUploads((u) => u.map((x) => x.key === key ? { ...x, state: cancelled ? 'cancelled' : 'failed', error: cancelled ? t('files.uploadCancelled') : uploadError(e) } : x));
@@ -91,27 +114,38 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
     setConfirming(null);
     setNote(t('files.deleted', { name: file.name }));
     if (focusFileId === file.id) onFocusChange(null);
-    await Promise.all([load(), loadUsage()]);
+    await Promise.all([load(), loadUsage(), loadIndex()]);
   }
 
-  function replaceFile(file: ApiFile) { setItems((current) => current.map((x) => x.id === file.id ? file : x)); }
+  function replaceFile(file: ApiFile) { setItems((current) => current.map((x) => x.id === file.id ? file : x)); void loadIndex(); }
+  function open(id: string) { setPicked((n) => n + 1); onFocusChange(id); }
 
-  const canUpload = usage?.can_upload ?? true;
-  const meter = usage ? usageMeter(usage) : null;
+  const usageValue = usage.state === 'ready' ? usage.value : null;
+  const canUpload = usageValue?.can_upload ?? true;
+  const meter = usageValue ? usageMeter(usageValue) : null;
   const searching = query.trim().length > 0;
+  const filtered = Boolean(typeFilter || indexFilter);
+  const counts = index.state === 'ready' ? indexCounts(index.value.sources, 'file') : null;
   const submitSearch = (event: FormEvent) => { event.preventDefault(); setQuery(draft.trim()); };
+  const clearAll = () => { setDraft(''); setQuery(''); setTypeFilter(''); setIndexFilter(''); };
+  const figures = [
+    figure('files', t('pages.files.fig.files'), usage, () => ({ value: formatNumber(usageValue!.file_count), hint: t('pages.files.fig.filesHint', { size: formatBytes(usageValue!.max_upload_bytes) }) })),
+    figure('storage', t('pages.files.fig.storage'), usage, () => ({ value: formatBytes(usageValue!.used_bytes), hint: t('pages.files.fig.storageHint', { quota: formatBytes(usageValue!.quota_bytes), percent: Math.round(meter!.percent) }), tone: meter!.tone === 'stop' ? 'danger' : meter!.tone === 'warn' ? 'warn' : '' })),
+    figure('indexed', t('pages.files.fig.indexed'), index, () => ({ value: formatNumber(counts!.indexed), hint: t('pages.files.fig.indexedHint', { count: counts!.skipped }), tone: counts!.indexed ? 'ok' : '' })),
+    figure('failed', t('pages.files.fig.failed'), index, () => ({ value: formatNumber(counts!.failed), hint: counts!.failed ? t('pages.files.fig.failedHint') : t('pages.files.fig.noneFailed'), tone: counts!.failed ? 'danger' : '' })),
+  ];
 
   return <>
-    <section className="moduleIntro"><div><p className="eyebrow">{t('files.intro.eyebrow')}</p><h2>{t('files.intro.title')}</h2><p>{t('files.intro.text')}</p></div>
+    <PageHeader title={viewLabel('files')} subtitle={t('files.intro.text')} actions={<>
       <button type="button" className="uploadButton" disabled={!canUpload} aria-describedby={!canUpload ? 'files-upload-denied' : undefined} onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.upload')}</button>
-      <input ref={picker} type="file" multiple hidden aria-label={t('files.uploadInput')} accept={usage?.accepted_extensions.join(',')} onChange={(e) => { const chosen = [...(e.target.files ?? [])]; e.target.value = ''; if (chosen.length) void startUploads(chosen); }} />
-    </section>
+    </>} />
+    <input ref={picker} type="file" multiple hidden aria-label={t('files.uploadInput')} accept={usageValue?.accepted_extensions.join(',')} onChange={(e) => { const chosen = [...(e.target.files ?? [])]; e.target.value = ''; if (chosen.length) void startUploads(chosen); }} />
     {!canUpload && <p className="notice" id="files-upload-denied" role="status"><Lock aria-hidden="true" />{t('files.uploadDeniedNote')}</p>}
-    {usage && meter && <section className="surface filesUsage" aria-label={t('files.storage')}>
-      <div className="filesUsageTop"><strong>{t('files.storage')}</strong><span>{meter.text}</span></div>
-      <div className={`meterTrack ${meter.tone === 'ok' ? '' : meter.tone}`} role="progressbar" aria-label={t('files.storageMeter')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(meter.percent)} aria-valuetext={meter.text}><span style={{ width: `${meter.percent}%` }} /></div>
-      <small className="muted">{t('files.limits', { size: formatBytes(usage.max_upload_bytes), accepted: usage.accepted })}</small>
-    </section>}
+    {list.state !== 'denied' && <PageSummary label={t('pages.files.summary')} figures={figures} onRetry={() => { setUsage({ state: 'loading' }); setIndex({ state: 'loading' }); void loadUsage(); void loadIndex(); }}
+      footer={usageValue && meter ? <div className="filesUsageLine">
+        <div className={`meterTrack ${meter.tone === 'ok' ? '' : meter.tone}`} role="progressbar" aria-label={t('files.storageMeter')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(meter.percent)} aria-valuetext={meter.text}><span style={{ width: `${meter.percent}%` }} /></div>
+        <small>{t('files.limits', { size: formatBytes(usageValue.max_upload_bytes), accepted: usageValue.accepted })}</small>
+      </div> : undefined} />}
     {uploads.length > 0 && <section className="surface uploadQueue" aria-label={t('files.uploads')}>
       {uploads.map((u) => <div className="uploadItem" key={u.key}>
         <div className="uploadItemTop"><strong dir="auto">{u.name}</strong>
@@ -124,41 +158,59 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
           : <p className={`notice ${u.state === 'failed' ? 'errorNotice' : ''}`} role={u.state === 'failed' ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{u.error}</p>}
       </div>)}
     </section>}
-    {focusFileId && <FileDetail key={focusFileId} fileId={focusFileId} me={me} canUpload={canUpload} onClose={() => onFocusChange(null)} onDelete={remove} onChange={replaceFile} />}
     {note && <Notice>{note}</Notice>}
     {problem && <Notice error>{problem}</Notice>}
-    {list.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('files.readDenied')}</p>}
-    {list.state === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('files.loadFailed', { message: list.message })}</span><button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div>}
-    {list.state !== 'denied' && (items.length > 0 || searching) && <form className="actions filesToolbar" role="search" onSubmit={submitSearch}>
-      <label className="visuallyHidden" htmlFor={`${searchId}-q`}>{t('files.searchLabel')}</label>
-      <input id={`${searchId}-q`} type="search" value={draft} placeholder={t('files.searchLabel')} maxLength={255} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) setQuery(''); }} />
-      <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
-      <label className="visuallyHidden" htmlFor={`${searchId}-sort`}>{t('files.sortLabel')}</label>
-      <select id={`${searchId}-sort`} value={sort} onChange={(e) => setSort(e.target.value as SortValue)}>{sortOptions().map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
-    </form>}
-    {list.state === 'loading' && <Notice>{t('files.loading')}</Notice>}
-    {items.length > 0 && <section className="surface memoryTable filesTable" aria-label={t('files.list')}>{items.map((x) => {
-      const badge = indexBadge(x.index);
-      return <div className={`memoryRow ${x.id === focusFileId ? 'focusedRow' : ''}`} key={x.id}>
-        <div><span className="typeIcon">{x.kind === 'image' ? <ImageIcon aria-hidden="true" /> : <FileText aria-hidden="true" />}</span><div>
-          <button type="button" className="rowLink" aria-label={t('files.showDetails', { name: x.name })} aria-current={x.id === focusFileId ? 'true' : undefined} onClick={() => onFocusChange(x.id)}><strong dir="auto">{x.name}</strong></button>
-          <p>{t('files.rowMeta', { type: fileTypeLabel(x.content_type), size: formatBytes(x.size_bytes), uploader: uploaderLabel(x.created_by, me) })}<time dateTime={x.created_at}>{date(x.created_at)}</time></p></div></div>
-        <span className={`statusBadge ${badge.tone}`} title={badge.detail}>{badge.label}</span>
-        <div className="rowActions">
-          {confirming === x.id
-            ? <><span className="visuallyHidden" role="status">{t('files.confirmDeletePrompt', { name: x.name })}</span><button type="button" className="danger" aria-label={t('files.confirmDeleteOf', { name: x.name })} onClick={() => void remove(x).catch((e) => { setConfirming(null); setProblem(isPermissionDenied(e) ? t('files.manageNote') : t('files.deleteFailed', { name: x.name, message: describeError(e) })); })}>{t('common.delete')}</button><button type="button" className="secondary" aria-label={t('files.keepOf', { name: x.name })} onClick={() => setConfirming(null)}>{t('files.keep')}</button></>
-            : <>
-              <button type="button" className="iconButton" title={t('files.download')} aria-label={t('files.downloadOf', { name: x.name })} onClick={() => void api.downloadFile(x.id, x.name).catch((e) => setProblem(t('files.downloadFailed', { name: x.name, message: describeError(e) })))}><Download aria-hidden="true" /></button>
-              {x.can_manage && <button type="button" className="iconButton" title={t('common.delete')} aria-label={t('files.deleteOf', { name: x.name })} onClick={() => setConfirming(x.id)}><Trash2 aria-hidden="true" /></button>}
-            </>}
-        </div>
-      </div>;
-    })}
-    </section>}
-    {more && items.length > 0 && <div className="actions"><button type="button" className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? t('common.loading') : t('files.loadMore')}</button></div>}
-    {list.state === 'ready' && !items.length && (searching
-      ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('files.noMatch', { query })}</h3><p>{t('files.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setDraft(''); setQuery(''); }}>{t('files.clearSearch')}</button></div></div>
-      : <div className="emptyState"><Upload aria-hidden="true" /><h3>{t('files.empty')}</h3><p>{canUpload ? t('files.emptyUpload') : t('files.emptyReadOnly')}</p>{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.uploadFirst')}</button></div>}</div>)}
+    {list.state === 'denied' && <section className="surface emptyState" aria-labelledby="files-denied"><Lock aria-hidden="true" /><h3 id="files-denied">{t('pages.files.deniedTitle')}</h3><p>{t('files.readDenied')}</p></section>}
+    {list.state !== 'denied' && <SplitView className="filesSplit" show={focusFileId ? 'detail' : 'list'}>
+      <section data-pane="list" className="pane filesListPane" aria-label={t('files.list')} aria-busy={list.state === 'loading'}>
+        <form className="paneHead toolbar filesToolbar" role="search" onSubmit={submitSearch}>
+          <label className="visuallyHidden" htmlFor={`${searchId}-q`}>{t('files.searchLabel')}</label>
+          <input id={`${searchId}-q`} type="search" value={draft} placeholder={t('files.searchLabel')} maxLength={255} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) setQuery(''); }} />
+          <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
+          <label className="visuallyHidden" htmlFor={`${searchId}-sort`}>{t('files.sortLabel')}</label>
+          <select id={`${searchId}-sort`} value={sort} onChange={(e) => setSort(e.target.value as SortValue)}>{sortOptions().map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+          <label className="visuallyHidden" htmlFor={`${searchId}-type`}>{t('pages.files.typeFilter')}</label>
+          <select id={`${searchId}-type`} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as FileTypeFilter)}><option value="">{t('pages.files.anyType')}</option>{FILE_TYPE_FILTERS.map((value) => <option key={value} value={value}>{t(`pages.files.type.${value}` as MessageKey)}</option>)}</select>
+          <label className="visuallyHidden" htmlFor={`${searchId}-index`}>{t('pages.files.indexFilter')}</label>
+          <select id={`${searchId}-index`} value={indexFilter} onChange={(e) => setIndexFilter(e.target.value as FileIndexFilter)}><option value="">{t('pages.files.anyIndex')}</option>{FILE_INDEX_FILTERS.map((value) => <option key={value} value={value}>{t(`pages.files.index.${value}` as MessageKey)}</option>)}</select>
+          {filtered && <p className="toolbarNote">{t('pages.files.filterNote', { shown: shown.length, loaded: items.length })}</p>}
+        </form>
+        {list.state === 'error' && <div className="paneBody"><div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('files.loadFailed', { message: list.message })}</span><button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div>}
+        {list.state === 'loading' && <div className="paneBody"><Notice>{t('files.loading')}</Notice></div>}
+        {shown.length > 0 && <div className="dataTableWrap"><table className="dataTable filesTable">
+          <caption className="visuallyHidden">{t('files.list')}</caption>
+          <thead><tr><th scope="col">{t('pages.files.col.name')}</th><th scope="col" className="num">{t('pages.files.col.size')}</th><th scope="col">{t('pages.files.col.index')}</th><th scope="col"><span className="visuallyHidden">{t('pages.files.col.actions')}</span></th></tr></thead>
+          <tbody>{shown.map((x) => {
+            const badge = indexBadge(x.index);
+            return <tr key={x.id} className={x.id === focusFileId ? 'selected' : undefined}>
+              <th scope="row"><button type="button" className="cellButton" aria-label={t('files.showDetails', { name: x.name })} aria-current={x.id === focusFileId ? 'true' : undefined} onClick={() => open(x.id)}>
+                <strong dir="auto">{x.kind === 'image' ? <ImageIcon aria-hidden="true" className="cellIcon" /> : <FileText aria-hidden="true" className="cellIcon" />}{x.name}</strong>
+                <small>{fileTypeLabel(x.content_type)} · {uploaderLabel(x.created_by, me)} · <time dateTime={x.created_at}>{formatDateTime(x.created_at, { dateStyle: 'medium' })}</time></small>
+              </button></th>
+              <td className="num muted"><bdi>{formatBytes(x.size_bytes)}</bdi></td>
+              <td><span className={`statusBadge ${badge.tone}`} title={badge.detail}>{badge.label}</span></td>
+              <td><div className="cellActions">
+                {confirming === x.id
+                  ? <><span className="visuallyHidden" role="status">{t('files.confirmDeletePrompt', { name: x.name })}</span><button type="button" className="danger" aria-label={t('files.confirmDeleteOf', { name: x.name })} onClick={() => void remove(x).catch((e) => { setConfirming(null); setProblem(isPermissionDenied(e) ? t('files.manageNote') : t('files.deleteFailed', { name: x.name, message: describeError(e) })); })}>{t('common.delete')}</button><button type="button" className="secondary" aria-label={t('files.keepOf', { name: x.name })} onClick={() => setConfirming(null)}>{t('files.keep')}</button></>
+                  : <>
+                    <button type="button" className="iconButton" title={t('files.download')} aria-label={t('files.downloadOf', { name: x.name })} onClick={() => void api.downloadFile(x.id, x.name).catch((e) => setProblem(t('files.downloadFailed', { name: x.name, message: describeError(e) })))}><Download aria-hidden="true" /></button>
+                    {x.can_manage && <button type="button" className="iconButton" title={t('common.delete')} aria-label={t('files.deleteOf', { name: x.name })} onClick={() => setConfirming(x.id)}><Trash2 aria-hidden="true" /></button>}
+                  </>}
+              </div></td>
+            </tr>;
+          })}</tbody>
+        </table></div>}
+        {more && items.length > 0 && <div className="paneBody filesMore"><button type="button" className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? t('common.loading') : t('files.loadMore')}</button></div>}
+        {list.state === 'ready' && !shown.length && (searching || filtered
+          ? <div className="paneEmpty"><Search aria-hidden="true" /><h3>{searching ? t('files.noMatch', { query }) : t('pages.files.noFilterMatch')}</h3><p>{t('files.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={clearAll}>{t('files.clearSearch')}</button></div></div>
+          : <div className="paneEmpty"><Upload aria-hidden="true" /><h3>{t('files.empty')}</h3><p>{canUpload ? t('files.emptyUpload') : t('files.emptyReadOnly')}</p>{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.uploadFirst')}</button></div>}</div>)}
+      </section>
+      <section data-pane="detail" className="pane filesDetailPane" aria-label={focusFileId ? undefined : t('files.detail.title')}>
+        {focusFileId
+          ? <FileDetail key={focusFileId} fileId={focusFileId} me={me} canUpload={canUpload} linkTtl={usageValue?.link_ttl_seconds ?? null} focusSignal={picked} onClose={() => onFocusChange(null)} onDelete={remove} onChange={replaceFile} />
+          : <div className="paneEmpty"><FileText aria-hidden="true" /><h3>{t('pages.files.pickTitle')}</h3><p>{items.length ? t('pages.files.pickText') : t('pages.files.pickEmpty')}</p></div>}
+      </section>
+    </SplitView>}
   </>;
 }
 
@@ -168,13 +220,17 @@ function uploadError(e: unknown): string {
   return describeError(e);
 }
 
-function FileDetail({ fileId, me, canUpload, onClose, onDelete, onChange }: { fileId: string; me: string | null; canUpload: boolean; onClose(): void; onDelete(file: ApiFile): Promise<void>; onChange(file: ApiFile): void }) {
+function FileDetail({ fileId, me, canUpload, linkTtl, focusSignal, onClose, onDelete, onChange }: {
+  fileId: string; me: string | null; canUpload: boolean; linkTtl: number | null; focusSignal: number; onClose(): void; onDelete(file: ApiFile): Promise<void>; onChange(file: ApiFile): void;
+}) {
   const [detail, setDetail] = useState<Detail>({ state: 'loading' });
-  const [attempt, setAttempt] = useState(0), [confirming, setConfirming] = useState(false), [busy, setBusy] = useState<null | 'delete' | 'rename' | 'reindex'>(null);
+  const [attempt, setAttempt] = useState(0), [confirming, setConfirming] = useState(false), [busy, setBusy] = useState<null | 'delete' | 'rename' | 'reindex' | 'link'>(null);
   const [actionError, setActionError] = useState<string | null>(null), [actionNote, setActionNote] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [link, setLink] = useState<ApiFileLink | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const renameId = useId();
+  const linkId = useId();
   useEffect(() => {
     let live = true;
     setDetail({ state: 'loading' });
@@ -189,8 +245,12 @@ function FileDetail({ fileId, me, canUpload, onClose, onDelete, onChange }: { fi
     );
     return () => { live = false; };
   }, [fileId, attempt]);
-  // Bring the panel into view and move focus to it once it has something to say.
-  useEffect(() => { if (detail.state !== 'loading') { heading.current?.scrollIntoView({ block: 'nearest' }); heading.current?.focus(); } }, [detail.state]);
+  // Move focus to the pane once it has something to say, when a person opened it (not the default pick).
+  useEffect(() => {
+    if (detail.state === 'loading' || focusSignal === 0) return;
+    heading.current?.scrollIntoView({ block: 'nearest' });
+    heading.current?.focus({ preventScroll: true });
+  }, [detail.state, focusSignal]);
 
   const update = (file: ApiFile) => { setDetail({ state: 'ready', file }); onChange(file); };
   async function act(kind: 'rename' | 'reindex', work: () => Promise<ApiFile>, done: (file: ApiFile) => string) {
@@ -199,51 +259,65 @@ function FileDetail({ fileId, me, canUpload, onClose, onDelete, onChange }: { fi
     catch (e) { setActionError(isPermissionDenied(e) ? (kind === 'rename' ? t('files.manageNote') : t('files.detail.reindexDenied')) : describeError(e)); }
     finally { setBusy(null); }
   }
+  async function share(file: ApiFile) {
+    setBusy('link'); setActionError(null); setActionNote(null);
+    try { setLink(await api.createFileLink(file.id, 'attachment')); }
+    catch (e) { setActionError(isPermissionDenied(e) ? t('pages.files.share.denied') : t('pages.files.share.failed', { message: describeError(e) })); }
+    finally { setBusy(null); }
+  }
 
   const title = detail.state === 'ready' ? detail.file.name : t('files.detail.title');
   const file = detail.state === 'ready' ? detail.file : null;
   const badge = file ? indexBadge(file.index) : null;
   const renameIssue = file && renaming !== null ? renameProblem(file.name, renaming) : null;
   return (
-    <section className="surface fileDetail" aria-labelledby="file-detail-heading" aria-busy={detail.state === 'loading'}>
-      <div className="sectionHeader">
-        <div><p className="eyebrow">{t('files.detail.eyebrow')}</p><h2 id="file-detail-heading" ref={heading} tabIndex={-1} dir="auto">{title}</h2></div>
-        <button type="button" className="iconButton" aria-label={t('files.detail.close')} title={t('files.detail.close')} onClick={onClose}><X aria-hidden="true" /></button>
+    <section className="fileDetail" aria-labelledby="file-detail-heading" aria-busy={detail.state === 'loading'}>
+      <div className="paneHead">
+        <h2 id="file-detail-heading" ref={heading} tabIndex={-1} dir="auto">{title}</h2>
+        <button type="button" className="iconButton small" aria-label={t('files.detail.close')} title={t('files.detail.close')} onClick={onClose}><X aria-hidden="true" /></button>
       </div>
-      {detail.state === 'loading' && <Notice>{t('files.detail.loading')}</Notice>}
-      {detail.state === 'missing' && <Notice error>{rich('files.detail.missing', { id: <code dir="ltr">{fileId}</code> })}</Notice>}
-      {detail.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('files.readDenied')}</p>}
-      {detail.state === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('files.detail.loadFailed', { message: detail.message })}</span><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div>}
-      {file && badge && <>
-        <dl className="taskMeta">
-          <div><dt>{t('files.detail.kind')}</dt><dd>{fileTypeLabel(file.content_type)} <small className="muted">({file.content_type})</small></dd></div>
-          <div><dt>{t('files.detail.size')}</dt><dd><bdi>{formatBytes(file.size_bytes)}</bdi></dd></div>
-          <div><dt>{t('files.detail.uploaded')}</dt><dd><time dateTime={file.created_at}>{date(file.created_at)}</time></dd></div>
-          <div><dt>{t('files.detail.uploadedBy')}</dt><dd>{file.created_by === me ? t('files.you') : <code dir="ltr">{file.created_by}</code>}</dd></div>
-          {file.updated_at && file.updated_by && <div><dt>{t('files.detail.renamed')}</dt><dd>{rich('files.detail.renamedBy', { when: <time dateTime={file.updated_at}>{date(file.updated_at)}</time>, who: file.updated_by === me ? t('files.you') : <code dir="ltr">{file.updated_by}</code> })}</dd></div>}
-          <div className="wideMeta"><dt>{t('files.detail.retrieval')}</dt><dd><span className={`statusBadge ${badge.tone}`}>{badge.label}</span> <small className="muted">{badge.detail}</small></dd></div>
-          <div><dt>{t('files.detail.fileId')}</dt><dd><code dir="ltr">{file.id}</code></dd></div>
-          <div className="wideMeta"><dt>{t('files.detail.sha')}</dt><dd><code dir="ltr">{file.sha256}</code></dd></div>
-        </dl>
-        {actionError && <Notice error>{actionError}</Notice>}
-        {actionNote && <Notice>{actionNote}</Notice>}
-        {renaming !== null
-          ? <form className="renameForm" onSubmit={(e) => { e.preventDefault(); if (!renameIssue) void act('rename', () => api.renameFile(file.id, renaming.trim()), (f) => t('files.detail.renamedTo', { name: f.name })); }}>
-            <label className="field"><span>{t('files.detail.renameField')}</span><input id={renameId} value={renaming} maxLength={255} autoFocus aria-invalid={Boolean(renameIssue)} aria-describedby={`${renameId}-hint`} onChange={(e) => setRenaming(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }} /></label>
-            <small id={`${renameId}-hint`} className={renameIssue ? 'fieldError' : 'muted'}>{renameIssue ?? t('files.detail.renameHint')}</small>
-            <div className="actions"><button type="submit" disabled={Boolean(renameIssue) || busy !== null}>{busy === 'rename' ? t('files.detail.saving') : t('files.detail.saveName')}</button><button type="button" className="secondary" onClick={() => setRenaming(null)}>{t('common.cancel')}</button></div>
-          </form>
-          : <div className="actions">
-            <button type="button" onClick={() => { setActionError(null); void api.downloadFile(file.id, file.name).catch((e) => setActionError(t('files.detail.downloadFailed', { message: describeError(e) }))); }}><Download aria-hidden="true" />{t('files.download')}</button>
-            {file.can_manage && <button type="button" className="secondary" onClick={() => { setRenaming(file.name); setConfirming(false); }}><Pencil aria-hidden="true" />{t('files.detail.rename')}</button>}
-            {canUpload && canReindex(file.index) && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act('reindex', () => api.reindexFile(file.id), (f) => indexBadge(f.index).detail)}><RefreshCw aria-hidden="true" />{busy === 'reindex' ? t('files.detail.reindexing') : t('files.detail.reindex')}</button>}
-            {file.can_manage && (confirming
-              ? <><button type="button" className="danger" disabled={busy !== null} onClick={() => { setBusy('delete'); setActionError(null); void onDelete(file).catch((e) => { setActionError(isPermissionDenied(e) ? t('files.manageNote') : describeError(e)); setBusy(null); }); }} aria-label={t('files.confirmDeleteOf', { name: file.name })}>{busy === 'delete' ? t('files.detail.deleting') : t('files.detail.deletePermanently')}</button><button type="button" className="secondary" onClick={() => setConfirming(false)}>{t('files.keep')}</button></>
-              : <button type="button" className="secondary" onClick={() => setConfirming(true)}><Trash2 aria-hidden="true" />{t('files.detail.delete')}</button>)}
+      <div className="paneBody">
+        {detail.state === 'loading' && <Notice>{t('files.detail.loading')}</Notice>}
+        {detail.state === 'missing' && <Notice error>{rich('files.detail.missing', { id: <code dir="ltr">{fileId}</code> })}</Notice>}
+        {detail.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('files.readDenied')}</p>}
+        {detail.state === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('files.detail.loadFailed', { message: detail.message })}</span><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div>}
+        {file && badge && <>
+          <dl className="taskMeta">
+            <div><dt>{t('files.detail.kind')}</dt><dd>{fileTypeLabel(file.content_type)} <small className="muted">({file.content_type})</small></dd></div>
+            <div><dt>{t('files.detail.size')}</dt><dd><bdi>{formatBytes(file.size_bytes)}</bdi></dd></div>
+            <div><dt>{t('files.detail.uploaded')}</dt><dd><time dateTime={file.created_at}>{date(file.created_at)}</time></dd></div>
+            <div><dt>{t('files.detail.uploadedBy')}</dt><dd>{file.created_by === me ? t('files.you') : <code dir="ltr">{file.created_by}</code>}</dd></div>
+            {file.updated_at && file.updated_by && <div><dt>{t('files.detail.renamed')}</dt><dd>{rich('files.detail.renamedBy', { when: <time dateTime={file.updated_at}>{date(file.updated_at)}</time>, who: file.updated_by === me ? t('files.you') : <code dir="ltr">{file.updated_by}</code> })}</dd></div>}
+            <div className="wideMeta"><dt>{t('files.detail.retrieval')}</dt><dd><span className={`statusBadge ${badge.tone}`}>{badge.label}</span> <small className="muted">{badge.detail}</small></dd></div>
+            <div><dt>{t('files.detail.fileId')}</dt><dd><code dir="ltr">{file.id}</code></dd></div>
+            <div className="wideMeta"><dt>{t('files.detail.sha')}</dt><dd><code dir="ltr">{file.sha256}</code></dd></div>
+          </dl>
+          {actionError && <Notice error>{actionError}</Notice>}
+          {actionNote && <Notice>{actionNote}</Notice>}
+          {renaming !== null
+            ? <form className="renameForm" onSubmit={(e) => { e.preventDefault(); if (!renameIssue) void act('rename', () => api.renameFile(file.id, renaming.trim()), (f) => t('files.detail.renamedTo', { name: f.name })); }}>
+              <label className="field"><span>{t('files.detail.renameField')}</span><input id={renameId} value={renaming} maxLength={255} autoFocus aria-invalid={Boolean(renameIssue)} aria-describedby={`${renameId}-hint`} onChange={(e) => setRenaming(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }} /></label>
+              <small id={`${renameId}-hint`} className={renameIssue ? 'fieldError' : 'muted'}>{renameIssue ?? t('files.detail.renameHint')}</small>
+              <div className="actions"><button type="submit" disabled={Boolean(renameIssue) || busy !== null}>{busy === 'rename' ? t('files.detail.saving') : t('files.detail.saveName')}</button><button type="button" className="secondary" onClick={() => setRenaming(null)}>{t('common.cancel')}</button></div>
+            </form>
+            : <div className="actions fileActions">
+              <button type="button" onClick={() => { setActionError(null); void api.downloadFile(file.id, file.name).catch((e) => setActionError(t('files.detail.downloadFailed', { message: describeError(e) }))); }}><Download aria-hidden="true" />{t('files.download')}</button>
+              <button type="button" className="secondary" disabled={busy !== null} onClick={() => void share(file)}><Link2 aria-hidden="true" />{busy === 'link' ? t('pages.files.share.creating') : link ? t('pages.files.share.again') : t('pages.files.share.create')}</button>
+              {file.can_manage && <button type="button" className="secondary" onClick={() => { setRenaming(file.name); setConfirming(false); }}><Pencil aria-hidden="true" />{t('files.detail.rename')}</button>}
+              {canUpload && canReindex(file.index) && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act('reindex', () => api.reindexFile(file.id), (f) => indexBadge(f.index).detail)}><RefreshCw aria-hidden="true" />{busy === 'reindex' ? t('files.detail.reindexing') : t('files.detail.reindex')}</button>}
+              {file.can_manage && (confirming
+                ? <><button type="button" className="danger" disabled={busy !== null} onClick={() => { setBusy('delete'); setActionError(null); void onDelete(file).catch((e) => { setActionError(isPermissionDenied(e) ? t('files.manageNote') : describeError(e)); setBusy(null); }); }} aria-label={t('files.confirmDeleteOf', { name: file.name })}>{busy === 'delete' ? t('files.detail.deleting') : t('files.detail.deletePermanently')}</button><button type="button" className="secondary" onClick={() => setConfirming(false)}>{t('files.keep')}</button></>
+                : <button type="button" className="secondary dangerText" onClick={() => setConfirming(true)}><Trash2 aria-hidden="true" />{t('files.detail.delete')}</button>)}
+            </div>}
+          {link && <div className="fileShare" role="group" aria-labelledby={`${linkId}-label`}>
+            <label id={`${linkId}-label`} htmlFor={linkId}>{t('pages.files.share.label')}</label>
+            <div className="fileShareRow"><input id={linkId} readOnly dir="ltr" value={link.url} onFocus={(e) => e.currentTarget.select()} /><button type="button" className="secondary" onClick={() => void copyText(link.url).then((ok) => setActionNote(ok ? t('pages.files.share.copied') : t('pages.files.share.copyFailed')))}><Copy aria-hidden="true" />{t('pages.files.share.copy')}</button></div>
+            <small className="muted">{t('pages.files.share.expires', { when: formatDateTime(link.expires_at, { timeStyle: 'short' }), minutes: Math.max(1, Math.round((linkTtl ?? 300) / 60)) })}</small>
           </div>}
-        {!file.can_manage && <p className="muted filesNote"><Lock aria-hidden="true" />{t('files.manageNote')}</p>}
-        <FilePreview key={`${file.id}-${file.sha256}`} file={file} />
-      </>}
+          {!file.can_manage && <p className="muted filesNote"><Lock aria-hidden="true" />{t('files.manageNote')}</p>}
+          <FilePreview key={`${file.id}-${file.sha256}`} file={file} />
+        </>}
+      </div>
     </section>
   );
 }

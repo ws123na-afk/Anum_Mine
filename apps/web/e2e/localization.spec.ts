@@ -121,7 +121,7 @@ test('Calls & Meetings reads in Arabic, right to left, with the Arabic transcrip
   await useSavedLocale(page, 'ar');
   await page.goto('/#meetings?meeting=meeting_ar');
   await expect(page.getByRole('heading', { level: 1, name: 'المكالمات والاجتماعات' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'النشاط الأخير' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'الاجتماعات والمهام' })).toBeVisible();
   const detail = page.locator('.meetingDetail');
   await expect(detail.getByRole('heading', { name: 'المهام المطلوبة' })).toBeVisible();
   await expect(detail.locator('.transcriptLines')).toHaveAttribute('dir', 'rtl');
@@ -133,11 +133,11 @@ test('Files reads in Arabic, right to left, with Arabic plurals', async ({ page 
   await mockWorkspaceApi(page);
   await useSavedLocale(page, 'ar');
   await page.goto('/#files');
-  await expect(page.getByRole('heading', { name: 'الملفات', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'المستندات', level: 1 })).toBeVisible();
   await expect(page.getByRole('progressbar', { name: 'المستخدم من تخزين مساحة العمل' })).toHaveAttribute('aria-valuetext', /· ملفان$/);
   const list = page.getByRole('region', { name: 'الملفات' });
-  await expect(list.getByText('مفهرس', { exact: true })).toBeVisible();
-  await expect(list.getByText('غير مفهرس', { exact: true })).toBeVisible();
+  await expect(list.locator('.statusBadge').getByText('مفهرس', { exact: true })).toBeVisible();
+  await expect(list.locator('.statusBadge').getByText('غير مفهرس', { exact: true })).toBeVisible();
   await list.getByRole('button', { name: /^عرض تفاصيل .?release-notes\.md.?$/ }).click();
   const detail = page.locator('.fileDetail');
   await expect(detail.getByText('تستطيع المهام استخدام هذا الملف (3 مقاطع).')).toBeVisible();

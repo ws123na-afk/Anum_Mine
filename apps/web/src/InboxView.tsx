@@ -1,9 +1,11 @@
 // Unified inbox (docs/email.md): Gmail, Outlook and Zoho Mail mailboxes connected to this workspace,
 // one list with filters and search, the thread with its text and attachments, AI triage and reply
 // drafts, and sending only after an owner approves the exact message (payload hash shown here).
+// The page: a summary band (GET /email/summary and /email/drafts), the mailbox setup behind a status
+// chip, and three panes that fill the window (filters and the drafts waiting, the list, the message).
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  Archive, ArrowLeft, CheckCircle2, CircleDot, Download, Fingerprint, Inbox, Lock, Mail, MailOpen, Paperclip, Plug, RefreshCw, Search, Send, Sparkles, Trash2, Unplug,
+  Archive, ArrowLeft, CheckCircle2, CircleDot, Download, Fingerprint, Inbox, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Search, Send, Sparkles, Trash2, Unplug,
 } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
 import * as api from './lib/api';
@@ -12,18 +14,23 @@ import {
   CATEGORIES, CONNECT_STORAGE_KEY, EMPTY_FILTERS, MAX_DRAFT_CHARS, MAX_INSTRUCTION_CHARS, PRIORITIES,
   accountStatus, categoryLabel, connectErrorText, draftProvenance, draftStatusLabel, formatSize, hasFilters, isStale, parseRecipients,
   priorityLabel, priorityTone, senderName, syncedLabel,
-  type EmailAccount, type EmailDraft, type EmailMessage, type EmailProvider, type EmailSetup, type Filters, type MessageDetail,
+  type EmailAccount, type EmailDraft, type EmailMessage, type EmailProvider, type EmailSetup, type Filters, type InboxSummary, type MessageDetail,
 } from './lib/email';
 import {
-  analyzeEmail, archiveEmail, completeEmailConnect, createEmailDraft, disconnectEmailAccount, discardEmailDraft, downloadAttachment, getEmailMessage,
-  getEmailSetup, listEmailAccounts, listEmailMessages, markEmailRead, requestSendApproval, startEmailConnect, syncEmailAccount, toApproval, updateEmailDraft,
+  analyzeEmail, archiveEmail, completeEmailConnect, createEmailDraft, disconnectEmailAccount, discardEmailDraft, downloadAttachment, getEmailMessage, getEmailSummary,
+  getEmailSetup, listEmailAccounts, listEmailDrafts, listEmailMessages, markEmailRead, requestSendApproval, startEmailConnect, syncEmailAccount, toApproval, updateEmailDraft,
 } from './lib/emailApi';
 import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
-import { formatDateTime, t } from './lib/i18n';
+import { formatDateTime, formatNumber, t } from './lib/i18n';
+import { figure, firstUnread, waitingDrafts } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { Drawer } from './Dialog';
+import { PageHeader, PageSummary, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
 import './inbox.css';
 
 type LoadState = 'loading' | 'ready' | 'error' | 'denied';
+type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'error' };
 
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
   return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'} aria-live={error ? undefined : 'polite'}><CircleDot aria-hidden="true" />{children}</p>;
@@ -33,6 +40,8 @@ const when = (value: string) => formatDateTime(value, { dateStyle: 'medium', tim
 
 export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: { onOpenBudgets?: () => void; onOpenApprovals?: () => void; initialMessageId?: string | null } = {}) {
   const owner = useIsOwner();
+  const wide = useMediaQuery(SPLIT_QUERY);
+  const widest = useMediaQuery(RAIL_QUERY);
   const [setup, setSetup] = useState<EmailSetup | null>(null);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [state, setState] = useState<LoadState>('loading');
@@ -47,9 +56,15 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
   const [listError, setListError] = useState<string | null>(null);
   // A message opened from global search starts selected.
   const [selected, setSelected] = useState<string | null>(initialMessageId ?? null);
+  const [picked, setPicked] = useState(() => (initialMessageId ? 1 : 0));
   const [busy, setBusy] = useState<string | null>(null);
   const [privateConnect, setPrivateConnect] = useState(false);
+  const [mailboxesOpen, setMailboxesOpen] = useState(false);
+  const [summary, setSummary] = useState<Load<InboxSummary>>({ state: 'loading' });
+  const [drafts, setDrafts] = useState<Load<EmailDraft[]>>({ state: 'loading' });
   const autoSynced = useRef(false);
+  const autoPicked = useRef(Boolean(initialMessageId));
+  const searchId = useId();
 
   const fail = useCallback((e: unknown, prefix?: string) => {
     if (isBudgetExceeded(e)) { setBudget(budgetMessage(e)); return; }
@@ -67,6 +82,12 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
       setState('error'); setError(describeError(e));
       return [];
     }
+  }, []);
+
+  // The summary band: unread and high-priority counts, and the reply drafts still waiting.
+  const loadSummary = useCallback(() => {
+    getEmailSummary().then((value) => setSummary({ state: 'ready', value }), () => setSummary({ state: 'error' }));
+    listEmailDrafts().then((value) => setDrafts({ state: 'ready', value }), () => setDrafts({ state: 'error' }));
   }, []);
 
   const loadMessages = useCallback(async (next: Filters, before: string | null = null) => {
@@ -100,6 +121,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
   useEffect(() => {
     void loadAccounts().then((list) => {
       void loadMessages(EMPTY_FILTERS);
+      if (list.length) loadSummary();
       // Bring stale mailboxes up to date once when the page opens.
       if (autoSynced.current) return;
       autoSynced.current = true;
@@ -109,13 +131,24 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
         const fresh = results.flatMap((r) => r.status === 'fulfilled' ? [r.value] : []);
         if (fresh.length) setAccounts((current) => current.map((a) => fresh.find((f) => f.id === a.id) ?? a));
         await loadMessages(EMPTY_FILTERS);
+        loadSummary();
       });
     });
-  }, [loadAccounts, loadMessages]);
+  }, [loadAccounts, loadMessages, loadSummary]);
+
+  // On a wide screen the reading pane opens on the first unread message, once.
+  useEffect(() => {
+    if (!wide || autoPicked.current || selected || listState !== 'ready') return;
+    const first = firstUnread(items, (message) => !message.is_read);
+    if (!first) return;
+    autoPicked.current = true;
+    setSelected(first.id);
+  }, [wide, selected, listState, items]);
 
   function applyFilters(next: Filters) {
     setFilters(next);
     setSelected(null);
+    autoPicked.current = false;
     void loadMessages(next);
   }
 
@@ -123,6 +156,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
     event.preventDefault();
     applyFilters({ ...filters, query: queryDraft });
   }
+  function pick(id: string) { setPicked((n) => n + 1); setSelected(id); }
 
   async function connect(provider: EmailProvider) {
     setBusy(`connect:${provider}`); setNotice(null);
@@ -139,6 +173,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
       setAccounts((current) => current.map((a) => a.id === updated.id ? updated : a));
       setNotice(updated.last_sync_status === 'error' ? { text: t('email.account.syncFailed', { address: updated.address, reason: updated.last_error ?? '' }), error: true } : { text: t('email.account.synced', { address: updated.address }) });
       await loadMessages(filters);
+      loadSummary();
     } catch (e) { fail(e, t('email.account.syncFailedShort')); } finally { setBusy(null); }
   }
 
@@ -151,79 +186,77 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
       setSelected(null);
       await loadAccounts();
       await loadMessages(filters);
+      loadSummary();
     } catch (e) { fail(e, t('email.account.disconnectFailed')); } finally { setBusy(null); }
   }
 
-  const replaceMessage = (message: EmailMessage) => setItems((current) => current.map((m) => m.id === message.id ? message : m));
+  const replaceMessage = (message: EmailMessage) => { setItems((current) => current.map((m) => m.id === message.id ? message : m)); loadSummary(); };
 
-  if (state === 'loading' && !setup) return <p className="notice" role="status" aria-busy="true"><CircleDot aria-hidden="true" />{t('email.loading')}</p>;
-  if (state === 'denied') return <section className="surface inboxPanel" aria-labelledby="inbox-denied"><Lock aria-hidden="true" className="inboxPanelIcon" /><div><h2 id="inbox-denied">{t('email.denied.title')}</h2><p className="muted">{t('email.denied.text')}</p></div></section>;
-  if (state === 'error') return <div className="inboxLayout"><Notice error>{t('email.loadFailed', { reason: error ?? '' })}</Notice><div className="actions"><button type="button" onClick={() => { setState('loading'); void loadAccounts().then(() => loadMessages(filters)); }}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div>;
+  if (state === 'loading' && !setup) return <><PageHeader title={viewLabel('inbox')} subtitle={t('pages.inbox.subtitle')} /><p className="notice" role="status" aria-busy="true"><CircleDot aria-hidden="true" />{t('email.loading')}</p></>;
+  if (state === 'denied') return <><PageHeader title={viewLabel('inbox')} subtitle={t('pages.inbox.subtitle')} /><section className="surface inboxPanel" aria-labelledby="inbox-denied"><Lock aria-hidden="true" className="inboxPanelIcon" /><div><h2 id="inbox-denied">{t('email.denied.title')}</h2><p className="muted">{t('email.denied.text')}</p></div></section></>;
+  if (state === 'error') return <><PageHeader title={viewLabel('inbox')} subtitle={t('pages.inbox.subtitle')} /><div className="inboxLayout"><Notice error>{t('email.loadFailed', { reason: error ?? '' })}</Notice><div className="actions"><button type="button" onClick={() => { setState('loading'); void loadAccounts().then(() => loadMessages(filters)); }}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div></>;
 
   const canConnect = Boolean(setup?.can_connect);
   const canAct = Boolean(setup?.can_act);
-  const connectable = setup?.providers ?? [];
-  const showDetail = selected !== null;
+  const attention = accounts.filter((a) => accountStatus(a).tone !== 'success').length;
+  const chipTone = !accounts.length ? 'neutral' : attention ? 'warning' : 'success';
+  const lastSync = accounts.map((a) => a.last_sync_at).filter((v): v is string => Boolean(v)).sort().at(-1) ?? null;
+  const summaryValue = summary.state === 'ready' ? summary.value : null;
+  const waiting = drafts.state === 'ready' ? waitingDrafts(drafts.value) : [];
+  const pendingApproval = waiting.filter((d) => d.status === 'pending_approval').length;
+  const setupPanel = <MailboxSetup accounts={accounts} setup={setup} canConnect={canConnect} busy={busy} privateConnect={privateConnect} onPrivate={setPrivateConnect} onConnect={(p) => void connect(p)} onSync={(a) => void sync(a)} onDisconnect={(a) => void disconnect(a)} />;
+  const figures = [
+    figure('unread', t('pages.inbox.fig.unread'), summary, () => ({ value: formatNumber(summaryValue!.unread), hint: t('pages.inbox.fig.unreadHint', { count: summaryValue!.accounts }), tone: summaryValue!.unread ? 'accent' : '' })),
+    figure('high', t('pages.inbox.fig.high'), summary, () => ({ value: formatNumber(summaryValue!.high_priority_unread), hint: summaryValue!.high_priority_unread ? t('pages.inbox.fig.highHint') : t('pages.inbox.fig.noneHigh'), tone: summaryValue!.high_priority_unread ? 'danger' : '' })),
+    figure('customers', t('pages.inbox.fig.customers'), summary, () => ({ value: formatNumber(summaryValue!.by_category.customer_question ?? 0), hint: t('pages.inbox.fig.customersHint', { orders: formatNumber(summaryValue!.by_category.order ?? 0) }) })),
+    figure('drafts', t('pages.inbox.fig.drafts'), drafts, () => ({ value: formatNumber(waiting.length), hint: t('pages.inbox.fig.draftsHint', { count: pendingApproval }), tone: pendingApproval ? 'warn' : '' })),
+  ];
+  const header = <PageHeader title={viewLabel('inbox')} subtitle={t('pages.inbox.subtitle')} actions={<>
+    <button type="button" className={`chipButton ${chipTone}`} aria-haspopup="dialog" onClick={() => setMailboxesOpen(true)}>
+      <span className="chipDot" aria-hidden="true" /><span>{accounts.length ? t('pages.inbox.mailboxChip', { count: accounts.length, synced: syncedLabel(lastSync) }) : t('pages.inbox.noMailbox')}</span>{attention > 0 && <span className="statusBadge warning">{t('pages.inbox.needsAttention', { count: attention })}</span>}
+    </button>
+    <button type="button" className="secondary" disabled={!accounts.length || busy !== null} onClick={() => void Promise.all(accounts.map((a) => syncEmailAccount(a.id).catch(() => a))).then((fresh) => { setAccounts(fresh); loadSummary(); return loadMessages(filters); })}><RefreshCw aria-hidden="true" />{t('email.syncAll')}</button>
+  </>} />;
 
   return <div className="inboxLayout">
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('email.eyebrow')}</p><h2>{t('email.title')}</h2><p>{t('email.intro')}</p></div>
-      <div className="actions"><button type="button" className="secondary" disabled={!accounts.length || busy !== null} onClick={() => void Promise.all(accounts.map((a) => syncEmailAccount(a.id).catch(() => a))).then((fresh) => { setAccounts(fresh); return loadMessages(filters); })}><RefreshCw aria-hidden="true" />{t('email.syncAll')}</button></div>
-    </section>
+    {header}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     {budget && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{t('common.budgetReached', { message: budget })}{onOpenBudgets && <button type="button" className="secondary inboxInlineButton" onClick={onOpenBudgets}>{t('email.openBudgets')}</button>}</p>}
+    {mailboxesOpen && <Drawer title={t('email.accounts.title')} onClose={() => setMailboxesOpen(false)}>{setupPanel}</Drawer>}
 
-    <section className="surface inboxAccounts" aria-labelledby="inbox-accounts">
-      <div className="sectionHeader"><h2 id="inbox-accounts">{t('email.accounts.title')}</h2>{busy === 'connect' && <span className="statusBadge neutral">{t('email.connect.finishing')}</span>}</div>
-      {accounts.length === 0 ? <p className="muted">{canConnect ? t('email.accounts.emptyOwner') : t('email.accounts.emptyMember')}</p> :
-        <ul className="inboxAccountList">{accounts.map((account) => {
-          const status = accountStatus(account);
-          return <li key={account.id} className="inboxAccount">
-            <Mail aria-hidden="true" />
-            <div className="inboxAccountText">
-              <strong>{account.address}</strong>
-              <small>{account.provider_name} · {account.visibility === 'private' ? t('email.account.private') : t('email.account.shared')} · {syncedLabel(account.last_sync_at)} · {t('email.account.unread', { count: account.unread_count })}</small>
-              {status.detail && <small className="inboxAccountError">{status.detail}</small>}
-            </div>
-            <span className={`statusBadge ${status.tone}`}>{account.syncing ? t('email.account.syncing') : status.label}</span>
-            <div className="inboxAccountActions">
-              {account.status === 'reauth_required' && canConnect ? <button type="button" className="secondary" disabled={busy !== null} onClick={() => void connect(account.provider)}><Plug aria-hidden="true" />{t('email.account.reconnect')}</button>
-                : <button type="button" className="secondary" disabled={busy !== null} aria-label={t('email.account.syncLabel', { address: account.address })} onClick={() => void sync(account)}><RefreshCw aria-hidden="true" />{busy === `sync:${account.id}` ? t('email.account.syncingNow') : t('email.account.sync')}</button>}
-              {account.can_manage && <button type="button" className="secondary" disabled={busy !== null} aria-label={t('email.account.disconnectLabel', { address: account.address })} onClick={() => void disconnect(account)}><Unplug aria-hidden="true" />{t('email.account.disconnect')}</button>}
-            </div>
-          </li>;
-        })}</ul>}
-      {canConnect ? <div className="inboxConnect">
-        <div className="inboxConnectButtons">{connectable.map((provider) => provider.configured && provider.enabled_here
-          ? <button key={provider.provider} type="button" disabled={busy !== null} onClick={() => void connect(provider.provider)}><Plug aria-hidden="true" />{t('email.connect.button', { provider: provider.name })}</button>
-          : <p key={provider.provider} className="muted inboxSetupNote"><strong>{provider.name}:</strong> {provider.configured ? t('email.connect.offHere') : t('email.connect.notSetUp', { settings: provider.missing.join(', ') })}</p>)}</div>
-        <label className="inboxCheck"><input type="checkbox" checked={privateConnect} onChange={(e) => setPrivateConnect(e.target.checked)} />{t('email.connect.private')}</label>
-        <small className="muted">{t('email.connect.help')}</small>
-      </div> : accounts.length > 0 ? null : <p className="muted">{t('email.connect.ownerOnly')}</p>}
-    </section>
+    {accounts.length === 0 && <section className="surface inboxStart" aria-labelledby="inbox-start">
+      <div className="inboxStartText"><Mail aria-hidden="true" /><h2 id="inbox-start">{t('pages.inbox.startTitle')}</h2><p className="muted">{canConnect ? t('email.accounts.emptyOwner') : t('email.accounts.emptyMember')}</p></div>
+      {setupPanel}
+    </section>}
 
     {accounts.length > 0 && <>
-      <form className="surface inboxFilters" role="search" aria-label={t('email.filters.label')} onSubmit={search}>
-        <label className="inboxSearch"><span className="visuallyHidden">{t('email.filters.search')}</span><input type="search" value={queryDraft} placeholder={t('email.filters.searchPlaceholder')} maxLength={200} onChange={(e) => setQueryDraft(e.target.value)} /></label>
-        <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
-        <label><span className="visuallyHidden">{t('email.filters.account')}</span><select value={filters.accountId} onChange={(e) => applyFilters({ ...filters, accountId: e.target.value })}><option value="">{t('email.filters.allAccounts')}</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.address}</option>)}</select></label>
-        <label><span className="visuallyHidden">{t('email.filters.category')}</span><select value={filters.category} onChange={(e) => applyFilters({ ...filters, category: e.target.value as Filters['category'] })}><option value="">{t('email.filters.allCategories')}</option>{CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label>
-        <label><span className="visuallyHidden">{t('email.filters.priority')}</span><select value={filters.priority} onChange={(e) => applyFilters({ ...filters, priority: e.target.value as Filters['priority'] })}><option value="">{t('email.filters.allPriorities')}</option>{PRIORITIES.map((p) => <option key={p} value={p}>{priorityLabel(p)}</option>)}</select></label>
-        <label className="inboxCheck"><input type="checkbox" checked={filters.unread} onChange={(e) => applyFilters({ ...filters, unread: e.target.checked })} />{t('email.filters.unread')}</label>
-        <label className="inboxCheck"><input type="checkbox" checked={filters.archived} onChange={(e) => applyFilters({ ...filters, archived: e.target.checked })} />{t('email.filters.archived')}</label>
-        {hasFilters(filters) && <button type="button" className="secondary" onClick={() => { setQueryDraft(''); applyFilters(EMPTY_FILTERS); }}>{t('common.clear')}</button>}
-      </form>
-
-      <div className={`inboxSplit ${showDetail ? 'showDetail' : ''}`}>
-        <section className="surface inboxList" aria-labelledby="inbox-list-title" aria-busy={listState === 'loading'}>
-          <h2 id="inbox-list-title" className="visuallyHidden">{t('email.list.title')}</h2>
+      <PageSummary label={t('pages.inbox.summary')} figures={figures} onRetry={() => { setSummary({ state: 'loading' }); setDrafts({ state: 'loading' }); loadSummary(); }} />
+      <SplitView className="inboxSplit" show={selected ? 'detail' : 'list'}>
+        <aside data-pane="nav" className="pane inboxNav" aria-label={t('email.filters.label')}>
+          <form className="inboxFilters" role="search" aria-label={t('email.filters.label')} onSubmit={search}>
+            <div className="inboxSearchRow"><label className="inboxSearch" htmlFor={`${searchId}-q`}><span className="visuallyHidden">{t('email.filters.search')}</span></label>
+              <input id={`${searchId}-q`} type="search" value={queryDraft} placeholder={t('email.filters.searchPlaceholder')} maxLength={200} onChange={(e) => setQueryDraft(e.target.value)} />
+              <button type="submit" className="secondary inboxSearchButton" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button></div>
+            <label><span className="visuallyHidden">{t('email.filters.account')}</span><select value={filters.accountId} onChange={(e) => applyFilters({ ...filters, accountId: e.target.value })}><option value="">{t('email.filters.allAccounts')}</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.address}</option>)}</select></label>
+            <label><span className="visuallyHidden">{t('email.filters.category')}</span><select value={filters.category} onChange={(e) => applyFilters({ ...filters, category: e.target.value as Filters['category'] })}><option value="">{t('email.filters.allCategories')}</option>{CATEGORIES.map((c) => <option key={c} value={c}>{summaryValue?.by_category[c] ? t('pages.inbox.categoryUnread', { category: categoryLabel(c), count: summaryValue.by_category[c] }) : categoryLabel(c)}</option>)}</select></label>
+            <label><span className="visuallyHidden">{t('email.filters.priority')}</span><select value={filters.priority} onChange={(e) => applyFilters({ ...filters, priority: e.target.value as Filters['priority'] })}><option value="">{t('email.filters.allPriorities')}</option>{PRIORITIES.map((p) => <option key={p} value={p}>{priorityLabel(p)}</option>)}</select></label>
+            <div className="inboxChecks">
+              <label className="inboxCheck"><input type="checkbox" checked={filters.unread} onChange={(e) => applyFilters({ ...filters, unread: e.target.checked })} />{t('email.filters.unread')}</label>
+              <label className="inboxCheck"><input type="checkbox" checked={filters.archived} onChange={(e) => applyFilters({ ...filters, archived: e.target.checked })} />{t('email.filters.archived')}</label>
+              {hasFilters(filters) && <button type="button" className="secondary" onClick={() => { setQueryDraft(''); applyFilters(EMPTY_FILTERS); }}>{t('common.clear')}</button>}
+            </div>
+          </form>
+          <DraftsQueue drafts={drafts} waiting={waiting} open={widest} selected={selected} onOpen={(draft) => { if (draft.message_id) pick(draft.message_id); }} onRetry={loadSummary} />
+        </aside>
+        <section data-pane="list" className="pane inboxList" aria-labelledby="inbox-list-title" aria-busy={listState === 'loading'}>
+          <div className="paneHead"><h2 id="inbox-list-title">{filters.archived ? t('pages.inbox.archivedTitle') : t('email.list.title')}</h2>{listState === 'ready' && <span className="muted">{t('pages.inbox.shown', { count: items.length })}</span>}</div>
           {listState === 'loading' && <p className="muted inboxPad" role="status">{t('email.list.loading')}</p>}
           {listState === 'error' && <div className="inboxPad"><Notice error>{t('email.list.failed', { reason: listError ?? '' })}</Notice><div className="actions"><button type="button" onClick={() => void loadMessages(filters)}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div>}
-          {listState === 'ready' && items.length === 0 && <div className="emptyState"><Inbox aria-hidden="true" />{hasFilters(filters)
+          {listState === 'ready' && items.length === 0 && <div className="paneEmpty"><Inbox aria-hidden="true" />{hasFilters(filters)
             ? <><h3>{t('email.list.noMatch')}</h3><p>{t('email.list.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setQueryDraft(''); applyFilters(EMPTY_FILTERS); }}>{t('email.list.clearFilters')}</button></div></>
             : <><h3>{t('email.list.empty')}</h3><p>{t('email.list.emptyText')}</p></>}</div>}
           {items.length > 0 && <ul className="inboxMessages">{items.map((message) => <li key={message.id}>
-            <button type="button" className={`inboxRow ${selected === message.id ? 'selected' : ''} ${message.is_read ? '' : 'unread'}`} aria-current={selected === message.id ? 'true' : undefined} onClick={() => setSelected(message.id)}>
+            <button type="button" className={`inboxRow ${selected === message.id ? 'selected' : ''} ${message.is_read ? '' : 'unread'}`} aria-current={selected === message.id ? 'true' : undefined} onClick={() => pick(message.id)}>
               <span className="inboxRowTop"><strong>{senderName(message)}</strong><time dateTime={message.received_at}>{when(message.received_at)}</time></span>
               <span className="inboxRowSubject" dir="auto">{!message.is_read && <span className="inboxUnreadDot" aria-label={t('email.list.unreadMark')} />}{message.subject || t('email.noSubject')}</span>
               <span className="inboxRowSnippet" dir="auto">{message.summary || message.snippet}</span>
@@ -232,19 +265,70 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
           </li>)}</ul>}
           {cursor && <div className="actions inboxPad"><button type="button" className="secondary" disabled={busy === 'more'} onClick={() => { setBusy('more'); void loadMessages(filters, cursor).finally(() => setBusy(null)); }}>{t('email.list.more')}</button></div>}
         </section>
-        <section className="surface inboxDetail" aria-label={t('email.detail.label')}>
+        <section data-pane="detail" className="pane inboxDetail" aria-label={t('email.detail.label')}>
           {selected
-            ? <MessagePanel key={selected} messageId={selected} canAct={canAct} owner={owner === true} onBack={() => setSelected(null)} onChanged={replaceMessage} onSelect={setSelected} onBudget={setBudget} onOpenApprovals={onOpenApprovals} />
-            : <div className="emptyState"><MailOpen aria-hidden="true" /><h3>{t('email.detail.none')}</h3><p>{t('email.detail.noneText')}</p></div>}
+            ? <MessagePanel key={selected} messageId={selected} canAct={canAct} owner={owner === true} focusSignal={picked} onBack={() => setSelected(null)} onChanged={replaceMessage} onSelect={pick} onBudget={setBudget} onOpenApprovals={onOpenApprovals} onDraftsChanged={loadSummary} />
+            : <div className="paneEmpty"><MailOpen aria-hidden="true" /><h3>{t('email.detail.none')}</h3><p>{t('email.detail.noneText')}</p></div>}
         </section>
-      </div>
+      </SplitView>
     </>}
   </div>;
 }
 
-function MessagePanel({ messageId, canAct, owner, onBack, onChanged, onSelect, onBudget, onOpenApprovals }: {
-  messageId: string; canAct: boolean; owner: boolean; onBack: () => void; onChanged: (message: EmailMessage) => void; onSelect: (id: string) => void;
-  onBudget: (message: string) => void; onOpenApprovals?: () => void;
+/** Connected mailboxes and the connect buttons: in the page when none is connected, else behind the status chip. */
+function MailboxSetup({ accounts, setup, canConnect, busy, privateConnect, onPrivate, onConnect, onSync, onDisconnect }: {
+  accounts: EmailAccount[]; setup: EmailSetup | null; canConnect: boolean; busy: string | null; privateConnect: boolean; onPrivate: (value: boolean) => void;
+  onConnect: (provider: EmailProvider) => void; onSync: (account: EmailAccount) => void; onDisconnect: (account: EmailAccount) => void;
+}) {
+  const connectable = setup?.providers ?? [];
+  return <div className="inboxAccounts">
+    {busy === 'connect' && <span className="statusBadge neutral">{t('email.connect.finishing')}</span>}
+    {accounts.length > 0 && <ul className="inboxAccountList">{accounts.map((account) => {
+      const status = accountStatus(account);
+      return <li key={account.id} className="inboxAccount">
+        <Mail aria-hidden="true" />
+        <div className="inboxAccountText">
+          <strong>{account.address}</strong>
+          <small>{account.provider_name} · {account.visibility === 'private' ? t('email.account.private') : t('email.account.shared')} · {syncedLabel(account.last_sync_at)} · {t('email.account.unread', { count: account.unread_count })}</small>
+          {status.detail && <small className="inboxAccountError">{status.detail}</small>}
+        </div>
+        <span className={`statusBadge ${status.tone}`}>{account.syncing ? t('email.account.syncing') : status.label}</span>
+        <div className="inboxAccountActions">
+          {account.status === 'reauth_required' && canConnect ? <button type="button" className="secondary" disabled={busy !== null} onClick={() => onConnect(account.provider)}><Plug aria-hidden="true" />{t('email.account.reconnect')}</button>
+            : <button type="button" className="secondary" disabled={busy !== null} aria-label={t('email.account.syncLabel', { address: account.address })} onClick={() => onSync(account)}><RefreshCw aria-hidden="true" />{busy === `sync:${account.id}` ? t('email.account.syncingNow') : t('email.account.sync')}</button>}
+          {account.can_manage && <button type="button" className="secondary" disabled={busy !== null} aria-label={t('email.account.disconnectLabel', { address: account.address })} onClick={() => onDisconnect(account)}><Unplug aria-hidden="true" />{t('email.account.disconnect')}</button>}
+        </div>
+      </li>;
+    })}</ul>}
+    {canConnect ? <div className="inboxConnect">
+      <div className="inboxConnectButtons">{connectable.map((provider) => provider.configured && provider.enabled_here
+        ? <button key={provider.provider} type="button" disabled={busy !== null} onClick={() => onConnect(provider.provider)}><Plug aria-hidden="true" />{t('email.connect.button', { provider: provider.name })}</button>
+        : <p key={provider.provider} className="muted inboxSetupNote"><strong>{provider.name}:</strong> {provider.configured ? t('email.connect.offHere') : t('email.connect.notSetUp', { settings: provider.missing.join(', ') })}</p>)}</div>
+      <label className="inboxCheck"><input type="checkbox" checked={privateConnect} onChange={(e) => onPrivate(e.target.checked)} />{t('email.connect.private')}</label>
+      <small className="muted">{t('email.connect.help')}</small>
+    </div> : accounts.length > 0 ? null : <p className="muted">{t('email.connect.ownerOnly')}</p>}
+  </div>;
+}
+
+/** Reply drafts still waiting for a person (GET /email/drafts): open one to finish or approve it. */
+function DraftsQueue({ drafts, waiting, open, selected, onOpen, onRetry }: { drafts: Load<EmailDraft[]>; waiting: EmailDraft[]; open: boolean; selected: string | null; onOpen: (draft: EmailDraft) => void; onRetry: () => void }) {
+  return <details className="inboxQueue" open={open || undefined}>
+    <summary><PenLine aria-hidden="true" />{t('pages.inbox.queueTitle')}{drafts.state === 'ready' && <span className="inboxQueueCount">{formatNumber(waiting.length)}</span>}</summary>
+    {drafts.state === 'loading' && <p className="muted">{t('pages.inbox.queueLoading')}</p>}
+    {drafts.state === 'error' && <p className="muted">{t('pages.inbox.queueFailed')} <button type="button" className="linkButton" onClick={onRetry}>{t('pages.inbox.queueRetry')}</button></p>}
+    {drafts.state === 'ready' && waiting.length === 0 && <p className="muted">{t('pages.inbox.queueEmpty')}</p>}
+    {waiting.length > 0 && <ul className="railList">{waiting.map((draft) => <li key={draft.id}>
+      <button type="button" className="railItem" disabled={!draft.message_id} aria-current={draft.message_id && draft.message_id === selected ? 'true' : undefined} onClick={() => onOpen(draft)}>
+        <strong dir="auto">{draft.subject || t('email.noSubject')}</strong>
+        <small><span className={`statusBadge ${draft.status === 'failed' ? 'dangerTone' : draft.status === 'pending_approval' ? 'warning' : 'neutral'}`}>{draftStatusLabel(draft.status)}</span> {draft.to.join(', ') || t('pages.inbox.noRecipient')}</small>
+      </button>
+    </li>)}</ul>}
+  </details>;
+}
+
+function MessagePanel({ messageId, canAct, owner, focusSignal, onBack, onChanged, onSelect, onBudget, onOpenApprovals, onDraftsChanged }: {
+  messageId: string; canAct: boolean; owner: boolean; focusSignal: number; onBack: () => void; onChanged: (message: EmailMessage) => void; onSelect: (id: string) => void;
+  onBudget: (message: string) => void; onOpenApprovals?: () => void; onDraftsChanged: () => void;
 }) {
   const [detail, setDetail] = useState<MessageDetail | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -263,7 +347,8 @@ function MessagePanel({ messageId, canAct, owner, onBack, onChanged, onSelect, o
     catch (e) { setState('error'); setError(describeError(e)); }
   }, [messageId]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (state === 'ready') heading.current?.focus({ preventScroll: false }); }, [state]);
+  // Focus moves to the message when a person opened it (not when the pane opens on the first unread one).
+  useEffect(() => { if (state === 'ready' && focusSignal > 0) heading.current?.focus({ preventScroll: false }); }, [state, focusSignal]);
 
   async function act(kind: string, fn: () => Promise<void>) {
     setBusy(kind); setNotice(null);
@@ -277,7 +362,7 @@ function MessagePanel({ messageId, canAct, owner, onBack, onChanged, onSelect, o
 
   const message = detail.message;
   const update = (next: EmailMessage) => { setDetail((current) => current ? { ...current, message: next } : current); onChanged(next); };
-  const setDrafts = (fn: (drafts: EmailDraft[]) => EmailDraft[]) => setDetail((current) => current ? { ...current, drafts: fn(current.drafts) } : current);
+  const setDrafts = (fn: (drafts: EmailDraft[]) => EmailDraft[]) => { setDetail((current) => current ? { ...current, drafts: fn(current.drafts) } : current); onDraftsChanged(); };
   const actionResult = (result: { status: string; summary: string; message: EmailMessage | null }) => {
     if (result.message) update(result.message);
     if (result.status === 'waiting_approval') setNotice({ text: t('email.detail.waitingApproval') });
