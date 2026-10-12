@@ -96,6 +96,7 @@ def server(
         pool_size=settings.database_pool_size,
         max_overflow=settings.database_max_overflow,
         pool_timeout=settings.database_pool_timeout_seconds,
+        connect_args=db_session._connect_args(),
     )
 
     @event.listens_for(engine, "before_cursor_execute")
@@ -249,3 +250,105 @@ def test_api_stays_responsive_while_an_answer_streams_with_open_tabs(
     assert max(idle) == 0, f"{max(idle)} connection(s) idle in transaction for over 1 s during the answer"
     assert max(health) < MAX_PROBE_SECONDS, summary
     assert max(reads) < MAX_PROBE_SECONDS * 2, summary
+
+
+# ----------------------------------------------------------------------------- task runs
+
+
+def _new_task(base: str) -> str:
+    created = httpx.post(
+        f"{base}/api/v1/tasks",
+        headers=HEADERS,
+        json={"title": "A small task", "prompt": "What's your name?"},
+        timeout=30,
+    )
+    assert created.status_code == 201, created.text
+    return str(created.json()["id"])
+
+
+def _run_in_background(base: str, task_id: str, out: dict[str, Any]) -> threading.Thread:
+    def run() -> None:
+        started = time.monotonic()
+        response = httpx.post(f"{base}/api/v1/tasks/{task_id}/run", headers=HEADERS, timeout=90)
+        out["status"], out["body"], out["seconds"] = response.status_code, response.text, time.monotonic() - started
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    return worker
+
+
+@pytest.fixture
+def slow_task_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inline task runs plan with the slow model (the server default, no workspace model)."""
+    from anum_api import main
+
+    monkeypatch.setattr(main, "model_gateway", SlowGateway())
+    monkeypatch.setattr(main, "run_dispatcher", None)
+
+
+def test_api_stays_responsive_while_an_inline_task_runs(
+    server: str, slow_task_model: None, database_engine: Engine
+) -> None:
+    stop = threading.Event()
+    for _ in range(TABS):
+        opened = threading.Event()
+        threading.Thread(target=_hold_stream, args=(server, opened, stop), daemon=True).start()
+        assert opened.wait(15), "an event stream did not open"
+    task_id = _new_task(server)
+    health: list[float] = []
+    reads: list[float] = []
+    idle: list[int] = []
+    outcome: dict[str, Any] = {}
+    try:
+        time.sleep(1.2)
+        prober = threading.Thread(target=_probe, args=(server, stop, health, reads, database_engine, idle), daemon=True)
+        prober.start()
+        _run_in_background(server, task_id, outcome).join(90)
+        time.sleep(0.5)
+    finally:
+        stop.set()
+    prober.join(timeout=60)
+    assert outcome.get("status") == 200, outcome
+    summary = (
+        f"/health max {max(health):.2f}s; GET /conversations max {max(reads):.2f}s over {len(reads)} probes; "
+        f"run took {outcome['seconds']:.1f}s"
+    )
+    # The model call runs with no transaction open: no row lock, no pooled connection held.
+    assert max(idle) == 0, f"{max(idle)} connection(s) idle in transaction for over 1 s during the run; {summary}"
+    assert max(health) < MAX_PROBE_SECONDS, summary
+    assert max(reads) < MAX_PROBE_SECONDS * 2, summary
+
+
+def test_cancel_during_an_inline_run_answers_and_never_stalls_the_api(server: str, slow_task_model: None) -> None:
+    task_id = _new_task(server)
+    outcome: dict[str, Any] = {}
+    worker = _run_in_background(server, task_id, outcome)
+    time.sleep(1.0)  # the run has started and the model is answering
+    health: list[float] = []
+    stop = threading.Event()
+
+    def probe_health() -> None:
+        with httpx.Client(timeout=60) as client:
+            while not stop.is_set():
+                started = time.monotonic()
+                client.get(f"{server}/health").raise_for_status()
+                health.append(time.monotonic() - started)
+                time.sleep(0.05)
+
+    prober = threading.Thread(target=probe_health, daemon=True)
+    prober.start()
+    try:
+        started = time.monotonic()
+        cancelled = httpx.post(f"{server}/api/v1/tasks/{task_id}/cancel", headers=HEADERS, timeout=60)
+        cancel_seconds = time.monotonic() - started
+        worker.join(90)
+    finally:
+        stop.set()
+    prober.join(timeout=60)
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancel_seconds < 2, f"cancel waited {cancel_seconds:.1f}s for the running task's row lock"
+    assert health and max(health) < MAX_PROBE_SECONDS, f"/health max {max(health):.2f}s while cancelling"
+    # The run notices the cancel instead of overwriting it.
+    assert outcome.get("status") == 409, outcome
+    task = httpx.get(f"{server}/api/v1/tasks/{task_id}", headers=HEADERS, timeout=30).json()
+    assert task["status"] == "cancelled", task

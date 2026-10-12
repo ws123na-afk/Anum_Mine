@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     database_max_overflow: int = Field(default=20, ge=0, le=500)
     database_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
     database_lock_timeout_ms: int = Field(default=10_000, ge=0, le=600_000)
+    # An inline run's claim (the task set to running before the model is asked) left by
+    # a process that stopped mid-run may be taken over after this long (inline_runs.py).
+    inline_run_lease_seconds: float = Field(default=900.0, ge=60, le=86_400)
     repository_backend: str = "memory"
     keycloak_issuer: str = "http://localhost:8080/realms/anum"
     auth_mode: str = "headers"

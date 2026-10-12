@@ -691,7 +691,7 @@ def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-unt
 
 
 @router.post("", response_model=Conversation, status_code=status.HTTP_201_CREATED)
-async def create_conversation(
+def create_conversation(
     payload: ConversationCreate,
     context: TenantContext = Depends(tenant_context),
 ) -> Conversation:
@@ -703,7 +703,7 @@ async def create_conversation(
 
 
 @router.get("", response_model=list[Conversation])
-async def list_conversations(
+def list_conversations(
     agent_id: str | None = Query(default=None, max_length=80, description="Threads with this agent; omitted: the Assistant's"),
     q: str | None = Query(default=None, max_length=MAX_SEARCH_CHARS, description="Words in the title or any message"),
     limit: int = Query(default=MAX_CONVERSATIONS_LISTED, ge=1, le=MAX_CONVERSATIONS_PAGE),
@@ -730,7 +730,7 @@ async def list_conversations(
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
-async def get_conversation(
+def get_conversation(
     conversation_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> ConversationDetail:
@@ -748,7 +748,7 @@ async def get_conversation(
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_conversation(
+def delete_conversation(
     conversation_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> Response:
@@ -759,7 +759,7 @@ async def delete_conversation(
 
 
 @router.patch("/{conversation_id}", response_model=Conversation)
-async def update_conversation(
+def update_conversation(
     conversation_id: str,
     payload: ConversationUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -800,7 +800,7 @@ def answer_span(turns: Sequence[ConversationTurn], index: int) -> list[Conversat
 
 
 @router.delete("/{conversation_id}/turns/{turn_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_turn(
+def delete_turn(
     conversation_id: str,
     turn_id: str,
     context: TenantContext = Depends(tenant_context),

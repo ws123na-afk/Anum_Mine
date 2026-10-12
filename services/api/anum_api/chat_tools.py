@@ -626,10 +626,15 @@ async def run_task(
     """Run ``task`` like ``POST /tasks/{id}/run``: inline, or queued for the durable runtime."""
     try:
         return await _run(task, category, context, gateway, runtime_config)
+    except (asyncio.CancelledError, GeneratorExit):
+        # Stopped: the inline runner released its claim; this also covers the
+        # durable queueing. Never awaited here: a cancelled stream must end now.
+        asyncio.get_running_loop().run_in_executor(None, _reset_unrun, task, context)
+        raise
     except BaseException:
-        # PostgreSQL rolled the run back; the in-memory store has no rollback. Either way
-        # the task is left as created, so it can be run again from Tasks.
-        _reset_unrun(task, context)
+        # A run that never got past planning leaves the task as created, so it can be
+        # run again from Tasks (a short unit of work, off the event loop).
+        await asyncio.to_thread(_reset_unrun, task, context)
         raise
 
 
@@ -659,9 +664,65 @@ async def _run(
     runtime_config: ChatTaskRuntime,
 ) -> ChatRunOutcome:
     from .agent_tools import ToolCall
+    from .inline_runs import RunClaimLost, run_inline
     from .runtime import AgentRuntime
 
     tools = _CapturingTools(runtime_config.tools)
+    if runtime_config.durable is not None:
+        # Queued for the durable worker (ANUM_RUNTIME_BACKEND=temporal): no model call here.
+        response = await _queue_durable(task, context, gateway, runtime_config, tools)
+        return ChatRunOutcome(card=await asyncio.to_thread(card_for, category, response.task, response.run, None, context))
+
+    retriever = await asyncio.to_thread(runtime_config.retriever, context)
+
+    def runtime_for(repository: "AnumRepository") -> AgentRuntime:
+        return AgentRuntime(
+            gateway,
+            repository,
+            tools=tools,  # type: ignore[arg-type]
+            skills=runtime_config.skills,
+            retriever=retriever,
+        )
+
+    def check(repository: "AnumRepository", stored: "Task | None") -> None:
+        # Created a moment ago in its own unit of work; anything else means it moved on.
+        if stored is None or stored.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
+            raise RunClaimLost("The task is no longer waiting to run.")
+
+    # The model and the tool run with no transaction open; every database step is a
+    # short unit of work in a worker thread (inline_runs.py, docs/realtime.md#event-loop).
+    outcome = await run_inline(
+        context,
+        task.id,
+        unit_of_work=_unit_of_work,
+        runtime_factory=runtime_for,
+        claim=check,  # type: ignore[arg-type]
+        timeout_seconds=RUN_TIMEOUT_SECONDS,
+    )
+    run = outcome.run
+    call = ToolCall.model_validate(run.checkpoint.tool_call) if run.checkpoint.tool_call else None
+    definition = runtime_config.tools.definition(call.name) if call else None
+    card = await asyncio.to_thread(
+        card_for, category, outcome.task, run, outcome.approval, context, result=tools.result
+    )
+    return ChatRunOutcome(
+        card=card,
+        result=tools.result,
+        call=call,
+        target=definition.target if definition is not None else None,
+    )
+
+
+async def _queue_durable(
+    task: "Task",
+    context: TenantContext,
+    gateway: "ModelGateway",
+    runtime_config: ChatTaskRuntime,
+    tools: "_CapturingTools",
+) -> "RunTaskResponse":
+    """Queue the run for the durable worker (``ANUM_RUNTIME_BACKEND=temporal``)."""
+    from .runtime import AgentRuntime
+
     with _unit_of_work(context) as repository:
         stored = repository.get_task_for_update(task.id, context) or task
         runtime = AgentRuntime(
@@ -671,21 +732,10 @@ async def _run(
             skills=runtime_config.skills,
             retriever=runtime_config.retriever(context),
         )
-        if runtime_config.durable is not None:
-            response: RunTaskResponse = await runtime_config.durable(stored, context, repository, runtime)
-            return ChatRunOutcome(card=card_for(category, response.task, response.run, None, context))
-        async with asyncio.timeout(RUN_TIMEOUT_SECONDS):
-            run, approval = await runtime.run_task(stored, context)
-        repository.save_task(stored)
-        repository.save_run(run)
-        call = ToolCall.model_validate(run.checkpoint.tool_call) if run.checkpoint.tool_call else None
-        definition = runtime_config.tools.definition(call.name) if call else None
-        return ChatRunOutcome(
-            card=card_for(category, stored, run, approval, context, result=tools.result),
-            result=tools.result,
-            call=call,
-            target=definition.target if definition is not None else None,
-        )
+        if runtime_config.durable is None:
+            raise RuntimeError("no durable runtime is configured")
+        response: RunTaskResponse = await runtime_config.durable(stored, context, repository, runtime)
+        return response
 
 
 async def follow_durable(card: ChatCard, context: TenantContext) -> AsyncIterator[ChatCard]:
@@ -794,6 +844,11 @@ def describe_run_error(exc: BaseException, *, saved: bool = True) -> tuple[str, 
         return "task_timeout", "The task took too long and was stopped." + then
     if isinstance(exc, HTTPException) and exc.status_code == 503:
         return "runtime_unavailable", "The durable runtime is unavailable." + then
+    from .inline_runs import RunClaimLost
+
+    if isinstance(exc, RunClaimLost):
+        # Cancelled, archived or started elsewhere while it ran: say which, from Tasks.
+        return "task_changed", exc.message + " Open it in Tasks to see where it stands."
     if not saved:
         return "task_failed", "The task could not be created." + then
     return "task_failed", "The task could not run (the model or a service did not answer)." + then

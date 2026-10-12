@@ -351,7 +351,7 @@ def _final_user_segment(store: VoiceSessionStore, session: VoiceSession, segment
 
 
 @router.post("/sessions", response_model=VoiceSession, status_code=status.HTTP_201_CREATED)
-async def create_voice_session(
+def create_voice_session(
     payload: VoiceSessionCreate,
     context: TenantContext = Depends(tenant_context),
 ) -> VoiceSession:
@@ -361,7 +361,7 @@ async def create_voice_session(
 
 
 @router.get("/sessions/{session_id}", response_model=VoiceSession)
-async def get_voice_session(
+def get_voice_session(
     session_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> VoiceSession:
@@ -371,7 +371,7 @@ async def get_voice_session(
 
 
 @router.get("/sessions/{session_id}/transcript", response_model=list[TranscriptSegment])
-async def get_voice_transcript(
+def get_voice_transcript(
     session_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> list[TranscriptSegment]:
@@ -385,7 +385,7 @@ async def get_voice_transcript(
     response_model=TranscriptSegment,
     status_code=status.HTTP_201_CREATED,
 )
-async def append_voice_transcript(
+def append_voice_transcript(
     session_id: str,
     payload: TranscriptSegmentCreate,
     context: TenantContext = Depends(tenant_context),
@@ -700,7 +700,7 @@ def stream_prepared_answer(
 
 
 @router.post("/sessions/{session_id}/complete", response_model=VoiceSession)
-async def complete_voice_session(
+def complete_voice_session(
     session_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> VoiceSession:
@@ -711,7 +711,7 @@ async def complete_voice_session(
 
 
 @router.delete("/sessions/{session_id}", response_model=VoiceSession)
-async def cancel_voice_session(
+def cancel_voice_session(
     session_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> VoiceSession:
