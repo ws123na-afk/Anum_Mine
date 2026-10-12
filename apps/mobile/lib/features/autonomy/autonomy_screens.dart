@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../admin/admin_controller.dart' show AdminPhase;
@@ -20,6 +21,7 @@ List<Widget> _phaseState(
   VoidCallback retry,
 ) {
   final p = context.palette;
+  final l = AnumLocalizations.maybeOf(context);
   return switch (phase) {
     AdminPhase.initial || AdminPhase.loading => [
         const Padding(
@@ -32,10 +34,9 @@ List<Widget> _phaseState(
           accent: p.warn,
           child: AnumEmpty(
             icon: Icons.lock_outline,
-            title: 'Access required',
-            message:
-                'Reading $what needs an active membership in this workspace. '
-                'Ask a workspace owner to invite you.\nThe API answered: $message',
+            title: l.t('auto.accessRequired'),
+            message: l.f('auto.accessMessage',
+                {'what': l.t('auto.what.$what'), 'message': message ?? ''}),
           ),
         ),
       ],
@@ -47,9 +48,9 @@ List<Widget> _phaseState(
                 ? Icons.cloud_off_outlined
                 : Icons.error_outline,
             title:
-                '${what[0].toUpperCase()}${what.substring(1)} could not be loaded',
-            message: '${message ?? ''} Check your connection and try again.',
-            action: 'Retry',
+                l.f('auto.loadFailed', {'what': l.t('auto.what.${what}Title')}),
+            message: l.f('auto.checkConnection', {'message': message ?? ''}),
+            action: l.t('da.retry'),
             onAction: retry,
           ),
         ),
@@ -91,12 +92,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
         listenable: widget.controller,
         builder: (context, _) {
           final c = widget.controller;
+          final l = AnumLocalizations.maybeOf(context);
+          c.l = l;
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Activity'),
+              title: Text(l.t('auto.activity')),
               actions: [
                 IconButton(
-                  tooltip: 'Refresh',
+                  tooltip: l.t('da.refresh'),
                   onPressed: c.load,
                   icon: const Icon(Icons.refresh),
                 ),
@@ -105,15 +108,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
             body: AnumPage(
               onRefresh: c.load,
               children: [
-                const AnumHeader(
-                  eyebrow: 'Autonomy',
-                  title: 'What ANUM did on its own',
-                  subtitle:
-                      'Every action ANUM took without asking, newest first. Undo what can be reversed, or make a kind of action ask again.',
+                AnumHeader(
+                  eyebrow: l.t('auto.eyebrow'),
+                  title: l.t('auto.activityTitle'),
+                  subtitle: l.t('auto.activitySubtitle'),
                   large: true,
                 ),
                 if (c.proposals.isNotEmpty) _proposals(context, c),
-                _filters(c),
+                _filters(l, c),
                 if (c.notice != null)
                   Semantics(
                     liveRegion: true,
@@ -133,7 +135,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                         context,
                         c.phase,
                         c.loadMessage,
-                        'the activity',
+                        'activity',
                         c.load,
                       ),
               ],
@@ -147,14 +149,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const AnumHeader(
-              title: 'Suggestions to ask less',
-              subtitle:
-                  'You approved these actions several times. ANUM never raises its autonomy by itself.',
+            AnumHeader(
+              title: c.l.t('auto.suggestions'),
+              subtitle: c.l.t('auto.suggestionsSubtitle'),
             ),
             for (final p in c.proposals) ...[
               const SizedBox(height: AnumSpacing.sm),
-              Text(p.sentence),
+              Text(p.sentenceIn(c.l)),
               const SizedBox(height: AnumSpacing.xs),
               if (c.canDecide)
                 Wrap(
@@ -165,19 +166,19 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       onPressed: c.busy == p.id
                           ? null
                           : () => c.decide(p, accept: true),
-                      child: const Text('Accept'),
+                      child: Text(c.l.t('auto.accept')),
                     ),
                     OutlinedButton(
                       onPressed: c.busy == p.id
                           ? null
                           : () => c.decide(p, accept: false),
-                      child: const Text('Keep asking'),
+                      child: Text(c.l.t('auto.keepAsking')),
                     ),
                   ],
                 )
               else
                 Text(
-                  'An owner of this workspace decides.',
+                  c.l.t('auto.ownerDecides'),
                   style: TextStyle(color: context.palette.muted),
                 ),
             ],
@@ -185,7 +186,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
         ),
       );
 
-  Widget _filters(ActivityController c) => Wrap(
+  Widget _filters(AnumLocalizations l, ActivityController c) => Wrap(
         spacing: AnumSpacing.sm,
         runSpacing: AnumSpacing.sm,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -196,13 +197,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
               key: const Key('activity-category'),
               initialValue: c.category,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Category'),
+              decoration: InputDecoration(labelText: l.t('auto.category')),
               items: [
-                const DropdownMenuItem(value: '', child: Text('All')),
+                DropdownMenuItem(value: '', child: Text(l.t('auto.all'))),
                 for (final category in autonomyCategories)
                   DropdownMenuItem(
                     value: category,
-                    child: Text(categoryLabel(category)),
+                    child: Text(categoryLabel(category, l)),
                   ),
               ],
               onChanged: (v) => c.setCategory(v ?? ''),
@@ -216,10 +217,10 @@ class _ActivityScreenState extends State<ActivityScreen> {
               maxLength: 200,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                labelText: 'Search',
+                labelText: l.t('da.search'),
                 counterText: '',
                 suffixIcon: IconButton(
-                  tooltip: 'Search the activity',
+                  tooltip: l.t('auto.searchActivity'),
                   onPressed: () => c.search(_search.text),
                   icon: const Icon(Icons.search),
                 ),
@@ -233,22 +234,23 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 _search.clear();
                 c.clearFilters();
               },
-              child: const Text('Clear filters'),
+              child: Text(l.t('auto.clearFilters')),
             ),
         ],
       );
 
   List<Widget> _feed(BuildContext context, ActivityController c) {
     final p = context.palette;
+    final l = c.l;
     if (c.items.isEmpty) {
       return [
         AnumSurface(
           child: c.filtered
               ? AnumEmpty(
                   icon: Icons.search_off,
-                  title: 'No matching actions',
-                  message: 'Nothing ANUM did matches these filters.',
-                  action: 'Clear filters',
+                  title: l.t('auto.noMatch'),
+                  message: l.t('auto.noMatchText'),
+                  action: l.t('auto.clearFilters'),
                   onAction: () {
                     _search.clear();
                     c.clearFilters();
@@ -256,12 +258,11 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 )
               : AnumEmpty(
                   icon: Icons.notifications_none,
-                  title: 'Nothing done on its own yet',
-                  message:
-                      'When ANUM acts without asking, each action appears here with Undo where it can be reversed.',
+                  title: l.t('auto.emptyTitle'),
+                  message: l.t('auto.emptyText'),
                   action: widget.onOpenSettings == null
                       ? null
-                      : 'Autonomy settings',
+                      : l.t('auto.openSettings'),
                   onAction: widget.onOpenSettings,
                 ),
         ),
@@ -286,7 +287,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
               ),
               const SizedBox(height: AnumSpacing.xxs),
               Text(
-                '${categoryLabel(a.category)} · ${a.tool}${a.template != null ? ' · ${a.template}' : ''} · ${_time(a.createdAt)}',
+                '${categoryLabel(a.category, l)} · ${a.tool}${a.template != null ? ' · ${a.template}' : ''} · ${_time(a.createdAt)}',
                 style: TextStyle(color: p.faint, fontSize: 12),
               ),
               const SizedBox(height: AnumSpacing.xs),
@@ -295,26 +296,27 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 runSpacing: 8,
                 children: [
                   AnumPill(
-                    label: levelLabel(a.level),
+                    label: levelLabel(a.level, l),
                     tone: a.level == 'act_silently'
                         ? AnumTone.neutral
                         : AnumTone.ok,
                   ),
                   if (a.undone)
                     AnumPill(
-                      label: 'Undone by ${a.undoneBy ?? '?'}',
+                      label: l.f('auto.undoneBy', {'user': a.undoneBy ?? '?'}),
                       tone: AnumTone.ok,
                     )
                   else if (a.reversible && a.undoExpiresAt != null)
                     AnumPill(
                       label: now.isBefore(a.undoExpiresAt!)
-                          ? 'Undo until ${_time(a.undoExpiresAt!).substring(11)}'
-                          : 'Undo window closed',
+                          ? l.f('auto.undoUntil',
+                              {'time': _time(a.undoExpiresAt!).substring(11)})
+                          : l.t('auto.undoClosed'),
                       tone: AnumTone.warn,
                     ),
                   if (a.asksNow)
-                    const AnumPill(
-                      label: 'Asks from now on',
+                    AnumPill(
+                      label: l.t('auto.asksNow'),
                       tone: AnumTone.warn,
                     ),
                 ],
@@ -339,11 +341,11 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       key: Key('undo-${a.id}'),
                       onPressed: c.busy == a.id ? null : () => c.undo(a),
                       icon: const Icon(Icons.undo),
-                      label: const Text('Undo'),
+                      label: Text(l.t('auto.undo')),
                     ),
                   if (a.reversible && !a.undone && !a.canUndo)
                     Text(
-                      'Only an owner or the person whose task did this can undo it.',
+                      l.t('auto.undoWho'),
                       style: TextStyle(color: p.muted, fontSize: 12),
                     ),
                   if (c.canTighten && !a.asksNow)
@@ -351,7 +353,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       key: Key('tighten-${a.id}'),
                       onPressed: c.busy == a.id ? null : () => c.tighten(a),
                       icon: const Icon(Icons.pan_tool_outlined),
-                      label: const Text('Always ask for this'),
+                      label: Text(l.t('auto.alwaysAsk')),
                     ),
                 ],
               ),
@@ -362,7 +364,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
         Center(
           child: OutlinedButton(
             onPressed: c.loadingMore ? null : c.loadMore,
-            child: Text(c.loadingMore ? 'Loading...' : 'Load more'),
+            child:
+                Text(c.loadingMore ? l.t('da.loading') : l.t('auto.loadMore')),
           ),
         ),
     ];
@@ -390,12 +393,14 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
         listenable: widget.controller,
         builder: (context, _) {
           final c = widget.controller;
+          final l = AnumLocalizations.maybeOf(context);
+          c.l = l;
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Autonomy'),
+              title: Text(l.t('auto.settings')),
               actions: [
                 IconButton(
-                  tooltip: 'Refresh',
+                  tooltip: l.t('da.refresh'),
                   onPressed: c.saving ? null : c.load,
                   icon: const Icon(Icons.refresh),
                 ),
@@ -404,11 +409,10 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
             body: AnumPage(
               onRefresh: c.load,
               children: [
-                const AnumHeader(
-                  eyebrow: 'Autonomy',
-                  title: 'When ANUM may act without asking',
-                  subtitle:
-                      'Money, prices, stock, deleting, merging code, new recipients and bulk sends always ask.',
+                AnumHeader(
+                  eyebrow: l.t('auto.eyebrow'),
+                  title: l.t('auto.settingsTitle'),
+                  subtitle: l.t('auto.settingsSubtitle'),
                   large: true,
                 ),
                 ...c.phase == AdminPhase.ready
@@ -417,7 +421,7 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
                         context,
                         c.phase,
                         c.loadMessage,
-                        'autonomy settings',
+                        'settings',
                         c.load,
                       ),
               ],
@@ -429,6 +433,7 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
   List<Widget> _ready(BuildContext context, AutonomySettingsController c) {
     final p = context.palette;
     final o = c.overview!;
+    final l = c.l;
     return [
       if (c.readOnly)
         AnumSurface(
@@ -436,10 +441,11 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
           accent: p.warn,
           child: AnumEmpty(
             icon: Icons.lock_outline,
-            title: 'Owner access required',
+            title: l.t('auto.ownerRequired'),
             message: [
-              'Only workspace owners change autonomy. What is in force is shown below; ask an owner to change it.',
-              if (c.denied != null) 'The API answered: ${c.denied}',
+              l.t('auto.ownerOnly'),
+              if (c.denied != null)
+                l.f('da.apiAnswered', {'message': c.denied!}),
             ].join('\n'),
           ),
         ),
@@ -447,10 +453,9 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const AnumHeader(
-              title: 'Level by area',
-              subtitle:
-                  'A level is the most ANUM may do in that area. Reading and drafts run silently; archiving and replies to known customers with approved templates act and notify.',
+            AnumHeader(
+              title: l.t('auto.levels'),
+              subtitle: l.t('auto.levelsSubtitle'),
             ),
             for (final category in autonomyCategories) ...[
               const SizedBox(height: AnumSpacing.sm),
@@ -459,17 +464,18 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
                 initialValue: c.levels[category],
                 isExpanded: true,
                 decoration: InputDecoration(
-                  labelText: categoryLabel(category),
+                  labelText: categoryLabel(category, l),
                   helperText: o.ceilings[category] == null
                       ? null
-                      : 'Organization limit: ${levelLabel(o.ceilings[category]!)}',
+                      : l.f('auto.orgLimit',
+                          {'level': levelLabel(o.ceilings[category]!, l)}),
                 ),
                 items: [
                   for (final level in autonomyLevels)
                     DropdownMenuItem(
                       value: level,
                       enabled: levelAllowed(level, o.ceilings[category]),
-                      child: Text(levelLabel(level)),
+                      child: Text(levelLabel(level, l)),
                     ),
                 ],
                 onChanged: c.readOnly || c.saving
@@ -484,9 +490,9 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const AnumHeader(
-              title: 'Thresholds',
-              subtitle: 'Anything above these asks first, whatever the level.',
+            AnumHeader(
+              title: l.t('auto.thresholds'),
+              subtitle: l.t('auto.thresholdsSubtitle'),
             ),
             const SizedBox(height: AnumSpacing.sm),
             TextFormField(
@@ -495,10 +501,10 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
               enabled: !c.readOnly,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
-                labelText: 'Recipients threshold',
+                labelText: l.t('auto.recipients'),
                 helperText: o.maxAutoRecipients == null
                     ? null
-                    : 'The organization allows at most ${o.maxAutoRecipients}.',
+                    : l.f('auto.recipientsMax', {'max': o.maxAutoRecipients!}),
               ),
               onChanged: (v) => c.recipients = v,
             ),
@@ -510,7 +516,7 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration: const InputDecoration(labelText: 'Amount threshold'),
+              decoration: InputDecoration(labelText: l.t('auto.amount')),
               onChanged: (v) => c.amount = v,
             ),
             const SizedBox(height: AnumSpacing.sm),
@@ -520,10 +526,9 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
               enabled: !c.readOnly,
               minLines: 2,
               maxLines: 6,
-              decoration: const InputDecoration(
-                labelText: 'Approved templates',
-                helperText:
-                    'One per line, for example order_status. Replies with these to known recipients act and notify.',
+              decoration: InputDecoration(
+                labelText: l.t('auto.templates'),
+                helperText: l.t('auto.templatesHelp'),
                 helperMaxLines: 3,
               ),
               onChanged: (v) => c.templates = v,
@@ -531,13 +536,13 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
             if (o.spendingLimit != null) ...[
               const SizedBox(height: AnumSpacing.sm),
               Text(
-                'Organization spending limit: ${o.spendingLimit}. Anything above is blocked, even with approval.',
+                l.f('auto.spendingLimit', {'limit': o.spendingLimit!}),
                 style: TextStyle(color: p.muted, fontSize: 13),
               ),
             ],
             const SizedBox(height: AnumSpacing.xs),
             Text(
-              'Quiet hours, daily caps, blocked recipients and the organization guardrails are edited on the web.',
+              l.t('auto.webOnly'),
               style: TextStyle(color: p.faint, fontSize: 12),
             ),
             if (c.notice != null) ...[
@@ -559,7 +564,7 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
                   key: const Key('autonomy-save'),
                   onPressed: c.saving ? null : c.save,
                   icon: const Icon(Icons.save_outlined),
-                  label: Text(c.saving ? 'Saving...' : 'Save autonomy'),
+                  label: Text(c.saving ? l.t('da.saving') : l.t('auto.save')),
                 ),
               ),
             ],

@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'marketing_strings.dart';
+import 'developer_autonomy_messages.dart';
 
 class AnumLocalizations {
   const AnumLocalizations(this.locale);
@@ -24,6 +25,36 @@ class AnumLocalizations {
     values
         .forEach((name, value) => text = text.replaceAll('{$name}', '$value'));
     return text;
+  }
+
+  /// A plural message: `key.zero` (only for 0, when present), else the CLDR
+  /// category for [count] (`one`/`other` in English; `one`/`two`/`few`/
+  /// `many`/`other` in Arabic), falling back to `key.other`. `{count}` and
+  /// [values] are filled in.
+  String p(String key, int count, [Map<String, Object> values = const {}]) {
+    final catalog = isArabic ? _ar : _en;
+    String? pick(String form) => catalog['$key.$form'] ?? _en['$key.$form'];
+    final form =
+        isArabic ? arabicPluralForm(count) : (count == 1 ? 'one' : 'other');
+    final text = (count == 0 ? pick('zero') : null) ??
+        pick(form) ??
+        pick('other') ??
+        key;
+    return {...values, 'count': count}.entries.fold(text,
+        (out, entry) => out.replaceAll('{${entry.key}}', '${entry.value}'));
+  }
+
+  /// CLDR plural category for Arabic: 0 zero, 1 one, 2 two, 3-10 few
+  /// (by the last two digits), 11-99 many, else other.
+  static String arabicPluralForm(int count) {
+    final n = count.abs();
+    final mod = n % 100;
+    if (n == 0) return 'zero';
+    if (n == 1) return 'one';
+    if (n == 2) return 'two';
+    if (mod >= 3 && mod <= 10) return 'few';
+    if (mod >= 11 && mod <= 99) return 'many';
+    return 'other';
   }
 
   /// The catalog for [context], or English when none is installed (widgets
@@ -259,6 +290,7 @@ class AnumLocalizations {
     'autoEvent_email_received': 'Email received',
     'autoEvent_whatsapp_message_received': 'WhatsApp message received',
     'autoEvent_file_uploaded': 'File uploaded',
+    ...developerAutonomyEn,
     'assistant': 'Assistant',
     'home': 'Home',
     'workspace': 'ANUM Workspace',
@@ -1145,6 +1177,7 @@ class AnumLocalizations {
     'autoEvent_email_received': 'وصل بريد إلكتروني',
     'autoEvent_whatsapp_message_received': 'وصلت رسالة واتساب',
     'autoEvent_file_uploaded': 'رُفع ملف',
+    ...developerAutonomyAr,
     'assistant': 'المساعد',
     'home': 'الرئيسية',
     'workspace': 'مساحة عمل أنوم',

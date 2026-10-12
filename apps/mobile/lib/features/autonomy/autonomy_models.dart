@@ -1,4 +1,5 @@
 import '../../data/json_read.dart';
+import '../../src/localization/anum_localizations.dart';
 
 /// Autonomy policy (docs/autonomy.md): what ANUM did on its own, and the
 /// workspace's levels. Same words as the web client.
@@ -15,30 +16,29 @@ const autonomyLevels = ['ask_always', 'act_and_notify', 'act_silently'];
 
 const _levelRank = {'ask_always': 0, 'act_and_notify': 1, 'act_silently': 2};
 
-String levelLabel(String level) => switch (level) {
-      'ask_always' => 'Ask always',
-      'act_and_notify' => 'Act and notify',
-      'act_silently' => 'Act silently',
-      _ => level.replaceAll('_', ' '),
-    };
+/// The level's name in [l]'s language (English by default); an unknown level
+/// shows as itself with spaces.
+String levelLabel(String level,
+        [AnumLocalizations l = AnumLocalizations.english]) =>
+    autonomyLevels.contains(level)
+        ? l.t('auto.level.$level')
+        : level.replaceAll('_', ' ');
 
-String categoryLabel(String category) => switch (category) {
-      'email' => 'Email',
-      'whatsapp' => 'WhatsApp',
-      'commerce' => 'Commerce (prices, stock, listings)',
-      'developer' => 'Developer',
-      'files' => 'Files',
-      'tasks' => 'Tasks',
-      'general' => 'General',
-      _ => category,
-    };
+String categoryLabel(String category,
+        [AnumLocalizations l = AnumLocalizations.english]) =>
+    autonomyCategories.contains(category)
+        ? l.t('auto.cat.$category')
+        : category;
 
 /// Whether [level] is allowed under an organization [ceiling] (null: any).
 bool levelAllowed(String level, String? ceiling) =>
     ceiling == null || (_levelRank[level] ?? 0) <= (_levelRank[ceiling] ?? 0);
 
-String patternLabel(String tool, String? template) =>
-    template == null ? tool : '$tool with template $template';
+String patternLabel(String tool, String? template,
+        [AnumLocalizations l = AnumLocalizations.english]) =>
+    template == null
+        ? tool
+        : l.f('auto.withTemplate', {'tool': tool, 'template': template});
 
 class AutonomousAction {
   const AutonomousAction({
@@ -145,9 +145,13 @@ class AutonomyProposal {
   final int approvals;
   final String? template;
 
-  String get sentence =>
-      'Let ANUM "${levelLabel(proposedLevel)}" for ${patternLabel(tool, template)}? '
-      'You approved it $approvals ${approvals == 1 ? 'time' : 'times'}.';
+  String get sentence => sentenceIn(AnumLocalizations.english);
+
+  /// "Let ANUM "Act and notify" for …? You approved it 3 times." in [l].
+  String sentenceIn(AnumLocalizations l) => l.p('auto.proposal', approvals, {
+        'level': levelLabel(proposedLevel, l),
+        'pattern': patternLabel(tool, template, l),
+      });
 }
 
 /// The workspace settings this client edits (levels, thresholds, templates)

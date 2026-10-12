@@ -4,6 +4,7 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/sse.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../workspace/api_workspace_repository.dart';
 import '../workspace/workspace_models.dart';
 
@@ -154,9 +155,15 @@ class DevRequest {
   final WorkspaceApproval? approval;
 
   String get title => prTitle ?? shortText(text);
-  String get statusLabel => status == DevStatus.unknown && statusName.isNotEmpty
-      ? statusName
-      : status.label;
+  String get statusLabel => statusLabelIn(AnumLocalizations.english);
+
+  /// The status in [l]'s language; an unknown status shows its raw name.
+  String statusLabelIn(AnumLocalizations l) =>
+      status == DevStatus.unknown && statusName.isNotEmpty
+          ? statusName
+          : status == DevStatus.unknown
+              ? status.label
+              : l.t('dev.status.${status.apiValue}');
   bool get spoken => source == 'voice';
 }
 
@@ -541,15 +548,22 @@ bool canRequestMerge(DevRequest request) =>
     request.status == DevStatus.waitingApproval && request.prNumber != null;
 
 /// "2 of 3 checks passed, 1 failing (Web and contracts)".
-String checksLabel(DevChecks? checks) {
-  if (checks == null || checks.total == 0) return 'No CI results yet';
-  final parts = ['${checks.passed} of ${checks.total} checks passed'];
-  if (checks.pending > 0) parts.add('${checks.pending} running');
+String checksLabel(DevChecks? checks,
+    [AnumLocalizations l = AnumLocalizations.english]) {
+  if (checks == null || checks.total == 0) return l.t('dev.checks.none');
+  final parts = [
+    l.f('dev.checks.passed', {'passed': checks.passed, 'total': checks.total})
+  ];
+  if (checks.pending > 0) {
+    parts.add(l.f('dev.checks.running', {'count': checks.pending}));
+  }
   if (checks.failed > 0) {
     final names = checks.failing.take(3).join(', ');
-    parts.add('${checks.failed} failing${names.isEmpty ? '' : ' ($names)'}');
+    parts.add('${l.f('dev.checks.failing', {
+          'count': checks.failed
+        })}${names.isEmpty ? '' : ' ($names)'}');
   }
-  return parts.join(', ');
+  return parts.join(l.isArabic ? '، ' : ', ');
 }
 
 /// Requests that just became ready for review compared with the previous
@@ -644,12 +658,14 @@ ProjectState projectState(DevProject project) {
   return project.lastCheck == null ? ProjectState.untested : ProjectState.ready;
 }
 
-String projectStateLabel(ProjectState state) => switch (state) {
-      ProjectState.ready => 'Ready',
-      ProjectState.untested => 'Not tested',
-      ProjectState.attention => 'Needs attention',
-      ProjectState.off => 'Turned off',
-    };
+String projectStateLabel(ProjectState state,
+        [AnumLocalizations l = AnumLocalizations.english]) =>
+    l.t(switch (state) {
+      ProjectState.ready => 'dev.project.ready',
+      ProjectState.untested => 'dev.project.untested',
+      ProjectState.attention => 'dev.project.attention',
+      ProjectState.off => 'dev.project.off',
+    });
 
 /// Install workflow is offered while the workflow is not known to be there.
 bool canInstallWorkflow(DevProject project) =>

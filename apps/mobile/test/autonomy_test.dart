@@ -8,8 +8,10 @@ import 'package:anum_mobile/features/autonomy/autonomy_controller.dart';
 import 'package:anum_mobile/features/autonomy/autonomy_models.dart';
 import 'package:anum_mobile/features/autonomy/autonomy_repository.dart';
 import 'package:anum_mobile/features/autonomy/autonomy_screens.dart';
+import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final _now = DateTime.utc(2026, 10, 11, 12);
@@ -150,12 +152,20 @@ class _Fake implements AutonomyRepository {
 }
 
 Future<void> _pump(WidgetTester tester, Widget child,
-    {Size size = const Size(390, 844), double scale = 1}) async {
+    {Size size = const Size(390, 844),
+    double scale = 1,
+    Locale locale = const Locale('en')}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
     theme: AnumTheme.dark(),
+    locale: locale,
+    supportedLocales: const [Locale('en'), Locale('ar')],
+    localizationsDelegates: const [
+      AnumLocalizations.delegate,
+      ...GlobalMaterialLocalizations.delegates,
+    ],
     builder: (context, content) => MediaQuery(
         data: MediaQuery.of(context)
             .copyWith(textScaler: TextScaler.linear(scale)),
@@ -322,6 +332,61 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Autonomy settings'));
       expect(opened, isTrue);
+    });
+
+    for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
+      testWidgets(
+          'Arabic, right to left, at ${width.toInt()} wide and 200% text',
+          (tester) async {
+        final repo = _Fake();
+        final activity = ActivityController(repo, clock: () => _now);
+        await _pump(tester, ActivityScreen(controller: activity),
+            size: Size(width, 900),
+            scale: width == 390 ? 2 : 1,
+            locale: const Locale('ar'));
+        expect(find.text('ما فعله ANUM من تلقاء نفسه'), findsOneWidget);
+        expect(Directionality.of(tester.element(find.text('النشاط').first)),
+            TextDirection.rtl);
+        // Arabic plural forms: three approvals use the "few" form.
+        expect(
+            find.text(
+                'هل تسمح لـ ANUM بـ«نفّذ وأبلغ» في whatsapp.send_template بالقالب shipping؟ وافقت عليه 3 مرات.'),
+            findsOneWidget);
+        expect(find.text('تراجع'), findsWidgets);
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.byKey(const Key('undo-a0')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('undo-a0')));
+        await tester.pumpAndSettle();
+        expect(activity.notice, 'تم التراجع: Archived email a0');
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+
+        await _pump(
+            tester,
+            AutonomySettingsScreen(
+                controller: AutonomySettingsController(repo)),
+            size: Size(width, 900),
+            scale: width == 390 ? 2 : 1,
+            locale: const Locale('ar'));
+        expect(find.text('متى يتصرف ANUM دون أن يسأل'), findsOneWidget);
+        expect(find.text('حد المؤسسة: اسأل دائمًا'), findsOneWidget);
+        expect(find.text('حفظ الاستقلالية'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    test('the Arabic validation and save notices', () async {
+      final c = AutonomySettingsController(_Fake())
+        ..l = const AnumLocalizations(Locale('ar'));
+      await c.load();
+      c.recipients = 'x';
+      expect(
+          c.problem, 'يجب أن يكون حد المستلمين عددًا صحيحًا من 0 إلى 10000.');
+      c.recipients = '9';
+      expect(c.problem, 'حد المستلمين أعلى من حد المؤسسة البالغ 8.');
+      c.recipients = '5';
+      expect(await c.save(), isTrue);
+      expect(c.notice, startsWith('حُفظت الاستقلالية.'));
     });
   });
 }

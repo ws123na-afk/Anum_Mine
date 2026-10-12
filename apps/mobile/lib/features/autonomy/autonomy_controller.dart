@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../admin/admin_controller.dart' show AdminPhase, describeAdminError;
 import 'autonomy_models.dart';
 import 'autonomy_repository.dart';
@@ -20,6 +21,9 @@ class ActivityController extends ChangeNotifier {
       : clock = clock ?? DateTime.now;
   final AutonomyRepository repository;
   final DateTime Function() clock;
+
+  /// The language of the notices this controller writes; the screen sets it.
+  AnumLocalizations l = AnumLocalizations.english;
 
   AdminPhase phase = AdminPhase.initial;
   List<AutonomousAction> items = [];
@@ -115,7 +119,7 @@ class ActivityController extends ChangeNotifier {
       final next = await repository.undo(action);
       items = [for (final i in items) i.id == next.id ? next : i];
       rowErrors.remove(action.id);
-      _say('Undone: ${action.summary}');
+      _say(l.f('auto.undone', {'summary': action.summary}));
     } on Object catch (error) {
       rowErrors[action.id] = describeAdminError(error);
     } finally {
@@ -133,9 +137,8 @@ class ActivityController extends ChangeNotifier {
         for (final i in items)
           i.patternKey == action.patternKey ? i.tightened() : i,
       ];
-      _say(
-        'ANUM will ask before ${patternLabel(action.tool, action.template)} from now on.',
-      );
+      _say(l.f('auto.tightened',
+          {'pattern': patternLabel(action.tool, action.template, l)}));
     } on Object catch (error) {
       rowErrors[action.id] = describeAdminError(error);
     } finally {
@@ -153,12 +156,9 @@ class ActivityController extends ChangeNotifier {
         for (final p in proposals)
           if (p.id != proposal.id) p,
       ];
-      final pattern = patternLabel(proposal.tool, proposal.template);
-      _say(
-        accept
-            ? 'Accepted: $pattern now acts and notifies you.'
-            : 'ANUM keeps asking before $pattern and will not suggest it again.',
-      );
+      final pattern = patternLabel(proposal.tool, proposal.template, l);
+      _say(l
+          .f(accept ? 'auto.accepted' : 'auto.declined', {'pattern': pattern}));
     } on Object catch (error) {
       _say(describeAdminError(error), failed: true);
     } finally {
@@ -178,6 +178,9 @@ class ActivityController extends ChangeNotifier {
 class AutonomySettingsController extends ChangeNotifier {
   AutonomySettingsController(this.repository);
   final AutonomyRepository repository;
+
+  /// The language of the notices this controller writes; the screen sets it.
+  AnumLocalizations l = AnumLocalizations.english;
 
   AdminPhase phase = AdminPhase.initial;
   AutonomyOverview? overview;
@@ -231,14 +234,14 @@ class AutonomySettingsController extends ChangeNotifier {
   String? get problem {
     final r = int.tryParse(recipients.trim());
     if (r == null || r < 0 || r > 10000) {
-      return 'Recipients threshold must be a whole number from 0 to 10000.';
+      return l.t('auto.err.recipients');
     }
     final max = overview?.maxAutoRecipients;
     if (max != null && r > max) {
-      return 'Recipients threshold is above the organization limit of $max.';
+      return l.f('auto.err.recipientsMax', {'max': max});
     }
     final a = double.tryParse(amount.trim());
-    if (a == null || a < 0) return 'Amount threshold must be a number.';
+    if (a == null || a < 0) return l.t('auto.err.amount');
     return null;
   }
 
@@ -271,8 +274,7 @@ class AutonomySettingsController extends ChangeNotifier {
           ),
         ),
       );
-      notice =
-          'Autonomy saved. It applies from the next action and is in the audit log.';
+      notice = l.t('auto.saved');
       noticeFailed = false;
       return true;
     } on Object catch (error) {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'developer_assist.dart';
@@ -26,6 +27,7 @@ class DeveloperAssistPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final pending = assist.pending;
     final review = assist.review;
     final ready = assist.ready;
@@ -37,19 +39,19 @@ class DeveloperAssistPanel extends StatelessWidget {
       child: Semantics(
         container: true,
         liveRegion: true,
-        label: 'Developer',
+        label: l.t('dev.title'),
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Icon(Icons.construction, size: 18, color: p.sky),
             const SizedBox(width: AnumSpacing.xs),
             Expanded(
-              child: Text('Developer',
+              child: Text(l.t('dev.title'),
                   style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
             ),
             if (pending == null && review == null)
               IconButton(
-                  tooltip: 'Dismiss',
+                  tooltip: l.t('da.dismiss'),
                   onPressed: assist.busy ? null : assist.dismiss,
                   icon: const Icon(Icons.close, size: 20)),
           ]),
@@ -61,7 +63,7 @@ class DeveloperAssistPanel extends StatelessWidget {
             const SizedBox(height: AnumSpacing.xs),
             Semantics(
               container: true,
-              label: 'Choose the project',
+              label: l.t('dev.a.choose'),
               child: Wrap(
                   spacing: AnumSpacing.xs,
                   runSpacing: AnumSpacing.xs,
@@ -78,7 +80,7 @@ class DeveloperAssistPanel extends StatelessWidget {
                       key: const Key('developer-decline'),
                       onPressed: assist.busy ? null : assist.decline,
                       icon: const Icon(Icons.close),
-                      label: const Text('Cancel'),
+                      label: Text(l.t('da.cancel')),
                     ),
                   ]),
             ),
@@ -103,13 +105,13 @@ class DeveloperAssistPanel extends StatelessWidget {
                         ? null
                         : () => unawaited(assist.start(pending)),
                     icon: const Icon(Icons.check),
-                    label: const Text('Start'),
+                    label: Text(l.t('dev.a.start')),
                   ),
                   OutlinedButton.icon(
                     key: const Key('developer-decline'),
                     onPressed: assist.busy ? null : assist.decline,
                     icon: const Icon(Icons.close),
-                    label: const Text('Cancel'),
+                    label: Text(l.t('da.cancel')),
                   ),
                 ]),
           ] else if (assist.message != null)
@@ -142,14 +144,14 @@ class DeveloperAssistPanel extends StatelessWidget {
                         ? null
                         : () => unawaited(assist.openReview(ready)),
                     icon: const Icon(Icons.verified_user_outlined),
-                    label: const Text('Approve & merge'),
+                    label: Text(l.t('dev.approveMerge')),
                   ),
                   if (ready.prUrl != null)
                     TextButton.icon(
                       onPressed: () => unawaited(
                           openDeveloperLink(context, openLink, ready.prUrl)),
                       icon: const Icon(Icons.open_in_new, size: 18),
-                      label: const Text('Open pull request'),
+                      label: Text(l.t('dev.a.openPr')),
                     ),
                 ]),
           ],
@@ -158,7 +160,7 @@ class DeveloperAssistPanel extends StatelessWidget {
               alignment: AlignmentDirectional.centerStart,
               child: TextButton(
                   onPressed: onOpenDeveloper,
-                  child: const Text('Open Developer')),
+                  child: Text(l.t('dev.a.openDeveloper'))),
             ),
         ]),
       ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'developer_controller.dart';
@@ -57,33 +58,38 @@ class _DeveloperProjectsScreenState extends State<DeveloperProjectsScreen> {
   Future<void> _confirmDelete(BuildContext context, DevProject project) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete ${project.name}?'),
-        content: const Text('Its finished requests stay listed under its '
-            'name. The repository and its workflow are not changed.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Keep it')),
-          FilledButton(
-              style: FilledButton.styleFrom(
-                  backgroundColor: context.palette.stop,
-                  foregroundColor: context.palette.background),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete project')),
-        ],
-      ),
+      builder: (context) {
+        final l = AnumLocalizations.maybeOf(context);
+        return AlertDialog(
+          title: Text(l.f('dev.p.deleteTitle', {'name': project.name})),
+          content: Text(l.t('dev.p.deleteText')),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(l.t('da.keepIt'))),
+            FilledButton(
+                style: FilledButton.styleFrom(
+                    backgroundColor: context.palette.stop,
+                    foregroundColor: context.palette.background),
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(l.t('dev.p.delete'))),
+          ],
+        );
+      },
     );
     if (ok ?? false) await controller.deleteProject(project);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Projects')),
+        appBar: AppBar(
+            title: Text(AnumLocalizations.maybeOf(context).t('dev.projects'))),
         body: ListenableBuilder(
           listenable: controller,
           builder: (context, _) {
             final p = context.palette;
+            final l = AnumLocalizations.maybeOf(context);
+            controller.l = l;
             final setup = controller.setup;
             final projects = controller.projects;
             final needle = _query.trim().toLowerCase();
@@ -101,23 +107,18 @@ class _DeveloperProjectsScreenState extends State<DeveloperProjectsScreen> {
               onRefresh: controller.reloadProjects,
               children: [
                 AnumHeader(
-                  eyebrow: 'Developer',
-                  title: 'Projects',
-                  subtitle: 'The GitHub repositories the developer may '
-                      'change. Each one needs the coding workflow and two '
-                      'repository secrets. Tokens stay on the server, '
-                      'encrypted, and are never shown again.',
+                  eyebrow: l.t('dev.title'),
+                  title: l.t('dev.projects'),
+                  subtitle: l.t('dev.p.subtitle'),
                   trailing: IconButton(
                     key: const Key('developer-project-add'),
-                    tooltip: 'Add a project',
+                    tooltip: l.t('dev.addProject'),
                     onPressed: atLimit ? null : () => unawaited(_edit(context)),
                     icon: const Icon(Icons.add),
                   ),
                 ),
                 if (atLimit)
-                  Text(
-                      'This workspace has the most projects allowed '
-                      '(${setup.maxProjects}). Delete one to add another.',
+                  Text(l.f('dev.p.max', {'max': setup.maxProjects}),
                       style: TextStyle(color: p.muted)),
                 if (controller.notice != null)
                   DeveloperNotice(
@@ -131,25 +132,23 @@ class _DeveloperProjectsScreenState extends State<DeveloperProjectsScreen> {
                     key: const Key('developer-project-search'),
                     controller: _search,
                     onChanged: (value) => setState(() => _query = value),
-                    decoration: const InputDecoration(
-                        labelText: 'Search projects',
-                        prefixIcon: Icon(Icons.search)),
+                    decoration: InputDecoration(
+                        labelText: l.t('dev.p.search'),
+                        prefixIcon: const Icon(Icons.search)),
                   ),
                 if (projects.isEmpty)
                   AnumSurface(
                     key: const Key('developer-projects-empty'),
                     child: AnumEmpty(
                       icon: Icons.folder_outlined,
-                      title: 'No projects yet',
-                      message: 'Add the first repository: its owner/name, '
-                          'the branch to build on and a short description '
-                          'so spoken requests find it.',
-                      action: 'Add a project',
+                      title: l.t('dev.noProjects'),
+                      message: l.t('dev.p.emptyText'),
+                      action: l.t('dev.addProject'),
                       onAction: () => unawaited(_edit(context)),
                     ),
                   )
                 else if (shown.isEmpty)
-                  Text('No project matches "$_query".',
+                  Text(l.f('dev.p.noMatch', {'query': _query}),
                       style: TextStyle(color: p.muted))
                 else
                   for (final project in shown)
@@ -180,16 +179,17 @@ class _SecretsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     return AnumSurface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('What each repository needs',
+        Text(l.t('dev.p.needs'),
             style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
         const SizedBox(height: AnumSpacing.xxs),
         Text(
-            'Repository secrets (Settings › Secrets and variables › Actions): '
-            '${githubSecretNames.join(' and ')}. Optional variables: '
-            '${githubVariableNames.join(' and ')}. Install workflow opens a '
-            'pull request that adds the workflow; merge it in GitHub.',
+            l.f('dev.p.needsText', {
+              'secrets': githubSecretNames.join(l.t('dev.and')),
+              'variables': githubVariableNames.join(l.t('dev.and')),
+            }),
             style: TextStyle(color: p.muted, fontSize: 13)),
       ]),
     );
@@ -218,6 +218,7 @@ class DeveloperProjectCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final state = projectState(project);
     final check = project.lastCheck;
     final idle = busy == null;
@@ -225,7 +226,7 @@ class DeveloperProjectCard extends StatelessWidget {
       key: Key('developer-project-${project.id}'),
       child: Semantics(
         container: true,
-        label: 'Project ${project.name}',
+        label: l.f('dev.p.label', {'name': project.name}),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Wrap(
               spacing: AnumSpacing.xs,
@@ -238,7 +239,8 @@ class DeveloperProjectCard extends StatelessWidget {
                         fontSize: 17,
                         fontWeight: FontWeight.w700)),
                 AnumPill(
-                    label: projectStateLabel(state), tone: projectTone(state)),
+                    label: projectStateLabel(state, l),
+                    tone: projectTone(state)),
               ]),
           const SizedBox(height: AnumSpacing.xxs),
           Directionality(
@@ -253,25 +255,25 @@ class DeveloperProjectCard extends StatelessWidget {
           ],
           const SizedBox(height: AnumSpacing.xs),
           _Fact(
-              'GitHub token',
+              l.t('dev.p.token'),
               !project.tokenConfigured
-                  ? 'No token yet'
+                  ? l.t('dev.p.noToken')
                   : project.tokenSource == 'project'
-                      ? 'Its own token (stored encrypted)'
-                      : "The API's token (ANUM_DEVELOPER_GITHUB_TOKEN)"),
+                      ? l.t('dev.p.ownToken')
+                      : l.t('dev.p.apiToken')),
           _Fact(
-              'Protected paths',
+              l.t('dev.p.protected'),
               project.protectedPaths.isEmpty
-                  ? 'Only the built-in ones (.github, .claude, CLAUDE.md, '
-                      '.env files)'
+                  ? l.t('dev.p.builtIn')
                   : project.protectedPaths.join(', ')),
           _Fact(
-              'Connection',
+              l.t('dev.p.connection'),
               check == null
-                  ? 'Not tested yet. Test the connection before the first '
-                      'request.'
-                  : 'Tested ${relativeTime(check.checkedAt)}: '
-                      '${check.message}'),
+                  ? l.t('dev.p.untested')
+                  : l.f('dev.p.tested', {
+                      'when': relativeTime(check.checkedAt),
+                      'message': check.message
+                    })),
           for (final problem in project.problems)
             Padding(
               padding: const EdgeInsets.only(top: AnumSpacing.xxs),
@@ -290,8 +292,8 @@ class DeveloperProjectCard extends StatelessWidget {
               onPressed: () => unawaited(
                   openDeveloperLink(context, openLink, project.installPrUrl)),
               icon: const Icon(Icons.open_in_new, size: 18),
-              label: Text(
-                  'Workflow pull request #${project.installPrNumber ?? ''}'),
+              label: Text(l.f('dev.p.workflowPr',
+                  {'number': project.installPrNumber ?? ''})),
             ),
           ],
           const SizedBox(height: AnumSpacing.xs),
@@ -301,8 +303,8 @@ class DeveloperProjectCard extends StatelessWidget {
               onPressed: idle && project.tokenConfigured ? onTest : null,
               icon: const Icon(Icons.wifi_tethering),
               label: Text(busy == 'project-test:${project.id}'
-                  ? 'Testing…'
-                  : 'Test connection'),
+                  ? l.t('dev.p.testing')
+                  : l.t('dev.p.test')),
             ),
             if (canInstallWorkflow(project))
               OutlinedButton.icon(
@@ -310,27 +312,28 @@ class DeveloperProjectCard extends StatelessWidget {
                 onPressed: idle ? onInstall : null,
                 icon: const Icon(Icons.call_merge),
                 label: Text(busy == 'project-install:${project.id}'
-                    ? 'Opening pull request…'
-                    : 'Install workflow'),
+                    ? l.t('dev.p.opening')
+                    : l.t('dev.p.install')),
               ),
             OutlinedButton.icon(
               key: Key('developer-project-edit-${project.id}'),
               onPressed: idle ? onEdit : null,
               icon: const Icon(Icons.edit_outlined),
-              label: const Text('Edit'),
+              label: Text(l.t('da.edit')),
             ),
             OutlinedButton.icon(
               key: Key('developer-project-toggle-${project.id}'),
               onPressed: idle ? onToggle : null,
               icon: const Icon(Icons.power_settings_new),
-              label: Text(project.enabled ? 'Turn off' : 'Turn on'),
+              label: Text(
+                  project.enabled ? l.t('dev.p.turnOff') : l.t('dev.p.turnOn')),
             ),
             OutlinedButton.icon(
               key: Key('developer-project-delete-${project.id}'),
               style: OutlinedButton.styleFrom(foregroundColor: p.stop),
               onPressed: idle ? onDelete : null,
               icon: const Icon(Icons.delete_outline),
-              label: const Text('Delete'),
+              label: Text(l.t('da.delete')),
             ),
           ]),
         ]),
@@ -450,6 +453,8 @@ class _DeveloperProjectFormScreenState
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
+    widget.controller.l = l;
     final existing = widget.project;
     final storedToken = existing != null &&
         existing.tokenConfigured &&
@@ -458,8 +463,9 @@ class _DeveloperProjectFormScreenState
         widget.controller.setup?.environmentTokenConfigured ?? false;
     return Scaffold(
       appBar: AppBar(
-          title: Text(
-              existing == null ? 'Add a project' : 'Edit ${existing.name}')),
+          title: Text(existing == null
+              ? l.t('dev.addProject')
+              : l.f('dev.p.editTitle', {'name': existing.name}))),
       body: AnumPage(children: [
         TextField(
           key: const Key('developer-project-name'),
@@ -467,41 +473,35 @@ class _DeveloperProjectFormScreenState
           maxLength: 60,
           autofocus: existing == null,
           decoration: InputDecoration(
-              labelText: 'Name',
-              helperText: 'What you call it when you speak, for example '
-                  'TyrePulse.',
+              labelText: l.t('dev.p.name'),
+              helperText: l.t('dev.p.nameHelp'),
               helperMaxLines: 3,
               errorText: _fieldError('name'),
               errorMaxLines: 3),
         ),
-        Directionality(
+        TextField(
           textDirection: TextDirection.ltr,
-          child: TextField(
-            key: const Key('developer-project-repository'),
-            controller: _repository,
-            autocorrect: false,
-            keyboardType: TextInputType.url,
-            decoration: InputDecoration(
-                labelText: 'GitHub repository',
-                hintText: 'owner/repo',
-                helperText:
-                    "owner/repo, or the repository's github.com address.",
-                helperMaxLines: 3,
-                errorText: _fieldError('repository'),
-                errorMaxLines: 3),
-          ),
+          key: const Key('developer-project-repository'),
+          controller: _repository,
+          autocorrect: false,
+          keyboardType: TextInputType.url,
+          decoration: InputDecoration(
+              labelText: l.t('dev.p.repository'),
+              hintText: 'owner/repo',
+              helperText: l.t('dev.p.repositoryHelp'),
+              helperMaxLines: 3,
+              errorText: _fieldError('repository'),
+              errorMaxLines: 3),
         ),
-        Directionality(
+        TextField(
           textDirection: TextDirection.ltr,
-          child: TextField(
-            key: const Key('developer-project-branch'),
-            controller: _branch,
-            autocorrect: false,
-            decoration: InputDecoration(
-                labelText: 'Branch to build on',
-                errorText: _fieldError('branch'),
-                errorMaxLines: 3),
-          ),
+          key: const Key('developer-project-branch'),
+          controller: _branch,
+          autocorrect: false,
+          decoration: InputDecoration(
+              labelText: l.t('dev.p.branch'),
+              errorText: _fieldError('branch'),
+              errorMaxLines: 3),
         ),
         TextField(
           key: const Key('developer-project-description'),
@@ -509,42 +509,35 @@ class _DeveloperProjectFormScreenState
           maxLength: 500,
           minLines: 1,
           maxLines: 4,
-          decoration: const InputDecoration(
-              labelText: 'Short description',
-              helperText: 'One sentence about what the app does. A request '
-                  'that names no project is routed by it, and always '
-                  'confirmed first.',
+          decoration: InputDecoration(
+              labelText: l.t('dev.p.description'),
+              helperText: l.t('dev.p.descriptionHelp'),
               helperMaxLines: 4),
         ),
-        Directionality(
+        TextField(
           textDirection: TextDirection.ltr,
-          child: TextField(
-            key: const Key('developer-project-paths'),
-            controller: _paths,
-            autocorrect: false,
-            minLines: 1,
-            maxLines: 5,
-            decoration: InputDecoration(
-                labelText: 'Protected paths (optional)',
-                hintText: 'docs/legal/',
-                helperText: 'One file or directory per line. The developer '
-                    'never changes them unless you allow it for a request.',
-                helperMaxLines: 4,
-                errorText: _fieldError('protected'),
-                errorMaxLines: 4),
-          ),
+          key: const Key('developer-project-paths'),
+          controller: _paths,
+          autocorrect: false,
+          minLines: 1,
+          maxLines: 5,
+          decoration: InputDecoration(
+              labelText: l.t('dev.p.protectedOptional'),
+              hintText: 'docs/legal/',
+              helperText: l.t('dev.p.protectedHelp'),
+              helperMaxLines: 4,
+              errorText: _fieldError('protected'),
+              errorMaxLines: 4),
         ),
-        Directionality(
+        TextField(
           textDirection: TextDirection.ltr,
-          child: TextField(
-            key: const Key('developer-project-workflow'),
-            controller: _workflow,
-            autocorrect: false,
-            decoration: InputDecoration(
-                labelText: 'Workflow file',
-                errorText: _fieldError('workflow'),
-                errorMaxLines: 3),
-          ),
+          key: const Key('developer-project-workflow'),
+          controller: _workflow,
+          autocorrect: false,
+          decoration: InputDecoration(
+              labelText: l.t('dev.p.workflow'),
+              errorText: _fieldError('workflow'),
+              errorMaxLines: 3),
         ),
         AnumSurface(
           child: Material(
@@ -556,53 +549,41 @@ class _DeveloperProjectFormScreenState
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('GitHub token',
+                    Text(l.t('dev.p.token'),
                         style: TextStyle(
                             color: p.text, fontWeight: FontWeight.w700)),
-                    const RadioListTile<String>(
-                      key: Key('developer-project-token-project'),
+                    RadioListTile<String>(
+                      key: const Key('developer-project-token-project'),
                       contentPadding: EdgeInsets.zero,
                       value: 'project',
-                      title: Text('A token for this repository'),
+                      title: Text(l.t('dev.p.tokenProject')),
                     ),
-                    const RadioListTile<String>(
-                      key: Key('developer-project-token-environment'),
+                    RadioListTile<String>(
+                      key: const Key('developer-project-token-environment'),
                       contentPadding: EdgeInsets.zero,
                       value: 'environment',
-                      title:
-                          Text("The API's token (ANUM_DEVELOPER_GITHUB_TOKEN, "
-                              'one token covering selected repositories)'),
+                      title: Text(l.t('dev.p.tokenEnvironment')),
                     ),
                     if (_tokenSource == 'environment' && !environmentToken)
-                      Text(
-                          'ANUM_DEVELOPER_GITHUB_TOKEN is not set on the API '
-                          'yet; the project will wait for it.',
+                      Text(l.t('dev.p.envMissing'),
                           style: TextStyle(color: p.muted, fontSize: 13)),
                     if (_tokenSource == 'project') ...[
-                      Directionality(
+                      TextField(
                         textDirection: TextDirection.ltr,
-                        child: TextField(
-                          key: const Key('developer-project-token'),
-                          controller: _token,
-                          obscureText: true,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          decoration: InputDecoration(
-                              labelText: 'Fine-grained token',
-                              hintText: storedToken ? 'Stored (hidden)' : null,
-                              helperText: storedToken
-                                  ? 'A token is stored. Leave this empty to '
-                                      'keep it, or paste a new one to '
-                                      'replace it.'
-                                  : 'This repository only: Contents, Pull '
-                                      'requests and Actions read and write, '
-                                      'Commit statuses read, Workflows read '
-                                      'and write. Stored encrypted; never '
-                                      'shown again.',
-                              helperMaxLines: 5,
-                              errorText: _fieldError('token'),
-                              errorMaxLines: 3),
-                        ),
+                        key: const Key('developer-project-token'),
+                        controller: _token,
+                        obscureText: true,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: InputDecoration(
+                            labelText: l.t('dev.p.fineGrained'),
+                            hintText: storedToken ? l.t('dev.p.stored') : null,
+                            helperText: storedToken
+                                ? l.t('dev.p.storedHelp')
+                                : l.t('dev.p.tokenHelp'),
+                            helperMaxLines: 5,
+                            errorText: _fieldError('token'),
+                            errorMaxLines: 3),
                       ),
                       if (storedToken)
                         CheckboxListTile(
@@ -612,7 +593,7 @@ class _DeveloperProjectFormScreenState
                           value: _clearToken,
                           onChanged: (value) =>
                               setState(() => _clearToken = value ?? false),
-                          title: const Text('Remove the stored token'),
+                          title: Text(l.t('dev.p.removeToken')),
                         ),
                     ],
                   ]),
@@ -626,7 +607,7 @@ class _DeveloperProjectFormScreenState
             contentPadding: EdgeInsets.zero,
             value: _enabled,
             onChanged: (value) => setState(() => _enabled = value),
-            title: const Text('Accept requests for this project'),
+            title: Text(l.t('dev.p.accept')),
           ),
         ),
         if (_error != null && _errorField == null)
@@ -641,11 +622,11 @@ class _DeveloperProjectFormScreenState
             key: const Key('developer-project-save'),
             onPressed: _saving ? null : () => unawaited(_save()),
             icon: const Icon(Icons.check),
-            label: Text(_saving ? 'Saving…' : 'Save project'),
+            label: Text(_saving ? l.t('da.saving') : l.t('dev.p.save')),
           ),
           OutlinedButton(
             onPressed: _saving ? null : () => Navigator.maybePop(context),
-            child: const Text('Cancel'),
+            child: Text(l.t('da.cancel')),
           ),
         ]),
       ]),

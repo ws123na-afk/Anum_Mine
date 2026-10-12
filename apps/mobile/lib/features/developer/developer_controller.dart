@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../workspace/workspace_models.dart';
 import 'developer_models.dart';
 import 'developer_repository.dart';
@@ -18,6 +19,9 @@ enum DevPhase { initial, loading, ready, error, forbidden }
 /// Mirrors the web `DeveloperView`.
 class DeveloperController extends ChangeNotifier {
   DeveloperController(this.repository);
+
+  /// The language of the notices this controller writes; the screens set it.
+  AnumLocalizations l = AnumLocalizations.english;
 
   final DeveloperRepository repository;
 
@@ -148,7 +152,7 @@ class DeveloperController extends ChangeNotifier {
       } else {
         ownerState = OwnerState.error;
         roleError =
-            'Your role could not be checked. ${explainDeveloperError(error)}';
+            l.f('dev.n.roleError', {'reason': explainDeveloperError(error)});
       }
     } finally {
       _roleLoad = null;
@@ -244,12 +248,12 @@ class DeveloperController extends ChangeNotifier {
         loadError = explainDeveloperError(error);
       } else if (phase == DevPhase.ready) {
         // A failed refresh keeps the last known list on screen.
-        _fail('Requests could not be refreshed. '
-            '${explainDeveloperError(error)}');
+        _fail(l.f(
+            'dev.n.refreshFailed', {'reason': explainDeveloperError(error)}));
       } else {
         phase = DevPhase.error;
         loadError =
-            'Developer requests could not be loaded. ${explainDeveloperError(error)}';
+            l.f('dev.n.loadFailed', {'reason': explainDeveloperError(error)});
       }
     }
     _notify();
@@ -309,14 +313,12 @@ class DeveloperController extends ChangeNotifier {
           : await repository.updateProject(existing.id, body);
       await reloadProjects();
       noticeFailed = false;
-      notice = existing == null
-          ? 'Added ${saved.name}. Next: Install workflow, or Test connection '
-              'if the workflow is already there.'
-          : 'Saved ${saved.name}.';
+      notice = l.f(existing == null ? 'dev.n.added' : 'dev.n.saved',
+          {'name': saved.name});
       return null;
     } on Object catch (error) {
       return error is ApiException && error.isPermissionDenied
-          ? 'Only workspace owners can manage projects.'
+          ? l.t('dev.n.projectsOwnerOnly')
           : explainDeveloperError(error);
     } finally {
       busy = null;
@@ -338,13 +340,9 @@ class DeveloperController extends ChangeNotifier {
         final result = await repository.installWorkflow(project.id);
         await reloadProjects();
         noticeFailed = false;
-        notice = result.created
-            ? 'Opened pull request #${result.number} in '
-                '${project.repository}. Add the secrets it lists, merge it in '
-                'GitHub, then test the connection.'
-            : 'Pull request #${result.number} is already waiting in '
-                '${project.repository}. Merge it in GitHub, then test the '
-                'connection.';
+        notice = l.f(
+            result.created ? 'dev.n.workflowOpened' : 'dev.n.workflowWaiting',
+            {'number': result.number, 'repository': project.repository});
       });
 
   Future<void> toggleProject(DevProject project) =>
@@ -365,7 +363,7 @@ class DeveloperController extends ChangeNotifier {
         await repository.deleteProject(project.id);
         await reloadProjects();
         noticeFailed = false;
-        notice = 'Deleted ${project.name}.';
+        notice = l.f('dev.n.deleted', {'name': project.name});
       });
 
   void _schedulePoll() {
@@ -408,8 +406,7 @@ class DeveloperController extends ChangeNotifier {
       ];
       hasMore = page.length == pageSize;
     } on Object catch (error) {
-      _fail('More requests could not be loaded. '
-          '${explainDeveloperError(error)}');
+      _fail(l.f('dev.n.moreFailed', {'reason': explainDeveloperError(error)}));
     } finally {
       busy = null;
       _notify();
@@ -420,7 +417,7 @@ class DeveloperController extends ChangeNotifier {
   Future<bool> create(String text, {bool allowProtected = false}) async {
     final project = selectedProject;
     if (project == null) {
-      _fail('Choose the project this request is for.');
+      _fail(l.t('dev.n.chooseProject'));
       _notify();
       return false;
     }
@@ -450,15 +447,13 @@ class DeveloperController extends ChangeNotifier {
       setup = setup?.withOneMore();
       noticeFailed = false;
       notice =
-          'Sent to the developer for ${created.projectName ?? project.name}. '
-          'Progress appears below; the pull request opens when the change '
-          'and its checks are done.';
+          l.f('dev.n.sent', {'project': created.projectName ?? project.name});
       return true;
     } on Object catch (error) {
       if (error is ApiException && error.isBudgetExceeded) {
         budget = error.message;
       } else {
-        _fail('Not sent: ${explainDeveloperError(error)}');
+        _fail(l.f('dev.n.notSent', {'reason': explainDeveloperError(error)}));
       }
       return false;
     } finally {
@@ -481,7 +476,7 @@ class DeveloperController extends ChangeNotifier {
       await action();
     } on Object catch (error) {
       _fail(error is ApiException && error.isPermissionDenied
-          ? 'Refused: ${explainDeveloperError(error)}'
+          ? l.f('dev.n.refused', {'reason': explainDeveloperError(error)})
           : explainDeveloperError(error));
     } finally {
       busy = null;
@@ -500,7 +495,8 @@ class DeveloperController extends ChangeNotifier {
   Future<void> cancel(DevRequest item) => _act('cancel:${item.id}', () async {
         _replace(await repository.cancel(item.id));
         noticeFailed = false;
-        notice = 'Cancelled "${shortText(item.text, limit: 60)}".';
+        notice =
+            l.f('dev.n.cancelled', {'text': shortText(item.text, limit: 60)});
       });
 
   /// "Approve & merge": opens the merge approval with its payload hash. It
@@ -522,8 +518,7 @@ class DeveloperController extends ChangeNotifier {
   Future<void> merge(DevRequest item, WorkspaceApproval approval) =>
       _act('merge:${item.id}', () async {
         if (approval.payloadHash == null) {
-          _fail('This approval is not bound to a payload hash; ask for the '
-              'merge again.');
+          _fail(l.t('dev.n.unbound'));
           return;
         }
         String? result;
@@ -531,8 +526,9 @@ class DeveloperController extends ChangeNotifier {
           result = await repository.approve(approval);
         } on ApiException catch (error) {
           _fail(error.isPermissionDenied
-              ? 'Merge refused: ${error.message}'
-              : 'Not merged: ${explainDeveloperError(error)}');
+              ? l.f('dev.n.mergeRefused', {'reason': error.message})
+              : l.f(
+                  'dev.n.notMerged', {'reason': explainDeveloperError(error)}));
           return;
         }
         _reviews.remove(item.id);
@@ -540,9 +536,9 @@ class DeveloperController extends ChangeNotifier {
         _replace(updated);
         if (updated.status == DevStatus.merged) {
           noticeFailed = false;
-          notice = 'Merged pull request #${updated.prNumber}.';
+          notice = l.f('dev.n.merged', {'number': updated.prNumber ?? ''});
         } else {
-          _fail(updated.mergeError ?? result ?? 'The merge did not happen.');
+          _fail(updated.mergeError ?? result ?? l.t('dev.n.noMerge'));
         }
       });
 

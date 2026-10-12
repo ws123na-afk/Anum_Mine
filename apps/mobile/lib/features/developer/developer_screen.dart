@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../admin/admin_models.dart' show roleLabel;
@@ -30,11 +31,15 @@ Future<void> openDeveloperLink(
     BuildContext context, LinkOpener open, String? value) async {
   final uri = safeLink(value);
   final messenger = ScaffoldMessenger.maybeOf(context);
+  final l = AnumLocalizations.maybeOf(context);
   final opened = uri != null && await open(uri);
   if (!opened) {
     messenger?.showSnackBar(SnackBar(
-        content: Text('The link could not be opened. '
-            '${uri == null ? 'It is not an https address.' : 'Open $uri in a browser.'}')));
+        content: Text(l.f('dev.linkFailed', {
+      'reason': uri == null
+          ? l.t('dev.linkNotHttps')
+          : l.f('dev.linkOpenIn', {'uri': uri}),
+    }))));
   }
 }
 
@@ -128,49 +133,51 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => TickerMode(
-        // Kept mounted in the workspace's IndexedStack: nothing animates
-        // while another destination is on screen.
-        enabled: widget.active,
-        child: ListenableBuilder(
-          listenable: controller,
-          builder: (context, _) => AnumPage(
-            onRefresh: _refresh,
-            children: [
-              AnumHeader(
-                eyebrow: 'Build your apps',
-                title: 'Developer',
-                subtitle: 'Pick a project and describe a change. A coding '
-                    'agent makes it on a branch in that GitHub repository, '
-                    'runs CI and opens a draft pull request. Nothing merges '
-                    'until you approve it here.',
-                large: true,
-                trailing: controller.ownerState == OwnerState.owner
-                    ? IconButton(
-                        tooltip: 'Refresh requests',
-                        onPressed: controller.refreshing ? null : _refresh,
-                        icon: const Icon(Icons.refresh))
-                    : null,
-              ),
-              ..._body(context),
-            ],
-          ),
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    controller.l = l;
+    return TickerMode(
+      // Kept mounted in the workspace's IndexedStack: nothing animates
+      // while another destination is on screen.
+      enabled: widget.active,
+      child: ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) => AnumPage(
+          onRefresh: _refresh,
+          children: [
+            AnumHeader(
+              eyebrow: l.t('dev.eyebrow'),
+              title: l.t('dev.title'),
+              subtitle: l.t('dev.subtitle'),
+              large: true,
+              trailing: controller.ownerState == OwnerState.owner
+                  ? IconButton(
+                      tooltip: l.t('dev.refreshRequests'),
+                      onPressed: controller.refreshing ? null : _refresh,
+                      icon: const Icon(Icons.refresh))
+                  : null,
+            ),
+            ..._body(context),
+          ],
         ),
-      );
+      ),
+    );
+  }
 
   List<Widget> _body(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
     switch (controller.ownerState) {
       case OwnerState.unknown:
       case OwnerState.loading:
-        return const [_Progress('Checking your role…')];
+        return [_Progress(l.t('dev.checkingRole'))];
       case OwnerState.error:
         return [
           AnumSurface(
             child: AnumEmpty(
               icon: Icons.error_outline,
-              title: 'Your role could not be checked',
+              title: l.t('dev.roleError'),
               message: controller.roleError ?? '',
-              action: 'Try again',
+              action: l.t('da.tryAgain'),
               onAction: () => unawaited(_refresh()),
             ),
           ),
@@ -183,18 +190,19 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   }
 
   List<Widget> _ownerBody(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
     switch (controller.phase) {
       case DevPhase.initial:
       case DevPhase.loading:
-        return const [_Progress('Loading developer requests…')];
+        return [_Progress(l.t('dev.loadingRequests'))];
       case DevPhase.error:
         return [
           AnumSurface(
             child: AnumEmpty(
               icon: Icons.cloud_off_outlined,
-              title: 'Developer requests could not be loaded',
+              title: l.t('dev.loadError'),
               message: controller.loadError ?? '',
-              action: 'Try again',
+              action: l.t('da.tryAgain'),
               onAction: () => unawaited(controller.load()),
             ),
           ),
@@ -208,8 +216,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     final items = controller.items;
     return [
       if (controller.refreshing)
-        const LinearProgressIndicator(
-            semanticsLabel: 'Refreshing developer requests'),
+        LinearProgressIndicator(semanticsLabel: l.t('dev.refreshing')),
       if (setup != null && !setup.ready) _SetupCard(setup: setup),
       if (setup != null && setup.ready)
         _ProjectsRow(
@@ -222,16 +229,14 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
           child: AnumEmpty(
             icon: Icons.folder_outlined,
             title: controller.projects.isEmpty
-                ? 'Add a project first'
-                : 'No project is ready',
+                ? l.t('dev.addProjectFirst')
+                : l.t('dev.noProjectReady'),
             message: controller.projects.isEmpty
-                ? 'A project is a GitHub repository the developer may '
-                    'change. Add one, then ask for changes here, in the '
-                    'Assistant or by voice.'
-                : 'Open Projects to add a token, test the connection or '
-                    'turn a project on.',
-            action:
-                controller.projects.isEmpty ? 'Add a project' : 'Open Projects',
+                ? l.t('dev.addProjectFirstText')
+                : l.t('dev.noProjectReadyText'),
+            action: controller.projects.isEmpty
+                ? l.t('dev.addProject')
+                : l.t('dev.openProjects'),
             onAction: () => openProjects(context),
           ),
         ),
@@ -285,7 +290,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
       else
         Semantics(
           container: true,
-          label: 'Developer requests',
+          label: l.t('dev.requests'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -309,8 +314,9 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                 ? () => unawaited(controller.loadMore())
                 : null,
             icon: const Icon(Icons.expand_more),
-            label: Text(
-                controller.busy == 'more' ? 'Loading…' : 'Load older requests'),
+            label: Text(controller.busy == 'more'
+                ? l.t('da.loading')
+                : l.t('dev.loadOlder')),
           ),
         ),
     ];
@@ -342,6 +348,7 @@ class _ProjectsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final ready = projects.where((project) => project.ready).length;
     return AnumSurface(
       key: const Key('developer-projects-row'),
@@ -352,14 +359,13 @@ class _ProjectsRow extends StatelessWidget {
         Expanded(
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Projects',
+            Text(l.t('dev.projects'),
                 style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
             Text(
                 projects.isEmpty
-                    ? 'No projects yet'
-                    : '${projects.length} '
-                        '${projects.length == 1 ? 'project' : 'projects'}, '
-                        '$ready ready',
+                    ? l.t('dev.noProjects')
+                    : l.p(
+                        'dev.projectsReady', projects.length, {'ready': ready}),
                 style: TextStyle(color: p.muted, fontSize: 13)),
           ]),
         ),
@@ -397,14 +403,15 @@ class _OwnerOnly extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
     final yourRole = role == null || role == 'owner'
         ? ''
-        : ' Your role here is ${roleLabel(role!).toLowerCase()}.';
+        : ' ${l.f('dev.yourRole', {'role': roleLabel(role!).toLowerCase()})}';
     return AnumSurface(
       key: const Key('developer-owner-only'),
       child: AnumEmpty(
         icon: Icons.lock_outline,
-        title: 'Developer mode is for workspace owners',
+        title: l.t('dev.ownerOnlyTitle'),
         message: [
           if (message != null && message != developerOwnerOnly) message!,
           '$ownerOnlyExplanation$yourRole',
@@ -422,6 +429,7 @@ class _SetupCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final steps = setupSteps(setup);
     return AnumSurface(
       key: const Key('developer-setup'),
@@ -431,7 +439,7 @@ class _SetupCard extends StatelessWidget {
           Icon(Icons.construction, color: p.warn),
           const SizedBox(width: AnumSpacing.xs),
           Expanded(
-            child: Text('Set up developer mode',
+            child: Text(l.t('dev.setupTitle'),
                 style: TextStyle(
                     color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
           ),
@@ -440,10 +448,7 @@ class _SetupCard extends StatelessWidget {
         Text(setup.message, style: TextStyle(color: p.muted)),
         if (steps.isNotEmpty) ...[
           const SizedBox(height: AnumSpacing.sm),
-          Text(
-              'The person who deploys the ANUM API adds these settings (names '
-              'only; never paste values in chat):',
-              style: TextStyle(color: p.text)),
+          Text(l.t('dev.setupIntro'), style: TextStyle(color: p.text)),
           const SizedBox(height: AnumSpacing.xs),
           for (final step in steps)
             Padding(
@@ -462,10 +467,8 @@ class _SetupCard extends StatelessWidget {
             ),
           const SizedBox(height: AnumSpacing.xs),
           Text(
-              'Then add your repositories under Projects; each needs the '
-              'secrets ${githubSecretNames.join(' and ')} under Settings › '
-              'Secrets and variables › Actions. The full steps are in '
-              'docs/developer-mode.md.',
+              l.f('dev.setupThen',
+                  {'secrets': githubSecretNames.join(l.t('dev.and'))}),
               style: TextStyle(color: p.muted, fontSize: 13)),
         ],
       ]),
@@ -495,13 +498,14 @@ class _RequestForm extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final sending = controller.busy == 'create';
     final project = controller.selectedProject;
     final blocked =
         setup.limitReached || controller.activeExists || project == null;
     return AnumSurface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('Ask for a change',
+        Text(l.t('dev.ask'),
             style: TextStyle(
                 color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
         const SizedBox(height: AnumSpacing.sm),
@@ -509,8 +513,8 @@ class _RequestForm extends StatelessWidget {
           key: const Key('developer-project'),
           initialValue: project?.id,
           isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Project'),
-          hint: const Text('Choose a project'),
+          decoration: InputDecoration(labelText: l.t('dev.project')),
+          hint: Text(l.t('dev.chooseProject')),
           items: [
             for (final option in controller.sendable)
               DropdownMenuItem(
@@ -531,9 +535,9 @@ class _RequestForm extends StatelessWidget {
           maxLength: maxRequestChars,
           keyboardType: TextInputType.multiline,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            labelText: 'What should change?',
-            hintText: 'For example: add a dark/light toggle to Settings',
+          decoration: InputDecoration(
+            labelText: l.t('dev.whatChange'),
+            hintText: l.t('dev.whatChangeHint'),
             alignLabelWithHint: true,
           ),
         ),
@@ -546,24 +550,27 @@ class _RequestForm extends StatelessWidget {
             controlAffinity: ListTileControlAffinity.leading,
             value: allowProtected,
             onChanged: (value) => onAllowProtected(value ?? false),
-            title: const Text('Allow changes to workflows and secret handling'),
+            title: Text(l.t('dev.allowProtected')),
           ),
         ),
         Text(
-            '${setup.requestsToday} of ${setup.maxRequestsPerDay} requests '
-            'used today'
-            '${project == null ? '' : ' · builds ${project.repository} from ${project.defaultBranch}'}',
+            '${l.f('dev.usedToday', {
+                  'used': setup.requestsToday,
+                  'max': setup.maxRequestsPerDay
+                })}'
+            '${project == null ? '' : l.f('dev.buildsFrom', {
+                    'repository': project.repository,
+                    'branch': project.defaultBranch
+                  })}',
             style: TextStyle(color: p.faint, fontSize: 12)),
         if (controller.activeExists && project != null) ...[
           const SizedBox(height: AnumSpacing.xs),
-          Text(
-              'One request at a time per project: wait until the current one '
-              'in ${project.name} opens its pull request, or cancel it.',
+          Text(l.f('dev.oneAtATime', {'project': project.name}),
               style: TextStyle(color: p.muted, fontSize: 13)),
         ],
         if (setup.limitReached) ...[
           const SizedBox(height: AnumSpacing.xs),
-          Text("Today's request limit is reached. Try again tomorrow.",
+          Text(l.t('dev.limitReached'),
               style: TextStyle(color: p.muted, fontSize: 13)),
         ],
         const SizedBox(height: AnumSpacing.sm),
@@ -577,7 +584,7 @@ class _RequestForm extends StatelessWidget {
                   ? null
                   : onSubmit,
               icon: const Icon(Icons.send),
-              label: Text(sending ? 'Sending…' : 'Ask the developer'),
+              label: Text(sending ? l.t('dev.sending') : l.t('dev.send')),
             ),
           ),
         ),
@@ -596,27 +603,26 @@ class _BudgetNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     return AnumSurface(
       key: const Key('developer-budget'),
       accent: p.stop,
       child: Semantics(
         liveRegion: true,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Monthly model budget reached',
+          Text(l.t('dev.budgetTitle'),
               style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
           const SizedBox(height: AnumSpacing.xxs),
           Text(message, style: TextStyle(color: p.muted)),
           const SizedBox(height: AnumSpacing.xxs),
-          Text(
-              'Each developer request counts against it. Owners can raise it '
-              'in Settings › Model budgets.',
+          Text(l.t('dev.budgetText'),
               style: TextStyle(color: p.faint, fontSize: 12)),
           Wrap(spacing: AnumSpacing.xs, children: [
             if (onOpenSettings != null)
               TextButton(
                   onPressed: onOpenSettings,
-                  child: const Text('Open Settings')),
-            TextButton(onPressed: onDismiss, child: const Text('Dismiss')),
+                  child: Text(l.t('dev.openSettings'))),
+            TextButton(onPressed: onDismiss, child: Text(l.t('da.dismiss'))),
           ]),
         ]),
       ),
@@ -660,7 +666,7 @@ class DeveloperNotice extends StatelessWidget {
             ),
           ),
           IconButton(
-              tooltip: 'Dismiss',
+              tooltip: AnumLocalizations.maybeOf(context).t('da.dismiss'),
               onPressed: onDismiss,
               icon: const Icon(Icons.close, size: 20)),
         ]),
@@ -684,36 +690,39 @@ class _SearchBar extends StatelessWidget {
   final VoidCallback onClear;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-        container: true,
-        label: 'Search requests',
-        child: Wrap(
-          spacing: AnumSpacing.xs,
-          runSpacing: AnumSpacing.xs,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: TextField(
-                key: const Key('developer-search'),
-                controller: controller,
-                textInputAction: TextInputAction.search,
-                onSubmitted: onSearch,
-                decoration: const InputDecoration(
-                  labelText: 'Search requests',
-                  prefixIcon: Icon(Icons.search),
-                ),
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return Semantics(
+      container: true,
+      label: l.t('dev.searchRequests'),
+      child: Wrap(
+        spacing: AnumSpacing.xs,
+        runSpacing: AnumSpacing.xs,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: TextField(
+              key: const Key('developer-search'),
+              controller: controller,
+              textInputAction: TextInputAction.search,
+              onSubmitted: onSearch,
+              decoration: InputDecoration(
+                labelText: l.t('dev.searchRequests'),
+                prefixIcon: const Icon(Icons.search),
               ),
             ),
-            OutlinedButton(
-              onPressed: busy ? null : () => onSearch(controller.text),
-              child: const Text('Search'),
-            ),
-            if (active.isNotEmpty)
-              TextButton(onPressed: onClear, child: const Text('Clear')),
-          ],
-        ),
-      );
+          ),
+          OutlinedButton(
+            onPressed: busy ? null : () => onSearch(controller.text),
+            child: Text(l.t('da.search')),
+          ),
+          if (active.isNotEmpty)
+            TextButton(onPressed: onClear, child: Text(l.t('da.clear'))),
+        ],
+      ),
+    );
+  }
 }
 
 class _EmptyRequests extends StatelessWidget {
@@ -729,13 +738,14 @@ class _EmptyRequests extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
     if (searching) {
       return AnumSurface(
         child: AnumEmpty(
           icon: Icons.search_off,
-          title: 'No matching requests',
-          message: 'Try other words, or clear the search.',
-          action: 'Clear search',
+          title: l.t('dev.noMatch'),
+          message: l.t('dev.noMatchText'),
+          action: l.t('dev.clearSearch'),
           onAction: onClearSearch,
         ),
       );
@@ -745,12 +755,8 @@ class _EmptyRequests extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AnumEmpty(
           icon: Icons.construction,
-          title: 'No developer requests yet',
-          message: canAsk
-              ? 'Ask for a change above, say "developer, ..." in Voice, or '
-                  'start an Assistant message with "build". For example:'
-              : 'Once developer mode is set up, ask for a change here, in '
-                  'the Assistant or by voice.',
+          title: l.t('dev.emptyTitle'),
+          message: canAsk ? l.t('dev.emptyCanAsk') : l.t('dev.emptyNotSetUp'),
         ),
         if (canAsk)
           Wrap(
@@ -785,6 +791,7 @@ class DeveloperRequestTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final tone = devTone(request.status);
     return AnumSurface(
       key: Key('developer-request-${request.id}'),
@@ -800,10 +807,10 @@ class DeveloperRequestTile extends StatelessWidget {
               spacing: AnumSpacing.xs,
               runSpacing: AnumSpacing.xxs,
               children: [
-                AnumPill(label: request.statusLabel, tone: tone),
+                AnumPill(label: request.statusLabelIn(l), tone: tone),
                 if (reviewWaiting)
-                  const AnumPill(
-                      label: 'Your approval',
+                  AnumPill(
+                      label: l.t('dev.yourApproval'),
                       tone: AnumTone.warn,
                       icon: Icons.verified_user_outlined),
               ],
@@ -823,7 +830,7 @@ class DeveloperRequestTile extends StatelessWidget {
             Text(
                 '${request.projectName == null ? '' : '${request.projectName} · '}'
                 '${relativeTime(request.createdAt)} · '
-                '${request.spoken ? 'spoken' : 'typed'}'
+                '${request.spoken ? l.t('dev.spoken') : l.t('dev.typed')}'
                 '${request.prNumber == null ? '' : ' · #${request.prNumber}'}',
                 style: TextStyle(color: p.faint, fontSize: 12)),
           ]),
@@ -851,41 +858,46 @@ class DeveloperRequestScreen extends StatelessWidget {
   final LinkOpener openLink;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Developer request')),
-        body: ListenableBuilder(
-          listenable: controller,
-          builder: (context, _) {
-            final item = controller.find(requestId);
-            if (item == null) {
-              return AnumPage(children: [
-                AnumSurface(
-                  child: AnumEmpty(
-                    icon: Icons.search_off,
-                    title: 'This request is not listed any more',
-                    message: 'Go back to the Developer list and refresh it.',
-                    action: 'Back to the list',
-                    onAction: () => Navigator.maybePop(context),
-                  ),
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    controller.l = l;
+    return Scaffold(
+      appBar: AppBar(title: Text(l.t('dev.request'))),
+      body: ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) {
+          final item = controller.find(requestId);
+          if (item == null) {
+            return AnumPage(children: [
+              AnumSurface(
+                child: AnumEmpty(
+                  icon: Icons.search_off,
+                  title: l.t('dev.notListed'),
+                  message: l.t('dev.notListedText'),
+                  action: l.t('dev.backToList'),
+                  onAction: () => Navigator.maybePop(context),
                 ),
-              ]);
-            }
-            return AnumPage(
-              onRefresh: () => controller.refresh(item),
-              children: _children(context, item),
-            );
-          },
-        ),
-      );
+              ),
+            ]);
+          }
+          return AnumPage(
+            onRefresh: () => controller.refresh(item),
+            children: _children(context, item),
+          );
+        },
+      ),
+    );
+  }
 
   List<Widget> _children(BuildContext context, DevRequest item) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final review = controller.reviewFor(item);
     final busy = controller.busy;
     return [
       AnumSurface(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          AnumPill(label: item.statusLabel, tone: devTone(item.status)),
+          AnumPill(label: item.statusLabelIn(l), tone: devTone(item.status)),
           const SizedBox(height: AnumSpacing.xs),
           SelectableText(item.title,
               style: TextStyle(
@@ -893,7 +905,7 @@ class DeveloperRequestScreen extends StatelessWidget {
           const SizedBox(height: AnumSpacing.xxs),
           Text(
               '${exactTime(item.createdAt)} · '
-              '${item.spoken ? 'spoken' : 'typed'}'
+              '${item.spoken ? l.t('dev.spoken') : l.t('dev.typed')}'
               '${item.projectName == null ? '' : ' · ${item.projectName}'}',
               style: TextStyle(color: p.faint, fontSize: 12)),
           if (item.repository != null)
@@ -914,7 +926,8 @@ class DeveloperRequestScreen extends StatelessWidget {
             ),
           if (item.prTitle != null) ...[
             const SizedBox(height: AnumSpacing.sm),
-            Text('Request', style: TextStyle(color: p.faint, fontSize: 12)),
+            Text(l.t('dev.requestLabel'),
+                style: TextStyle(color: p.faint, fontSize: 12)),
             SelectableText(item.text, style: TextStyle(color: p.text)),
           ],
           const SizedBox(height: AnumSpacing.sm),
@@ -926,7 +939,7 @@ class DeveloperRequestScreen extends StatelessWidget {
           ),
           if (item.prNumber != null) ...[
             const SizedBox(height: AnumSpacing.xxs),
-            Text(checksLabel(item.checks),
+            Text(checksLabel(item.checks, l),
                 key: const Key('developer-checks'),
                 style: TextStyle(color: p.muted, fontSize: 13)),
           ],
@@ -938,7 +951,7 @@ class DeveloperRequestScreen extends StatelessWidget {
       ),
       AnumSurface(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Progress',
+          Text(l.t('dev.progress'),
               style: TextStyle(
                   color: p.text, fontSize: 15, fontWeight: FontWeight.w700)),
           const SizedBox(height: AnumSpacing.xs),
@@ -953,7 +966,8 @@ class DeveloperRequestScreen extends StatelessWidget {
               onPressed: () =>
                   unawaited(openDeveloperLink(context, openLink, item.prUrl)),
               icon: const Icon(Icons.open_in_new),
-              label: Text('Pull request #${item.prNumber ?? ''}'),
+              label:
+                  Text(l.f('dev.pullRequest', {'number': item.prNumber ?? ''})),
             ),
           if (item.runUrl != null)
             OutlinedButton.icon(
@@ -961,7 +975,7 @@ class DeveloperRequestScreen extends StatelessWidget {
               onPressed: () =>
                   unawaited(openDeveloperLink(context, openLink, item.runUrl)),
               icon: const Icon(Icons.open_in_new),
-              label: const Text('Coding run'),
+              label: Text(l.t('dev.codingRun')),
             ),
         ]),
       if (review != null)
@@ -985,8 +999,9 @@ class DeveloperRequestScreen extends StatelessWidget {
             onPressed:
                 busy == null ? () => unawaited(controller.review(item)) : null,
             icon: const Icon(Icons.verified_user_outlined),
-            label: Text(
-                busy == 'review:${item.id}' ? 'Preparing…' : 'Approve & merge'),
+            label: Text(busy == 'review:${item.id}'
+                ? l.t('dev.preparing')
+                : l.t('dev.approveMerge')),
           ),
         if (isActive(item))
           OutlinedButton.icon(
@@ -994,8 +1009,9 @@ class DeveloperRequestScreen extends StatelessWidget {
             onPressed:
                 busy == null ? () => unawaited(controller.refresh(item)) : null,
             icon: const Icon(Icons.refresh),
-            label:
-                Text(busy == 'refresh:${item.id}' ? 'Checking…' : 'Check now'),
+            label: Text(busy == 'refresh:${item.id}'
+                ? l.t('dev.checking')
+                : l.t('dev.checkNow')),
           ),
         if (canCancel(item))
           OutlinedButton.icon(
@@ -1004,8 +1020,9 @@ class DeveloperRequestScreen extends StatelessWidget {
             onPressed:
                 busy == null ? () => _confirmCancel(context, item) : null,
             icon: const Icon(Icons.cancel_outlined),
-            label: Text(
-                busy == 'cancel:${item.id}' ? 'Cancelling…' : 'Cancel request'),
+            label: Text(busy == 'cancel:${item.id}'
+                ? l.t('dev.cancelling')
+                : l.t('dev.cancelRequest')),
           ),
       ]),
     ];
@@ -1014,22 +1031,25 @@ class DeveloperRequestScreen extends StatelessWidget {
   Future<void> _confirmCancel(BuildContext context, DevRequest item) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel this request?'),
-        content: Text('Cancel "${shortText(item.text, limit: 60)}"? The coding '
-            'run stops, the pull request closes and its branch is deleted.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Keep it')),
-          FilledButton(
-              style: FilledButton.styleFrom(
-                  backgroundColor: context.palette.stop,
-                  foregroundColor: context.palette.background),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Cancel request')),
-        ],
-      ),
+      builder: (context) {
+        final l = AnumLocalizations.maybeOf(context);
+        return AlertDialog(
+          title: Text(l.t('dev.cancelTitle')),
+          content: Text(
+              l.f('dev.cancelText', {'text': shortText(item.text, limit: 60)})),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(l.t('da.keepIt'))),
+            FilledButton(
+                style: FilledButton.styleFrom(
+                    backgroundColor: context.palette.stop,
+                    foregroundColor: context.palette.background),
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(l.t('dev.cancelRequest'))),
+          ],
+        );
+      },
     );
     if (ok ?? false) await controller.cancel(item);
   }
@@ -1062,9 +1082,9 @@ class DeveloperTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     if (stages.isEmpty) {
-      return Text('No progress reported yet.',
-          style: TextStyle(color: p.muted));
+      return Text(l.t('dev.noProgress'), style: TextStyle(color: p.muted));
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1072,7 +1092,7 @@ class DeveloperTimeline extends StatelessWidget {
         for (final stage in stages)
           Semantics(
             container: true,
-            label: '${stage.label}: ${_stateWord(stage.state)}',
+            label: '${stage.label}: ${l.t('dev.stage.${stage.state.name}')}',
             excludeSemantics: true,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xxs),
@@ -1095,13 +1115,6 @@ class DeveloperTimeline extends StatelessWidget {
       ],
     );
   }
-
-  static String _stateWord(StageState state) => switch (state) {
-        StageState.done => 'done',
-        StageState.active => 'in progress',
-        StageState.failed => 'failed',
-        StageState.pending => 'not started',
-      };
 
   static IconData _icon(StageState state) => switch (state) {
         StageState.done => Icons.check_circle,
@@ -1142,6 +1155,7 @@ class MergeReviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final expiry = expiryLabel(approval);
     final canConfirm = !busy && approval.canApprove();
     return AnumSurface(
@@ -1149,13 +1163,13 @@ class MergeReviewCard extends StatelessWidget {
       accent: p.warn,
       child: Semantics(
         container: true,
-        label: 'Merge approval',
+        label: l.t('dev.mergeApproval'),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Icon(Icons.verified_user_outlined, color: p.warn),
             const SizedBox(width: AnumSpacing.xs),
             Expanded(
-              child: Text('Approve the merge',
+              child: Text(l.t('dev.approveTheMerge'),
                   style: TextStyle(
                       color: p.text,
                       fontSize: 16,
@@ -1164,39 +1178,37 @@ class MergeReviewCard extends StatelessWidget {
           ]),
           const SizedBox(height: AnumSpacing.xs),
           Text(
-              'Squash-merge pull request #${request.prNumber ?? '?'} '
-              '(${request.prTitle ?? request.branch}).',
+              l.f('dev.squash', {
+                'number': request.prNumber ?? '?',
+                'title': request.prTitle ?? request.branch
+              }),
               style: TextStyle(color: p.text)),
           if (!compact) ...[
             const SizedBox(height: AnumSpacing.xxs),
             Text(approval.reason, style: TextStyle(color: p.muted)),
             if (approval.target != null)
-              Text('Sends to ${approval.target}',
+              Text(l.f('dev.sendsTo', {'target': approval.target!}),
                   style: TextStyle(color: p.muted, fontSize: 12)),
             const SizedBox(height: AnumSpacing.xs),
-            Text('Tool: ${approval.action}',
+            Text(l.f('dev.tool', {'tool': approval.action}),
                 style: TextStyle(color: p.faint, fontSize: 12)),
             const SizedBox(height: AnumSpacing.xxs),
             ApprovalArgumentsTable(approval: approval),
           ],
           const SizedBox(height: AnumSpacing.xs),
-          Text('Payload hash${expiry.isEmpty ? '' : ' · $expiry'}',
+          Text('${l.t('dev.payloadHash')}${expiry.isEmpty ? '' : ' · $expiry'}',
               style: TextStyle(color: p.faint, fontSize: 12)),
           Directionality(
             textDirection: TextDirection.ltr,
-            child: SelectableText(approval.payloadHash ?? 'not bound',
+            child: SelectableText(approval.payloadHash ?? l.t('dev.notBound'),
                 key: const Key('developer-payload-hash'),
                 style: TextStyle(
                     color: p.text, fontSize: 13, fontFamily: 'monospace')),
           ),
           if (approval.payloadHash == null)
-            const _Problem('Not bound to a payload hash; it cannot be '
-                'approved. Ask for the merge again.'),
+            _Problem(l.t('dev.notBoundProblem')),
           const SizedBox(height: AnumSpacing.xs),
-          Text(
-              'Merging also needs every CI check on this commit to pass at '
-              'the moment you approve. Workspace approval rules (for example '
-              'two people) still apply.',
+          Text(l.t('dev.mergeNeedsCi'),
               style: TextStyle(color: p.muted, fontSize: 13)),
           const SizedBox(height: AnumSpacing.sm),
           Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
@@ -1204,11 +1216,11 @@ class MergeReviewCard extends StatelessWidget {
               key: const Key('developer-confirm-merge'),
               onPressed: canConfirm ? onConfirm : null,
               icon: const Icon(Icons.check_circle_outline),
-              label: Text(busy ? 'Merging…' : 'Confirm merge'),
+              label: Text(busy ? l.t('dev.merging') : l.t('dev.confirmMerge')),
             ),
             OutlinedButton(
               onPressed: busy ? null : onDismiss,
-              child: const Text('Not now'),
+              child: Text(l.t('da.notNow')),
             ),
           ]),
         ]),
