@@ -18,7 +18,7 @@ const PRIVATE_KEYS: (keyof PrivateCounts)[] = [
   'push_devices', 'meetings', 'meeting_transcript_segments', 'meeting_recordings', 'meeting_connections',
   'learning_signals', 'learned_items', 'favorites', 'private_collections', 'private_reports',
   'email_mailboxes', 'email_messages', 'email_drafts',
-  'team_notifications', 'team_profile',
+  'team_notifications', 'team_profile', 'private_agents', 'private_agent_memories',
 ];
 
 const SHARED_KEYS: (keyof SharedCounts)[] = [
@@ -26,6 +26,7 @@ const SHARED_KEYS: (keyof SharedCounts)[] = [
   'email_mailboxes_connected', 'email_drafts_sent', 'whatsapp_messages_sent', 'autonomy_actions_requested',
   'work_items_created', 'work_items_assigned', 'tyre_connections_created', 'tyre_reports_created', 'commerce_connectors_created',
   'marketing_accounts_connected', 'marketing_campaigns_created', 'calendar_events_created', 'automation_triggers_created',
+  'shared_agents_owned', 'shared_agent_memories',
 ];
 
 const rowLabel = (key: string) => t(`privacy.row.${key}` as MessageKey);

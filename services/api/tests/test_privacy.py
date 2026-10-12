@@ -179,6 +179,8 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "team_notifications": 0,
         "team_profile": 0,
         "home_items": 0,
+        "private_agents": 0,
+        "private_agent_memories": 0,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -362,6 +364,8 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "team_notifications": 0,
         "team_profile": 0,
         "home_items": 0,
+        "private_agents": 0,
+        "private_agent_memories": 0,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]
@@ -424,7 +428,7 @@ def test_build_export_is_valid_json_with_every_section() -> None:
         "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "learning", "commands", "library", "files_uploaded",
         "meetings_imported", "meeting_connections", "home",
         "email", "whatsapp_messages_sent", "autonomy_actions_requested",
-        "team_work", "tyre_planning", "commerce_connectors_created", "workspace_records_created",
+        "team_work", "tyre_planning", "commerce_connectors_created", "agents_owned", "workspace_records_created",
     }
     assert parsed["notification_preferences"] is None
     assert parsed["user_preferences"] is None
@@ -689,3 +693,37 @@ def test_marketing_calendar_and_trigger_records_are_counted_and_exported_without
     assert "access_token_ciphertext" not in created["marketing_accounts_connected"][0]
     assert "secret_ciphertext" not in created["automation_triggers_created"][0]
     assert "ciphertext-placeholder" not in response.text and trigger.json()["secret"] not in response.text
+
+
+def test_private_agents_go_with_their_memories_and_shared_agents_stay() -> None:
+    from anum_api.agent_profiles import agent_store
+
+    agent_store.clear()
+    mine = headers("user_me", roles="owner")
+    made = {}
+    for sharing in ("private", "workspace"):
+        response = client.post("/api/v1/agents", headers=mine, json={"name": f"My {sharing} agent", "sharing": sharing})
+        assert response.status_code == 201, response.text
+        made[sharing] = response.json()["id"]
+        assert client.post(
+            f"/api/v1/agents/{made[sharing]}/memories", headers=mine, json={"content": f"{sharing} agent memory"}
+        ).status_code == 201
+    colleague = client.post("/api/v1/agents", headers=COLLEAGUE, json={"name": "Colleague agent", "sharing": "private"})
+    assert colleague.status_code == 201
+
+    summary = client.get("/api/v1/privacy", headers=mine).json()
+    assert (summary["private"]["private_agents"], summary["private"]["private_agent_memories"]) == (1, 1)
+    assert (summary["shared"]["shared_agents_owned"], summary["shared"]["shared_agent_memories"]) == (1, 1)
+    export = json.loads(client.get("/api/v1/privacy/export", headers=mine).content)
+    assert sorted(agent["name"] for agent in export["agents_owned"]) == ["My private agent", "My workspace agent"]
+    assert {memory["content"] for agent in export["agents_owned"] for memory in agent["memories"]} == {
+        "private agent memory", "workspace agent memory",
+    }
+    assert "Colleague agent" not in json.dumps(export)
+
+    deleted = client.post("/api/v1/privacy/delete", headers=mine, json={"confirm": "DELETE MY DATA"}).json()
+    assert (deleted["deleted"]["private_agents"], deleted["deleted"]["private_agent_memories"]) == (1, 1)
+    assert deleted["kept"]["shared_agents_owned"] == 1
+    assert client.get(f"/api/v1/agents/{made['private']}", headers=mine).status_code == 404
+    assert client.get(f"/api/v1/agents/{made['workspace']}", headers=mine).status_code == 200
+    assert client.get(f"/api/v1/agents/{colleague.json()['id']}", headers=COLLEAGUE).status_code == 200

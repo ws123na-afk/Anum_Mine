@@ -98,6 +98,12 @@ No role is granted anything new and nothing reads agents across tenants. The mig
 - **Web** (`apps/web/src/AgentsView.tsx`): the list with All, Work, Personal and Custom (with counts), search, status filter and paging; a create and edit wizard (start from a template or from scratch, identity, instructions and model, skills and tools, autonomy and knowledge, review and sharing); and the agent's page with Chat, Call, Edit and More (pause or resume, delete), and the Overview (give it a task, recent tasks, instructions), Skills, Memory and Settings tabs. Call opens a call-summary panel: telephony is not set up, so the agent summarizes pasted notes or transcripts as a task. English and Arabic (`agents.*` keys), right to left. Covered by `test/agents.test.ts` and `e2e/agents.spec.ts`; the accessibility and localization specs include the Agents view.
 - **Flutter** (`apps/mobile/lib/features/agents/`): opened from Home and from the menu drawer's Agents entry. The same list, the agent's page (Chat, Call, Edit, More; Overview, Skills, Memory, Settings) and an editor with templates. Call opens the [voice call screen](voice.md#call-mode) (the voice assistant, not yet the agent's persona); the call summary from pasted notes is under More. Selected knowledge sources are shown but picked on the web. Covered by `test/agents/agents_test.dart`, including layouts from 320 px at 200 percent text to 1440x900 and Arabic.
 
+## Privacy
+
+"Download my data" includes every agent the caller owns, private and shared, with its memories (`agents_owned`). "Delete my data" follows the rule for shared records: a **private** agent and its memories are the caller's personal data and are deleted (`private_agents`, `private_agent_memories`); an agent the caller **shared with the workspace** is a workspace record other members use, so it and its memories are kept and counted (`shared_agents_owned`, `shared_agent_memories`) until the caller or a workspace owner deletes it. Agents hold no secrets, so `rotate_secrets` has nothing to re-encrypt for them ([Privacy](privacy.md#what-deletion-removes-and-keeps)).
+
+Every state-changing agent route (create, edit, add or delete a memory, delete) writes an audit record without the instructions or memory text; `test_agents.py` walks them through `tests/audit_probe.py` ([Audit log](governance-and-scale.md#audit-log)).
+
 ## Not yet
 
 - Converging with [department assistants](team-work.md#department-assistants): team work landed its own `assistant_profiles` and `tasks.assistant_id`. A task can carry either; both narrow tool policy and neither widens it (the runtime applies autonomy, then the assistant, then the agent). Merging the two models into one is open.
@@ -105,4 +111,3 @@ No role is granted anything new and nothing reads agents across tenants. The mig
 - Folders as knowledge sources (Files has no folders).
 - Placing calls: the Call Agent summarizes; telephony is a separate integration.
 - Email, calendar and tyre-planning tools come from their connectors; the templates pick them up when those tools are registered.
-- Privacy export and "Delete my data" do not yet include a user's private agents and their memories ([Privacy](privacy.md)); deleting the agent deletes them.

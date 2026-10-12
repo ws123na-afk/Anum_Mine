@@ -616,3 +616,22 @@ def test_agent_threads_never_run_chat_tool_cards(client: TestClient, monkeypatch
     assert reply.status_code == 200
     # Only the Assistant's own thread is considered for a tool card.
     assert asked == ["search the web"]
+
+
+def test_every_state_changing_agent_route_is_audited_without_content(client: TestClient) -> None:
+    from audit_probe import AuditProbe
+
+    probe = AuditProbe(client, "agents")
+    instructions = "Private instructions about the Amazon.sa listings"
+    agent = probe.call(
+        "POST", "/api/v1/agents", OWNER, sent=[instructions],
+        json={"name": "Listings helper", "category": "work", "instructions": instructions},
+    ).json()
+    probe.call("PATCH", f"/api/v1/agents/{agent['id']}", OWNER, sent=["Check prices daily"], json={"instructions": "Check prices daily"})
+    memory = probe.call(
+        "POST", f"/api/v1/agents/{agent['id']}/memories", OWNER, sent=["The supplier is in Jeddah"],
+        json={"content": "The supplier is in Jeddah"},
+    ).json()
+    probe.call("DELETE", f"/api/v1/agents/{agent['id']}/memories/{memory['id']}", OWNER)
+    probe.call("DELETE", f"/api/v1/agents/{agent['id']}", OWNER)
+    probe.assert_covered()

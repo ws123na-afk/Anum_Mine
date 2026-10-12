@@ -217,6 +217,8 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "team_notifications": 0,
         "team_profile": 0,
         "home_items": 0,
+        "private_agents": 0,
+        "private_agent_memories": 0,
     }
     assert summary["shared"]["tasks_created"] == 1
 
@@ -482,3 +484,30 @@ def test_team_notifications_and_profile_are_deleted_under_rls(
         notifications = connection.execute(text("select user_id from user_notifications order by 1")).scalars().all()
         profiles = connection.execute(text("select user_id from team_member_profiles order by 1")).scalars().all()
     assert notifications == ["user_colleague"] and profiles == ["user_colleague"]
+
+
+def test_private_agents_and_their_memories_are_deleted_under_rls_shared_ones_stay(
+    client: TestClient, app_factory: sessionmaker[Session], database_engine: Engine
+) -> None:
+    owner = {**ME, "x-user-roles": "owner"}
+    made = {}
+    for sharing in ("private", "workspace"):
+        response = client.post("/api/v1/agents", headers=owner, json={"name": f"My {sharing} agent", "sharing": sharing})
+        assert response.status_code == 201, response.text
+        made[sharing] = response.json()["id"]
+        assert client.post(f"/api/v1/agents/{made[sharing]}/memories", headers=owner, json={"content": f"{sharing} note"}).status_code == 201
+    theirs = client.post("/api/v1/agents", headers=COLLEAGUE, json={"name": "Colleague agent"})
+    assert theirs.status_code == 201, theirs.text
+
+    summary = client.get("/api/v1/privacy", headers=owner).json()
+    assert (summary["private"]["private_agents"], summary["private"]["private_agent_memories"]) == (1, 1)
+    assert (summary["shared"]["shared_agents_owned"], summary["shared"]["shared_agent_memories"]) == (1, 1)
+    export = client.get("/api/v1/privacy/export", headers=owner)
+    assert "Colleague agent" not in export.text
+    deleted = client.post("/api/v1/privacy/delete", headers=owner, json={"confirm": "DELETE MY DATA"}).json()
+    assert deleted["deleted"]["private_agents"] == 1 and deleted["kept"]["shared_agents_owned"] == 1
+    with database_engine.connect() as connection:
+        agents = connection.execute(text("select id from agent_profiles order by id")).scalars().all()
+        memories = connection.execute(text("select agent_id from agent_memories order by agent_id")).scalars().all()
+    assert sorted(agents) == sorted([made["workspace"], theirs.json()["id"]])
+    assert memories == [made["workspace"]]

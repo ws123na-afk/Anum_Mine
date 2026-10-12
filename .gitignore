@@ -18,6 +18,7 @@ test-results/
 .codex-*.png
 .anum-data/
 services/api/.anum/
+/.anum/
 apps/desktop/src-tauri/target/
 
 # IDE
