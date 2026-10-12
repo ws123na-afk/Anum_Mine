@@ -2,16 +2,25 @@
 
 This page tells you, in plain steps, how to switch on every service ANUM can connect to on the Oracle VM ([Deploying on one Oracle Cloud VM](deploy-oracle.md)). Each section says what the integration does, whether it is ready, where you see it in ANUM, what to create in the provider's console, which lines to fill in `infra/oracle/.env`, how to restart and how to check it, what it costs and whether the provider must approve anything.
 
-**Where to look in ANUM.** Open **Integrations** in the web app. The **Connection setup** section at the top lists every integration below with its live state from the server:
+**Where to look in ANUM.** Open **Integrations** in the web app (`#connections` opens it too). Each integration below is one row with its live state from the server:
 
-| State | Meaning | What to do |
+| State | Meaning | Row action |
 |---|---|---|
-| Connected | Set up and working; where accounts are connected, at least one is and none is failing. | Nothing. |
-| Ready to connect | The server is set up; nobody has connected an account in this workspace yet. | Press **Open ...** on the row and connect the account there. |
-| Not set up | The server is missing settings. Owners and organization administrators see the setting names. | Follow the numbered section below. |
-| Needs attention | A setting is half done, or a connected account is failing. | Fix the named setting, or open the account and sign in again. |
+| Connected | Set up and working; where accounts are connected, at least one is and none is failing. | **Manage** |
+| Ready to connect | The server is set up; nobody has connected an account in this workspace yet. | **Connect**, then **Open ...** in the panel to connect the account there. |
+| Not set up | The server is missing settings. Owners and organization administrators see the setting names. | **Set up**; follow the numbered section below. |
+| Needs attention | A setting is half done, or a connected account is failing. | **Fix**: fix the named setting, or open the account and sign in again. |
 
-Every row has a **Setup guide** link to its section here. Workspace owners and organization administrators also see the missing setting names and the exact callback URL to register with the provider, with a **Copy** button. Organization administrators get **Check connection**, which asks the server whether it can reach that provider (it never sends data, and every check is recorded in the audit log). No key or secret is ever shown in the app. `#connections` opens the page directly. The section is built by `GET /api/v1/integrations/setup` ([Tools and integrations: Connection setup](tools-and-integrations.md#connection-setup)).
+Members who cannot change setup see **Details** instead of Set up or Fix. No key or secret is ever shown in the app. The list is built by `GET /api/v1/integrations/setup` ([Tools and integrations: Connection setup](tools-and-integrations.md#connection-setup)).
+
+### The Integrations page
+
+The page is built to scan, not to scroll:
+
+- **Status and filters.** One bar at the top holds the filter chips **All**, **Connected**, **Needs setup** (not set up or ready to connect) and **Error** (needs attention, or a platform service that is degraded), each with its count, a search box (names, descriptions, categories and setting names, for example `google_client`) and a one-line summary. A platform service the deployment does not use counts as "not used" and shows only under All.
+- **Categories.** Rows are grouped into collapsible sections: Messaging & email, Calls & meetings, AI & search, Marketing & social, Commerce & data, Developer & webhooks, Sign-in, files & monitoring, and last **Platform services** (the database, sign-in server, cache, event bus, workflow engine, storage, web search, mail providers and webhook this deployment runs on, checked live). Each header shows how many items it has and how many need setup or have errors. A section where nothing needs action starts collapsed; any filter or search opens every section with a match.
+- **Rows.** Icon, name, one line on what it does, the status and one action. Problems sort first inside each section.
+- **Details panel.** The action opens a side panel (Esc or Close returns focus to the row) with everything else: what to do next, the full description and cost, **Open <view>**, **Setup guide** (the section here), the missing setting names and callback URLs with **Copy** (owners and organization administrators), and **Check connection** (organization administrators; it asks the server whether it can reach the provider, never sends data, and every check is audited). For a platform service the panel shows its address, last check, last error, how to fix it and, for workspace owners, **Test connection**, the per-workspace switch and the webhook's workspace token.
 
 ## Before you start
 
@@ -85,7 +94,7 @@ Every row has a **Setup guide** link to its section here. Workspace owners and o
 
 **What it does.** Lets agents search the web with the `web_search` tool without any search API key. It runs on the VM and is on after install.
 
-**Steps.** Nothing to create. If the row says **Not set up**, run `sudo infra/oracle/update.sh` (it adds `SEARXNG_SECRET` and the container). A workspace owner can switch it off for one workspace in the **Service health** cards ([Web search](tools-and-integrations.md#web-search)).
+**Steps.** Nothing to create. If the row says **Not set up**, run `sudo infra/oracle/update.sh` (it adds `SEARXNG_SECRET` and the container). A workspace owner can switch it off for one workspace under **Platform services → SearXNG web search → Manage** ([Web search](tools-and-integrations.md#web-search)).
 
 **Cost.** Free.
 
@@ -204,7 +213,7 @@ Every row has a **Setup guide** link to its section here. Workspace owners and o
 
 **What it does.** Lets an approved agent action (`external.action`, always high risk) call one system of yours, for example a Make, Zapier or n8n scenario that updates a spreadsheet or your fleet system ([External REST webhook](tools-and-integrations.md#external-rest-webhook)).
 
-**Steps.** Create the receiving webhook in your tool and copy its https URL. `.env`: `ANUM_EXTERNAL_WEBHOOK_URL=https://...` and, if it wants a bearer token, `ANUM_EXTERNAL_WEBHOOK_API_KEY=...`. A workspace owner can store a workspace's own token instead under **Service health → External REST webhook**.
+**Steps.** Create the receiving webhook in your tool and copy its https URL. `.env`: `ANUM_EXTERNAL_WEBHOOK_URL=https://...` and, if it wants a bearer token, `ANUM_EXTERNAL_WEBHOOK_API_KEY=...`. A workspace owner can store a workspace's own token instead under **Platform services → External REST webhook → Manage**.
 
 **Apply and check.** `docker compose up -d api`. The row turns **Connected**; **Check connection** opens a connection to that host without posting anything.
 

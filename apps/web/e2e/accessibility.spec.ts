@@ -25,7 +25,7 @@ const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'assistants', ready: (page) => expect(page.locator('.assistantCard').first()).toBeVisible() },
   { hash: 'organisations', ready: (page) => expect(page.locator('.orgCard').first()).toBeVisible() },
   { hash: 'audit', ready: (page) => expect(page.locator('.auditTable')).toBeVisible() },
-  { hash: 'integrations', ready: (page) => expect(page.locator('.integrationFix').first()).toBeVisible() },
+  { hash: 'integrations', ready: (page) => expect(page.locator('li.intRow').first()).toBeVisible() },
   { hash: 'skills', ready: (page) => expect(page.locator('article.catalogCard').first()).toBeVisible() },
   { hash: 'agents', ready: (page) => expect(page.locator('.agentRow').first()).toBeVisible() },
   { hash: 'favorites', ready: (page) => expect(page.locator('.libraryRow').first()).toBeVisible() },

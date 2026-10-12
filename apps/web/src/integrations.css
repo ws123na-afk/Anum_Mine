@@ -1,0 +1,89 @@
+/* Integrations page (IntegrationsView.tsx): status chips + search, collapsible category sections
+   and compact rows; details live in the drawer (connections.css). Spacing from the --d-s* tokens. */
+.intPage { display: grid; gap: var(--d-s3); min-width: 0; }
+.intPage > .moduleIntro, .intPage > .notice, .intPage > .setupState, .intPage > .emptyState, .intPage > .setupFoot { margin: 0; }
+
+/* Toolbar: filter chips that carry the counts, then search; the summary line wraps underneath. */
+.intToolbar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s4); min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.intChips { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; min-width: 0; padding: 0; }
+.intChip {
+  align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-text); cursor: pointer;
+  display: inline-flex; font-size: 14px; font-weight: 600; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s2) 0 var(--d-s3); position: relative;
+}
+.intChip:hover { border-color: var(--d-line-hover); }
+.intChipInput { cursor: pointer; height: 100%; inset: 0; margin: 0; min-height: 0; opacity: 0; padding: 0; position: absolute; width: 100%; }
+.intChip:has(input:focus-visible) { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+.intChip.active { background: var(--d-primary-grad); border-color: transparent; color: #fff; }
+.intChipCount {
+  background: var(--d-glass-2); border-radius: 999px; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1;
+  min-width: 26px; padding: 5px var(--d-s2); text-align: center;
+}
+.intChip.active .intChipCount { background: rgb(255 255 255 / .22); color: #fff; }
+.intChip-connected:not(.active) .intChipCount { color: var(--d-ok); }
+.intChip-setup:not(.active) .intChipCount { color: var(--d-warn); }
+.intChip-error:not(.active) .intChipCount { color: var(--d-stop); }
+.intSearch { align-items: center; display: flex; flex: 1 1 260px; min-width: 0; position: relative; }
+.intSearch svg { color: var(--d-faint); height: 16px; inset-inline-start: var(--d-s3); pointer-events: none; position: absolute; width: 16px; }
+.intSearch input { min-height: 40px; padding-inline-start: calc(var(--d-s3) * 2 + 16px); width: 100%; }
+.intSummary { color: var(--d-muted); flex-basis: 100%; font-size: 13px; margin: 0; }
+.intSummary:empty { display: none; }
+
+.intProblem { display: grid; gap: var(--d-s2); justify-items: start; }
+.intProblem .notice { margin: 0; }
+
+/* Category sections: the header is the disclosure button. */
+.intSection { min-width: 0; overflow: hidden; padding: 0; }
+.intSectionHead { font-size: inherit; margin: 0; }
+.intSectionHead button {
+  align-items: center; background: none; border: 0; border-radius: var(--d-r-panel); color: var(--d-text); cursor: pointer; display: flex;
+  gap: var(--d-s2) var(--d-s3); min-height: 52px; padding: var(--d-s2) var(--d-s4); text-align: start; width: 100%;
+}
+.intSectionHead button:hover { background: var(--d-glass-1); }
+.intSectionHead button:focus-visible { outline: 2px solid var(--d-sky); outline-offset: -2px; }
+.intChevron { color: var(--d-muted); flex: none; height: 18px; transition: transform 160ms var(--d-ease); width: 18px; }
+.intSectionHead button[aria-expanded="false"] .intChevron { transform: rotate(-90deg); }
+[dir="rtl"] .intSectionHead button[aria-expanded="false"] .intChevron { transform: rotate(90deg); }
+.intSectionName { font-size: 15px; font-weight: 700; }
+.intSectionCount { color: var(--d-muted); font-size: 13px; font-weight: 500; margin-inline-start: auto; text-align: end; }
+
+/* Rows: icon, name + one-line purpose, status, one action. */
+.intList { border-top: 1px solid var(--d-line); list-style: none; margin: 0; padding: 0; }
+.intList[hidden] { display: none; }
+.intRow {
+  align-items: center; display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: 36px minmax(0, 1fr) auto 104px;
+  min-height: 60px; padding: var(--d-s2) var(--d-s4);
+}
+.intRow + .intRow { border-top: 1px solid var(--d-line); }
+.intIcon {
+  align-items: center; background: linear-gradient(135deg, rgb(var(--c-sky) / .14), rgb(var(--c-violet) / .18)); border: 1px solid var(--d-line);
+  border-radius: var(--d-r-control); color: var(--d-text); display: flex; height: 36px; justify-content: center; width: 36px;
+}
+.intIcon svg { height: 18px; width: 18px; }
+.intRow-error .intIcon { background: rgb(var(--c-stop) / .12); border-color: rgb(var(--c-stop) / .3); color: var(--d-stop); }
+.intMain { min-width: 0; }
+.intMain h4 { font-size: 15px; font-weight: 650; line-height: 1.3; margin: 0; overflow-wrap: anywhere; }
+.intPurpose { color: var(--d-muted); font-size: 13px; margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.intRow > .statusBadge { display: inline-block; justify-self: end; }
+.intAction { font-size: 14px; min-height: 40px; padding: 0 var(--d-s3); width: 100%; }
+.intActionPrimary {
+  align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
+  color: #fff; cursor: pointer; display: inline-flex; font-weight: 650; justify-content: center;
+}
+.intActionPrimary:hover { background: var(--d-primary-grad-hover); }
+.intAction:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+
+@media (max-width: 560px) {
+  .intToolbar { padding: var(--d-s3); }
+  .intChip { padding-inline-start: var(--d-s2); }
+  .intSectionHead button { flex-wrap: wrap; padding-inline: var(--d-s3); }
+  .intSectionCount { flex-basis: 100%; margin-inline-start: calc(18px + var(--d-s2)); text-align: start; }
+}
+/* Tablets and phones: name and purpose take the full width; status and action share the second line. */
+@media (max-width: 900px) {
+  .intRow { grid-template-columns: 36px minmax(0, 1fr) auto; }
+  .intMain { grid-column: 2 / -1; }
+  .intPurpose { -webkit-box-orient: vertical; -webkit-line-clamp: 2; display: -webkit-box; white-space: normal; }
+  .intRow > .statusBadge { grid-column: 2; justify-self: start; }
+  .intAction { grid-column: 3; min-width: 96px; }
+}
+@media (max-width: 560px) { .intRow { padding: var(--d-s3); } }
