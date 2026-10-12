@@ -27,6 +27,28 @@ Future<void> pumpAt(
 }
 
 void main() {
+  test('component text styles use the brand family and Arabic fallbacks', () {
+    for (final theme in [AnumTheme.light(), AnumTheme.dark()]) {
+      final styles = <String, TextStyle?>{
+        'body': theme.textTheme.bodyMedium,
+        'filled button':
+            theme.filledButtonTheme.style?.textStyle?.resolve(const {}),
+        'chip': theme.chipTheme.labelStyle,
+        'snack bar': theme.snackBarTheme.contentTextStyle,
+        'navigation bar':
+            theme.navigationBarTheme.labelTextStyle?.resolve(const {}),
+        'navigation rail': theme.navigationRailTheme.selectedLabelTextStyle,
+        'field label': theme.inputDecorationTheme.labelStyle,
+      };
+      for (final entry in styles.entries) {
+        expect(entry.value?.fontFamily, AnumTheme.fontFamily,
+            reason: entry.key);
+        expect(entry.value?.fontFamilyFallback, contains('Noto Sans Arabic'),
+            reason: entry.key);
+      }
+    }
+  });
+
   for (final size in <Size>[
     const Size(360, 800),
     const Size(393, 852),

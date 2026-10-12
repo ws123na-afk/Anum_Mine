@@ -143,6 +143,26 @@ extension AnumPaletteContext on BuildContext {
 }
 
 abstract final class AnumTheme {
+  /// The type family and its Arabic fallbacks. Component styles (buttons,
+  /// chips, snack bars, navigation labels, field labels) replace the text
+  /// theme instead of merging with it, so they name the family themselves
+  /// through [_ui]; otherwise they would fall back to the engine default.
+  static const fontFamily = 'Inter';
+  static const fontFamilyFallback = [
+    'Noto Sans Arabic',
+    'Noto Naskh Arabic',
+    'Arial'
+  ];
+
+  static TextStyle _ui(
+          {Color? color, FontWeight? fontWeight, double? fontSize}) =>
+      TextStyle(
+          fontFamily: fontFamily,
+          fontFamilyFallback: fontFamilyFallback,
+          color: color,
+          fontWeight: fontWeight,
+          fontSize: fontSize);
+
   static ThemeData light() => _build(Brightness.light);
   static ThemeData dark() => _build(Brightness.dark);
 
@@ -174,12 +194,8 @@ abstract final class AnumTheme {
       textTheme: base.textTheme.apply(
         bodyColor: p.text,
         displayColor: p.text,
-        fontFamily: 'Inter',
-        fontFamilyFallback: const [
-          'Noto Sans Arabic',
-          'Noto Naskh Arabic',
-          'Arial'
-        ],
+        fontFamily: fontFamily,
+        fontFamilyFallback: fontFamilyFallback,
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
@@ -209,8 +225,8 @@ abstract final class AnumTheme {
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide(color: p.sky, width: 1.6)),
-        labelStyle: TextStyle(color: p.muted),
-        hintStyle: TextStyle(color: p.faint),
+        labelStyle: _ui(color: p.muted),
+        hintStyle: _ui(color: p.faint),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
@@ -219,7 +235,7 @@ abstract final class AnumTheme {
           foregroundColor: p.onAccent,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          textStyle: _ui(fontWeight: FontWeight.w700),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -247,7 +263,7 @@ abstract final class AnumTheme {
         selectedColor: p.violet.withValues(alpha: 0.22),
         side: BorderSide(color: p.line),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        labelStyle: TextStyle(color: p.text, fontWeight: FontWeight.w600),
+        labelStyle: _ui(color: p.text, fontWeight: FontWeight.w600),
       ),
       listTileTheme: ListTileThemeData(
           iconColor: p.muted, textColor: p.text, minVerticalPadding: 12),
@@ -265,7 +281,7 @@ abstract final class AnumTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: p.surface3,
-        contentTextStyle: TextStyle(color: p.text),
+        contentTextStyle: _ui(color: p.text),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
@@ -274,16 +290,15 @@ abstract final class AnumTheme {
         backgroundColor: p.glass,
         surfaceTintColor: Colors.transparent,
         indicatorColor: p.violet.withValues(alpha: 0.22),
-        labelTextStyle: WidgetStatePropertyAll(TextStyle(
-            fontSize: 12, fontWeight: FontWeight.w600, color: p.text)),
+        labelTextStyle: WidgetStatePropertyAll(
+            _ui(fontSize: 12, fontWeight: FontWeight.w600, color: p.text)),
       ),
       navigationRailTheme: NavigationRailThemeData(
         minWidth: 80,
         backgroundColor: Colors.transparent,
         indicatorColor: p.violet.withValues(alpha: 0.22),
-        selectedLabelTextStyle:
-            TextStyle(color: p.text, fontWeight: FontWeight.w700),
-        unselectedLabelTextStyle: TextStyle(color: p.muted),
+        selectedLabelTextStyle: _ui(color: p.text, fontWeight: FontWeight.w700),
+        unselectedLabelTextStyle: _ui(color: p.muted),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: p.sky),
       switchTheme: SwitchThemeData(
