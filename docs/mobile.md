@@ -168,6 +168,10 @@ The owner's mockups (`docs/design/anum360-mockups/mobile-14-screens.jpg`, screen
 - **Tests** (`test/lists/`): models and repositories against scripted API responses, every state, the main paths end to end with fakes, tap-target and label guidelines, and layouts at 320, 390, 768, 1024 and 1440 wide at 200 percent text in English and Arabic (light and dark); `lists_localization_test.dart` checks that every new string has real Arabic with the same placeholders.
 - **Not finished.** The web Tasks view does not show priority or due dates yet. AI Agents and Agent Detail are the custom-agents work's screens.
 
+## Home and ANUM Proactive
+
+The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary call (`GET /api/v1/home/summary`), the caller's pins and quick commands, and the insights list. Pins open a web app in the browser (https only), switch to a pinned workspace or open a feature; quick commands and insight commands are handed to ANUM Command, which shows the plan before anything runs. Tests: `test/home/home_test.dart` (parsing, controller states, main paths, 320-1440 px at 200 % text in English and Arabic, tap-target and label guidelines).
+
 ## WhatsApp inbox
 
 `lib/features/whatsapp/` mirrors the web inbox for owners and members ([WhatsApp](whatsapp.md)): conversations with filters, search and paging; a thread with the 24-hour window, the suggested reply with its provenance label, a reply sent for approval, and Approve & send / Reject for owners (the payload hash is sent back). It opens from the app bar on wide layouts and from More on phones. Connecting the number and template replies stay on the web. Tests: `test/whatsapp/whatsapp_test.dart` (320 to 1440 px, 200% text, English and Arabic).

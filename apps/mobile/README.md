@@ -16,6 +16,10 @@ The look and navigation follow the owner's ANUM 360 mockups ([docs/design/anum36
 - **Sign-in**: splash, onboarding (four skippable pages, once per device), Login (Email/Mobile tabs, Forgot password, Continue with Google/Apple) and Create account (password guidance, terms checkbox). With Keycloak the app never shows a password field: each button starts the OIDC code flow with `login_hint`, `kc_idp_hint=google|apple` or `prompt=create` ([Identity: Flutter](../../docs/identity.md#flutter)).
 - **Profile & Settings** (`lib/features/settings/profile_screen.dart`): profile card from the ID token, plan (Free plan: there is no billing API, so nothing to buy), My Profile, Security and Notifications open Settings at that section, Language and Theme (dark default, light, system; kept on the device) apply at once, Data & Privacy, Help & Support, About.
 
+## Home (ANUM 360)
+
+`lib/features/home/` holds the ANUM 360 Home and "ANUM Proactive" ([docs/home.md](../../docs/home.md)): `HomeScreen` (greeting, ask box with mic, Work/Personal/Custom quick commands, shortcut tiles, Today's Focus, Recent Activity, pinned apps) and `ProactiveInsightsScreen`, both driven by `HomeController` over `ApiHomeRepository` (`/api/v1/home/*`). The shell mounts `HomeScreen` as the Home tab and wires `onCommand`, `onVoice`, `onOpen(HomeTarget)`, `onSwitchWorkspace` and `availableFeatures`.
+
 ## Voice Commands
 
 Voice uses push-to-talk for short commands. The app requests microphone access only after the user taps the microphone, shows partial recognition, requires editable visual review, records the selected transcript-retention policy, creates a normal task, and starts the governed runtime. High-impact actions still pause for visual approval. Spoken approval alone never bypasses policy.

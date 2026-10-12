@@ -108,6 +108,7 @@ x-user-roles: owner,member
 - [Email: the unified inbox](docs/email.md)
 - [Reports](docs/reports.md)
 - [Calendar and next actions](docs/calendar.md)
+- [Home and proactive insights](docs/home.md)
 - [Automation](docs/automation.md)
 - [Approvals and risk](docs/approvals-and-risk.md)
 - [Notifications and phone push](docs/notifications.md)
