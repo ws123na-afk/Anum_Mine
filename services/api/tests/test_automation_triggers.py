@@ -516,7 +516,7 @@ def test_migration_is_expand_only_and_chained() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     source = (versions / "0049_automation_triggers.py").read_text(encoding="utf-8")
     assert 'revision = "0049_automation_triggers"' in source and len("0049_automation_triggers") <= 32
-    assert 'down_revision = "0039_team_work"' in source
+    assert 'down_revision = "0045_reports_calendar"' in source
     upgrade = source.split("def upgrade()")[1].split("def downgrade()")[0]
     assert "drop_" not in upgrade and "alter_column" not in upgrade and "drop table" not in upgrade.lower()
 

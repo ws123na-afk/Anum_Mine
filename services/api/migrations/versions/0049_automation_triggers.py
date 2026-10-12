@@ -25,7 +25,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0049_automation_triggers"
-down_revision = "0039_team_work"
+down_revision = "0045_reports_calendar"
 branch_labels = None
 depends_on = None
 
