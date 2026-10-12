@@ -12,7 +12,7 @@ All on the one VM, from `infra/oracle/compose.yaml` (compose project `anum`):
 
 | Service | Image | What it does |
 |---|---|---|
-| `caddy` | `caddy:2.11.7-alpine` | The only container with published ports (TCP 80 and 443). Gets and renews Let's Encrypt certificates for the three hostnames, redirects http to https, proxies to `web`, `api` and `keycloak`. Sets `X-Forwarded-For` itself (a client's own header is replaced). Blocks Keycloak's admin console and master realm from every address outside `ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS` (empty by default: SSH tunnel only; [Keycloak](#keycloak)). |
+| `caddy` | `caddy:2.11.7-alpine` | The only container with published ports (TCP 80 and 443). Gets and renews Let's Encrypt certificates for the three hostnames, redirects http to https, proxies to `web`, `api` and `keycloak`. Sets `X-Forwarded-For` itself (a client's own header is replaced). Blocks Keycloak's admin console and master realm from every address outside `ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS` (empty by default: SSH tunnel only; [Keycloak](#keycloak)). Also on `anum_sites`, to proxy to [other sites on the same VM](#other-sites-on-the-same-vm). |
 | `postgres` | `pgvector/pgvector:0.8.7-pg17-trixie` | PostgreSQL 17 with pgvector. Two databases: `anum` (ANUM's data, RLS) and `keycloak` (Keycloak's own, its own login). Data in the `postgres-data` volume. Not published, on an internal network. |
 | `db-init` | same image, one-shot | Runs `infra/oracle/db-init.sh` on every `up`: Keycloak's login and database, the `anum_backup` login, then `infra/helm/bootstrap-database.sql` (the same file as on Render and Kubernetes), then sets every password from `.env` and lets only the right logins connect to each database. |
 | `migrate` | API image, one-shot | `python -m alembic upgrade head` as `anum_migrator` (the schema owner). The API starts only after it succeeded. |
@@ -27,7 +27,7 @@ All on the one VM, from `infra/oracle/compose.yaml` (compose project `anum`):
 | `ollama`, `ollama-pull` | `ollama/ollama:0.40.3`, profile `ai` (optional) | A local model on the VM's CPU ([AI model](#ai-model)). |
 | `beszel`, `beszel-agent`, `glitchtip` | `henrygd/beszel:0.20.0`, `henrygd/beszel-agent:0.20.0`, `glitchtip/glitchtip:6.2.6`, profiles `monitoring` and `monitoring-agent` (optional) | Host metrics and API error tracking on two more hostnames behind Caddy, turned on with `infra/oracle/monitoring.sh` ([Monitoring the Oracle VM](monitoring-oracle.md)). |
 
-Three Docker networks keep the pieces apart: `edge` (Caddy, web, API, Keycloak), `backend` (`internal`: no internet; PostgreSQL, Valkey, the jobs, and the API and Keycloak) and `egress` (outbound internet for the API, Keycloak, the backup upload, Ollama and SearXNG). Caddy, the only container the internet reaches, is on `edge` only, so it cannot even open a connection to PostgreSQL or Valkey.
+Three Docker networks keep the pieces apart: `edge` (Caddy, web, API, Keycloak), `backend` (`internal`: no internet; PostgreSQL, Valkey, the jobs, and the API and Keycloak) and `egress` (outbound internet for the API, Keycloak, the backup upload, Ollama and SearXNG). Caddy, the only container the internet reaches, is on `edge` and `sites` only, so it cannot even open a connection to PostgreSQL or Valkey. `sites` (fixed name `anum_sites`, 172.30.50.0/24, not internal) has no other ANUM service: it is where [other sites on the same VM](#other-sites-on-the-same-vm) meet Caddy.
 
 Every image exists for `linux/arm64`, and every image ANUM builds is built on the VM (`docker compose build`): no registry, no image upload. The API's Python dependencies all have `aarch64` wheels, and the web build's native packages (`rolldown`, `lightningcss`, the TypeScript native binary) have `linux-arm64` builds in `pnpm-lock.yaml`.
 
@@ -473,13 +473,51 @@ An address is in several places. Change the host in `.env` (the three must stay 
 
 Then `sudo infra/oracle/update.sh --no-pull` (rebuilds the web bundle, recreates the services, Caddy requests the new certificate).
 
+## Other Sites on the Same VM
+
+Other self-contained Docker Compose stacks (the first is the owner's portfolio, compose project `portfolio`) can sit behind ANUM's Caddy without touching any ANUM service or network:
+
+- **Network.** ANUM's compose creates the `anum_sites` bridge (172.30.50.0/24, not internal, so the other stacks have outbound access) on every `up`, so it exists after `install.sh` or `update.sh`. Caddy is the only ANUM container on it; Caddy reaches `web`, `api` and `keycloak` over `edge` only, so the API (`FORWARDED_ALLOW_IPS`) and Keycloak (`KC_PROXY_TRUSTED_ADDRESSES`) still see Caddy's edge address 172.30.10.10. A stack joins it as an external network, and only the service Caddy proxies to needs it:
+
+  ```yaml
+  networks:
+    sites:
+      external: true
+      name: anum_sites
+  ```
+
+  Never create `anum_sites` by hand (Compose refuses a network without its labels). Start ANUM before the other stack, and stop the other stack before `docker compose down` of ANUM (Docker cannot remove a network that still has containers on it).
+- **Names.** Caddy resolves upstream names on every network it is on, so give the proxied service a name that no ANUM service uses (not `web`, `api`, `keycloak`, `beszel` or `glitchtip`), for example `container_name: portfolio-web`, and proxy to that name.
+- **Caddy site.** Each extra site is one file, `infra/oracle/sites-enabled/<name>.caddy` (git-ignored; the Caddyfile imports `sites-enabled/*.caddy`, the same mechanism as the monitoring sites):
+
+  ```caddyfile
+  portfolio.example.com {
+  	import common
+  	reverse_proxy portfolio-web:3000 {
+  		import upstream_headers
+  	}
+  }
+  ```
+
+  `common` (no `Server` header, JSON access log) and `upstream_headers` (X-Forwarded-For set to the real peer, a client's own value replaced) are the snippets ANUM's sites use. Point the host's DNS A record at the VM first, so the certificate can be issued.
+- **Validate, then reload**, as `monitoring.sh` does, from `~/anum/infra/oracle`. The wrapper rewrites the admin allow-list exactly as Caddy's entrypoint does:
+
+  ```bash
+  wrap='ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS="$(printf "%s" "${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-}" | tr "," " " | xargs)"; export ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS="${ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS:-0.0.0.0/32 ::/128}"; exec caddy "$@" --config /etc/caddy/Caddyfile --adapter caddyfile'
+  docker compose exec -T caddy sh -c "$wrap" caddy-cli validate \
+    && docker compose exec -T caddy sh -c "$wrap" caddy-cli reload
+  ```
+
+  If `validate` fails, delete the new file: a reload with a broken file would leave the running configuration in place, and the next Caddy restart would fail for every site, ANUM's included.
+- **Rules for the other stack.** It publishes no ports (only Caddy publishes 80 and 443); it has its own database and volumes (never ANUM's PostgreSQL or Valkey); every container has a memory limit (`mem_limit`), so it cannot starve ANUM on the shared VM; and it never joins `edge`, `backend`, `egress` or `monitoring`. Peers on `anum_sites` are inside 172.30.0.0/16, which Keycloak's admin console never allows ([Keycloak](#keycloak)).
+
 ## Production on One VM
 
 Production is a second VM (a second Oracle account's allowance, or a paid shape) with its own `.env`, its own two buckets and keys, its own Keycloak and DNS names, and `ANUM_ENVIRONMENT=production`. Additionally: a model provider other than `mock` and `ANUM_OBJECT_STORAGE_BACKEND=s3` (hard blockers of the release gate; `test_oracle_compose.py` checks that the compose file passes the startup policy in production with Ollama); `ANUM_AUTO_UPDATE=false`; the restore drill run and recorded; `ANUM_KEYCLOAK_ADMIN_ALLOWED_IPS` empty (SSH tunnel) or your own addresses only; SSH limited to your IP; `smoke.sh` passing from your PC. Decide whether the single-machine trade-offs in [What you give up](#what-you-give-up-compared-with-kubernetes-and-render) are acceptable for production data.
 
 ## How This Path Is Checked
 
-- `services/api/tests/test_oracle_compose.py` (API unit tests): no literal secret in `compose.yaml` or `.env.example`; only Caddy publishes ports; PostgreSQL and Valkey on the internal network only; the migration password only in `db-init` and `migrate`; the API and retention job as `anum_app`; Keycloak's admin and database credentials only in Keycloak; restart policies, health checks and log rotation; forwarded headers trusted only from Caddy's address and the Caddyfile replacing client headers; SearXNG private (no ports, no Caddy route, its secret only in its own container); the role SQL (only `anum_backup` bypasses RLS); `configure_env.py` generating private, valid, stable secrets; and the API's startup policy accepting the example values (staging, and production with Ollama).
+- `services/api/tests/test_oracle_compose.py` (API unit tests): no literal secret in `compose.yaml` or `.env.example`; only Caddy publishes ports; PostgreSQL and Valkey on the internal network only; the migration password only in `db-init` and `migrate`; the API and retention job as `anum_app`; Keycloak's admin and database credentials only in Keycloak; restart policies, health checks and log rotation; forwarded headers trusted only from Caddy's address and the Caddyfile replacing client headers; Caddy the only ANUM service on `anum_sites`, with `edge` and `backend` membership unchanged; SearXNG private (no ports, no Caddy route, its secret only in its own container); the role SQL (only `anum_backup` bypasses RLS); `configure_env.py` generating private, valid, stable secrets; and the API's startup policy accepting the example values (staging, and production with Ollama).
 - The same file also checks the edge hardening: `configure_env.py --check` refusing equal, empty, placeholder, capitalised or malformed host names and a bad or (with `--strict`) world-open admin allow-list; the Caddyfile refusing `/admin` and the master realm unless the TCP peer is on the list and is not a Docker address, with `/realms/anum` outside the matcher; the Caddy entrypoint turning the comma-separated list (or an empty one) into Caddy's ranges; Keycloak's fixed tunnel address and `KC_HOSTNAME_ADMIN` for the tunnel; `install.sh` checking before it builds and ending with `smoke.sh`; `update.sh` checking before it builds and migrating before it recreates anything; and `smoke.sh` refusing duplicate host names without sudo or Docker.
 - Verified in the build environment (October 2026) with Caddy 2.11.7 (the pinned image's version) and its local CA in front of stand-in upstreams: `caddy adapt` of the Caddyfile; `/admin`, `/admin/…`, `/realms/master/…` (also as `//admin/`, `/ADMIN/`, `/realms/%6Daster/…`) refused with 403 when the list is empty and passed through for a listed address; `/realms/anum/…` always passed through; and `smoke.sh` passing against it (DNS aside), failing when the API answered without a token, and refusing duplicate host names. Not verified there: Keycloak's console through the SSH tunnel with `KC_HOSTNAME_ADMIN` (no Keycloak image could be run), and `smoke.sh` against a real VM.
 - CI's "Docker Compose config" job runs `docker compose config` on the file with `.env.example` (also with the `ai` and `jobs` profiles, and with the `monitoring` profiles) and ShellCheck on the scripts. The monitoring checks are listed in [Monitoring the Oracle VM](monitoring-oracle.md#how-this-is-checked).

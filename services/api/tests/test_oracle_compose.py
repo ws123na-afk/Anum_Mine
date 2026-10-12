@@ -187,9 +187,38 @@ def test_database_and_valkey_stay_on_the_internal_network() -> None:
     for name in ("postgres", "valkey", "db-init", "migrate", "retention", "backup", "restore-tools"):
         assert set(services[name]["networks"]) == {"backend"}, name
     # Caddy, the internet-facing container, cannot reach the database or Valkey.
-    assert set(services["caddy"]["networks"]) == {"edge"}
+    assert set(services["caddy"]["networks"]) == {"edge", "sites"}
     assert set(services["web"]["networks"]) == {"edge"}
     assert "edge" not in services["ollama"]["networks"]
+
+
+def _members(network: str) -> set[str]:
+    return {name for name, service in _services().items() if network in (service.get("networks") or {})}
+
+
+def test_other_sites_share_only_caddy_on_their_own_network() -> None:
+    compose = _compose()
+    sites = compose["networks"]["sites"]
+    # A fixed name other compose projects join as `external: true`; created here, so it
+    # exists after update.sh. Not internal: those stacks need outbound access.
+    assert sites["name"] == "anum_sites"
+    assert not sites.get("internal") and not sites.get("external")
+    assert ipaddress.ip_network(sites["ipam"]["config"][0]["subnet"]) == ipaddress.ip_network("172.30.50.0/24")
+    # Caddy is the only ANUM service on it, with no fixed address there; its edge address
+    # (the one the API and Keycloak trust) is unchanged.
+    assert _members("sites") == {"caddy"}
+    caddy = compose["services"]["caddy"]["networks"]
+    assert not (caddy["sites"] or {}).get("ipv4_address")
+    assert caddy["edge"]["ipv4_address"] == "172.30.10.10"
+    # ANUM's own networks keep exactly their members.
+    assert _members("edge") == {"caddy", "web", "api", "keycloak", "beszel", "glitchtip"}
+    backend = {"postgres", "valkey", "db-init", "migrate", "api", "keycloak", "retention", "backup"}
+    backend |= {"restore-tools", "searxng", "ollama", "ollama-pull", "glitchtip"}
+    assert _members("backend") == backend
+    # Every Caddyfile upstream is reached over `edge`, never over `sites`, so the peer
+    # address the API and Keycloak see stays Caddy's edge address.
+    for upstream in ("web", "api", "keycloak", "beszel", "glitchtip"):
+        assert "sites" not in compose["services"][upstream]["networks"], upstream
 
 
 def test_restart_policies_health_checks_and_log_rotation() -> None:
