@@ -137,6 +137,7 @@ x-user-roles: owner,member
 - [Development standards](docs/development-standards.md)
 - [Production readiness gates](docs/production-readiness.md)
 - [Production plan](docs/production-plan.md)
+- [Full skills audit (October 2026)](docs/audits/2026-10-12-full-skills-audit.md)
 - [Figma mobile design system](docs/figma-mobile-design.md)
 - [ANUM 360 redesign (owner mockups)](docs/design/anum360.md)
 - [Repository structure](docs/repository-structure.md)

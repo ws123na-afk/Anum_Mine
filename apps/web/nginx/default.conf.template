@@ -3,8 +3,11 @@
 # nginx's own $variables are left alone because they are not set in the environment.
 #
 # CSP notes (docs/security.md):
-# - 'wasm-unsafe-eval' and cdn.jsdelivr.net let the in-browser Kokoro voice load the
-#   ONNX runtime; huggingface.co hosts its model weights.
+# - 'wasm-unsafe-eval' and one jsdelivr path let the in-browser Kokoro voice load the
+#   ONNX runtime loader that transformers.js fetches from its own versioned dist folder;
+#   huggingface.co hosts its model weights. The path (not the whole CDN, which serves any
+#   npm package) keeps the CSP from allowing arbitrary scripts; its version must equal
+#   @huggingface/transformers in pnpm-lock.yaml (services/api/tests/test_render_blueprint.py).
 # - style-src allows inline styles because React components set style attributes.
 # - __ANUM_CSP_ERROR_REPORTING_SRC__ is replaced when the image is built: the origin of
 #   VITE_SENTRY_DSN (browser error reporting), or nothing when it is off.
@@ -18,7 +21,7 @@ server {
 
     client_max_body_size 1k;
 
-    set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ${ANUM_CSP_CONNECT_SRC} __ANUM_CSP_ERROR_REPORTING_SRC__ https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    set $csp "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ${ANUM_CSP_CONNECT_SRC} __ANUM_CSP_ERROR_REPORTING_SRC__ https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
     add_header Content-Security-Policy $csp always;
     add_header X-Content-Type-Options "nosniff" always;

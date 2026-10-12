@@ -7,10 +7,10 @@ import * as api from './lib/api';
 import * as tasksApi from './lib/tasksApi';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { SourcesUsed, type MemoryTarget } from './SourcesUsed';
-import { Answer } from './AnswerView';
+import { AiAnswer } from './AiAnswer';
 import {
   activeFilterCount, approvalsForTask, BULK_MAX, bulkMessage, dateRangeError, EMPTY_QUERY, EVENT_PAGE_SIZE, eventLabel, eventTone, finalAnswer,
-  hasMorePages, isDefaultQuery, isTerminal, mergeById, parseAnswer, permissionHint, pruneSelection, roleAllows, roleFrom, RUN_PAGE_SIZE,
+  hasMorePages, isDefaultQuery, isTerminal, mergeById, permissionHint, pruneSelection, roleAllows, roleFrom, RUN_PAGE_SIZE,
   runLabel, selectRun, stepFacts, streamBadge, summaryCounts, TASK_PAGE_SIZE, taskActions,
   type StatusFilter, type StreamState, type TaskQuery, type WorkspaceRole,
 } from './lib/tasks';
@@ -345,7 +345,7 @@ function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId,
     </section>
     <section className="surface taskAnswer" aria-labelledby="task-answer-heading" aria-live="polite" aria-busy={working && !answer}>
       <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.answer.eyebrow')}</p><h2 id="task-answer-heading">{t('tasks.answer.title')}</h2></div>{working && <span className="statusBadge warning">{t('tasks.answer.updating')}</span>}</div>
-      {answer ? <Answer blocks={parseAnswer(answer)} /> : <p className="muted">{working ? t('tasks.answer.pending') : run ? t('tasks.answer.none') : t('tasks.answer.noRun')}</p>}
+      {answer ? <AiAnswer text={answer} /> : <p className="muted">{working ? t('tasks.answer.pending') : run ? t('tasks.answer.none') : t('tasks.answer.noRun')}</p>}
     </section>
     {approvals.length > 0 && <section className="surface taskAnswer" aria-labelledby="task-approvals-heading">
       <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.approvals.eyebrow')}</p><h2 id="task-approvals-heading">{t('tasks.approvals.title')}</h2></div><button className="secondary taskSmallButton" onClick={openApprovals}><ShieldCheck aria-hidden="true" />{t('tasks.approvals.open')}</button></div>

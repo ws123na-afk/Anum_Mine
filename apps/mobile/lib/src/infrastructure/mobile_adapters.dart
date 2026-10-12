@@ -19,12 +19,35 @@ import '../../features/governance/api_governance_repository.dart';
 import '../../features/privacy/privacy_repository.dart';
 
 class HttpApiTransport implements ApiTransport {
-  HttpApiTransport({http.Client? client}) : _client = client ?? http.Client();
+  HttpApiTransport({http.Client? client, this.timeout = defaultTimeout})
+      : _client = client ?? http.Client();
+
+  /// The longest one JSON call may take, headers and body together. Long
+  /// enough for a model call with its server-side retries; it only stops a
+  /// connection that hangs from spinning forever (streams have their own
+  /// timeouts in `HttpEventStream`).
+  static const defaultTimeout = Duration(minutes: 5);
 
   final http.Client _client;
+  final Duration timeout;
 
   @override
   Future<ApiResponse> send(ApiRequest request) async {
+    try {
+      return await _send(request).timeout(timeout);
+    } on TimeoutException {
+      throw const ApiException(0,
+          'The server did not answer in time. Check the connection and try again.');
+    } on http.ClientException {
+      throw const ApiException(0,
+          'The server could not be reached. Check the connection and try again.');
+    } on SocketException {
+      throw const ApiException(0,
+          'The server could not be reached. Check the connection and try again.');
+    }
+  }
+
+  Future<ApiResponse> _send(ApiRequest request) async {
     final response =
         await _client.send(http.Request(request.method, request.uri)
           ..headers.addAll(request.headers)
@@ -32,11 +55,47 @@ class HttpApiTransport implements ApiTransport {
     final bodyText = await response.stream.bytesToString();
     JsonMap? body;
     if (bodyText.isNotEmpty) {
-      final decoded = jsonDecode(bodyText);
+      final Object? decoded;
+      try {
+        decoded = jsonDecode(bodyText);
+      } on FormatException {
+        // A proxy's HTML error page (502/503 from Caddy or the host) is not
+        // JSON; the status code still says what failed.
+        if (response.statusCode >= 400) {
+          return ApiResponse(statusCode: response.statusCode, body: null);
+        }
+        rethrow;
+      }
       body = decoded is Map<String, dynamic> ? decoded : {'data': decoded};
     }
     return ApiResponse(statusCode: response.statusCode, body: body);
   }
+}
+
+/// iOS keychain class for everything the app keeps in secure storage: readable
+/// after the first unlock (background refresh and push still work) and never
+/// restored to another device from a backup (`...ThisDeviceOnly`). Android
+/// ignores it; its items are already bound to the device's keystore and app
+/// backups are off.
+const deviceOnlyKeychain =
+    IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device);
+
+/// Items written before [deviceOnlyKeychain] used the plugin default
+/// (`WhenUnlocked`, which an encrypted backup carries to a new device).
+const _legacyKeychain = IOSOptions.defaultOptions;
+
+/// Reads [key] as a device-only item, moving an item stored with the old
+/// keychain class over once. The keychain query includes the class, so the
+/// old item is deleted before the new one is added (the class is not part of
+/// an item's identity, so adding first would collide).
+Future<String?> readDeviceOnly(FlutterSecureStorage storage, String key) async {
+  final value = await storage.read(key: key, iOptions: deviceOnlyKeychain);
+  if (value != null) return value;
+  final legacy = await storage.read(key: key, iOptions: _legacyKeychain);
+  if (legacy == null) return null;
+  await storage.delete(key: key, iOptions: _legacyKeychain);
+  await storage.write(key: key, value: legacy, iOptions: deviceOnlyKeychain);
+  return legacy;
 }
 
 class SecureSessionStore implements SessionStore {
@@ -47,11 +106,15 @@ class SecureSessionStore implements SessionStore {
   final FlutterSecureStorage _storage;
 
   @override
-  Future<void> clear() => _storage.delete(key: _key);
+  Future<void> clear() async {
+    await _storage.delete(key: _key, iOptions: deviceOnlyKeychain);
+    // A session written before the device-only class must not outlive sign-out.
+    await _storage.delete(key: _key, iOptions: _legacyKeychain);
+  }
 
   @override
   Future<LocalSession?> read() async {
-    final value = await _storage.read(key: _key);
+    final value = await readDeviceOnly(_storage, _key);
     if (value == null) return null;
     try {
       return LocalSession.fromJson(jsonObject(jsonDecode(value), 'session'));
@@ -62,8 +125,10 @@ class SecureSessionStore implements SessionStore {
   }
 
   @override
-  Future<void> write(LocalSession session) =>
-      _storage.write(key: _key, value: jsonEncode(session.toJson()));
+  Future<void> write(LocalSession session) => _storage.write(
+      key: _key,
+      value: jsonEncode(session.toJson()),
+      iOptions: deviceOnlyKeychain);
 }
 
 /// The workspace picked on this device, per tenant and user, in platform
@@ -82,14 +147,17 @@ class SecureWorkspacePreferenceStore implements WorkspacePreferenceStore {
   @override
   Future<String?> read(
           {required String tenantId, required String userId}) async =>
-      _storage.read(key: _key(tenantId, userId));
+      readDeviceOnly(_storage, _key(tenantId, userId));
 
   @override
   Future<void> write(
           {required String tenantId,
           required String userId,
           required String workspaceId}) =>
-      _storage.write(key: _key(tenantId, userId), value: workspaceId);
+      _storage.write(
+          key: _key(tenantId, userId),
+          value: workspaceId,
+          iOptions: deviceOnlyKeychain);
 }
 
 /// Workspace file bytes (docs/files.md#mobile): streamed uploads with

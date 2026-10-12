@@ -40,11 +40,11 @@ from contextlib import contextmanager
 from datetime import datetime
 from enum import StrEnum
 from threading import RLock
-from typing import Protocol
+from typing import Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.background import BackgroundTask
 
 from . import chat_tools
@@ -57,15 +57,15 @@ from .conversation_memory import (
     recall_memories,
     remember_after_reply,
 )
-from .dependencies import has_permission, require_permission, tenant_context
+from .dependencies import has_permission, repository_context, require_permission, tenant_context
 from .localization import Language, localize_message, request_language
 from .learning import SignalKind, Surface
 from .learning_store import learned_instructions, new_signal, record_server_signal
 from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
+from .repository import AnumRepository
 from .reports import REPORT_BLOCK_INSTRUCTIONS, ReportCard, cards_for_conversation, save_chat_report, split_report_block
-from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
@@ -77,8 +77,14 @@ logger = logging.getLogger("anum.conversations")
 
 MAX_TURNS_PER_CONVERSATION = 400
 MAX_CONVERSATIONS_LISTED = 50
+MAX_CONVERSATIONS_PAGE = 100
+MAX_PINNED_CONVERSATIONS = 20
 MAX_QUESTION_CHARS = 8000
+MAX_SEARCH_CHARS = 200
+MAX_FEEDBACK_REASON_CHARS = 500
 TITLE_CHARS = 80
+
+Rating = Literal["up", "down"]
 
 SYSTEM_PROMPT = (
     "You are Anum, a fast, friendly assistant inside ANUM, a governed agent workbench. "
@@ -113,8 +119,38 @@ class ConversationCreate(BaseModel):
 class ConversationAsk(BaseModel):
     content: str | None = Field(default=None, min_length=1, max_length=MAX_QUESTION_CHARS)
     # Ask again for an earlier question (the latest user turn) instead of adding a new
-    # one: the Retry button after a failed or stopped reply.
+    # one: Retry after a failed or stopped reply, and Regenerate after a complete one.
+    # The earlier replies to that question are replaced.
     retry_turn_id: str | None = Field(default=None, max_length=80)
+    # Edit and resend: this stored question and every turn after it are replaced by
+    # ``content`` (docs/conversations.md#message-actions).
+    edit_turn_id: str | None = Field(default=None, max_length=80)
+
+
+class ConversationUpdate(BaseModel):
+    """Rename or pin a conversation; at least one field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=TITLE_CHARS)
+    pinned: bool | None = None
+
+    @model_validator(mode="after")
+    def _something(self) -> ConversationUpdate:
+        if self.title is None and self.pinned is None:
+            raise ValueError("Send a title, pinned, or both")
+        if self.title is not None and not self.title.strip():
+            raise ValueError("A title needs at least one character that is not a space")
+        return self
+
+
+class TurnFeedback(BaseModel):
+    """Thumbs up or down on an answer; ``rating`` null clears it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rating: Rating | None
+    reason: str | None = Field(default=None, max_length=MAX_FEEDBACK_REASON_CHARS)
 
 
 class Conversation(BaseModel):
@@ -126,6 +162,9 @@ class Conversation(BaseModel):
     created_at: datetime
     updated_at: datetime
     agent_id: str | None = None
+    # Pinned conversations come first in the list (docs/conversations.md#conversation-list).
+    pinned: bool = False
+    pinned_at: datetime | None = None
 
 
 class ConversationTurn(BaseModel):
@@ -138,6 +177,16 @@ class ConversationTurn(BaseModel):
     # Set when the question was run as a task: its results, approval or failure
     # (docs/conversations.md#tools-in-chat). None for plain conversation.
     card: ChatCard | None = None
+    # The user's own thumbs on an answer (migration 0051_chat_depth); null when unrated.
+    feedback: Rating | None = None
+    feedback_reason: str | None = None
+
+
+class TurnFeedbackResult(BaseModel):
+    turn: ConversationTurn
+    # Also a learning signal while "Learn from my activity" is on (docs/learning.md).
+    learning_recorded: bool = False
+    learning_message: str | None = None
 
 
 class ConversationDetail(Conversation):
@@ -146,9 +195,24 @@ class ConversationDetail(Conversation):
     reports: list[ReportCard] = Field(default_factory=list)
 
 
+class ListCursor(BaseModel):
+    """Keyset position in the unpinned part of the list: ``(updated_at, id)`` of the last row."""
+
+    updated_at: datetime
+    id: str
+
+
 class ConversationStoreProtocol(Protocol):
     def create(self, payload: ConversationCreate, context: TenantContext) -> Conversation: ...
-    def list(self, context: TenantContext, limit: int, agent_id: str | None = None) -> list[Conversation]: ...
+    def list(
+        self,
+        context: TenantContext,
+        limit: int,
+        agent_id: str | None = None,
+        *,
+        query: str | None = None,
+        before: ListCursor | None = None,
+    ) -> list[Conversation]: ...
     def get(self, conversation_id: str, context: TenantContext) -> Conversation | None: ...
     def turns(self, conversation: Conversation, *, last: int | None = None) -> list[ConversationTurn]: ...
     def count_turns(self, conversation: Conversation) -> int: ...
@@ -161,6 +225,12 @@ class ConversationStoreProtocol(Protocol):
         card: ChatCard | None = None,
     ) -> ConversationTurn: ...
     def set_title(self, conversation: Conversation, title: str) -> None: ...
+    def set_pinned(self, conversation: Conversation, pinned: bool) -> None: ...
+    def count_pinned(self, context: TenantContext, agent_id: str | None = None) -> int: ...
+    def delete_turns(self, conversation: Conversation, turn_ids: Sequence[str]) -> int: ...
+    def set_feedback(
+        self, conversation: Conversation, turn_id: str, rating: Rating | None, reason: str | None
+    ) -> ConversationTurn | None: ...
     def delete(self, conversation: Conversation) -> None: ...
 
 
@@ -202,13 +272,35 @@ class ConversationStore:
             self.turn_log[conversation.id] = []
         return conversation
 
-    def list(self, context: TenantContext, limit: int, agent_id: str | None = None) -> list[Conversation]:
+    def list(
+        self,
+        context: TenantContext,
+        limit: int,
+        agent_id: str | None = None,
+        *,
+        query: str | None = None,
+        before: ListCursor | None = None,
+    ) -> list[Conversation]:
+        needle = (query or "").strip().casefold()
         with self._lock:
             owned = [
-                item for item in self.conversations.values() if _owned(item, context) and item.agent_id == agent_id
+                item
+                for item in self.conversations.values()
+                if _owned(item, context)
+                and item.agent_id == agent_id
+                and (
+                    not needle
+                    or needle in item.title.casefold()
+                    or any(needle in turn.content.casefold() for turn in self.turn_log.get(item.id, []))
+                )
             ]
-        owned.sort(key=lambda item: (item.updated_at, item.id), reverse=True)
-        return [item.model_copy() for item in owned[:limit]]
+        pinned = sorted((item for item in owned if item.pinned), key=lambda item: (item.pinned_at, item.id), reverse=True)
+        rest = sorted((item for item in owned if not item.pinned), key=lambda item: (item.updated_at, item.id), reverse=True)
+        if before is not None:
+            rest = [item for item in rest if (item.updated_at, item.id) < (before.updated_at, before.id)]
+        # Pinned conversations lead the first page only; the cursor pages the rest.
+        page = ([] if before is not None else pinned) + rest[:limit]
+        return [item.model_copy() for item in page]
 
     def get(self, conversation_id: str, context: TenantContext) -> Conversation | None:
         conversation = self.conversations.get(conversation_id)
@@ -218,7 +310,7 @@ class ConversationStore:
 
     def turns(self, conversation: Conversation, *, last: int | None = None) -> list[ConversationTurn]:
         with self._lock:
-            items = list(self.turn_log.get(conversation.id, []))
+            items = [turn.model_copy(deep=True) for turn in self.turn_log.get(conversation.id, [])]
         return items[-last:] if last else items
 
     def count_turns(self, conversation: Conversation) -> int:
@@ -254,6 +346,41 @@ class ConversationStore:
             stored = self.conversations.get(conversation.id)
             if stored is not None:
                 stored.title = title
+
+    def set_pinned(self, conversation: Conversation, pinned: bool) -> None:
+        with self._lock:
+            stored = self.conversations.get(conversation.id)
+            if stored is not None and stored.pinned != pinned:
+                stored.pinned = pinned
+                stored.pinned_at = utc_now() if pinned else None
+
+    def count_pinned(self, context: TenantContext, agent_id: str | None = None) -> int:
+        with self._lock:
+            return sum(
+                1 for item in self.conversations.values() if _owned(item, context) and item.agent_id == agent_id and item.pinned
+            )
+
+    def delete_turns(self, conversation: Conversation, turn_ids: Sequence[str]) -> int:
+        doomed = set(turn_ids)
+        with self._lock:
+            kept = [turn for turn in self.turn_log.get(conversation.id, []) if turn.id not in doomed]
+            removed = len(self.turn_log.get(conversation.id, [])) - len(kept)
+            if conversation.id in self.turn_log:
+                self.turn_log[conversation.id] = kept
+            if removed and conversation.id in self.conversations:
+                self.conversations[conversation.id].updated_at = utc_now()
+        return removed
+
+    def set_feedback(
+        self, conversation: Conversation, turn_id: str, rating: Rating | None, reason: str | None
+    ) -> ConversationTurn | None:
+        with self._lock:
+            for turn in self.turn_log.get(conversation.id, []):
+                if turn.id == turn_id:
+                    turn.feedback = rating
+                    turn.feedback_reason = reason if rating is not None else None
+                    return turn.model_copy(deep=True)
+        return None
 
     def delete(self, conversation: Conversation) -> None:
         with self._lock:
@@ -574,11 +701,28 @@ async def create_conversation(
 @router.get("", response_model=list[Conversation])
 async def list_conversations(
     agent_id: str | None = Query(default=None, max_length=80, description="Threads with this agent; omitted: the Assistant's"),
+    q: str | None = Query(default=None, max_length=MAX_SEARCH_CHARS, description="Words in the title or any message"),
+    limit: int = Query(default=MAX_CONVERSATIONS_LISTED, ge=1, le=MAX_CONVERSATIONS_PAGE),
+    before_updated_at: datetime | None = Query(default=None, description="Keyset cursor: updated_at of the last unpinned row"),
+    before_id: str | None = Query(default=None, max_length=80, description="Keyset cursor: id of the last unpinned row"),
     context: TenantContext = Depends(tenant_context),
 ) -> list[Conversation]:
+    """Pinned conversations first (first page only), then the rest by latest activity.
+
+    A page holds every pinned match plus at most ``limit`` others; when ``limit`` others
+    came back, the next page starts after the last of them (``before_updated_at`` and
+    ``before_id``).
+    """
     require_permission(context, Permission.TASK_READ)
+    if (before_updated_at is None) != (before_id is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Send both before_updated_at and before_id, or neither",
+        )
+    before = ListCursor(updated_at=before_updated_at, id=before_id) if before_updated_at and before_id else None
+    query = " ".join((q or "").split()) or None
     with open_conversation_store(context) as store:
-        return store.list(context, MAX_CONVERSATIONS_LISTED, agent_id)
+        return store.list(context, limit, agent_id, query=query, before=before)
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
@@ -610,6 +754,107 @@ async def delete_conversation(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.patch("/{conversation_id}", response_model=Conversation)
+async def update_conversation(
+    conversation_id: str,
+    payload: ConversationUpdate,
+    context: TenantContext = Depends(tenant_context),
+) -> Conversation:
+    """Rename (the title then stays: it is no longer set from the first question) or pin."""
+    require_permission(context, Permission.TASK_CREATE)
+    with open_conversation_store(context) as store:
+        conversation = _conversation_or_404(store, conversation_id, context)
+        if payload.pinned and not conversation.pinned:
+            if store.count_pinned(context, conversation.agent_id) >= MAX_PINNED_CONVERSATIONS:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"You can pin up to {MAX_PINNED_CONVERSATIONS} conversations. Unpin one first.",
+                )
+        if payload.title is not None:
+            store.set_title(conversation, " ".join(payload.title.split())[:TITLE_CHARS])
+        if payload.pinned is not None:
+            store.set_pinned(conversation, payload.pinned)
+        return _conversation_or_404(store, conversation_id, context)
+
+
+def _turn_or_404(turns: Sequence[ConversationTurn], turn_id: str) -> int:
+    for index, turn in enumerate(turns):
+        if turn.id == turn_id:
+            return index
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+
+def answer_span(turns: Sequence[ConversationTurn], index: int) -> list[ConversationTurn]:
+    """The turn at ``index``; for a question, with the replies that answered it."""
+    span = [turns[index]]
+    if turns[index].role == TurnRole.USER:
+        for turn in turns[index + 1 :]:
+            if turn.role == TurnRole.USER:
+                break
+            span.append(turn)
+    return span
+
+
+@router.delete("/{conversation_id}/turns/{turn_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_turn(
+    conversation_id: str,
+    turn_id: str,
+    context: TenantContext = Depends(tenant_context),
+) -> Response:
+    """Delete one message: a question goes with its answers, an answer goes alone."""
+    require_permission(context, Permission.TASK_CREATE)
+    with open_conversation_store(context) as store:
+        conversation = _conversation_or_404(store, conversation_id, context)
+        turns = store.turns(conversation)
+        span = answer_span(turns, _turn_or_404(turns, turn_id))
+        store.delete_turns(conversation, [turn.id for turn in span])
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/{conversation_id}/turns/{turn_id}/feedback", response_model=TurnFeedbackResult)
+async def rate_turn(
+    conversation_id: str,
+    turn_id: str,
+    payload: TurnFeedback,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> TurnFeedbackResult:
+    """Thumbs up or down on a complete answer, stored on the turn (private to its user).
+
+    While learning is on the rating is also a learning signal, through the same path as
+    ``POST /api/v1/learning/feedback``; with learning off it is still stored here.
+    """
+    require_permission(context, Permission.TASK_CREATE)
+    with open_conversation_store(context) as store:
+        conversation = _conversation_or_404(store, conversation_id, context)
+        turns = store.turns(conversation)
+        target = turns[_turn_or_404(turns, turn_id)]
+        if target.role != TurnRole.ASSISTANT or target.status != TurnStatus.COMPLETE:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only a complete answer can be rated")
+        reason = " ".join((payload.reason or "").split()) or None
+        updated = store.set_feedback(conversation, turn_id, payload.rating, reason if payload.rating else None)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    result = TurnFeedbackResult(turn=updated)
+    if payload.rating is not None:
+        from .learning_api import FeedbackCreate, record_feedback
+
+        try:
+            learned = await record_feedback(
+                FeedbackCreate(surface=Surface.CHAT, subject_id=turn_id, rating=payload.rating, reason=reason),
+                context,
+                repository,
+            )
+            result.learning_recorded, result.learning_message = learned.recorded, learned.message
+        except Exception as exc:  # the rating is stored on the turn; learning is best effort
+            logger.warning(
+                "conversation_feedback_learning_failed error_class=%s",
+                type(exc).__name__,
+                extra={"anum_conversation": {"event": "feedback_learning_failed", "error_class": type(exc).__name__}},
+            )
+    return result
+
+
 @router.post("/{conversation_id}/ask")
 async def ask_in_conversation(
     conversation_id: str,
@@ -620,7 +865,13 @@ async def ask_in_conversation(
 ) -> StreamingResponse:
     """Ask with the conversation's recent turns as context; the reply streams as SSE."""
     require_permission(context, Permission.TASK_CREATE)
-    if (payload.content is None) == (payload.retry_turn_id is None):
+    if payload.edit_turn_id is not None:
+        if payload.content is None or payload.retry_turn_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Send edit_turn_id with the new content",
+            )
+    elif (payload.content is None) == (payload.retry_turn_id is None):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Send either content or retry_turn_id",
@@ -639,17 +890,33 @@ async def ask_in_conversation(
                     detail="Only the latest question can be asked again",
                 )
             user_turn = user_turns[-1]
-            history = recent[: recent.index(user_turn)]
+            index = recent.index(user_turn)
+            history = recent[:index]
+            # Retry and Regenerate replace the earlier replies to this question.
+            store.delete_turns(conversation, [turn.id for turn in recent[index + 1 :]])
         else:
+            question = (payload.content or "").strip()
+            if not question:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Ask a question")
+            if payload.edit_turn_id is not None:
+                # Edit and resend: the question and everything after it are replaced.
+                every = store.turns(conversation)
+                index = _turn_or_404(every, payload.edit_turn_id)
+                if every[index].role != TurnRole.USER:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only a question can be edited")
+                store.delete_turns(conversation, [turn.id for turn in every[index:]])
+                history = every[:index][-history_window:]
+                # The automatic title follows an edited first question; a renamed one stays.
+                if index == 0 and conversation.title == title_from(every[0].content):
+                    store.set_title(conversation, title_from(question))
+                    conversation.title = title_from(question)
+            else:
+                history = store.turns(conversation, last=history_window)
             if store.count_turns(conversation) + 2 > MAX_TURNS_PER_CONVERSATION:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="This conversation is full. Start a new one.",
                 )
-            history = store.turns(conversation, last=history_window)
-            question = (payload.content or "").strip()
-            if not question:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Ask a question")
             user_turn = store.add_turn(conversation, TurnRole.USER, question, TurnStatus.COMPLETE)
             if not conversation.title:
                 store.set_title(conversation, title_from(question))

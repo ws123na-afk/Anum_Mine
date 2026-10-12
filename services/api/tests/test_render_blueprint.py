@@ -154,6 +154,25 @@ def test_health_checks() -> None:
     assert "location = /healthz" in nginx
 
 
+def test_web_csp_allows_only_the_transformers_dist_path_on_jsdelivr() -> None:
+    """jsdelivr serves every npm package, so the CSP names one versioned folder, not the host.
+
+    transformers.js loads its ONNX runtime loader from
+    ``cdn.jsdelivr.net/npm/@huggingface/transformers@<its version>/dist/``; the CSP path
+    must move with the locked version or the in-browser voice stops loading.
+    """
+    nginx = (REPO_ROOT / "apps" / "web" / "nginx" / "default.conf.template").read_text(encoding="utf-8")
+    csp = next(line for line in nginx.splitlines() if line.strip().startswith("set $csp"))
+    lock = (REPO_ROOT / "pnpm-lock.yaml").read_text(encoding="utf-8")
+    versions = set(re.findall(r"^  '@huggingface/transformers@([0-9][^'(]*)'", lock, flags=re.MULTILINE))
+    assert len(versions) == 1, versions
+    expected = f"https://cdn.jsdelivr.net/npm/@huggingface/transformers@{versions.pop()}/dist/"
+    directives = {part.split()[0]: part.split()[1:] for part in csp.split('"')[1].split(";") if part.strip()}
+    for name in ("script-src", "connect-src"):
+        jsdelivr = [source for source in directives[name] if "jsdelivr" in source]
+        assert jsdelivr == [expected], (name, jsdelivr)
+
+
 def test_keycloak_image_serves_plain_http_behind_renders_tls_proxy() -> None:
     """Render ends TLS and routes to PORT; Keycloak must listen there and trust the proxy."""
     dockerfile = (REPO_ROOT / "infra" / "render" / "keycloak.Dockerfile").read_text(encoding="utf-8")

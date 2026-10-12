@@ -281,6 +281,25 @@ Future<void> pump(WidgetTester tester, MarketingController controller,
 }
 
 void main() {
+  test('only absolute https links are opened from posts and connect pages', () {
+    expect(mkHttpsLink('https://www.linkedin.com/feed/update/1')?.host,
+        'www.linkedin.com');
+    expect(mkHttpsLink('  https://x.com/a/status/1 ')?.path, '/a/status/1');
+    for (final bad in [
+      null,
+      '',
+      'http://example.com/post',
+      'intent://scan/#Intent;scheme=zxing;end',
+      'file:///data/data/com.anum.app/shared_prefs/x.xml',
+      'tel:+971500000000',
+      'javascript:alert(1)',
+      'https:///no-host',
+      '/relative/path',
+    ]) {
+      expect(mkHttpsLink(bad), isNull, reason: '$bad');
+    }
+  });
+
   test('posts parse their approval, actions and composed text', () {
     final post = MkPost.fromJson(JsonReader(postJson('p',
         status: 'pending_approval',

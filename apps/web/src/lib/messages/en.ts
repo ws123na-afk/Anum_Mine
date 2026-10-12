@@ -10,6 +10,7 @@ import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { voiceEn } from './en.voice.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
+import { chatEn } from './chat.en.ts';
 
 export const en = {
   // ---- Commerce (commerce.en.ts) ----
@@ -17,6 +18,7 @@ export const en = {
   ...teamEn,
   ...marketingEn,
   ...agentSkillsEn,
+  ...chatEn,
   // ---- Common ----
   'common.listAnd': '{head} and {last}',
   'common.listSeparator': ', ',

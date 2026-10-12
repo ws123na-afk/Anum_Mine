@@ -15,10 +15,10 @@ interface Options {
   signals?: number;
 }
 
-interface Sent { puts: unknown[]; prefs: unknown[]; prefUpdates: unknown[]; deletes: string[]; detects: unknown[]; routineActions: string[]; applied: string[]; feedback: unknown[]; signalQueries: string[]; settings: unknown[] }
+interface Sent { ratings: unknown[]; puts: unknown[]; prefs: unknown[]; prefUpdates: unknown[]; deletes: string[]; detects: unknown[]; routineActions: string[]; applied: string[]; feedback: unknown[]; signalQueries: string[]; settings: unknown[] }
 
 async function mockApi(page: Page, options: Options = {}): Promise<Sent> {
-  const sent: Sent = { puts: [], prefs: [], prefUpdates: [], deletes: [], detects: [], routineActions: [], applied: [], feedback: [], signalQueries: [], settings: [] };
+  const sent: Sent = { ratings: [], puts: [], prefs: [], prefUpdates: [], deletes: [], detects: [], routineActions: [], applied: [], feedback: [], signalQueries: [], settings: [] };
   let overviewFailures = options.overview === 500 ? 1 : 0;
   let enabled = true;
   let overrides: Record<string, unknown> = {};
@@ -118,6 +118,13 @@ async function mockApi(page: Page, options: Options = {}): Promise<Sent> {
       ] });
     }
     if (path === '/api/v1/learning/ratings') return json({ ratings: [] });
+    // Thumbs are stored on the answer; the server forwards them to learning while it is on.
+    if (path === '/api/v1/conversations/conv_1/turns/t2/feedback' && method === 'PUT') {
+      const body = request.postDataJSON() as { rating: string | null; reason?: string };
+      sent.ratings.push(body);
+      const off = options.state === 'off_by_user';
+      return json({ turn: { id: 't2', feedback: body.rating }, learning_recorded: !off && body.rating !== null, learning_message: off ? 'Learning is off. Turn on Learn from my activity to use this.' : null });
+    }
     if (path === '/api/v1/learning/feedback') {
       const body = request.postDataJSON();
       sent.feedback.push(body);
@@ -275,21 +282,24 @@ test('Assistant answers take Helpful, Not helpful with a reason, and Edit to tea
   await answer.getByRole('textbox', { name: /Rewrite the answer/ }).fill('Order 42 ships Sunday. Tracking: SA123.');
   await answer.getByRole('button', { name: 'Save my version' }).click();
   await expect(answer.getByText('Saved. ANUM will learn your style from this edit.')).toBeVisible();
+  // Ratings go to the answer itself (stored whatever the learning setting); Edit to teach goes to learning.
+  expect(sent.ratings).toEqual([{ rating: 'up' }, { rating: 'down' }, { rating: 'down', reason: 'Missing the tracking number' }]);
   expect(sent.feedback).toEqual([
-    { surface: 'chat', subject_id: 't2', rating: 'up' },
-    { surface: 'chat', subject_id: 't2', rating: 'down' },
-    { surface: 'chat', subject_id: 't2', rating: 'down', reason: 'Missing the tracking number' },
     { surface: 'chat', subject_id: 't2', original: 'Order 42 ships on Sunday from the Riyadh warehouse.', final: 'Order 42 ships Sunday. Tracking: SA123.' },
   ]);
 });
 
-test('with learning off, feedback says it was not saved and why', async ({ page }) => {
-  await mockApi(page, { state: 'off_by_user' });
+test('with learning off, a rating is saved on the answer and says ANUM did not learn from it', async ({ page }) => {
+  const sent = await mockApi(page, { state: 'off_by_user' });
   await page.goto('/#assistant');
   const answer = page.locator('.chatTurn.assistant').first();
   await answer.getByRole('button', { name: 'Helpful', exact: true }).click();
-  await expect(answer.getByRole('alert')).toHaveText('Learning is off. Turn on Learn from my activity to use this.');
+  await expect(answer.getByRole('status').filter({ hasText: 'Saved on this answer' })).toHaveText('Saved on this answer. ANUM did not learn from it: Learning is off. Turn on Learn from my activity to use this.');
+  await expect(answer.getByRole('button', { name: 'Helpful', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  // Pressing it again clears the rating.
+  await answer.getByRole('button', { name: 'Helpful', exact: true }).click();
   await expect(answer.getByRole('button', { name: 'Helpful', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  expect(sent.ratings).toEqual([{ rating: 'up' }, { rating: null }]);
 });
 
 test.describe('Arabic', () => {
