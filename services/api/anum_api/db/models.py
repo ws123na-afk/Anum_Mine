@@ -1031,6 +1031,8 @@ class ConversationTurnRecord(Base, WorkspaceScopedMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # The card of a question run as a task (migration 0047_chat_cards); null for plain chat.
+    card: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # Insertion order: turns are read back in the order they were written.
     seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
 

@@ -6,12 +6,16 @@ A conversation belongs to the user who started it, in one tenant and workspace. 
 ``conversation_turns`` under tenant, workspace and user RLS (migration 0018,
 ``anum_api.db.conversation_repository``). See docs/conversations.md.
 
-Asking is text-only: the assistant has no tools, so the runtime's tool mediation and
-approvals are never bypassed. Anything that changes state goes through tasks.
+Plain conversation is text only: the chat model has no tools. A question that needs
+workspace data or an action (mail, WhatsApp, the web, files, "send ...") is turned into a
+task and run through the runtime like any task (planner, ToolPolicy, autonomy, approvals);
+the outcome streams back as a card on the assistant turn (``anum_api.chat_tools``), so the
+runtime's tool mediation and approvals are never bypassed.
 
 ``POST /api/v1/conversations/{id}/ask`` answers with server-sent events:
 
 - ``turn``: ``{"user_turn": ConversationTurn}`` once the question is stored;
+- ``tool``: ``{"card": ChatCard}`` when the question became a task (running, then settled);
 - ``delta``: ``{"text": "..."}`` for each piece of the reply as the model produces it;
 - ``done``: ``{"assistant_turn": ConversationTurn, "report": ReportCard | null}`` when the
   reply is complete (``report`` when the answer was a structured analysis, docs/reports.md);
@@ -43,7 +47,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
+from . import chat_tools
 from .authorization import Permission
+from .chat_tools import ChatCard, ChatCategory
 from .conversation_memory import (
     RECALL_PREFACE,
     CompletedReply,
@@ -77,9 +83,12 @@ SYSTEM_PROMPT = (
     "You are Anum, a fast, friendly assistant inside ANUM, a governed agent workbench. "
     "Answer conversationally and get to the point: lead with the answer, keep it short "
     "unless the user asks for depth, and use Markdown lists or code blocks only when they help. "
-    "You have no tools in this chat: you cannot approve, delete, pay, send messages or change "
-    "permissions. When the user wants something done, suggest creating a task, which runs "
-    "under the workspace's approvals.\n\n" + REPORT_BLOCK_INSTRUCTIONS
+    "You have no tools in this reply: you cannot approve, delete, pay, send messages or change "
+    "permissions. Questions about the user's email, WhatsApp, files or the web, and requests "
+    "to act, are run by ANUM as governed tasks and shown as cards in this chat; if the user "
+    "wants something done that you cannot see, suggest asking for it directly (for example "
+    "\"any urgent customer emails?\") or creating a task, which runs under the workspace's approvals.\n\n"
+    + REPORT_BLOCK_INSTRUCTIONS
 )
 
 
@@ -122,6 +131,9 @@ class ConversationTurn(BaseModel):
     content: str
     status: TurnStatus
     created_at: datetime
+    # Set when the question was run as a task: its results, approval or failure
+    # (docs/conversations.md#tools-in-chat). None for plain conversation.
+    card: ChatCard | None = None
 
 
 class ConversationDetail(Conversation):
@@ -137,7 +149,12 @@ class ConversationStoreProtocol(Protocol):
     def turns(self, conversation: Conversation, *, last: int | None = None) -> list[ConversationTurn]: ...
     def count_turns(self, conversation: Conversation) -> int: ...
     def add_turn(
-        self, conversation: Conversation, role: TurnRole, content: str, turn_status: TurnStatus
+        self,
+        conversation: Conversation,
+        role: TurnRole,
+        content: str,
+        turn_status: TurnStatus,
+        card: ChatCard | None = None,
     ) -> ConversationTurn: ...
     def set_title(self, conversation: Conversation, title: str) -> None: ...
     def delete(self, conversation: Conversation) -> None: ...
@@ -202,7 +219,12 @@ class ConversationStore:
             return len(self.turn_log.get(conversation.id, []))
 
     def add_turn(
-        self, conversation: Conversation, role: TurnRole, content: str, turn_status: TurnStatus
+        self,
+        conversation: Conversation,
+        role: TurnRole,
+        content: str,
+        turn_status: TurnStatus,
+        card: ChatCard | None = None,
     ) -> ConversationTurn:
         turn = ConversationTurn(
             id=new_id("turn"),
@@ -211,6 +233,7 @@ class ConversationStore:
             content=content,
             status=turn_status,
             created_at=utc_now(),
+            card=card.model_copy(deep=True) if card is not None else None,
         )
         with self._lock:
             if conversation.id not in self.conversations:
@@ -393,14 +416,18 @@ async def stream_reply(
 
 
 def _store_reply(
-    context: TenantContext, conversation: Conversation, text: str, outcome: TurnStatus
+    context: TenantContext,
+    conversation: Conversation,
+    text: str,
+    outcome: TurnStatus,
+    card: ChatCard | None = None,
 ) -> ConversationTurn | None:
     try:
         with open_conversation_store(context) as store:
             # Deleted while the model was answering: nothing to write back into.
             if store.get(conversation.id, context) is None:
                 return None
-            return store.add_turn(conversation, TurnRole.ASSISTANT, text, outcome)
+            return store.add_turn(conversation, TurnRole.ASSISTANT, text, outcome, card)
     except Exception as exc:  # the reply was already streamed; never fail the stream here
         logger.warning(
             "conversation_reply_store_failed error_class=%s",
@@ -408,6 +435,90 @@ def _store_reply(
             extra={"anum_conversation": {"event": "store_failed", "error_class": type(exc).__name__}},
         )
         return None
+
+
+async def stream_tool_reply(
+    *,
+    context: TenantContext,
+    conversation: Conversation,
+    user_turn: ConversationTurn,
+    category: ChatCategory,
+    gateway: ModelGateway,
+    runtime_config: chat_tools.ChatTaskRuntime,
+    learned_block: str | None = None,
+) -> AsyncIterator[str]:
+    """The ``ask`` body for a question that needs data or an action (docs/conversations.md#tools-in-chat).
+
+    The question becomes a task, stored in its own committed unit of work, then runs in
+    another exactly as ``POST /tasks/{id}/run`` runs it. ``tool`` events carry the card
+    (running, then settled); a results card from mail, WhatsApp or the web gets a short
+    model-written answer streamed as ``delta``s, with the tool output as untrusted data.
+    """
+    yield sse("turn", {"user_turn": user_turn.model_dump(mode="json"), "memories_used": []})
+    card = ChatCard(state="running", category=category)
+    parts: list[str] = []
+    try:
+        outcome: chat_tools.ChatRunOutcome | None = None
+        if not has_permission(context, Permission.TASK_RUN):
+            card = chat_tools.denied_card(category)
+        else:
+            task_id: str | None = None
+            try:
+                task = await asyncio.to_thread(chat_tools.create_task, user_turn.content, context)
+                task_id = task.id
+                card = ChatCard(state="running", category=category, task_id=task.id, summary="The task is running.")
+                yield sse("tool", {"card": card.model_dump(mode="json")})
+                outcome = await chat_tools.run_task(task, category, context, gateway, runtime_config)
+            except (asyncio.CancelledError, GeneratorExit):
+                raise
+            except Exception as exc:  # said on the card; only the class name is logged
+                logger.warning(
+                    "conversation_task_failed error_class=%s",
+                    type(exc).__name__,
+                    extra={"anum_conversation": {"event": "task_failed", "error_class": type(exc).__name__}},
+                )
+                code, message = chat_tools.describe_run_error(exc, saved=task_id is not None)
+                card = chat_tools.failed_card(category, task_id, message, code)
+        if outcome is not None:
+            card = outcome.card
+            if card.state == "running":
+                # Queued for the durable runtime: follow it for a while.
+                async for fresh in chat_tools.follow_durable(card, context):
+                    card = fresh
+        yield sse("tool", {"card": card.model_dump(mode="json")})
+        if outcome is not None and outcome.call is not None and chat_tools.needs_summary(card, outcome.result):
+            messages = chat_tools.summary_messages(
+                user_turn.content,
+                outcome.call,
+                outcome.result,  # type: ignore[arg-type]
+                target=outcome.target,
+                learned_block=learned_block,
+            )
+            try:
+                async for chunk in route_gateway(gateway, ModelRoute.FAST).stream_chat(messages):
+                    parts.append(chunk)
+                    yield sse("delta", {"text": chunk})
+            except (asyncio.CancelledError, GeneratorExit):
+                raise
+            except Exception as exc:  # the card already holds the answer
+                logger.warning(
+                    "conversation_tool_summary_failed error_class=%s",
+                    type(exc).__name__,
+                    extra={"anum_conversation": {"event": "summary_failed", "error_class": type(exc).__name__}},
+                )
+    except (asyncio.CancelledError, GeneratorExit):
+        # Stopped: a run that had not settled was rolled back; its task stays in Tasks.
+        if card.state == "running":
+            card = card.model_copy(update={"state": "cancelled", "summary": chat_tools.STOPPED_SUMMARY})
+        _store_reply(context, conversation, "".join(parts), TurnStatus.CANCELLED, card)
+        raise
+    if not "".join(parts).strip():
+        text = chat_tools.turn_text(card)
+        parts = [text]
+        if text:
+            yield sse("delta", {"text": text})
+    assistant_turn = _store_reply(context, conversation, "".join(parts), TurnStatus.COMPLETE, card)
+    yield sse("done", {"assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None})
 
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
@@ -448,6 +559,10 @@ async def get_conversation(
     with open_conversation_store(context) as store:
         conversation = _conversation_or_404(store, conversation_id, context)
         turns = store.turns(conversation)
+    # Cards waiting on an approval or a durable run show what happened since.
+    for turn in turns:
+        if turn.card is not None and turn.card.state in {"running", "approval"}:
+            turn.card = chat_tools.refresh_card(turn.card, context)
     return ConversationDetail(
         **conversation.model_dump(), turns=turns, reports=cards_for_conversation(context, conversation.id)
     )
@@ -510,6 +625,28 @@ async def ask_in_conversation(
     if payload.retry_turn_id is not None:
         # Asking again is a sign the answer missed (docs/learning.md); recorded only while learning is on.
         record_server_signal(context, new_signal(SignalKind.RETRY, Surface.CHAT, subject_id=user_turn.id))
+    runtime_config = chat_tools.configured()
+    category = (
+        chat_tools.chat_intent(user_turn.content, runtime_config.skills, runtime_config.tools.names)
+        if runtime_config is not None
+        else None
+    )
+    if runtime_config is not None and category is not None:
+        # Data or an action: a governed task, never a tool call from the chat model. No
+        # memory pass: the reply quotes mailbox, WhatsApp or web data, not the user.
+        return StreamingResponse(
+            stream_tool_reply(
+                context=context,
+                conversation=conversation,
+                user_turn=user_turn,
+                category=category,
+                gateway=gateway,
+                runtime_config=runtime_config,
+                learned_block=learned_instructions(context, surface=Surface.CHAT.value),
+            ),
+            media_type="text/event-stream",
+            headers=SSE_HEADERS,
+        )
     recall = await recall_memories(context, user_turn.content)
     # A tyre question is grounded in the workspace's tyre data through a read-only tool,
     # decided by tool policy (anum_api/tyre/tools.py); the model never calls tools here.

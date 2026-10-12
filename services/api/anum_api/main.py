@@ -112,6 +112,8 @@ from .hardening import BodyLimitRule, docs_routes, enforce_startup_policy, insta
 from .meetings import router as meetings_router
 from .voice import router as voice_router
 from .voice_call import call_router as voice_call_router
+from . import chat_tools
+from .agent_skills import default_skill_registry
 from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
@@ -333,6 +335,20 @@ run_locks = build_run_lock_manager(settings)
 run_dispatcher = build_run_dispatcher(settings)
 # The autonomy routes run undo actions through the same registry (docs/autonomy.md).
 app.state.tool_registry = tool_registry
+# Chat questions that need data or an action run as tasks through this same runtime,
+# registry and durable dispatcher (docs/conversations.md#tools-in-chat).
+chat_tools.configure(
+    chat_tools.ChatTaskRuntime(
+        tools=tool_registry,
+        skills=default_skill_registry(),
+        retriever=lambda context: retriever_for(context, model_gateway),
+        durable=(
+            (lambda task, context, repository, runtime: _queue_durable_run(task, context, repository, runtime))
+            if run_dispatcher is not None
+            else None
+        ),
+    )
+)
 
 
 @asynccontextmanager

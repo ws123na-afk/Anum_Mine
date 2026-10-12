@@ -96,7 +96,9 @@ def choose_tool_call(
         # Read-only: which conversations need attention. Replies are drafted and sent
         # from the inbox, where a person approves them (docs/whatsapp.md#agent-tools).
         words = set(prompt.lower().split())
-        waiting = bool(words & {"reply", "replies", "unanswered", "answer", "waiting"})
+        waiting = bool(
+            words & {"reply", "replies", "unanswered", "answer", "waiting", "ينتظر", "تنتظر", "بانتظار", "رد", "الرد"}
+        )
         return ToolCall(
             name="list_whatsapp_conversations",
             arguments={"filter": "needs_reply" if waiting else "all", "limit": 20},

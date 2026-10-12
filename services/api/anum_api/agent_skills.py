@@ -92,7 +92,8 @@ def default_skill_registry() -> SkillRegistry:
                 name="Web search",
                 description="Looks things up on the web through the deployment's private SearXNG.",
                 triggers=frozenset(
-                    {"search", "web", "internet", "online", "lookup", "google", "news", "ابحث", "إنترنت", "انترنت", "أخبار", "اخبار"}
+                    {"search", "web", "internet", "online", "lookup", "google", "news",
+                     "ابحث", "بحث", "الإنترنت", "الانترنت", "إنترنت", "انترنت", "أخبار", "اخبار"}
                 ),
                 # Selectable only where ANUM_SEARXNG_URL registered the tool.
                 required_tools=frozenset({"web_search"}),
@@ -102,7 +103,7 @@ def default_skill_registry() -> SkillRegistry:
                 version="1.0.0",
                 name="WhatsApp inbox",
                 description="Reads the workspace's WhatsApp conversations; replies are drafted and sent from the inbox with approval.",
-                triggers=frozenset({"whatsapp", "واتساب", "واتس"}),
+                triggers=frozenset({"whatsapp", "واتساب", "الواتساب", "واتس", "الواتس", "وتساب"}),
                 required_tools=frozenset({"list_whatsapp_conversations"}),
             ),
             SkillManifest(
@@ -111,10 +112,9 @@ def default_skill_registry() -> SkillRegistry:
                 name="Email inbox",
                 description="Finds and summarises emails in the connected Gmail, Outlook and Zoho mailboxes.",
                 triggers=frozenset(
-                    {
-                        "email", "emails", "e-mail", "e-mails", "inbox", "mail", "mails", "gmail", "outlook", "zoho",
-                        "بريد", "بريدي", "إيميل", "ايميل", "إيميلات", "ايميلات", "إيميلاتي", "ايميلاتي",
-                    }
+                    {"email", "emails", "e-mail", "e-mails", "inbox", "mail", "mails", "gmail", "outlook", "zoho",
+                     "بريد", "البريد", "بريدي", "ايميل", "إيميل", "الايميل", "الإيميل", "ايميلات", "إيميلات",
+                     "الايميلات", "الإيميلات", "إيميلاتي", "ايميلاتي"}
                 ),
                 # Selectable wherever the email tools are registered (docs/email.md).
                 required_tools=frozenset({"search_email"}),

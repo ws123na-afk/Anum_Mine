@@ -18,6 +18,7 @@ from datetime import datetime
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
+from anum_api.chat_tools import ChatCard
 from anum_api.conversations import (
     Conversation,
     ConversationCreate,
@@ -52,7 +53,18 @@ def _turn(record: ConversationTurnRecord) -> ConversationTurn:
         content=record.content,
         status=TurnStatus(record.status),
         created_at=record.created_at,
+        card=_card(record.card),
     )
+
+
+def _card(value: object) -> ChatCard | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return ChatCard.model_validate(value)
+    except ValueError:
+        # A card this release cannot read (a newer one wrote it): the text still shows.
+        return None
 
 
 class SqlAlchemyConversationStore:
@@ -126,7 +138,12 @@ class SqlAlchemyConversationStore:
         )
 
     def add_turn(
-        self, conversation: Conversation, role: TurnRole, content: str, turn_status: TurnStatus
+        self,
+        conversation: Conversation,
+        role: TurnRole,
+        content: str,
+        turn_status: TurnStatus,
+        card: ChatCard | None = None,
     ) -> ConversationTurn:
         now = utc_now()
         record = ConversationTurnRecord(
@@ -139,6 +156,7 @@ class SqlAlchemyConversationStore:
             content=content,
             status=turn_status.value,
             created_at=now,
+            card=card.model_dump(mode="json") if card is not None else None,
         )
         self.session.add(record)
         self.session.flush()

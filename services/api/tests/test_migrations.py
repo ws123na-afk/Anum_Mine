@@ -703,3 +703,18 @@ def test_marketing_migration_is_expand_only_with_forced_rls_and_discovery_only_g
     assert "text" not in upgrade.split("grant select (id, tenant_id, workspace_id, status", 1)[1].split(")", 1)[0]
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade and "add_column" not in upgrade
+
+
+def test_chat_cards_migration_adds_one_nullable_column() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0047_chat_cards.py").read_text(encoding="utf-8")
+    assert 'revision = "0047_chat_cards"' in revision_text
+    assert len("0047_chat_cards") <= 32
+    assert 'down_revision = "0040_marketing"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0047_chat_cards.py"]
+    assert not [path for path in others if 'down_revision = "0040_marketing"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # One nullable column the previous release never reads or writes.
+    assert upgrade.count("op.add_column(") == 1 and "nullable=true" in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
