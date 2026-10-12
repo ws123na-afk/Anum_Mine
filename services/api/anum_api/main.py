@@ -1247,7 +1247,12 @@ async def stream_events(
     follow: bool = True,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    # scope="function": the membership check's session is committed and returned to the
+    # pool before the stream starts. With the default scope FastAPI keeps it open until
+    # the response ends, so every open tab held a pooled connection "idle in transaction"
+    # and a few tabs exhausted the pool (the API then hung). The body reads through
+    # list_events_for_stream, in a thread, with a short session per poll.
+    repository: AnumRepository = Depends(repository_context, scope="function"),
 ) -> StreamingResponse:
     require_permission(context, Permission.EVENT_READ)
     sse_headers = {
@@ -1274,7 +1279,8 @@ async def stream_events(
         cursor = last_event_id
         idle_cycles = 0
         while not await request.is_disconnected():
-            events = list_events_for_stream(context)
+            # Off the event loop: a blocking read here stalled every other request.
+            events = await asyncio.to_thread(list_events_for_stream, context, cursor)
             if task_id:
                 events = [
                     event

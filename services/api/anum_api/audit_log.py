@@ -281,7 +281,8 @@ async def export_audit(
     format: str = Query(default="json", pattern="^(json|csv)$"),
     filters: AuditFilter = Depends(audit_filter),
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    # Released before the body streams (see stream_events in main.py).
+    repository: AnumRepository = Depends(repository_context, scope="function"),
 ) -> StreamingResponse:
     """Download the filtered audit log as JSON (an array) or CSV, newest first.
 
