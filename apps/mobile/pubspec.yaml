@@ -43,3 +43,36 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Bundled type (owner decision 12 Oct 2026, docs/mobile.md#fonts): Inter cut to
+  # Latin and Noto Sans Arabic, static instances per weight from the variable
+  # Google Fonts sources, SIL Open Font License (licences registered at start-up
+  # from assets/fonts/OFL-*.txt). Weights the app uses: 400 to 800 (900 falls
+  # back to 800).
+  assets:
+    - assets/fonts/OFL-Inter.txt
+    - assets/fonts/OFL-NotoSansArabic.txt
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-400.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-500.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-600.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-700.ttf
+          weight: 700
+        - asset: assets/fonts/Inter-800.ttf
+          weight: 800
+    - family: Noto Sans Arabic
+      fonts:
+        - asset: assets/fonts/NotoSansArabic-400.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansArabic-500.ttf
+          weight: 500
+        - asset: assets/fonts/NotoSansArabic-600.ttf
+          weight: 600
+        - asset: assets/fonts/NotoSansArabic-700.ttf
+          weight: 700
+        - asset: assets/fonts/NotoSansArabic-800.ttf
+          weight: 800

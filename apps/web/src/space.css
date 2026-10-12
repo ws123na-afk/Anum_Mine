@@ -4,7 +4,9 @@
 .spaceOrb .spaceCanvas { display: block; height: 100%; inset: 0; position: absolute; touch-action: none; width: 100%; }
 
 /* Compact: the round orb on the Voice and Call pages, inside the orb button. */
-.spaceOrb.compact { border-radius: 50%; inset: 0; overflow: hidden; position: absolute; }
+.spaceOrb.compact {
+  background: radial-gradient(circle at 35% 32%, #0d172b 0%, #040711 60%, #010308 100%); border-radius: 50%; inset: 0; overflow: hidden; position: absolute;
+}
 
 /* Full: the cinematic stage in the full-screen view. container-type lets the talk button match the
    projected sphere (radius min(20% of the width, 20.5% of the height), centred at 51% / 45%). */

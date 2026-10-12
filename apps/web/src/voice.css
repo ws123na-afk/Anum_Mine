@@ -34,10 +34,10 @@
 .voiceOrbBlob.b1 { animation: voiceDrift 9s ease-in-out infinite; background: radial-gradient(circle at 35% 35%, var(--d-sky), transparent 62%); }
 .voiceOrbBlob.b2 { animation: voiceDrift 11s ease-in-out -3s infinite reverse; background: radial-gradient(circle at 65% 40%, var(--d-violet), transparent 60%); }
 .voiceOrbBlob.b3 { animation: voiceDrift 13s ease-in-out -6s infinite; background: radial-gradient(circle at 50% 70%, var(--d-rose), transparent 58%); }
-.orb3d { pointer-events: none; position: absolute; }
-/* The 3D scene draws its own rings and halo; the CSS ones stay for the reduced-motion fallback. */
-.voiceOrb:has(.orb3d) .voiceOrbHalo, .voiceOrb:has(.orb3d) .voiceOrbGlow { display: none; }
-.orb3d canvas { display: block; height: 100% !important; width: 100% !important; }
+/* The space orb (space.css) draws its own rings and glow; the CSS ones stay for the fallback when
+   no 2D canvas is available. The space disc is painted by CSS too, so the orb is never blank
+   before the scene's first frame. */
+.voiceOrb:has(.spaceOrb) .voiceOrbHalo, .voiceOrb:has(.spaceOrb) .voiceOrbGlow { display: none; }
 .voiceOrbIcon { color: #fff; display: grid; inset: 0; opacity: 0; place-items: center; position: absolute; transition: opacity 160ms var(--d-ease); }
 .voiceOrbIcon svg { filter: drop-shadow(0 1px 8px rgba(11, 16, 32, .6)); }
 /* The icon shows on hover, focus and while listening; idle, the orb itself is the invitation. */

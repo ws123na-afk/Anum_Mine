@@ -129,6 +129,7 @@ describe('shell model', () => {
     assert.equal(viewFromHash(''), 'home');
     assert.equal(viewFromHash('#tasks'), 'tasks');
     assert.equal(viewFromHash('#language'), 'settings');
+    assert.equal(viewFromHash('#connections'), 'integrations');
     assert.equal(viewFromHash('#invitation=abc'), 'members');
     assert.equal(viewFromHash('#nope'), 'home');
   });
