@@ -548,6 +548,8 @@ class WebhookCounts(BaseModel):
     statuses: int = 0
     echoes: int = 0
     conversations: list[str] = Field(default_factory=list)
+    # New inbound texts for assistant auto-routing (never logged or returned).
+    arrived: list[tuple[str, str, str]] = Field(default_factory=list, exclude=True)
 
 
 def _record_message(
@@ -596,6 +598,10 @@ def _record_message(
         conversation.needs_triage = True
         if conversation.id not in counts.conversations:
             counts.conversations.append(conversation.id)
+        text = message.body or (message.media.caption if message.media else "") or ""
+        if text.strip():
+            sender = f"{contact.profile_name} (+{wa_id})" if contact.profile_name else f"+{wa_id}"
+            counts.arrived.append((sender, text, conversation.id))
     else:
         counts.echoes += 1
     conversation.updated_at = now
@@ -696,6 +702,19 @@ def process_value(
     if isinstance(errors, list) and errors and isinstance(errors[0], dict):
         return str(errors[0].get("title") or errors[0].get("message") or "Meta reported an error.")[:300]
     return None
+
+
+def _route_to_assistants(context: TenantContext, arrived: list[tuple[str, str, str]]) -> int:
+    """Hand new inbound messages to department assistants that opted into WhatsApp.
+
+    Best effort, after the webhook stored them: never raises (docs/team-work.md#inbound-routing).
+    """
+    from .assistants import ArrivedMessage, auto_route_inbound
+
+    return auto_route_inbound(
+        context.tenant_id, context.workspace_id, "whatsapp",
+        [ArrivedMessage(sender=sender, body=body, external_ref=f"whatsapp:{conversation_id}") for sender, body, conversation_id in arrived],
+    )
 
 
 # -- triage ---------------------------------------------------------------------------------
@@ -1737,6 +1756,8 @@ async def receive_webhook(request: Request, background: BackgroundTasks) -> Resp
                 store.save_account(account, access_token=None, app_secret=None)
         if counts.conversations:
             background.add_task(triage_conversations, context, list(counts.conversations))
+        if counts.arrived:
+            background.add_task(_route_to_assistants, context, list(counts.arrived))
         for name in ("messages", "duplicates", "stale", "statuses", "echoes"):
             setattr(total, name, getattr(total, name) + getattr(counts, name))
     logger.info(

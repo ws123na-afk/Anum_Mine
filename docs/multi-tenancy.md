@@ -38,6 +38,9 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` every control-plane store is a tenant 
 | Tenant | `skill_versions`, `policy_packs`, `role_templates`, `approval_rules`, `memory_governance`, `marketplace_packages`, `routing_targets` | `tenant_id` |
 | Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `integration_health_checks`, `integration_credentials` (migration `0030_integration_health`; `anum_maintenance` sees only the scope columns of credentials, for key rotation), `workspace_files`, `notification_preferences` (per user), `automation_workflows`, `automation_schedules`, `automation_runs` (migration `0011_voice_automation`), `retrieval_sources`, `retrieval_chunks` (migration `0014_retrieval_index`, [Memory](memory.md#retrieval)) | `tenant_id` and `workspace_id` |
 | User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`), `conversations`, `conversation_turns` (migration `0018_conversations`), `push_devices` (migration `0027_push_devices`, [Notifications](notifications.md#devices)), `learning_signals`, `learning_profiles`, `learning_preferences`, `learning_routines`, `learning_notes`, `learning_suggestions` (migration `0036_learning`, [What ANUM learned](learning.md)) | `tenant_id`, `workspace_id` and `user_id` |
+| User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`), `conversations`, `conversation_turns` (migration `0018_conversations`), `push_devices` (migration `0027_push_devices`, [Notifications](notifications.md#devices)) | `tenant_id`, `workspace_id` and `user_id` |
+| Workspace (team work) | `team_member_profiles`, `work_items`, `work_item_comments`, `work_item_checklist`, `work_item_attachments`, `assistant_profiles`, `team_activity` (select and insert only), `user_notifications` (insert by anyone in the workspace; select, update and delete also need `anum.user_id` = the recipient) (migration `0039_team_work`, [Team work](team-work.md)) | `tenant_id` and `workspace_id` |
+| Tenant (organisations) | `tenant_branding`, `platform_organizations` (migration `0039_team_work`, [Customer organisations](customer-organisations.md)) | `tenant_id` |
 | User, tenant-wide | `user_preferences` (migration `0025_user_preferences`, [Memory](memory.md#per-user-switch)) | `tenant_id` and `user_id` |
 | Workspace, with private rows | `memories`, `retrieval_sources` (owner column and restrictive policy from migration `0021_memory_sources`, [Memory](memory.md#from-conversations)) | `tenant_id` and `workspace_id`; a row with an `owner_user_id` also needs `anum.user_id` = that owner |
 
@@ -72,6 +75,8 @@ They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automa
    | `retrieval_sources` (`0015`) | `tenant_id`, `workspace_id`, `source_type`, `source_id`, `source_expires_at` | `source_type = 'memory' and source_expires_at <= now()` |
    | `whatsapp_accounts` (`0031`) | `tenant_id`, `workspace_id`, `phone_number_id`, `verify_token_hash` | `true` (the WhatsApp webhook finds the workspace that owns a phone number id, and whether any workspace saved a verify token; never the encrypted token or app secret, [WhatsApp](whatsapp.md#webhook)) |
    | `tyre_connections` (`0037`) | `tenant_id`, `workspace_id` | `secret_ciphertext is not null` |
+   | `work_items` (`0039`) | `id`, `tenant_id`, `workspace_id`, `status`, `due_at`, `follow_up_at`, `reminder_sent_at` | open, and due without a reminder yet or past its follow-up time |
+   | `user_notifications` (`0039`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `email_status`, `email_attempts` | `email_status = 'pending' and email_attempts < 3` |
    | `conversations` (`0019`) | `id`, `tenant_id`, `workspace_id`, `user_id`, `updated_at` | `updated_at <= now() - interval '1 day'` (the purge then filters on the configured retention) |
    | `developer_requests` (`0026`) | `id`, `tenant_id`, `workspace_id`, `status` | `status in ('queued', 'coding', 'ci_running', 'ci_failed', 'waiting_approval')` |
    | `developer_projects` (`0031`) | `id`, `tenant_id`, `workspace_id` | `token_ciphertext is not null` |
@@ -99,6 +104,15 @@ Deployment:
 - Like the other NOLOGIN roles it is cluster-wide and survives a downgrade without privileges.
 
 `tests/test_postgres_membership_directory.py` checks the rows, columns, writes and the `INHERIT FALSE` behaviour.
+
+## Platform Reader and Tenant Directory
+
+Migration `0039_team_work` adds two more narrow NOLOGIN roles on the same pattern (no `BYPASSRLS`, no writes, column grants only, used with `SET LOCAL ROLE` in a rolled-back transaction, granted to the API login `WITH INHERIT FALSE, SET TRUE`):
+
+- `anum_platform_reader`: counts and health of the organisations a platform operator onboarded (ids, statuses and timestamps only).
+- `anum_tenant_directory`: the organisations and workspaces where `anum.user_id` has an active membership, for the tenant switcher.
+
+Details and tests: [Customer organisations](customer-organisations.md#counts-without-contents).
 
 ## Cross-Tenant Data
 

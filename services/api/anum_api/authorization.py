@@ -90,6 +90,16 @@ class Permission(StrEnum):
     MEETING_READ = "meeting:read"
     MEETING_CREATE = "meeting:create"
     MEETING_MANAGE = "meeting:manage"
+    # Team work (docs/team-work.md#permissions): every member reads the workspace's work
+    # items; members and owners create, comment and edit what they created or are assigned;
+    # owners edit and delete any item, edit anyone's profile and manage assistants.
+    WORK_READ = "work:read"
+    WORK_MANAGE = "work:manage"
+    WORK_ADMIN = "work:admin"
+    ASSISTANT_MANAGE = "assistant:manage"
+    # Platform operator (docs/customer-organisations.md): onboards customer organisations
+    # and reads their counts and health. Granted only by the platform_operator realm role.
+    PLATFORM_OPERATE = "platform:operate"
 
 
 class OrganizationRole(StrEnum):
@@ -97,6 +107,9 @@ class OrganizationRole(StrEnum):
     ``oidc`` mode), never from a workspace membership, and apply to the token's tenant only."""
 
     ADMIN = "org_admin"
+    # The person running this ANUM deployment for customer companies. Like org_admin it
+    # comes from the identity provider only and applies to the token's home tenant.
+    PLATFORM_OPERATOR = "platform_operator"
 
 
 class AuthorizationFailure(StrEnum):
@@ -139,13 +152,17 @@ _READ_PERMISSIONS = frozenset(
         Permission.COMMERCE_READ,
         Permission.TYRE_READ,
         Permission.MEETING_READ,
+        Permission.WORK_READ,
     }
 )
 
-ORGANIZATION_PERMISSIONS = frozenset({Permission.ORG_POLICY_MANAGE})
+ORGANIZATION_PERMISSIONS = frozenset({Permission.ORG_POLICY_MANAGE, Permission.PLATFORM_OPERATE})
 
 ORGANIZATION_ROLE_PERMISSIONS: Mapping[OrganizationRole, frozenset[Permission]] = MappingProxyType(
-    {OrganizationRole.ADMIN: ORGANIZATION_PERMISSIONS}
+    {
+        OrganizationRole.ADMIN: frozenset({Permission.ORG_POLICY_MANAGE}),
+        OrganizationRole.PLATFORM_OPERATOR: frozenset({Permission.PLATFORM_OPERATE}),
+    }
 )
 
 ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
@@ -166,6 +183,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.COMMERCE_OPERATE,
             Permission.TYRE_OPERATE,
             Permission.MEETING_CREATE,
+            Permission.WORK_MANAGE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

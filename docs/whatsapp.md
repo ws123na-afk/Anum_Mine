@@ -80,6 +80,10 @@ Every inbound message is sorted by keyword rules on arrival (English and Arabic,
 
 Customer text is **untrusted data** (threat model G3/G5): each message is wrapped by `label_untrusted` (source `whatsapp`, origin the message id) and the prompt carries `UNTRUSTED_DATA_RULES`. The model is told never to invent prices, stock, order numbers or dates but to leave [placeholders]. Its output is only a draft labelled with where it came from ("AI draft by anthropic / claude-haiku-5-5 from 3 customer messages, read as untrusted text" or "Rule-based draft"); it never sends, never picks a tool and never changes a setting. Model calls go through the workspace's budgeted gateway (fast route); a used-up budget leaves the rule category and returns 402 to *Suggest a reply*.
 
+## Routing to department assistants
+
+After a delivery is stored, new inbound texts are offered to department assistants that opted into WhatsApp; a keyword match becomes a work item for that assistant, once per open conversation. Best effort in a background task, never part of the webhook answer ([Team work](team-work.md#inbound-routing)).
+
 ## Sending
 
 `POST /api/v1/whatsapp/conversations/{id}/send` with `{"text": ...}` or `{"template": {"name", "language", "parameters"}}` creates a task whose single tool call goes through `ToolPolicy`:

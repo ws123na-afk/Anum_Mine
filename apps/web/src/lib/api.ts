@@ -24,7 +24,7 @@ export const defaultTenantContext: TenantContext = {
   userId: 'user_local',
   // Local development only (ANUM_AUTH_MODE=headers): the workspace owner who is also the
   // organization administrator, like the Keycloak realm's DEV-ONLY `dev` user.
-  roles: ['owner', 'member', 'org_admin'],
+  roles: ['owner', 'member', 'org_admin', 'platform_operator'],
 };
 
 export interface ApiTask {
@@ -158,7 +158,7 @@ export type NotificationPreferences = push.NotificationPreferences;
 export async function ensureLocalSession(): Promise<void> {
   if (oidcEnabled) return;
   if (sessionStorage.getItem('anum_access_token')) return;
-  const response = await fetch(`${apiBaseUrl}/api/v1/auth/local/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant_id: defaultTenantContext.tenantId, workspace_id: currentScope().workspaceId, user_id: defaultTenantContext.userId }) });
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/local/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant_id: currentTenantId(), workspace_id: currentScope().workspaceId, user_id: defaultTenantContext.userId }) });
   if (!response.ok) return;
   const result = await response.json() as { access_token: string }; sessionStorage.setItem('anum_access_token', result.access_token);
 }
@@ -387,10 +387,34 @@ function claimText(name: string): string | null {
 }
 
 /** Remembered workspaces are kept per tenant and user (workspace ids only, never tokens). */
-function workspaceMemoryKey(): string {
-  return oidcEnabled
-    ? workspaces.memoryKey(claimText('tenant_id') ?? '', claimText('sub') ?? '')
-    : workspaces.memoryKey(defaultTenantContext.tenantId, defaultTenantContext.userId);
+function workspaceMemoryKey(tenantId: string = currentTenantId()): string {
+  return workspaces.memoryKey(tenantId, oidcEnabled ? claimText('sub') ?? '' : defaultTenantContext.userId);
+}
+
+/** The organisation the token (or the local development session) starts in. */
+function homeTenantId(): string {
+  return oidcEnabled ? claimText('tenant_id') ?? '' : defaultTenantContext.tenantId;
+}
+
+/** Storage key of the selected organisation, per home tenant and user (docs/customer-organisations.md#switching). */
+function tenantMemoryKey(): string {
+  return `anum.tenant.${homeTenantId() || 'unknown'}.${(oidcEnabled ? claimText('sub') : defaultTenantContext.userId) || 'unknown'}`;
+}
+
+/** The organisation every request acts in: the user's switch, else the home tenant. */
+export function currentTenantId(): string {
+  try {
+    const selected = window.localStorage.getItem(tenantMemoryKey());
+    if (selected && workspaces.isWorkspaceId(selected)) return selected;
+  } catch { /* storage blocked: the home tenant */ }
+  return homeTenantId();
+}
+
+function rememberTenant(tenantId: string): void {
+  try {
+    if (tenantId === homeTenantId()) window.localStorage.removeItem(tenantMemoryKey());
+    else window.localStorage.setItem(tenantMemoryKey(), tenantId);
+  } catch { /* this page only */ }
 }
 
 const readWorkspaceMemory = () => workspaces.readMemory(browserStorage(), workspaceMemoryKey());
@@ -407,10 +431,13 @@ function defaultWorkspaces(): (string | null | undefined)[] {
  */
 export function currentScope(): { tenantId: string; workspaceId: string } {
   const memory = readWorkspaceMemory();
-  if (!oidcEnabled) return { tenantId: defaultTenantContext.tenantId, workspaceId: workspaces.resolveWorkspace(memory, null, null, defaultTenantContext.workspaceId) };
+  const tenantId = currentTenantId();
+  if (!oidcEnabled) return { tenantId, workspaceId: workspaces.resolveWorkspace(memory, null, null, defaultTenantContext.workspaceId) };
+  // The token's default workspace belongs to its home tenant only.
+  const claimWorkspace = tenantId === homeTenantId() ? claimText('workspace_id') : null;
   return {
-    tenantId: claimText('tenant_id') ?? '',
-    workspaceId: workspaces.resolveWorkspace(memory, claimText('workspace_id'), configuredWorkspaceId, defaultTenantContext.workspaceId),
+    tenantId,
+    workspaceId: workspaces.resolveWorkspace(memory, claimWorkspace, tenantId === homeTenantId() ? configuredWorkspaceId : undefined, defaultTenantContext.workspaceId),
   };
 }
 
@@ -420,6 +447,18 @@ export function currentScope(): { tenantId: string; workspaceId: string } {
  */
 export function workspaceOptions(memberships: workspaces.MembershipEntry[] | null = null): workspaces.WorkspaceOption[] {
   return workspaces.workspaceOptions(currentScope().workspaceId, defaultWorkspaces(), readWorkspaceMemory(), memberships);
+}
+
+/**
+ * Whether to offer the platform console in the navigation: the token's realm roles (OIDC) or the
+ * development roles. A hint only; the API decides every request (docs/customer-organisations.md).
+ */
+export function platformOperatorHint(): boolean {
+  if (!oidcEnabled) return defaultTenantContext.roles.includes('platform_operator') && currentTenantId() === defaultTenantContext.tenantId;
+  const claims = currentClaims() ?? {};
+  const realm = (claims as { realm_access?: { roles?: unknown } }).realm_access?.roles;
+  const roles = [...(Array.isArray(realm) ? realm : []), ...(Array.isArray((claims as { roles?: unknown }).roles) ? (claims as { roles: unknown[] }).roles : [])];
+  return roles.includes('platform_operator') && currentTenantId() === homeTenantId();
 }
 
 /** The signed-in user's id: the token's subject with OIDC, the development user otherwise. */
@@ -463,6 +502,30 @@ export async function switchWorkspace(workspaceId: string): Promise<string> {
 }
 
 /**
+ * Switch to another organisation the caller belongs to (docs/customer-organisations.md#switching).
+ * The API decides first: the local development session is re-issued by `/auth/local/tenant/switch`;
+ * otherwise `/workspace-memberships/current` must confirm an active membership in the target
+ * tenant and workspace (with OIDC the token must list the tenant in `tenant_ids`).
+ */
+export async function switchOrganisation(tenantId: string, workspaceId: string): Promise<{ tenantId: string; workspaceId: string }> {
+  if (!workspaces.isWorkspaceId(tenantId) || !workspaces.isWorkspaceId(workspaceId)) throw new Error('Organisation and workspace IDs are 3 to 80 letters, digits, hyphens or underscores.');
+  if (!oidcEnabled && sessionStorage.getItem('anum_access_token')) {
+    const session = await request<{ access_token: string }>('/api/v1/auth/local/tenant/switch', { method: 'POST', body: JSON.stringify({ tenant_id: tenantId, workspace_id: workspaceId }) });
+    sessionStorage.setItem('anum_access_token', session.access_token);
+  } else {
+    const membership = await request<ApiCurrentMembership>('/api/v1/workspace-memberships/current', { method: 'GET', headers: { 'x-tenant-id': tenantId, 'x-workspace-id': workspaceId } });
+    if (!membership.active || membership.workspace_id !== workspaceId) throw new Error(`You do not have an active membership in ${workspaceId}.`);
+  }
+  rememberTenant(tenantId);
+  writeWorkspaceMemoryFor(tenantId, workspaces.select(workspaces.readMemory(browserStorage(), workspaceMemoryKey(tenantId)), workspaceId));
+  return { tenantId, workspaceId };
+}
+
+function writeWorkspaceMemoryFor(tenantId: string, memory: workspaces.WorkspaceMemory): void {
+  workspaces.writeMemory(browserStorage(), workspaceMemoryKey(tenantId), memory);
+}
+
+/**
  * Identity headers for every API call; every call names its workspace in `x-workspace-id`.
  * With OIDC: the Keycloak access token and the selected workspace (the API takes the tenant from
  * the token). Locally: the development session token plus the header-asserted context
@@ -472,10 +535,13 @@ export async function authHeaders(): Promise<Record<string, string>> {
   const workspaceId = currentScope().workspaceId;
   if (oidcEnabled) {
     const token = await accessToken();
-    return { ...(token ? { authorization: `Bearer ${token}` } : {}), 'x-workspace-id': workspaceId };
+    const tenantId = currentTenantId();
+    // Another organisation than the token's home tenant is named explicitly; the API accepts it
+    // only when the token lists it in tenant_ids.
+    return { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(tenantId && tenantId !== homeTenantId() ? { 'x-tenant-id': tenantId } : {}), 'x-workspace-id': workspaceId };
   }
   const token = sessionStorage.getItem('anum_access_token');
-  return { 'x-tenant-id': defaultTenantContext.tenantId, 'x-workspace-id': workspaceId, 'x-user-id': defaultTenantContext.userId, 'x-user-roles': defaultTenantContext.roles.join(','), ...(token ? { authorization: `Bearer ${token}` } : {}) };
+  return { 'x-tenant-id': currentTenantId(), 'x-workspace-id': workspaceId, 'x-user-id': defaultTenantContext.userId, 'x-user-roles': defaultTenantContext.roles.join(','), ...(token ? { authorization: `Bearer ${token}` } : {}) };
 }
 
 /** The caller's membership in the current workspace, for showing their role (read-only). */

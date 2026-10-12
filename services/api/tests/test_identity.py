@@ -600,7 +600,8 @@ def test_realm_public_clients_use_pkce_and_issue_anum_claims() -> None:
             for mapper in client["protocolMappers"]
             if mapper["protocolMapper"] == "oidc-usermodel-attribute-mapper"
         }
-        assert claims == {"tenant_id": "tenant_id", "workspace_id": "default_workspace_id"}
+        # tenant_ids lists the organisations a person may switch to (docs/customer-organisations.md).
+        assert claims == {"tenant_id": "tenant_id", "workspace_id": "default_workspace_id", "tenant_ids": "tenant_ids"}
 
 
 def test_realm_tenant_attributes_are_admin_only() -> None:

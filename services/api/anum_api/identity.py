@@ -62,7 +62,7 @@ ANUM_ROLES = ("owner", "member", "viewer")
 # Tenant-level realm roles (``anum_api.authorization.OrganizationRole``). Unlike the
 # workspace roles above they are authoritative: the persisted workspace membership replaces
 # a token's workspace role but keeps these, and they apply only to the token's tenant.
-ORGANIZATION_ROLES = ("org_admin",)
+ORGANIZATION_ROLES = ("org_admin", "platform_operator")
 _SCOPE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{3,80}$")
 
 
@@ -211,9 +211,15 @@ class JwksCache:
         self._fetched_at = self._clock()
 
 
+MAX_TOKEN_TENANTS = 50
+
+
 class OidcClaims(BaseModel):
     subject: str
     tenant_id: str
+    # Every organisation the IdP lets this user act in: the home ``tenant_id`` first,
+    # then the multivalued ``tenant_ids`` claim (docs/customer-organisations.md#switching).
+    tenant_ids: list[str] = Field(default_factory=list)
     workspace_id: str | None = None
     roles: list[str] = Field(default_factory=list)
     # Used only to match email-bound workspace invitations; never for authorization.
@@ -227,6 +233,20 @@ class OidcClaims(BaseModel):
     @property
     def organization_roles(self) -> list[str]:
         return [role for role in ORGANIZATION_ROLES if role in self.roles]
+
+    def for_tenant(self, tenant_id: str) -> "OidcClaims":
+        """These claims acting in another of the user's organisations.
+
+        Organisation roles (``org_admin``, ``platform_operator``) apply to the home tenant
+        only, so they are dropped; the workspace role still comes from the membership.
+        """
+        if tenant_id == self.tenant_id:
+            return self
+        if tenant_id not in self.tenant_ids:
+            raise ValueError("tenant is not one of the token's organisations")
+        return self.model_copy(
+            update={"tenant_id": tenant_id, "roles": [r for r in self.roles if r not in ORGANIZATION_ROLES]}
+        )
 
     def tenant_context(self, workspace_id: str | None = None) -> TenantContext:
         resolved_workspace = workspace_id or self.workspace_id
@@ -308,6 +328,15 @@ class OidcValidator:
             )
         if not isinstance(tenant_id, str) or not is_valid_scope_id(tenant_id):
             raise TokenValidationError("Bearer token is missing a valid tenant_id claim")
+        extra_tenants = payload.get("tenant_ids")
+        if isinstance(extra_tenants, str):
+            extra_tenants = [extra_tenants]
+        tenant_ids = [tenant_id]
+        if isinstance(extra_tenants, list):
+            for value in extra_tenants:
+                if isinstance(value, str) and is_valid_scope_id(value) and value not in tenant_ids:
+                    tenant_ids.append(value)
+        tenant_ids = tenant_ids[:MAX_TOKEN_TENANTS]
         workspace_id = payload.get("workspace_id")
         if workspace_id in ("", None):
             workspace_id = None
@@ -325,6 +354,7 @@ class OidcValidator:
         return OidcClaims(
             subject=str(payload["sub"]),
             tenant_id=tenant_id,
+            tenant_ids=tenant_ids,
             workspace_id=workspace_id,
             roles=sorted(role.lower() for role in roles),
             email=email if isinstance(email, str) and email.strip() else None,

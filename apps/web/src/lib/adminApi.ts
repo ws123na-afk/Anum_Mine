@@ -166,11 +166,12 @@ export async function revokeInvitation(invitationId: string): Promise<WorkspaceI
  * Redeem a token. The API accepts it into the workspace named by `x-workspace-id`, so an
  * invitation link's workspace overrides the one this client normally selects.
  */
-export async function acceptInvitation(token: string, workspaceId?: string | null): Promise<AcceptedInvitation> {
+export async function acceptInvitation(token: string, workspaceId?: string | null, tenantId?: string | null): Promise<AcceptedInvitation> {
+  const headers: Record<string, string> = { ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}), ...(tenantId ? { 'x-tenant-id': tenantId } : {}) };
   return mapAcceptedInvitation(await apiRequest<ApiInvitationAccepted>('/api/v1/workspace-invitations/accept', {
     method: 'POST',
     body: JSON.stringify({ token }),
-    ...(workspaceId ? { headers: { 'x-workspace-id': workspaceId } } : {}),
+    ...(Object.keys(headers).length ? { headers } : {}),
   }));
 }
 

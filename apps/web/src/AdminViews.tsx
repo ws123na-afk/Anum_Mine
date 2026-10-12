@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowRightLeft, Ban, CircleDot, Copy, Gauge, KeyRound, Link2, Lock, MailPlus, RefreshCw, RotateCcw, Save, Scale, Search, Send, ShieldCheck, Ticket, UserCheck, Users, XCircle } from 'lucide-react';
 import type { CreatedInvitation, MembersSummary, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceApprovalPolicy, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
 import * as admin from './lib/adminApi';
-import { getCurrentMembership, rememberWorkspace } from './lib/api';
+import { currentScope, getCurrentMembership, rememberWorkspace } from './lib/api';
 import { POLICY_SWITCHES, policyChanged, policyDraft, policyUpdatedLabel, twoPersonWarning, type PolicyDraft } from './lib/policy';
 import {
   DEFAULT_TTL_HOURS,
@@ -53,7 +53,7 @@ async function copyText(text: string): Promise<boolean> {
 // ------------------------------------------------------------------------- members
 
 /** Pending invitation from a link: read once, then removed from the address bar and history. */
-function takeInvitationFromLocation(): { token: string; workspaceId: string | null } | null {
+function takeInvitationFromLocation(): { token: string; workspaceId: string | null; tenantId?: string | null } | null {
   if (!location.hash.startsWith('#invitation=')) return null;
   const parsed = parseInvitationInput(location.hash);
   history.replaceState(null, '', '#members');
@@ -69,7 +69,7 @@ type PendingChange =
 const INVITATION_FILTERS: InvitationStatusFilter[] = ['pending', 'expired', 'accepted', 'revoked', 'all'];
 const roleName = (role: WorkspaceRole) => t(`members.role.${role}` as MessageKey);
 
-export function MembersView({ workspaceId, onSwitchWorkspace }: { workspaceId: string; onSwitchWorkspace?: (workspaceId: string) => Promise<void> }) {
+export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisation }: { workspaceId: string; onSwitchWorkspace?: (workspaceId: string) => Promise<void>; onSwitchOrganisation?: (tenantId: string, workspaceId: string) => Promise<void> }) {
   const [summary, setSummary] = useState<MembersSummary | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -260,7 +260,7 @@ export function MembersView({ workspaceId, onSwitchWorkspace }: { workspaceId: s
         </div>
       </section>
     </>}
-    <AcceptInvitation initial={linked} currentWorkspaceId={workspaceId} onAccepted={() => void refresh()} onSwitchWorkspace={onSwitchWorkspace} />
+    <AcceptInvitation initial={linked} currentWorkspaceId={workspaceId} onAccepted={() => void refresh()} onSwitchWorkspace={onSwitchWorkspace} onSwitchOrganisation={onSwitchOrganisation} />
     {pendingChange && <ConfirmDialog
       title={pendingChange.kind === 'role' ? t('members.confirmRoleTitle', { user: pendingChange.member.userId, role: roleName(pendingChange.role) }, { isolate: false }) : pendingChange.kind === 'deactivate' ? t('members.confirmDeactivateTitle', { user: pendingChange.member.userId }, { isolate: false }) : t('members.confirmRevokeTitle', { invitee: inviteeLabel(pendingChange.invitation) }, { isolate: false })}
       confirmLabel={pendingChange.kind === 'role' ? t('members.changeRole') : pendingChange.kind === 'deactivate' ? t('members.deactivate') : t('members.revokeInvitation')}
@@ -321,7 +321,10 @@ function TokenReveal({ created, onDone }: { created: CreatedInvitation; onDone: 
   </section>;
 }
 
-function AcceptInvitation({ initial, currentWorkspaceId, onAccepted, onSwitchWorkspace }: { initial: { token: string; workspaceId: string | null } | null; currentWorkspaceId: string; onAccepted: () => void; onSwitchWorkspace?: (workspaceId: string) => Promise<void> }) {
+function AcceptInvitation({ initial, currentWorkspaceId, onAccepted, onSwitchWorkspace, onSwitchOrganisation }: { initial: { token: string; workspaceId: string | null; tenantId?: string | null } | null; currentWorkspaceId: string; onAccepted: () => void; onSwitchWorkspace?: (workspaceId: string) => Promise<void>; onSwitchOrganisation?: (tenantId: string, workspaceId: string) => Promise<void> }) {
+  // Another organisation's invitation (a customer organisation's first admin): accepted with x-tenant-id.
+  const [tenant, setTenant] = useState<string | null>(initial?.tenantId ?? null);
+  const [joinedTenant, setJoinedTenant] = useState<{ tenantId: string; workspaceId: string } | null>(null);
   const [input, setInput] = useState(initial?.token ?? '');
   const [workspace, setWorkspace] = useState(initial?.workspaceId ?? '');
   const [busy, setBusy] = useState(false);
@@ -338,11 +341,20 @@ function AcceptInvitation({ initial, currentWorkspaceId, onAccepted, onSwitchWor
     const parsed = parseInvitationInput(input);
     if (!parsed) { setFlash({ text: 'Paste an invitation token (it starts with anum_inv_) or the whole invitation link.', error: true }); return; }
     const target = (parsed.workspaceId ?? workspace.trim()) || null;
+    const targetTenant = parsed.tenantId ?? tenant;
+    const otherTenant = targetTenant && targetTenant !== currentScope().tenantId ? targetTenant : null;
     setBusy(true);
     setFlash(null);
     setJoined(null);
-    void admin.acceptInvitation(parsed.token, target).then((result) => {
+    setJoinedTenant(null);
+    void admin.acceptInvitation(parsed.token, target, otherTenant).then((result) => {
       const joinedId = result.membership.workspaceId;
+      if (otherTenant) {
+        setInput('');
+        setJoinedTenant({ tenantId: otherTenant, workspaceId: joinedId });
+        setFlash({ text: t('orgs.joinedOrganisation', { tenant: otherTenant, workspace: joinedId }) });
+        return;
+      }
       rememberWorkspace(joinedId);
       setInput('');
       setJoined(joinedId !== currentWorkspaceId ? joinedId : null);
@@ -357,6 +369,7 @@ function AcceptInvitation({ initial, currentWorkspaceId, onAccepted, onSwitchWor
         setInput(event.target.value);
         const parsed = parseInvitationInput(event.target.value);
         if (parsed?.workspaceId) setWorkspace(parsed.workspaceId);
+        setTenant(parsed?.tenantId ?? null);
       }} placeholder="anum_inv_…" autoComplete="off" spellCheck={false} /></label>
       <label className="field"><span>Workspace</span><input value={workspace} onChange={(event) => setWorkspace(event.target.value)} placeholder={currentWorkspaceId} autoComplete="off" /></label>
     </div>
@@ -364,6 +377,7 @@ function AcceptInvitation({ initial, currentWorkspaceId, onAccepted, onSwitchWor
     <div className="actions">
       <button type="submit" disabled={busy || !input.trim()}><UserCheck />{busy ? 'Working...' : 'Accept invitation'}</button>
       {joined && onSwitchWorkspace && <button type="button" className="secondary" disabled={busy} onClick={() => switchTo(joined)}><ArrowRightLeft />Switch to {joined}</button>}
+      {joinedTenant && onSwitchOrganisation && <button type="button" className="secondary" disabled={busy} onClick={() => { setBusy(true); void onSwitchOrganisation(joinedTenant.tenantId, joinedTenant.workspaceId).catch((error: unknown) => { setFlash({ text: describeError(error), error: true }); setBusy(false); }); }}><ArrowRightLeft />{t('orgs.switchTo', { tenant: joinedTenant.tenantId })}</button>}
     </div>
   </form>;
 }

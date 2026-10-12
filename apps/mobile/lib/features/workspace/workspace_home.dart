@@ -9,6 +9,8 @@ import '../settings/account_identity.dart';
 import '../settings/profile_screen.dart';
 import '../settings/settings_controller.dart';
 import '../settings/settings_screen.dart';
+import '../team/team_screens.dart';
+import '../team/team_strings.dart';
 import '../governance/governance_controller.dart';
 import '../governance/governance_screen.dart';
 import '../developer/developer_assist.dart';
@@ -521,6 +523,12 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               () => _openResources(ResourcesTab.skills, l.t('shellAgents'))),
           destination(
               'tasks', Icons.task_alt_outlined, WorkspaceDestination.tasks),
+          if (widget.settingsController.team case final team?)
+            AnumMenuEntry(
+                key: const Key('menu-team'),
+                icon: Icons.groups_outlined,
+                label: TeamText.of(context).t('section'),
+                onTap: () => go(() => _push(TeamHubScreen(repository: team)))),
           destination('shellAutomations', Icons.account_tree_outlined,
               WorkspaceDestination.automations),
           page(

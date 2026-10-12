@@ -5,10 +5,12 @@ import type { MessageKey } from './en.ts';
 import type { Message } from './types.ts';
 import { commerceAr } from './commerce.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
+import { teamAr } from './team.ar.ts';
 
 export const ar: Record<MessageKey, Message> = {
   // ---- Commerce (commerce.ar.ts) ----
   ...commerceAr,
+  ...teamAr,
   // ---- Common ----
   'common.listAnd': '{head} و{last}',
   'common.listSeparator': '، ',

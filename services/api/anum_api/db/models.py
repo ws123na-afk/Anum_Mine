@@ -111,6 +111,8 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     # Archive (0026_task_archive, docs/tasks.md): null while the task is in the active list.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archived_by_user_id: Mapped[str | None] = mapped_column(String(120))
+    # Migration 0039_team_work: the department assistant the task runs as, if any.
+    assistant_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
     workspace: Mapped[Workspace] = relationship(back_populates="tasks")
     runs: Mapped[list["AgentRunRecord"]] = relationship(back_populates="task")
@@ -1406,3 +1408,6 @@ class ReportRecord(Base, WorkspaceScopedMixin):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("reports"),)
+# Team work and organisation tables are Core tables on the same metadata (migration
+# 0039_team_work); importing them here registers them with Base.metadata.
+from . import team_repository as _team_tables  # noqa: E402,F401

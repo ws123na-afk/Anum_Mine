@@ -416,6 +416,7 @@ class SqlAlchemyRepository(AnumRepository):
         record.status = task.status.value
         record.archived_at = task.archived_at
         record.archived_by_user_id = task.archived_by
+        record.assistant_id = task.assistant_id
         record.created_at = task.created_at
         record.updated_at = task.updated_at
         self.session.flush()
@@ -1007,6 +1008,7 @@ class SqlAlchemyRepository(AnumRepository):
             created_by=record.created_by_user_id,
             archived_at=record.archived_at,
             archived_by=record.archived_by_user_id,
+            assistant_id=record.assistant_id,
         )
 
     @staticmethod

@@ -4,10 +4,12 @@
 import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
 import { tyreEn } from './tyre.en.ts';
+import { teamEn } from './team.en.ts';
 
 export const en = {
   // ---- Commerce (commerce.en.ts) ----
   ...commerceEn,
+  ...teamEn,
   // ---- Common ----
   'common.listAnd': '{head} and {last}',
   'common.listSeparator': ', ',

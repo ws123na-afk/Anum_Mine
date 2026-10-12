@@ -86,7 +86,7 @@ class AgentRuntime:
         """The workspace's approval policy (defaults when none is stored)."""
         return self.repository.get_approval_policy(context)
 
-    def evaluate(self, call: ToolCall, context: TenantContext) -> ToolPolicyDecision:
+    def evaluate(self, call: ToolCall, context: TenantContext, task: Task | None = None) -> ToolPolicyDecision:
         """Tool policy for ``call`` (outside the model).
 
         Uses the workspace's approval policy and the tenant's governance rules (enabled
@@ -102,7 +102,13 @@ class AgentRuntime:
             self.workspace_policy(context),
             self.repository.get_tool_governance(context),
         )
-        return self._with_autonomy(call, definition, decision, context)
+        decision = self._with_autonomy(call, definition, decision, context)
+        if task is not None and task.assistant_id:
+            # A department assistant only ever narrows the decision (docs/team-work.md).
+            from .assistants import narrow_for_assistant
+
+            decision = narrow_for_assistant(decision, call, context, task.assistant_id)
+        return decision
 
     def _with_autonomy(
         self,
@@ -159,7 +165,7 @@ class AgentRuntime:
         run.steps.append(model_step)
 
         call = planned.plan.tool_calls[0]
-        decision = self.evaluate(call, context)
+        decision = self.evaluate(call, context, task)
         proposal_step = AgentRunStep(
                 id=new_id("step"),
                 type="tool_proposal",
@@ -307,7 +313,7 @@ class AgentRuntime:
             if approval.target is not None and approval.target != current_target:
                 self._reject_target_mismatch(task, run, context, approval, current_target)
                 return None
-            decision = self.evaluate(call, context)
+            decision = self.evaluate(call, context, task)
             if decision.outcome == ToolPolicyOutcome.BLOCK:
                 self._fail(
                     task,
@@ -321,7 +327,7 @@ class AgentRuntime:
             if not run.checkpoint.tool_call:
                 raise ValueError("Run has no executable checkpoint")
             call = ToolCall.model_validate(run.checkpoint.tool_call)
-            decision = self.evaluate(call, context)
+            decision = self.evaluate(call, context, task)
             run.checkpoint.autonomy = decision.autonomy
             if decision.outcome == ToolPolicyOutcome.BLOCK:
                 self._fail(task, run, context, decision.reason)
@@ -365,7 +371,7 @@ class AgentRuntime:
             raise ValueError("Run is not interrupted mid-execution")
         call = ToolCall.model_validate(run.checkpoint.tool_call)
         definition = self.tools.definition(call.name)
-        decision = self.evaluate(call, context)
+        decision = self.evaluate(call, context, task)
         if decision.outcome != ToolPolicyOutcome.ALLOW or definition is None or not definition.idempotent:
             self._fail(
                 task,

@@ -125,7 +125,7 @@ export function invitationLink(appUrl: string, token: string, workspaceId: strin
 }
 
 /** Read a pasted token or invitation link. Returns null when it holds no ANUM invitation token. */
-export function parseInvitationInput(text: string): { token: string; workspaceId: string | null } | null {
+export function parseInvitationInput(text: string): { token: string; workspaceId: string | null; tenantId?: string | null } | null {
   const value = text.trim();
   if (!value) return null;
   if (value.startsWith(INVITATION_PREFIX) && !/[\s&#?]/.test(value)) return { token: value, workspaceId: null };
@@ -133,7 +133,12 @@ export function parseInvitationInput(text: string): { token: string; workspaceId
   const token = params.get('invitation');
   if (!token || !token.startsWith(INVITATION_PREFIX)) return null;
   const workspace = params.get('workspace');
-  return { token, workspaceId: workspace && workspace.trim() ? workspace.trim() : null };
+  // A customer organisation's first-admin link also names its organisation (docs/customer-organisations.md).
+  const tenant = params.get('tenant');
+  return {
+    token, workspaceId: workspace && workspace.trim() ? workspace.trim() : null,
+    ...(tenant && /^[A-Za-z0-9_-]{3,80}$/.test(tenant.trim()) ? { tenantId: tenant.trim() } : {}),
+  };
 }
 
 export function inviteeLabel(invitation: WorkspaceInvitation): string {

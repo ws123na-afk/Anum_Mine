@@ -152,6 +152,12 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
   position: absolute; top: calc(100% + var(--d-s2)); width: min(360px, calc(100vw - 32px)); z-index: 40;
 }
 .popover h2 { font-size: 15px; }
+/* On phones the bell is not at the screen edge, so the menu spans the top bar instead of hanging off the bell, on a solid surface. */
+@media (max-width: 560px) {
+  .topbar { position: relative; }
+  .topActions .popoverRoot:has(.notificationsPanel) { position: static; }
+  .notificationsPanel { background: var(--d-surface-2); inset-inline: 0; width: auto; }
+}
 .popoverList { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
 .popoverList button {
   align-items: flex-start; background: transparent; border: 0; border-radius: var(--d-r-control); color: var(--d-text); display: flex; gap: var(--d-s3);

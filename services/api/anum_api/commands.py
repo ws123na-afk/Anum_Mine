@@ -322,7 +322,7 @@ class Planner:
 
     def _route(self, text: str) -> tuple[list[SkillManifest], ToolCall, AgentId]:
         skills = self.skills.select(text, self.tools.names)
-        call = choose_tool_call(text, skills, "")
+        call = choose_tool_call(text, skills, "", self.tools.names)
         return skills, call, _agent_for(call.name, skills, prompt_words(text))
 
     def agent_of(self, text: str) -> AgentId:

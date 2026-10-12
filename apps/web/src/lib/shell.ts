@@ -4,9 +4,9 @@
 import { t, type MessageKey } from './i18n.ts';
 
 export type View =
-  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'integrations' | 'tyre' | 'commerce' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
+  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
-  | 'governance' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'developer';
+  | 'governance' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'developer' | 'organisations';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
@@ -24,9 +24,9 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'integrations', 'tyre', 'commerce', 'files', 'memory', 'reports', 'skills'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'files', 'memory', 'reports', 'skills'] },
   { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
-  { group: 'admin', views: ['governance', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'developer'] },
+  { group: 'admin', views: ['governance', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'developer', 'organisations'] },
 ];
 
 /** Views reached as a tab of a sidebar entry: they open by link and light up their parent entry. */
@@ -37,6 +37,8 @@ export const navParent = (view: View): View => TABS_OF[view] ?? view;
 export const VIEWS: readonly View[] = [...NAV.flatMap((group) => group.views), ...(Object.keys(TABS_OF) as View[])];
 /** Views only an owner sees in the navigation (the view itself explains it if opened by link). */
 export const OWNER_ONLY: ReadonlySet<View> = new Set(['developer']);
+/** The platform console: only for platform operators (the API answers 403 to anyone else). */
+export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations']);
 /** Views that draw their own page header (the Command Center). */
 export const OWN_HEADER: ReadonlySet<View> = new Set(['home', 'command']);
 
@@ -59,8 +61,8 @@ export function viewFromHash(hash: string): View {
 }
 
 /** The views a person can open, in sidebar order. */
-export function visibleViews(owner: boolean | null): View[] {
-  return VIEWS.filter((view) => !(view in TABS_OF) && (!OWNER_ONLY.has(view) || owner === true));
+export function visibleViews(owner: boolean | null, operator = false): View[] {
+  return VIEWS.filter((view) => !(view in TABS_OF) && (!OWNER_ONLY.has(view) || owner === true) && (!OPERATOR_ONLY.has(view) || operator));
 }
 
 // ---------------------------------------------------------------- command palette
@@ -126,9 +128,9 @@ export function initials(name: string): string {
   return letters.join('').toUpperCase() || '?';
 }
 
-/** The bell's count: pending approvals, automation alerts and "ANUM acted" notices. */
-export function notificationCount(input: { pendingApprovals: number; alerts: number; notices: number }): number {
-  return input.pendingApprovals + input.alerts + input.notices;
+/** The bell's count: pending approvals, automation alerts, "ANUM acted" notices and unread team notifications. */
+export function notificationCount(input: { pendingApprovals: number; alerts: number; notices: number; team?: number }): number {
+  return input.pendingApprovals + input.alerts + input.notices + (input.team ?? 0);
 }
 
 /** The count as the badge shows it. */

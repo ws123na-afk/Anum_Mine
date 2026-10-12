@@ -155,6 +155,9 @@ class Task(BaseModel):
     updated_at: datetime
     # User id of whoever created the task (the two-person rule refuses their approval).
     created_by: str | None = None
+    # The department assistant this task runs as (docs/team-work.md#department-assistants):
+    # the runtime narrows tool policy to that assistant's allowed tools and autonomy.
+    assistant_id: str | None = None
     # Archived tasks leave the default list but keep their runs, approvals and events
     # (0026_task_archive, docs/tasks.md). Null while the task is in the active list.
     archived_at: datetime | None = None

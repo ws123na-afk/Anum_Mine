@@ -30,6 +30,7 @@ import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
 import '../features/commerce/commerce_repository.dart';
 import '../features/workspace/api_workspace_repository.dart';
+import '../features/team/team_repository.dart';
 import '../features/workspace/destinations.dart';
 import '../features/workspace/files_repository.dart';
 import '../features/workspace/workspace_controller.dart';
@@ -193,7 +194,8 @@ class _AnumAppState extends State<AnumApp> {
         privacy:
             ApiPrivacyRepository(api, saver: const FilePickerExportSaver()),
         push: push,
-        learning: ApiLearningRepository(api));
+        learning: ApiLearningRepository(api),
+        team: ApiTeamRepository(api));
     workspace.onApprovalDecided = _offerPushAfterApproval;
     governance = GovernanceController(ApiGovernanceRepository(
       api,

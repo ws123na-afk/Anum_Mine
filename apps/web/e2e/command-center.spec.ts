@@ -88,7 +88,8 @@ test('Ctrl+K searches views, tasks, documents and emails', async ({ page }) => {
 
 test('notifications list the pending approval; the user menu opens Settings sections', async ({ page }) => {
   await openHome(page);
-  await page.getByRole('button', { name: 'Notifications, 1 waiting' }).click();
+  // One pending approval plus the team mock's one unread team notification.
+  await page.getByRole('button', { name: 'Notifications, 2 waiting' }).click();
   await page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /external\.action/ }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Approvals' })).toBeVisible();
   await page.getByRole('button', { name: /Account menu/ }).click();

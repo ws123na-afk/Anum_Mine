@@ -1,0 +1,209 @@
+"""Turn "ANUM, ask Ahmed to call the supplier by Thursday" into an assignment.
+
+Deterministic on purpose (docs/team-work.md#assigning-in-words): the person, the work and
+the due date come from the user's own sentence by these rules, never from model output or
+retrieved text (threat model G5), and the result is shown before anything is created when
+the request comes from a screen. Supported shapes, case-insensitive, an optional leading
+"ANUM," is ignored:
+
+* ``ask|tell|remind|get <person> to <work> [by|before|on|due|until <when>]``
+* ``assign <work> to <person> [by ... <when>]``
+* Arabic: ``اطلب من|اطلبي من|ذكّر|كلف <first name> [أن] <work> [قبل|بحلول|يوم|في <when>]``
+
+``<when>``: today, tonight, tomorrow, a weekday (``Thursday`` is the nearest one, today
+included while 17:00 has not passed; ``next Thursday`` is a week after that), ``in N
+days|weeks``, ``end of (the) week`` (the coming Thursday, the end of the Gulf work week),
+``next week`` (Sunday of next week), ``YYYY-MM-DD`` or ``DD/MM[/YYYY]`` (day first), and an
+optional time ``at 5pm`` / ``at 17:30``. Without a time the work is due at 17:00 in the
+creator's time zone (their team profile, else UTC).
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+DEFAULT_DUE_TIME = time(17, 0)
+
+_WEEKDAYS = {
+    "monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "tues": 1, "wednesday": 2, "wed": 2,
+    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3, "friday": 4, "fri": 4, "saturday": 5,
+    "sat": 5, "sunday": 6, "sun": 6,
+    "الاثنين": 0, "الإثنين": 0, "الثلاثاء": 1, "الأربعاء": 2, "الاربعاء": 2, "الخميس": 3,
+    "الجمعة": 4, "السبت": 5, "الأحد": 6, "الاحد": 6,
+}
+_LEAD = re.compile(r"^\s*(?:hey\s+|ok\s+)?anum\s*[,:]?\s*", re.IGNORECASE)
+_ASK = re.compile(
+    r"^(?:please\s+)?(?:ask|tell|remind|get|have)\s+(?P<person>.+?)\s+to\s+(?P<work>.+)$", re.IGNORECASE
+)
+_ASSIGN = re.compile(r"^(?:please\s+)?assign\s+(?P<work>.+)\s+to\s+(?P<person>.+)$", re.IGNORECASE)
+_ARABIC = re.compile(
+    r"^(?:من\s+فضلك\s+)?(?:اطلب\s+من|اطلبي\s+من|ذكّر|ذكر|كلّف|كلف)\s+(?P<person>\S+)\s+(?:أن\s+|ان\s+|ب)?(?P<work>.+)$"
+)
+_DUE_SPLIT = re.compile(
+    r"\s+(?:by|before|on|due|until|no later than)\s+(?P<when>.+)$|\s+(?P<bare>(?:today|tonight|tomorrow|this week|next week|in\s+\d{1,3}\s+(?:days?|weeks?))(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)$",
+    re.IGNORECASE,
+)
+_ARABIC_DUE_SPLIT = re.compile(r"\s+(?:قبل|بحلول|يوم|في|خلال)\s+(?P<when>.+)$|\s+(?P<bare>اليوم|غدا|غداً|بكرة|بكره)$")
+_TIME = re.compile(r"\s*(?:at\s+|الساعة\s+)?(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>am|pm|ص|م)?\s*$", re.IGNORECASE)
+
+
+@dataclass
+class ParsedCommand:
+    person: str
+    work: str
+    due_text: str | None
+    due_at: datetime | None
+
+
+class CommandError(ValueError):
+    """The sentence is not an assignment ANUM understands; the message says how to phrase it."""
+
+
+def _title(work: str) -> str:
+    work = " ".join(work.strip().rstrip(".!؟?").split())
+    if not work:
+        raise CommandError("Say what needs to be done, for example: ask Ahmed to call the supplier by Thursday.")
+    return (work[0].upper() + work[1:])[:200]
+
+
+def _split_time(text: str) -> tuple[str, time | None]:
+    match = re.search(r"\s+(?:at|الساعة)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|ص|م)?\s*$", text, re.IGNORECASE)
+    if not match:
+        return text, None
+    parsed = _TIME.match(match.group(0))
+    if not parsed:
+        return text, None
+    hour, minute = int(parsed.group("h")), int(parsed.group("m") or 0)
+    marker = (parsed.group("ap") or "").lower()
+    if marker in {"pm", "م"} and hour < 12:
+        hour += 12
+    if marker in {"am", "ص"} and hour == 12:
+        hour = 0
+    if hour > 23 or minute > 59:
+        raise CommandError("That time is not valid; use for example 5pm or 17:30.")
+    return text[: match.start()], time(hour, minute)
+
+
+def resolve_when(text: str, now: datetime, zone: ZoneInfo) -> datetime:
+    """``text`` as an aware datetime in ``zone``; raises :class:`CommandError` if unknown."""
+    original = text
+    text, at = _split_time(" " + text.strip())
+    text = " ".join(text.lower().replace("the ", "").split())
+    local_now = now.astimezone(zone)
+    today = local_now.date()
+    due_time = at or DEFAULT_DUE_TIME
+
+    def on(day: date) -> datetime:
+        return datetime.combine(day, due_time, tzinfo=zone)
+
+    if text in {"today", "tonight", "اليوم", "eod", "end of day"}:
+        return on(today) if text != "tonight" or at else datetime.combine(today, time(21, 0), tzinfo=zone)
+    if text in {"tomorrow", "غدا", "غداً", "بكرة", "بكره"}:
+        return on(today + timedelta(days=1))
+    if text in {"end of week", "this week", "نهاية الأسبوع", "نهاية الاسبوع"}:
+        ahead = (3 - today.weekday()) % 7
+        return on(today + timedelta(days=ahead))
+    if text in {"next week", "الأسبوع القادم", "الاسبوع القادم"}:
+        ahead = (6 - today.weekday()) % 7 or 7
+        return on(today + timedelta(days=ahead))
+    match = re.fullmatch(r"in\s+(\d{1,3})\s+(day|days|week|weeks)", text)
+    if match:
+        count = int(match.group(1)) * (7 if match.group(2).startswith("week") else 1)
+        return on(today + timedelta(days=count))
+    match = re.fullmatch(r"(?:(this|next|coming)\s+)?(\S+)", text)
+    if match and match.group(2) in _WEEKDAYS:
+        target = _WEEKDAYS[match.group(2)]
+        ahead = (target - today.weekday()) % 7
+        candidate = on(today + timedelta(days=ahead))
+        if candidate <= local_now:
+            candidate += timedelta(days=7)
+        if match.group(1) == "next":
+            candidate += timedelta(days=7)
+        return candidate
+    match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", text)
+    if match:
+        try:
+            return on(date(int(match.group(1)), int(match.group(2)), int(match.group(3))))
+        except ValueError:
+            raise CommandError(f"{original.strip()} is not a calendar date.") from None
+    match = re.fullmatch(r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?", text)
+    if match:
+        day, month = int(match.group(1)), int(match.group(2))
+        year = int(match.group(3)) if match.group(3) else today.year
+        if year < 100:
+            year += 2000
+        try:
+            candidate = on(date(year, month, day))
+        except ValueError:
+            raise CommandError(f"{original.strip()} is not a calendar date (day first: 15/10).") from None
+        if not match.group(3) and candidate < local_now:
+            candidate = candidate.replace(year=year + 1)
+        return candidate
+    raise CommandError(
+        f'ANUM does not understand the date "{original.strip()}". Use today, tomorrow, a weekday, '
+        '"in 3 days", "next week", 2026-10-15 or 15/10.'
+    )
+
+
+def parse_command(text: str, now: datetime, zone: ZoneInfo) -> ParsedCommand:
+    sentence = _LEAD.sub("", " ".join(text.split())).strip().rstrip(".!؟?")
+    arabic = False
+    match = _ASK.match(sentence) or _ASSIGN.match(sentence)
+    if match is None:
+        match = _ARABIC.match(sentence)
+        arabic = match is not None
+    if match is None:
+        raise CommandError(
+            "Start with who and what, for example: ask Ahmed to call the supplier by Thursday, "
+            "or assign the stock count to Sara by tomorrow."
+        )
+    person = match.group("person").strip().strip(",")
+    work = match.group("work").strip()
+    due_text: str | None = None
+    # "assign X to Ahmed by Thursday": the due date trails the person.
+    tail_source = "person" if match.re is _ASSIGN else "work"
+    tail = person if tail_source == "person" else work
+    splitter = _ARABIC_DUE_SPLIT if arabic else _DUE_SPLIT
+    found = splitter.search(tail)
+    if found:
+        due_text = (found.group("when") or found.group("bare")).strip()
+        tail = tail[: found.start()].strip()
+        if tail_source == "person":
+            person = tail
+        else:
+            work = tail
+    if person.lower().startswith("the "):
+        person = person[4:]
+    if not person or len(person) > 120:
+        raise CommandError("Name the person, for example: ask Ahmed to ...")
+    due_at = resolve_when(due_text, now, zone) if due_text else None
+    return ParsedCommand(person=person, work=_title(work), due_text=due_text, due_at=due_at)
+
+
+def looks_like_assignment(text: str) -> bool:
+    """True when ``text`` has the shape of an assignment (no lookup, no date check)."""
+    sentence = _LEAD.sub("", " ".join(text.split())).strip().rstrip(".!؟?")
+    return bool(_ASK.match(sentence) or _ASSIGN.match(sentence) or _ARABIC.match(sentence))
+
+
+def match_people(name: str, people: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """Candidates for ``name`` among (type, id, display name), best match first.
+
+    An exact name or id wins; otherwise every person whose first name (or any word of the
+    name) equals it, then everyone whose name starts with it.
+    """
+    needle = " ".join(name.casefold().split())
+    if not needle:
+        return []
+    if needle in {"anum", "yourself", "you", "نفسك", "أنعم", "انعم"}:
+        return [entry for entry in people if entry[0] == "anum"]
+    exact = [p for p in people if p[2].casefold() == needle or p[1].casefold() == needle]
+    if exact:
+        return exact
+    word = [p for p in people if needle in p[2].casefold().split()]
+    if word:
+        return word
+    return [p for p in people if p[2].casefold().startswith(needle)]

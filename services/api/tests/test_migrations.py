@@ -634,3 +634,29 @@ def test_commands_migration_is_expand_only_with_per_user_forced_rls() -> None:
         assert f"current_setting('{setting}', true)" in revision_text
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
+
+
+def test_team_work_migration_is_expand_only_with_forced_rls_and_narrow_roles() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0039_team_work.py").read_text(encoding="utf-8")
+    assert 'revision = "0039_team_work"' in revision_text
+    assert len("0039_team_work") <= 32
+    assert 'down_revision = "0042_library"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0039_team_work.py"]
+    assert not [path for path in others if 'down_revision = "0042_library"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: new tables, one nullable column, roles and policies.
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert 'op.add_column("tasks", sa.column("assistant_id", sa.string(80), nullable=true))' in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "force row level security" in revision_text and "_force(table)" in upgrade and '_force("user_notifications")' in upgrade
+    for role in ("anum_platform_reader", "anum_tenant_directory"):
+        assert f'_role("{role}")' in upgrade
+        assert f"to {role}" in upgrade
+    # The narrow roles get column grants only, never content columns.
+    assert "grant select (tenant_id, status, due_at, updated_at) on {table}" not in upgrade
+    assert "title" not in upgrade.split('_role("anum_platform_reader")', 1)[1].split('_role("anum_tenant_directory")', 1)[0]
+    assert "for select to anum_maintenance" in upgrade
+    bootstrap = (Path(__file__).parents[3] / "infra" / "helm" / "bootstrap-database.sql").read_text(encoding="utf-8")
+    assert "grant anum_platform_reader to anum_app with inherit false, set true;" in bootstrap
+    assert "grant anum_tenant_directory to anum_app with inherit false, set true;" in bootstrap

@@ -15,6 +15,8 @@ import '../learning/learning_screen.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
+import '../team/team_screens.dart';
+import '../team/team_strings.dart';
 
 /// Parts of Settings that Profile and settings opens directly.
 enum SettingsSection { profile, notifications, privacy, security }
@@ -170,6 +172,10 @@ class _Content extends StatelessWidget {
             if (controller.autonomy != null) ...[
               _Heading('Autonomy'),
               _AutonomyCard(repository: controller.autonomy!),
+            ],
+            if (controller.team != null) ...[
+              _Heading(TeamText.of(context).t('section')),
+              TeamHubCard(repository: controller.team!),
             ],
             if (controller.admin != null) ...[
               _Heading('Workspace administration'),

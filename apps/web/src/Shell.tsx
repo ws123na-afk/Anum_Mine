@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import {
   Activity, Bell, BookOpen, GraduationCap, Phone, ShoppingCart, Bot, Building2, ChevronDown, CircleAlert, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
-  MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star } from 'lucide-react';
+  MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
+  ClipboardCheck, Building, BriefcaseBusiness } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
@@ -22,12 +23,14 @@ import { searchEmails, searchFiles, searchTasks } from './lib/commandApi';
 import { NAV, badgeText, initials, isPaletteShortcut, matchViews, moveActive, notificationCount, viewLabel, type NavGroup, type PaletteItem, type View } from './lib/shell';
 import { Modal } from './Dialog';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { TeamNotificationsSection, type TeamNotifications } from './NotificationBell';
 
 const ICONS: Record<View, ReactNode> = {
   home: <House />, command: <Sparkles />, assistant: <MessageSquare />, agents: <Bot />, voice: <Mic />, call: <Phone />, tyre: <Disc3 />, meetings: <PhoneCall />, commerce: <ShoppingCart />, learning: <GraduationCap />, automation: <Workflow />, tasks: <ListTodo />,
   integrations: <Plug />, files: <FileText />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />,
   enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, policy: <Scale />, developer: <Hammer />,
+  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />,
 };
 export const viewIcon = (view: View) => ICONS[view];
 
@@ -49,9 +52,11 @@ export function AnumMark({ size = 32, className }: { size?: number; className?: 
 
 type Directory = { state: 'loading' } | { state: 'ready'; rows: MembershipEntry[] } | { state: 'error' };
 
-export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, workspaceId, onGo, onSwitchWorkspace }: {
+export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, workspaceId, onGo, onSwitchWorkspace, branding }: {
   view: View; views: readonly View[]; pendingApprovals: number; stream: 'connecting' | 'live' | 'offline'; lastEvent: string | null;
   workspaceId: string; onGo: (view: View) => void; onSwitchWorkspace: (workspaceId: string) => Promise<void>;
+  /** The organisation's branding (docs/customer-organisations.md#branding): its logo and name replace the mark and tagline. */
+  branding?: { name: string | null; logo: string | null };
 }) {
   const [folds, setFolds] = useState<Folds>(readFolds);
   const toggle = (group: NavGroup | 'workspaces') => setFolds((old) => {
@@ -75,7 +80,7 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
     </div>;
   };
   return <aside className="sidebar">
-    <div className="brand"><AnumMark className="brandMark" size={36} /><div><span className="brandName">{t('brand.name')}</span><small>{t('brand.tagline')}</small></div></div>
+    <div className="brand">{branding?.logo ? <img className="brandLogo" src={branding.logo} alt="" /> : <AnumMark className="brandMark" size={36} />}<div><span className="brandName">{t('brand.name')}</span><small>{branding?.name ?? t('brand.tagline')}</small></div></div>
     <nav aria-label={t('nav.primary')}>
       <ul className="navList">{NAV[0].views.filter((id) => allowed.has(id)).map(item)}</ul>
       {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
@@ -171,8 +176,9 @@ function AddWorkspaceDialog({ onClose, onCreated, onSwitchWorkspace }: { onClose
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-export function TopBar({ tenantId, workspaceId, onSwitchWorkspace, onRefresh, onOpenPalette, bell, user }: {
+export function TopBar({ tenantId, workspaceId, onSwitchWorkspace, onSwitchOrganisation, onRefresh, onOpenPalette, bell, user }: {
   tenantId: string; workspaceId: string; onSwitchWorkspace: (workspaceId: string) => Promise<void>; onRefresh: () => void; onOpenPalette: () => void;
+  onSwitchOrganisation?: (tenantId: string, workspaceId: string) => Promise<void>;
   bell: ReactNode; user: ReactNode;
 }) {
   return <header className="topbar">
@@ -180,7 +186,7 @@ export function TopBar({ tenantId, workspaceId, onSwitchWorkspace, onRefresh, on
       <Search aria-hidden="true" /><span>{t('search.placeholder')}</span><kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
     </button>
     <div className="topActions">
-      <WorkspaceSwitcher tenantId={tenantId} workspaceId={workspaceId} onSwitch={onSwitchWorkspace} />
+      <WorkspaceSwitcher tenantId={tenantId} workspaceId={workspaceId} onSwitch={onSwitchWorkspace} onSwitchOrganisation={onSwitchOrganisation} />
       <button type="button" className="iconButton" title={t('shell.refresh')} aria-label={t('shell.refresh')} onClick={onRefresh}><RefreshCw aria-hidden="true" /></button>
       {bell}
       {user}
@@ -206,15 +212,17 @@ function usePopover(open: boolean, setOpen: (open: boolean) => void) {
   return root;
 }
 
-export function NotificationsMenu({ approvals, alerts, notices, onOpenApprovals, onOpenAlert, onOpenActivity }: {
+export function NotificationsMenu({ approvals, alerts, notices, team, onOpenApprovals, onOpenAlert, onOpenActivity }: {
   approvals: readonly Approval[]; alerts: readonly AutomationAlert[]; notices: readonly ActionNotice[];
+  /** The caller's team notifications (docs/team-work.md#notifications); their unread ones count too. */
+  team?: TeamNotifications;
   onOpenApprovals: () => void; onOpenAlert: (alert: AutomationAlert) => void; onOpenActivity: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = usePopover(open, setOpen);
   const panelId = useId();
   const pending = approvals.filter((a) => a.status === 'pending');
-  const count = notificationCount({ pendingApprovals: pending.length, alerts: alerts.length, notices: notices.length });
+  const count = notificationCount({ pendingApprovals: pending.length, alerts: alerts.length, notices: notices.length, team: team?.unread ?? 0 });
   const pick = (action: () => void) => { setOpen(false); action(); };
   return <div className="popoverRoot" ref={root}>
     <button type="button" className="iconButton bellButton" aria-expanded={open} aria-controls={panelId} aria-label={t('notifications.button', { count })} title={t('notifications.title')} onClick={() => setOpen(!open)}>
@@ -222,7 +230,7 @@ export function NotificationsMenu({ approvals, alerts, notices, onOpenApprovals,
     </button>
     {open && <section className="popover notificationsPanel" id={panelId} role="dialog" aria-label={t('notifications.title')}>
       <h2>{t('notifications.title')}</h2>
-      {count === 0 && <p className="muted">{t('notifications.empty')}</p>}
+      {count === 0 && !team?.items.length && <p className="muted">{t('notifications.empty')}</p>}
       <ul className="popoverList">
         {pending.slice(0, 5).map((a) => <li key={a.id}><button type="button" onClick={() => pick(onOpenApprovals)}>
           <ShieldCheck aria-hidden="true" /><span><strong dir="ltr">{a.action}</strong><small>{t('notifications.approval', { risk: riskLabel(a.riskLevel) })}</small></span>
@@ -235,6 +243,7 @@ export function NotificationsMenu({ approvals, alerts, notices, onOpenApprovals,
           <Activity aria-hidden="true" /><span><strong dir="auto">{n.summary}</strong><small>{t('notifications.acted')}</small></span>
         </button></li>)}
       </ul>
+      {team && <TeamNotificationsSection state={team} pick={pick} />}
     </section>}
   </div>;
 }

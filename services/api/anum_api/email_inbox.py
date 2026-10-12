@@ -902,7 +902,14 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
         stored = store.get_account(account_id)
         if stored is None:  # disconnected meanwhile
             raise EmailError(404, "Mailbox not found.")
-        store.upsert_messages([message_from_meta(meta, stored, finished) for meta in result.upserts])
+        incoming = [message_from_meta(meta, stored, finished) for meta in result.upserts]
+        try:
+            arrived = _arrived_for_routing(store, stored, incoming)
+        except Exception as exc:  # routing is best effort; the sync itself goes on
+            logger.warning("email_auto_route_skipped error_class=%s", type(exc).__name__,
+                           extra={"anum_email": {"event": "auto_route_skipped", "account_id": account_id}})
+            arrived = []
+        store.upsert_messages(incoming)
         if result.removed:
             store.apply_changes(account_id, {pid: (None, True) for pid in result.removed})
         if result.changes:
@@ -917,7 +924,40 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
         stored.sync_lease_until = None
         stored.updated_at = finished
         store.save_account(stored)
+    if arrived:
+        from .assistants import auto_route_inbound
+
+        await asyncio.to_thread(auto_route_inbound, stored.tenant_id, stored.workspace_id, "email", arrived)
     return stored
+
+
+def _arrived_for_routing(store: EmailStoreProtocol, account: EmailAccount, incoming: list[EmailMessage]) -> list[Any]:
+    """New inbound mail from a shared mailbox, for assistant auto-routing (docs/team-work.md#inbound-routing).
+
+    Private mailboxes never feed the shared board; the first sync (history) is skipped; sent
+    mail, drafts and bulk mail are left out. Only the subject and preview are handed over.
+    """
+    from .assistants import ArrivedMessage
+
+    if account.visibility != Visibility.WORKSPACE or account.last_sync_at is None:
+        return []
+    since = account.last_sync_at - timedelta(hours=1)
+    own = account.address.casefold()
+    arrived = []
+    for message in incoming:
+        if (
+            message.bulk
+            or message.received_at < since
+            or message.from_address.casefold() == own
+            or {"SENT", "DRAFT"} & {label.upper() for label in message.labels}
+            or not (message.snippet.strip() or message.subject.strip())
+            or store.get_by_provider_id(account.id, message.provider_message_id) is not None
+        ):
+            continue
+        sender = f"{message.from_name} <{message.from_address}>" if message.from_name else message.from_address
+        arrived.append(ArrivedMessage(sender=sender or "unknown", subject=message.subject, body=message.snippet or message.subject,
+                                      external_ref=f"email:{account.id}:{message.thread_id}"))
+    return arrived
 
 
 def account_view(account: EmailAccount, counts: tuple[int, int], context: TenantContext, can_manage: bool) -> EmailAccountView:

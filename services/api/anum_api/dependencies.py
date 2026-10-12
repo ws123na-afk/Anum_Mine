@@ -46,6 +46,12 @@ event_runtime = build_event_runtime(settings)
 # Says how to get the role, because after an upgrade from a realm without org_admin the
 # workspace owner who used to change these settings is refused too
 # (docs/governance-and-scale.md#who-may-change-what).
+PLATFORM_OPERATOR_REQUIRED = (
+    "Platform operator role required: onboarding customer organisations and the platform "
+    "console are for the person who runs this ANUM deployment. Ask the administrator of "
+    "your ANUM sign-in (Keycloak) to assign you the realm role platform_operator "
+    "(docs/customer-organisations.md)."
+)
 ORGANIZATION_ADMIN_REQUIRED = (
     "Organization administrator role required: this setting applies to every workspace "
     "in the organization, so owning a workspace is not enough. Ask the administrator of "
@@ -69,7 +75,7 @@ def require_permission(context: TenantContext, permission: Permission) -> None:
         except AuthorizationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=ORGANIZATION_ADMIN_REQUIRED,
+                detail=PLATFORM_OPERATOR_REQUIRED if permission == Permission.PLATFORM_OPERATE else ORGANIZATION_ADMIN_REQUIRED,
             ) from exc
         return
     _require_workspace_role(context, permission)
@@ -203,10 +209,15 @@ async def _oidc_identity(
     except TokenValidationError as exc:
         raise _unauthorized(exc.reason, invalid_token=True) from exc
     if x_tenant_id and x_tenant_id != claims.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="x-tenant-id does not match the authenticated tenant",
-        )
+        # Another of the user's organisations, when the IdP lists it in ``tenant_ids``
+        # (docs/customer-organisations.md#switching); the membership is still required.
+        try:
+            claims = claims.for_tenant(x_tenant_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="x-tenant-id does not match the authenticated tenant",
+            ) from None
     workspace_id = x_workspace_id or claims.workspace_id
     if not workspace_id and not require_workspace:
         return claims, ""
@@ -495,6 +506,8 @@ class AuthenticatedIdentity:
     context: TenantContext
     email: str | None = None
     email_verified: bool = False
+    # OIDC: the organisations the token allows (home tenant first); None in header mode.
+    allowed_tenant_ids: tuple[str, ...] | None = None
 
 
 async def authenticated_identity(
@@ -537,7 +550,9 @@ async def directory_identity(
         context = TenantContext(
             tenant_id=claims.tenant_id, workspace_id=workspace_id, user_id=claims.subject, roles=[]
         )
-        return AuthenticatedIdentity(context, claims.email, claims.email_verified)
+        return AuthenticatedIdentity(
+            context, claims.email, claims.email_verified, allowed_tenant_ids=tuple(claims.tenant_ids or [claims.tenant_id])
+        )
     return await authenticated_identity(
         authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles, x_user_email
     )

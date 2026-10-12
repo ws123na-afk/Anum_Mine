@@ -287,6 +287,12 @@ def default_tool_registry(
         ),
         external_handler or _external_action,
     )
+    # Team work (docs/team-work.md#assigning-in-words): creates an assigned work item from
+    # the user's own sentence and notifies the assignee. Imported lazily (it needs the API's
+    # stores), so registries that never call it stay light.
+    from .team_work import TEAM_ASSIGN_DEFINITION, assign_from_command
+
+    registry.register(TEAM_ASSIGN_DEFINITION, assign_from_command)
     if web_search_handler is not None:
         # Registered only when ANUM_SEARXNG_URL is set (anum_api/web_search.py): without
         # it the tool does not exist, so no skill can select it.

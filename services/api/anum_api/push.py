@@ -377,6 +377,8 @@ class PushKind(StrEnum):
     DEVELOPER_FAILED = "developer_failed"
     COMMERCE_ALERT = "commerce_alert"
     TYRE_ALERTS = "tyre_alerts"
+    # Team work (docs/team-work.md#notifications): assignments, comments, reminders, follow-ups.
+    TEAM_WORK = "team_work"
 
 
 # Which notification preference switch gates each kind.
@@ -388,6 +390,8 @@ PREFERENCE: dict[PushKind, str] = {
     PushKind.DEVELOPER_FAILED: "run_failed",
     PushKind.COMMERCE_ALERT: "commerce_alerts",
     PushKind.TYRE_ALERTS: "tyre_alerts",
+    # No switch of its own: phone push for team work follows the push channel switch.
+    PushKind.TEAM_WORK: "push_enabled",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -399,6 +403,7 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.DEVELOPER_FAILED: ("Developer request stopped", "A developer request failed or its checks did not pass."),
     PushKind.COMMERCE_ALERT: ("Store alert", "A sales channel needs your attention: low stock, a late order, returns or a price."),
     PushKind.TYRE_ALERTS: ("Tyre alerts", "New tyre alerts need attention."),
+    PushKind.TEAM_WORK: ("Team work", "Something in your team work needs you. Open ANUM to see it."),
 }
 
 EVENT_KINDS: dict[str, PushKind] = {
@@ -409,6 +414,7 @@ EVENT_KINDS: dict[str, PushKind] = {
     "developer_request.failed": PushKind.DEVELOPER_FAILED,
     "commerce.alert.raised": PushKind.COMMERCE_ALERT,
     "tyre_alerts.raised": PushKind.TYRE_ALERTS,
+    "notification.created": PushKind.TEAM_WORK,
 }
 
 
@@ -423,6 +429,9 @@ class PushIntent:
     run_id: str | None = None
     request_id: str | None = None
     alert_id: str | None = None
+    work_item_id: str | None = None
+    # Team work names its one recipient in the event (the in-app notification's owner).
+    recipient: str | None = None
 
     def data(self) -> dict[str, str]:
         """Deep-link ids only (FCM data values must be strings)."""
@@ -435,13 +444,14 @@ class PushIntent:
             "run_id": self.run_id,
             "developer_request_id": self.request_id,
             "commerce_alert_id": self.alert_id,
+            "work_item_id": self.work_item_id,
         }
         return {key: value for key, value in values.items() if value}
 
     def collapse_id(self) -> str:
         if self.kind == PushKind.TYRE_ALERTS:
             return f"tyre_alerts:{self.workspace_id}"
-        return self.approval_id or self.request_id or self.alert_id or self.task_id or self.event_id
+        return self.approval_id or self.request_id or self.alert_id or self.work_item_id or self.task_id or self.event_id
 
 
 def intent_for(event: DomainEvent) -> PushIntent | None:
@@ -460,6 +470,12 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         return PushIntent(**common, approval_id=event.subject, task_id=task_id)
     if kind == PushKind.TYRE_ALERTS:
         return PushIntent(**common)
+    if kind == PushKind.TEAM_WORK:
+        recipient = event.payload.get("recipient")
+        item = event.payload.get("work_item_id")
+        if not isinstance(recipient, str) or not recipient:
+            return None
+        return PushIntent(**common, recipient=recipient, work_item_id=item if isinstance(item, str) and item else None)
     if kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
         if task_id is None:
             return None
@@ -499,6 +515,9 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
                 user for user, role in members.items()
                 if user not in excluded and _allowed(role, Permission.APPROVAL_DECIDE)
             ]
+        elif intent.kind == PushKind.TEAM_WORK:
+            if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.WORK_READ):
+                recipients = [intent.recipient]
         elif intent.kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
             task = repository.get_task(intent.task_id or "", context)
             creator = task.created_by if task is not None else None

@@ -16,7 +16,7 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `automation_failed` | Automations failed | Nothing yet: automation runs emit no domain event; the failure shows in Automation |
 | `push_enabled` | Phone push for this workspace (migration `0027_push_devices`, default on; older clients that do not send it leave it on) | The channel switch for all of the above |
 | `desktop_enabled` | Desktop notifications | Not a phone channel |
-| `email_enabled` | Email | Saved only: ANUM does not send email yet |
+| `email_enabled` | Email | Team work notifications are emailed when SMTP is configured ([Team work](team-work.md#notifications)); nothing else is emailed yet |
 
 The web app shows these under **Settings › Notifications** with the person's registered phones; the Flutter app under **Settings › Notifications** with the **Phone push** card.
 
@@ -55,6 +55,8 @@ There is no user id in any path or body. Rows live in `push_devices` (migration 
    - developer requests: the request's creator, while an active member with `developer:manage`.
 3. For each recipient it reads their notification preferences and their phones **inside that recipient's own RLS context**, decrypts the tokens and sends one FCM message per phone (ten in flight at most). A phone shared by two members gets the message once.
 4. FCM `UNREGISTERED`, `INVALID_ARGUMENT` or `SENDER_ID_MISMATCH` removes the phone; a bare 403/404 does not (a wrong project must not wipe every phone). 429 and 5xx are retried; a 401 refreshes the OAuth token. Successful sends set `last_sent_at`.
+
+Team work adds the kind `team_work`: every in-app team notification (assignment, comment, completion, blocked, overdue reminder, ANUM follow-up) emits `notification.created` naming its one recipient, who gets a push while an active member with `work:read` and with `push_enabled` on (it has no switch of its own). Text: "Team work" / "Something in your team work needs you. Open ANUM to see it."; data: `work_item_id`. See [Team work](team-work.md#notifications).
 
 The payload never carries content: a fixed title and sentence ("Approval needed" / "An action is waiting for your decision.", "Task finished", "Task failed", "Change ready for review", "Developer request stopped", "Tyre alerts") and string ids for the deep link: `anum_kind`, `tenant_id`, `workspace_id`, and `approval_id`, `task_id`, `run_id` or `developer_request_id`. Android groups by `tag` and iOS by `apns-collapse-id` (the approval, request or task id), so a later push about the same item replaces the earlier one.
 

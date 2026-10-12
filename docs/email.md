@@ -62,6 +62,10 @@ A task such as "ANUM, any urgent customer emails?" selects the `anum.email` skil
 | Member | yes | yes | no | no |
 | Viewer | no | no | no | no |
 
+### Routing to department assistants
+
+At the end of a sync, new mail in a **shared** mailbox (never a private one, never the first history sync, never sent, draft or bulk mail) is offered with its subject and preview to department assistants that opted into email; a keyword match becomes a work item, once per open thread. Best effort: a routing failure never fails the sync ([Team work](team-work.md#inbound-routing)).
+
 ## Owner setup
 
 Set these on the API (`services/api/.env` locally, `infra/oracle/.env` on the Oracle VM, the secret store elsewhere). Secrets are never committed.

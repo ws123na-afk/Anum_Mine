@@ -2,8 +2,10 @@
 // from the API plus the workspaces the client knows (src/lib/workspaces.ts), and switches only
 // after the API confirms an active membership in the target.
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { ArrowRightLeft, ChevronDown, X } from 'lucide-react';
+import { ArrowRightLeft, Building2, ChevronDown, X } from 'lucide-react';
+import type { MyOrganisation } from '@anum/contracts';
 import * as api from './lib/api';
+import { getMyOrganisations } from './lib/teamApi';
 import { describeError } from './lib/errors';
 import { membershipLabel, type MembershipEntry } from './lib/workspaces';
 import { t } from './lib/i18n';
@@ -12,8 +14,10 @@ const sourceLabel = (source: 'member' | 'default' | 'remembered') => t(`switcher
 
 type Directory = { state: 'loading' } | { state: 'loaded'; memberships: MembershipEntry[] } | { state: 'unavailable' };
 
-export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch }: { tenantId: string; workspaceId: string; onSwitch: (workspaceId: string) => Promise<void> }) {
+export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch, onSwitchOrganisation }: { tenantId: string; workspaceId: string; onSwitch: (workspaceId: string) => Promise<void>; onSwitchOrganisation?: (tenantId: string, workspaceId: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
+  // Other organisations the caller belongs to (GET /api/v1/me/organizations); null until loaded or when unavailable.
+  const [organisations, setOrganisations] = useState<MyOrganisation[] | null>(null);
   const [directory, setDirectory] = useState<Directory>({ state: 'loading' });
   const [, setVersion] = useState(0);
   const [typed, setTyped] = useState('');
@@ -29,6 +33,7 @@ export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch }: { tenantI
     api.listMyWorkspaces()
       .then((memberships) => { if (live) setDirectory({ state: 'loaded', memberships }); })
       .catch(() => { if (live) setDirectory({ state: 'unavailable' }); });
+    getMyOrganisations().then((orgs) => { if (live) setOrganisations(orgs); }).catch(() => { if (live) setOrganisations(null); });
     const close = (event: MouseEvent | KeyboardEvent) => {
       if (event instanceof KeyboardEvent ? event.key === 'Escape' : !root.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -48,6 +53,14 @@ export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch }: { tenantI
     void onSwitch(target).catch((e: unknown) => { setError(describeError(e)); setBusy(null); });
   };
   const submit = (event: FormEvent) => { event.preventDefault(); if (typed.trim()) go(typed.trim()); };
+  const goOrganisation = (target: MyOrganisation) => {
+    const first = target.workspaces[0];
+    if (!first || !onSwitchOrganisation) return;
+    setBusy(target.tenant_id);
+    setError(null);
+    void onSwitchOrganisation(target.tenant_id, first.workspace_id).catch((e: unknown) => { setError(describeError(e)); setBusy(null); });
+  };
+  const others = (organisations ?? []).filter((o) => o.tenant_id !== tenantId);
 
   return <div className="workspaceSwitcher" ref={root}>
     <button type="button" className="tenant workspaceSwitch" aria-haspopup="dialog" aria-expanded={open} aria-controls={panelId} title={t('switcher.button')} onClick={() => setOpen(!open)}>
@@ -71,6 +84,17 @@ export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch }: { tenantI
           </li>;
         })}
       </ul>
+      {onSwitchOrganisation && others.length > 0 && <div className="organisationOptions">
+        <h3><Building2 aria-hidden="true" />{t('switcher.organisations')}</h3>
+        <ul className="workspaceOptions" aria-label={t('switcher.organisations')}>
+          {others.map((org) => <li className="workspaceOption" key={org.tenant_id}>
+            <button type="button" disabled={busy !== null || !org.workspaces.length} onClick={() => goOrganisation(org)}>
+              <strong>{org.display_name ?? org.name ?? org.tenant_id}</strong>
+              <small>{busy === org.tenant_id ? t('switcher.checking') : t('switcher.organisationDetail', { id: org.tenant_id, count: org.workspaces.length })}</small>
+            </button><span />
+          </li>)}
+        </ul>
+      </div>}
       <form onSubmit={submit} aria-label={t('switcher.otherForm')}>
         <label className="field"><span>{t('switcher.otherLabel')}</span><input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="workspace_id" autoComplete="off" spellCheck={false} /></label>
         <button type="submit" disabled={busy !== null || !typed.trim()}><ArrowRightLeft aria-hidden="true" />{busy && busy === typed.trim() ? t('switcher.checkingShort') : t('switcher.switch')}</button>

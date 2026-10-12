@@ -175,6 +175,7 @@ The API accepts an access token only when all of these hold:
 - Header `alg` is `RS256` and `kid` names a signature key (`use: sig`, `kty: RSA`) in the issuer's JWKS. Encryption keys Keycloak also publishes are ignored.
 - The signature verifies; `iss` equals `ANUM_KEYCLOAK_ISSUER`; `aud` contains `ANUM_OIDC_AUDIENCE` (`anum-api`); `exp`, `iat`, `iss`, `sub`, `aud` are present; `exp`/`nbf` pass with `ANUM_OIDC_LEEWAY_SECONDS` (default 30) of clock skew.
 - `tenant_id` is present and matches `^[A-Za-z0-9_-]{3,80}$`. `workspace_id` is optional (a default workspace) and must match the same pattern when present.
+- `tenant_ids` is optional: further organisations the user may act in (a list, or one string; invalid entries are ignored, at most 50). See [Customer organisations](customer-organisations.md#switching-organisations).
 
 Roles are read from `realm_access.roles` and a top-level `roles` array, lowercased, and filtered to the ANUM roles.
 
@@ -184,7 +185,7 @@ Roles are read from `realm_access.roles` and a top-level `roles` array, lowercas
 
 ## Tenant and Workspace Resolution
 
-1. The tenant is always the token's `tenant_id`. An `x-tenant-id` header is optional; when sent it must equal the token tenant or the request fails with `403`.
+1. The tenant is the token's `tenant_id`. An `x-tenant-id` header is optional; when sent it must equal the token tenant or be listed in its `tenant_ids` claim, otherwise the request fails with `403`. In another listed organisation the organisation roles (`org_admin`, `platform_operator`) are dropped.
 2. The workspace is the `x-workspace-id` header when present, otherwise the token's `workspace_id` claim. With neither, the request fails with `400` asking for `x-workspace-id`.
 3. The membership `(tenant, workspace, sub)` is looked up through the repository. With PostgreSQL the lookup runs in its own session after `set_tenant_context`, so row-level security scopes it. A missing or inactive membership fails with `403 Active workspace membership required`.
 4. The request's `TenantContext.roles` becomes the membership role. Token realm roles cannot elevate it.

@@ -144,6 +144,15 @@ def default_skill_registry() -> SkillRegistry:
                 required_tools=frozenset({"tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts"}),
             ),
             SkillManifest(
+                id="anum.team-assign",
+                version="1.0.0",
+                name="Team assignment",
+                description="Assigns work to a teammate, ANUM or a department assistant and notifies them.",
+                triggers=frozenset({"ask", "tell", "remind", "assign"}),
+                required_tools=frozenset({"team.assign_task"}),
+                risk_level=RiskLevel.MEDIUM,
+            ),
+            SkillManifest(
                 id="anum.external-action",
                 version="1.0.0",
                 name="External action",

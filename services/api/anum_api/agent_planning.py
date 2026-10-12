@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -7,6 +7,7 @@ from .agent_tools import ToolCall, ToolRegistry
 from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gateway
 from .retrieval import build_cache_layout_prompt, build_task_prompt
 from .schemas import Task
+from .team_commands import looks_like_assignment
 
 
 class AgentPlan(BaseModel):
@@ -75,16 +76,22 @@ class AgentPlanner:
         skills: list[SkillManifest],
         response: ModelResponse,
     ) -> ToolCall:
-        return choose_tool_call(prompt, skills, response.text)
+        return choose_tool_call(prompt, skills, response.text, self.tools.names)
 
 
-def choose_tool_call(prompt: str, skills: Sequence[SkillManifest], planned_text: str) -> ToolCall:
+def choose_tool_call(
+    prompt: str, skills: Sequence[SkillManifest], planned_text: str, available_tools: Collection[str] = ()
+) -> ToolCall:
     """The one tool call a task's prompt and selected skills lead to.
 
     Deterministic and free of model output except ``planned_text`` (the model's answer,
     used only by ``anum.respond``), so the command plan preview (docs/command.md) can show
     exactly which tool a step will use before anything runs.
     """
+    if "team.assign_task" in available_tools and looks_like_assignment(prompt):
+        # "ask Ahmed to call the supplier by Thursday": the tool parses the user's own
+        # sentence (never model output) and resolves the person in the workspace.
+        return ToolCall(name="team.assign_task", arguments={"command": " ".join(prompt.split())[:500]})
     if any(skill.id == "anum.whatsapp-inbox" for skill in skills):
         # Read-only: which conversations need attention. Replies are drafted and sent
         # from the inbox, where a person approves them (docs/whatsapp.md#agent-tools).

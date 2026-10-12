@@ -276,6 +276,22 @@ class Settings(BaseSettings):
     automation_scheduler_enabled: bool = False
     automation_scheduler_poll_seconds: float = Field(default=30.0, gt=0)
     automation_scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
+    # Team work (docs/team-work.md#reminders): overdue reminders, ANUM follow-ups and
+    # notification email retries run in the same background loop as the automation
+    # scheduler (ANUM_AUTOMATION_SCHEDULER_ENABLED) and use the same anum_maintenance grant.
+    team_reminder_poll_seconds: float = Field(default=60.0, gt=0)
+    team_reminder_batch_size: int = Field(default=200, ge=1, le=2000)
+    # Notification email (docs/team-work.md#notifications). Unset host: email is recorded
+    # as not_configured and only the in-app notification is delivered. "tls" is implicit
+    # TLS (port 465), "starttls" upgrades a plain connection and refuses to send if the
+    # server does not offer it; "none" (no encryption) is honoured only in local and test.
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_security: str = Field(default="starttls", pattern="^(starttls|tls|none)$")
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_from: str | None = None
+    smtp_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     # HTTP hardening (anum_api/hardening.py, docs/security.md). Uploads to
     # /api/v1/files get max_upload_body_bytes; every other request gets the general limit.
     max_request_body_bytes: int = 1_048_576

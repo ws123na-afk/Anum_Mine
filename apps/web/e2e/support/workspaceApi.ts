@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
 import { handleMeetings } from './meetingsApi';
+import { createTeamMock, type TeamMockOptions } from './teamApi';
 
 // One mocked workspace with something on every main view (the Command Center home, Assistant, Tasks, Approvals, Memory,
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
@@ -172,7 +173,8 @@ const libraryItems = [
 ];
 const { id: _reportId, tenant_id: _t, workspace_id: _w, highlights: _h, data: _d, body_markdown: _b, owner_user_id: _o, updated_at: _u, can_manage: _c, ...reportSummary } = libraryReport;
 
-export async function mockWorkspaceApi(page: Page): Promise<void> {
+export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions = {}): Promise<void> {
+  const team = createTeamMock(teamOptions);
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -266,6 +268,7 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/learning/routines') return json({ items: [routine], detected: 0, state: 'on' });
     if (path === '/api/v1/learning/notes') return json({ items: [note], total: 1, state: 'on' });
     if (path === '/api/v1/learning/signals') return json({ items: [signal], total: 1, limit: 10, offset: 0 });
+    if (await team(route)) return;
     if (path === '/api/v1/favorites' && method === 'GET') return json({ items: [{ id: 'fav_1', item_type: 'report', item_id: 'report_tyre', label: 'Tyre cost, September', created_at: now }], total: 1, limit: 30, offset: 0 });
     if (path === '/api/v1/knowledge/collections' && method === 'GET') return json([libraryCollection]);
     if (path === '/api/v1/knowledge/collections/kbc_specs/items') return json({ items: libraryItems, total: 2, limit: 50, offset: 0, tags: ['load', 'policy', 'specs'] });

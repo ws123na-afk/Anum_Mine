@@ -70,6 +70,17 @@ class CanonicalEventName(StrEnum):
     MEETING_IMPORTED = "meeting.imported"
     MEETING_SUMMARIZED = "meeting.summarized"
     MEETING_FAILED = "meeting.failed"
+    # Team work (docs/team-work.md#events): ids, statuses and assignee ids only.
+    WORK_ITEM_CREATED = "work_item.created"
+    WORK_ITEM_UPDATED = "work_item.updated"
+    WORK_ITEM_ASSIGNED = "work_item.assigned"
+    WORK_ITEM_COMPLETED = "work_item.completed"
+    WORK_ITEM_DELETED = "work_item.deleted"
+    WORK_ITEM_COMMENTED = "work_item.commented"
+    WORK_ITEM_REMINDED = "work_item.reminded"
+    NOTIFICATION_CREATED = "notification.created"
+    ASSISTANT_CHANGED = "assistant.changed"
+    ASSISTANT_ROUTED = "assistant.routed"
 
 
 class PublicationStatus(StrEnum):

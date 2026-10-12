@@ -138,6 +138,10 @@ from .reports import router as reports_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
+from .assistants import router as assistants_router
+from .notifications import router as notifications_router
+from .organisations import router as organisations_router
+from .team_work import build_team_reminder_scheduler, router as team_router
 from .files import router as files_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
 from .skills_api import configure_tool_catalog, router as skills_router
@@ -179,9 +183,15 @@ async def lifespan(_: FastAPI):
     commerce_scheduler = build_commerce_scheduler()
     if commerce_scheduler is not None:
         commerce_scheduler.start()
+    # Overdue reminders, ANUM follow-ups and notification email retries (docs/team-work.md).
+    reminders = build_team_reminder_scheduler(settings)
+    if reminders is not None:
+        reminders.start()
     try:
         yield
     finally:
+        if reminders is not None:
+            await reminders.stop()
         if commerce_scheduler is not None:
             await commerce_scheduler.stop()
         if email_scheduler is not None:
@@ -288,6 +298,10 @@ app.include_router(sign_in_options_router)
 app.include_router(favorites_router)
 app.include_router(knowledge_router)
 app.include_router(reports_router)
+app.include_router(team_router)
+app.include_router(notifications_router)
+app.include_router(assistants_router)
+app.include_router(organisations_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

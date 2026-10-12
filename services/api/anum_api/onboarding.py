@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 
 from .authorization import Permission
 from .dependencies import (
+    AuthenticatedIdentity,
+    authenticated_identity,
     provisioning_repository_context,
     provisioning_tenant_context,
     require_permission,
@@ -99,6 +101,11 @@ class PasswordReset(BaseModel):
 
 
 class WorkspaceSwitch(BaseModel):
+    workspace_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,80}$")
+
+
+class TenantSwitch(BaseModel):
+    tenant_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,80}$")
     workspace_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,80}$")
 
 
@@ -337,7 +344,7 @@ _local_auth = _LocalAuthStore()
 
 # Local development sessions (local/test only) stand for the organization's administrator,
 # like the Keycloak realm's DEV-ONLY ``dev`` user (realm roles ``owner`` and ``org_admin``).
-LOCAL_ORGANIZATION_ROLES = ["org_admin"]
+LOCAL_ORGANIZATION_ROLES = ["org_admin", "platform_operator"]
 
 
 def _local_enabled() -> None:
@@ -538,6 +545,32 @@ async def switch_local_workspace(
     membership = repository.get_membership(target)
     if workspace is None or membership is None or not membership.active:
         raise HTTPException(status_code=403, detail="Active target workspace membership required")
+    target.roles = [membership.role]
+    if authorization and authorization.lower().startswith("bearer anum_local_"):
+        local_sessions.revoke(authorization.split(" ", 1)[1])
+    return _session_response(target)
+
+
+@router.post("/auth/local/tenant/switch", response_model=LocalSessionResponse)
+async def switch_local_tenant(
+    payload: TenantSwitch,
+    authorization: str | None = Header(default=None),
+    identity: AuthenticatedIdentity = Depends(authenticated_identity),
+) -> LocalSessionResponse:
+    """Re-issue the local development session in another organisation (docs/customer-organisations.md#switching).
+
+    The membership is looked up inside the *target* tenant's RLS scope; without an
+    active one the switch is refused and the current session stays valid.
+    """
+    _local_enabled()
+    from .dependencies import _unit_of_work
+
+    target = identity.context.model_copy(update={"tenant_id": payload.tenant_id, "workspace_id": payload.workspace_id})
+    with _unit_of_work(target, require_membership=False) as repository:
+        workspace = repository.get_workspace(payload.workspace_id, target)
+        membership = repository.get_membership(target)
+    if workspace is None or membership is None or not membership.active:
+        raise HTTPException(status_code=403, detail="Active membership in that organisation and workspace required")
     target.roles = [membership.role]
     if authorization and authorization.lower().startswith("bearer anum_local_"):
         local_sessions.revoke(authorization.split(" ", 1)[1])
