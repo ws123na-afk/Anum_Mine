@@ -63,7 +63,7 @@ export const ownerAr: Record<keyof typeof ownerEn, Message> = {
   'invite.eyebrow': 'دعوة جديدة',
   'invite.help': 'اربطها بمعرّف المستخدم (معرّف تسجيل الدخول)، أو ببريده الإلكتروني الموثّق، أو بكليهما. لا يقبلها إلا ذلك الشخص.',
   'invite.userId': 'معرّف المستخدم',
-  'invite.userIdPlaceholder': 'مثال: 3f2c…-sub',
+  'invite.userIdPlaceholder': '3f2c…-sub',
   'invite.email': 'البريد الإلكتروني',
   'invite.role': 'الدور',
   'invite.ttl': 'تنتهي بعد (ساعات)',

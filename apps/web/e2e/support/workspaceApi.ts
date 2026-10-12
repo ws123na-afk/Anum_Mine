@@ -251,6 +251,22 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/organization/governance') return json({ tenant_id: 'tenant_local', policy_packs: 0, active_policy_packs: 0, role_templates: 0, approval_rules: 0, memory_governance_configured: false, can_manage_organization_policy: true });
     if (path === '/api/v1/enterprise/operations') return json({ tenant_id: 'tenant_local', active_regions: 1, healthy_targets: 1, degraded_targets: 0, installed_packages: 1, failover_ready: false, generated_at: now });
     if (path === '/api/v1/routing/targets') return json([{ id: 'configured-model', region: 'local', provider: 'anthropic', model: 'claude', status: 'unverified', modalities: ['text'], sensitivity: ['standard'], cost_per_1k_tokens: 0, latency_ms: 1 }]);
+    // Members, budgets, the approval policy and governance lists (docs/web-localization.md).
+    if (path === '/api/v1/workspace-members/summary') return json({ total: 2, active: 2, deactivated: 0, active_owners: 1, pending_invitations: 1 });
+    if (path === '/api/v1/workspace-members' && method === 'GET') return json([
+      { tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: now, updated_at: now },
+      { tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_member', role: 'member', active: true, created_at: now, updated_at: now, email: 'member@example.com' },
+    ]);
+    if (path === '/api/v1/workspace-invitations' && method === 'GET') return json([{ id: 'invitation_1', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'viewer', invitee_user_id: 'user_pending', invitee_email: null, status: 'pending', created_by_user_id: 'user_local', expires_at: new Date(Date.now() + 2 * 86_400_000 + 3_600_000).toISOString(), accepted_by_user_id: null, accepted_at: null, revoked_at: null, created_at: now }]);
+    if (path === '/api/v1/model-budgets') return json({
+      period_start: '2026-10-01', resets_on: '2026-11-01', can_manage_tenant_budget: false,
+      tenant: { budget: null, usage: { input_tokens: 1200, output_tokens: 800, estimated_cost_usd: 1.5, calls: 4, unpriced_calls: 0 }, total_tokens: 2000, exceeded: false },
+      workspace: { budget: { scope: 'workspace', monthly_cost_limit_usd: 2, monthly_token_limit: 4000, updated_at: now, updated_by: 'user_local' }, usage: { input_tokens: 1200, output_tokens: 800, estimated_cost_usd: 1.5, calls: 4, unpriced_calls: 0 }, total_tokens: 2000, exceeded: false },
+    });
+    if (path === '/api/v1/approval-policy') return json({ two_person_rule: true, medium_risk_requires_approval: false, updated_by: 'user_local', updated_at: now });
+    if (path === '/api/v1/policy-packs') return json([{ id: 'pack_1', name: 'Organization baseline', description: 'Approval-first enterprise defaults', version: 1, active: true, rules: [{ action: 'integration.write', effect: 'require_approval' }, { action: 'payment.send', effect: 'deny' }, { action: 'email.send', effect: 'require_approval' }], created_by: 'user_local', created_at: now }]);
+    if (path === '/api/v1/role-templates') return json([{ id: 'role_1', name: 'Analyst', permissions: ['task:read', 'memory:read'], created_at: now }]);
+    if (path === '/api/v1/organization/approval-rules') return json([{ id: 'rule_1', name: 'Integrations', action_pattern: 'integration.*', minimum_approvers: 2, required_roles: ['owner'], enabled: true, created_at: now }]);
     if (path === '/api/v1/marketplace/packages') return json(packages);
     // Commerce (docs/commerce.md): one Amazon and one own-store connection with data on every tab.
     const commerce = commerceReply(commerceFixture, method, url, request.postData() ? request.postDataJSON() : null);

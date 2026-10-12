@@ -170,3 +170,69 @@ test('Integrations, Skills and the marketplace read in Arabic, right to left, wi
   await expect(page.getByText(/2 من حزمتين · 1 مثبّتة/)).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
+
+test('Members, Budgets and the Approval policy read in Arabic, right to left, with Arabic plurals', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await useSavedLocale(page, 'ar');
+
+  await page.goto('/#members');
+  await expect(page.getByRole('heading', { name: 'الأعضاء والدعوات' })).toBeVisible();
+  // Arabic plural forms: two members uses the dual.
+  await expect(page.getByRole('heading', { name: 'عضوان' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: /^دور .?user_member.?$/ })).toHaveValue('member');
+  const invitations = page.getByRole('region', { name: 'الدعوات' });
+  await expect(invitations.getByText(/تنتهي خلال يومين/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'إنشاء الدعوة' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'قبول الدعوة' })).toBeDisabled();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+
+  await page.goto('/#budgets');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'ميزانيات النموذج الشهرية' })).toBeVisible();
+  await expect(page.getByText(/يُعاد ضبطه في .?1 نوفمبر 2026 \(UTC\).?\./)).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: 'المستخدم من الرموز في مساحة العمل هذه' })).toHaveAttribute('aria-valuetext', '50%');
+  // The organization budget is read only for a workspace owner: the notice says why, in Arabic.
+  await expect(page.getByText(/^للقراءة فقط: هذه الإعدادات/)).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+
+  await page.goto('/#policy');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'من يجب أن يوافق على الإجراءات الخطرة' })).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'قاعدة الشخصين للإجراءات عالية الخطورة' })).toBeChecked();
+  // Only one active owner: the two-person rule warning explains it in Arabic.
+  await expect(page.getByRole('alert').filter({ hasText: 'لمساحة العمل هذه مالك نشط واحد' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
+
+test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await useSavedLocale(page, 'ar');
+
+  await page.goto('/#governance');
+  await expect(page.getByRole('heading', { name: 'مركز الحوكمة' })).toBeVisible();
+  await expect(page.getByText(/3 قواعد/)).toBeVisible();
+  await expect(page.getByText(/موافِقان/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'أرشفة Organization baseline v1' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'إضافة قالب دور' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+
+  await page.goto('/#enterprise');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'عمليات المؤسسة' })).toBeVisible();
+  await expect(page.getByText(/^منطقة واحدة \(.?local.?\)$/)).toBeVisible();
+  await expect(page.getByText('لم تُقس التكلفة وزمن الاستجابة بعد')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'تعديل configured-model' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+
+  await page.goto('/#voice');
+  await page.reload();
+  await expect(page.getByRole('region', { name: /^المساعد الصوتي/ })).toBeVisible();
+  await expect(page.getByText('جرّب أن تقول')).toBeVisible();
+  // Without a saved speech language, the Arabic interface listens in Arabic and suggests Arabic phrases.
+  await expect(page.getByText('“ما اسمك؟”')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /أنا Anum/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'إرسال' })).toBeDisabled();
+  await page.getByText('إعدادات الصوت').click();
+  await expect(page.getByLabel('الاحتفاظ بالنصوص المفرّغة')).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});

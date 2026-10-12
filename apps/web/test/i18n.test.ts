@@ -198,3 +198,52 @@ describe('localized helpers', () => {
     assert.equal(formatNumber(1234.5, 'ar'), '1,234.5');
   });
 });
+
+// Owner screens, Governance, Enterprise and Voice (messages/*.owner.ts, *.governance.ts, *.voice.ts).
+describe('owner, governance and voice helpers in Arabic', () => {
+  test('budgets: Arabic dates and plural expiries, English unchanged', async () => {
+    const { expiryLabel: inviteExpiry, formatResetDate, budgetMeters, parseLimits, inviteeLabel } = await import('../src/lib/admin.ts');
+    const now = new Date('2026-10-06T12:00:00Z');
+    assert.equal(formatResetDate('2026-11-01'), '1 November 2026 (UTC)');
+    assert.equal(inviteExpiry('2026-10-08T12:00:00Z', now), 'Expires in 2 d');
+    setLocale('ar');
+    assert.equal(formatResetDate('2026-11-01'), '1 نوفمبر 2026 (UTC)');
+    assert.equal(formatResetDate('2026-11-01', false), '1 نوفمبر 2026');
+    assert.equal(inviteExpiry('2026-10-07T12:00:00Z', now), 'تنتهي خلال يوم واحد');
+    assert.equal(inviteExpiry('2026-10-08T12:00:00Z', now), 'تنتهي خلال يومين');
+    assert.equal(inviteExpiry('2026-10-11T12:00:00Z', now), 'تنتهي خلال 5 أيام');
+    assert.equal(inviteExpiry('2026-10-06T10:00:00Z', now), 'انتهت منذ ساعتين');
+    const [, tokens] = budgetMeters({ budget: null, usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, calls: 0, unpricedCalls: 0 }, totalTokens: 0, exceeded: false });
+    assert.equal(tokens.label, 'الرموز');
+    assert.equal(tokens.limitText, 'بلا حد');
+    const refused = parseLimits({ cost: '-1', tokens: '' });
+    assert.ok(!refused.ok && refused.error.startsWith('يجب أن يكون حد التكلفة'));
+    assert.equal(inviteeLabel({ inviteeUserId: null, inviteeEmail: null } as never), 'أي شخص يملك الرمز');
+  });
+
+  test('approval policy and governance read in Arabic', async () => {
+    const { POLICY_SWITCHES, policyUpdatedLabel, twoPersonWarning } = await import('../src/lib/policy.ts');
+    const { regionSummary, tenantWriteAccess, packState, routingTargetBody, emptyTargetDraft } = await import('../src/lib/governance.ts');
+    assert.equal(POLICY_SWITCHES[0].title, 'Two-person rule for high-risk actions');
+    setLocale('ar');
+    assert.equal(POLICY_SWITCHES[0].title, 'قاعدة الشخصين للإجراءات عالية الخطورة');
+    assert.equal(policyUpdatedLabel({ twoPersonRule: false, mediumRiskRequiresApproval: false }, (x) => x), 'لم تتغيّر قط: المفتاحان متوقفان افتراضيًا.');
+    assert.match(twoPersonWarning({ twoPersonRule: true, mediumRiskRequiresApproval: false }, []) ?? '', /لا يوجد في مساحة العمل/);
+    const target = (region: string) => ({ id: region, region, provider: 'p', model: 'm', status: 'healthy' as const, modalities: ['text'], sensitivity: ['standard'], cost_per_1k_tokens: 0, latency_ms: 1 });
+    assert.equal(regionSummary({ active_regions: 2, healthy_targets: 2, degraded_targets: 0, installed_packages: 0, failover_ready: true }, [target('eu'), target('us')]).regions, 'منطقتان');
+    assert.equal(regionSummary({ active_regions: 3, healthy_targets: 3, degraded_targets: 0, installed_packages: 0, failover_ready: false }, [target('a'), target('b'), target('c')]).regions, '3 مناطق');
+    assert.match(tenantWriteAccess(false, t('budgets.subject')).notice ?? '', /^للقراءة فقط: هذه الإعدادات \(ميزانيات النموذج للمؤسسة\)/);
+    assert.equal(packState({ active: true }).label, 'نشطة');
+    const missing = routingTargetBody({ ...emptyTargetDraft(), id: 'x' });
+    assert.ok(!missing.ok && missing.error === 'المنطقة مطلوبة.');
+  });
+
+  test('Arabic plural forms for members, rules and waiting approvals', () => {
+    assert.equal(translate('ar', 'memberPage.count', { count: 2 }), 'عضوان');
+    assert.equal(translate('ar', 'memberPage.count', { count: 11 }), '11 عضوًا');
+    assert.equal(translate('ar', 'gov.packs.rules', { count: 3 }), '3 قواعد');
+    assert.equal(translate('ar', 'voice.approvalsWaiting', { count: 1 }), 'موافقة واحدة بانتظارك');
+    assert.equal(translate('en', 'voice.approvalsWaiting', { count: 1 }), '1 approval waiting for you');
+    assert.equal(translate('en', 'memberPage.count', { count: 3 }), '3 members');
+  });
+});

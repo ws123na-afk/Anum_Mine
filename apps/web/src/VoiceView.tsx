@@ -32,7 +32,7 @@ import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import './voice.css';
 import { takeSentences } from './lib/chat';
 import { useDeveloperAssist } from './DeveloperAssist';
-import { t, translate, type MessageKey } from './lib/i18n';
+import { getLocale, t, translate, type MessageKey } from './lib/i18n';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -69,7 +69,8 @@ function store(key: string, value: string) {
 
 export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApprovals?: () => void; onOpenDeveloper?: () => void } = {}) {
   const [session, setSession] = useState<VoiceSession | null>(null);
-  const [locale, setLocale] = useState(() => stored('anum.voice.locale', navigator.language || 'en-US'));
+  // Without a saved speech language, an Arabic interface listens and speaks in Arabic.
+  const [locale, setLocale] = useState(() => stored('anum.voice.locale', getLocale() === 'ar' ? 'ar-SA' : navigator.language || 'en-US'));
   const [name, setName] = useState(() => stored('anum.voice.name', 'Anum'));
   const [nameDraft, setNameDraft] = useState(name);
   const [wakeOn, setWakeOn] = useState(() => stored('anum.voice.wake', 'on') === 'on');

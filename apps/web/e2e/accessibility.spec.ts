@@ -37,6 +37,11 @@ const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'activity', ready: (page) => expect(page.locator('.autonomyRow').first()).toBeVisible() },
   { hash: 'autonomy', ready: (page) => expect(page.locator('.autonomyPanel').first()).toBeVisible() },
   { hash: 'learning', ready: (page) => expect(page.locator('.learningRoutine').first()).toBeVisible() },
+  { hash: 'members', ready: (page) => expect(page.locator('.memberRow').first()).toBeVisible() },
+  { hash: 'budgets', ready: (page) => expect(page.locator('.budgetCard').first()).toBeVisible() },
+  { hash: 'policy', ready: (page) => expect(page.locator('.policySwitch').first()).toBeVisible() },
+  { hash: 'governance', ready: (page) => expect(page.locator('.govRow').first()).toBeVisible() },
+  { hash: 'voice', ready: (page) => expect(page.locator('.voiceEmpty')).toBeVisible() },
 ];
 
 async function seriousViolations(page: Page): Promise<string[]> {
