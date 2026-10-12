@@ -66,6 +66,8 @@ API_REQUIRED = {
 }
 S3_REQUIRED = {"ANUM_S3_ENDPOINT", "ANUM_S3_REGION", "ANUM_S3_BUCKET", "ANUM_S3_ACCESS_KEY", "ANUM_S3_SECRET_KEY"}
 RETENTION_REQUIRED = {"ANUM_ENVIRONMENT", "ANUM_REPOSITORY_BACKEND", "ANUM_DATABASE_URL", "ANUM_SECRETS_KEY"}
+# The WhatsApp history default (docs/whatsapp.md#retention) the retention job applies.
+RETENTION_ENVIRONMENT = RETENTION_REQUIRED | {"ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS"}
 # The Ollama settings docs/deploy-oracle.md#ai-model and .env.example give for the ai profile.
 OLLAMA_VALUES = {
     "ANUM_MODEL_PROVIDER": "ollama",
@@ -430,7 +432,9 @@ def test_retention_environment_alone_is_enough_for_settings(monkeypatch: pytest.
     variables = dict(_example())
     variables["ANUM_SECRETS_KEY"] = Fernet.generate_key().decode()
     environment = {key: _interpolate(value, variables) for key, value in _env(_services()["retention"]).items()}
-    assert set(environment) == RETENTION_REQUIRED
+    assert set(environment) == RETENTION_ENVIRONMENT
+    # The job and the API use the same deployment default.
+    assert environment["ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS"] == _api_environment()["ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS"]
     settings = _settings(monkeypatch, environment)
     assert settings.environment == _api_environment()["ANUM_ENVIRONMENT"]
     assert settings.repository_backend == "postgresql"
@@ -1044,3 +1048,20 @@ def test_monitoring_script_sets_the_web_dsn_and_rebuilds_the_web_image() -> None
     caddy = (ORACLE / "monitoring.caddy").read_text(encoding="utf-8")
     # Browsers reach GlitchTip's ingest without the basic-auth login.
     assert "@ingest path_regexp ingest ^/api/[0-9]+/(envelope|store|security|minidump)/$" in caddy
+
+
+def test_module_settings_from_the_example_pass_the_apis_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ANUM_EMAIL_*, ANUM_WHATSAPP_* and ANUM_LEARNING_* reach the API and parse (docs/deploy-oracle.md)."""
+    from anum_api.email_inbox import EmailSettings
+    from anum_api.whatsapp import WhatsAppSettings
+
+    environment = _api_environment()
+    for key in ("ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS", "ANUM_LEARNING_ENABLED", "ANUM_LEARNING_SIGNAL_RETENTION_DAYS", "ANUM_EMAIL_SYNC_INTERVAL_SECONDS"):
+        assert key in environment
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    email = EmailSettings(_env_file=None)
+    assert email.redirect_uri.startswith("https://") and email.web_url.startswith("https://")
+    assert WhatsAppSettings(_env_file=None).message_retention_days == 0
+    settings = _settings(monkeypatch, environment)
+    assert settings.learning_enabled is True and settings.learning_signal_retention_days == 180

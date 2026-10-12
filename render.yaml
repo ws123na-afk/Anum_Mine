@@ -145,6 +145,25 @@ services:
       # Credentials are per workspace (encrypted), never environment variables.
       - key: ANUM_WHATSAPP_GRAPH_API_VERSION
         value: "v23.0"
+      # Message history kept for workspaces that chose no retention of their own, in days
+      # (0 keeps it); the anum-voice-retention cron deletes older messages.
+      - key: ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS
+        value: "0"
+      # Unified inbox (docs/email.md): https://<API host> (the OAuth redirect is
+      # <this>/api/v1/email/oauth/callback) and https://<web host>. To turn a provider on,
+      # add its ANUM_EMAIL_<GOOGLE|MICROSOFT|ZOHO>_CLIENT_ID and _CLIENT_SECRET in the
+      # Dashboard (secrets, never in this file); without them it shows as not set up.
+      - key: ANUM_EMAIL_PUBLIC_API_URL
+        sync: false
+      - key: ANUM_EMAIL_WEB_URL
+        sync: false
+      - key: ANUM_EMAIL_SYNC_INTERVAL_SECONDS
+        value: "300"
+      # What ANUM learned (docs/learning.md): "false" stops new learning for everyone.
+      - key: ANUM_LEARNING_ENABLED
+        value: "true"
+      - key: ANUM_LEARNING_SIGNAL_RETENTION_DAYS
+        value: "180"
 
   # --- Web client (Vite bundle on unprivileged nginx) -------------------------------
   - type: web
@@ -293,6 +312,12 @@ services:
           name: anum-api
           type: web
           envVarKey: ANUM_SECRETS_KEY
+      # The API's WhatsApp history default (docs/whatsapp.md#retention).
+      - key: ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS
+        fromService:
+          name: anum-api
+          type: web
+          envVarKey: ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS
 
 databases:
   # ANUM's database. Its default user (anum_admin) is the owner's admin login for the

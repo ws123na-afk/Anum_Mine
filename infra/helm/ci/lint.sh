@@ -107,6 +107,35 @@ refuses "ANUM_SENTRY_DSN must look like" --set config.ANUM_SENTRY_DSN=https://er
 refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string config.ANUM_FCM_SERVICE_ACCOUNT_JSON=example-service-account
 refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string extraEnv.ANUM_FCM_SERVICE_ACCOUNT_JSON=example
 
+# WhatsApp, email and learning settings (docs/whatsapp.md, docs/email.md, docs/learning.md):
+# the API's pydantic bounds, mirrored, and OAuth client secrets only in secrets.app.
+for template in api.yaml worker.yaml; do
+  for key in ANUM_EMAIL_GOOGLE_CLIENT_SECRET ANUM_EMAIL_MICROSOFT_CLIENT_SECRET ANUM_EMAIL_ZOHO_CLIENT_SECRET; do
+    secret_env_reaches "$key" "$template"
+  done
+done
+configmap="$(helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" --show-only templates/configmap.yaml)"
+grep -qF 'ANUM_EMAIL_PUBLIC_API_URL: "https://api.staging.anum.example"' <<<"$configmap" \
+  || fail "configmap.yaml: ANUM_EMAIL_PUBLIC_API_URL must default to https://<ingress.hosts.api>"
+for key in ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS ANUM_LEARNING_SIGNAL_RETENTION_DAYS ANUM_EMAIL_SYNC_INTERVAL_SECONDS; do
+  grep -q "^  $key:" <<<"$configmap" || fail "configmap.yaml: $key is not passed to the API"
+done
+refuses "is an OAuth client secret" --set-string config.ANUM_EMAIL_GOOGLE_CLIENT_SECRET=example
+refuses "is an OAuth client secret" --set-string extraEnv.ANUM_EMAIL_ZOHO_CLIENT_SECRET=example
+refuses "ANUM_WHATSAPP_GRAPH_API_VERSION" --set-string config.ANUM_WHATSAPP_GRAPH_API_VERSION=23
+refuses "ANUM_WHATSAPP_GRAPH_API_URL must be an https URL" --set-string config.ANUM_WHATSAPP_GRAPH_API_URL=http://graph.facebook.com
+refuses "ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS" --set-string config.ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS=3651
+refuses "ANUM_WHATSAPP_REPLAY_WINDOW_HOURS" --set-string config.ANUM_WHATSAPP_REPLAY_WINDOW_HOURS=0
+refuses "ANUM_WHATSAPP_WEBHOOK_RATE_PER_SECOND" --set-string config.ANUM_WHATSAPP_WEBHOOK_RATE_PER_SECOND=0
+refuses "ANUM_WHATSAPP_TRIAGE_ON_ARRIVAL" --set-string config.ANUM_WHATSAPP_TRIAGE_ON_ARRIVAL=maybe
+refuses "ANUM_EMAIL_MICROSOFT_TENANT" --set-string 'config.ANUM_EMAIL_MICROSOFT_TENANT=bad tenant'
+refuses "ANUM_EMAIL_ZOHO_DATA_CENTRE" --set-string config.ANUM_EMAIL_ZOHO_DATA_CENTRE=us
+refuses "ANUM_EMAIL_SYNC_MAX_MESSAGES" --set-string config.ANUM_EMAIL_SYNC_MAX_MESSAGES=5
+refuses "ANUM_EMAIL_SYNC_INTERVAL_SECONDS" --set-string config.ANUM_EMAIL_SYNC_INTERVAL_SECONDS=-1
+refuses "ANUM_EMAIL_PUBLIC_API_URL must be an https URL" --set-string config.ANUM_EMAIL_PUBLIC_API_URL=http://api.anum.example
+refuses "ANUM_LEARNING_SIGNAL_RETENTION_DAYS" --set-string config.ANUM_LEARNING_SIGNAL_RETENTION_DAYS=3
+refuses "ANUM_LEARNING_ENABLED" --set-string extraEnv.ANUM_LEARNING_ENABLED=sometimes
+
 # ---------------------------------------------------------------------------
 # Admission policy chart (infra/helm/anum-admission, docs/deployment.md#admission-policy).
 # kubeconform has no schema for custom resources. The policy.sigstore.dev

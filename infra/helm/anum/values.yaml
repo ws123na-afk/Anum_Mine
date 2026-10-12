@@ -53,6 +53,9 @@ secrets:
     # phone push (docs/notifications.md). It carries a private key, so it is read from
     # this Secret only: the chart refuses it in config or extraEnv. Absent: push is off.
     # The API refuses a value that is not a service-account key at startup.
+    # ANUM_EMAIL_*_CLIENT_SECRET: the OAuth client secrets of the Google, Microsoft and
+    # Zoho apps the owner registered for the email inbox (docs/email.md). Secrets only:
+    # the chart refuses them in config or extraEnv. Absent: that provider is off.
     optional:
       - ANUM_OUTBOX_DATABASE_URL
       - ANUM_VALKEY_URL
@@ -66,6 +69,9 @@ secrets:
       - ANUM_SENTRY_DSN
       - ANUM_SEARXNG_URL
       - ANUM_FCM_SERVICE_ACCOUNT_JSON
+      - ANUM_EMAIL_GOOGLE_CLIENT_SECRET
+      - ANUM_EMAIL_MICROSOFT_CLIENT_SECRET
+      - ANUM_EMAIL_ZOHO_CLIENT_SECRET
   migration:
     # Secret with ANUM_DATABASE_URL for the migration login (owner of the schema,
     # see docs/deployment.md#database-roles). ANUM_SECRETS_KEY comes from secrets.app.
@@ -179,6 +185,38 @@ config:
   ANUM_WHATSAPP_MEDIA_MAX_BYTES: "16777216"
   ANUM_WHATSAPP_REPLAY_WINDOW_HOURS: "168"
   ANUM_WHATSAPP_TRIAGE_ON_ARRIVAL: "true"
+  ANUM_WHATSAPP_WEBHOOK_RATE_PER_SECOND: "20"
+  ANUM_WHATSAPP_WEBHOOK_BURST: "200"
+  ANUM_WHATSAPP_TEMPLATE_CACHE_SECONDS: "300"
+  # Message history kept for workspaces that did not choose their own retention (and
+  # history left after a number is disconnected); deleted by the voiceRetention CronJob
+  # (docs/whatsapp.md#retention). Whole days, 0 to 3650; 0 keeps messages.
+  ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS: "0"
+
+  # Email inbox (docs/email.md): Gmail, Outlook and Zoho Mail through the owner's own
+  # OAuth apps. Client ids here; the client secrets only in secrets.app (refused here).
+  # A provider without both is shown as not set up. Empty URLs: https://<ingress host>.
+  ANUM_EMAIL_GOOGLE_CLIENT_ID: ""
+  ANUM_EMAIL_MICROSOFT_CLIENT_ID: ""
+  ANUM_EMAIL_MICROSOFT_TENANT: common
+  ANUM_EMAIL_ZOHO_CLIENT_ID: ""
+  # com, eu, in, com.au, jp, ca, sa or com.cn (the Zoho account's data centre).
+  ANUM_EMAIL_ZOHO_DATA_CENTRE: com
+  ANUM_EMAIL_PUBLIC_API_URL: ""
+  ANUM_EMAIL_WEB_URL: ""
+  ANUM_EMAIL_INITIAL_SYNC_DAYS: "30"
+  ANUM_EMAIL_SYNC_MAX_MESSAGES: "200"
+  ANUM_EMAIL_BODY_MAX_BYTES: "262144"
+  ANUM_EMAIL_ATTACHMENT_MAX_BYTES: "10485760"
+  # Background sync of connected mailboxes (the API login must be in anum_maintenance);
+  # 0 turns it off.
+  ANUM_EMAIL_SYNC_INTERVAL_SECONDS: "300"
+  ANUM_EMAIL_OAUTH_STATE_TTL_SECONDS: "900"
+
+  # What ANUM learned (docs/learning.md). false stops new learning everywhere; feedback
+  # signals older than the retention (7 to 3650 days) are deleted as they are used.
+  ANUM_LEARNING_ENABLED: "true"
+  ANUM_LEARNING_SIGNAL_RETENTION_DAYS: "180"
 
   # Conversations with no activity for this many days are deleted with their turns
   # by the voiceRetention CronJob (docs/conversations.md#retention). Whole days,

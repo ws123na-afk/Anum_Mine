@@ -289,6 +289,17 @@ services:
       ANUM_EMAIL_ZOHO_CLIENT_ID: ${ANUM_EMAIL_ZOHO_CLIENT_ID:-}
       ANUM_EMAIL_ZOHO_CLIENT_SECRET: ${ANUM_EMAIL_ZOHO_CLIENT_SECRET:-}
       ANUM_EMAIL_ZOHO_DATA_CENTRE: ${ANUM_EMAIL_ZOHO_DATA_CENTRE:-com}
+      # Background sync of connected mailboxes (anum_maintenance discovers them); 0 is off.
+      ANUM_EMAIL_SYNC_INTERVAL_SECONDS: ${ANUM_EMAIL_SYNC_INTERVAL_SECONDS:-300}
+      # WhatsApp (docs/whatsapp.md): credentials are per workspace, encrypted in the
+      # database. Message history kept for workspaces that chose no retention, in days
+      # (0 keeps it); the retention job below deletes older messages.
+      ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS: ${ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS:-0}
+      ANUM_WHATSAPP_TRIAGE_ON_ARRIVAL: ${ANUM_WHATSAPP_TRIAGE_ON_ARRIVAL:-true}
+      # What ANUM learned (docs/learning.md): false stops new learning; feedback signals
+      # older than the retention (7 to 3650 days) are deleted as they are used.
+      ANUM_LEARNING_ENABLED: ${ANUM_LEARNING_ENABLED:-true}
+      ANUM_LEARNING_SIGNAL_RETENTION_DAYS: ${ANUM_LEARNING_SIGNAL_RETENTION_DAYS:-180}
       # Errors to GlitchTip (profile `monitoring`) or any Sentry-compatible server; empty
       # is off. monitoring.sh sets http://<key>@glitchtip:8000/<project> (the private
       # network, no hairpin through the public address). Scrubbed to types, frames,
@@ -473,7 +484,8 @@ services:
     logging: *logging
 
   # --- Scheduled jobs (profile `jobs`; started by systemd timers, never by `up`) ----
-  # Daily voice transcript and retrieval index retention (anum-retention.timer).
+  # Daily retention (anum-retention.timer): voice transcripts, retrieval index rows,
+  # idle conversations and WhatsApp messages past their workspace's retention.
   retention:
     profiles: ["jobs"]
     build: *api-build
@@ -486,6 +498,8 @@ services:
       # The application login (RLS applies), never the migration login.
       ANUM_DATABASE_URL: postgresql+psycopg://anum_app:${ANUM_APP_PASSWORD:?set ANUM_APP_PASSWORD in infra/oracle/.env}@postgres:5432/anum
       ANUM_SECRETS_KEY: ${ANUM_SECRETS_KEY:?set ANUM_SECRETS_KEY in infra/oracle/.env}
+      # The same default as the API: workspaces without their own WhatsApp retention.
+      ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS: ${ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS:-0}
     healthcheck:
       disable: true
     networks:
