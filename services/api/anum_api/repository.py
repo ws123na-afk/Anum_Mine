@@ -101,6 +101,7 @@ class AnumRepository(Protocol):
     def list_approvals(self, context: TenantContext) -> list[Approval]: ...
     def list_approvals_for_update(self, context: TenantContext) -> list[Approval]: ...
     def list_events(self, context: TenantContext) -> list[DomainEvent]: ...
+    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]: ...
     def record_event(self, event: DomainEvent) -> DomainEvent: ...
     def get_approval_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy: ...
     def save_approval_policy(
@@ -438,6 +439,12 @@ class InMemoryRepository:
             if event.tenant_id == context.tenant_id
             and (event.workspace_id is None or event.workspace_id == context.workspace_id)
         ]
+
+    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]:
+        """The caller's events after ``event_id``; the whole list when it is unknown."""
+        events = self.list_events(context)
+        index = next((i for i, event in enumerate(events) if event.id == event_id), None)
+        return events if index is None else events[index + 1 :]
 
     def list_approvals_for_update(self, context: TenantContext) -> list[Approval]:
         return self.list_approvals(context)

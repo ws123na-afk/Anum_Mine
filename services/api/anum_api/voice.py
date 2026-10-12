@@ -591,7 +591,8 @@ async def stream_voice_assistant(
     session_id: str,
     payload: VoiceAskCreate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    # Released before the body streams (see stream_events in main.py).
+    repository: AnumRepository = Depends(repository_context, scope="function"),
     gateway: ModelGateway = Depends(voice_model_gateway),
 ) -> StreamingResponse:
     """The same answer as ``/ask``, streamed as server-sent events so speech can start

@@ -253,14 +253,19 @@ def lookup_membership(context: TenantContext) -> WorkspaceMembershipRecord | Non
         session.close()
 
 
-def list_events_for_stream(context: TenantContext) -> list:
+def list_events_for_stream(context: TenantContext, after: str | None = None) -> list:
     """Read the caller's events in a fresh, tenant-scoped session.
 
-    Streaming responses outlive their request dependencies (the repository
-    session is closed before the body is sent), so every poll opens its own
-    session with the tenant and workspace set for RLS.
+    Streaming responses must not read through the request's repository session (the
+    streaming routes release it before the body), so every poll opens its own short
+    session with the tenant and workspace set for RLS. It blocks: callers on the event
+    loop run it in a thread. With ``after`` (the stream's last event id) only the newer
+    events are read, so a poll stays cheap as the history grows; an unknown cursor reads
+    everything.
     """
     if settings.repository_backend == "memory":
+        if after:
+            return memory_repository.list_events_after(context, after)
         return memory_repository.list_events(context)
     if settings.repository_backend != "postgresql":
         raise RuntimeError(f"Unsupported repository backend: {settings.repository_backend}")
@@ -271,7 +276,8 @@ def list_events_for_stream(context: TenantContext) -> list:
     session = SessionLocal()
     try:
         set_tenant_context(session, context.tenant_id, context.workspace_id)
-        return SqlAlchemyRepository(session, created_by_user_id=context.user_id).list_events(context)
+        repository = SqlAlchemyRepository(session, created_by_user_id=context.user_id)
+        return repository.list_events_after(context, after) if after else repository.list_events(context)
     finally:
         session.rollback()
         session.close()

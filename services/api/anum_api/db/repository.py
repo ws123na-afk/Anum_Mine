@@ -800,6 +800,37 @@ class SqlAlchemyRepository(AnumRepository):
         ).all()
         return [self._event_from_record(record) for record in records]
 
+    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]:
+        """The caller's events after ``event_id`` in ``list_events`` order (an SSE cursor).
+
+        An open event stream polls every second; reading only what follows its cursor
+        keeps a poll cheap however long the workspace's history grows. An unknown or
+        invisible cursor returns the whole list, like ``list_events``.
+        """
+        visible = (
+            DomainEventRecord.tenant_id == context.tenant_id,
+            or_(
+                DomainEventRecord.workspace_id.is_(None),
+                DomainEventRecord.workspace_id == context.workspace_id,
+            ),
+        )
+        cursor = self.session.execute(
+            select(DomainEventRecord.created_at, DomainEventRecord.id).where(
+                DomainEventRecord.id == event_id, *visible
+            )
+        ).first()
+        if cursor is None:
+            return self.list_events(context)
+        records = self.session.scalars(
+            select(DomainEventRecord)
+            .where(
+                *visible,
+                tuple_(DomainEventRecord.created_at, DomainEventRecord.id) > tuple_(cursor.created_at, cursor.id),
+            )
+            .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
+        ).all()
+        return [self._event_from_record(record) for record in records]
+
     def record_event(self, event: DomainEvent) -> DomainEvent:
         record = self.session.get(DomainEventRecord, event.id)
         if record is None:

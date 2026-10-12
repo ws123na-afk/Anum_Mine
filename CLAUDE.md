@@ -48,7 +48,7 @@ Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design` and `
 
 ## Things learned the hard way
 - `local` and `test` are the only development environments. Outside them the API refuses header auth, `anum_local_*` sessions, a missing `ANUM_SECRETS_KEY`, compose credentials and unsafe CORS. Tests that build non-local `Settings` must pass a Fernet `secrets_key`.
-- Streaming responses outlive request dependencies: never read through the request's repository session inside an SSE body (use `list_events_for_stream`).
+- Streaming responses: never read through the request's repository session inside an SSE body (use `list_events_for_stream`, in a thread). A streaming route takes the repository with `Depends(repository_context, scope="function")`; the default scope holds a pooled connection for the whole stream, and a dozen open tabs froze the whole API (docs/realtime.md).
 - In PostgreSQL + NATS mode, events publish through the `anum_outbox_relay` role; give the relay its own login via `ANUM_OUTBOX_DATABASE_URL`.
 - MinIO no longer publishes community images; the compose `s3` service is SeaweedFS.
 - New CI scanners: bandit flags variables named `token`/`password` compared to literals and bare `assert`; gitleaks scans the full history, so a fake key committed once needs a narrowly scoped `.gitleaks.toml` entry.
