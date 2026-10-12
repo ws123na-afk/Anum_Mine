@@ -14,7 +14,7 @@
 .privacyPolicy a svg { height: 16px; width: 16px; }
 .privacyKept { color: var(--d-muted); display: grid; font-size: 14px; gap: var(--d-s2); margin: var(--d-s3) 0 0; padding-inline-start: var(--d-s5); }
 .privacyKept strong { color: var(--d-text); }
-.privacyDanger { border-color: rgba(253, 164, 175, .28); }
+.privacyDanger { border-color: rgb(var(--c-stop) / .28); }
 .privacyDanger .field code { color: var(--d-text); font-weight: 700; }
 @media (max-width: 760px) {
   .privacyRetention div { grid-template-columns: minmax(0, 1fr); }

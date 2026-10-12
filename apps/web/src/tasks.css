@@ -29,7 +29,7 @@ button.taskSmallButton svg { height: 16px; width: 16px; }
 .taskBadges { display: inline-flex; flex: none; flex-wrap: wrap; gap: var(--d-s1); justify-content: flex-end; }
 .taskToolbar { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s4); }
 .taskToolbar button {
-  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; cursor: pointer;
+  align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; cursor: pointer;
   display: inline-flex; font-size: 13px; font-weight: 650; gap: var(--d-s1); min-height: 40px; padding: var(--d-s2) var(--d-s3);
 }
 .taskToolbar button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }

@@ -1,6 +1,6 @@
 /* Activity and Autonomy views (docs/autonomy.md). Shared tokens only; content-driven heights. */
 .autonomyFeed, .autonomyProposals, .autonomyPanel { padding: var(--d-s5); }
-.autonomyProposals { margin-bottom: var(--d-s5); border-color: rgba(167, 139, 250, .35); }
+.autonomyProposals { margin-bottom: var(--d-s5); border-color: rgb(var(--c-violet) / .35); }
 .autonomyFeed h2, .autonomyProposals h2 { align-items: center; display: flex; gap: var(--d-s2); }
 .autonomyFeed h2 svg, .autonomyProposals h2 svg, .autonomyProtected h3 svg { color: var(--d-violet); height: 18px; width: 18px; }
 
@@ -23,7 +23,7 @@
 .autonomyBadges { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s1); }
 .autonomyRow .rowActions { align-items: center; flex: none; flex-wrap: wrap; justify-content: flex-end; }
 .autonomyRow .rowActions button {
-  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff;
+  align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff;
   display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4);
 }
 .autonomyRow .rowActions button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
@@ -60,7 +60,7 @@
 .actionNotice p { color: var(--d-muted); font-size: 14px; overflow-wrap: anywhere; }
 .actionNotice small { color: var(--d-text); display: block; font-size: 13px; margin-top: var(--d-s1); }
 .actionNoticeButtons { display: flex; flex-wrap: wrap; gap: var(--d-s2); grid-column: 1 / -1; justify-content: flex-end; }
-.actionNoticeButtons button { align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4); }
+.actionNoticeButtons button { align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4); }
 .actionNoticeButtons button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
 .actionNoticeButtons button.iconOnly { min-width: 44px; padding: 0; justify-content: center; }
 

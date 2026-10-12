@@ -53,7 +53,7 @@ export function viewFromHash(hash: string): View {
   const id = hash.replace(/^#/, '');
   if (id.startsWith('invitation=')) return 'members';
   if (id.startsWith('meetings?')) return 'meetings';
-  if (id === 'privacy' || id === 'language' || id === 'notifications') return 'settings';
+  if (id === 'privacy' || id === 'language' || id === 'appearance' || id === 'notifications') return 'settings';
   // A report or collection opened by link (docs/reports.md, docs/knowledge-base.md).
   if (id.startsWith('reports/')) return 'reports';
   if (id.startsWith('knowledge/')) return 'knowledge';

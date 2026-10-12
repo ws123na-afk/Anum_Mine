@@ -9,11 +9,11 @@
 /* Buttons inside the view that are not in an .actions row get the same shape. :where keeps this
    rule at the lowest specificity, so the variants below (secondary, chips, rows, links) win. */
 .waLayout :where(button) {
-  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff;
+  align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff;
   display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 44px; padding: 10px var(--d-s4);
 }
 .waLayout button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
-.waLayout button.danger { background: #be123c; }
+.waLayout button.danger { background: var(--d-danger); }
 .waLayout button.iconOnly { padding: 10px; width: 44px; }
 .waLayout .linkButton { background: none; border: 0; color: var(--d-sky); cursor: pointer; display: inline; font: inherit; min-height: 0; padding: 0; text-decoration: underline; }
 
@@ -25,7 +25,7 @@
 .waCenter { justify-content: center; }
 .waCenterText { text-align: center; }
 .waFootnote { font-size: 13px; }
-.waError { background: rgba(253, 164, 175, .08); border: 1px solid rgba(253, 164, 175, .28); border-radius: var(--d-r-control); color: #fee2e6; font-size: 13px; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
+.waError { background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .28); border-radius: var(--d-r-control); color: var(--d-error-text); font-size: 13px; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
 
 /* ---------- Inbox: list and thread side by side on wide screens ---------- */
 .waInbox { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); min-width: 0; }
@@ -38,7 +38,7 @@
   background: var(--d-glass-1); border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-muted);
   font-size: 13px; font-weight: 600; min-height: 36px; padding: 6px var(--d-s3);
 }
-.waChip[aria-pressed="true"] { background: var(--d-glass-3); border-color: rgba(167, 139, 250, .5); color: var(--d-text); }
+.waChip[aria-pressed="true"] { background: var(--d-glass-3); border-color: rgb(var(--c-violet) / .5); color: var(--d-text); }
 .waListEmpty { padding: var(--d-s5) var(--d-s3); }
 
 .waConversations { display: grid; gap: var(--d-s1); list-style: none; margin: 0; max-height: min(70vh, 760px); overflow-y: auto; padding: 0; }
@@ -47,22 +47,22 @@
   font-weight: 400; gap: var(--d-s1); justify-content: stretch; min-width: 0; padding: var(--d-s3); text-align: start; width: 100%;
 }
 .waConversation:hover { background: var(--d-glass-1); }
-.waConversation[aria-current="true"] { background: var(--d-glass-2); border-color: rgba(167, 139, 250, .4); }
+.waConversation[aria-current="true"] { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); }
 .waRowTop { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
 .waRowTop strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .waRowTop time { color: var(--d-faint); flex: none; font-size: 12px; }
 .waPreview { color: var(--d-muted); display: -webkit-box; font-size: 14px; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .waRowMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .waCategory { border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-muted); font-size: 12px; padding: 1px var(--d-s2); }
-.waCategory.complaint { border-color: rgba(253, 164, 175, .4); color: var(--d-stop); }
-.waCategory.order_status { border-color: rgba(125, 211, 252, .4); color: var(--d-sky); }
-.waCategory.price_stock { border-color: rgba(134, 239, 172, .4); color: var(--d-ok); }
-.waCategory.supplier { border-color: rgba(167, 139, 250, .45); color: var(--d-violet); }
+.waCategory.complaint { border-color: rgb(var(--c-stop) / .4); color: var(--d-stop); }
+.waCategory.order_status { border-color: rgb(var(--c-sky) / .4); color: var(--d-sky); }
+.waCategory.price_stock { border-color: rgb(var(--c-ok) / .4); color: var(--d-ok); }
+.waCategory.supplier { border-color: rgb(var(--c-violet) / .45); color: var(--d-violet); }
 .waWindowDot { align-items: center; color: var(--d-faint); display: inline-flex; font-size: 12px; gap: var(--d-s1); }
 .waWindowDot::before { border-radius: 50%; content: ""; height: 8px; width: 8px; }
 .waWindowDot.open::before { background: var(--d-ok); }
 .waWindowDot.closed::before { background: var(--d-warn); }
-.waUnread { background: var(--d-primary); border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700; margin-inline-start: auto; min-width: 22px; padding: 1px var(--d-s2); text-align: center; }
+.waUnread { background: var(--d-primary-grad); border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700; margin-inline-start: auto; min-width: 22px; padding: 1px var(--d-s2); text-align: center; }
 
 .waThreadEmpty { color: var(--d-muted); justify-items: center; padding: var(--d-s7) var(--d-s5); text-align: center; }
 .waThreadEmpty svg { color: var(--d-violet); height: 28px; width: 28px; }
@@ -73,10 +73,10 @@
 .waBack { display: none !important; }
 .waWindow { align-items: center; border-radius: 999px; display: inline-flex; font-size: 13px; gap: var(--d-s2); padding: var(--d-s1) var(--d-s3); }
 .waWindow svg { height: 16px; width: 16px; }
-.waWindow.open { background: rgba(134, 239, 172, .1); color: var(--d-ok); }
-.waWindow.closed { background: rgba(252, 211, 141, .1); color: var(--d-warn); }
+.waWindow.open { background: rgb(var(--c-ok) / .1); color: var(--d-ok); }
+.waWindow.closed { background: rgb(var(--c-warn) / .1); color: var(--d-warn); }
 
-.waSuggestion { background: var(--d-glass-1); border: 1px solid rgba(167, 139, 250, .3); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.waSuggestion { background: var(--d-glass-1); border: 1px solid rgb(var(--c-violet) / .3); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
 .waSuggestionHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .waSuggestionHead h3 { align-items: center; display: flex; gap: var(--d-s2); }
 .waSuggestionHead h3 svg { color: var(--d-violet); height: 18px; width: 18px; }
@@ -91,13 +91,13 @@
 .waBubble { display: flex; min-width: 0; }
 .waBubble.outbound { justify-content: flex-end; }
 .waBubbleBody { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); max-width: min(78%, 560px); min-width: 0; padding: var(--d-s2) var(--d-s3); }
-.waBubble.outbound .waBubbleBody { background: rgba(91, 75, 224, .22); border-color: rgba(167, 139, 250, .3); }
+.waBubble.outbound .waBubbleBody { background: rgb(var(--c-indigo) / .22); border-color: rgb(var(--c-violet) / .3); }
 .waText { overflow-wrap: anywhere; white-space: pre-wrap; }
 .waTemplateTag { align-items: center; color: var(--d-violet); display: flex; font-size: 12px; gap: var(--d-s1); }
 .waTemplateTag svg { height: 14px; width: 14px; }
 .waMedia { display: grid; gap: var(--d-s1); justify-items: start; }
 .waBubbleMeta { align-items: center; color: var(--d-faint); display: flex; flex-wrap: wrap; font-size: 12px; gap: var(--d-s2); }
-.waApproval { background: var(--d-glass-1); border: 1px solid rgba(125, 211, 252, .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.waApproval { background: var(--d-glass-1); border: 1px solid rgb(var(--c-sky) / .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
 .waApproval h4 { align-items: center; display: flex; font-size: 14px; gap: var(--d-s2); margin: 0; }
 .waApproval h4 svg { color: var(--d-sky); height: 16px; width: 16px; }
 
@@ -106,7 +106,7 @@
 .waComposer textarea { min-height: 88px; }
 .waComposerFooter { align-items: center; justify-content: space-between; margin-top: 0; }
 .waComposerFooter > small { flex: 1 1 220px; min-width: 0; }
-.waClosed { align-items: center; background: rgba(252, 211, 141, .07); border: 1px solid rgba(252, 211, 141, .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: 20px minmax(0, 1fr) auto; padding: var(--d-s3) var(--d-s4); }
+.waClosed { align-items: center; background: rgb(var(--c-warn) / .07); border: 1px solid rgb(var(--c-warn) / .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: 20px minmax(0, 1fr) auto; padding: var(--d-s3) var(--d-s4); }
 .waClosed svg { color: var(--d-warn); height: 18px; width: 18px; }
 .waTemplatePreview { background: var(--d-glass-1); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); padding: var(--d-s3); }
 .waTemplatePreview p { overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -133,7 +133,7 @@
 .waFacts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .waWebhook { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
 .waWebhook > span { flex-basis: 100%; font-size: 13px; }
-.waWebhook code { background: rgba(2, 6, 23, .45); border: 1px solid var(--d-line); border-radius: var(--d-r-control); flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
+.waWebhook code { background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
 .waFormGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
 .waFormGrid .field { margin-top: var(--d-s3); }
 .waInputRow { display: flex; gap: var(--d-s2); min-width: 0; }

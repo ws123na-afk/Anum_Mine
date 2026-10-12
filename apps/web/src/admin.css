@@ -7,7 +7,7 @@
 .adminFields { display: grid; gap: 0 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
 .adminFields .wide { grid-column: span 2; }
 .adminIcon, .adminAvatar {
-  align-items: center; background: linear-gradient(135deg, rgba(125, 211, 252, .22), rgba(167, 139, 250, .22)); border-radius: 12px;
+  align-items: center; background: linear-gradient(135deg, rgb(var(--c-sky) / .22), rgb(var(--c-violet) / .22)); border-radius: 12px;
   box-shadow: 0 1px 0 var(--d-edge) inset, 0 6px 16px rgba(139, 124, 246, .25); color: var(--d-text); display: inline-flex; flex: none;
   font-size: 13px; font-weight: 800; height: 40px; justify-content: center; width: 40px;
 }
@@ -36,50 +36,50 @@
 .segmented button { background: none; border: 0; border-radius: 9px; color: var(--d-muted); font-size: 13px; font-weight: 600; min-height: 36px; padding: 6px 12px; }
 .segmented button[aria-pressed="true"] { background: var(--d-glass-3); color: var(--d-text); }
 .segmented button:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 1px; }
-.tokenReveal { border-color: rgba(252, 211, 141, .45); box-shadow: var(--d-elev-2), 0 0 0 1px rgba(252, 211, 141, .15), 0 10px 40px rgba(252, 211, 141, .12); }
+.tokenReveal { border-color: rgb(var(--c-warn) / .45); box-shadow: var(--d-elev-2), 0 0 0 1px rgb(var(--c-warn) / .15), 0 10px 40px rgb(var(--c-warn) / .12); }
 .tokenWarning { align-items: flex-start; color: var(--d-warn); display: flex; font-size: 13px; gap: 8px; margin-top: 10px; }
 .tokenWarning svg { flex: none; height: 17px; margin-top: 2px; width: 17px; }
 .tokenValue {
-  background: rgba(2, 6, 23, .55); border: 1px solid var(--d-line); border-radius: 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, .35) inset;
+  background: var(--d-well); border: 1px solid var(--d-line); border-radius: 12px; box-shadow: var(--d-well-inset);
   color: var(--d-text); display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; padding: 10px 12px; user-select: all;
 }
 .sectionIcon { color: var(--d-violet); height: 22px; width: 22px; }
 .budgetGrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); margin-top: 16px; }
 .budgetCard { display: grid; gap: var(--d-s4); padding: var(--d-s5); }
-.budgetCard.exceeded { border-color: rgba(253, 164, 175, .45); box-shadow: var(--d-elev-1), 0 10px 36px rgba(253, 164, 175, .12); }
+.budgetCard.exceeded { border-color: rgb(var(--c-stop) / .45); box-shadow: var(--d-elev-1), 0 10px 36px rgb(var(--c-stop) / .12); }
 .budgetMeter { display: grid; gap: 6px; }
 .budgetMeterTop { align-items: baseline; display: flex; gap: 10px; justify-content: space-between; }
 .budgetMeterTop span { color: var(--d-muted); font-size: 12px; font-weight: 700; }
 .budgetMeterTop strong { font-size: 18px; }
 .budgetMeterTop small { color: var(--d-muted); font-size: 12px; font-weight: 600; }
-.meterTrack { background: rgba(2, 6, 23, .55); border: 1px solid var(--d-line); border-radius: 999px; box-shadow: 0 1px 2px rgba(0, 0, 0, .4) inset; height: 12px; overflow: hidden; }
-.meterTrack span { background: linear-gradient(90deg, var(--d-sky), var(--d-violet)); border-radius: inherit; box-shadow: 0 0 14px rgba(167, 139, 250, .5); display: block; height: 100%; transition: width 400ms var(--d-ease); }
-.meterTrack.warn span { background: linear-gradient(90deg, #fbbf24, var(--d-warn)); box-shadow: 0 0 14px rgba(252, 211, 141, .5); }
-.meterTrack.stop span { background: linear-gradient(90deg, #fb7185, var(--d-stop)); box-shadow: 0 0 14px rgba(253, 164, 175, .55); }
+.meterTrack { background: var(--d-well); border: 1px solid var(--d-line); border-radius: 999px; box-shadow: var(--d-well-inset); height: 12px; overflow: hidden; }
+.meterTrack span { background: linear-gradient(90deg, var(--d-sky), var(--d-violet)); border-radius: inherit; box-shadow: 0 0 14px rgb(var(--c-violet) / .5); display: block; height: 100%; transition: width 400ms var(--d-ease); }
+.meterTrack.warn span { background: linear-gradient(90deg, #fbbf24, var(--d-warn)); box-shadow: 0 0 14px rgb(var(--c-warn) / .5); }
+.meterTrack.stop span { background: linear-gradient(90deg, #fb7185, var(--d-stop)); box-shadow: 0 0 14px rgb(var(--c-stop) / .55); }
 .meterTrack.none span { width: 0 !important; }
 .budgetStats { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
 .budgetForm { border-top: 1px solid var(--d-line); display: grid; gap: 0 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); padding-top: 4px; }
 .budgetForm > .notice, .budgetForm > p, .budgetForm > .actions { grid-column: 1 / -1; }
 .budgetForm > p.muted { margin-top: 10px; }
-.budgetAlert { align-items: center; border-color: rgba(253, 164, 175, .45); display: grid; gap: 14px; grid-template-columns: 40px minmax(0, 1fr) auto; margin-bottom: 16px; padding: 16px 18px; }
+.budgetAlert { align-items: center; border-color: rgb(var(--c-stop) / .45); display: grid; gap: 14px; grid-template-columns: 40px minmax(0, 1fr) auto; margin-bottom: 16px; padding: 16px 18px; }
 .budgetAlert p { color: var(--d-muted); font-size: 13px; margin-top: 2px; }
 .budgetAlertActions { display: flex; flex-wrap: wrap; gap: 8px; }
-.budgetAlertActions button { align-items: center; background: var(--d-primary); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
+.budgetAlertActions button { align-items: center; background: var(--d-primary-grad); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
 .budgetAlertActions button.secondary, .memberRow > button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
 /* Approval policy */
 .policySwitch { border-top: 1px solid var(--d-line); display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; }
 .policySwitch label { align-items: center; cursor: pointer; display: flex; gap: 14px; justify-content: space-between; }
 .policySwitchTitle { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
 .policySwitch input[type="checkbox"] {
-  appearance: none; background: rgba(2, 6, 23, .55); border: 1px solid var(--d-line-strong); border-radius: 999px; box-shadow: 0 1px 2px rgba(0, 0, 0, .4) inset;
-  cursor: pointer; flex: none; height: 26px; margin: 0; position: relative; transition: background 200ms var(--d-ease); width: 46px;
+  appearance: none; background: var(--d-well); border: 1px solid var(--d-line-strong); border-radius: 999px; box-shadow: var(--d-well-inset);
+  cursor: pointer; flex: none; height: 26px; margin: 0; min-height: 0; padding: 0; position: relative; transition: background 200ms var(--d-ease); width: 46px;
 }
 .policySwitch input[type="checkbox"]::after {
-  background: var(--d-text); border-radius: 50%; box-shadow: 0 2px 6px rgba(0, 0, 0, .45); content: ""; height: 20px; inset-inline-start: 2px; position: absolute; top: 2px;
+  background: var(--d-muted); border-radius: 50%; box-shadow: 0 2px 6px rgb(var(--c-shade) / .35); content: ""; height: 20px; inset-inline-start: 2px; position: absolute; top: 2px;
   transition: transform 200ms var(--d-ease); width: 20px;
 }
-.policySwitch input[type="checkbox"]:checked { background: linear-gradient(135deg, var(--d-sky), var(--d-violet)); border-color: transparent; box-shadow: 0 0 14px rgba(167, 139, 250, .45); }
-.policySwitch input[type="checkbox"]:checked::after { transform: translateX(20px); }
+.policySwitch input[type="checkbox"]:checked { background: linear-gradient(135deg, var(--d-sky), var(--d-violet)); border-color: transparent; box-shadow: 0 0 14px rgb(var(--c-violet) / .45); }
+.policySwitch input[type="checkbox"]:checked::after { background: #fff; transform: translateX(20px); }
 [dir="rtl"] .policySwitch input[type="checkbox"]:checked::after { transform: translateX(-20px); }
 .policySwitch input[type="checkbox"]:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
 .policySwitch input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .55; }
@@ -88,7 +88,7 @@
 .policyExplain li.active { color: var(--d-text); }
 .policyExplain li span { color: var(--d-muted); display: inline-block; font-weight: 700; margin-inline-end: 6px; min-width: 64px; }
 /* A refused decision on an approval card (403, e.g. the two-person rule) */
-.approvalRefusal { align-items: flex-start; background: rgba(253, 164, 175, .08); border: 1px solid rgba(253, 164, 175, .4); border-radius: 12px; display: flex; gap: 10px; margin-top: 10px; padding: 10px 12px; }
+.approvalRefusal { align-items: flex-start; background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .4); border-radius: 12px; display: flex; gap: 10px; margin-top: 10px; padding: 10px 12px; }
 .approvalRefusal svg { color: var(--d-stop); flex: none; height: 18px; margin-top: 2px; width: 18px; }
 .approvalRefusal strong { color: var(--d-stop); display: block; font-size: 13px; }
 .approvalRefusal p { color: var(--d-text) !important; font-size: 13px; margin: 2px 0 0; }
@@ -113,13 +113,13 @@
 .workspaceOption > button:first-child {
   background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 12px; color: var(--d-text); display: grid; gap: 1px; min-height: 44px; padding: 8px 12px; text-align: start;
 }
-.workspaceOption > button:first-child[aria-current="true"] { border-color: var(--d-violet); box-shadow: 0 0 0 1px rgba(167, 139, 250, .35); }
+.workspaceOption > button:first-child[aria-current="true"] { border-color: var(--d-violet); box-shadow: 0 0 0 1px rgb(var(--c-violet) / .35); }
 .workspaceOption small { color: var(--d-faint); font-size: 11.5px; }
 .workspaceOption strong { overflow-wrap: anywhere; }
 .workspaceOption .iconButton { height: 36px; width: 36px; }
 .workspacePanel form { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
 .workspacePanel form .field { margin: 0; }
-.workspacePanel form button { align-items: center; background: var(--d-primary); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 40px; padding: 6px 12px; }
+.workspacePanel form button { align-items: center; background: var(--d-primary-grad); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 40px; padding: 6px 12px; }
 .workspacePanel form button:disabled { cursor: not-allowed; opacity: .55; }
 .workspacePanel .notice { margin: 0; }
 @media (prefers-reduced-motion: reduce) { .meterTrack span { transition: none; } .policySwitch input[type="checkbox"], .policySwitch input[type="checkbox"]::after { transition: none; } }
