@@ -88,7 +88,7 @@
 .chatComposer textarea, .chatEdit textarea { field-sizing: content; max-height: 160px; min-height: 44px; resize: none; width: 100%; }
 .chatHint { color: var(--d-faint); display: flex; flex-wrap: wrap; font-size: 12px; gap: var(--d-s1) var(--d-s3); justify-content: space-between; margin: 0; min-height: 16px; }
 .chatHint.over { color: var(--d-stop); }
-@media (pointer: coarse) { .chatKeys { display: none; } }
+@media (pointer: coarse) { .chatKeys { display: none; } .chatHint { min-height: 0; } .chatInput { gap: 0; } }
 
 /* Edit and resend: the question becomes its own small composer in place. */
 .chatTurn.user.editing { justify-self: stretch; max-width: min(78ch, 100%); }
@@ -102,8 +102,10 @@
 @media (max-width: 900px) {
   .chatLayout { grid-template-columns: minmax(0, 1fr); }
   .chatList { position: static; }
-  .chatListScroll { max-height: 200px; }
-  .chatLog { max-height: max(260px, calc(100dvh - 660px)); }
+  .chatListScroll { max-height: 152px; }
+  .chatList { gap: var(--d-s2); padding: var(--d-s3); }
+  .chatSearch input { min-height: 36px; }
+  .chatLog { max-height: max(260px, calc(100dvh - 590px)); }
 }
 @media (max-width: 480px) {
   .chatComposer { flex-wrap: wrap; }
@@ -161,3 +163,11 @@ button.chatCardItem:hover, a.chatCardItem:hover { background: var(--d-glass-2); 
   .chatCardFacts div, .chatCardArgs dl div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .chatCardActions button { flex: 1 1 auto; justify-content: center; }
 }
+
+/* A question and its actions share one line when they fit (a short question), so a phone's
+   short message log still shows the question above its answer; otherwise the actions wrap below. */
+.chatTurn.user { align-items: center; display: flex; flex-wrap: wrap; gap: 0 var(--d-s1); justify-content: flex-end; }
+.chatTurn.user > .chatQuestion { flex: 0 1 auto; min-width: 0; }
+.chatTurn.user > .chatMeta, .chatTurn.user > .chatEdit { flex-basis: 100%; text-align: end; }
+.chatTurn.user > .msgActions { margin-top: 0; }
+@media (max-width: 480px) { .chatLog { gap: var(--d-s3); } }
