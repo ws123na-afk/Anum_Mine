@@ -9,10 +9,10 @@ export type TurnStatus = 'complete' | 'cancelled' | 'failed';
 
 /** A question run as a task (docs/conversations.md#tools-in-chat): its results, approval or failure. */
 export type CardState = 'running' | 'results' | 'approval' | 'failed' | 'cancelled' | 'denied';
-export type CardCategory = 'email' | 'whatsapp' | 'web' | 'files' | 'action';
+export type CardCategory = 'email' | 'whatsapp' | 'commerce' | 'tyre' | 'web' | 'files' | 'action';
 
 export interface ChatCardItem {
-  kind: 'email' | 'whatsapp' | 'web' | 'file' | 'memory';
+  kind: 'email' | 'whatsapp' | 'web' | 'file' | 'memory' | 'order' | 'listing' | 'tyre';
   id?: string | null;
   title: string;
   subtitle?: string | null;

@@ -13,11 +13,13 @@ remembers what was said. It is the main Ask experience in the web console (the
   into a **task** and run through the runtime exactly like `POST /api/v1/tasks/{id}/run`
   (planner, skills, `ToolPolicy`, governance, autonomy, approvals, audit); the outcome
   streams back as a card ([Tools in chat](#tools-in-chat)).
-- **Tyre data, read-only.** A tyre question is answered from the workspace's synced
-  tyre data: ANUM (not the model) picks one of the read-only tyre tools from the
-  user's own words, `ToolPolicy` decides it (a policy pack can deny it), the call is
-  audited as `tool.call`, and the result reaches the model as a labeled, untrusted data
-  block with an instruction to show the numbers ([Tyre planning](tyre-planning.md#assistant)).
+- **Store and tyre data.** Sales, order and stock questions and tyre questions are tools
+  in chat like the rest: they run as tasks and come back as `commerce` or `tyre` cards
+  (table below). A tyre question the skill does not pick up (no tyre word the skill knows)
+  is still answered from the read-only tyre grounding: ANUM (not the model) picks the
+  tool from the user's words, `ToolPolicy` decides it, the call is audited as `tool.call`,
+  and the result reaches the model as a labeled, untrusted data block
+  ([Tyre planning](tyre-planning.md#assistant)).
 - **Private.** A conversation belongs to the user who started it in one tenant and
   workspace. Other users of the same workspace cannot list, read, ask in or delete it.
 - **Bounded.** Each question goes to the model with the system prompt and the most recent
@@ -93,7 +95,9 @@ G3/G5).
 | --- | --- | --- |
 | WhatsApp (`whatsapp`, `واتساب`) | `list_whatsapp_conversations` (`needs_reply` when it asks what is waiting) | results: conversations, links to WhatsApp |
 | mail (`email`, `inbox`, `gmail`, `بريد`, `ايميل` …) | `search_email` (filters from the words, [Email](email.md#tools-for-tasks-chat-and-voice)) | results: messages, links to Inbox |
+| store sales, orders or stock (`sales`, `orders`, `stock`, `amazon`, `noon`, `مبيعات`, `طلبات`, `مخزون` …), when `commerce.tools.plan_call` reads a request from the words | `commerce.sales_summary`, `commerce.list_orders`, `commerce.get_order`, `commerce.low_stock`; a price or stock change names channel, SKU and value and plans `commerce.<channel>.update_price` or `update_stock` | results: orders or low-stock listings, links to Commerce; or approval for a change |
 | an action (`send`, `delete`, `pay`, `publish` …) | `external.action` (high risk) | approval |
+| tyres (`tyre`, `tread`, `إطارات`, `كفرات` …) | `tyre.tools.choose_call`: `tyre_fleet_summary`, `tyres_due`, `purchase_plan` or `tyre_alerts` | results: tyres due, alerts (critical ones marked urgent) or purchase-plan lines, links to Tyre planning; failed with how to connect when tyre data is not connected |
 | the web (`search`, `web`, `news`, `ابحث` …; only where SearXNG is configured) | `web_search` | results: links that open in a new tab |
 | files (`file`, `document`, `contract`, `pdf`, `ملف`, `مستند` …) | `anum.respond` with workspace retrieval | results: the answer, the files and notes used |
 
@@ -118,8 +122,8 @@ Anything else is plain conversation and streams as before. How it runs:
 
 **Card** `{state, category, task_id, run_id, tool, summary, items, total, approval, error_code}`:
 `state` is `running`, `results`, `approval`, `failed`, `cancelled` or `denied`; `category`
-is `email`, `whatsapp`, `web`, `files` or `action`. `items` (at most 10 of `total`) are
-`{kind: email|whatsapp|web|file|memory, id, title, subtitle, detail, at, badges, url}`;
+is `email`, `whatsapp`, `commerce`, `tyre`, `web`, `files` or `action`. `items` (at most 10 of `total`) are
+`{kind: email|whatsapp|web|file|memory|order|listing|tyre, id, title, subtitle, detail, at, badges, url}`;
 `url` is set for http(s) web results only. `approval` is
 `{id, action, risk_level, status, reason, payload_hash, arguments, target, expires_at, can_decide}`
 (`can_decide`: the asker holds `approval:decide`, i.e. is an owner).
@@ -144,11 +148,15 @@ is `email`, `whatsapp`, `web`, `files` or `action`. `items` (at most 10 of `tota
 - **Clients.** Web (`ChatCardView.tsx`) and Flutter (`lib/features/chat/chat_card_view.dart`)
   render every state in English and Arabic; only a results card shows the written answer,
   the other cards speak for themselves. Item links open Inbox (that message), WhatsApp
-  (that conversation), Files, Memory, the task or Approvals; on the phone app they open
-  Inbox, WhatsApp, Tasks, Approvals or Resources. Mail and web text is rendered as text.
+  (that conversation), Commerce, Tyre planning, Files, Memory, the task or Approvals; on
+  the phone app they open Inbox, WhatsApp, Tasks, Approvals or Resources, and store and
+  tyre rows are shown without a link (the phone has no single Commerce or Tyre page to
+  open from the Assistant yet). The one card format in chat is this one; the saved-report
+  card (`anum-report`) is a separate thing. Mail and web text is rendered as text.
 - **Tests.** `services/api/tests/test_chat_tools.py` (routing, results, WhatsApp, files,
   approval through the approvals route, rejection, member, failures, budget, Stop, and
-  prompt injection from email and WhatsApp text staying data);
+  prompt injection from email and WhatsApp text staying data),
+  `services/api/tests/test_commerce.py` and `test_tyre_api.py` (store and tyre cards);
   `apps/web/test/chatCards.test.ts`, `apps/web/e2e/assistant-chat-tools.spec.ts` (cards,
   Approve with the hash, members, Arabic, five viewport sizes);
   `apps/mobile/test/chat/chat_cards_test.dart` (models, every state, Approve, 403, Arabic,

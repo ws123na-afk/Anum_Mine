@@ -8,8 +8,9 @@ turns the question into a **task** and runs it through the existing runtime, exa
 autonomy, approvals, audit). The outcome comes back into the conversation as a *card*:
 
 * ``results``: a read-only tool answered (search_email, list_whatsapp_conversations,
-  web_search, workspace files/memory retrieval). The card lists the items with links into
-  Inbox, WhatsApp, Files and Tasks; for mail, WhatsApp and the web a short model-written
+  web_search, the commerce and tyre-planning read tools, workspace files/memory
+  retrieval). The card lists the items with links into Inbox, WhatsApp, Commerce, Tyre
+  planning, Files and Tasks; for mail, WhatsApp, the web, commerce and tyres a short model-written
   answer is streamed above it, with the tool output passed to the model as labeled,
   untrusted data (threat model G3/G5).
 * ``approval``: policy paused the call. The card carries the approval with its payload
@@ -45,9 +46,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("anum.chat_tools")
 
-ChatCategory = Literal["email", "whatsapp", "web", "files", "action"]
+ChatCategory = Literal["email", "whatsapp", "commerce", "tyre", "web", "files", "action"]
 CardState = Literal["running", "results", "approval", "failed", "cancelled", "denied"]
-ItemKind = Literal["email", "whatsapp", "web", "file", "memory"]
+ItemKind = Literal["email", "whatsapp", "web", "file", "memory", "order", "listing", "tyre"]
 
 MAX_CARD_ITEMS = 10
 TITLE_CHARS = 200
@@ -59,13 +60,6 @@ DURABLE_POLL_SECONDS = 1.0
 # The whole inline run (planning and the tool call).
 RUN_TIMEOUT_SECONDS = 150.0
 
-# Skill -> what the card is about, in the planner's priority order (agent_planning.py).
-_SKILL_CATEGORIES: tuple[tuple[str, ChatCategory], ...] = (
-    ("anum.whatsapp-inbox", "whatsapp"),
-    ("anum.email", "email"),
-    ("anum.external-action", "action"),
-    ("anum.web-search", "web"),
-)
 # Questions about the workspace's own documents: answered by the runtime's retrieval
 # (files and shared notes) through a read-only ``anum.respond`` task.
 FILE_WORDS = frozenset(
@@ -127,14 +121,38 @@ def _words(text: str) -> set[str]:
     return set(re.findall(r"[\w-]+", text.lower()))
 
 
+_TOOL_CATEGORIES: dict[str, ChatCategory] = {
+    "list_whatsapp_conversations": "whatsapp",
+    "search_email": "email",
+    "external.action": "action",
+    "web_search": "web",
+}
+
+
 def chat_intent(question: str, skills: "SkillRegistry", tool_names: set[str]) -> ChatCategory | None:
-    """What the question needs, from the user's own words; ``None`` for plain conversation."""
-    selected = {skill.id for skill in skills.select(question, tool_names)}
-    for skill_id, category in _SKILL_CATEGORIES:
-        if skill_id in selected:
-            return category
-    if _words(question) & FILE_WORDS:
+    """What the question needs, from the user's own words; ``None`` for plain conversation.
+
+    The tool is the one a task with this prompt would plan
+    (``agent_planning.choose_tool_call``), so chat, tasks and the command preview agree.
+    """
+    from .agent_planning import choose_tool_call
+
+    selected = skills.select(question, tool_names)
+    call = choose_tool_call(question, selected, "", tool_names)
+    if call.name in _TOOL_CATEGORIES:
+        return _TOOL_CATEGORIES[call.name]
+    if call.name.startswith("commerce.") or (
+        # A change request without channel, SKU or value: the commerce skill explains what to say.
+        call.name == "anum.respond" and "text" in call.arguments and call.arguments["text"]
+        and any(skill.id == "anum.commerce" for skill in selected)
+    ):
+        return "commerce"
+    if call.name in TYRE_READ_TOOLS:
+        return "tyre"
+    if call.name == "anum.respond" and _words(question) & FILE_WORDS:
         return "files"
+    # Anything else (plain conversation, a team assignment handled by its own chat path)
+    # stays a conversation.
     return None
 
 
@@ -252,6 +270,126 @@ def _web_items(output: dict[str, Any]) -> list[ChatCardItem]:
     return items
 
 
+def _money(amount: Any, currency: Any) -> str:
+    try:
+        value = f"{float(amount):,.2f}"
+    except (TypeError, ValueError):
+        return ""
+    return f"{value} {currency}".strip() if currency else value
+
+
+def _order_item(row: dict[str, Any]) -> ChatCardItem | None:
+    if not isinstance(row, dict) or not (row.get("external_id") or row.get("id")):
+        return None
+    status = _clip(row.get("status"), 40)
+    parts = [status, f"{row['item_count']} item(s)" if row.get("item_count") is not None else None,
+             _money(row.get("total_amount"), row.get("currency")) or None]
+    return ChatCardItem(
+        kind="order",
+        id=_clip(row.get("id") or row.get("external_id"), 120),
+        title=_clip(row.get("external_id") or row.get("id"), TITLE_CHARS) or "",
+        subtitle=_clip(" · ".join(str(v) for v in (row.get("channel"), row.get("marketplace_id")) if v), TITLE_CHARS),
+        detail=_clip(" · ".join(p for p in parts if p), DETAIL_CHARS),
+        at=_clip(row.get("purchased_at"), 40),
+        badges=["unshipped"] if status in {"unshipped", "pending"} else [],
+    )
+
+
+def _commerce_items(tool: str, output: dict[str, Any]) -> tuple[list[ChatCardItem], int]:
+    if tool == "commerce.list_orders":
+        items = [item for row in output.get("orders") or [] if (item := _order_item(row))]
+        return items, max(int(output.get("total") or 0), len(items))
+    if tool == "commerce.get_order":
+        item = _order_item(output)
+        return ([item], 1) if item else ([], 0)
+    if tool == "commerce.low_stock":
+        items = []
+        for row in output.get("items") or []:
+            if not isinstance(row, dict) or not row.get("sku"):
+                continue
+            items.append(
+                ChatCardItem(
+                    kind="listing",
+                    id=_clip(row.get("listing_id") or row.get("id") or row.get("sku"), 120),
+                    title=_clip(row.get("sku"), TITLE_CHARS) or "",
+                    subtitle=_clip(row.get("marketplace") or row.get("channel"), TITLE_CHARS),
+                    detail=_clip(row.get("title"), DETAIL_CHARS),
+                    badges=["low_stock", f"left:{row.get('quantity')}"] if row.get("quantity") is not None else ["low_stock"],
+                )
+            )
+        return items, len(items)
+    return [], 0
+
+
+def _tyre_items(tool: str, output: dict[str, Any]) -> tuple[list[ChatCardItem], int]:
+    items: list[ChatCardItem] = []
+    if tool == "tyres_due":
+        for row in output.get("tyres") or []:
+            if not isinstance(row, dict):
+                continue
+            tread = row.get("current_tread_mm")
+            where = " ".join(str(v) for v in (row.get("vehicle_label") or row.get("vehicle_id"), row.get("position")) if v)
+            items.append(
+                ChatCardItem(
+                    kind="tyre",
+                    id=_clip(row.get("tyre_id"), 120),
+                    title=_clip(row.get("serial") or row.get("tyre_id"), TITLE_CHARS) or "",
+                    subtitle=_clip(where, TITLE_CHARS),
+                    detail=_clip(" · ".join(p for p in (row.get("size"), f"{float(tread):.1f} mm" if isinstance(tread, (int, float)) else None) if p), DETAIL_CHARS),
+                    at=_clip(row.get("projected_removal"), 40),
+                    badges=[f"confidence:{row['confidence']}"] if row.get("confidence") else [],
+                )
+            )
+        return items, max(int(output.get("total") or 0), len(items))
+    if tool == "tyre_alerts":
+        for row in output.get("alerts") or []:
+            if not isinstance(row, dict):
+                continue
+            severity = str(row.get("severity") or "")
+            items.append(
+                ChatCardItem(
+                    kind="tyre",
+                    id=_clip(row.get("id"), 120),
+                    title=_clip(row.get("subject_label"), TITLE_CHARS) or "",
+                    detail=_clip(row.get("message"), DETAIL_CHARS),
+                    at=_clip(row.get("created_at"), 40),
+                    badges=["priority_high"] if severity == "critical" else [f"severity:{severity}"] if severity else [],
+                )
+            )
+        return items, max(int(output.get("total") or 0), len(items))
+    if tool == "purchase_plan":
+        currency = output.get("currency")
+        for row in output.get("rows") or []:
+            if not isinstance(row, dict) or not row.get("to_buy"):
+                continue
+            items.append(
+                ChatCardItem(
+                    kind="tyre",
+                    title=_clip(f"{row.get('to_buy')} x {row.get('size') or '?'} {row.get('brand') or ''}", TITLE_CHARS) or "",
+                    subtitle=_clip(row.get("month"), 40),
+                    detail=_clip(_money(row.get("estimated_cost"), currency) if row.get("estimated_cost") is not None else None, DETAIL_CHARS),
+                )
+            )
+        return items, len(items)
+    return [], 0
+
+
+COMMERCE_READ_TOOLS = frozenset({"commerce.sales_summary", "commerce.list_orders", "commerce.get_order", "commerce.low_stock"})
+TYRE_READ_TOOLS = frozenset({"tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts"})
+
+
+def items_with_total(tool: str | None, result: "ToolResult | None") -> tuple[list[ChatCardItem], int]:
+    """The card rows a tool's output gives, and how many rows the tool found."""
+    if result is None or not isinstance(result.output, dict) or tool is None:
+        return [], 0
+    if tool in COMMERCE_READ_TOOLS:
+        return _commerce_items(tool, result.output)
+    if tool in TYRE_READ_TOOLS:
+        return _tyre_items(tool, result.output)
+    items = items_from_result(tool, result)
+    return items, len(items)
+
+
 def items_from_result(tool: str | None, result: "ToolResult | None") -> list[ChatCardItem]:
     if result is None or not isinstance(result.output, dict):
         return []
@@ -342,10 +480,11 @@ def card_for(
     if task.status == TaskStatus.COMPLETED:
         card.state = "results"
         card.summary = (result.summary if result is not None else run.result if run else "") or ""
-        items = items_from_result(tool, result)
+        items, total = items_with_total(tool, result)
         if category == "files" and run is not None:
             items = _source_items(context, run)
-        card.total = len(items)
+            total = len(items)
+        card.total = max(total, len(items))
         card.items = items[:MAX_CARD_ITEMS]
     elif task.status == TaskStatus.WAITING_APPROVAL and approval is not None:
         card.state = "approval"
@@ -412,6 +551,11 @@ class _CapturingTools:
 
     def definition(self, name: str):  # type: ignore[no-untyped-def]
         return self._inner.definition(name)
+
+    def __getattr__(self, name: str) -> Any:
+        # Everything else the runtime asks of the registry (autonomy facts, ...) is the
+        # registry's own answer.
+        return getattr(self._inner, name)
 
     async def execute(self, call: "ToolCall", context: TenantContext) -> "ToolResult":
         result = await self._inner.execute(call, context)
@@ -597,11 +741,11 @@ def summary_messages(
 
 
 def needs_summary(card: ChatCard, result: "ToolResult | None") -> bool:
-    return card.state == "results" and result is not None and card.tool in {
-        "search_email",
-        "list_whatsapp_conversations",
-        "web_search",
-    }
+    return card.state == "results" and result is not None and result.status == "succeeded" and (
+        card.tool in {"search_email", "list_whatsapp_conversations", "web_search"}
+        or card.tool in COMMERCE_READ_TOOLS
+        or card.tool in TYRE_READ_TOOLS
+    )
 
 
 def turn_text(card: ChatCard) -> str:

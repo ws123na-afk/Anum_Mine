@@ -346,3 +346,34 @@ def test_new_tyre_reports_reach_the_shared_reports() -> None:
     finally:
         service.shared_report_payload = original  # type: ignore[assignment]
     report_store.clear()
+
+
+def test_tyre_questions_in_chat_answer_with_tyre_cards() -> None:
+    import json
+
+    from anum_api.agent_skills import default_skill_registry
+    from anum_api.chat_tools import chat_intent
+
+    skills, names = default_skill_registry(), main.tool_registry.names
+    assert chat_intent("Which tyres are due in October 2026?", skills, names) == "tyre"
+    assert chat_intent("كم عدد تنبيهات الإطارات؟", skills, names) == "tyre"
+
+    def chat(question: str) -> dict:
+        conversation = client.post("/api/v1/conversations", headers=OWNER, json={}).json()["id"]
+        response = client.post(f"/api/v1/conversations/{conversation}/ask", headers=OWNER, json={"content": question})
+        assert response.status_code == 200, response.text
+        frames = [dict(line.split(": ", 1) for line in frame.splitlines()) for frame in response.text.strip().split("\n\n")]
+        return [json.loads(f["data"])["card"] for f in frames if f["event"] == "tool"][-1]
+
+    # Not connected yet: the task fails and the card says how to fix it.
+    failed = chat("how many tyre alerts are open?")
+    assert failed["state"] == "failed" and failed["category"] == "tyre" and "not connected" in failed["summary"]
+
+    connect_and_sync()
+    due = chat("Which tyres are due in October 2026?")
+    assert due["state"] == "results" and due["tool"] == "tyres_due" and due["total"] == 2
+    assert {item["title"] for item in due["items"]} >= {"fake-sn-0103"} and all(item["kind"] == "tyre" for item in due["items"])
+    alerts = chat("how many tyre alerts are open?")
+    assert alerts["tool"] == "tyre_alerts" and alerts["total"] == 6
+    assert sum("priority_high" in item["badges"] for item in alerts["items"]) == 2
+

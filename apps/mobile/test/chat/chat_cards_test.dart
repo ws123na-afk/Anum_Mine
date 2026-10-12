@@ -311,6 +311,37 @@ void main() {
     expect(find.text('Your role cannot run tasks'), findsOneWidget);
   });
 
+  testWidgets('a store card lists orders as plain rows, no dead links',
+      (tester) async {
+    final (chat, _) = await buildChat(
+        _CardsApi([
+          {
+            'state': 'results',
+            'category': 'commerce',
+            'task_id': 'task_shop',
+            'tool': 'commerce.list_orders',
+            'total': 3,
+            'items': [
+              {
+                'kind': 'order',
+                'id': 'ord_1',
+                'title': '402-1234567-1234567',
+                'detail': 'unshipped · 2 item(s) · 900.00 SAR',
+                'badges': ['unshipped'],
+              },
+            ],
+          },
+        ]),
+        ScriptedEvents());
+    final opened = <ChatTarget>[];
+    await _pump(tester, chat, onOpen: opened.add);
+    expect(find.text('Store'), findsOneWidget);
+    expect(find.text('Not shipped'), findsOneWidget);
+    expect(find.text('Showing 1 of 3.'), findsOneWidget);
+    await tester.tap(find.text('402-1234567-1234567'));
+    expect(opened, isEmpty);
+  });
+
   testWidgets('cards are localized in Arabic, right to left', (tester) async {
     final (chat, _) = await buildChat(
         _CardsApi([_resultsCard(), _approvalCard()]), ScriptedEvents());

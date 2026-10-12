@@ -8,7 +8,7 @@ import '../../data/api_models.dart';
 
 enum ChatCardState { running, results, approval, failed, cancelled, denied }
 
-enum ChatCardCategory { email, whatsapp, web, files, action }
+enum ChatCardCategory { email, whatsapp, commerce, tyre, web, files, action }
 
 ChatCardState? _state(String? value) => switch (value) {
       'running' => ChatCardState.running,
@@ -26,6 +26,8 @@ ChatCardCategory? _category(String? value) => switch (value) {
       'web' => ChatCardCategory.web,
       'files' => ChatCardCategory.files,
       'action' => ChatCardCategory.action,
+      'commerce' => ChatCardCategory.commerce,
+      'tyre' => ChatCardCategory.tyre,
       _ => null,
     };
 
@@ -53,7 +55,8 @@ class ChatCardItem {
         url: r.optString('url'),
       );
 
-  /// `email`, `whatsapp`, `web`, `file` or `memory`.
+  /// `email`, `whatsapp`, `web`, `file`, `memory`, `order`, `listing` or
+  /// `tyre` (store and tyre rows are shown, not linked, on the phone).
   final String kind;
   final String? id;
   final String title;

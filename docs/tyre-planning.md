@@ -236,7 +236,10 @@ carry the numbers, units and sync time.
 
 - **Tasks:** the `anum.tyre-planning` skill triggers on tyre words; the planner picks
   the tool and arguments from the user's own prompt.
-- **Chat and voice:** a tyre question (English or Arabic) runs the matching tool under
+- **Chat:** a tyre question runs as a task with the same skill and planner and comes back
+  as a `tyre` card listing tyres due, alerts or purchase-plan lines
+  ([Conversations: tools in chat](conversations.md#tools-in-chat)).
+- **Voice (and chat questions the skill does not pick up):** a tyre question (English or Arabic) runs the matching tool under
   `ToolPolicy` (an organization policy can deny it), audits it as `tool.call`, and gives
   the result to the model as a labeled, untrusted data block with an instruction to show
   the numbers. With the mock provider the tool's own summary is the answer.

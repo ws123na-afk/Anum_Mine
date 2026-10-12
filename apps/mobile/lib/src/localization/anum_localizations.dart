@@ -1017,6 +1017,14 @@ class AnumLocalizations {
     'chatCard.denied.title': 'Your role cannot run tasks',
     'chatCard.stillRunning':
         'Still running in the background. Open the task to follow it; this card updates when you reopen the chat.',
+    'chatCard.running.commerce': 'Reading your store data…',
+    'chatCard.running.tyre': 'Reading your tyre data…',
+    'chatCard.title.commerce': 'Store',
+    'chatCard.title.tyre': 'Tyre planning',
+    'chatCard.empty.commerce': 'From your synced store data.',
+    'chatCard.empty.tyre': 'From your synced tyre data.',
+    'chatCard.badge.unshipped': 'Not shipped',
+    'chatCard.badge.low_stock': 'Low stock',
   };
   static const _ar = <String, String>{
     // ANUM 360 shell, sign-in and profile (redesign).
@@ -1947,6 +1955,14 @@ class AnumLocalizations {
     'chatCard.denied.title': 'دورك لا يسمح بتشغيل المهام',
     'chatCard.stillRunning':
         'لا تزال تعمل في الخلفية. افتح المهمة لمتابعتها؛ تتحدث هذه البطاقة عند فتح المحادثة مجددًا.',
+    'chatCard.running.commerce': 'أقرأ بيانات متجرك…',
+    'chatCard.running.tyre': 'أقرأ بيانات الإطارات…',
+    'chatCard.title.commerce': 'المتجر',
+    'chatCard.title.tyre': 'تخطيط الإطارات',
+    'chatCard.empty.commerce': 'من بيانات متجرك المتزامنة.',
+    'chatCard.empty.tyre': 'من بيانات الإطارات المتزامنة.',
+    'chatCard.badge.unshipped': 'لم يُشحن',
+    'chatCard.badge.low_stock': 'مخزون منخفض',
   };
 }
 

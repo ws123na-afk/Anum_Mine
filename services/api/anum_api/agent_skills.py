@@ -10,6 +10,8 @@ COMMERCE_TRIGGERS = frozenset(
     {
         "sales", "sold", "revenue", "orders", "order", "amazon", "noon", "stock", "inventory", "listing", "listings",
         "price", "prices", "returns", "unshipped", "sku", "selling", "restock",
+        # Arabic (docs/conversations.md#tools-in-chat); commerce/tools.py parses these too.
+        "مبيعات", "المبيعات", "بعنا", "طلبات", "الطلبات", "طلب", "مخزون", "المخزون", "أمازون", "امازون",
     }
 )
 
@@ -139,7 +141,10 @@ def default_skill_registry() -> SkillRegistry:
                     "Answers fleet tyre questions from the synced tyre data: health, tyres due, "
                     "purchase plan and alerts (docs/tyre-planning.md)."
                 ),
-                triggers=frozenset({"tyre", "tyres", "tire", "tires", "tread", "treads", "retread"}),
+                triggers=frozenset(
+                    {"tyre", "tyres", "tire", "tires", "tread", "treads", "retread",
+                     "إطار", "إطارات", "اطار", "اطارات", "الإطارات", "الاطارات", "كفر", "كفرات", "الكفرات"}
+                ),
                 # Selectable where the tyre tools are registered (the API and the worker).
                 required_tools=frozenset({"tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts"}),
             ),

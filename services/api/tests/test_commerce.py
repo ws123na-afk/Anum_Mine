@@ -742,3 +742,42 @@ def test_price_and_stock_tools_always_ask_under_autonomy() -> None:
             assert category_of(name, definition).value == "commerce"
     read = main.tool_registry.definition("commerce.sales_summary")
     assert read is not None and read.action_kind == "read"
+
+
+def _chat(question: str, headers: dict = OWNER) -> list[dict]:
+    """Ask in the Assistant chat; the tool cards streamed back (docs/conversations.md#tools-in-chat)."""
+    conversation = client.post("/api/v1/conversations", headers=headers, json={}).json()["id"]
+    response = client.post(f"/api/v1/conversations/{conversation}/ask", headers=headers, json={"content": question})
+    assert response.status_code == 200, response.text
+    frames = [dict(line.split(": ", 1) for line in frame.splitlines()) for frame in response.text.strip().split("\n\n")]
+    return [json.loads(frame["data"])["card"] for frame in frames if frame["event"] == "tool"]
+
+
+def test_store_questions_in_chat_answer_with_commerce_cards() -> None:
+    created = connect(AMAZON)
+    sync(created["id"])
+    skills, tools = default_skill_registry(), main.tool_registry.names
+    from anum_api.chat_tools import chat_intent
+
+    assert chat_intent("ANUM, how were Amazon sales today?", skills, tools) == "commerce"
+    assert chat_intent("كم المبيعات اليوم على أمازون؟", skills, tools) == "commerce"
+    # A price word that is not about a sales channel is not a commerce question.
+    assert chat_intent("send the price list to the buyer", skills, tools) != "commerce"
+
+    sales = _chat("ANUM, how were Amazon sales today?")[-1]
+    assert sales["state"] == "results" and sales["category"] == "commerce" and sales["tool"] == "commerce.sales_summary"
+    assert sales["summary"].startswith("Amazon sales today: 2 orders")
+
+    orders = _chat("show unshipped amazon orders")[-1]
+    assert orders["state"] == "results" and orders["tool"] == "commerce.list_orders"
+    assert orders["items"] and all(item["kind"] == "order" and item["title"] for item in orders["items"])
+    assert orders["total"] >= len(orders["items"])
+
+
+def test_a_price_change_asked_in_chat_waits_for_approval_on_its_card() -> None:
+    created = connect(AMAZON)
+    sync(created["id"])
+    card = _chat("Set the price of SKU MX-2055516 on Amazon.sa to 445")[-1]
+    assert card["state"] == "approval" and card["category"] == "commerce"
+    assert card["approval"]["action"] == "commerce.amazon.update_price" and card["approval"]["payload_hash"]
+    assert card["approval"]["can_decide"] is True

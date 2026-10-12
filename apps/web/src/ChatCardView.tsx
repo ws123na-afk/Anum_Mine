@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ExternalLink, FileText, Globe, Inbox, Loader2, MessageCircle, ShieldAlert, ShieldCheck, StickyNote, X, type LucideIcon } from 'lucide-react';
+import { Check, CircleDot, ExternalLink, FileText, Globe, Inbox, Loader2, MessageCircle, ShieldAlert, ShieldCheck, ShoppingBag, StickyNote, X, type LucideIcon } from 'lucide-react';
 import { cardAfterDecision, type CardCategory, type ChatCard, type ChatCardItem } from './lib/chat';
 import { decideCardApproval } from './lib/chatApi';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -10,14 +10,16 @@ export type ChatTarget =
   | { kind: 'email' | 'whatsapp' | 'file'; id: string }
   | { kind: 'memory'; id: string; title: string | null }
   | { kind: 'task'; id: string }
-  | { kind: 'inbox' | 'whatsappView' | 'files' | 'approvals' };
+  | { kind: 'inbox' | 'whatsappView' | 'files' | 'approvals' | 'commerce' | 'tyre' };
 
-const ICONS: Record<CardCategory, LucideIcon> = { email: Inbox, whatsapp: MessageCircle, web: Globe, files: FileText, action: ShieldAlert };
-const KNOWN_BADGES = new Set(['unread', 'priority_high', 'needs_reply', 'window_closed']);
+const ICONS: Record<CardCategory, LucideIcon> = { email: Inbox, whatsapp: MessageCircle, commerce: ShoppingBag, tyre: CircleDot, web: Globe, files: FileText, action: ShieldAlert };
+const KNOWN_BADGES = new Set(['unread', 'priority_high', 'needs_reply', 'window_closed', 'unshipped', 'low_stock']);
 const VIEW_FOR: Partial<Record<CardCategory, { target: ChatTarget; label: MessageKey }>> = {
   email: { target: { kind: 'inbox' }, label: 'chatCard.openInbox' },
   whatsapp: { target: { kind: 'whatsappView' }, label: 'chatCard.openWhatsApp' },
   files: { target: { kind: 'files' }, label: 'chatCard.openFiles' },
+  commerce: { target: { kind: 'commerce' }, label: 'chatCard.openCommerce' },
+  tyre: { target: { kind: 'tyre' }, label: 'chatCard.openTyre' },
 };
 
 function riskLabel(level: string): string {
@@ -123,9 +125,15 @@ function Item({ item, onOpen }: { item: ChatCardItem; onOpen?(target: ChatTarget
   if (item.kind === 'web' && item.url && /^https?:\/\//i.test(item.url)) {
     return <a className="chatCardItem" href={item.url} target="_blank" rel="noopener noreferrer nofollow" aria-label={t('chatCard.openItem.web', { title })}>{body}<ExternalLink aria-hidden="true" className="chatCardItemIcon" /></a>;
   }
+  if (onOpen && (item.kind === 'order' || item.kind === 'listing' || item.kind === 'tyre')) {
+    // Store and tyre rows open their view (the row's own page is there).
+    const target: ChatTarget = { kind: item.kind === 'tyre' ? 'tyre' : 'commerce' };
+    const ItemIcon = item.kind === 'tyre' ? CircleDot : ShoppingBag;
+    return <button type="button" className="chatCardItem" aria-label={t(`chatCard.openItem.${item.kind}`, { title })} onClick={() => onOpen(target)}>{body}<ItemIcon aria-hidden="true" className="chatCardItemIcon" /></button>;
+  }
   if (onOpen && item.id && item.kind !== 'web') {
     const id = item.id;
-    const target: ChatTarget = item.kind === 'memory' ? { kind: 'memory', id, title: item.title || null } : { kind: item.kind, id };
+    const target: ChatTarget = item.kind === 'memory' ? { kind: 'memory', id, title: item.title || null } : { kind: item.kind as 'email' | 'whatsapp' | 'file', id };
     const ItemIcon = item.kind === 'memory' ? StickyNote : item.kind === 'file' ? FileText : item.kind === 'whatsapp' ? MessageCircle : Inbox;
     return <button type="button" className="chatCardItem" aria-label={t(`chatCard.openItem.${item.kind}`, { title })} onClick={() => onOpen(target)}>{body}<ItemIcon aria-hidden="true" className="chatCardItemIcon" /></button>;
   }

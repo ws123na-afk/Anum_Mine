@@ -518,7 +518,8 @@ async def stream_tool_reply(
         if text:
             yield sse("delta", {"text": text})
     assistant_turn = _store_reply(context, conversation, "".join(parts), TurnStatus.COMPLETE, card)
-    yield sse("done", {"assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None})
+    # Same shape as a plain reply; a tool turn never carries a report (docs/reports.md).
+    yield sse("done", {"assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None, "report": None})
 
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])

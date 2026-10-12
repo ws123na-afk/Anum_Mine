@@ -28,6 +28,15 @@ function cardFor(question: string, canDecide: boolean): { card: Card; text: stri
       card: { state: 'results', category: 'whatsapp', task_id: 'task_wa', tool: 'list_whatsapp_conversations', summary: '', total: 1, items: [{ kind: 'whatsapp', id: 'wac_1', title: 'Omar', detail: 'Is 265/65R17 available?', badges: ['needs_reply', 'unread'] }] },
     };
   }
+  if (/amazon/i.test(question)) {
+    return {
+      text: 'Two orders are waiting to ship on Amazon.',
+      card: { state: 'results', category: 'commerce', task_id: 'task_shop', tool: 'commerce.list_orders', summary: '', total: 2, items: [
+        { kind: 'order', id: 'ord_1', title: '402-1234567-1234567', subtitle: 'amazon · A17E79C6D8DWNP', detail: 'unshipped · 2 item(s) · 900.00 SAR', at: now, badges: ['unshipped'] },
+        { kind: 'order', id: 'ord_2', title: '402-7654321-7654321', subtitle: 'amazon · A2VIGQ35RCS4UG', detail: 'unshipped · 1 item(s) · 410.00 AED', at: now, badges: ['unshipped'] },
+      ] },
+    };
+  }
   if (/send|delete/i.test(question)) {
     return {
       text: 'This needs approval before it runs: external.action (high risk). Nothing happens until it is approved.',
@@ -156,3 +165,14 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024
     if (process.env.ANUM_SCREENSHOTS) await page.screenshot({ path: `${process.env.ANUM_SCREENSHOTS}/chat-cards-${width}x${height}.png`, fullPage: true });
   });
 }
+
+test('store questions answer with a commerce card that opens Commerce', async ({ page }) => {
+  await mock(page);
+  await page.goto('/#assistant');
+  await ask(page, 'show unshipped amazon orders');
+  const card = page.locator('.chatCard.results');
+  await expect(card.getByRole('heading', { name: 'Store' })).toBeVisible();
+  await expect(card.getByText('Not shipped')).toHaveCount(2);
+  await card.getByRole('button', { name: 'Open in Commerce: order 402-1234567-1234567' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).not.toHaveText('Assistant');
+});

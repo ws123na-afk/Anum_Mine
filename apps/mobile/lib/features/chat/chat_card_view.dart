@@ -43,6 +43,8 @@ class ChatCardView extends StatelessWidget {
     ChatCardCategory.web: Icons.public,
     ChatCardCategory.files: Icons.description_outlined,
     ChatCardCategory.action: Icons.shield_outlined,
+    ChatCardCategory.commerce: Icons.shopping_bag_outlined,
+    ChatCardCategory.tyre: Icons.tire_repair_outlined,
   };
 
   @override
@@ -294,7 +296,9 @@ class _ItemTile extends StatelessWidget {
     'unread',
     'priority_high',
     'needs_reply',
-    'window_closed'
+    'window_closed',
+    'unshipped',
+    'low_stock'
   };
 
   @override
@@ -316,7 +320,10 @@ class _ItemTile extends StatelessWidget {
     final link = item.webLink;
     final VoidCallback? onTap = link != null && openLink != null
         ? () => openLink!(link)
-        : item.id != null && item.kind != 'web' && onOpen != null
+        : item.id != null &&
+                const {'email', 'whatsapp', 'memory', 'file'}
+                    .contains(item.kind) &&
+                onOpen != null
             ? () => onOpen!(ChatTarget(
                 switch (item.kind) {
                   'email' => ChatTargetKind.email,
