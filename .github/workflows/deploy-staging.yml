@@ -257,7 +257,7 @@ jobs:
       - name: Smoke test staging API
         if: ${{ vars.STAGING_API_URL != '' }}
         run: |
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS "${STAGING_API_URL%/}/health"; then
               exit 0
             fi

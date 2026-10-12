@@ -115,7 +115,7 @@ jobs:
       - name: Start Valkey, S3 storage and NATS
         run: |
           docker compose -f infra/docker/compose.yaml up -d valkey s3 nats
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if docker compose -f infra/docker/compose.yaml exec -T valkey valkey-cli ping | grep -q PONG \
               && curl -fsS http://127.0.0.1:9000/healthz \
               && curl -fsS "http://127.0.0.1:8222/healthz?js-enabled-only=true"; then
@@ -354,7 +354,7 @@ jobs:
           grep -q "Failed client connect" worker-noconn.log
           docker run -d --name temporal --network anum-worker-ci "$TEMPORAL_IMAGE" \
             server start-dev --ip 0.0.0.0 --headless
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if docker run --rm --network anum-worker-ci "$TEMPORAL_IMAGE" \
               operator cluster health --address temporal:7233 > /dev/null 2>&1; then
               break
@@ -363,7 +363,7 @@ jobs:
           done
           docker run -d --name worker --network anum-worker-ci -e ANUM_ENVIRONMENT=local \
             -e ANUM_TEMPORAL_TARGET=temporal:7233 anum-api:ci python -m anum_api.worker
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if docker logs worker 2>&1 | grep -q "ANUM worker polling anum-agent-runs"; then
               break
             fi
@@ -389,7 +389,7 @@ jobs:
         run: |
           docker run -d --name api -e ANUM_ENVIRONMENT=local -p 8000:8000 anum-api:ci
           docker run -d --name web -p 8080:8080 anum-web:ci
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/health && curl -fsS http://127.0.0.1:8080/healthz; then
               break
             fi

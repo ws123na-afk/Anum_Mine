@@ -234,7 +234,7 @@ jobs:
       - name: Smoke test production API
         if: ${{ vars.PRODUCTION_API_URL != '' }}
         run: |
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS "${PRODUCTION_API_URL%/}/health"; then
               exit 0
             fi
@@ -301,7 +301,7 @@ jobs:
       - name: Smoke test production API
         if: ${{ vars.PRODUCTION_API_URL != '' }}
         run: |
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS "${PRODUCTION_API_URL%/}/health"; then
               exit 0
             fi
