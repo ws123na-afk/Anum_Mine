@@ -28,6 +28,7 @@ from anum_api.privacy import (
     email_counts,
     learning_counts,
     module_counts,
+    other_module_counts,
 )
 from anum_api.whatsapp_store import Message as WhatsAppMessage
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
@@ -40,6 +41,9 @@ from anum_api.meetings import TranscriptSegment as MeetingTranscriptSegment
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
 
 from .autonomy_repository import SqlAlchemyAutonomyStore
+from .commerce_repository import SqlAlchemyCommerceStore
+from .team_repository import SqlAlchemyTeamStore
+from .tyre_repository import SqlAlchemyTyreStore
 from .conversation_repository import _conversation, _turn
 from .command_repository import SqlAlchemyCommandStore
 from .email_repository import EmailAccountRecord, EmailDraftRecord, EmailMessageRecord, EmailOAuthRequestRecord
@@ -304,10 +308,41 @@ class SqlAlchemyPrivacyStore:
             self.email_drafts_written(),
             self._count(EmailMessageRecord, *self._private_message_filter()),
         )
-        return module_counts(
+        private, shared = module_counts(
             email,
             self._count(WhatsAppMessageRecord, *self._whatsapp_filter()),
             self._count(AutonomousActionRecord, *self._autonomy_filter()),
+        )
+        other_private, other_shared = other_module_counts(self, self.context)
+        return {**private, **other_private}, {**shared, **other_shared}
+
+    # -- team work, tyre planning, commerce (migrations 0037 to 0039) --------------------
+
+    def team(self) -> SqlAlchemyTeamStore:
+        return SqlAlchemyTeamStore(self.session)
+
+    def tyre(self) -> SqlAlchemyTyreStore:
+        return SqlAlchemyTyreStore(self.session)
+
+    def commerce(self) -> SqlAlchemyCommerceStore:
+        return SqlAlchemyCommerceStore(self.session, self.context)
+
+    def delete_team_private(self) -> None:
+        """The caller's notifications (RLS admits only the recipient) and member profile."""
+        params = self._scope_params()
+        self.session.execute(
+            text(
+                "delete from user_notifications where tenant_id = :tenant_id "
+                "and workspace_id = :workspace_id and user_id = :user_id"
+            ),
+            params,
+        )
+        self.session.execute(
+            text(
+                "delete from team_member_profiles where tenant_id = :tenant_id "
+                "and workspace_id = :workspace_id and user_id = :user_id"
+            ),
+            params,
         )
 
     def _file_filter(self):  # type: ignore[no-untyped-def]
@@ -460,6 +495,7 @@ class SqlAlchemyPrivacyStore:
                 *self._in_workspace(EmailOAuthRequestRecord), EmailOAuthRequestRecord.user_id == self.context.user_id
             )
         )
+        self.delete_team_private()
         self.session.flush()
         return deleted
 

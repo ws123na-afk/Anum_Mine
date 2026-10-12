@@ -403,7 +403,7 @@ void main() {
       (tester) async {
     final transport = _PrivacyTransport();
     final controller = PrivacyController(await _repository(transport));
-    await tester.binding.setSurfaceSize(const Size(390, 2600));
+    await tester.binding.setSurfaceSize(const Size(390, 3400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester
         .pumpWidget(MaterialApp(home: PrivacyScreen(controller: controller)));
@@ -468,7 +468,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    await tester.binding.setSurfaceSize(const Size(390, 2600));
+    await tester.binding.setSurfaceSize(const Size(390, 3400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     String? copied;
     tester.binding.defaultBinaryMessenger

@@ -485,3 +485,74 @@ def test_maintenance_role_sees_mailbox_and_number_scope_but_no_tokens(
                 with connection.begin():
                     connection.execute(text("set local role anum_maintenance"))
                     connection.execute(text(statement))
+
+
+# -- commerce channel credentials and buyer details (0038_commerce, 0050) -----------------
+
+
+@pytest.fixture
+def commerce_with_old_key(seed_scopes: None, app_session: Callable[..., Iterator[Session]]) -> None:
+    old = SecretCipher([OLD_KEY])
+    for tenant_id, workspace_id, label, enabled in ((TENANT_A, WORKSPACE_A, "a", False), (TENANT_B, WORKSPACE_B, "b", True)):
+        with app_session(tenant_context(tenant_id, workspace_id), commit=True) as session:
+            session.execute(
+                text(
+                    "insert into commerce_connectors (id, tenant_id, workspace_id, channel, name, marketplaces, settings, "
+                    "enabled, credentials_ciphertext, health, sync_counts, cursors, created_by) values "
+                    "(:id, :tenant, :workspace, 'own_store', 'Shop', '[]', '{}', :enabled, :secret, 'pending', '{}', '{}', 'owner')"
+                ),
+                {"id": f"cconn_{label}", "tenant": tenant_id, "workspace": workspace_id, "enabled": enabled,
+                 "secret": old.encrypt(f"example-channel-secret-{label}")},
+            )
+            session.execute(
+                text(
+                    "insert into commerce_customers (id, tenant_id, workspace_id, connector_id, ref_hash, name_ciphertext, "
+                    "email_ciphertext, first_seen_at, last_seen_at) values "
+                    "(:id, :tenant, :workspace, :connector, :hash, :name, :email, now(), now())"
+                ),
+                {"id": f"ccust_{label}", "tenant": tenant_id, "workspace": workspace_id, "connector": f"cconn_{label}",
+                 "hash": label * 64, "name": old.encrypt(f"example buyer {label}"), "email": old.encrypt(f"buyer-{label}@example.com")},
+            )
+
+
+def test_commerce_credentials_and_buyer_details_are_re_encrypted(
+    commerce_with_old_key: None, app_factory: sessionmaker[Session], database_engine: Engine
+) -> None:
+    from anum_api.rotate_secrets import rotate_commerce_secrets
+
+    cipher = SecretCipher([NEW_KEY, OLD_KEY])
+    dry = rotate_commerce_secrets(cipher, session_factory=app_factory, dry_run=True)
+    # Both connectors (one disabled, invisible to the sync policy) and both customers.
+    assert (dry.scanned, dry.rotated, dry.failed) == (4, 4, 0)
+    report = rotate_commerce_secrets(cipher, session_factory=app_factory)
+    assert (report.rotated, report.failed) == (4, 0)
+    new_only = SecretCipher([NEW_KEY])
+    with database_engine.connect() as connection:
+        secrets = connection.execute(text("select id, credentials_ciphertext from commerce_connectors order by id")).all()
+        buyers = connection.execute(
+            text("select id, name_ciphertext, email_ciphertext, phone_ciphertext from commerce_customers order by id")
+        ).all()
+        targets = sorted(connection.execute(text("select target from audit_records where action = 'secrets.rotated'")).scalars())
+    assert [new_only.decrypt(row.credentials_ciphertext) for row in secrets] == ["example-channel-secret-a", "example-channel-secret-b"]
+    assert [new_only.decrypt(row.name_ciphertext) for row in buyers] == ["example buyer a", "example buyer b"]
+    assert all(row.phone_ciphertext is None for row in buyers)
+    assert targets == ["commerce_connector:cconn_a", "commerce_connector:cconn_b", "commerce_customer:ccust_a", "commerce_customer:ccust_b"]
+    assert rotate_commerce_secrets(cipher, session_factory=app_factory).already_current == 4
+
+
+def test_maintenance_role_sees_commerce_ids_but_no_ciphertext(commerce_with_old_key: None, database_engine: Engine) -> None:
+    with database_engine.connect() as connection:
+        with connection.begin():
+            connection.execute(text("set local role anum_maintenance"))
+            assert connection.execute(text("select id from commerce_customers order by 1")).scalars().all() == ["ccust_a", "ccust_b"]
+            assert connection.execute(text("select id from commerce_connectors order by 1")).scalars().all() == ["cconn_a", "cconn_b"]
+        for statement in (
+            "select credentials_ciphertext from commerce_connectors",
+            "select name_ciphertext from commerce_customers",
+            "select city from commerce_customers",
+            "update commerce_customers set name_ciphertext = null",
+        ):
+            with pytest.raises(DBAPIError, match="permission denied"):
+                with connection.begin():
+                    connection.execute(text("set local role anum_maintenance"))
+                    connection.execute(text(statement))

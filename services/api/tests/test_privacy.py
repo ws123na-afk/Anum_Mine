@@ -176,6 +176,8 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "email_mailboxes": 0,
         "email_messages": 0,
         "email_drafts": 0,
+        "team_notifications": 0,
+        "team_profile": 0,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -356,6 +358,8 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "email_mailboxes": 0,
         "email_messages": 0,
         "email_drafts": 0,
+        "team_notifications": 0,
+        "team_profile": 0,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]
@@ -418,6 +422,7 @@ def test_build_export_is_valid_json_with_every_section() -> None:
         "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "learning", "commands", "library", "files_uploaded",
         "meetings_imported", "meeting_connections",
         "email", "whatsapp_messages_sent", "autonomy_actions_requested",
+        "team_work", "tyre_planning", "commerce_connectors_created",
     }
     assert parsed["notification_preferences"] is None
     assert parsed["user_preferences"] is None
@@ -556,3 +561,88 @@ def test_email_whatsapp_and_autonomy_are_counted_exported_and_deleted(monkeypatc
     (record,) = [r for r in store.audit_records if r.action == "privacy.delete"]
     assert record.metadata["mailboxes_revoked_at_provider"] == 1
     assert "mine" not in json.dumps(dict(record.metadata), default=str)
+
+
+# -- team work, tyre planning and commerce ------------------------------------------------
+
+
+def _seed_team_tyre_commerce(hdrs: dict[str, str], label: str) -> None:
+    from anum_api.commerce.models import Connector
+    from anum_api.commerce.store import commerce_store
+    from anum_api.team_models import ActorType, AssigneeType, MemberProfile, UserNotification, WorkComment, WorkItem
+    from anum_api.team_store import memory_team_store
+    from anum_api.tyre.model import SourceKind
+    from anum_api.tyre.store import ReportKind, TyreConnection, TyreReport, memory_tyre_store
+
+    context, now = _context(hdrs), utc_now()
+    user, scope = context.user_id, {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id}
+    memory_team_store.save_profile(context, MemberProfile(user_id=user, display_name=f"{label} person", email=f"{label}@example.com"))
+    memory_team_store.add_notification(
+        context, UserNotification(id=f"note_{label}", user_id=user, kind="assigned", title=f"{label} title", body="body", created_at=now)
+    )
+    for suffix, assignee in (("made", None), ("given", user)):
+        memory_team_store.insert_item(
+            context,
+            WorkItem(
+                id=f"work_{label}_{suffix}", **scope, title=f"{label} {suffix}",
+                created_by=user if suffix == "made" else "someone_else",
+                assignee_type=AssigneeType.USER if assignee else None, assignee_id=assignee, created_at=now, updated_at=now,
+            ),
+        )
+    memory_team_store.add_comment(
+        context, f"work_{label}_given",
+        WorkComment(id=f"comment_{label}", author_type=ActorType.USER, author_id=user, body=f"{label} comment", created_at=now),
+    )
+    memory_tyre_store.save_connection(
+        TyreConnection(
+            **scope, kind=SourceKind.SUPABASE_REST, secret_ciphertext="ciphertext-placeholder",
+            created_by=user, updated_by=user, created_at=now, updated_at=now,
+        )
+    )
+    memory_tyre_store.save_report(
+        TyreReport(
+            id=f"report_{label}", **scope, kind=ReportKind.FLEET_HEALTH, title=f"{label} report", created_by=user,
+            created_at=now, content={"rows": "workspace data"},
+        )
+    )
+    commerce_store.save_connector(
+        Connector(id=f"conn_{label}", **scope, channel="own_store", name=f"{label} store", created_by=user, created_at=now, updated_at=now),
+        credentials_ciphertext="ciphertext-placeholder",
+    )
+
+
+def test_team_work_tyre_and_commerce_are_counted_exported_and_private_parts_deleted() -> None:
+    from anum_api.commerce.store import commerce_store
+    from anum_api.team_store import memory_team_store
+    from anum_api.tyre.store import memory_tyre_store
+
+    memory_team_store.clear()
+    memory_tyre_store.clear()
+    commerce_store.clear()
+    _seed_team_tyre_commerce(ME, "mine")
+    _seed_team_tyre_commerce(OTHER_TENANT, "foreign")
+
+    summary = client.get("/api/v1/privacy", headers=ME).json()
+    assert (summary["private"]["team_notifications"], summary["private"]["team_profile"]) == (1, 1)
+    assert {key: summary["shared"][key] for key in (
+        "work_items_created", "work_items_assigned", "tyre_connections_created", "tyre_reports_created", "commerce_connectors_created"
+    )} == {"work_items_created": 1, "work_items_assigned": 1, "tyre_connections_created": 1, "tyre_reports_created": 1, "commerce_connectors_created": 1}
+
+    response = client.get("/api/v1/privacy/export", headers=ME)
+    export = json.loads(response.content)
+    assert export["team_work"]["profile"]["email"] == "mine@example.com"
+    assert [item["id"] for item in export["team_work"]["work_items_assigned"]] == ["work_mine_given"]
+    assert [item["body"] for item in export["team_work"]["comments_written"]] == ["mine comment"]
+    assert export["tyre_planning"]["reports_created"][0]["title"] == "mine report"
+    assert "content" not in export["tyre_planning"]["reports_created"][0]
+    assert [item["name"] for item in export["commerce_connectors_created"]] == ["mine store"]
+    assert "ciphertext-placeholder" not in response.text and "foreign" not in response.text
+
+    deleted = client.post("/api/v1/privacy/delete", headers=ME, json={"confirm": "DELETE MY DATA"}).json()
+    assert (deleted["deleted"]["team_notifications"], deleted["deleted"]["team_profile"]) == (1, 1)
+    assert deleted["kept"]["work_items_created"] == 1 and deleted["kept"]["commerce_connectors_created"] == 1
+    after = client.get("/api/v1/privacy", headers=ME).json()
+    assert (after["private"]["team_notifications"], after["private"]["team_profile"]) == (0, 0)
+    assert after["shared"]["work_items_assigned"] == 1
+    # Another tenant keeps everything.
+    assert client.get("/api/v1/privacy", headers=OTHER_TENANT).json()["private"]["team_profile"] == 1

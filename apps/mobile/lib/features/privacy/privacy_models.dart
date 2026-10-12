@@ -27,6 +27,8 @@ const _privateLabels = <String, String>{
   'email_mailboxes': 'Private mailboxes you connected',
   'email_messages': 'Email details synced from those mailboxes',
   'email_drafts': 'Email drafts you never sent',
+  'team_notifications': 'Your team notifications',
+  'team_profile': 'Your team profile (name, email, title)',
 };
 
 const _sharedLabels = <String, String>{
@@ -38,6 +40,11 @@ const _sharedLabels = <String, String>{
   'email_drafts_sent': 'Emails you sent or sent for approval',
   'whatsapp_messages_sent': 'WhatsApp messages you sent',
   'autonomy_actions_requested': 'Actions ANUM took for you',
+  'work_items_created': 'Work items you created',
+  'work_items_assigned': 'Work items assigned to you',
+  'tyre_connections_created': 'Tyre data connection you set up',
+  'tyre_reports_created': 'Tyre reports you created',
+  'commerce_connectors_created': 'Sales channels you connected',
 };
 
 List<PrivacyCount> _counts(JsonReader json, Map<String, String> labels) => [

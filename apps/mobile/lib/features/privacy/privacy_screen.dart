@@ -135,7 +135,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                   _PolicyLink(url: s.policyUrl, open: widget.openLink),
                   _Heading('Download my data'),
                   Text(
-                      'A JSON file with your profile in this workspace, conversations, private memories, voice transcripts, tasks you created, approvals you decided, notification preferences, your preferences, the list of files you uploaded, what ANUM learned from you, the mailboxes you connected with your email drafts, the WhatsApp messages you sent and the actions ANUM took for you. Up to ${formatBytes(s.exportMaxBytes)}.'),
+                      'A JSON file with your profile in this workspace, conversations, private memories, voice transcripts, tasks you created, approvals you decided, notification preferences, your preferences, the list of files you uploaded, what ANUM learned from you, the mailboxes you connected with your email drafts, the WhatsApp messages you sent, the actions ANUM took for you, your team work, and the tyre reports and sales channels you set up. Up to ${formatBytes(s.exportMaxBytes)}.'),
                   const SizedBox(height: AnumSpacing.sm),
                   Align(
                       alignment: AlignmentDirectional.centerStart,
@@ -149,7 +149,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                     _Message(text: c.exportMessage!, error: c.exportFailed),
                   _Heading('Delete my data'),
                   Text(
-                      'Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, notification preferences, what ANUM learned from you, the private mailboxes you connected (ANUM also withdraws its access at the provider) and the email drafts you never sent in this workspace, and resets your preferences (such as Remember things from my chats) in every workspace of this organization. This cannot be undone.'),
+                      'Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, notification preferences, what ANUM learned from you, the private mailboxes you connected (ANUM also withdraws its access at the provider) the email drafts you never sent, and your team notifications and team profile in this workspace, and resets your preferences (such as Remember things from my chats) in every workspace of this organization. This cannot be undone.'),
                   const SizedBox(height: AnumSpacing.xs),
                   Text(
                       'Kept: ${sharedTotal == 0 ? 'shared workspace records (none created by you)' : '$sharedTotal shared workspace ${sharedTotal == 1 ? 'record' : 'records'} you created or decided'}. A workspace owner can remove them.',

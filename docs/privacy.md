@@ -57,6 +57,9 @@ Format `anum.privacy-export/v1`, sections in this order:
 | `email.private_mailbox_messages` | The message metadata synced from the caller's **private** mailboxes (sender, recipients, subject, snippet, labels, triage). Bodies are never stored by ANUM, so none are exported; messages of workspace mailboxes belong to the workspace and are not included. |
 | `whatsapp_messages_sent` | WhatsApp messages the caller sent or asked to send ([WhatsApp](whatsapp.md)), with their text and status. Customer messages are the workspace's and are not included. |
 | `autonomy_actions_requested` | Actions ANUM took on its own for the caller's requests ([Autonomy](autonomy.md)): tool, summary, target, level and undo state. Never the undo token or the tool's undo arguments. |
+| `team_work` | The caller's team member profile, their in-app notifications, the work items they created or that are assigned to them, and the comments they wrote on those items ([Team work](team-work.md)). |
+| `tyre_planning` | The tyre data connection the caller set up (without its secret) and the metadata of the tyre reports they created; report contents are workspace planning data and are left out ([Tyre planning](tyre-planning.md)). |
+| `commerce_connectors_created` | The sales channels the caller connected (channel, name, marketplaces, health); never the channel credentials or sync cursors ([Commerce](commerce.md)). |
 | `not_included` | Plain sentences listing what is not in the file (below). |
 
 **Files are linked, not embedded.** File bytes can be up to 25 MiB each and are workspace records; embedding them would make the export unbounded. The signed-in user downloads each file from its `download_path` (the Files page does the same).
@@ -80,7 +83,8 @@ Removed, in one transaction (after the mailbox revocations below):
 - the caller's favorites, private knowledge collections (with their items) and private reports (migration `0042_library`; counted as `favorites`, `private_collections` and `private_reports`). Notes in a private collection are private memories and go with them; shared collections and reports stay;
 - the caller's `user_preferences` row (migration `0025_user_preferences`). It is per user and tenant, not per workspace, so deleting from any workspace resets it everywhere in that organization; the defaults apply again ("Remember things from my chats" back on);
 - the **private** mailboxes the caller connected, with their tokens, synced message metadata and every draft in them (counted as `email_mailboxes`, `email_messages`); before the transaction ANUM revokes each mailbox's grant at the provider where the provider has a revoke call (Google, Zoho), as disconnecting does. Where it cannot (Microsoft has no per-app revoke call; a provider error; an unreadable token) the deletion still happens and the response's `notes` tell the caller to remove ANUM in that account's security settings;
-- the caller's email drafts that never left ANUM (status `draft`, `failed` or `discarded`, in any mailbox; counted with the drafts of their private mailboxes as `email_drafts`), and their pending mailbox connections (`email_oauth_requests`).
+- the caller's email drafts that never left ANUM (status `draft`, `failed` or `discarded`, in any mailbox; counted with the drafts of their private mailboxes as `email_drafts`), and their pending mailbox connections (`email_oauth_requests`);
+- the caller's in-app team notifications and their team member profile in this workspace (`user_notifications`, `team_member_profiles`, migration `0039_team_work`; counted as `team_notifications` and `team_profile`).
 
 Kept, and counted in the response and on the page:
 
@@ -88,6 +92,7 @@ Kept, and counted in the response and on the page:
 - workspace mailboxes the caller connected (`email_mailboxes_connected`) and the caller's emails sent or waiting for approval from them (`email_drafts_sent`): they are the workspace's correspondence. An owner disconnects a mailbox under Inbox;
 - WhatsApp messages the caller sent (`whatsapp_messages_sent`): they are part of the customer's conversation with the business, and follow the workspace's [WhatsApp retention](whatsapp.md#retention);
 - actions ANUM took for the caller (`autonomy_actions_requested`): the workspace's activity record ([Autonomy](autonomy.md));
+- work items the caller created or that are assigned to them (`work_items_created`, `work_items_assigned`), the tyre connection and reports they created (`tyre_connections_created`, `tyre_reports_created`) and the sales channels they connected (`commerce_connectors_created`): workspace records other members rely on;
 - audit records: they are the workspace's security record and hold ids and counts, not content;
 - the Keycloak account: ANUM does not delete identity accounts. The page says to ask the workspace owner or organization administrator, who removes the user in Keycloak and deactivates the membership.
 

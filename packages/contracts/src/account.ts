@@ -60,6 +60,9 @@ export interface PrivacyPrivateCounts {
   email_messages?: number;
   /** The caller's drafts that never left ANUM, and every draft in their private mailboxes. Absent from older servers. */
   email_drafts?: number;
+  /** The caller's in-app team notifications and member profile (docs/team-work.md). Absent from older servers. */
+  team_notifications?: number;
+  team_profile?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */
@@ -76,6 +79,14 @@ export interface PrivacySharedCounts {
   whatsapp_messages_sent?: number;
   /** Actions ANUM took on its own for the caller's requests (docs/autonomy.md). Absent from older servers. */
   autonomy_actions_requested?: number;
+  /** Team work items the caller created or that are assigned to them. Absent from older servers. */
+  work_items_created?: number;
+  work_items_assigned?: number;
+  /** The tyre planning connection and reports the caller created (docs/tyre-planning.md). Absent from older servers. */
+  tyre_connections_created?: number;
+  tyre_reports_created?: number;
+  /** Sales channels the caller connected (docs/commerce.md). Absent from older servers. */
+  commerce_connectors_created?: number;
 }
 
 export interface PrivacyRetention {

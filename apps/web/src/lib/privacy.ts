@@ -18,11 +18,13 @@ const PRIVATE_KEYS: (keyof PrivateCounts)[] = [
   'push_devices', 'meetings', 'meeting_transcript_segments', 'meeting_recordings', 'meeting_connections',
   'learning_signals', 'learned_items', 'favorites', 'private_collections', 'private_reports',
   'email_mailboxes', 'email_messages', 'email_drafts',
+  'team_notifications', 'team_profile',
 ];
 
 const SHARED_KEYS: (keyof SharedCounts)[] = [
   'tasks_created', 'approvals_decided', 'shared_memories_created', 'files_uploaded',
   'email_mailboxes_connected', 'email_drafts_sent', 'whatsapp_messages_sent', 'autonomy_actions_requested',
+  'work_items_created', 'work_items_assigned', 'tyre_connections_created', 'tyre_reports_created', 'commerce_connectors_created',
 ];
 
 const rowLabel = (key: string) => t(`privacy.row.${key}` as MessageKey);

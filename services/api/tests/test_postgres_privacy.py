@@ -214,6 +214,8 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "email_mailboxes": 0,
         "email_messages": 0,
         "email_drafts": 0,
+        "team_notifications": 0,
+        "team_profile": 0,
     }
     assert summary["shared"]["tasks_created"] == 1
 
@@ -446,3 +448,36 @@ def test_email_whatsapp_and_autonomy_under_rls(
     assert [d for d in rows["email_drafts"] if d.startswith("draft_mine")] == ["draft_mine_sent"]
     assert "wam_mine" in rows["whatsapp_messages"] and "act_mine" in rows["autonomy_actions"]
     assert len([d for d in rows["email_drafts"] if d.startswith("draft_colleague")]) == 3
+
+
+def test_team_notifications_and_profile_are_deleted_under_rls(
+    client: TestClient, app_factory: sessionmaker[Session], database_engine: Engine
+) -> None:
+    from anum_api.db.session import set_tenant_context
+    from anum_api.db.team_repository import SqlAlchemyTeamStore
+    from anum_api.team_models import MemberProfile, UserNotification
+
+    now = utc_now()
+    for hdrs in (ME, COLLEAGUE):
+        context = _context(hdrs)
+        with app_factory() as session:
+            set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
+            store = SqlAlchemyTeamStore(session)
+            store.save_profile(context, MemberProfile(user_id=context.user_id, display_name=f"{context.user_id} name", updated_at=now))
+            store.add_notification(
+                context,
+                UserNotification(id=f"note_{context.user_id}", user_id=context.user_id, kind="assigned", title="t", body="b", created_at=now),
+            )
+            session.commit()
+
+    summary = client.get("/api/v1/privacy", headers=ME).json()
+    assert (summary["private"]["team_notifications"], summary["private"]["team_profile"]) == (1, 1)
+    export = json.loads(client.get("/api/v1/privacy/export", headers=ME).content)
+    assert export["team_work"]["profile"]["display_name"] == "user_me name"
+    assert [item["id"] for item in export["team_work"]["notifications"]] == ["note_user_me"]
+    deleted = client.post("/api/v1/privacy/delete", headers=ME, json={"confirm": "DELETE MY DATA"}).json()
+    assert (deleted["deleted"]["team_notifications"], deleted["deleted"]["team_profile"]) == (1, 1)
+    with database_engine.connect() as connection:
+        notifications = connection.execute(text("select user_id from user_notifications order by 1")).scalars().all()
+        profiles = connection.execute(text("select user_id from team_member_profiles order by 1")).scalars().all()
+    assert notifications == ["user_colleague"] and profiles == ["user_colleague"]

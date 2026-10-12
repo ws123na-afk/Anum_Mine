@@ -135,6 +135,10 @@ class PrivateCounts(BaseModel):
     email_mailboxes: int = 0
     email_messages: int = 0
     email_drafts: int = 0
+    # Team work (migration 0039_team_work, docs/team-work.md): the caller's in-app
+    # notifications and their member profile (name, email, title, capacity) here.
+    team_notifications: int = 0
+    team_profile: int = 0
 
     @property
     def total(self) -> int:
@@ -155,6 +159,14 @@ class SharedCounts(BaseModel):
     whatsapp_messages_sent: int = 0
     # Actions ANUM took on its own for the caller's requests (docs/autonomy.md).
     autonomy_actions_requested: int = 0
+    # Team work items the caller created or that are assigned to them (docs/team-work.md).
+    work_items_created: int = 0
+    work_items_assigned: int = 0
+    # Tyre planning (docs/tyre-planning.md): the source connection and reports they created.
+    tyre_connections_created: int = 0
+    tyre_reports_created: int = 0
+    # Commerce (docs/commerce.md): sales-channel connectors they connected.
+    commerce_connectors_created: int = 0
 
 
 class EmailCounts(BaseModel):
@@ -188,6 +200,91 @@ def module_counts(email: EmailCounts, whatsapp_sent: int, autonomy_requested: in
             "email_drafts_sent": email.drafts_sent,
             "whatsapp_messages_sent": whatsapp_sent,
             "autonomy_actions_requested": autonomy_requested,
+        },
+    )
+
+
+_PAGE = 200
+
+
+def _team_items(team: Any, context: TenantContext, flt: Any) -> list[Any]:
+    found: list[Any] = []
+    offset = 0
+    while True:
+        page, total = team.query_items(context, flt, _PAGE, offset)
+        found += page
+        offset += len(page)
+        if not page or offset >= total:
+            return found
+
+
+def team_data(store: "PrivacyStore", context: TenantContext) -> dict[str, Any]:
+    """The caller's team work (docs/team-work.md): profile, notifications, items, comments."""
+    from .team_models import ActorType, AssigneeType
+    from .team_store import WorkFilter
+
+    team = store.team()
+    notifications: list[Any] = []
+    before: str | None = None
+    while True:
+        page = team.list_notifications(context, limit=_PAGE, before=before, unread_only=False)
+        notifications += page
+        if len(page) < _PAGE:
+            break
+        before = page[-1].id
+    created = _team_items(team, context, WorkFilter(created_by=context.user_id, sort="updated"))
+    assigned = _team_items(
+        team, context, WorkFilter(assignee_type=AssigneeType.USER, assignee_id=context.user_id, sort="updated")
+    )
+    seen = {item.id: item for item in [*created, *assigned]}
+    comments = [
+        {"work_item_id": item_id, **_dump(comment)}
+        for item_id in seen
+        for comment in team.list_comments(context, item_id)
+        if comment.author_type == ActorType.USER and comment.author_id == context.user_id
+    ]
+    return {
+        "profile": team.list_profiles(context).get(context.user_id),
+        "notifications": notifications,
+        "work_items_created": created,
+        "work_items_assigned": assigned,
+        "comments_written": comments,
+    }
+
+
+def tyre_data(store: "PrivacyStore", context: TenantContext) -> dict[str, Any]:
+    """The tyre planning connection and reports the caller created (docs/tyre-planning.md)."""
+    tyre = store.tyre()
+    connection = tyre.get_connection(context)
+    reports: list[Any] = []
+    offset = 0
+    while True:
+        page, total = tyre.list_reports(context, kind=None, limit=_PAGE, offset=offset)
+        reports += [report for report in page if report.created_by == context.user_id]
+        offset += len(page)
+        if not page or offset >= total:
+            break
+    return {
+        "connection": connection if connection is not None and connection.created_by == context.user_id else None,
+        "reports": reports,
+    }
+
+
+def commerce_connectors_created(store: "PrivacyStore", context: TenantContext) -> list[Any]:
+    return [item for item in store.commerce().list_connectors(context) if item.created_by == context.user_id]
+
+
+def other_module_counts(store: "PrivacyStore", context: TenantContext) -> tuple[dict[str, int], dict[str, int]]:
+    team = team_data(store, context)
+    tyre = tyre_data(store, context)
+    return (
+        {"team_notifications": len(team["notifications"]), "team_profile": int(team["profile"] is not None)},
+        {
+            "work_items_created": len(team["work_items_created"]),
+            "work_items_assigned": len(team["work_items_assigned"]),
+            "tyre_connections_created": int(tyre["connection"] is not None),
+            "tyre_reports_created": len(tyre["reports"]),
+            "commerce_connectors_created": len(commerce_connectors_created(store, context)),
         },
     )
 
@@ -275,6 +372,11 @@ class PrivacyStore(Protocol):
     def email_private_messages(self) -> list[EmailMessage]: ...
     def whatsapp_messages_sent(self) -> list[WhatsAppMessage]: ...
     def autonomy_actions_requested(self) -> list[AutonomousAction]: ...
+    # Team work, tyre planning and commerce stores in this same unit of work.
+    def team(self) -> Any: ...
+    def tyre(self) -> Any: ...
+    def commerce(self) -> Any: ...
+    def delete_team_private(self) -> None: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
     def record_audit(self, record: AuditRecord) -> None: ...
@@ -426,6 +528,31 @@ class InMemoryPrivacyStore:
     def library(self) -> LibraryPrivacy:
         return memory_library(self.context)
 
+    def team(self) -> Any:
+        from .team_store import memory_team_store
+
+        return memory_team_store
+
+    def tyre(self) -> Any:
+        from .tyre.store import memory_tyre_store
+
+        return memory_tyre_store
+
+    def commerce(self) -> Any:
+        from .commerce.store import commerce_store
+
+        return commerce_store
+
+    def delete_team_private(self) -> None:
+        from .team_store import memory_team_store
+
+        with memory_team_store._lock:
+            workspace = memory_team_store._ws(self.context)
+            for key, notification in list(workspace.notifications.items()):
+                if notification.user_id == self.context.user_id:
+                    workspace.notifications.pop(key, None)
+            workspace.profiles.pop(self.context.user_id, None)
+
     def email_accounts_connected(self) -> list[EmailAccount]:
         from .email_inbox import email_backend
 
@@ -487,7 +614,9 @@ class InMemoryPrivacyStore:
         email = email_counts(
             self.email_accounts_connected(), self.email_drafts_written(), len(self.email_private_messages())
         )
-        return module_counts(email, len(self.whatsapp_messages_sent()), len(self.autonomy_actions_requested()))
+        private, shared = module_counts(email, len(self.whatsapp_messages_sent()), len(self.autonomy_actions_requested()))
+        other_private, other_shared = other_module_counts(self, self.context)
+        return {**private, **other_private}, {**shared, **other_shared}
 
     def _delete_email(self) -> None:
         from .email_inbox import email_backend
@@ -600,6 +729,7 @@ class InMemoryPrivacyStore:
         self.commands().delete_all()
         self.library().delete_all()
         self._delete_email()
+        self.delete_team_private()
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -768,6 +898,30 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield (
         "autonomy_actions_requested",
         [_dump(action, exclude=AUTONOMY_ACTION_PRIVATE_FIELDS) for action in store.autonomy_actions_requested()],
+    )
+    team = team_data(store, context)
+    yield (
+        "team_work",
+        {
+            "profile": _dump(team["profile"]) if team["profile"] is not None else None,
+            "notifications": [_dump(item) for item in team["notifications"]],
+            "work_items_created": [_dump(item) for item in team["work_items_created"]],
+            "work_items_assigned": [_dump(item) for item in team["work_items_assigned"]],
+            "comments_written": team["comments_written"],
+        },
+    )
+    tyre = tyre_data(store, context)
+    yield (
+        "tyre_planning",
+        {
+            # Never the source's secret; the planning data itself is the workspace's.
+            "connection_created": _dump(tyre["connection"], exclude={"secret_ciphertext"}) if tyre["connection"] else None,
+            "reports_created": [_dump(report, exclude={"content"}) for report in tyre["reports"]],
+        },
+    )
+    yield (
+        "commerce_connectors_created",
+        [_dump(item, exclude={"cursors"}) for item in commerce_connectors_created(store, context)],
     )
     yield (
         "files_uploaded",

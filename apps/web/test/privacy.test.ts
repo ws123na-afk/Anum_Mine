@@ -22,14 +22,16 @@ const apiError = (status: number, detail: string | null = null) => Object.assign
 
 describe('count rows', () => {
   test('list every private and shared count with a label, in a stable order', () => {
-    assert.deepEqual(privateRows(summary.private).map((row) => row.value), [2, 6, 1, 1, 1, 3, 1, 1, 2, 0, 0, 0, 0, 2, 3, 4, 1, 2, 1, 4, 2]);
+    assert.deepEqual(privateRows(summary.private).map((row) => row.value), [2, 6, 1, 1, 1, 3, 1, 1, 2, 0, 0, 0, 0, 2, 3, 4, 1, 2, 1, 4, 2, 0, 0]);
     assert.equal(privateRows(summary.private).find((row) => row.key === 'learning_signals')?.label, 'Feedback ANUM learned from');
     assert.equal(privateRows(summary.private).find((row) => row.key === 'private_reports')?.label, 'Private reports');
-    assert.equal(privateRows(summary.private).at(-1)?.label, 'Email drafts you never sent');
+    assert.equal(privateRows(summary.private).find((row) => row.key === 'email_drafts')?.label, 'Email drafts you never sent');
+    assert.equal(privateRows(summary.private).at(-1)?.label, 'Your team profile (name, email, title)');
     assert.equal(privateRows(summary.private)[0].label, 'Assistant conversations');
     assert.deepEqual(sharedRows(summary.shared).map((row) => row.key), [
       'tasks_created', 'approvals_decided', 'shared_memories_created', 'files_uploaded',
       'email_mailboxes_connected', 'email_drafts_sent', 'whatsapp_messages_sent', 'autonomy_actions_requested',
+      'work_items_created', 'work_items_assigned', 'tyre_connections_created', 'tyre_reports_created', 'commerce_connectors_created',
     ]);
     assert.equal(totalOf(summary.private), 37);
     assert.equal(totalOf(summary.shared), 14);
