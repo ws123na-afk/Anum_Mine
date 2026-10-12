@@ -1,4 +1,4 @@
-// Recognition mode detection (src/lib/recognitionMode.ts, docs/voice.md#the-orb).
+// Recognition mode detection (src/lib/recognitionMode.ts, docs/voice.md#the-space-orb).
 // `SpeechRecognition.available()` crashes the renderer in headless Chromium, so an automated
 // browser must never call it. Run with `pnpm --filter @anum/web test:unit`.
 import assert from 'node:assert/strict';

@@ -39,8 +39,8 @@ export const VIEWS: readonly View[] = [...NAV.flatMap((group) => group.views), .
 export const OWNER_ONLY: ReadonlySet<View> = new Set(['developer']);
 /** The platform console: only for platform operators (the API answers 403 to anyone else). */
 export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations']);
-/** Views that draw their own page header (the Command Center). */
-export const OWN_HEADER: ReadonlySet<View> = new Set(['home', 'command']);
+/** Views that draw their own page header (the Command Center, and the Voice page's full-bleed space scene). */
+export const OWN_HEADER: ReadonlySet<View> = new Set(['home', 'command', 'voice']);
 
 export function isView(value: string): value is View {
   return (VIEWS as readonly string[]).includes(value);

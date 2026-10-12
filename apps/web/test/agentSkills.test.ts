@@ -1,6 +1,6 @@
 // Unit tests for the skills an agent loads (src/lib/agents.ts, docs/agents.md#skills), the Skills
-// page helpers that show which agents use a skill (src/lib/catalog.ts) and the voice orb's
-// state model (src/lib/orb.ts). Run with `pnpm --filter @anum/web test:unit`.
+// page helpers that show which agents use a skill (src/lib/catalog.ts). The voice orb's tests are in
+// spaceOrb.test.ts. Run with `pnpm --filter @anum/web test:unit`.
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
@@ -9,9 +9,6 @@ import {
   type AgentCatalog, type AgentProfile, type AgentSkillState,
 } from '../src/lib/agents.ts';
 import { filterBuiltins, filterSkills, usageNames } from '../src/lib/catalog.ts';
-import {
-  crystalGeometry, hexToRgb, ORB_MOTION, ORB_STATES, orbColors, orbDpr, orbPalette, particleCount, particleSeeds, voiceLevel,
-} from '../src/lib/orb.ts';
 
 const catalog: AgentCatalog = {
   tools: [
@@ -115,56 +112,5 @@ describe('Skills page: built-in skills and the agents that load a skill', () => 
     const map = usageById({ items: [{ skill_id: 's', count: 1, agents: [{ id: 'a', name: 'A', icon: 'bot', color: '#000000', status: 'active' }] }] });
     assert.equal(map.get('s')?.count, 1);
     assert.equal(usageById(null).size, 0);
-  });
-});
-
-describe('voice orb', () => {
-  test('colours come from the design tokens, with the shipped values as fallback', () => {
-    assert.deepEqual(hexToRgb('#ff0000'), [1, 0, 0]);
-    assert.deepEqual(hexToRgb('#0f0'), [0, 1, 0]);
-    assert.equal(hexToRgb('rgb(1,2,3)'), null);
-    const fallback = orbColors();
-    assert.deepEqual(fallback.alert, hexToRgb('#ffb547'));
-    const themed = orbColors((name) => (name === '--d-sky' ? ' #000000 ' : ''));
-    assert.deepEqual(themed.sky, [0, 0, 0]);
-  });
-
-  test('every state has its own core and heart colour, not one blue', () => {
-    const colors = orbColors();
-    const cores = new Set(ORB_STATES.map((state) => { const p = orbPalette(state, colors); return JSON.stringify([p.core, p.heart]); }));
-    assert.equal(cores.size, ORB_STATES.length);
-    assert.notDeepEqual(orbPalette('speaking', colors).heart, orbPalette('listening', colors).heart);
-  });
-
-  test('thinking turns fastest, speaking glows brightest, idle is calm', () => {
-    assert.ok(ORB_MOTION.thinking.ringSpeed > ORB_MOTION.listening.ringSpeed && ORB_MOTION.thinking.ringSpeed > ORB_MOTION.idle.ringSpeed);
-    assert.ok(ORB_MOTION.speaking.glow >= Math.max(...ORB_STATES.map((s) => ORB_MOTION[s].glow)));
-    assert.ok(ORB_MOTION.idle.spin <= Math.min(...ORB_STATES.map((s) => ORB_MOTION[s].spin)));
-  });
-
-  test('the microphone level only drives listening and is clamped', () => {
-    assert.equal(voiceLevel('listening', 2), 1);
-    assert.equal(voiceLevel('listening', -1), 0);
-    assert.equal(voiceLevel('listening', Number.NaN), 0);
-    assert.equal(voiceLevel('speaking', 0.8), 0);
-  });
-
-  test('the canvas stays cheap on phones', () => {
-    assert.equal(orbDpr(3), 1.5);
-    assert.equal(orbDpr(0), 1);
-    assert.ok(particleCount(208) < particleCount(400) && particleCount(10) >= 70 && particleCount(10_000) <= 220);
-  });
-
-  test('the crystal is a closed faceted solid with outward normals', () => {
-    const g = crystalGeometry(1);
-    assert.equal(g.faces, 80);
-    assert.equal(g.position.length, 80 * 9);
-    for (let f = 0; f < g.faces; f += 1) {
-      const c = [0, 1, 2].map((axis) => (g.position[f * 9 + axis] + g.position[f * 9 + 3 + axis] + g.position[f * 9 + 6 + axis]) / 3);
-      const n = [g.normal[f * 9], g.normal[f * 9 + 1], g.normal[f * 9 + 2]];
-      assert.ok(c[0] * n[0] + c[1] * n[1] + c[2] * n[2] > 0, `face ${f} faces inward`);
-    }
-    assert.deepEqual(crystalGeometry(1).position, g.position, 'the same stone every time');
-    assert.equal(particleSeeds(10).length, 40);
   });
 });

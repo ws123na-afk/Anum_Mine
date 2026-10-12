@@ -28,7 +28,7 @@ All of them show **mood**: idle, listening, thinking, speaking. None shows **wha
 | Orb shows mood, not authority | The orb's rim turns **amber when an approval is waiting**, and a chip under it ("1 approval waiting for you") opens Approvals. |
 | Liquid Glass hurts contrast | Glass only on the frame (sidebar, voice console). Data sits on **solid, lit surfaces**. Supports `prefers-reduced-transparency` and `prefers-contrast`. |
 | Ambient motion everywhere | One living element, the orb. Cards move only when you interact (lift and a ≤2° tilt). Full `prefers-reduced-motion` support. |
-| Heavy 3D bundles and battery drain | The orb uses **OGL (about 14 KB gzipped)** instead of three.js (about 119 KB). It loads only on the Voice page, caps DPR at 1.5, renders at 30 fps when idle, and pauses when hidden or off screen. Without WebGL it falls back to a CSS orb. |
+| Heavy 3D bundles and battery drain | The [space orb](voice.md#the-space-orb) is a plain 2D canvas with one local sprite atlas (about 320 KB), no 3D library. It loads only with the Voice and Call views, caps DPR at 2, stops while the tab is hidden or paused, and is still under `prefers-reduced-motion`. Without a 2D canvas it falls back to a CSS orb. |
 | Mascot playfulness | An abstract aurora orb: alive but professional. |
 | Voice locked to one language | English and Arabic, with RTL-safe layout. |
 | Voice can act on its own | Approvals, deletions and payments are never done by voice. Tasks need a tap. All of this is enforced on the server. |
@@ -50,7 +50,7 @@ A light-mode counterpart (depth from shadow instead of lightness, darker accents
 
 - **Windows (WebView2):** behaves like Chrome.
 - **macOS (WKWebView):** supports WebGL2 and `backdrop-filter`.
-- **Linux (WebKitGTK) with NVIDIA/Wayland:** may need `WEBKIT_DISABLE_DMABUF_RENDERER=1`. With compositing disabled, WebGL and blur are slow and the orb falls back.
+- **Linux (WebKitGTK) with NVIDIA/Wayland:** may need `WEBKIT_DISABLE_DMABUF_RENDERER=1`. With compositing disabled, canvas and blur are slow.
 
 ## Sources
 
