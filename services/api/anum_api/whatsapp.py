@@ -158,6 +158,10 @@ class WhatsAppSettings(BaseSettings):
     template_cache_seconds: float = Field(default=300.0, ge=0, le=86_400)
     # Model triage of new inbound messages (deployment kill switch; owners also have one).
     triage_on_arrival: bool = True
+    # Message history retention for workspaces that did not choose one (and for history
+    # left after a number is disconnected): 0 keeps it until deleted. The daily retention
+    # job (python -m anum_api.voice_retention) deletes older messages (docs/whatsapp.md#retention).
+    message_retention_days: int = Field(default=0, ge=0, le=3650)
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_WHATSAPP_", env_file=".env", extra="ignore", hide_input_in_errors=True
@@ -261,6 +265,11 @@ class AccountView(BaseModel):
     owner_test_number: str | None = None
     auto_send_templates: list[str] = Field(default_factory=list)
     triage_enabled: bool = True
+    # The workspace's choice (None: the deployment default), what applies, and that default.
+    # 0 keeps messages until they are deleted.
+    message_retention_days: int | None = None
+    effective_message_retention_days: int = 0
+    default_message_retention_days: int = 0
     status: AccountStatus | None = None
     last_error: str | None = None
     last_checked_at: datetime | None = None
@@ -278,6 +287,8 @@ class AccountUpdate(BaseModel):
     owner_test_number: str | None = Field(default=None, max_length=20)
     auto_send_templates: list[str] = Field(default_factory=list, max_length=MAX_AUTO_SEND)
     triage_enabled: bool = True
+    # Omitted: keep the saved choice. null: follow the deployment default. 0: keep forever.
+    message_retention_days: int | None = Field(default=None, ge=0, le=3650)
 
     @field_validator("phone_number_id", "business_account_id")
     @classmethod
@@ -384,8 +395,12 @@ class SendResponse(BaseModel):
 def _account_view(account: WhatsAppAccount | None, context: TenantContext) -> AccountView:
     can_manage = has_permission(context, Permission.WHATSAPP_MANAGE)
     problems = setup_problems()
+    default_days = whatsapp_settings.message_retention_days
     if account is None:
-        return AccountView(configured=False, can_manage=can_manage, deployment_problems=problems)
+        return AccountView(
+            configured=False, can_manage=can_manage, deployment_problems=problems,
+            effective_message_retention_days=default_days, default_message_retention_days=default_days,
+        )
     return AccountView(
         configured=True,
         can_manage=can_manage,
@@ -401,6 +416,11 @@ def _account_view(account: WhatsAppAccount | None, context: TenantContext) -> Ac
         owner_test_number=account.owner_test_number,
         auto_send_templates=account.auto_send_templates,
         triage_enabled=account.triage_enabled,
+        message_retention_days=account.message_retention_days,
+        effective_message_retention_days=(
+            default_days if account.message_retention_days is None else account.message_retention_days
+        ),
+        default_message_retention_days=default_days,
         status=account.status,
         last_error=account.last_error,
         last_checked_at=account.last_checked_at,
@@ -1222,6 +1242,11 @@ async def put_account(
                 owner_test_number=payload.owner_test_number,
                 auto_send_templates=payload.auto_send_templates,
                 triage_enabled=payload.triage_enabled,
+                message_retention_days=(
+                    payload.message_retention_days
+                    if "message_retention_days" in payload.model_fields_set
+                    else existing.message_retention_days if existing else None
+                ),
                 status=AccountStatus.UNVERIFIED if changed else existing.status,  # type: ignore[union-attr]
                 last_error=None if changed else existing.last_error if existing else None,
                 last_checked_at=None if changed else existing.last_checked_at if existing else None,
@@ -1245,6 +1270,7 @@ async def put_account(
             "secrets_changed": sorted(key for key, value in secrets.items() if value),
             "auto_send_templates": len(payload.auto_send_templates),
             "triage_enabled": payload.triage_enabled,
+            "message_retention_days": account.message_retention_days,
         },
     )
     if changed and not setup_problems():

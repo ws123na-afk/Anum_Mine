@@ -103,6 +103,9 @@ class WhatsAppAccount(BaseModel):
     owner_test_number: str | None = None
     auto_send_templates: list[str] = Field(default_factory=list)
     triage_enabled: bool = True
+    # History retention in days (docs/whatsapp.md#retention): None follows the deployment
+    # default (ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS), 0 keeps messages until deleted.
+    message_retention_days: int | None = None
     status: AccountStatus = AccountStatus.UNVERIFIED
     last_error: str | None = None
     last_checked_at: datetime | None = None

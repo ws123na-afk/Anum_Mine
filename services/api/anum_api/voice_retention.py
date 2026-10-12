@@ -15,8 +15,9 @@ user's RLS context (``anum_api.maintenance``). The output is counts only, never 
 The same run then purges the retrieval index rows of expired or deleted memories and of
 deleted files (``anum_api.retrieval_retention``), reported under ``retrieval_index``, and
 deletes assistant conversations idle for longer than ``ANUM_CONVERSATION_RETENTION_DAYS``
-(``anum_api.conversation_retention``), reported under ``conversations``, so the daily
-retention CronJob covers all three.
+(``anum_api.conversation_retention``), reported under ``conversations``, and deletes
+WhatsApp messages older than each workspace's retention (``anum_api.whatsapp_retention``),
+reported under ``whatsapp``, so the daily retention CronJob covers all four.
 """
 
 from __future__ import annotations
@@ -54,7 +55,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="python -m anum_api.voice_retention",
         description=(
             "Delete voice transcripts past their 30-day retention, retrieval index rows "
-            "of expired or deleted memories and files, and idle assistant conversations."
+            "of expired or deleted memories and files, idle assistant conversations and WhatsApp "
+            "messages past their workspace's retention."
         ),
     )
     parser.add_argument("--dry-run", action="store_true", help="count what would be deleted")
@@ -70,10 +72,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     from .conversation_retention import purge as purge_conversations
     from .retrieval_retention import purge as purge_retrieval_index
+    from .whatsapp_retention import purge as purge_whatsapp
 
     report = purge(dry_run=args.dry_run, batch_size=args.batch_size)
     report["retrieval_index"] = purge_retrieval_index(dry_run=args.dry_run, batch_size=args.batch_size)
     report["conversations"] = purge_conversations(dry_run=args.dry_run, batch_size=args.batch_size)
+    report["whatsapp"] = purge_whatsapp(dry_run=args.dry_run, batch_size=args.batch_size)
     print(json.dumps(report, indent=2))
     return 0
 

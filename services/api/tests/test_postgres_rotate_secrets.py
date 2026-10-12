@@ -290,3 +290,198 @@ def test_maintenance_role_sees_only_project_ids_with_a_token(projects_with_old_k
                 with connection.begin():
                     connection.execute(text("set local role anum_maintenance"))
                     connection.execute(text(statement))
+
+
+# -- WhatsApp credentials (0033_whatsapp) and mailbox tokens (0035_email_inbox, 0050) -------
+
+WHATSAPP_SECRETS = {
+    (TENANT_A, WORKSPACE_A, "1000000001"): ("example-wa-token-a", "example-wa-secret-a"),
+    (TENANT_B, WORKSPACE_B, "1000000002"): ("example-wa-token-b", "example-wa-secret-b"),
+}
+# (tenant, workspace, mailbox id): (status, access token, refresh token)
+MAILBOX_TOKENS = {
+    (TENANT_A, WORKSPACE_A, "mbox_a1"): ("connected", "example-access-a1", "example-refresh-a1"),
+    (TENANT_A, WORKSPACE_A2, "mbox_a2"): ("reauth_required", None, "example-refresh-a2"),
+    (TENANT_B, WORKSPACE_B, "mbox_b1"): ("error", "example-access-b1", "example-refresh-b1"),
+}
+
+
+@pytest.fixture
+def module_secrets_with_old_key(seed_scopes: None, app_session: Callable[..., Iterator[Session]]) -> None:
+    from anum_api.db.email_repository import SqlAlchemyEmailStore
+    from anum_api.db.whatsapp_repository import SqlAlchemyWhatsAppStore
+    from anum_api.email_inbox import EmailAccount
+    from anum_api.whatsapp_store import WhatsAppAccount
+
+    old = SecretCipher([OLD_KEY])
+    for (tenant_id, workspace_id, phone_id), (token, secret) in WHATSAPP_SECRETS.items():
+        context = tenant_context(tenant_id, workspace_id)
+        with app_session(context, commit=True) as session:
+            SqlAlchemyWhatsAppStore(session, context, old).save_account(
+                WhatsAppAccount(
+                    tenant_id=tenant_id, workspace_id=workspace_id, phone_number_id=phone_id,
+                    business_account_id="2000000001", verify_token_hash="a" * 64,
+                    created_at=FIXED_NOW, updated_at=FIXED_NOW, updated_by="owner",
+                ),
+                access_token=token, app_secret=secret,
+            )
+    for (tenant_id, workspace_id, mailbox_id), (status, access, refresh) in MAILBOX_TOKENS.items():
+        context = tenant_context(tenant_id, workspace_id)
+        with app_session(context, commit=True) as session:
+            store = SqlAlchemyEmailStore(session, context)
+            store.add_account(
+                EmailAccount(
+                    id=mailbox_id, tenant_id=tenant_id, workspace_id=workspace_id, provider="gmail",
+                    address=f"{mailbox_id}@example.com", connected_by="owner", status=status,
+                    access_token_enc=old.encrypt(access) if access else None,
+                    refresh_token_enc=old.encrypt(refresh) if refresh else None,
+                    created_at=FIXED_NOW, updated_at=FIXED_NOW,
+                )
+            )
+            if mailbox_id == "mbox_a2":
+                # Needs reconnecting and holds no token: neither discovery policy admits it.
+                store.add_account(
+                    EmailAccount(
+                        id="mbox_a2_empty", tenant_id=tenant_id, workspace_id=workspace_id, provider="zoho",
+                        address="empty@example.com", connected_by="owner", status="reauth_required",
+                        created_at=FIXED_NOW, updated_at=FIXED_NOW,
+                    )
+                )
+
+
+def _module_ciphertexts(database_engine: Engine) -> dict[str, list[str | None]]:
+    with database_engine.connect() as connection:
+        whatsapp_rows = connection.execute(
+            text(
+                "select phone_number_id, access_token_ciphertext, app_secret_ciphertext, updated_at "
+                "from whatsapp_accounts order by 1"
+            )
+        ).all()
+        email_rows = connection.execute(
+            text("select id, access_token_enc, refresh_token_enc, updated_at from email_accounts order by 1")
+        ).all()
+    assert all(row.updated_at == FIXED_NOW for row in [*whatsapp_rows, *email_rows])  # not a settings change
+    return {row[0]: [row[1], row[2]] for row in [*whatsapp_rows, *email_rows]}
+
+
+def test_whatsapp_and_mailbox_secrets_are_re_encrypted_across_tenants_and_audited(
+    module_secrets_with_old_key: None, app_factory: sessionmaker[Session], database_engine: Engine
+) -> None:
+    from anum_api.rotate_secrets import rotate_email_tokens, rotate_whatsapp_secrets
+
+    cipher = SecretCipher([NEW_KEY, OLD_KEY])
+    before = _module_ciphertexts(database_engine)
+
+    dry_whatsapp = rotate_whatsapp_secrets(cipher, session_factory=app_factory, dry_run=True)
+    dry_email = rotate_email_tokens(cipher, session_factory=app_factory, dry_run=True)
+    assert (dry_whatsapp.scanned, dry_whatsapp.rotated) == (2, 2)
+    # The reauth_required mailbox with a token is found (0050); the one without a token is not.
+    assert (dry_email.scanned, dry_email.rotated, dry_email.failed) == (3, 3, 0)
+    assert _module_ciphertexts(database_engine) == before
+
+    whatsapp_report = rotate_whatsapp_secrets(cipher, session_factory=app_factory, batch_size=1)
+    email_report = rotate_email_tokens(cipher, session_factory=app_factory, batch_size=2)
+    assert (whatsapp_report.rotated, whatsapp_report.failed) == (2, 0)
+    assert (email_report.scanned, email_report.rotated, email_report.failed) == (3, 3, 0)
+
+    after = _module_ciphertexts(database_engine)
+    new_only = SecretCipher([NEW_KEY])
+    for (_, _, phone_id), secrets in WHATSAPP_SECRETS.items():
+        assert [new_only.decrypt(value) for value in after[phone_id] if value] == list(secrets)
+    for (_, _, mailbox_id), (_, access, refresh) in MAILBOX_TOKENS.items():
+        assert [new_only.decrypt(value) if value else None for value in after[mailbox_id]] == [access, refresh]
+    assert after["mbox_a2_empty"] == [None, None]
+
+    with database_engine.connect() as connection:
+        audited = sorted(
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "select tenant_id, target, metadata->>'store', outcome from audit_records "
+                    "where action = 'secrets.rotated'"
+                )
+            )
+        )
+    assert audited == sorted(
+        [
+            (TENANT_A, f"whatsapp_account:{WORKSPACE_A}", "whatsapp_accounts", "succeeded"),
+            (TENANT_B, f"whatsapp_account:{WORKSPACE_B}", "whatsapp_accounts", "succeeded"),
+            (TENANT_A, "email_account:mbox_a1", "email_accounts", "succeeded"),
+            (TENANT_A, "email_account:mbox_a2", "email_accounts", "succeeded"),
+            (TENANT_B, "email_account:mbox_b1", "email_accounts", "succeeded"),
+        ]
+    )
+    again = rotate_email_tokens(cipher, session_factory=app_factory)
+    assert (again.rotated, again.already_current) == (0, 3)
+    assert rotate_whatsapp_secrets(cipher, session_factory=app_factory).already_current == 2
+
+
+def test_undecryptable_mailbox_token_fails_without_touching_the_row(
+    module_secrets_with_old_key: None,
+    app_factory: sessionmaker[Session],
+    app_session: Callable[..., Iterator[Session]],
+    database_engine: Engine,
+) -> None:
+    from anum_api.rotate_secrets import rotate_email_tokens
+
+    lost = SecretCipher([Fernet.generate_key()]).encrypt("unrecoverable")
+    with app_session(tenant_context(TENANT_B, WORKSPACE_B), commit=True) as session:
+        session.execute(text("update email_accounts set access_token_enc = :lost where id = 'mbox_b1'"), {"lost": lost})
+    before = _module_ciphertexts(database_engine)["mbox_b1"]
+
+    report = rotate_email_tokens(SecretCipher([NEW_KEY, OLD_KEY]), session_factory=app_factory)
+
+    assert (report.rotated, report.failed) == (2, 1)
+    assert report.failures == [{"tenant_id": TENANT_B, "workspace_id": WORKSPACE_B, "row_id": "mbox_b1"}]
+    assert _module_ciphertexts(database_engine)["mbox_b1"] == before
+    assert (TENANT_B, WORKSPACE_B, "secrets.rotated", "failed") in _audit_rows(database_engine)
+
+
+def test_command_line_reports_whatsapp_and_mailboxes_without_secrets(
+    module_secrets_with_old_key: None,
+    app_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+
+    monkeypatch.setattr(db_session, "SessionLocal", app_factory)
+    monkeypatch.setattr(settings, "repository_backend", "postgresql")
+    monkeypatch.setattr(settings, "secrets_key", SecretStr(f"{NEW_KEY.decode()},{OLD_KEY.decode()}"))
+    reset_secret_cipher()
+    try:
+        assert rotate_secrets.main([]) == 0
+        output = capsys.readouterr().out
+        report = json.loads(output)
+        assert report["whatsapp_accounts"]["rotated"] == 2 and report["email_accounts"]["rotated"] == 3
+        assert report["whatsapp_accounts"]["correlation_id"] == report["correlation_id"]
+        secrets = [value for pair in WHATSAPP_SECRETS.values() for value in pair]
+        secrets += [value for _, *tokens in MAILBOX_TOKENS.values() for value in tokens if value]
+        assert all(secret not in output for secret in secrets)
+    finally:
+        reset_secret_cipher()
+
+
+def test_maintenance_role_sees_mailbox_and_number_scope_but_no_tokens(
+    module_secrets_with_old_key: None, database_engine: Engine
+) -> None:
+    with database_engine.connect() as connection:
+        with connection.begin():
+            connection.execute(text("set local role anum_maintenance"))
+            mailboxes = connection.execute(text("select id from email_accounts order by 1")).scalars().all()
+            numbers = connection.execute(text("select workspace_id from whatsapp_accounts order by 1")).scalars().all()
+        assert mailboxes == ["mbox_a1", "mbox_a2", "mbox_b1"]
+        assert numbers == [WORKSPACE_A, WORKSPACE_B]
+        for statement in (
+            "select access_token_enc from email_accounts",
+            "select refresh_token_enc from email_accounts",
+            "select address from email_accounts",
+            "select access_token_ciphertext from whatsapp_accounts",
+            "select app_secret_ciphertext from whatsapp_accounts",
+            "update email_accounts set access_token_enc = null",
+            "update whatsapp_accounts set access_token_ciphertext = ''",
+        ):
+            with pytest.raises(DBAPIError, match="permission denied"):
+                with connection.begin():
+                    connection.execute(text("set local role anum_maintenance"))
+                    connection.execute(text(statement))

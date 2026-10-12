@@ -76,6 +76,8 @@ class WhatsAppAccountRecord(Base):
     owner_test_number: Mapped[str | None] = mapped_column(String(20))
     auto_send_templates: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     triage_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Migration 0050: null follows ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS; 0 keeps the history.
+    message_retention_days: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -152,7 +154,7 @@ WAMID_UNIQUE = "uq_whatsapp_messages_wamid"
 
 _ACCOUNT_FIELDS = (
     "phone_number_id", "business_account_id", "display_phone_number", "verified_name", "quality_rating",
-    "verify_token_hash", "owner_test_number", "triage_enabled", "last_error", "last_checked_at",
+    "verify_token_hash", "owner_test_number", "triage_enabled", "message_retention_days", "last_error", "last_checked_at",
     "last_webhook_at", "created_at", "updated_at", "updated_by",
 )
 _CONVERSATION_FIELDS = (

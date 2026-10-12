@@ -8,8 +8,16 @@ every workspace integration credential (``integration_credentials.ciphertext``),
 developer-mode project token (``developer_projects.token_ciphertext``, migration 0031),
 every tyre planning source credential (``tyre_connections.secret_ciphertext``,
 migration 0037), every Calls & Meetings Zoom/Teams token
-(``meeting_connector_accounts``, migration 0043) and every connected marketing account's
-access and refresh token (``marketing_accounts``, docs/marketing.md) in every tenant. See
+(``meeting_connector_accounts``, migration 0043), every connected marketing account's
+access and refresh token (``marketing_accounts``, docs/marketing.md), every WhatsApp
+access token and app secret (``whatsapp_accounts``, migration 0033), every mailbox's OAuth
+tokens (``email_accounts.access_token_enc`` and ``refresh_token_enc``, migrations 0035 and
+0050) and every commerce channel credential and stored buyer detail
+(``commerce_connectors``, ``commerce_customers``, migrations 0038 and 0050) and every
+automation webhook trigger secret (``automation_triggers``, migrations 0049 and 0050) in
+every tenant.
+Pending email connections (``email_oauth_requests``) and OAuth ``state`` values live for
+minutes and expire instead; phone push tokens are re-encrypted by the phone. See
 docs/runbooks.md#rotating-anum_secrets_key.
 
 How it crosses tenants without bypassing RLS (migration 0009, ``anum_api.maintenance``):
@@ -660,6 +668,220 @@ def rotate_marketing_tokens(
         after = rows[-1].id
 
 
+# -- several ciphertext columns per row: WhatsApp accounts and email mailboxes ---------------
+#
+# WhatsApp (migration 0033): the access token and the app secret of each workspace's number,
+# discovered through the webhook-routing grant (scope columns only). Email (migrations 0035
+# and 0050): each mailbox's OAuth access and refresh tokens, discovered through the column
+# grant on ids and scope; 0050's policy admits every mailbox that holds a token, including
+# those waiting for the owner to reconnect.
+
+
+@dataclass(frozen=True)
+class _MultiColumnStore:
+    store: str
+    target_prefix: str
+    columns: tuple[str, ...]
+    key_columns: tuple[str, ...]
+    discover: Any
+    lock: Any
+    rewrite: Any
+
+
+def _multi_store(table: str, target_prefix: str, columns: tuple[str, ...], key_columns: tuple[str, ...]) -> _MultiColumnStore:
+    # Table and column names come from the constants below, never from input.
+    keys = ", ".join(key_columns)
+    after = ", ".join(f":after_{index}" for index in range(len(key_columns)))
+    where_scope = "tenant_id = :tenant_id and workspace_id = :workspace_id"
+    if "id" in key_columns:
+        where_scope += " and id = :row_id"
+    old_match = " and ".join(
+        f"{column} is not distinct from cast(:old_{index} as text)" for index, column in enumerate(columns)
+    )
+    assignments = ", ".join(f"{column} = cast(:new_{index} as text)" for index, column in enumerate(columns))
+    return _MultiColumnStore(
+        store=table,
+        target_prefix=target_prefix,
+        columns=columns,
+        key_columns=key_columns,
+        discover=text(f"select {keys} from {table} where ({keys}) > ({after}) order by {keys} limit :limit"),  # nosec B608
+        lock=text(f"select {', '.join(columns)} from {table} where {where_scope} for update"),  # nosec B608
+        # Text SQL on purpose: updated_at keeps meaning "a person changed this".
+        rewrite=text(f"update {table} set {assignments} where {where_scope} and {old_match}"),  # nosec B608
+    )
+
+
+WHATSAPP_ACCOUNTS = _multi_store(
+    "whatsapp_accounts", "whatsapp_account", ("access_token_ciphertext", "app_secret_ciphertext"), ("tenant_id", "workspace_id")
+)
+EMAIL_ACCOUNTS = _multi_store(
+    "email_accounts", "email_account", ("access_token_enc", "refresh_token_enc"), ("tenant_id", "workspace_id", "id")
+)
+# Commerce (migrations 0038 and 0050): each sales channel's encrypted credentials, and the
+# buyer details kept only when the owner turned them on.
+COMMERCE_CONNECTORS = _multi_store(
+    "commerce_connectors", "commerce_connector", ("credentials_ciphertext",), ("tenant_id", "workspace_id", "id")
+)
+# Automation webhook triggers (migrations 0049 and 0050): each trigger's HMAC secret.
+AUTOMATION_TRIGGERS = _multi_store(
+    "automation_triggers", "automation_trigger", ("secret_ciphertext",), ("tenant_id", "workspace_id", "id")
+)
+COMMERCE_CUSTOMERS = _multi_store(
+    "commerce_customers", "commerce_customer",
+    ("name_ciphertext", "email_ciphertext", "phone_ciphertext", "address_ciphertext"),
+    ("tenant_id", "workspace_id", "id"),
+)
+
+
+def _rotate_multi(
+    session_factory: SessionFactory,
+    cipher: SecretCipher,
+    spec: _MultiColumnStore,
+    scope: dict[str, str],
+    report: RotationReport,
+) -> None:
+    target = f"{spec.target_prefix}:{scope.get('row_id') or scope['workspace_id']}"
+
+    def audit(session, outcome: str, result: str) -> None:  # type: ignore[no-untyped-def]
+        _audit(
+            session, scope["tenant_id"], scope["workspace_id"], report.correlation_id, outcome, result,
+            store=spec.store, target=target,
+        )
+
+    with scoped_unit(session_factory, scope["tenant_id"], scope["workspace_id"]) as session:
+        row = session.execute(spec.lock, scope).one_or_none()
+        if row is None:
+            report.changed_concurrently += 1  # disconnected since discovery
+            return
+        old = list(row)
+        if all(value is None or cipher.is_current(value) for value in old):
+            report.already_current += 1
+            return
+        try:
+            new = [value if value is None or cipher.is_current(value) else cipher.rotate(value) for value in old]
+        except SecretDecryptionError:
+            report.failed += 1
+            report.failures.append(dict(scope))
+            if not report.dry_run:
+                audit(session, "failed", "undecryptable")
+            return
+        if report.dry_run:
+            report.rotated += 1
+            session.rollback()
+            return
+        params: dict[str, Any] = {**scope}
+        params.update({f"old_{index}": value for index, value in enumerate(old)})
+        params.update({f"new_{index}": value for index, value in enumerate(new)})
+        if session.execute(spec.rewrite, params).rowcount != 1:
+            report.changed_concurrently += 1
+            return
+        audit(session, "succeeded", "re-encrypted")
+        report.rotated += 1
+
+
+def _rotate_store(
+    spec: _MultiColumnStore,
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory,
+    maintenance_session_factory: SessionFactory | None,
+    dry_run: bool,
+    batch_size: int,
+    correlation_id: str | None,
+) -> RotationReport:
+    report = RotationReport(dry_run=dry_run, correlation_id=correlation_id or new_id("rotate_secrets"))
+    after: tuple[str, ...] = ("",) * len(spec.key_columns)
+    while True:
+        params: dict[str, Any] = {f"after_{index}": value for index, value in enumerate(after)}
+        rows = discover(maintenance_session_factory or session_factory, spec.discover, {**params, "limit": batch_size})
+        for row in rows:
+            report.scanned += 1
+            scope = {"tenant_id": row.tenant_id, "workspace_id": row.workspace_id}
+            if "id" in spec.key_columns:
+                scope["row_id"] = row.id
+            _rotate_multi(session_factory, cipher, spec, scope, report)
+        if len(rows) < batch_size:
+            return report
+        after = tuple(getattr(rows[-1], column) for column in spec.key_columns)
+
+
+def rotate_whatsapp_secrets(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every workspace's WhatsApp access token and app secret."""
+    return _rotate_store(
+        WHATSAPP_ACCOUNTS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
+def rotate_email_tokens(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every connected mailbox's OAuth access and refresh tokens."""
+    return _rotate_store(
+        EMAIL_ACCOUNTS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
+def rotate_commerce_secrets(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every sales channel's credentials and every stored buyer detail."""
+    report = _rotate_store(
+        COMMERCE_CONNECTORS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+    customers = _rotate_store(
+        COMMERCE_CUSTOMERS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=report.correlation_id,
+    )
+    for name in ("scanned", "rotated", "already_current", "changed_concurrently", "failed"):
+        setattr(report, name, getattr(report, name) + getattr(customers, name))
+    report.failures.extend(customers.failures)
+    return report
+
+
+def rotate_automation_trigger_secrets(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every automation webhook trigger's HMAC secret."""
+    return _rotate_store(
+        AUTOMATION_TRIGGERS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
 def _configuration_problem() -> str | None:
     if settings.repository_backend != "postgresql":
         return "rotate_secrets needs ANUM_REPOSITORY_BACKEND=postgresql (the memory backend stores nothing at rest)"
@@ -672,7 +894,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m anum_api.rotate_secrets",
         description=(
-            "Re-encrypt stored provider keys, integration credentials, developer project tokens and tyre source credentials "
+            "Re-encrypt stored provider keys, integration credentials, developer project tokens, tyre source credentials, "
+            "meeting connector and marketing tokens, WhatsApp credentials, mailbox tokens, commerce secrets "
+            "and automation webhook secrets "
             "with the first key in ANUM_SECRETS_KEY."
         ),
     )
@@ -690,19 +914,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = rotate_model_config_keys(cipher, dry_run=args.dry_run, batch_size=args.batch_size)
     rotate_integration_credentials(cipher, dry_run=args.dry_run, batch_size=args.batch_size, report=report)
     rotate_tyre_credentials(cipher, dry_run=args.dry_run, batch_size=args.batch_size, report=report)
-    projects = rotate_developer_project_tokens(
-        cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id
-    )
-    connectors = rotate_meeting_connector_tokens(
-        cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id
-    )
-    # Provider keys, integration and tyre credentials at the top level (as before); project
-    # and meeting connector tokens nested.
-    marketing = rotate_marketing_tokens(
-        cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id
-    )
-    print(json.dumps({**asdict(report), "developer_projects": asdict(projects), "meeting_connectors": asdict(connectors), "marketing_accounts": asdict(marketing)}, indent=2))
-    return 1 if report.failed or projects.failed or connectors.failed or marketing.failed else 0
+    nested = {
+        name: rotate(cipher, dry_run=args.dry_run, batch_size=args.batch_size, correlation_id=report.correlation_id)
+        for name, rotate in (
+            ("developer_projects", rotate_developer_project_tokens),
+            ("meeting_connectors", rotate_meeting_connector_tokens),
+            ("marketing_accounts", rotate_marketing_tokens),
+            ("whatsapp_accounts", rotate_whatsapp_secrets),
+            ("email_accounts", rotate_email_tokens),
+            ("commerce", rotate_commerce_secrets),
+            ("automation_triggers", rotate_automation_trigger_secrets),
+        )
+    }
+    # Provider keys, integration and tyre credentials at the top level (as before); the rest nested.
+    print(json.dumps({**asdict(report), **{name: asdict(item) for name, item in nested.items()}}, indent=2))
+    return 1 if report.failed or any(item.failed for item in nested.values()) else 0
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through main()

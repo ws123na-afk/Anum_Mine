@@ -775,3 +775,22 @@ def test_graph_helpers() -> None:
     assert not is_media_url_allowed("https://evil.example/x")
     assert not is_media_url_allowed("https://lookaside.fbsbx.com:8443/x")
     assert WhatsAppGraphError(400, "x", 131047).outside_window
+
+
+def test_history_retention_is_a_workspace_choice_with_a_deployment_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(whatsapp_settings, "message_retention_days", 365)
+    view = client.get(f"{BASE}/account", headers=OWNER).json()
+    assert (view["effective_message_retention_days"], view["default_message_retention_days"]) == (365, 365)
+
+    saved = connect(message_retention_days=30).json()
+    assert (saved["message_retention_days"], saved["effective_message_retention_days"]) == (30, 30)
+    # Omitted on a later save: the choice is kept.
+    assert connect().json()["message_retention_days"] == 30
+    # null: follow the deployment default again; 0: keep until deleted.
+    cleared = connect(message_retention_days=None).json()
+    assert (cleared["message_retention_days"], cleared["effective_message_retention_days"]) == (None, 365)
+    assert connect(message_retention_days=0).json()["effective_message_retention_days"] == 0
+    assert connect(message_retention_days=3651).status_code == 422
+    assert connect(message_retention_days=-1).status_code == 422
+    audit = [record for record in store.audit_records if record.action == "whatsapp.account.saved"][-1]
+    assert audit.metadata["message_retention_days"] == 0
