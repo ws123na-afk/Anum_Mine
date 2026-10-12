@@ -40,7 +40,7 @@ Numbers and names in the mockups (costs, vehicles, people) are illustrations onl
 
 ## Web Command Center
 
-The web app (`apps/web`) follows `web-command-center.jpg`. The Command Center is the home (`#home`, also the landing page; `#command` opens the same page with the composer focused). Code: `src/CommandCenter.tsx` and `src/commandCenter.css` for the page, `src/Shell.tsx` for the shell, `src/lib/commandCenter.ts` and `src/lib/shell.ts` for the pure logic (unit tested in `test/commandCenter.test.ts`), and `src/lib/commandApi.ts` for every API call the page makes.
+The web app (`apps/web`) follows `web-command-center.jpg`, split into two pages with two jobs (the owner asked for Home and the command page to be separate). **Home** (`#home`, also the landing page) is the overview of the day: greeting, today at a glance with approvals to approve or deny, tasks, unread email and WhatsApp, today's meetings, automation alerts and budget use, Today's focus, what ANUM noticed, recent activity, pins and quick links ([home.md](../home.md#the-web-home); `src/HomeView.tsx`, `src/home.css`, `src/lib/home.ts`, `src/lib/homeApi.ts`). **ANUM Command** (`#command`) is where orders are given: the composer, the plan, running and recent commands with their results, and saved commands ([command.md](../command.md#the-web-command-center); `src/CommandCenter.tsx`, `src/commandCenter.css`, `src/lib/commands.ts`, `src/lib/commandApi.ts`). The mockup's orb is the Voice page's space orb; ANUM Command links to it. Shared panel states are `src/Panels.tsx`; the shell is `src/Shell.tsx` and `src/lib/shell.ts`.
 
 ### Theme
 
@@ -70,23 +70,8 @@ Tests: `test/theme.test.ts` (the choice rules, the pre-paint script agreeing wit
 - **Top bar.** Global search opens the command palette on Cmd+K or Ctrl+K (or "/" outside a text field). It searches views, tasks (`GET /tasks?q=`), documents (`GET /files?query=`) and emails (`GET /email/messages?q=`). A section that cannot be searched says so. Enter opens the result: an email opens in the Inbox with that message selected. The top bar also holds the workspace switcher, refresh, the **notifications bell** (pending approvals, automation alerts and "ANUM acted" notices, with a count) and the **user menu** (the name from the sign-in token, else the user id, plus the role; links to Settings, Notifications, Language, Appearance and Privacy; Sign out with OIDC).
 - **Not built.** Calendar and Reports are left out of the sidebar because no API backs them yet. The upgrade card is omitted because no plan or billing API exists, so the user menu shows the workspace role where the mockup shows the plan.
 
-### Command Center page
+### Home and ANUM Command pages
 
-| Mockup part | What it does here | Backed by |
-|---|---|---|
-| Mode tabs | Voice, Text and Files. Vision is not offered: the API stores images, but no model reads them yet | none |
-| Orb, "Listening... Speak now, name" | Push to talk through the browser's speech recognition (`createPushToTalk`). The transcript fills the composer, and the person checks it and presses Send. Browsers without recognition are told to type instead | Web Speech; the voice API on send |
-| Floating chips | Open the real view (Inbox, Tasks, WhatsApp, Automations), prefill a request the agent can carry out (report, web research, analyse documents), or open the palette | none |
-| Language pills | The speaking language: English or العربية. Urdu is not offered because the web catalogs have no Urdu yet | none |
-| Composer | Text, mic, attach a document (uploaded to Documents and named in the request), pick from Documents, example line, quick commands (the person's own recent requests first, then examples; refresh moves through the examples) | `POST /files`, task create-and-run |
-| Capability tiles | Email, Data analysis, Reports, Voice assistant, WhatsApp, Tasks, Web research, Automations. Meetings and Phone calls are not offered: there is no calendar or telephony module | none |
-| ANUM is working... | Five steps (understanding, planning, agents working, reviewing, presenting) worked out from the run's steps and status, with timings from the step timestamps. Shows Stop (cancel), Review the approval while a step waits, the answer when the run completes, Try again when it fails | `GET /tasks/{id}/latest-run`, the event stream |
-| Live agent activity | Tasks in flight with their latest step and progress | Tasks, latest runs, SSE |
-| Current tasks, Recent commands | Open tasks with their count, and the newest commands with "use again" | `GET /tasks` |
-| Results preview | The newest documents | `GET /files` |
-| Suggestions for you | Pending approvals, failed tasks (retry), unread mail, connect a mailbox, tasks not started, add documents, first command. Built only from the workspace's data | Approvals, tasks, email accounts, file usage |
-| Bottom bar | Talk, Chat, Automate, Agents. Video is not offered (no video API) | none |
+What each page shows, part by part, and the API behind it, is in [home.md](../home.md#the-web-home) and [command.md](../command.md#the-web-command-center). From the mockup: the floating chips, capability tiles and bottom bar became Home's quick links; the composer, quick commands and "ANUM is working" became ANUM Command's composer, plan and live command view; Current tasks and Suggestions became Home's glance cards, Today's focus and "ANUM noticed"; Results preview became each command's results and documents.
 
-A typed command creates a task and runs it (`POST /api/v1/tasks`, then `POST /tasks/{id}/run`). A spoken command goes through the voice API first: a session with `session` retention, the transcript segment, then `POST /voice/sessions/{id}/commands` creates the task, which is then run. Every call is in `src/lib/commandApi.ts`. When the command plan-preview API (`docs/command.md`, being built separately) lands, `submitCommand` there becomes "preview the plan, then confirm". The page does not change.
-
-Tests: `e2e/command-center.spec.ts` covers the panels with workspace data, a typed command end to end, shortcuts and tiles, the palette, notifications and the user menu, the sidebar workspaces and Add workspace, and axe plus no horizontal overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 in English and Arabic, on the desktop and mobile projects. `#home` is also in `e2e/accessibility.spec.ts`.
+Tests: `e2e/home.spec.ts` and `e2e/command-center.spec.ts` cover both pages with workspace data and axe plus no horizontal overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 in English and Arabic, dark and light, on the desktop and mobile projects. `#home` is also in `e2e/accessibility.spec.ts`.

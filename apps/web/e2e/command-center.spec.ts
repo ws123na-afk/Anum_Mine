@@ -2,13 +2,15 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
-// The ANUM Command Center, the web home (docs/design/anum360.md#web-command-center): the shell
-// (sidebar with workspaces, global search, notifications, user menu) and the command flow against
-// the mocked workspace API (e2e/support/workspaceApi.ts).
+// ANUM Command (docs/command.md#the-web-command-center): the place to give orders. A request is
+// planned (POST /commands/preview), edited, started (POST /commands, then each step's run) and
+// followed; saved commands are kept; the space orb is reached through the Voice page. Mocks:
+// e2e/support/homeApi.ts. Home's overview is e2e/home.spec.ts.
 
 const VIEWPORTS = [
   { width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 },
 ];
+const API = 'http://localhost:8000';
 const noHorizontalOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
 
 async function serious(page: Page) {
@@ -16,110 +18,106 @@ async function serious(page: Page) {
   return results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes.slice(0, 5).map((n) => n.target.join(' ')).join(' | ')}`);
 }
 
-async function openHome(page: Page) {
-  await mockWorkspaceApi(page);
-  await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: 'ANUM Command Center' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Current tasks' })).toBeVisible();
+async function openCommand(page: Page) {
+  const state = await mockWorkspaceApi(page);
+  await page.goto('/#command');
+  await expect(page.getByRole('heading', { level: 1, name: 'ANUM Command' })).toBeVisible();
+  return state;
 }
 
-test('the home is the Command Center with real workspace data in every panel', async ({ page }) => {
-  await openHome(page);
-  await expect(page.getByRole('main', { name: 'ANUM Command Center' })).toBeVisible();
-  // Current tasks: the open task from the API; Recent commands: both tasks.
-  const current = page.getByRole('region', { name: /Current tasks/ });
-  await expect(current.getByRole('button', { name: /Review the release/ })).toBeVisible();
-  const recent = page.getByRole('region', { name: 'Recent commands' });
-  await expect(recent.getByRole('button', { name: /Summarize the customer feedback/ })).toBeVisible();
-  // Results preview lists the workspace's documents.
-  await expect(page.getByRole('region', { name: 'Results preview' }).getByRole('button', { name: /release-notes\.md/ })).toBeVisible();
-  // Suggestions come from the pending approval and the unread mail.
-  const suggestions = page.getByRole('region', { name: 'Suggestions for you' });
-  await expect(suggestions.getByRole('button', { name: /1 approval is waiting for you/ })).toBeVisible();
-  await expect(suggestions.getByRole('button', { name: /1 unread email/ })).toBeVisible();
-  // The tracker follows the newest task (waiting for approval).
-  await expect(page.getByRole('region', { name: 'Waiting for your approval' }).getByText('Waiting for your approval of a risky step')).toBeVisible();
-  await suggestions.getByRole('button', { name: /1 approval is waiting/ }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Approvals' })).toBeVisible();
-});
-
-test('a typed command creates and runs a task, then the tracker shows every step done', async ({ page }) => {
-  await openHome(page);
-  const done = { id: 'task_cmd', title: 'Compare tyre prices', prompt: 'Compare tyre prices', status: 'completed', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  let created: unknown = null;
-  await page.route('http://localhost:8000/api/v1/tasks', async (route) => {
-    if (route.request().method() !== 'POST') return route.fallback();
-    created = route.request().postDataJSON();
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...done, status: 'created' }) });
-  });
-  await page.route('http://localhost:8000/api/v1/tasks/task_cmd/run', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({
-    task: done, approval: null,
-    run: { id: 'run_cmd', task_id: 'task_cmd', status: 'completed', result: 'Supplier A is cheapest.', steps: [{ id: 's1', type: 'model_call', summary: 'Planned.', created_at: done.created_at }, { id: 's2', type: 'final', summary: 'Answered.', created_at: done.created_at }] },
-  }) }));
-  await page.getByLabel('Your command').fill('Compare tyre prices');
-  await page.getByRole('button', { name: 'Send the command' }).click();
-  const tracker = page.getByRole('region', { name: 'Last command' });
-  await expect(tracker.getByText('Supplier A is cheapest.')).toBeVisible();
-  await expect(tracker.getByText('Done')).toHaveCount(5);
-  expect(created).toEqual({ title: 'Compare tyre prices', prompt: 'Compare tyre prices' });
-});
-
-test('a shortcut prefills the composer and a tile opens its view', async ({ page }) => {
-  await openHome(page);
-  await page.getByRole('button', { name: 'Prepare a report' }).click();
-  await expect(page.getByLabel('Your command')).toHaveValue('Prepare a report on ');
+test('ANUM Command is its own page: composer, history and saved commands, no overview of the day', async ({ page }) => {
+  await openCommand(page);
   await expect(page.getByLabel('Your command')).toBeFocused();
-  await page.getByRole('region', { name: 'What ANUM can do' }).getByRole('button', { name: 'Tasks' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Tasks' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Today at a glance' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Running and recent commands' }).getByRole('button', { name: /Check my emails and summarize the urgent ones/ })).toBeVisible();
+  const saved = page.getByRole('region', { name: 'Saved commands' });
+  await expect(saved.getByText('Morning briefing', { exact: true })).toBeVisible();
+  await saved.getByRole('button', { name: 'Personal' }).click();
+  await expect(saved.getByText('Morning briefing', { exact: true })).toHaveCount(0);
+  await expect(saved.getByText('Plan my week', { exact: true })).toBeVisible();
+  // The orb is the Voice page's: a link, not a copy.
+  await page.getByRole('button', { name: 'Speak to the orb' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Voice' })).toBeVisible();
 });
 
-test('Ctrl+K searches views, tasks, documents and emails', async ({ page }) => {
-  await openHome(page);
-  await page.keyboard.press('Control+k');
-  const palette = page.getByRole('dialog', { name: 'Search ANUM' });
-  await expect(palette).toBeVisible();
-  await palette.getByRole('combobox').fill('release');
-  await expect(palette.getByRole('option', { name: /release-notes\.md/ })).toBeVisible();
-  await expect(palette.getByRole('option', { name: /Review the release/ })).toBeVisible();
-  await palette.getByRole('combobox').fill('knowl');
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { level: 1, name: 'Knowledge Base' })).toBeVisible();
+test('a typed command shows the plan, is edited, then starts every step and shows the results', async ({ page }) => {
+  const state = await openCommand(page);
+  await page.getByLabel('Your command').fill('Check my emails, find today\'s urgent items and schedule a meeting with the team tomorrow at 10 AM');
+  await page.getByRole('button', { name: 'Show the plan' }).click();
+  const plan = page.getByRole('region', { name: 'Here is what ANUM will do' });
+  await expect(plan.getByText('2 steps · 1 will ask for your approval')).toBeVisible();
+  await expect(plan.getByText('No calendar is connected yet', { exact: false })).toBeVisible();
+  // Reorder: the meeting first.
+  await plan.getByRole('button', { name: 'Move step 2 up' }).click();
+  await expect(plan.getByRole('listitem').first()).toContainText('Schedule a meeting');
+  await plan.getByRole('button', { name: 'Start' }).click();
+
+  const detail = page.getByRole('region', { name: /ANUM is working|Command/ }).filter({ hasText: 'steps done' });
+  await expect(detail.getByText('Three urgent emails today.')).toBeVisible();
+  await expect(detail.getByText('Meeting drafted for tomorrow at 10:00.')).toBeVisible();
+  await expect(detail.getByText('2 of 2 steps done')).toBeVisible();
+  expect(state.created).toEqual([{
+    text: 'Check my emails, find today\'s urgent items and schedule a meeting with the team tomorrow at 10 AM',
+    steps: [{ instruction: 'Schedule a meeting with the team tomorrow at 10 AM' }, { instruction: 'Check my emails, find today\'s urgent items' }],
+    source: 'typed', locale: 'en', attachments: [],
+  }]);
+  expect(state.runs.sort()).toEqual(['task_cmd_1', 'task_cmd_2']);
+  // Next steps come from the API; a follow-up is planned, never run straight away.
+  await detail.getByRole('button', { name: 'Draft replies to the urgent emails' }).click();
+  await expect(page.getByLabel('Your command')).toHaveValue('Draft replies to the urgent emails');
+  await expect(page.getByRole('region', { name: 'Here is what ANUM will do' })).toBeVisible();
 });
 
-test('notifications list the pending approval; the user menu opens Settings sections', async ({ page }) => {
-  await openHome(page);
-  // One pending approval plus the team mock's one unread team notification.
-  await page.getByRole('button', { name: 'Notifications, 2 waiting' }).click();
-  await page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /external\.action/ }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Approvals' })).toBeVisible();
-  await page.getByRole('button', { name: /Account menu/ }).click();
-  await page.getByRole('dialog', { name: 'Your account' }).getByRole('button', { name: 'Language' }).click();
-  await expect(page.locator('.languageChoices')).toBeVisible();
+test('a saved command is planned with one click and a new one can be saved', async ({ page }) => {
+  const state = await openCommand(page);
+  const saved = page.getByRole('region', { name: 'Saved commands' });
+  await saved.getByRole('button', { name: 'Plan it' }).first().click();
+  await expect(page.getByLabel('Your command')).toHaveValue("Summarize my unread email and today's tasks");
+  await expect(page.getByRole('region', { name: 'Here is what ANUM will do' })).toBeVisible();
+  await saved.getByRole('button', { name: 'New saved command' }).click();
+  await saved.getByLabel('Name').fill('Supplier check');
+  await saved.getByLabel('What ANUM should do').fill('Compare tyre prices from our three suppliers');
+  await saved.getByRole('button', { name: 'Save' }).click();
+  await expect(saved.getByText('Supplier check', { exact: true })).toBeVisible();
+  expect(state.quick.at(-1)).toMatchObject({ title: 'Supplier check', text: 'Compare tyre prices from our three suppliers', category: 'custom' });
 });
 
-test('the sidebar lists the workspaces from the API and offers Add workspace', async ({ page, isMobile }) => {
-  test.skip(isMobile, 'on phones the workspace list lives in the top-bar switcher');
-  await openHome(page);
-  const nav = page.getByRole('navigation', { name: 'Primary' });
-  await expect(nav.getByRole('list', { name: 'Workspaces' }).getByRole('button', { name: /Foundation|workspace_foundation/ })).toHaveAttribute('aria-current', 'true');
-  await nav.getByRole('button', { name: 'Add workspace' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add a workspace' });
-  await expect(dialog.getByLabel('Name')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
+test('a viewer is told who can give commands; a failing history says what failed with Retry', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await page.route(`${API}/api/v1/workspace-memberships/current`, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'viewer', active: true }) }));
+  await page.route(`${API}/api/v1/commands?*`, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'Database is restarting', correlation_id: 'c2' } }) }));
+  await page.goto('/#command');
+  await expect(page.getByText('Viewers cannot give commands')).toBeVisible();
+  await expect(page.getByLabel('Your command')).toHaveCount(0);
+  const history = page.getByRole('region', { name: 'Running and recent commands' });
+  await expect(history.getByRole('alert')).toContainText('Database is restarting');
+  await expect(history.getByRole('button', { name: 'Retry' })).toBeVisible();
+});
+
+test('a past command opens with its results, next steps and a report download', async ({ page }) => {
+  await openCommand(page);
+  await page.getByRole('region', { name: 'Running and recent commands' }).getByRole('button', { name: /Check my emails and summarize/ }).click();
+  const detail = page.getByRole('region', { name: 'Command' });
+  await expect(detail.getByText('Three urgent emails: the overdue invoice', { exact: false })).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Remove from history' })).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Save as a quick command' })).toBeVisible();
 });
 
 for (const locale of ['en', 'ar'] as const) {
-  test(`${locale}: no serious axe violations, no horizontal overflow at the five viewports`, async ({ page }) => {
-    await useSavedLocale(page, locale);
-    await mockWorkspaceApi(page);
-    for (const size of VIEWPORTS) {
-      await page.setViewportSize(size);
-      await page.goto('/#home');
-      await expect(page.locator('html')).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
-      await expect(page.locator('.commandPanel .listRow').first()).toBeVisible();
-      expect(await noHorizontalOverflow(page), `${size.width}x${size.height}`).toBe(true);
-    }
-    expect(await serious(page)).toEqual([]);
-  });
+  for (const theme of ['dark', 'light'] as const) {
+    test(`${locale} ${theme}: no serious axe violations, no horizontal overflow at the five viewports`, async ({ page }) => {
+      await useSavedLocale(page, locale);
+      if (theme === 'light') await page.addInitScript(() => { try { window.localStorage.setItem('anum.theme', 'light'); } catch { /* ignore */ } });
+      await mockWorkspaceApi(page);
+      for (const size of VIEWPORTS) {
+        await page.setViewportSize(size);
+        await page.goto('/#command');
+        await expect(page.locator('html')).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
+        await expect(page.locator('.commandPanel .listRow').first()).toBeVisible();
+        await expect(page.locator('.quickCard').first()).toBeVisible();
+        expect(await noHorizontalOverflow(page), `${size.width}x${size.height}`).toBe(true);
+      }
+      expect(await serious(page)).toEqual([]);
+    });
+  }
 }
