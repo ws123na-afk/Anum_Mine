@@ -12,7 +12,9 @@ void main() {
         .join('\n');
     for (final route in <String>[
       '/splash',
+      '/onboarding',
       '/sign-in',
+      '/create-account',
       '/workspace-setup',
       '/model-setup',
       '/assistant',
@@ -24,6 +26,7 @@ void main() {
       '/automations',
       '/files',
       '/developer',
+      '/profile',
     ]) {
       expect(source, contains(route), reason: 'Missing required route $route');
     }
@@ -95,5 +98,49 @@ void main() {
     expect(workspace, contains('RestorableInt'));
     expect(workspace, contains('NavigationRail'));
     expect(workspace, contains('constraints.maxWidth >= 840'));
+  });
+
+  test('ANUM 360 shell: bottom bar with the orb, Menu drawer, header', () {
+    final workspace =
+        File('lib/features/workspace/workspace_home.dart').readAsStringSync();
+    expect(workspace, contains('AnumBottomNav('),
+        reason: 'phones use the bottom bar with the centre orb');
+    expect(workspace, contains("orbLabel: l.t('shellCommand')"),
+        reason: 'the orb opens ANUM Command and says so');
+    expect(workspace, contains('AnumMenuDrawer('));
+    expect(workspace, contains('AnumGreetingHeader('));
+    expect(
+        workspace,
+        contains(
+            'notificationCount: widget.controller.pendingApprovals.length'),
+        reason: 'the bell counts what is waiting');
+    for (final entry in [
+      'shellAgents',
+      'shellAutomations',
+      'shellIntegrations',
+      'shellKnowledge',
+      'shellCalls',
+      'settings',
+    ]) {
+      expect(workspace, contains("'$entry'"), reason: 'Menu entry $entry');
+    }
+    final app = File('lib/src/anum_app.dart').readAsStringSync();
+    expect(app, contains('themeMode: theme.mode'),
+        reason: 'Profile > Theme must drive the app');
+    expect(app, contains('AuthFlow(controller: auth, intro: intro)'));
+  });
+
+  test('OIDC sign-in never collects a password in the app', () {
+    final view =
+        File('lib/features/auth/welcome_screens.dart').readAsStringSync();
+    expect(view, isNot(contains('obscureText')));
+    expect(view, contains('OidcIdentityProvider.google'));
+    expect(view, contains('OidcIdentityProvider.apple'));
+    final appauth = File('lib/src/infrastructure/appauth_authenticator.dart')
+        .readAsStringSync();
+    expect(appauth,
+        contains('additionalParameters: options.additionalParameters'));
+    expect(appauth, contains('promptValues: options.promptValues'));
+    expect(appauth, contains('loginHint: options.trimmedLoginHint'));
   });
 }

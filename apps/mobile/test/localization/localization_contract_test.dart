@@ -17,7 +17,19 @@ void main() {
       'resources',
       'developer',
       'settings',
-      'refresh'
+      'refresh',
+      'shellChat',
+      'shellMenu',
+      'shellCommand',
+      'shellAgents',
+      'shellKnowledge',
+      'shellCalls',
+      'loginTitle',
+      'loginGoogle',
+      'signupTitle',
+      'profileTitle',
+      'planFree',
+      'subscriptionBody',
     ]) {
       expect(english.t(key), isNot(key));
       expect(arabic.t(key), isNot(key));

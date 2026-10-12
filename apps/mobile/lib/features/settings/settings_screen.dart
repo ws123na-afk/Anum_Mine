@@ -16,9 +16,16 @@ import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
 
+/// Parts of Settings that Profile and settings opens directly.
+enum SettingsSection { profile, notifications, privacy, security }
+
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({required this.controller, super.key});
+  const SettingsScreen(
+      {required this.controller, this.initialSection, super.key});
   final SettingsController controller;
+
+  /// Scrolled into view once Settings has loaded.
+  final SettingsSection? initialSection;
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -26,6 +33,23 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   // The chat memory card, for the Privacy screen's way back to its switch.
   final _chatMemoryKey = GlobalKey();
+  final _sections = {
+    for (final section in SettingsSection.values) section: GlobalKey()
+  };
+  bool _revealed = false;
+
+  /// Brings [SettingsScreen.initialSection] into view, once.
+  void _reveal() {
+    final section = widget.initialSection;
+    if (_revealed || section == null) return;
+    _revealed = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _sections[section]?.currentContext;
+      if (target != null && target.mounted) {
+        Scrollable.ensureVisible(target, alignment: 0);
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -61,17 +85,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: 'Settings unavailable',
                 message: widget.controller.message,
                 action: widget.controller.load),
-            SettingsPhase.ready || SettingsPhase.saving => AnumBackdrop(
-                child: _Content(
+            SettingsPhase.ready ||
+            SettingsPhase.saving =>
+              AnumBackdrop(child: Builder(builder: (context) {
+                _reveal();
+                return _Content(
                     controller: widget.controller,
-                    chatMemoryKey: _chatMemoryKey)),
+                    chatMemoryKey: _chatMemoryKey,
+                    sections: _sections);
+              })),
           }));
 }
 
 class _Content extends StatelessWidget {
-  const _Content({required this.controller, required this.chatMemoryKey});
+  const _Content(
+      {required this.controller,
+      required this.chatMemoryKey,
+      required this.sections});
   final SettingsController controller;
   final GlobalKey chatMemoryKey;
+  final Map<SettingsSection, GlobalKey> sections;
 
   /// From Privacy back to "Remember things from my chats": close Privacy and
   /// bring the chat memory card into view.
@@ -96,11 +129,13 @@ class _Content extends StatelessWidget {
   Widget build(BuildContext context) {
     final session = controller.session!;
     return Stack(children: [
-      ListView(
+      SingleChildScrollView(
           padding: const EdgeInsetsDirectional.fromSTEB(
               AnumSpacing.md, AnumSpacing.sm, AnumSpacing.md, AnumSpacing.xl),
-          children: [
-            _Heading('Profile and session'),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _Heading('Profile and session',
+                key: sections[SettingsSection.profile]),
             Card(
                 child: Column(children: [
               ListTile(
@@ -203,7 +238,8 @@ class _Content extends StatelessWidget {
                                               .colorScheme
                                               .error)))),
                       ])),
-            _Heading('Notifications'),
+            _Heading('Notifications',
+                key: sections[SettingsSection.notifications]),
             _NotificationCard(controller: controller),
             if (controller.push != null) ...[
               const SizedBox(height: AnumSpacing.xs),
@@ -228,7 +264,7 @@ class _Content extends StatelessWidget {
                                   onOpenChatMemory: () =>
                                       _openChatMemory(context)))))),
             if (controller.privacy != null) ...[
-              _Heading('Privacy'),
+              _Heading('Privacy', key: sections[SettingsSection.privacy]),
               Card(
                   child: ListTile(
                       leading: const Icon(Icons.privacy_tip_outlined),
@@ -245,7 +281,7 @@ class _Content extends StatelessWidget {
                                   onOpenChatMemory: () =>
                                       _openChatMemory(context)))))),
             ],
-            _Heading('Security'),
+            _Heading('Security', key: sections[SettingsSection.security]),
             Card(
                 child: Column(children: [
               const ListTile(
@@ -269,7 +305,7 @@ class _Content extends StatelessWidget {
                   padding: const EdgeInsets.only(top: AnumSpacing.md),
                   child: Text(controller.message!,
                       style: Theme.of(context).textTheme.bodySmall)),
-          ]),
+          ])),
       if (controller.phase == SettingsPhase.saving)
         const LinearProgressIndicator()
     ]);
@@ -444,7 +480,7 @@ class _ChatMemoryCard extends StatelessWidget {
 }
 
 class _Heading extends StatelessWidget {
-  const _Heading(this.text);
+  const _Heading(this.text, {super.key});
   final String text;
   @override
   Widget build(BuildContext context) => Padding(

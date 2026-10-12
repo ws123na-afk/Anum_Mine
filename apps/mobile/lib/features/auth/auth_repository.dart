@@ -58,12 +58,15 @@ class AuthRepository {
 
   /// Authorization code + PKCE in the system browser, then the tokens are kept
   /// in platform secure storage.
-  Future<LocalSession> signInWithOidc() async {
+  /// [options] carries Keycloak hints only (login hint, Google or Apple,
+  /// registration); the password is always entered on Keycloak's page.
+  Future<LocalSession> signInWithOidc(
+      [OidcSignInOptions options = const OidcSignInOptions()]) async {
     final authenticator = oidc;
     if (authenticator == null) {
       throw StateError('OIDC sign-in is not configured');
     }
-    final session = sessionFromOidcTokens(await authenticator.signIn(),
+    final session = sessionFromOidcTokens(await authenticator.signIn(options),
         defaultWorkspaceId: authenticator.config.defaultWorkspaceId);
     await sessions.write(session);
     return session;

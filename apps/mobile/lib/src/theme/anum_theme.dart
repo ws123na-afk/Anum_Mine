@@ -17,8 +17,30 @@ abstract final class AnumBreakpoints {
   static const expanded = 840.0;
 }
 
-/// Depth palette: "midnight + aurora". Surfaces get lighter as they rise
-/// (dark mode) and every raised surface carries a lit top edge.
+/// Corner radii of the ANUM 360 look: rounded, raised cards and pill chips.
+abstract final class AnumRadius {
+  static const sm = 12.0;
+  static const md = 16.0;
+  static const lg = 20.0;
+  static const xl = 28.0;
+  static const pill = 999.0;
+}
+
+/// Durations for the shell's motion; everything also honours reduced motion
+/// (`MediaQuery.disableAnimations`).
+abstract final class AnumMotion {
+  static const quick = Duration(milliseconds: 120);
+  static const standard = Duration(milliseconds: 240);
+  static const page = Duration(milliseconds: 360);
+
+  /// One full cycle of the orb's waveform.
+  static const orbCycle = Duration(milliseconds: 2400);
+}
+
+/// Depth palette: "midnight + aurora" (ANUM 360). A deep midnight navy
+/// background, surfaces that get lighter as they rise (dark mode), a lit top
+/// edge on every raised surface, and one blue-to-violet accent gradient
+/// ([accentStart] to [accentEnd]) for primary actions and the orb.
 @immutable
 class AnumPalette extends ThemeExtension<AnumPalette> {
   const AnumPalette({
@@ -38,17 +60,39 @@ class AnumPalette extends ThemeExtension<AnumPalette> {
     required this.warn,
     required this.stop,
     required this.shadow,
+    this.accentStart = const Color(0xFF2563EB),
+    this.accentEnd = const Color(0xFF7C3AED),
+    this.onAccent = const Color(0xFFFFFFFF),
+    this.glow = const Color(0xFF6366F1),
+    this.glass = const Color(0xE00C1330),
   });
 
   final Color background, surface1, surface2, surface3, line, edge;
   final Color text, muted, faint, sky, violet, rose, ok, warn, stop, shadow;
 
+  /// The accent gradient's ends. White ([onAccent]) text on either end keeps
+  /// at least 4.5:1 contrast.
+  final Color accentStart, accentEnd, onAccent;
+
+  /// The aurora glow behind the orb and the selected navigation item.
+  final Color glow;
+
+  /// Translucent panel over the aurora (bottom navigation, drawer); opaque
+  /// enough that text on it keeps its contrast.
+  final Color glass;
+
+  /// Primary actions, the orb ring and selected indicators.
+  LinearGradient get accentGradient => LinearGradient(
+      begin: AlignmentDirectional.centerStart,
+      end: AlignmentDirectional.centerEnd,
+      colors: [accentStart, accentEnd]);
+
   static const dark = AnumPalette(
-    background: Color(0xFF0B1020),
-    surface1: Color(0xFF111829),
-    surface2: Color(0xFF172036),
-    surface3: Color(0xFF1E2944),
-    line: Color(0x17FFFFFF),
+    background: Color(0xFF070B1A),
+    surface1: Color(0xFF0E1530),
+    surface2: Color(0xFF141D3B),
+    surface3: Color(0xFF1B2649),
+    line: Color(0x1AFFFFFF),
     edge: Color(0x1AFFFFFF),
     text: Color(0xFFEEF1F8),
     muted: Color(0xFFA3ABC2),
@@ -60,6 +104,8 @@ class AnumPalette extends ThemeExtension<AnumPalette> {
     warn: Color(0xFFFCD38D),
     stop: Color(0xFFFDA4AF),
     shadow: Color(0x99020617),
+    glow: Color(0xFF6D5BFF),
+    glass: Color(0xE60C1330),
   );
 
   static const light = AnumPalette(
@@ -79,6 +125,8 @@ class AnumPalette extends ThemeExtension<AnumPalette> {
     warn: Color(0xFFB76E00),
     stop: Color(0xFFD12F40),
     shadow: Color(0x24101830),
+    glow: Color(0xFF7C8CFF),
+    glass: Color(0xF2FFFFFF),
   );
 
   @override
@@ -167,8 +215,8 @@ abstract final class AnumTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           minimumSize: const Size(48, 48),
-          backgroundColor: p.violet,
-          foregroundColor: Colors.white,
+          backgroundColor: Color.lerp(p.accentStart, p.accentEnd, 0.5),
+          foregroundColor: p.onAccent,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           textStyle: const TextStyle(fontWeight: FontWeight.w700),
@@ -223,8 +271,7 @@ abstract final class AnumTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         height: 72,
-        backgroundColor:
-            isDark ? const Color(0xE6111829) : const Color(0xF2FFFFFF),
+        backgroundColor: p.glass,
         surfaceTintColor: Colors.transparent,
         indicatorColor: p.violet.withValues(alpha: 0.22),
         labelTextStyle: WidgetStatePropertyAll(TextStyle(

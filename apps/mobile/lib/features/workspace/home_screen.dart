@@ -18,11 +18,16 @@ class HomeScreen extends StatelessWidget {
     this.workspaceName,
     this.assistantName = 'Anum',
     this.onOpenCommerce,
+    this.header,
     super.key,
   });
 
   /// Opens Commerce (docs/commerce.md); without it the entry is hidden.
   final VoidCallback? onOpenCommerce;
+
+  /// Replaces the page's own greeting (the shell's header with avatar and
+  /// notification bell on phones).
+  final Widget? header;
 
   final WorkspaceController controller;
 
@@ -56,13 +61,14 @@ class HomeScreen extends StatelessWidget {
     return AnumPage(
       onRefresh: controller.load,
       children: [
+        if (header != null) header!,
         AnumHeader(
-          eyebrow: workspaceName ?? 'Workspace',
-          title: _greeting(now),
+          eyebrow: header == null ? (workspaceName ?? 'Workspace') : null,
+          title: header == null ? _greeting(now) : 'Today',
           subtitle: running.isEmpty
               ? 'Nothing is running right now.'
               : '${running.length} ${running.length == 1 ? 'agent is' : 'agents are'} working for you.',
-          large: true,
+          large: header == null,
         ),
         _AskCard(
           assistantName: assistantName,

@@ -33,7 +33,9 @@ class _Authenticator implements OidcAuthenticator {
       const OidcConfig(issuer: 'http://localhost:8080/realms/anum');
 
   @override
-  Future<OidcTokens> signIn() async => OidcTokens(
+  Future<OidcTokens> signIn(
+          [OidcSignInOptions options = const OidcSignInOptions()]) async =>
+      OidcTokens(
         accessToken: _jwt({
           'sub': 'user_first',
           'tenant_id': 'tenant_first',

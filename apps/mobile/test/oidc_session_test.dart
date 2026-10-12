@@ -31,6 +31,7 @@ class FakeAuthenticator implements OidcAuthenticator {
   @override
   final OidcConfig config;
   int signIns = 0;
+  final List<OidcSignInOptions> signInOptions = [];
   final List<String> refreshes = [];
   final List<String?> endSessions = [];
   Object? signInError;
@@ -39,8 +40,10 @@ class FakeAuthenticator implements OidcAuthenticator {
   String? rotatedRefreshToken = 'refresh-2';
 
   @override
-  Future<OidcTokens> signIn() async {
+  Future<OidcTokens> signIn(
+      [OidcSignInOptions options = const OidcSignInOptions()]) async {
     signIns++;
+    signInOptions.add(options);
     if (signInError != null) throw signInError!;
     return OidcTokens(
       accessToken: jwt(accessClaims),
@@ -389,6 +392,36 @@ void main() {
       await controller.signInWithOidc();
       expect(controller.phase, AuthPhase.ready);
       expect(controller.workspaceName, 'Foundation');
+    });
+
+    test('sign-in hints reach Keycloak: login hint, Google, Apple, register',
+        () async {
+      final controller = AuthController(repository);
+      await controller.signInWithOidc(
+          const OidcSignInOptions(loginHint: '  name@example.com '));
+      await controller.signInWithOidc(const OidcSignInOptions(
+          identityProvider: OidcIdentityProvider.google));
+      await controller.signInWithOidc(const OidcSignInOptions(
+          identityProvider: OidcIdentityProvider.apple));
+      await controller.signInWithOidc(const OidcSignInOptions(
+          register: true, loginHint: 'new@example.com'));
+      final sent = authenticator.signInOptions;
+      expect(sent[0].trimmedLoginHint, 'name@example.com');
+      expect(sent[0].additionalParameters, isEmpty);
+      expect(sent[0].promptValues, isNull);
+      expect(sent[1].additionalParameters, {'kc_idp_hint': 'google'});
+      expect(sent[2].additionalParameters, {'kc_idp_hint': 'apple'});
+      expect(sent[3].promptValues, ['create']);
+      expect(sent[3].trimmedLoginHint, 'new@example.com');
+      expect(const OidcSignInOptions(loginHint: '  ').trimmedLoginHint, isNull);
+    });
+
+    test('forgot password opens Keycloak reset-credentials for the client', () {
+      final controller = AuthController(repository);
+      expect(
+          controller.passwordResetUri.toString(),
+          '${authenticator.config.issuer}/login-actions/reset-credentials'
+          '?client_id=${authenticator.config.clientId}');
     });
 
     test('cancelling the browser returns to sign-in without an error',

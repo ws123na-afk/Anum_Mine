@@ -5,6 +5,8 @@ import '../chat/chat_controller.dart';
 import '../chat/chat_screen.dart';
 import '../voice/voice_controller.dart';
 import '../voice/voice_screen.dart';
+import '../settings/account_identity.dart';
+import '../settings/profile_screen.dart';
 import '../settings/settings_controller.dart';
 import '../settings/settings_screen.dart';
 import '../governance/governance_controller.dart';
@@ -20,6 +22,10 @@ import '../commerce/commerce_controller.dart';
 import '../commerce/commerce_screen.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
+import '../../src/theme/theme_controller.dart';
+import '../../src/widgets/brand.dart';
+import '../../src/widgets/greeting_header.dart';
+import '../../src/widgets/navigation.dart';
 import '../automations/automation_repository.dart';
 import '../automations/automations_controller.dart';
 import 'api_workspace_repository.dart';
@@ -30,6 +36,10 @@ import 'home_screen.dart';
 import 'resources_screen.dart';
 import 'tasks_screen.dart';
 
+/// The signed-in app shell (ANUM 360): on phones a bottom bar with Home,
+/// Chat, the orb (ANUM Command), Tasks and Menu; from 840 px a navigation
+/// rail with the orb at its top. The Menu drawer reaches every other
+/// destination. Pages keep their state in an [IndexedStack].
 class WorkspaceHome extends StatefulWidget {
   const WorkspaceHome(
       {super.key,
@@ -39,20 +49,26 @@ class WorkspaceHome extends StatefulWidget {
       required this.settingsController,
       required this.governanceController,
       required this.localeController,
+      this.themeController,
       this.developerController,
       this.automationsController,
       this.chatDeveloper,
       this.whatsappController,
       this.emailController,
       this.commerceController,
+      this.onOpenCommand,
       this.workspaceName,
-      this.initialIndex = 0});
+      this.initialIndex = WorkspaceDestination.home});
   final WorkspaceController controller;
   final ChatController chatController;
   final VoiceController voiceController;
   final SettingsController settingsController;
   final GovernanceController governanceController;
   final LocaleController localeController;
+
+  /// Light, dark or system (Profile and settings > Theme). Without one the
+  /// choice applies to this shell's Profile screen only (tests).
+  final ThemeController? themeController;
 
   /// Developer mode (owners only). Without it the destination is absent.
   final DeveloperController? developerController;
@@ -64,15 +80,18 @@ class WorkspaceHome extends StatefulWidget {
   /// "build ..." in the Assistant; the voice one lives on the voice controller.
   final DeveloperAssist? chatDeveloper;
 
-  /// The WhatsApp inbox (docs/whatsapp.md), opened as its own page from the
-  /// app bar (wide layouts) or the More sheet (phones).
+  /// The WhatsApp inbox (docs/whatsapp.md), opened from the Menu.
   final WhatsAppController? whatsappController;
 
-  /// The unified inbox (docs/email.md), opened from the app bar or More.
+  /// The unified inbox (docs/email.md), opened from the Menu.
   final EmailController? emailController;
 
   /// Commerce (docs/commerce.md), opened from Home.
   final CommerceController? commerceController;
+
+  /// The orb: opens ANUM Command. Without it the orb opens the voice
+  /// assistant, the command surface the app has today.
+  final VoidCallback? onOpenCommand;
   final String? workspaceName;
   final int initialIndex;
   @override
@@ -83,6 +102,12 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   late final AutomationsController _automations =
       widget.automationsController ?? _ownAutomations();
   bool _ownsAutomations = false;
+  late final ThemeController _theme =
+      widget.themeController ?? ThemeController(store: MemoryThemeStore());
+  final _scaffold = GlobalKey<ScaffoldState>();
+
+  /// Who is signed in, for the greeting and the avatar.
+  AccountIdentity? _identity;
 
   AutomationsController _ownAutomations() {
     _ownsAutomations = true;
@@ -104,12 +129,24 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     super.initState();
     _index = RestorableInt(widget.initialIndex);
     if (widget.controller.phase == LoadPhase.initial) widget.controller.load();
+    _loadIdentity();
     // Whether to show Developer: the caller's role, checked once per workspace.
     final developer = widget.developerController;
     if (developer != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) developer.ensureOwner();
       });
+    }
+  }
+
+  Future<void> _loadIdentity() async {
+    try {
+      final session =
+          await widget.settingsController.repository.restoreSession();
+      if (!mounted || session == null) return;
+      setState(() => _identity = AccountIdentity.fromSession(session));
+    } on Object {
+      // The header falls back to the workspace name.
     }
   }
 
@@ -138,25 +175,46 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       },
       child: _buildShell(context));
 
-  void _openWhatsApp(BuildContext context) => Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-          builder: (_) =>
-              WhatsAppScreen(controller: widget.whatsappController!)));
-  void _openInbox(BuildContext context) {
-    final email = widget.emailController;
-    if (email == null) return;
-    Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-            builder: (_) => InboxScreen(controller: email)));
+  void _push(Widget page) =>
+      Navigator.push(context, MaterialPageRoute<void>(builder: (_) => page));
+
+  void _openWhatsApp() =>
+      _push(WhatsAppScreen(controller: widget.whatsappController!));
+  void _openInbox() => _push(InboxScreen(controller: widget.emailController!));
+  void _openGovernance(GovernanceSection section) => _push(GovernanceScreen(
+      controller: widget.governanceController, initialSection: section));
+  void _openResources(int tab, String title) => _push(Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: ResourcesScreen(controller: widget.controller, initialTab: tab)));
+  void _openProfile() => _push(ProfileScreen(
+      settings: widget.settingsController,
+      locale: widget.localeController,
+      theme: _theme,
+      workspaceName: widget.workspaceName,
+      onAskAnum: () => _select(WorkspaceDestination.assistant)));
+  void _openSettings() =>
+      _push(SettingsScreen(controller: widget.settingsController));
+  void _openCommand() {
+    final open = widget.onOpenCommand;
+    if (open != null) {
+      open();
+    } else {
+      _select(WorkspaceDestination.voice);
+    }
   }
 
-  void _openSettings(BuildContext context) => Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-          builder: (_) =>
-              SettingsScreen(controller: widget.settingsController)));
+  /// The greeting header: avatar (Profile), name, date and the bell, whose
+  /// count is the approvals waiting in this workspace.
+  Widget _header({List<Widget>? trailing}) => AnumGreetingHeader(
+        name: _identity?.displayName ??
+            widget.workspaceName ??
+            context.anum.t('workspace'),
+        subtitle: widget.workspaceName,
+        notificationCount: widget.controller.pendingApprovals.length,
+        onNotifications: () => _select(WorkspaceDestination.approvals),
+        onProfile: _openProfile,
+        trailing: trailing,
+      );
 
   Widget _buildShell(BuildContext context) => ListenableBuilder(
         listenable:
@@ -167,238 +225,305 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
           final openDeveloper = _showDeveloper
               ? () => _select(WorkspaceDestination.developer)
               : null;
-          final pages = [
-            AssistantScreen(
-              controller: widget.chatController,
-              active: index == WorkspaceDestination.assistant,
-              onOpenSettings: () => _openSettings(context),
-              developer: widget.chatDeveloper,
-              onOpenDeveloper: openDeveloper,
-            ),
-            HomeScreen(
-              controller: widget.controller,
-              workspaceName: widget.workspaceName,
-              onNavigate: _select,
-              onOpenTask: (task) =>
-                  openTaskDetail(context, widget.controller, task),
-              onOpenCommerce: widget.commerceController == null
-                  ? null
-                  : () => Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => CommerceScreen(
-                          controller: widget.commerceController!))),
-            ),
-            TasksScreen(controller: widget.controller),
-            VoiceScreen(
-                controller: widget.voiceController,
-                onOpenApprovals: () => _select(WorkspaceDestination.approvals),
-                onOpenDeveloper: openDeveloper),
-            ApprovalsScreen(controller: widget.controller),
-            AutomationsScreen(automations: _automations),
-            ResourcesScreen(controller: widget.controller),
-            if (developer != null)
-              DeveloperScreen(
-                controller: developer,
-                active: index == WorkspaceDestination.developer,
-                onOpenSettings: () => _openSettings(context),
-              )
-            else
-              const SizedBox.shrink(),
-          ];
-          final l = context.anum;
-          final assistant = NavigationDestination(
-              icon: const Icon(Icons.chat_bubble_outline),
-              selectedIcon: const Icon(Icons.chat_bubble),
-              label: l.t('assistant'));
-          final destinations = [
-            assistant,
-            NavigationDestination(
-                icon: const Icon(Icons.home_outlined),
-                selectedIcon: const Icon(Icons.home),
-                label: l.t('home')),
-            NavigationDestination(
-                icon: const Icon(Icons.task_alt_outlined),
-                selectedIcon: const Icon(Icons.task_alt),
-                label: l.t('tasks')),
-            NavigationDestination(
-                icon: const Icon(Icons.mic_none),
-                selectedIcon: const Icon(Icons.mic),
-                label: l.t('voice')),
-            NavigationDestination(
-                icon: Badge(
-                    isLabelVisible:
-                        widget.controller.pendingApprovals.isNotEmpty,
-                    label: Text('${widget.controller.pendingApprovals.length}'),
-                    child: const Icon(Icons.approval_outlined)),
-                selectedIcon: const Icon(Icons.approval),
-                label: l.t('approvals')),
-            NavigationDestination(
-                icon: const Icon(Icons.account_tree_outlined),
-                selectedIcon: const Icon(Icons.account_tree),
-                label: l.t('automation')),
-            NavigationDestination(
-                icon: const Icon(Icons.folder_outlined),
-                selectedIcon: const Icon(Icons.folder),
-                label: l.t('resources')),
-            if (_showDeveloper)
-              NavigationDestination(
-                  icon: const Icon(Icons.construction_outlined),
-                  selectedIcon: const Icon(Icons.construction),
-                  label: l.t('developer')),
-          ];
-          final compactDestinations = [
-            assistant,
-            NavigationDestination(
-                icon: const Icon(Icons.home_outlined),
-                selectedIcon: const Icon(Icons.home),
-                label: l.t('home')),
-            NavigationDestination(
-                icon: const Icon(Icons.task_alt_outlined),
-                selectedIcon: const Icon(Icons.task_alt),
-                label: l.t('tasks')),
-            NavigationDestination(
-                icon: const Icon(Icons.folder_outlined),
-                selectedIcon: const Icon(Icons.folder),
-                label: l.t('resources')),
-            const NavigationDestination(
-                icon: Icon(Icons.more_horiz), label: 'More')
-          ];
-          final content = Column(children: [
-            if (widget.controller.phase == LoadPhase.offline)
-              _StateBanner(icon: Icons.cloud_off, text: l.t('offline')),
-            if (widget.controller.message != null &&
-                widget.controller.phase == LoadPhase.error)
-              _StateBanner(
-                  icon: Icons.error_outline, text: widget.controller.message!),
-            Expanded(
-                child: widget.controller.phase == LoadPhase.loading &&
-                        widget.controller.snapshot == null
-                    ? const Center(child: CircularProgressIndicator())
-                    : IndexedStack(index: index, children: pages))
-          ]);
           return LayoutBuilder(builder: (context, constraints) {
             final expanded = constraints.maxWidth >= 840;
+            final pages = [
+              AssistantScreen(
+                controller: widget.chatController,
+                active: index == WorkspaceDestination.assistant,
+                onOpenSettings: _openSettings,
+                developer: widget.chatDeveloper,
+                onOpenDeveloper: openDeveloper,
+              ),
+              HomeScreen(
+                controller: widget.controller,
+                workspaceName: widget.workspaceName,
+                onNavigate: _select,
+                onOpenTask: (task) =>
+                    openTaskDetail(context, widget.controller, task),
+                // On wide screens the header sits above every page instead.
+                header: expanded ? null : _header(),
+                onOpenCommerce: widget.commerceController == null
+                    ? null
+                    : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => CommerceScreen(
+                            controller: widget.commerceController!))),
+              ),
+              TasksScreen(controller: widget.controller),
+              VoiceScreen(
+                  controller: widget.voiceController,
+                  onOpenApprovals: () =>
+                      _select(WorkspaceDestination.approvals),
+                  onOpenDeveloper: openDeveloper),
+              ApprovalsScreen(controller: widget.controller),
+              AutomationsScreen(automations: _automations),
+              ResourcesScreen(controller: widget.controller),
+              if (developer != null)
+                DeveloperScreen(
+                  controller: developer,
+                  active: index == WorkspaceDestination.developer,
+                  onOpenSettings: _openSettings,
+                )
+              else
+                const SizedBox.shrink(),
+            ];
+            final content = _content(context, pages);
             return Scaffold(
-              appBar: expanded
-                  ? AppBar(
-                      title: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(l.t('workspace')),
-                            Text(l.t('subtitle'),
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.normal))
-                          ]),
-                      actions: [
-                          if (widget.emailController != null)
-                            IconButton(
-                                onPressed: () => _openInbox(context),
-                                tooltip: l.t('inbox'),
-                                icon: const Icon(Icons.mail_outline)),
-                          PopupMenuButton<String>(
-                              tooltip: l.t('language'),
-                              onSelected: widget.localeController.select,
-                              itemBuilder: (_) => [
-                                    PopupMenuItem(
-                                        value: 'en',
-                                        child: Text(l.t('english'))),
-                                    PopupMenuItem(
-                                        value: 'ar', child: Text(l.t('arabic')))
-                                  ],
-                              icon: const Icon(Icons.language)),
-                          if (widget.whatsappController != null)
-                            IconButton(
-                                onPressed: () => _openWhatsApp(context),
-                                tooltip: l.t('whatsapp'),
-                                icon: const Icon(Icons.forum_outlined)),
-                          IconButton(
-                              onPressed: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                      builder: (_) => GovernanceScreen(
-                                          controller:
-                                              widget.governanceController))),
-                              tooltip: l.t('organization'),
-                              icon: const Icon(
-                                  Icons.admin_panel_settings_outlined)),
-                          IconButton(
-                              onPressed: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                      builder: (_) => SettingsScreen(
-                                          controller:
-                                              widget.settingsController))),
-                              tooltip: l.t('settings'),
-                              icon: const Icon(Icons.settings_outlined)),
-                          IconButton(
-                              onPressed: widget.controller.mutating
-                                  ? null
-                                  : widget.controller.load,
-                              tooltip: l.t('refresh'),
-                              icon: const Icon(Icons.refresh))
-                        ])
-                  : null,
-              body: expanded
-                  ? Row(children: [
-                      NavigationRail(
-                          // A deep link to Developer for a non-owner selects
-                          // nothing: the destination is not listed for them.
-                          selectedIndex:
-                              index < destinations.length ? index : null,
-                          onDestinationSelected: _select,
-                          labelType: NavigationRailLabelType.all,
-                          destinations: destinations
-                              .map((item) => NavigationRailDestination(
-                                  icon: item.icon,
-                                  selectedIcon: item.selectedIcon,
-                                  label: Text(item.label)))
-                              .toList()),
-                      const VerticalDivider(width: 1),
-                      Expanded(child: content)
-                    ])
-                  : content,
-              bottomNavigationBar: expanded
-                  ? null
-                  : MediaQuery.withClampedTextScaling(
-                      maxScaleFactor: 1.3,
-                      child: Builder(
-                        builder: (context) => NavigationBar(
-                            // Labels that cannot fit their slot (a narrow phone at
-                            // large text) are hidden rather than wrapped and
-                            // clipped; each destination keeps its tooltip and
-                            // spoken label.
-                            labelBehavior: navigationLabelsFit(context,
-                                    compactDestinations, constraints.maxWidth)
-                                ? NavigationDestinationLabelBehavior.alwaysShow
-                                : NavigationDestinationLabelBehavior.alwaysHide,
-                            selectedIndex: switch (index) {
-                              WorkspaceDestination.assistant => 0,
-                              WorkspaceDestination.home => 1,
-                              WorkspaceDestination.tasks => 2,
-                              WorkspaceDestination.resources => 3,
-                              _ => 4,
-                            },
-                            onDestinationSelected: (value) {
-                              switch (value) {
-                                case 0:
-                                  _select(WorkspaceDestination.assistant);
-                                case 1:
-                                  _select(WorkspaceDestination.home);
-                                case 2:
-                                  _select(WorkspaceDestination.tasks);
-                                case 3:
-                                  _select(WorkspaceDestination.resources);
-                                default:
-                                  _showMore(context);
-                              }
-                            },
-                            destinations: compactDestinations),
-                      ),
-                    ),
+              key: _scaffold,
+              drawer: _menu(context),
+              body: expanded ? _expanded(context, content) : content,
+              bottomNavigationBar: expanded ? null : _bottomBar(context),
             );
           });
         },
       );
+
+  Widget _content(BuildContext context, List<Widget> pages) {
+    final l = context.anum;
+    return Column(children: [
+      if (widget.controller.phase == LoadPhase.offline)
+        _StateBanner(icon: Icons.cloud_off, text: l.t('offline')),
+      if (widget.controller.message != null &&
+          widget.controller.phase == LoadPhase.error)
+        _StateBanner(
+            icon: Icons.error_outline, text: widget.controller.message!),
+      Expanded(
+          child: widget.controller.phase == LoadPhase.loading &&
+                  widget.controller.snapshot == null
+              ? const Center(child: CircularProgressIndicator())
+              : IndexedStack(index: index, children: pages))
+    ]);
+  }
+
+  /// Rail destinations, in [WorkspaceDestination] order.
+  List<NavigationDestination> _railDestinations(AnumLocalizations l) => [
+        NavigationDestination(
+            icon: const Icon(Icons.chat_bubble_outline),
+            selectedIcon: const Icon(Icons.chat_bubble),
+            label: l.t('assistant')),
+        NavigationDestination(
+            icon: const Icon(Icons.home_outlined),
+            selectedIcon: const Icon(Icons.home),
+            label: l.t('home')),
+        NavigationDestination(
+            icon: const Icon(Icons.task_alt_outlined),
+            selectedIcon: const Icon(Icons.task_alt),
+            label: l.t('tasks')),
+        NavigationDestination(
+            icon: const Icon(Icons.mic_none),
+            selectedIcon: const Icon(Icons.mic),
+            label: l.t('voice')),
+        NavigationDestination(
+            icon: Badge(
+                isLabelVisible: widget.controller.pendingApprovals.isNotEmpty,
+                label: Text('${widget.controller.pendingApprovals.length}'),
+                child: const Icon(Icons.approval_outlined)),
+            selectedIcon: const Icon(Icons.approval),
+            label: l.t('approvals')),
+        NavigationDestination(
+            icon: const Icon(Icons.account_tree_outlined),
+            selectedIcon: const Icon(Icons.account_tree),
+            label: l.t('automation')),
+        NavigationDestination(
+            icon: const Icon(Icons.folder_outlined),
+            selectedIcon: const Icon(Icons.folder),
+            label: l.t('resources')),
+        if (_showDeveloper)
+          NavigationDestination(
+              icon: const Icon(Icons.construction_outlined),
+              selectedIcon: const Icon(Icons.construction),
+              label: l.t('developer')),
+      ];
+
+  Widget _expanded(BuildContext context, Widget content) {
+    final l = context.anum;
+    final p = context.palette;
+    final destinations = _railDestinations(l);
+    return AnumRail(
+      rail: NavigationRail(
+          // A deep link to Developer for a non-owner selects nothing: the
+          // destination is not listed for them.
+          selectedIndex: index < destinations.length ? index : null,
+          onDestinationSelected: _select,
+          labelType: NavigationRailLabelType.all,
+          groupAlignment: -1,
+          leading: Column(children: [
+            const SizedBox(height: AnumSpacing.xs),
+            const AnumLogoMark(size: 40, semanticLabel: 'ANUM 360'),
+            const SizedBox(height: AnumSpacing.md),
+            Semantics(
+              button: true,
+              selected: index == WorkspaceDestination.voice,
+              label: l.t('shellCommand'),
+              onTap: _openCommand,
+              excludeSemantics: true,
+              child: Tooltip(
+                message: l.t('shellCommand'),
+                excludeFromSemantics: true,
+                child: InkWell(
+                  key: const Key('rail-orb'),
+                  customBorder: const CircleBorder(),
+                  onTap: _openCommand,
+                  child: const AnumOrb(size: 56),
+                ),
+              ),
+            ),
+            const SizedBox(height: AnumSpacing.xs),
+          ]),
+          trailing: Padding(
+            padding: const EdgeInsets.only(top: AnumSpacing.sm),
+            child: IconButton(
+                key: const Key('rail-menu'),
+                tooltip: l.t('shellOpenMenu'),
+                onPressed: () => _scaffold.currentState?.openDrawer(),
+                icon: Icon(Icons.menu, color: p.muted)),
+          ),
+          destinations: destinations
+              .map((item) => NavigationRailDestination(
+                  icon: item.icon,
+                  selectedIcon: item.selectedIcon,
+                  label: Text(item.label)))
+              .toList()),
+      header: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(
+              AnumSpacing.lg, AnumSpacing.sm, AnumSpacing.md, AnumSpacing.xs),
+          child: _header(trailing: [
+            IconButton(
+                onPressed:
+                    widget.controller.mutating ? null : widget.controller.load,
+                tooltip: l.t('refresh'),
+                icon: const Icon(Icons.refresh))
+          ]),
+        ),
+      ),
+      content: content,
+    );
+  }
+
+  Widget _bottomBar(BuildContext context) {
+    final l = context.anum;
+    final selected = switch (index) {
+      WorkspaceDestination.home => 0,
+      WorkspaceDestination.assistant => 1,
+      WorkspaceDestination.tasks => 2,
+      WorkspaceDestination.voice => null,
+      _ => 3,
+    };
+    return AnumBottomNav(
+      selected: selected,
+      orbSelected: index == WorkspaceDestination.voice,
+      orbLabel: l.t('shellCommand'),
+      onOrb: _openCommand,
+      items: [
+        AnumNavItem(
+            key: const Key('nav-home'),
+            icon: Icons.home_outlined,
+            selectedIcon: Icons.home,
+            label: l.t('home')),
+        AnumNavItem(
+            key: const Key('nav-chat'),
+            icon: Icons.chat_bubble_outline,
+            selectedIcon: Icons.chat_bubble,
+            label: l.t('shellChat')),
+        AnumNavItem(
+            key: const Key('nav-tasks'),
+            icon: Icons.task_alt_outlined,
+            selectedIcon: Icons.task_alt,
+            label: l.t('tasks')),
+        AnumNavItem(
+            key: const Key('nav-menu'),
+            icon: Icons.menu,
+            selectedIcon: Icons.menu_open,
+            label: l.t('shellMenu'),
+            badge: widget.controller.pendingApprovals.length),
+      ],
+      onSelected: (value) => switch (value) {
+        0 => _select(WorkspaceDestination.home),
+        1 => _select(WorkspaceDestination.assistant),
+        2 => _select(WorkspaceDestination.tasks),
+        _ => _scaffold.currentState?.openDrawer(),
+      },
+    );
+  }
+
+  /// The Mobile Menu: the mockup's destinations, then everything else the
+  /// app has, then the plan card.
+  Widget _menu(BuildContext context) {
+    final l = context.anum;
+    void go(VoidCallback action) {
+      _scaffold.currentState?.closeDrawer();
+      action();
+    }
+
+    AnumMenuEntry destination(String key, IconData icon, int target,
+            {int badge = 0}) =>
+        AnumMenuEntry(
+            key: Key('menu-$key'),
+            icon: icon,
+            label: l.t(key),
+            selected: index == target,
+            badge: badge,
+            onTap: () => go(() => _select(target)));
+    AnumMenuEntry page(String key, IconData icon, VoidCallback open) =>
+        AnumMenuEntry(
+            key: Key('menu-$key'),
+            icon: icon,
+            label: l.t(key),
+            onTap: () => go(open));
+    return AnumMenuDrawer(
+      semanticLabel: l.t('shellMenuLabel'),
+      sections: [
+        AnumMenuSection(entries: [
+          destination('home', Icons.home_outlined, WorkspaceDestination.home),
+          page('shellAgents', Icons.smart_toy_outlined,
+              () => _openResources(ResourcesTab.skills, l.t('shellAgents'))),
+          destination(
+              'tasks', Icons.task_alt_outlined, WorkspaceDestination.tasks),
+          destination('shellAutomations', Icons.account_tree_outlined,
+              WorkspaceDestination.automations),
+          page(
+              'shellIntegrations',
+              Icons.hub_outlined,
+              () => _openResources(
+                  ResourcesTab.services, l.t('shellIntegrations'))),
+          destination('shellKnowledge', Icons.menu_book_outlined,
+              WorkspaceDestination.resources),
+          destination(
+              'shellCalls', Icons.call_outlined, WorkspaceDestination.voice),
+          page('settings', Icons.settings_outlined, _openProfile),
+        ]),
+        AnumMenuSection(title: l.t('shellMore'), entries: [
+          destination('approvals', Icons.approval_outlined,
+              WorkspaceDestination.approvals,
+              badge: widget.controller.pendingApprovals.length),
+          destination('assistant', Icons.chat_bubble_outline,
+              WorkspaceDestination.assistant),
+          if (widget.emailController != null)
+            page('inbox', Icons.mail_outline, _openInbox),
+          if (widget.whatsappController != null)
+            page('whatsapp', Icons.forum_outlined, _openWhatsApp),
+          if (_showDeveloper)
+            destination('developer', Icons.construction_outlined,
+                WorkspaceDestination.developer),
+          page('organization', Icons.admin_panel_settings_outlined,
+              () => _openGovernance(GovernanceSection.policies)),
+          page('shellMarketplace', Icons.storefront_outlined,
+              () => _openGovernance(GovernanceSection.marketplace)),
+          page('shellRouting', Icons.route,
+              () => _openGovernance(GovernanceSection.routing)),
+        ]),
+      ],
+      footer: AnumPlanCard(
+        key: const Key('menu-plan'),
+        title: l.t('planFree'),
+        subtitle: widget.workspaceName ?? l.t('planFreeShort'),
+        onTap: () => go(() =>
+            _push(SubscriptionScreen(workspaceName: widget.workspaceName))),
+      ),
+    );
+  }
 
   void _select(int value) {
     setState(() => _index.value = value);
@@ -407,131 +532,30 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     widget.developerController?.ensureOwner();
   }
 
-  Future<void> _showMore(BuildContext context) async {
-    final value = await showModalBottomSheet<int>(
-        context: context,
-        showDragHandle: true,
-        builder: (context) => SafeArea(
-                child: SingleChildScrollView(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-              if (widget.whatsappController != null)
-                ListTile(
-                    leading: const Icon(Icons.forum_outlined),
-                    title: Text(context.anum.t('whatsapp')),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _openWhatsApp(context);
-                    }),
-              if (widget.emailController != null)
-                ListTile(
-                    leading: const Icon(Icons.mail_outline),
-                    title: Text(context.anum.t('inbox')),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _openInbox(context);
-                    }),
-              ListTile(
-                  leading: const Icon(Icons.mic),
-                  title: const Text('Voice'),
-                  onTap: () =>
-                      Navigator.pop(context, WorkspaceDestination.voice)),
-              ListTile(
-                  leading: const Icon(Icons.approval_outlined),
-                  title: const Text('Approvals'),
-                  onTap: () =>
-                      Navigator.pop(context, WorkspaceDestination.approvals)),
-              ListTile(
-                  leading: const Icon(Icons.account_tree_outlined),
-                  title: const Text('Automations'),
-                  onTap: () =>
-                      Navigator.pop(context, WorkspaceDestination.automations)),
-              if (_showDeveloper)
-                ListTile(
-                    leading: const Icon(Icons.construction_outlined),
-                    title: Text(context.anum.t('developer')),
-                    onTap: () =>
-                        Navigator.pop(context, WorkspaceDestination.developer)),
-              ListTile(
-                  leading: const Icon(Icons.policy_outlined),
-                  title: const Text('Policy packs'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                            builder: (_) => GovernanceScreen(
-                                controller: widget.governanceController,
-                                initialSection: GovernanceSection.policies)));
-                  }),
-              ListTile(
-                  leading: const Icon(Icons.storefront_outlined),
-                  title: const Text('Marketplace'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                            builder: (_) => GovernanceScreen(
-                                controller: widget.governanceController,
-                                initialSection:
-                                    GovernanceSection.marketplace)));
-                  }),
-              ListTile(
-                  leading: const Icon(Icons.route),
-                  title: const Text('Advanced routing'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                            builder: (_) => GovernanceScreen(
-                                controller: widget.governanceController,
-                                initialSection: GovernanceSection.routing)));
-                  }),
-              ListTile(
-                  leading: const Icon(Icons.settings_outlined),
-                  title: const Text('Settings'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                            builder: (_) => SettingsScreen(
-                                controller: widget.settingsController)));
-                  })
-            ]))));
-    if (value != null) _select(value);
-  }
-
   @override
   void dispose() {
     _index.dispose();
     if (_ownsAutomations) _automations.dispose();
+    if (widget.themeController == null) _theme.dispose();
     super.dispose();
   }
 }
 
-/// Whether every label fits one line in its share of a bottom navigation
-/// bar [width] wide, at the current text scale.
-bool navigationLabelsFit(BuildContext context,
-    List<NavigationDestination> destinations, double width) {
-  final theme = Theme.of(context);
-  final style = (theme.textTheme.labelMedium ?? const TextStyle()).merge(theme
-      .navigationBarTheme.labelTextStyle
-      ?.resolve(const {WidgetState.selected}));
-  final slot = width / destinations.length - AnumSpacing.xs;
-  for (final destination in destinations) {
-    final painter = TextPainter(
-      text: TextSpan(text: destination.label, style: style),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-      maxLines: 1,
-    )..layout();
-    final fits = painter.width <= slot;
-    painter.dispose();
-    if (!fits) return false;
-  }
-  return true;
+/// The wide layout: the rail, a divider, and the header above the page.
+class AnumRail extends StatelessWidget {
+  const AnumRail(
+      {required this.rail,
+      required this.header,
+      required this.content,
+      super.key});
+  final Widget rail, header, content;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        SafeArea(right: false, child: rail),
+        const VerticalDivider(width: 1),
+        Expanded(child: Column(children: [header, Expanded(child: content)])),
+      ]);
 }
 
 class _StateBanner extends StatelessWidget {
@@ -544,10 +568,11 @@ class _StateBanner extends StatelessWidget {
       child: SafeArea(
           bottom: false,
           child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AnumSpacing.md, vertical: AnumSpacing.xs),
               child: Row(children: [
                 Icon(icon, size: 18),
-                const SizedBox(width: 10),
+                const SizedBox(width: AnumSpacing.xs),
                 Expanded(
                     child: Text(text,
                         style: Theme.of(context).textTheme.bodySmall))

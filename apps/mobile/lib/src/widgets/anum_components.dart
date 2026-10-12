@@ -11,13 +11,16 @@ class AnumStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Status colours come from the palette, so they keep contrast in both
+    // themes; the label always says the status too.
+    final p = context.palette;
     final (label, color) = switch (status) {
-      AnumStatus.running => ('Running', const Color(0xFF087F73)),
-      AnumStatus.approval => ('Approval required', const Color(0xFF8A5A00)),
-      AnumStatus.completed => ('Completed', const Color(0xFF067647)),
-      AnumStatus.failed => ('Failed', Theme.of(context).colorScheme.error),
-      AnumStatus.queued => ('Queued', Theme.of(context).colorScheme.secondary),
-      AnumStatus.paused => ('Paused', Theme.of(context).colorScheme.outline),
+      AnumStatus.running => ('Running', p.sky),
+      AnumStatus.approval => ('Approval required', p.warn),
+      AnumStatus.completed => ('Completed', p.ok),
+      AnumStatus.failed => ('Failed', p.stop),
+      AnumStatus.queued => ('Queued', p.violet),
+      AnumStatus.paused => ('Paused', p.muted),
     };
     return Semantics(
       container: true,
@@ -26,7 +29,8 @@ class AnumStatusBadge extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(AnumRadius.pill),
+          border: Border.all(color: color.withValues(alpha: 0.32)),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

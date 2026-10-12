@@ -20,7 +20,8 @@ class AppAuthOidcAuthenticator implements OidcAuthenticator {
       !kReleaseMode && Uri.parse(config.issuer).scheme == 'http';
 
   @override
-  Future<OidcTokens> signIn() async {
+  Future<OidcTokens> signIn(
+      [OidcSignInOptions options = const OidcSignInOptions()]) async {
     try {
       final response =
           await _appAuth.authorizeAndExchangeCode(AuthorizationTokenRequest(
@@ -28,6 +29,9 @@ class AppAuthOidcAuthenticator implements OidcAuthenticator {
         config.redirectUrl,
         issuer: config.issuer,
         scopes: config.scopes,
+        loginHint: options.trimmedLoginHint,
+        promptValues: options.promptValues,
+        additionalParameters: options.additionalParameters,
         allowInsecureConnections: _allowInsecure,
       ));
       return _tokens(response);

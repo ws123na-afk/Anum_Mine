@@ -1,5 +1,5 @@
 // Developer in the workspace navigation: listed for owners only (rail and
-// the phone's More sheet); a deep link for anyone else explains it.
+// the phone's Menu drawer); a deep link for anyone else explains it.
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_models.dart';
 import 'package:anum_mobile/features/auth/auth_repository.dart';
@@ -160,11 +160,11 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('on a phone owners find Developer under More', (tester) async {
+  testWidgets('on a phone owners find Developer in the Menu', (tester) async {
     final developer = FakeDeveloperApi();
     final home = await tester.runAsync(() => _home(developer));
     await _pump(tester, home!, const Size(390, 844));
-    await tester.tap(find.byIcon(Icons.more_horiz));
+    await tester.tap(find.byKey(const Key('nav-menu')));
     await _settle(tester);
     await tester.tap(find.text('Developer'));
     await _settle(tester);
@@ -173,12 +173,12 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('the More sheet has no Developer for members; Arabic label',
+  testWidgets('the Menu has no Developer for members; Arabic label',
       (tester) async {
     final member =
         await tester.runAsync(() => _home(FakeDeveloperApi(role: 'member')));
     await _pump(tester, member!, const Size(390, 844));
-    await tester.tap(find.byIcon(Icons.more_horiz));
+    await tester.tap(find.byKey(const Key('nav-menu')));
     await _settle(tester);
     expect(find.text('Developer'), findsNothing);
     await tester.pumpWidget(const SizedBox());

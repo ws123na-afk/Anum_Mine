@@ -97,11 +97,17 @@ class AuthController extends ChangeNotifier {
   /// True when the build names an OIDC issuer (`--dart-define=ANUM_OIDC_ISSUER`).
   bool get oidcEnabled => repository.usesOidc;
 
-  /// Signs in through Keycloak in the system browser (authorization code + PKCE).
-  Future<void> signInWithOidc() async {
+  /// Keycloak's "Forgot password?" page, or null without OIDC.
+  Uri? get passwordResetUri => repository.oidc?.config.passwordResetUri;
+
+  /// Signs in through Keycloak in the system browser (authorization code +
+  /// PKCE). [options] can prefill the username, go straight to Google or
+  /// Apple, or open registration.
+  Future<void> signInWithOidc(
+      [OidcSignInOptions options = const OidcSignInOptions()]) async {
     await _run(AuthPhase.signedOut, () async {
       try {
-        await repository.signInWithOidc();
+        await repository.signInWithOidc(options);
       } on OidcCancelled {
         phase = AuthPhase.signedOut;
         return;

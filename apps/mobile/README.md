@@ -4,7 +4,17 @@ ANUM Mobile is the Flutter client for Android, iOS, and tablet supervision, and 
 
 ## Product Routes
 
-Authentication and onboarding use `/splash`, `/sign-in`, `/workspace-setup`, and `/model-setup`. The authenticated shell exposes `/home`, `/tasks`, `/tasks/:id`, `/voice`, `/approvals`, `/automations`, and `/files` with task, voice, approval, automation, and resource destinations.
+Authentication and onboarding use `/splash`, `/onboarding`, `/sign-in`, `/create-account`, `/workspace-setup`, and `/model-setup`. The authenticated shell exposes `/home` (the landing page), `/assistant`, `/tasks`, `/tasks/:id`, `/voice`, `/approvals`, `/automations`, `/files`, `/developer`, `/inbox` and `/profile`.
+
+## ANUM 360 shell
+
+The look and navigation follow the owner's ANUM 360 mockups ([docs/design/anum360.md](../../docs/design/anum360.md)):
+
+- **Design system** (`lib/src/theme/anum_theme.dart`, `lib/src/widgets/`): midnight navy palette with a blue-to-violet accent gradient (`AnumPalette.accentStart`/`accentEnd`, white text at 4.5:1 or better), `AnumRadius` and `AnumMotion` tokens, the ANUM mark (`AnumLogoMark`, vector paths, no assets), `AnumWordmark`, the orb (`AnumOrb`: mark + waveform in a gradient ring; animates only while `active` and the platform allows motion, can follow a microphone level), `AnumGradientButton`, `AnumGlassPanel`, `AnumAvatar`, `AnumNotificationBell`, `AnumGreetingHeader`, `AnumBottomNav`, `AnumMenuDrawer` and `AnumPlanCard`. Other screens reuse these instead of drawing their own.
+- **Phones (< 840 px)**: bottom bar Home, Chat (the Assistant), the orb (ANUM Command; today the voice assistant, or `WorkspaceHome.onOpenCommand` when given), Tasks, Menu. The Menu drawer lists Home, Agents (Resources > Skills), Tasks, Automations, Integrations (Resources > Services), Knowledge Base (Resources), Calls & Meetings (voice), Settings (Profile & Settings), then Approvals, Assistant, Inbox, WhatsApp, Developer (owners), Organization, Marketplace and Advanced routing, and the plan card. Labels hide (tooltips and spoken labels stay) when they cannot fit at large text.
+- **840 px and up**: a navigation rail with the mark, the orb and a Menu button; the greeting header (avatar to Profile, bell with the pending approvals count, refresh) sits above every page.
+- **Sign-in**: splash, onboarding (four skippable pages, once per device), Login (Email/Mobile tabs, Forgot password, Continue with Google/Apple) and Create account (password guidance, terms checkbox). With Keycloak the app never shows a password field: each button starts the OIDC code flow with `login_hint`, `kc_idp_hint=google|apple` or `prompt=create` ([Identity: Flutter](../../docs/identity.md#flutter)).
+- **Profile & Settings** (`lib/features/settings/profile_screen.dart`): profile card from the ID token, plan (Free plan: there is no billing API, so nothing to buy), My Profile, Security and Notifications open Settings at that section, Language and Theme (dark default, light, system; kept on the device) apply at once, Data & Privacy, Help & Support, About.
 
 ## Voice Commands
 

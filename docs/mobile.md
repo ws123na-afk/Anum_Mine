@@ -10,7 +10,9 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 
 ## Implemented
 
-- Semantic Light and Dark themes, 8 px spacing, 8 px cards, and 48 px minimum controls.
+- The ANUM 360 look ([design](design/anum360.md)): midnight navy with a blue-to-violet accent gradient in Dark and Light themes (Profile & Settings > Theme: dark by default, light or the phone's setting, kept on the device), the ANUM mark and orb drawn in code, gradient primary buttons, raised cards and status pills, 8 px spacing and 48 px minimum controls. The shell is a bottom bar (Home, Chat, the orb for ANUM Command, Tasks, Menu) on phones and a rail with the orb from 840 px; the Menu drawer reaches every destination ([apps/mobile/README.md](../apps/mobile/README.md#anum-360-shell)).
+- Splash, onboarding (skippable, once per device), Login with Email/Mobile, Forgot password, Continue with Google and Continue with Apple, and Create account, all through Keycloak without a password field in the app ([Identity: Flutter](identity.md#flutter)).
+- Profile & Settings: profile card, plan (Free plan; ANUM has no billing yet, so there is nothing to buy), and the way into My Profile, Security, Notifications, Language, Theme, Data & Privacy, Help & Support and About. The header's bell counts the approvals waiting in the workspace and opens Approvals.
 - Session restore and encrypted local token persistence.
 - Keycloak sign-in (authorization code + PKCE through `flutter_appauth`) with token refresh and RP-initiated sign-out when `ANUM_OIDC_ISSUER` is defined; see [Identity and sign-in](identity.md#flutter).
 - Local development password/OTP sign-in, password recovery, a workspace picker that lists your memberships from the API and checks the membership before switching ([Identity](identity.md#flutter)), onboarding, and model-provider configuration.
@@ -48,7 +50,7 @@ flutter run \
   --dart-define=ANUM_OIDC_ISSUER=http://localhost:8080/realms/anum
 ```
 
-`ANUM_OIDC_CLIENT_ID`, `ANUM_OIDC_REDIRECT_URL` and `ANUM_WORKSPACE_ID` override the client, redirect and fallback workspace; `ANUM_WEB_APP_URL` (for example `http://localhost:5173/`) adds the web invitation link to new invitations ([Release builds](#release-builds)). The issuer must match the API's `ANUM_KEYCLOAK_ISSUER` exactly, which is why the emulator reaches Keycloak through `adb reverse` on `localhost` instead of `10.0.2.2`. Plain-HTTP issuers work only in debug and profile builds.
+`ANUM_TERMS_URL` and `ANUM_PRIVACY_POLICY_URL` (optional) link the deployment's terms and privacy policy from Create account; `ANUM_APP_VERSION` sets the version shown in About. `ANUM_OIDC_CLIENT_ID`, `ANUM_OIDC_REDIRECT_URL` and `ANUM_WORKSPACE_ID` override the client, redirect and fallback workspace; `ANUM_WEB_APP_URL` (for example `http://localhost:5173/`) adds the web invitation link to new invitations ([Release builds](#release-builds)). The issuer must match the API's `ANUM_KEYCLOAK_ISSUER` exactly, which is why the emulator reaches Keycloak through `adb reverse` on `localhost` instead of `10.0.2.2`. Plain-HTTP issuers work only in debug and profile builds.
 
 When `ANUM_OIDC_ISSUER` is not defined the app keeps the local development sign-in (password, one-time code, password recovery), which requires an API in `ANUM_AUTH_MODE=headers`. Production builds must use HTTPS and OIDC; the local sign-in screen is not shown when an issuer is configured.
 

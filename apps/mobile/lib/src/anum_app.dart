@@ -10,6 +10,7 @@ import '../features/automations/automation_repository.dart';
 import '../features/automations/automations_controller.dart';
 import '../features/auth/auth_repository.dart';
 import '../features/auth/auth_screens.dart';
+import '../features/auth/intro.dart';
 import '../features/auth/oidc.dart';
 import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_repository.dart';
@@ -32,6 +33,7 @@ import '../features/workspace/tasks_screen.dart';
 import '../features/voice/speech_service.dart';
 import '../features/voice/voice_controller.dart';
 import '../features/voice/voice_repository.dart';
+import '../features/settings/profile_screen.dart';
 import '../features/settings/settings_controller.dart';
 import '../features/admin/admin_repository.dart';
 import '../features/learning/learning_repository.dart';
@@ -46,11 +48,14 @@ import 'infrastructure/appauth_authenticator.dart';
 import 'infrastructure/http_event_stream.dart';
 import 'infrastructure/mobile_adapters.dart';
 import 'theme/anum_theme.dart';
+import 'theme/theme_controller.dart';
 import 'localization/anum_localizations.dart';
 
 abstract final class AnumRoutes {
   static const splash = '/splash';
+  static const onboarding = '/onboarding';
   static const signIn = '/sign-in';
+  static const createAccount = '/create-account';
   static const workspaceSetup = '/workspace-setup';
   static const modelSetup = '/model-setup';
   static const assistant = '/assistant';
@@ -63,6 +68,7 @@ abstract final class AnumRoutes {
   static const voice = '/voice';
   static const developer = '/developer';
   static const inbox = '/inbox';
+  static const profile = '/profile';
 }
 
 /// Why [apiUrl] cannot be used by a release build, or null when it can.
@@ -92,6 +98,8 @@ class _AnumAppState extends State<AnumApp> {
   late final SettingsController settings;
   late final GovernanceController governance;
   late final LocaleController locale;
+  late final ThemeController theme;
+  late final IntroController intro;
   late final DeveloperController developer;
   late final DeveloperAssist chatDeveloper;
   late final DeveloperAssist voiceDeveloper;
@@ -196,6 +204,8 @@ class _AnumAppState extends State<AnumApp> {
     whatsapp = WhatsAppController(ApiWhatsAppRepository(api));
     email = EmailController(ApiEmailRepository(api));
     locale = LocaleController()..restore();
+    theme = ThemeController()..restore();
+    intro = IntroController()..restore();
     auth.addListener(_onAuthChanged);
     auth.restore();
     push.start();
@@ -305,6 +315,8 @@ class _AnumAppState extends State<AnumApp> {
     whatsapp.dispose();
     email.dispose();
     locale.dispose();
+    theme.dispose();
+    intro.dispose();
     super.dispose();
   }
 
@@ -332,7 +344,7 @@ class _AnumAppState extends State<AnumApp> {
   }
 
   Widget _buildApp(BuildContext context) => ListenableBuilder(
-      listenable: locale,
+      listenable: Listenable.merge([locale, theme]),
       builder: (context, _) => MaterialApp(
             navigatorKey: _navigator,
             scaffoldMessengerKey: _messenger,
@@ -340,7 +352,7 @@ class _AnumAppState extends State<AnumApp> {
             debugShowCheckedModeBanner: false,
             theme: AnumTheme.light(),
             darkTheme: AnumTheme.dark(),
-            themeMode: ThemeMode.dark,
+            themeMode: theme.mode,
             locale: locale.locale,
             restorationScopeId: 'anum_mobile',
             supportedLocales: const [Locale('en'), Locale('ar')],
@@ -359,6 +371,7 @@ class _AnumAppState extends State<AnumApp> {
                       settingsController: settings,
                       governanceController: governance,
                       localeController: locale,
+                      themeController: theme,
                       developerController: developer,
                       automationsController: automations,
                       chatDeveloper: chatDeveloper,
@@ -367,7 +380,7 @@ class _AnumAppState extends State<AnumApp> {
                       commerceController: commerce,
                       workspaceName: auth.workspaceName,
                     )
-                  : AuthFlow(controller: auth),
+                  : AuthFlow(controller: auth, intro: intro),
             ),
           ));
 
@@ -375,12 +388,35 @@ class _AnumAppState extends State<AnumApp> {
     final name = settings.name;
     if ({
       AnumRoutes.splash,
+      AnumRoutes.onboarding,
       AnumRoutes.signIn,
       AnumRoutes.workspaceSetup,
       AnumRoutes.modelSetup
     }.contains(name)) {
       return MaterialPageRoute<void>(
-          settings: settings, builder: (_) => AuthFlow(controller: auth));
+          settings: settings,
+          builder: (_) => AuthFlow(controller: auth, intro: intro));
+    }
+    if (name == AnumRoutes.createAccount) {
+      return MaterialPageRoute<void>(
+          settings: settings,
+          builder: (_) => ListenableBuilder(
+              listenable: auth,
+              builder: (_, __) => auth.phase == AuthPhase.signedOut
+                  ? SignInScreen(controller: auth, startWithRegistration: true)
+                  : AuthFlow(controller: auth, intro: intro)));
+    }
+    if (name == AnumRoutes.profile) {
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+            auth: auth,
+            child: ProfileScreen(
+                settings: this.settings,
+                locale: locale,
+                theme: theme,
+                workspaceName: auth.workspaceName)),
+      );
     }
     final index = switch (name) {
       AnumRoutes.assistant => WorkspaceDestination.assistant,
@@ -429,6 +465,7 @@ class _AnumAppState extends State<AnumApp> {
         settingsController: settings,
         governanceController: governance,
         localeController: locale,
+        themeController: theme,
         developerController: developer,
         automationsController: automations,
         chatDeveloper: chatDeveloper,

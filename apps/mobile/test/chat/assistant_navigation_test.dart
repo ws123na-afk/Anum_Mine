@@ -1,5 +1,6 @@
-// The Assistant is the workspace's first destination, and system Back closes
-// its conversation list on a phone (PopScope in WorkspaceHome).
+// The Assistant is Chat in the phone's bottom bar and first in the rail, and
+// system Back closes its conversation list on a phone (PopScope in
+// WorkspaceHome).
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/session_store.dart';
 import 'package:anum_mobile/features/auth/auth_repository.dart';
@@ -12,6 +13,7 @@ import 'package:anum_mobile/features/voice/voice_controller.dart';
 import 'package:anum_mobile/features/voice/voice_preferences.dart';
 import 'package:anum_mobile/features/voice/voice_repository.dart';
 import 'package:anum_mobile/features/workspace/api_workspace_repository.dart';
+import 'package:anum_mobile/features/workspace/destinations.dart';
 import 'package:anum_mobile/features/workspace/workspace_controller.dart';
 import 'package:anum_mobile/features/workspace/workspace_home.dart';
 import 'package:anum_mobile/features/workspace/workspace_models.dart';
@@ -56,7 +58,8 @@ class Shell {
 }
 
 Future<Shell> buildShell(FakeConversationsApi conversations,
-    {ScriptedEvents? events}) async {
+    {ScriptedEvents? events,
+    int initialIndex = WorkspaceDestination.assistant}) async {
   final sessions = MemorySessionStore();
   await sessions.write((await (await signedInSessions()).read())!);
   final api = AnumApiClient(
@@ -80,51 +83,70 @@ Future<Shell> buildShell(FakeConversationsApi conversations,
         ApiGovernanceRepository(api, auditExporter: _NoExport())),
     localeController: LocaleController(),
     workspaceName: 'Operations',
+    initialIndex: initialIndex,
   );
   return Shell(home, chat, voice);
 }
 
 Future<void> pumpShell(WidgetTester tester, Widget home,
-    {Size size = const Size(390, 844)}) async {
+    {Size size = const Size(390, 844),
+    bool settle = true,
+    Locale locale = const Locale('en'),
+    double scale = 1}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
     theme: AnumTheme.dark(),
+    locale: locale,
     supportedLocales: const [Locale('en'), Locale('ar')],
     localizationsDelegates: const [
       AnumLocalizations.delegate,
       ...GlobalMaterialLocalizations.delegates
     ],
     builder: (context, child) => MediaQuery(
-      data: MediaQuery.of(context).copyWith(disableAnimations: true),
+      data: MediaQuery.of(context).copyWith(
+          disableAnimations: true, textScaler: TextScaler.linear(scale)),
       child: child!,
     ),
     home: home,
   ));
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await settleByTime(tester);
+  }
+}
+
+/// The Assistant's list keeps a spinner while it is off screen, so settle
+/// by time instead.
+Future<void> settleByTime(WidgetTester tester) async {
+  for (var i = 0; i < 10; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
 }
 
 void main() {
-  testWidgets('on a phone the Assistant is the first, selected destination',
+  testWidgets('on a phone Home opens first and Chat is the Assistant',
       (tester) async {
-    final shell = await tester.runAsync(() => buildShell(FakeConversationsApi(
-        conversations: [conversation('conv_1', 'Quarterly plan')])));
-    await pumpShell(tester, shell!.home);
+    final shell = await tester.runAsync(() => buildShell(
+        FakeConversationsApi(
+            conversations: [conversation('conv_1', 'Quarterly plan')]),
+        initialIndex: WorkspaceDestination.home));
+    await pumpShell(tester, shell!.home, settle: false);
 
-    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-    expect(bar.selectedIndex, 0);
-    expect(
-        (bar.destinations.first as NavigationDestination).label, 'Assistant');
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(const Key('nav-chat')), findsOneWidget);
+    expect(find.byKey(const Key('header-bell')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(const Key('nav-chat')));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     expect(find.text('Quarterly plan'), findsOneWidget);
     expect(find.byKey(const Key('chat-input')), findsOneWidget);
     expect(tester.takeException(), isNull);
-
-    await tester.tap(find.byIcon(Icons.home_outlined));
-    await tester.pumpAndSettle();
-    expect(
-        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-        1);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -161,4 +183,78 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('the Menu reaches every destination; the bell opens Approvals',
+      (tester) async {
+    final shell = await tester.runAsync(() => buildShell(
+        FakeConversationsApi(conversations: const []),
+        initialIndex: WorkspaceDestination.home));
+    await pumpShell(tester, shell!.home, settle: false);
+
+    await tester.tap(find.byKey(const Key('nav-menu')));
+    await settleByTime(tester);
+    for (final label in [
+      'Home',
+      'Agents',
+      'Tasks',
+      'Automations',
+      'Integrations',
+      'Knowledge Base',
+      'Calls & Meetings',
+      'Settings',
+      'Approvals',
+    ]) {
+      expect(find.text(label), findsWidgets, reason: label);
+    }
+    await tester.scrollUntilVisible(find.byKey(const Key('menu-plan')), 200,
+        scrollable: find.descendant(
+            of: find.byType(Drawer), matching: find.byType(Scrollable)));
+    expect(find.text('Free plan'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('menu-shellAutomations')));
+    await settleByTime(tester);
+    expect(find.byType(Drawer), findsNothing);
+
+    await tester.tap(find.byKey(const Key('nav-home')));
+    await settleByTime(tester);
+    await tester.tap(find.byKey(const Key('header-bell')));
+    await settleByTime(tester);
+    expect(find.text('Approvals'), findsWidgets);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('the orb opens the command surface; Arabic RTL at 200% text',
+      (tester) async {
+    final shell = await tester.runAsync(() => buildShell(
+        FakeConversationsApi(conversations: const []),
+        initialIndex: WorkspaceDestination.home));
+    await pumpShell(tester, shell!.home,
+        settle: false,
+        size: const Size(320, 700),
+        locale: const Locale('ar'),
+        scale: 2);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const Key('nav-orb')));
+    await settleByTime(tester);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  for (final size in const [Size(1024, 768), Size(1440, 900)]) {
+    testWidgets('wide ${size.width}: rail with orb and menu, header on top',
+        (tester) async {
+      final shell = await tester.runAsync(() => buildShell(
+          FakeConversationsApi(conversations: const []),
+          initialIndex: WorkspaceDestination.home));
+      await pumpShell(tester, shell!.home, settle: false, size: size);
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byKey(const Key('rail-orb')), findsOneWidget);
+      expect(find.byKey(const Key('header-bell')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('rail-menu')));
+      await settleByTime(tester);
+      expect(find.byType(Drawer), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 }
