@@ -1,5 +1,6 @@
-from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager
+import asyncio
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -371,7 +372,8 @@ async def tenant_context(
     if settings.auth_mode == "oidc":
         claims, workspace_id = await _oidc_identity(authorization, x_tenant_id, x_workspace_id)
         identity = claims.tenant_context(workspace_id)
-        membership = lookup_membership(identity)
+        # A database read: in a worker thread, never on the event loop (docs/realtime.md#event-loop).
+        membership = await asyncio.to_thread(lookup_membership, identity)
         if membership is None or not membership.active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -380,7 +382,7 @@ async def tenant_context(
         context = _traced(_membership_context(identity, membership))
     else:
         context = _traced(_header_context(authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles))
-    refuse_writes_to_archived_workspace(request, context)
+    await asyncio.to_thread(refuse_writes_to_archived_workspace, request, context)
     return context
 
 
@@ -407,7 +409,8 @@ async def provisioning_tenant_context(
     if settings.auth_mode == "oidc":
         claims, workspace_id = await _oidc_identity(authorization, x_tenant_id, x_workspace_id)
         identity = claims.tenant_context(workspace_id)
-        membership = lookup_membership(identity)
+        # A database read: in a worker thread, never on the event loop (docs/realtime.md#event-loop).
+        membership = await asyncio.to_thread(lookup_membership, identity)
         if membership is None:
             return identity
         if not membership.active:
@@ -493,11 +496,29 @@ def _unit_of_work(context: TenantContext, *, require_membership: bool) -> Iterat
         session.close()
 
 
-async def repository_context(
+def repository_context(
     context: TenantContext = Depends(tenant_context),
-) -> AsyncIterator[AnumRepository]:
+) -> Iterator[AnumRepository]:
+    """The request's unit of work. A plain generator on purpose: FastAPI opens it (the
+    membership read included) and commits it in its thread pool, never on the event
+    loop (docs/realtime.md#event-loop)."""
     with _unit_of_work(context, require_membership=True) as repository:
         yield repository
+
+
+UnitsOfWork = Callable[[TenantContext], AbstractContextManager[AnumRepository]]
+
+
+def _membership_unit_of_work(context: TenantContext) -> AbstractContextManager[AnumRepository]:
+    return _unit_of_work(context, require_membership=True)
+
+
+def units_of_work() -> UnitsOfWork:
+    """Opens the request's short units of work, each like ``repository_context`` (tenant
+    scope, membership checked). For work that must not keep one open across a model or
+    tool call: inline task runs (inline_runs.py) open a new one per step, in a worker
+    thread. A dependency so tests can swap it like ``repository_context``."""
+    return _membership_unit_of_work
 
 
 @dataclass(frozen=True)
@@ -564,17 +585,17 @@ async def directory_identity(
     )
 
 
-async def identity_repository_context(
+def identity_repository_context(
     identity: AuthenticatedIdentity = Depends(authenticated_identity),
-) -> AsyncIterator[AnumRepository]:
+) -> Iterator[AnumRepository]:
     """A tenant-scoped unit of work for callers that may not be members yet (invitees)."""
     with _unit_of_work(identity.context, require_membership=False) as repository:
         yield repository
 
 
-async def memory_repository_context(
+def memory_repository_context(
     context: TenantContext = Depends(tenant_context),
-) -> AsyncIterator[MemoryRepository]:
+) -> Iterator[MemoryRepository]:
     if settings.repository_backend == "memory":
         _require_persisted_membership(memory_repository, context)
         yield memory_note_repository
@@ -625,9 +646,9 @@ def open_memory_repository(context: TenantContext) -> Iterator[MemoryRepository]
         yield repository
 
 
-async def provisioning_repository_context(
+def provisioning_repository_context(
     context: TenantContext = Depends(provisioning_tenant_context),
-) -> AsyncIterator[AnumRepository]:
+) -> Iterator[AnumRepository]:
     if settings.repository_backend == "memory":
         yield memory_repository
         return

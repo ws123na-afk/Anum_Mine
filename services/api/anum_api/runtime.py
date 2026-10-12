@@ -1,7 +1,8 @@
+import asyncio
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 
-from .agent_planning import AgentPlanner
+from .agent_planning import AgentPlanner, PlanResult
 from .agent_policy import AgentRunProfile, apply_agent_policy
 from .agent_skills import SkillRegistry, default_skill_registry
 from .agent_tools import (
@@ -175,19 +176,54 @@ class AgentRuntime:
         ``waiting_approval`` (the returned approval), or ``failed`` (policy blocks it).
         Nothing is saved until planning finishes, so a crash mid-planning leaves the
         run at ``planning`` and planning simply runs again.
+
+        The inline runner (``inline_runs.py``) calls the three steps itself, so the
+        model is asked with no database transaction open.
         """
+        self.start_planning(task, run)
+        planned, learned = await self.plan_with_model(task, run, context)
+        return self.apply_plan(task, run, context, planned, learned)
+
+    def start_planning(self, task: Task, run: AgentRun) -> None:
         if run.checkpoint.phase != RunPhase.PLANNING:
             raise ValueError("Run has already been planned")
         task.status = run.status = TaskStatus.RUNNING
         task.updated_at = run.updated_at = utc_now()
 
+    async def plan_with_model(
+        self, task: Task, run: AgentRun, context: TenantContext, *, offload: bool = False
+    ) -> tuple[PlanResult, str | None]:
+        """Context and the model's plan. Reads nothing through ``self.repository``.
+
+        With ``offload`` the blocking reads (agent memories, learned style) run in a
+        worker thread, never on the event loop (docs/realtime.md#event-loop).
+        """
         agent = self.agent_of(run)
         retrieved = await self._retrieve(task, run, context, agent)
         blocks = list(retrieved.blocks) if retrieved else []
         if agent is not None:
-            blocks = self._agent_memory_blocks(run, context, agent) + blocks
-        learned = self._learned_block(task, context)
+            memory_blocks = (
+                await asyncio.to_thread(self._agent_memory_blocks, run, context, agent)
+                if offload
+                else self._agent_memory_blocks(run, context, agent)
+            )
+            blocks = memory_blocks + blocks
+        learned = (
+            await asyncio.to_thread(self._learned_block, task, context) if offload else self._learned_block(task, context)
+        )
         planned = await self.planner.plan(task, context_blocks=blocks, learned_block=learned, agent=agent)
+        return planned, learned
+
+    def apply_plan(
+        self,
+        task: Task,
+        run: AgentRun,
+        context: TenantContext,
+        planned: PlanResult,
+        learned: str | None,
+    ) -> Approval | None:
+        """Record the plan, apply tool policy and save (``self.repository``)."""
+        agent = self.agent_of(run)
         model_step = AgentRunStep(
                 id=new_id("step"),
                 type="model_call",

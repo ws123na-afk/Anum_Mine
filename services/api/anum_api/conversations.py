@@ -37,6 +37,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from threading import RLock
@@ -523,13 +524,16 @@ async def stream_reply(
         # A structured answer ends with an ``anum-report`` block: it becomes a stored
         # report and a card, and is left out of the stored turn (docs/reports.md).
         text, block = split_report_block(text)
-    assistant_turn = _store_reply(context, conversation, text, outcome)
+    # Off the event loop (docs/realtime.md#event-loop).
+    assistant_turn = await asyncio.to_thread(_store_reply, context, conversation, text, outcome)
     if outcome == TurnStatus.COMPLETE and assistant_turn is not None and completed is not None:
         completed.text = assistant_turn.content
         completed.complete = True
     if outcome == TurnStatus.COMPLETE:
         report = (
-            save_chat_report(context, block, conversation_id=conversation.id, turn_id=assistant_turn.id)
+            await asyncio.to_thread(
+                save_chat_report, context, block, conversation_id=conversation.id, turn_id=assistant_turn.id
+            )
             if block is not None and assistant_turn is not None
             else None
         )
@@ -654,7 +658,7 @@ async def stream_tool_reply(
         parts = [text]
         if text:
             yield sse("delta", {"text": text})
-    assistant_turn = _store_reply(context, conversation, "".join(parts), TurnStatus.COMPLETE, card)
+    assistant_turn = await asyncio.to_thread(_store_reply, context, conversation, "".join(parts), TurnStatus.COMPLETE, card)
     # Same shape as a plain reply; a tool turn never carries a report (docs/reports.md).
     yield sse("done", {"assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None, "report": None})
 
@@ -687,7 +691,7 @@ def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-unt
 
 
 @router.post("", response_model=Conversation, status_code=status.HTTP_201_CREATED)
-async def create_conversation(
+def create_conversation(
     payload: ConversationCreate,
     context: TenantContext = Depends(tenant_context),
 ) -> Conversation:
@@ -699,7 +703,7 @@ async def create_conversation(
 
 
 @router.get("", response_model=list[Conversation])
-async def list_conversations(
+def list_conversations(
     agent_id: str | None = Query(default=None, max_length=80, description="Threads with this agent; omitted: the Assistant's"),
     q: str | None = Query(default=None, max_length=MAX_SEARCH_CHARS, description="Words in the title or any message"),
     limit: int = Query(default=MAX_CONVERSATIONS_LISTED, ge=1, le=MAX_CONVERSATIONS_PAGE),
@@ -726,7 +730,7 @@ async def list_conversations(
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
-async def get_conversation(
+def get_conversation(
     conversation_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> ConversationDetail:
@@ -744,7 +748,7 @@ async def get_conversation(
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_conversation(
+def delete_conversation(
     conversation_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> Response:
@@ -755,7 +759,7 @@ async def delete_conversation(
 
 
 @router.patch("/{conversation_id}", response_model=Conversation)
-async def update_conversation(
+def update_conversation(
     conversation_id: str,
     payload: ConversationUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -796,7 +800,7 @@ def answer_span(turns: Sequence[ConversationTurn], index: int) -> list[Conversat
 
 
 @router.delete("/{conversation_id}/turns/{turn_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_turn(
+def delete_turn(
     conversation_id: str,
     turn_id: str,
     context: TenantContext = Depends(tenant_context),
@@ -855,27 +859,18 @@ async def rate_turn(
     return result
 
 
-@router.post("/{conversation_id}/ask")
-async def ask_in_conversation(
-    conversation_id: str,
-    payload: ConversationAsk,
-    context: TenantContext = Depends(tenant_context),
-    gateway: ModelGateway = Depends(voice_model_gateway),
-    language: Language = Depends(request_language),
-) -> StreamingResponse:
-    """Ask with the conversation's recent turns as context; the reply streams as SSE."""
-    require_permission(context, Permission.TASK_CREATE)
-    if payload.edit_turn_id is not None:
-        if payload.content is None or payload.retry_turn_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Send edit_turn_id with the new content",
-            )
-    elif (payload.content is None) == (payload.retry_turn_id is None):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Send either content or retry_turn_id",
-        )
+@dataclass
+class _PreparedAsk:
+    conversation: Conversation
+    user_turn: ConversationTurn
+    history: list[ConversationTurn]
+    runtime_config: chat_tools.ChatTaskRuntime | None
+    category: ChatCategory | None
+
+
+def _prepare_conversation_ask(conversation_id: str, payload: ConversationAsk, context: TenantContext) -> _PreparedAsk:
+    """Checks, the stored question and the chat intent: blocking database work, so the
+    route runs it in a worker thread (docs/realtime.md#event-loop)."""
     # Refused before anything is stored: 402 with the reset date (main.py's handler).
     check_model_budget(context)
     history_window = settings.conversation_history_turns + 2
@@ -931,27 +926,22 @@ async def ask_in_conversation(
         if runtime_config is not None and conversation.agent_id is None
         else None
     )
-    if runtime_config is not None and category is not None:
-        # Data or an action: a governed task, never a tool call from the chat model. No
-        # memory pass: the reply quotes mailbox, WhatsApp or web data, not the user.
-        return StreamingResponse(
-            stream_tool_reply(
-                context=context,
-                conversation=conversation,
-                user_turn=user_turn,
-                category=category,
-                gateway=gateway,
-                runtime_config=runtime_config,
-                learned_block=learned_instructions(context, surface=Surface.CHAT.value),
-            ),
-            media_type="text/event-stream",
-            headers=SSE_HEADERS,
-        )
-    recall = await recall_memories(context, user_turn.content)
-    # A tyre question is grounded in the workspace's tyre data through a read-only tool,
-    # decided by tool policy (anum_api/tyre/tools.py); the model never calls tools here.
-    grounding = await tyre_grounding(context, user_turn.content)
-    blocks = list(recall.blocks)
+    return _PreparedAsk(conversation, user_turn, history, runtime_config, category)
+
+
+@dataclass
+class _ReplyContext:
+    blocks: list[str]
+    persona: str | None
+    route: ModelRoute
+    learned_block: str | None
+    marketing: list[str]
+    remember: bool
+
+
+def _reply_context(context: TenantContext, conversation: Conversation, question: str) -> _ReplyContext:
+    """The agent persona and memories, learned style and marketing numbers (blocking reads)."""
+    blocks: list[str] = []
     persona: str | None = None
     route = ModelRoute.FAST
     if conversation.agent_id is not None:
@@ -966,14 +956,74 @@ async def ask_in_conversation(
         blocks = [
             label_untrusted(memory.content, source=Provenance.MEMORY, origin=f"agent-memory/{memory.id}", max_chars=2000)
             for memory in agent_memories_for_run(context, agent.id)
-        ] + blocks
+        ]
+    return _ReplyContext(
+        blocks=blocks,
+        persona=persona,
+        route=route,
+        learned_block=learned_instructions(context, surface=Surface.CHAT.value),
+        marketing=marketing_blocks(context, question),
+        remember=extraction_enabled(context),
+    )
+
+
+@router.post("/{conversation_id}/ask")
+async def ask_in_conversation(
+    conversation_id: str,
+    payload: ConversationAsk,
+    context: TenantContext = Depends(tenant_context),
+    gateway: ModelGateway = Depends(voice_model_gateway),
+    language: Language = Depends(request_language),
+) -> StreamingResponse:
+    """Ask with the conversation's recent turns as context; the reply streams as SSE.
+
+    Every database read and write runs in a worker thread: on the event loop a slow
+    query, or a wait for a pooled connection, would stall every request of the API.
+    """
+    require_permission(context, Permission.TASK_CREATE)
+    if payload.edit_turn_id is not None:
+        if payload.content is None or payload.retry_turn_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Send edit_turn_id with the new content",
+            )
+    elif (payload.content is None) == (payload.retry_turn_id is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Send either content or retry_turn_id",
+        )
+    prepared = await asyncio.to_thread(_prepare_conversation_ask, conversation_id, payload, context)
+    conversation, user_turn, history = prepared.conversation, prepared.user_turn, prepared.history
+    runtime_config, category = prepared.runtime_config, prepared.category
+    if runtime_config is not None and category is not None:
+        # Data or an action: a governed task, never a tool call from the chat model. No
+        # memory pass: the reply quotes mailbox, WhatsApp or web data, not the user.
+        learned_block = await asyncio.to_thread(learned_instructions, context, surface=Surface.CHAT.value)
+        return StreamingResponse(
+            stream_tool_reply(
+                context=context,
+                conversation=conversation,
+                user_turn=user_turn,
+                category=category,
+                gateway=gateway,
+                runtime_config=runtime_config,
+                learned_block=learned_block,
+            ),
+            media_type="text/event-stream",
+            headers=SSE_HEADERS,
+        )
+    recall = await recall_memories(context, user_turn.content)
+    # A tyre question is grounded in the workspace's tyre data through a read-only tool,
+    # decided by tool policy (anum_api/tyre/tools.py); the model never calls tools here.
+    grounding = await tyre_grounding(context, user_turn.content)
+    extra = await asyncio.to_thread(_reply_context, context, conversation, user_turn.content)
     messages = build_messages(
         history,
         user_turn.content,
-        memory_blocks=[*blocks, *marketing_blocks(context, user_turn.content)],
-        learned_block=learned_instructions(context, surface=Surface.CHAT.value),
+        memory_blocks=[*extra.blocks, *recall.blocks, *extra.marketing],
+        learned_block=extra.learned_block,
         data_blocks=[grounding.block] if grounding else (),
-        persona=persona,
+        persona=extra.persona,
     )
     completed = CompletedReply()
     # Runs after the whole body has been sent: it never delays or fails the stream.
@@ -988,7 +1038,7 @@ async def ask_in_conversation(
             # Fact extraction is a small call: the fast model (Haiku with `anthropic`).
             gateway=route_gateway(gateway, ModelRoute.FAST),
         )
-        if extraction_enabled(context)
+        if extra.remember
         else None
     )
     return StreamingResponse(
@@ -1001,7 +1051,7 @@ async def ask_in_conversation(
             completed=completed,
             memories_used=recall.memory_ids,
             language=language,
-            route=route,
+            route=extra.route,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,

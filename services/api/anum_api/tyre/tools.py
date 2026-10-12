@@ -17,6 +17,7 @@ untrusted data block. None of the tools writes anything or reaches outside ANUM.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -331,16 +332,32 @@ async def tyre_grounding(context: TenantContext, question: str) -> TyreGrounding
     from ..agent_tools import ToolPolicyOutcome
 
     call = choose_call(question)
-    with _unit_of_work(context, require_membership=False) as repository:
-        runtime = AgentRuntime(MockModelGateway(), repository, tools=_registry)
-        decision = runtime.evaluate(call, context)
-        if decision.outcome != ToolPolicyOutcome.ALLOW:
-            runtime._audit(context, "tool.call", call.name, "blocked", call.name,
-                           {"tool": call.name, "surface": "assistant", "reason": decision.reason})
-            return None
-        result = await _registry.execute(call, context)
-        runtime._audit(context, "tool.call", call.name, result.status, call.name,
-                       {**result.audit_metadata, "tool": call.name, "surface": "assistant"})
+    registry = _registry
+
+    # Policy and audit are short units of work in worker threads; the tool runs with no
+    # transaction open, never holding a connection (docs/realtime.md#event-loop).
+    def allowed() -> bool:
+        with _unit_of_work(context, require_membership=False) as repository:
+            runtime = AgentRuntime(MockModelGateway(), repository, tools=registry)
+            decision = runtime.evaluate(call, context)
+            if decision.outcome != ToolPolicyOutcome.ALLOW:
+                runtime._audit(context, "tool.call", call.name, "blocked", call.name,
+                               {"tool": call.name, "surface": "assistant", "reason": decision.reason})
+                return False
+            return True
+
+    if not await asyncio.to_thread(allowed):
+        return None
+    result = await registry.execute(call, context)
+
+    def audit() -> None:
+        with _unit_of_work(context, require_membership=False) as repository:
+            AgentRuntime(MockModelGateway(), repository, tools=registry)._audit(
+                context, "tool.call", call.name, result.status, call.name,
+                {**result.audit_metadata, "tool": call.name, "surface": "assistant"},
+            )
+
+    await asyncio.to_thread(audit)
     return TyreGrounding(call=call, result=result, block=tool_output_prompt_block(call, result))
 
 

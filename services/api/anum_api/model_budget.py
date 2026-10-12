@@ -26,6 +26,7 @@ tenant usage is the sum of its workspaces.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import contextmanager
@@ -418,6 +419,20 @@ class BudgetedModelGateway:
         # provider, model, base_url ... of the wrapped gateway (voice checks `provider`).
         return getattr(self.inner, name)
 
+    async def _check(self) -> None:
+        # The budget and usage rows are database reads and writes: in a worker thread,
+        # never on the event loop (docs/realtime.md#event-loop).
+        await asyncio.to_thread(check_model_budget, self.context, now=self._clock())
+
+    async def _record_async(self, response: ModelResponse) -> None:
+        await asyncio.to_thread(self._record, response)
+
+    def _record_soon(self, response: ModelResponse) -> None:
+        try:
+            asyncio.get_running_loop().run_in_executor(None, self._record, response)
+        except RuntimeError:  # no running loop (interpreter shutdown): record inline
+            self._record(response)
+
     def _record(self, response: ModelResponse) -> None:
         try:
             record_model_usage(self.context, response.usage, now=self._clock())
@@ -429,30 +444,30 @@ class BudgetedModelGateway:
             )
 
     async def generate_text(self, prompt: str) -> ModelResponse:
-        check_model_budget(self.context, now=self._clock())
+        await self._check()
         response = await self.inner.generate_text(prompt)
-        self._record(response)
+        await self._record_async(response)
         return response
 
     async def generate_with_instructions(self, instructions: str, prompt: str) -> ModelResponse:
         """Stable instructions then a prompt (the planner's cache layout), budgeted.
 
         A gateway without the method gets them as one prompt."""
-        check_model_budget(self.context, now=self._clock())
+        await self._check()
         generate = getattr(self.inner, "generate_with_instructions", None)
         if callable(generate):
             response: ModelResponse = await generate(instructions, prompt)
         else:
             response = await self.inner.generate_text(f"{instructions}\n\n{prompt}")
-        self._record(response)
+        await self._record_async(response)
         return response
 
     async def generate_structured(
         self, prompt: str, response_model: type[StructuredModel]
     ) -> tuple[StructuredModel, ModelResponse]:
-        check_model_budget(self.context, now=self._clock())
+        await self._check()
         parsed, response = await self.inner.generate_structured(prompt, response_model)
-        self._record(response)
+        await self._record_async(response)
         return parsed, response
 
     async def complete_chat(
@@ -462,7 +477,7 @@ class BudgetedModelGateway:
 
         Gateways without ``complete_chat`` answer through ``stream_chat``, collected.
         """
-        check_model_budget(self.context, now=self._clock())
+        await self._check()
         complete = getattr(self.inner, "complete_chat", None)
         if complete is not None:
             response: ModelResponse = await complete(messages, max_tokens=max_tokens)
@@ -483,7 +498,7 @@ class BudgetedModelGateway:
                     model=str(getattr(self.inner, "model", "unknown")),
                 ),
             )
-        self._record(response)
+        await self._record_async(response)
         return response
 
     async def embed(self, texts: list[str], *, model: str | None = None) -> EmbeddingResponse:
@@ -491,16 +506,9 @@ class BudgetedModelGateway:
         embed = getattr(self.inner, "embed", None)
         if embed is None:
             raise NotImplementedError("this model gateway cannot embed text")
-        check_model_budget(self.context, now=self._clock())
+        await self._check()
         response: EmbeddingResponse = await embed(texts, model=model)
-        try:
-            record_model_usage(self.context, response.usage, now=self._clock())
-        except Exception as exc:  # the call already happened
-            logger.warning(
-                "model_budget_record_failed error_class=%s",
-                type(exc).__name__,
-                extra={"anum_model_budget": {"event": "record_failed", "error_class": type(exc).__name__}},
-            )
+        await self._record_async(ModelResponse(text="", usage=response.usage))
         return response
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
@@ -516,15 +524,37 @@ class BudgetedModelGateway:
     ) -> AsyncIterator[str]:
         """Checked before the call; metered with the stream's usage when it ends (the
         provider's figures, or an estimate when it reports none or the stream stopped)."""
-        check_model_budget(self.context, now=self._clock())
+        await self._check()
+
+        reported: list[ModelUsage] = []
+        stopped = False
 
         def record(usage: ModelUsage) -> None:
-            self._record(ModelResponse(text="", usage=usage))
+            # Called from inside the provider stream: only noted here, written below. A
+            # provider stream closed after this one stopped reports late: written then.
+            if stopped:
+                self._record_soon(ModelResponse(text="", usage=usage))
+            else:
+                reported.append(usage)
             if on_usage is not None:
                 on_usage(usage)
 
-        async for chunk in self.inner.stream_chat(messages, max_tokens=max_tokens, on_usage=record):
-            yield chunk
+        try:
+            async for chunk in self.inner.stream_chat(messages, max_tokens=max_tokens, on_usage=record):
+                yield chunk
+        except (asyncio.CancelledError, GeneratorExit):
+            stopped = True
+            if reported:
+                # Stopped: never await here (a cancelled stream must end now); the write
+                # runs in a worker thread on its own.
+                self._record_soon(ModelResponse(text="", usage=reported[-1]))
+            raise
+        except Exception:
+            if reported:
+                await self._record_async(ModelResponse(text="", usage=reported[-1]))
+            raise
+        if reported:
+            await self._record_async(ModelResponse(text="", usage=reported[-1]))
 
 
 # --------------------------------------------------------------------------- API

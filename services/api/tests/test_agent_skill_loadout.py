@@ -236,3 +236,22 @@ def test_usage_and_loadout_need_task_read(client: TestClient) -> None:
     no_role = headers("user_guest", "guest")
     assert client.get("/api/v1/agents/skills/usage", headers=no_role).status_code == 403
     assert client.get(f"/api/v1/agents/{agent['id']}/skills", headers=no_role).status_code == 403
+
+
+def test_a_run_fails_closed_when_the_skill_store_cannot_be_read(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An agent never runs without the skills it was configured with while the caller thinks they load."""
+    _publish(client, "acme.notes", "1.0.0", ["anum.respond"])
+    _install(client, "acme.notes", "1.0.0", ["anum.respond"])
+    agent = _agent(client, allowed_skills=["acme.notes"])
+    task = client.post("/api/v1/tasks", headers=OWNER, json={"title": "t", "prompt": "Summarize", "agent_id": agent["id"]}).json()
+    from anum_api import skills_api
+
+    def unreadable(_context):  # type: ignore[no-untyped-def]
+        raise RuntimeError("skill store unreachable")
+
+    monkeypatch.setattr(skills_api, "open_skill_store", unreadable)
+    refused = TestClient(app, raise_server_exceptions=False).post(f"/api/v1/tasks/{task['id']}/run", headers=OWNER)
+    assert refused.status_code >= 500
+    monkeypatch.undo()
+    after = client.get(f"/api/v1/tasks/{task['id']}", headers=OWNER).json()
+    assert after["status"] != "completed"
