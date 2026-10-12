@@ -86,6 +86,12 @@ services:
         # Fixed address: the API (FORWARDED_ALLOW_IPS) and Keycloak
         # (KC_PROXY_TRUSTED_ADDRESSES) trust forwarded headers from this peer only.
         ipv4_address: 172.30.10.10
+      # Other self-contained stacks on the same VM (docs/deploy-oracle.md#other-sites-on-the-same-vm)
+      # join `anum_sites` as an external network; Caddy proxies to them through
+      # sites-enabled/<name>.caddy. Caddy is the only ANUM service on it, and ANUM's
+      # upstreams stay reachable over `edge` only, so the API and Keycloak still see
+      # 172.30.10.10 as the peer.
+      sites: {}
     depends_on:
       - web
       - api
@@ -806,6 +812,15 @@ networks:
     ipam:
       config:
         - subnet: 172.30.40.0/24
+  # Caddy and other stacks on the same VM (e.g. the `portfolio` compose project), which
+  # join it as `external: true` with this fixed name. No ANUM service but Caddy is on
+  # it. Not internal: those stacks need outbound access. Created (and removed) by this
+  # compose project, so it exists after update.sh.
+  sites:
+    name: anum_sites
+    ipam:
+      config:
+        - subnet: 172.30.50.0/24
 
 volumes:
   postgres-data:

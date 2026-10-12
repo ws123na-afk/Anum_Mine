@@ -95,5 +95,8 @@
 
 # Optional sites: infra/oracle/monitoring.sh enable puts an import of monitoring.caddy
 # (Beszel and GlitchTip, docs/monitoring-oracle.md) into sites-enabled/ and disable
-# removes it. A glob that matches no file imports nothing.
+# removes it. Other stacks on the same VM (on the `anum_sites` network) get one
+# sites-enabled/<name>.caddy each, validated before a reload
+# (docs/deploy-oracle.md#other-sites-on-the-same-vm); the files are git-ignored. A glob
+# that matches no file imports nothing.
 import /etc/caddy/sites-enabled/*.caddy

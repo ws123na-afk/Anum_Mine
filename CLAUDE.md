@@ -29,6 +29,14 @@ The owner wants finished features, not placeholders. Before calling any page or 
 - Messages to the owner are short: only what the owner must do (with exact steps), blockers, and decisions only the owner can make. Do not narrate progress, agent reports or test counts unless asked.
 - Merge PRs once CI is green; keep the next batch of work going.
 
+## Owner's Oracle setup (as of 12 Oct 2026)
+- One VM, `anum-staging` (Riyadh, `ME-RIYADH-1-AD-1`), A1 4 OCPU / 24 GB, 100 GB boot volume, IP 84.13.132.198, hosts `anum-{app,api,auth}-ws123na.duckdns.org`. Owner logs in as `ubuntu` with the `anum_oracle2` key (passphrase set); the old Helper instance and its boot volume are gone.
+- Account: Free Tier in its 30-day Free Trial (€250 credit, started 11 Oct 2026, ends about 10 Nov 2026), no payment method. Oracle reportedly cut Always Free A1 to 2 OCPU / 12 GB in June 2026; if Billing → Subscriptions shows credit being used, ANUM at 4/24 is over the free amount and must be resized to 2/12 (or the account upgraded) before the trial ends. Never upgrade the account, create paid resources or change DNS without the owner's explicit go-ahead.
+- Owner's choice: everything stays free on this one VM. Other apps (portfolio first, then TyrePulse, VoiceQuote, Anum360 Store, one at a time) run as their own compose stacks behind ANUM's Caddy via the `anum_sites` network ([deploy-oracle.md](docs/deploy-oracle.md)), each with its own database, memory limits and backups, built to move to a home lab later. ANUM's own services are never touched for them.
+- Backblaze B2 (`us-east-005`): buckets `anum-staging-files` and `anum-staging-backups`. Off-site backups fail with `SignatureDoesNotMatch` until the owner enters a new backup key (`read -s`, never in chat); local backups work.
+- Claude's auto mode refuses to merge PRs: when CI is green, tell the owner to press Ready for review → Merge.
+- Portfolio (`ws123na-afk/Portfolio-`, live at www.shahzebrahman.com): frontend on Vercel; the Render backend `Portfolio-` has crash-looped since its database `Portpolio` was suspended (about 4 Sep 2026) and its last good build (July) lacks a 2FA fix, so suspend that service before ever resuming the database.
+
 ## Skills in this repo
 - `anum-verify` — run the right local checks for what you changed.
 - `steward` — how to drive a red PR or `main` back to green.
