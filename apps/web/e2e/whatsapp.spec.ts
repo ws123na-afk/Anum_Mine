@@ -210,7 +210,7 @@ test('an owner puts a template on the auto-send list', async ({ page }) => {
 test('members read and ask to send but cannot approve or change the setup; viewers are told who can', async ({ page }) => {
   await mockApi(page, { role: 'member' });
   await openInbox(page);
-  await page.getByRole('button', { name: 'Setup' }).click();
+  await page.getByRole('button', { name: 'Setup', exact: true }).click();
   await expect(page.getByText('Only owners change the connection')).toBeVisible();
   await page.goto('about:blank');
   const viewer = await page.context().newPage();
