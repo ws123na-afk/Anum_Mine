@@ -14,6 +14,7 @@ import '../features/auth/auth_screens.dart';
 import '../features/auth/intro.dart';
 import '../features/auth/oidc.dart';
 import '../features/chat/chat_controller.dart';
+import '../features/command/command.dart';
 import '../features/chat/chat_repository.dart';
 import '../features/developer/developer_assist.dart';
 import '../features/developer/developer_controller.dart';
@@ -77,6 +78,8 @@ abstract final class AnumRoutes {
   /// Tyre planning (docs/tyre-planning.md); `/tyres/alerts` opens its alerts.
   static const tyres = '/tyres';
   static const tyreAlerts = '/tyres/alerts';
+  static const command = '/command';
+  static const quickCommands = '/quick-commands';
 }
 
 /// Why [apiUrl] cannot be used by a release build, or null when it can.
@@ -121,6 +124,7 @@ class _AnumAppState extends State<AnumApp> {
   final _messenger = GlobalKey<ScaffoldMessengerState>();
   late final WhatsAppController whatsapp;
   late final EmailController email;
+  late final CommandController command;
 
   /// Set when the build's configuration is unsafe; the app then shows only
   /// this message and creates no clients.
@@ -214,6 +218,16 @@ class _AnumAppState extends State<AnumApp> {
     // WhatsApp inbox (docs/whatsapp.md): owners and members; owners approve.
     whatsapp = WhatsAppController(ApiWhatsAppRepository(api));
     email = EmailController(ApiEmailRepository(api));
+    // ANUM Command (docs/command.md): app-wide, so a command keeps being
+    // followed after "Keep working in background".
+    command = CommandController(
+        repository: ApiCommandRepository(api),
+        speech: DeviceSpeechService(),
+        transfer: HttpCommandTransfer(
+            baseUri: Uri.parse(configuredUrl),
+            sessions: sessions,
+            upload: fileTransfer.upload))
+      ..onSettled = _commandSettled;
     locale = LocaleController()..restore();
     theme = ThemeController()..restore();
     intro = IntroController()..restore();
@@ -247,6 +261,7 @@ class _AnumAppState extends State<AnumApp> {
       chatDeveloper.reset();
       voiceDeveloper.reset();
       whatsapp.reset();
+      command.reset();
     }
     if (auth.phase == AuthPhase.ready && workspace.currentUserId == null) {
       _rememberUser();
@@ -254,6 +269,21 @@ class _AnumAppState extends State<AnumApp> {
   }
 
   bool _pushReady = false;
+
+  /// The home orb and ANUM Command tile open the Command flow.
+  void _openCommand() => _navigator.currentState?.pushNamed(AnumRoutes.command);
+
+  /// A followed command finished or needs approval while its screen is closed.
+  void _commandSettled(CommandView view) {
+    if (command.onScreen) return;
+    _messenger.currentState?.showSnackBar(SnackBar(
+        content: Text(commandSettledNotice(view, locale.locale)),
+        action: SnackBarAction(
+            label: CommandStrings(locale.locale?.languageCode == 'ar')
+                .t('openRunning'),
+            onPressed: () =>
+                _navigator.currentState?.pushNamed(AnumRoutes.command))));
+  }
 
   /// A tapped push: open the approval queue, the task or the developer
   /// request it names, in the workspace it belongs to.
@@ -327,6 +357,7 @@ class _AnumAppState extends State<AnumApp> {
     voiceDeveloper.dispose();
     whatsapp.dispose();
     email.dispose();
+    command.dispose();
     locale.dispose();
     theme.dispose();
     intro.dispose();
@@ -392,6 +423,7 @@ class _AnumAppState extends State<AnumApp> {
                       emailController: email,
                       commerceController: commerce,
                       workspaceName: auth.workspaceName,
+                      onOpenCommand: _openCommand,
                     )
                   : AuthFlow(controller: auth, intro: intro),
             ),
@@ -460,6 +492,16 @@ class _AnumAppState extends State<AnumApp> {
             _AuthenticatedDestination(auth: auth, child: _workspace(index)),
       );
     }
+    if (name == AnumRoutes.command || name == AnumRoutes.quickCommands) {
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+            auth: auth,
+            child: name == AnumRoutes.command
+                ? CommandScreen(controller: command)
+                : QuickCommandsScreen(controller: command)),
+      );
+    }
     if (name == AnumRoutes.inbox) {
       return MaterialPageRoute<void>(
         settings: settings,
@@ -497,6 +539,7 @@ class _AnumAppState extends State<AnumApp> {
         emailController: email,
         commerceController: commerce,
         workspaceName: auth.workspaceName,
+        onOpenCommand: _openCommand,
         initialIndex: index,
       );
 }

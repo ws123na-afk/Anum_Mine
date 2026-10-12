@@ -115,6 +115,15 @@ The **Meetings** tab under Resources ([Calls & Meetings](meetings.md), code `lib
 
 Every state is handled: loading, empty with an import action, error with retry, viewer and permission notes. Tests: `test/meetings_test.dart` (API client, list and detail, Arabic RTL, 320 to 1440 widths at 200% text).
 
+## ANUM Command
+
+`lib/features/command/` implements [ANUM Command](command.md) over `/api/v1/commands`, `/api/v1/quick-commands`, the task run and bulk-cancel routes, approvals and the event stream:
+
+- `CommandController` (one per app, so a command keeps being followed after "Keep working in background") drives the stages: Command (orb, suggestion chips from `GET /api/v1/commands/suggestions`, keyboard, attach a photo or file, Tap to speak), Listening (device speech recognition in English or Arabic, timer, Stop, the transcript stays editable and nothing is planned until Continue), Understanding and Plan (`POST /api/v1/commands/preview`; edit the request, edit, reorder and remove steps; blocked steps stop the start), Executing (`POST /api/v1/commands`, then every step's `POST /api/v1/tasks/{id}/run` in parallel; live from `GET /api/v1/events/stream`, polled while the stream is down; Stop cancels the unfinished steps), Results (Summary, Details, Files; Approve all sends each pending approval with its own payload hash; Share saves the Markdown report or copies the summary; View full report) and Next steps.
+- `QuickCommandsScreen` is the Work, Personal and Custom quick commands (create, edit, move, delete, run). The home orb and ANUM Command tile open `/command` (`WorkspaceHome.onOpenCommand`); the orb and primary buttons reuse the shell's `AnumOrb` and `AnumGradientButton`. `CommandProgressCard` is the home card for a command working in the background; `AnumApp` shows a notice with Open when a followed command finishes or needs approval while its screen is closed. Routes `/command` and `/quick-commands`.
+- Copy is in `command_strings.dart` (English and Arabic, read through the app's locale). The camera button attaches a photo as a workspace file; the model does not read images yet (docs/command.md, Not done yet).
+- Tests: `test/command/` covers parsing, the controller (plan, edit, start, live refresh, polling fallback, approve all, listening, attachments, quick commands, report) and the screens at 320, 390, 768, 1024 and 1440 wide, at 200 percent text and right to left, with the tap-target guidelines.
+
 ## Phone push
 
 Push notifications for approvals waiting, tasks finished or failed and developer pull requests ready ([Notifications](notifications.md)). Code: `lib/features/push/` (the `PushMessaging` interface, its Firebase implementation in `firebase_push_messaging.dart`, the controller and the Settings card).

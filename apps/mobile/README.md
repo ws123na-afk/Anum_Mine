@@ -4,7 +4,7 @@ ANUM Mobile is the Flutter client for Android, iOS, and tablet supervision, and 
 
 ## Product Routes
 
-Authentication and onboarding use `/splash`, `/onboarding`, `/sign-in`, `/create-account`, `/workspace-setup`, and `/model-setup`. The authenticated shell exposes `/home` (the landing page), `/assistant`, `/tasks`, `/tasks/:id`, `/voice`, `/approvals`, `/automations`, `/files`, `/developer`, `/inbox` and `/profile`.
+Authentication and onboarding use `/splash`, `/onboarding`, `/sign-in`, `/create-account`, `/workspace-setup`, and `/model-setup`. The authenticated shell exposes `/home` (the landing page), `/assistant`, `/tasks`, `/tasks/:id`, `/voice`, `/approvals`, `/automations`, `/files`, `/developer`, `/inbox` and `/profile`. `/command` opens ANUM Command and `/quick-commands` its quick commands and templates ([docs/command.md](../../docs/command.md)).
 
 ## ANUM 360 shell
 
