@@ -457,7 +457,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
       heard={state === 'listening' ? (draft || t('voice.goAhead')) : [...turns].reverse().find((turn) => turn.speaker === 'you' && turn.text)?.text ?? ''}
       answer={state === 'listening' ? '' : [...turns].reverse().find((turn) => turn.speaker === 'assistant' && turn.text)?.text ?? notice}
       talkLabel={state === 'listening' ? t('voice.stopListening') : state === 'speaking' ? t('voice.stopSpeaking') : t('voice.tapToTalk')}
-      talkDisabled={state === 'thinking'} onTalk={onOrbClick} onClose={() => setFullscreen(false)}
+      talkDisabled={state === 'thinking'} onTalk={onOrbClick} onClose={() => { if (state === 'listening') stopListening(); setFullscreen(false); }}
       fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />}
 
     <ol className="voiceLog" aria-label={t('voice.conversation')}>

@@ -126,6 +126,28 @@ test('the orb opens full screen: big, modal, keyboard-safe, and it closes back t
   await expect(full).toHaveCount(0);
 });
 
+test('opening and closing the full screen ten times never crashes the tab', async ({ page }) => {
+  // Regression: tapping the orb started listening, whose on-device probe
+  // (SpeechRecognition.available) crashed the renderer in headless Chromium. Alternate the orb and
+  // the Full screen button; each close frees the dialog's WebGL scene before the next one starts.
+  test.setTimeout(120_000);
+  await mockVoice(page);
+  let crashed = false;
+  page.on('crash', () => { crashed = true; });
+  await page.goto('/#voice');
+  const full = page.getByRole('dialog', { name: 'Layla voice assistant' });
+  for (let i = 0; i < 10; i += 1) {
+    if (i % 2) await page.locator('.voiceStage .voiceOrb').click();
+    else await page.getByRole('button', { name: 'Full screen' }).click();
+    await expect(full).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(full).toHaveCount(0);
+    await expect(page.locator('.voiceStage').getByRole('button', { name: 'Tap to talk' })).toBeEnabled();
+  }
+  expect(crashed).toBe(false);
+  if (await webgl(page)) await expect(page.locator('.orb3d canvas')).toHaveCount(1);
+});
+
 for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const) {
   test(`the full screen fits ${width}x${height} without overflow`, async ({ page }) => {
     await page.setViewportSize({ width, height });
