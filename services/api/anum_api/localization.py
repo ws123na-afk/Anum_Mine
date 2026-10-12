@@ -91,7 +91,7 @@ ARABIC_MESSAGES: dict[str, str] = {
     "(Keycloak) to assign you the realm role org_admin (on a self-hosted server: "
     "infra/oracle/keycloak-2fa.sh grant-org-admin <your username>), then sign out and sign in again": (
         "يلزم دور مسؤول المؤسسة: يسري هذا الإعداد على كل مساحات العمل في المؤسسة، لذا لا يكفي أن تملك "
-        "مساحة عمل. اطلب من مسؤول حساب تسجيل الدخول إلى ANUM ‏(Keycloak) أن يمنحك دور النطاق org_admin "
+        "مساحة عمل. اطلب من مسؤول حساب تسجيل الدخول إلى ANUM (Keycloak) أن يمنحك دور النطاق org_admin "
         "(على خادم مستضاف ذاتيًا: infra/oracle/keycloak-2fa.sh grant-org-admin <اسم المستخدم>)، ثم سجّل "
         "الخروج وسجّل الدخول مرة أخرى."
     ),
