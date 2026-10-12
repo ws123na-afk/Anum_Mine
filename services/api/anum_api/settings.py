@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     app_name: str = "ANUM API"
     environment: str = "local"
     database_url: str = "postgresql+psycopg://anum:anum@localhost:5432/anum"
+    # The API's connection pool (docs/realtime.md#event-loop). One user keeps an event
+    # stream per open tab plus the requests each tab makes; 10 + 20 leaves room for many
+    # tabs. A request that cannot get a connection fails after the timeout instead of
+    # waiting 30 s, and a statement waits at most ``database_lock_timeout_ms`` for a row
+    # lock (0 = no limit), so no wait can hold the process for long.
+    database_pool_size: int = Field(default=10, ge=1, le=200)
+    database_max_overflow: int = Field(default=20, ge=0, le=500)
+    database_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
+    database_lock_timeout_ms: int = Field(default=10_000, ge=0, le=600_000)
     repository_backend: str = "memory"
     keycloak_issuer: str = "http://localhost:8080/realms/anum"
     auth_mode: str = "headers"

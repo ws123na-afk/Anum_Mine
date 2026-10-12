@@ -559,7 +559,7 @@ async def recall_memories(
     if not _has_permission(context, Permission.MEMORY_READ):
         return MemoryRecall()
     # The user's own switch turns recall off too (no embedding call is made).
-    if not user_allows_conversation_memory(context):
+    if not await asyncio.to_thread(user_allows_conversation_memory, context):
         return MemoryRecall()
     try:
         retriever = Retriever(

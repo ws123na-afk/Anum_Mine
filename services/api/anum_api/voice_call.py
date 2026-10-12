@@ -24,6 +24,7 @@ the Voice view, so actions asked for by voice are proposed and need a tap on scr
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import logging
@@ -41,7 +42,7 @@ from .conversations import (
     TurnStatus,
     open_conversation_store,
 )
-from .dependencies import repository_context, require_permission, tenant_context
+from .dependencies import require_permission, tenant_context
 from .model_budget import ModelBudgetExceededError
 from .model_gateway import (
     VISION_MEDIA_TYPES,
@@ -53,7 +54,6 @@ from .model_gateway import (
     vision_model_name,
 )
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
-from .repository import AnumRepository
 from .schemas import TenantContext, utc_now
 from .speech_engines import (
     AUDIO_TYPES,
@@ -73,9 +73,9 @@ from .voice import (
     TranscriptSegment,
     TranscriptSegmentCreate,
     VoiceAskCreate,
-    _prepare_ask,
     _session_or_404,
     open_voice_store,
+    prepare_ask_in_own_session,
     stream_prepared_answer,
     voice_model_gateway,
 )
@@ -294,8 +294,6 @@ async def look_and_answer(
     session_id: str,
     payload: LookCreate,
     context: TenantContext = Depends(tenant_context),
-    # Released before the body streams (see stream_events in main.py).
-    repository: AnumRepository = Depends(repository_context, scope="function"),
     gateway: ModelGateway = Depends(voice_model_gateway),
 ) -> StreamingResponse:
     """Answer a spoken question about one camera frame, streamed like ``/ask/stream``.
@@ -309,7 +307,13 @@ async def look_and_answer(
     vision = vision_gateway(route_gateway(gateway, ModelRoute.FAST), image)
     if vision is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=NO_VISION_REASON)
-    asked = _prepare_ask(session_id, VoiceAskCreate(transcript_segment_id=payload.transcript_segment_id), context, repository)
+    # In a worker thread with its own short session (docs/realtime.md#event-loop).
+    asked = await asyncio.to_thread(
+        prepare_ask_in_own_session,
+        session_id,
+        VoiceAskCreate(transcript_segment_id=payload.transcript_segment_id),
+        context,
+    )
     events = stream_prepared_answer(asked, context, session_id, gateway, vision=vision, extra_rules=VISION_RULES)
     return StreamingResponse(events, media_type="text/event-stream", headers=SSE_HEADERS)
 

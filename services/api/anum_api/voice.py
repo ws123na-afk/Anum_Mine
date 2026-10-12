@@ -438,11 +438,14 @@ async def ask_voice_assistant(
     session_id: str,
     payload: VoiceAskCreate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
     gateway: ModelGateway = Depends(voice_model_gateway),
 ) -> VoiceAskResult:
-    """Answer a spoken question. Read-only: it never changes tasks or approvals."""
-    asked = _prepare_ask(session_id, payload, context, repository)
+    """Answer a spoken question. Read-only: it never changes tasks or approvals.
+
+    No database session stays open while the model answers, and every read and write
+    runs in a worker thread, never on the event loop (docs/realtime.md#event-loop).
+    """
+    asked = await asyncio.to_thread(prepare_ask_in_own_session, session_id, payload, context)
     reply = asked.reply
     grounding = await tyre_grounding(context, asked.text) if reply is None else None
     if grounding is not None and getattr(gateway, "provider", "") == "mock":
@@ -458,7 +461,9 @@ async def ask_voice_assistant(
             # Said aloud instead of an error: the monthly model budget is used up.
             reply = exc.spoken(asked.arabic)
 
-    assistant_segment = _store_voice_reply(context, session_id, reply, asked.segment.client_sequence)
+    assistant_segment = await asyncio.to_thread(
+        _store_voice_reply, context, session_id, reply, asked.segment.client_sequence
+    )
     if assistant_segment is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Voice session is closed")
     return VoiceAskResult(
@@ -574,6 +579,16 @@ def _prepare_ask(
     )
 
 
+def prepare_ask_in_own_session(session_id: str, payload: VoiceAskCreate, context: TenantContext) -> _PreparedAsk:
+    """``_prepare_ask`` in its own short unit of work (membership checked, as the request
+    repository would): blocking, so callers on the event loop run it in a thread, and the
+    connection is back in the pool before the model is asked anything."""
+    from .dependencies import _unit_of_work
+
+    with _unit_of_work(context, require_membership=True) as repository:
+        return _prepare_ask(session_id, payload, context, repository)
+
+
 def _store_voice_reply(
     context: TenantContext, session_id: str, reply: str, sequence: int
 ) -> TranscriptSegment | None:
@@ -591,8 +606,6 @@ async def stream_voice_assistant(
     session_id: str,
     payload: VoiceAskCreate,
     context: TenantContext = Depends(tenant_context),
-    # Released before the body streams (see stream_events in main.py).
-    repository: AnumRepository = Depends(repository_context, scope="function"),
     gateway: ModelGateway = Depends(voice_model_gateway),
 ) -> StreamingResponse:
     """The same answer as ``/ask``, streamed as server-sent events so speech can start
@@ -601,9 +614,10 @@ async def stream_voice_assistant(
 
     The body reads nothing through the request's repository session: everything it
     needs is gathered before the response starts and the reply is stored in its own
-    unit of work (a partial reply too, when the client stops listening).
+    unit of work (a partial reply too, when the client stops listening). Every database
+    read and write runs in a worker thread, never on the event loop.
     """
-    asked = _prepare_ask(session_id, payload, context, repository)
+    asked = await asyncio.to_thread(prepare_ask_in_own_session, session_id, payload, context)
     events = stream_prepared_answer(asked, context, session_id, gateway)
     return StreamingResponse(
         events,
@@ -679,7 +693,7 @@ def stream_prepared_answer(
                 if not parts:
                     yield sse("error", {"code": "model_unavailable", "message": "I could not answer. Try again in a moment."})
                     return
-        segment = _store_voice_reply(context, session_id, "".join(parts).strip(), sequence)
+        segment = await asyncio.to_thread(_store_voice_reply, context, session_id, "".join(parts).strip(), sequence)
         yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None})
 
     return answer()
