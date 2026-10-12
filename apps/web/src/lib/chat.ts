@@ -7,6 +7,47 @@ import { t as msg } from './i18n.ts';
 
 export type TurnStatus = 'complete' | 'cancelled' | 'failed';
 
+/** A question run as a task (docs/conversations.md#tools-in-chat): its results, approval or failure. */
+export type CardState = 'running' | 'results' | 'approval' | 'failed' | 'cancelled' | 'denied';
+export type CardCategory = 'email' | 'whatsapp' | 'web' | 'files' | 'action';
+
+export interface ChatCardItem {
+  kind: 'email' | 'whatsapp' | 'web' | 'file' | 'memory';
+  id?: string | null;
+  title: string;
+  subtitle?: string | null;
+  detail?: string | null;
+  at?: string | null;
+  badges?: string[];
+  url?: string | null;
+}
+
+export interface ChatCardApproval {
+  id: string;
+  action: string;
+  risk_level: string;
+  status: string;
+  reason: string;
+  payload_hash?: string | null;
+  arguments?: Record<string, unknown>;
+  target?: string | null;
+  expires_at?: string | null;
+  can_decide: boolean;
+}
+
+export interface ChatCard {
+  state: CardState;
+  category: CardCategory;
+  task_id?: string | null;
+  run_id?: string | null;
+  tool?: string | null;
+  summary: string;
+  items: ChatCardItem[];
+  total: number;
+  approval?: ChatCardApproval | null;
+  error_code?: string | null;
+}
+
 export interface ChatTurn {
   id: string;
   conversation_id: string;
@@ -14,6 +55,7 @@ export interface ChatTurn {
   content: string;
   status: TurnStatus;
   created_at: string;
+  card?: ChatCard | null;
 }
 
 export interface Conversation {
@@ -85,6 +127,7 @@ export interface UiTurn {
   errorCode?: string;
   /** A structured answer's report card ("View Full Report"). */
   report?: ReportCard;
+  card?: ChatCard | null;
 }
 
 export const PENDING_USER = 'pending-user';
@@ -95,12 +138,36 @@ export function fromStored(turns: ChatTurn[], reports: ReportCard[] = []): UiTur
   const cards = new Map(reports.filter((r) => r.turn_id).map((r) => [r.turn_id as string, r]));
   return turns.map((t) => {
     const report = cards.get(t.id);
-    return report ? { id: t.id, role: t.role, content: t.content, status: t.status, report } : { id: t.id, role: t.role, content: t.content, status: t.status };
+    const card = asCard(t.card);
+    return report ? { id: t.id, role: t.role, content: t.content, status: t.status, card, report } : { id: t.id, role: t.role, content: t.content, status: t.status, card };
   });
 }
 
-function asCard(value: unknown): ReportCard | undefined {
+function asReportCard(value: unknown): ReportCard | undefined {
   return value && typeof value === 'object' && typeof (value as ReportCard).report_id === 'string' && Array.isArray((value as ReportCard).metrics) ? value as ReportCard : undefined;
+}
+
+/** A card the client can show, or null (missing, or a shape this client cannot read). */
+export function asCard(value: unknown): ChatCard | null {
+  if (!value || typeof value !== 'object') return null;
+  const card = value as ChatCard;
+  if (typeof card.state !== 'string' || typeof card.category !== 'string') return null;
+  return { ...card, summary: typeof card.summary === 'string' ? card.summary : '', items: Array.isArray(card.items) ? card.items : [], total: typeof card.total === 'number' ? card.total : 0 };
+}
+
+/** A stored card after an Approve or Reject: the decision's task, run and approval. */
+export function cardAfterDecision(card: ChatCard, decision: { task: { status: string }; run?: { result?: string | null; steps?: { type: string; summary: string }[] } | null; approval: { status: string } }): ChatCard {
+  const approval = card.approval ? { ...card.approval, status: decision.approval.status } : card.approval;
+  const status = decision.task.status;
+  if (status === 'completed') return { ...card, approval, state: 'results', summary: decision.run?.result ?? card.summary };
+  if (status === 'failed') {
+    const steps = decision.run?.steps ?? [];
+    const reason = [...steps].reverse().find((step) => step.type === 'tool_result')?.summary;
+    return { ...card, approval, state: 'failed', summary: reason ?? decision.run?.result ?? card.summary };
+  }
+  if (status === 'cancelled') return { ...card, approval, state: 'cancelled' };
+  if (status === 'waiting_approval') return { ...card, approval, state: 'approval' };
+  return { ...card, approval, state: 'running' };
 }
 
 /** Show the question at once and an empty reply that fills as it streams. A retry reuses the stored question. */
@@ -123,15 +190,20 @@ export function applyAskEvent(turns: UiTurn[], event: SseEvent): UiTurn[] {
     if (!user) return turns;
     return turns.map((t) => t.id === PENDING_USER ? { id: user.id, role: 'user', content: user.content, status: user.status } : t);
   }
+  if (event.event === 'tool') {
+    const card = asCard(data.card);
+    if (!card) return turns;
+    return turns.map((t) => t.id === PENDING_ASSISTANT ? { ...t, card } : t);
+  }
   if (event.event === 'delta' && typeof data.text === 'string') {
     const text = data.text;
     return turns.map((t) => t.id === PENDING_ASSISTANT ? { ...t, content: t.content + text } : t);
   }
   if (event.event === 'done') {
     const reply = asTurn(data.assistant_turn);
-    const report = asCard(data.report);
+    const report = asReportCard(data.report);
     return turns.map((t) => t.id === PENDING_ASSISTANT
-      ? reply ? { id: reply.id, role: 'assistant', content: reply.content, status: reply.status, ...(report ? { report } : {}) } : { ...t, id: `local-${++localTurns}`, status: 'complete' }
+      ? reply ? { id: reply.id, role: 'assistant', content: reply.content, status: reply.status, card: asCard(reply.card) ?? t.card ?? null, ...(report ? { report } : {}) } : { ...t, id: `local-${++localTurns}`, status: 'complete' }
       : t);
   }
   if (event.event === 'error') {
@@ -139,7 +211,7 @@ export function applyAskEvent(turns: UiTurn[], event: SseEvent): UiTurn[] {
     const message = typeof data.message === 'string' ? data.message : msg('chat.modelNoAnswer');
     const code = typeof data.code === 'string' ? data.code : undefined;
     return turns.map((t) => t.id === PENDING_ASSISTANT
-      ? { id: reply?.id ?? `local-${++localTurns}`, role: 'assistant', content: reply?.content ?? t.content, status: 'failed', error: message, errorCode: code }
+      ? { id: reply?.id ?? `local-${++localTurns}`, role: 'assistant', content: reply?.content ?? t.content, status: 'failed', error: message, errorCode: code, card: t.card ?? null }
       : t);
   }
   return turns;

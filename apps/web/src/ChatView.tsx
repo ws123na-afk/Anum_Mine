@@ -16,6 +16,7 @@ import { FavoritesStrip, StarButton, useStars } from './Favorites';
 import { ReportAnswerCard } from './ReportAnswerCard';
 import { visibleReply } from './lib/library';
 import type { Favorite } from '@anum/contracts';
+import { ChatCardView, type ChatTarget } from './ChatCardView';
 import './chat.css';
 
 const SUGGESTIONS: MessageKey[] = ['chat.suggestion.1', 'chat.suggestion.2', 'chat.suggestion.3'];
@@ -31,8 +32,10 @@ function explain(error: unknown, action: MessageKey): string {
  * Replies render through the safe answer renderer (text nodes only); Stop aborts the request,
  * which stops the model on the server.
  */
-export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId = null, onOpenReport, onOpenFavorite, onOpenFavorites }: {
+export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initialConversationId = null, onOpenReport, onOpenFavorite, onOpenFavorites }: {
   onOpenBudgets: () => void; onOpenDeveloper?: () => void; initialConversationId?: string | null;
+  /** Links on task cards (docs/conversations.md#tools-in-chat). */
+  onOpenTarget?: (target: ChatTarget) => void;
   /** "View Full Report" on a structured answer (docs/reports.md). */
   onOpenReport?: (reportId: string) => void;
   /** Quick access to starred items on the empty Assistant home (docs/knowledge-base.md#favorites). */
@@ -229,12 +232,14 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
           {turn.role === 'user'
             ? <><p className="chatQuestion" dir="auto">{turn.content}</p>{turn.status === 'failed' && <p className="chatMeta chatError">{t('chat.notSent')}</p>}</>
             : <>
-              {visibleReply(turn.content) ? <Answer blocks={parseAnswer(visibleReply(turn.content))} /> : turn.status === 'streaming' ? <p className="chatThinking" role="status" aria-label={t('chat.thinking')}><span /><span /><span /></p> : null}
-              {turn.status === 'streaming' && turn.content && <span className="chatCaret" aria-hidden="true" />}
+              {/* A card's own words are localized; only a results card shows the written answer above it. */}
+              {visibleReply(turn.content) && (!turn.card || turn.card.state === 'results') ? <Answer blocks={parseAnswer(visibleReply(turn.content))} /> : turn.status === 'streaming' && !turn.card ? <p className="chatThinking" role="status" aria-label={t('chat.thinking')}><span /><span /><span /></p> : null}
+              {turn.card && <ChatCardView card={turn.card} live={turn.status === 'streaming'} onOpen={onOpenTarget} onChange={(card) => setTurns((current) => current.map((x) => x.id === turn.id ? { ...x, card } : x))} />}
+              {turn.status === 'streaming' && turn.content && (!turn.card || turn.card.state === 'results') && <span className="chatCaret" aria-hidden="true" />}
               {turn.report && <ReportAnswerCard card={turn.report} onOpen={onOpenReport} />}
               {turn.status === 'cancelled' && <p className="chatMeta">{turn.content ? t('chat.stopped') : t('chat.stoppedEarly')}</p>}
               {turn.status === 'failed' && <p className="chatMeta chatError" dir="auto">{turn.error ?? t('chat.noAnswer')}</p>}
-              {turn.status === 'complete' && turn.content && !turn.id.startsWith('pending') && !turn.id.startsWith('local-') && !streaming && <AnswerFeedback turnId={turn.id} content={turn.content} rating={ratings[turn.id] ?? null} onRated={(rating) => setRatings((current) => ({ ...current, [turn.id]: rating }))} />}
+              {turn.status === 'complete' && turn.content && (!turn.card || turn.card.state === 'results') && !turn.id.startsWith('pending') && !turn.id.startsWith('local-') && !streaming && <AnswerFeedback turnId={turn.id} content={turn.content} rating={ratings[turn.id] ?? null} onRated={(rating) => setRatings((current) => ({ ...current, [turn.id]: rating }))} />}
             </>}
         </article>)}
       </div>

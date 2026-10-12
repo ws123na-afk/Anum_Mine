@@ -24,7 +24,7 @@ type Load = { kind: 'loading' } | { kind: 'denied' } | { kind: 'error'; message:
 
 const time = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
 
-export function WhatsAppView({ onOpenApprovals, onOpenBudgets }: { onOpenApprovals?: () => void; onOpenBudgets?: () => void } = {}) {
+export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversationId = null }: { onOpenApprovals?: () => void; onOpenBudgets?: () => void; focusConversationId?: string | null } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [tab, setTab] = useState<Tab>('inbox');
   const owner = useIsOwner();
@@ -54,7 +54,7 @@ export function WhatsAppView({ onOpenApprovals, onOpenBudgets }: { onOpenApprova
       <StatusChip account={account} />
     </nav>
     {tab === 'inbox' && (account.configured
-      ? <InboxView account={account} owner={owner === true} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} onOpenTemplates={() => setTab('templates')} />
+      ? <InboxView account={account} owner={owner === true} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} onOpenTemplates={() => setTab('templates')} focusConversationId={focusConversationId} />
       : <NotConnected account={account} onSetup={() => setTab('setup')} />)}
     {tab === 'templates' && (account.configured
       ? <TemplatesView account={account} onSaved={(next) => setLoad({ kind: 'ready', account: next })} />
@@ -80,7 +80,7 @@ function NotConnected({ account, onSetup }: { account: WaAccount; onSetup: () =>
 
 // ---------------------------------------------------------------- Inbox
 
-function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTemplates }: { account: WaAccount; owner: boolean; onOpenApprovals?: () => void; onOpenBudgets?: () => void; onOpenTemplates: () => void }) {
+function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTemplates, focusConversationId = null }: { account: WaAccount; owner: boolean; onOpenApprovals?: () => void; onOpenBudgets?: () => void; onOpenTemplates: () => void; focusConversationId?: string | null }) {
   const [items, setItems] = useState<WaConversation[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +89,8 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
   const [applied, setApplied] = useState('');
   const [more, setMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  // Opened from an Assistant card: that conversation, even before it is in the loaded page.
+  const [selected, setSelected] = useState<string | null>(focusConversationId);
   const searchId = useId();
 
   const load = useCallback(async () => {
@@ -128,7 +129,7 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
   }
 
   const replace = (next: WaConversation) => setItems((current) => current.map((item) => item.id === next.id ? next : item));
-  const chosen = items.find((item) => item.id === selected) ?? null;
+  const chosen = items.find((item) => item.id === selected) ?? (selected !== null && selected === focusConversationId ? { id: selected } : null);
 
   return <div className={`waInbox ${selected ? 'showThread' : 'showList'}`}>
     <section className="surface waList" aria-labelledby="wa-list-heading">

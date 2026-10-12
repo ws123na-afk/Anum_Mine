@@ -1,6 +1,6 @@
 // Conversations API (docs/conversations.md) and the streamed POST shared with voice.
 import { apiBaseUrl, apiRequest, authHeaders } from './api';
-import { createSseParser, type ChatTurn, type Conversation, type ConversationDetail, type SseEvent } from './chat';
+import { createSseParser, type ChatCardApproval, type ChatTurn, type Conversation, type ConversationDetail, type SseEvent } from './chat';
 import { apiErrorFromResponse } from './errors';
 
 /**
@@ -54,6 +54,21 @@ export type AskBody = { content: string } | { retry_turn_id: string };
 
 export function askInConversation(id: string, body: AskBody, signal: AbortSignal, onEvent: (event: SseEvent) => void): Promise<void> {
   return postSse(`/api/v1/conversations/${encodeURIComponent(id)}/ask`, body, signal, onEvent);
+}
+
+export interface CardDecision {
+  task: { status: string };
+  run?: { result?: string | null; steps?: { type: string; summary: string }[] } | null;
+  approval: { status: string };
+}
+
+/**
+ * Approve or reject the approval a chat card shows, through the ordinary approvals route with
+ * the payload hash the card displayed (docs/approvals-and-risk.md).
+ */
+export function decideCardApproval(approval: ChatCardApproval, decision: 'approve' | 'reject'): Promise<CardDecision> {
+  const body = approval.payload_hash ? { payload_hash: approval.payload_hash } : {};
+  return apiRequest(`/api/v1/approvals/${encodeURIComponent(approval.id)}/${decision}`, { method: 'POST', body: JSON.stringify(body) });
 }
 
 export type { ChatTurn, Conversation, ConversationDetail };
