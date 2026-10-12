@@ -1,58 +1,74 @@
-// Every API call the Command Center makes (docs/design/anum360.md#web-command-center), in one file.
+// Every API call the ANUM Command page makes (docs/command.md#the-web-command-center), in one file,
+// plus the global search the command palette uses.
 //
-// A command runs today as a task: create it and run it (POST /api/v1/tasks, POST /tasks/{id}/run);
-// a spoken command first goes through the voice API, which keeps the transcript under the
-// session's retention and creates the task from it (POST /voice/sessions/{id}/commands).
-// Progress comes from the run (GET /tasks/{id}/latest-run) and the workspace event stream.
-// When the plan-preview API (docs/command.md) lands, `submitCommand` becomes "preview the plan,
-// then confirm it" here; the page keeps calling the same functions.
-import type { AgentRun, Approval, Task } from '@anum/contracts';
+// A command is planned first (POST /commands/preview: nothing runs), then confirmed (POST /commands
+// creates one task per step) and every step is started (POST /tasks/{id}/run). The live view comes
+// from GET /commands/{id}; Stop cancels the command's tasks (POST /tasks/bulk).
+import type { CommandNextStep, CommandPlan, CommandSource, CommandSuggestion, CommandSummary, CommandView, QuickCommand, QuickCommandCategory, Task } from '@anum/contracts';
 import * as api from './api';
-import { ApiError } from './errors';
 import { listEmailAccounts, listEmailMessages } from './emailApi';
 import { EMPTY_FILTERS, type EmailMessage } from './email';
-import { listTasks, retryTask, runTask } from './tasksApi';
+import { listTasks, runTask } from './tasksApi';
 import { EMPTY_QUERY } from './tasks';
-import { appendTranscript, completeVoiceSession, createVoiceSession, submitVoiceCommand } from './voice';
-import { commandPrompt, commandTitle } from './commandCenter';
+import { apiErrorFromResponse } from './errors';
+import { downloadText } from './clipboard';
+import { mapNextStep, mapPlan, mapQuick, mapSuggestion, mapSummary, mapView } from './commands';
 
-export interface CommandResult { task: Task; run: AgentRun | null; approval: Approval | null }
+type Raw = Record<string, unknown>;
+const send = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
+const view = (raw: Raw): CommandView => mapView(raw, api.mapTask as (t: never) => Task, api.mapApproval as never);
+
 export interface CommandAttachment { id: string; name: string }
 
-/** Give ANUM a command: typed (a task) or spoken (a voice session's transcript, then the task). */
-export async function submitCommand(text: string, options: { source: 'text' | 'voice'; locale: string; attachments?: readonly CommandAttachment[] }): Promise<CommandResult> {
-  const prompt = commandPrompt(text, options.attachments ?? []);
-  if (options.source === 'text') return api.createAndRunTask(prompt, commandTitle(text));
-  const session = await createVoiceSession(options.locale, 'session');
-  try {
-    const segment = await appendTranscript(session.id, prompt, 1, true);
-    const created = await submitVoiceCommand(session.id, segment.id);
-    return await runTask(created.task.id);
-  } finally {
-    void completeVoiceSession(session.id).catch(() => undefined);
-  }
+/** The plan a request would run. Read-only: nothing is created or run. */
+export const previewCommand = async (text: string, locale: 'en' | 'ar'): Promise<CommandPlan> =>
+  mapPlan(await api.apiRequest<Raw>('/api/v1/commands/preview', send('POST', { text, locale })));
+
+/** Create the command (one task per confirmed step, in order). */
+export async function createCommand(body: { text: string; steps: string[]; source: CommandSource; locale: 'en' | 'ar'; attachments: string[]; quickCommandId?: string | null }): Promise<CommandView> {
+  return view(await api.apiRequest<Raw>('/api/v1/commands', send('POST', {
+    text: body.text, steps: body.steps.map((instruction) => ({ instruction })), source: body.source, locale: body.locale, attachments: body.attachments,
+    ...(body.quickCommandId ? { quick_command_id: body.quickCommandId } : {}),
+  })));
 }
 
-/** The task's latest run, or null when it has not run yet. */
-export async function getCommandRun(taskId: string): Promise<AgentRun | null> {
-  try {
-    return await api.getLatestRun(taskId);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return null;
-    throw error;
-  }
+/** Start every step at once; rejects with the first refusal (for example the budget) after all were tried. */
+export async function startSteps(taskIds: readonly string[]): Promise<void> {
+  const results = await Promise.allSettled(taskIds.map((id) => runTask(id)));
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed) throw failed.reason;
 }
 
-export const getCommandTask = (taskId: string): Promise<Task> => api.getTask(taskId);
-export const stopCommand = (taskId: string): Promise<Task> => api.cancelTask(taskId);
-export const retryCommand = (taskId: string): Promise<CommandResult> => retryTask(taskId);
+export const getCommand = async (id: string): Promise<CommandView> => view(await api.apiRequest<Raw>(`/api/v1/commands/${encodeURIComponent(id)}`, { method: 'GET' }));
+export async function listCommands(limit: number, cursor: string | null): Promise<CommandSummary[]> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor) query.set('cursor', cursor);
+  return (await api.apiRequest<Raw[]>(`/api/v1/commands?${query}`, { method: 'GET' })).map(mapSummary);
+}
+export const deleteCommand = (id: string) => api.apiRequestVoid(`/api/v1/commands/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const nextSteps = async (id: string): Promise<CommandNextStep[]> =>
+  (await api.apiRequest<Raw[]>(`/api/v1/commands/${encodeURIComponent(id)}/next-steps`, { method: 'GET' })).map(mapNextStep);
+export const suggestions = async (locale: 'en' | 'ar'): Promise<CommandSuggestion[]> =>
+  (await api.apiRequest<Raw[]>(`/api/v1/commands/suggestions?locale=${locale}`, { method: 'GET' })).map(mapSuggestion);
+/** The full report as Markdown, saved by the browser (`GET /commands/{id}/report?format=markdown`). */
+export async function downloadReport(id: string): Promise<void> {
+  const response = await fetch(`${api.apiBaseUrl}/api/v1/commands/${encodeURIComponent(id)}/report?format=markdown`, { headers: await api.authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  downloadText(`anum-command-${id}.md`, await response.text());
+}
+/** Stop: cancel the command's unfinished tasks (finished ones answer 409 per item and stay as they are). */
+export const stopTasks = (taskIds: readonly string[]) => api.apiRequest<unknown>('/api/v1/tasks/bulk', send('POST', { action: 'cancel', task_ids: taskIds }));
+
+export const listQuick = async (): Promise<QuickCommand[]> => (await api.apiRequest<Raw[]>('/api/v1/quick-commands', { method: 'GET' })).map(mapQuick);
+export const createQuick = async (body: { title: string; text: string; category: QuickCommandCategory }): Promise<QuickCommand> =>
+  mapQuick(await api.apiRequest<Raw>('/api/v1/quick-commands', send('POST', body)));
+export const updateQuick = async (id: string, body: Partial<{ title: string; text: string; category: QuickCommandCategory; position: number }>): Promise<QuickCommand> =>
+  mapQuick(await api.apiRequest<Raw>(`/api/v1/quick-commands/${encodeURIComponent(id)}`, send('PUT', body)));
+export const deleteQuick = (id: string) => api.apiRequestVoid(`/api/v1/quick-commands/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 /** Upload a document to attach to a command (it lands in Documents like any upload). */
 export const uploadAttachment = (file: File, onProgress?: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<api.FileRecord> =>
   api.uploadFile(file, onProgress, signal);
-
-/** Recent documents, for Files mode and Results Preview. */
-export const recentFiles = (limit = 5): Promise<api.FileRecord[]> => api.getFiles({ sort: 'created_at:desc', limit });
 export const fileUsage = () => api.getFileUsage();
 
 /** Unread mail across the connected mailboxes; null when the inbox is not available to this person. */

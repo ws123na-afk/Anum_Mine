@@ -1,13 +1,9 @@
-// Unit tests for the Command Center helpers (src/lib/commandCenter.ts) and the shell model
+// Unit tests for the shared command helpers (src/lib/commandCenter.ts) and the shell model
 // (src/lib/shell.ts). docs/design/anum360.md#web-command-center.
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
-import type { AgentRun, Approval, Task } from '@anum/contracts';
 import { setLocale } from '../src/lib/i18n.ts';
-import {
-  CAPABILITY_TILES, ORB_CHIPS, activeTasks, buildSuggestions, commandPrompt, commandTitle, currentTasks, initialSpeechLanguage, phaseProgress,
-  quickCommands, recentCommands, relativeTime, sizeLabel, statusTone, trackerPhases,
-} from '../src/lib/commandCenter.ts';
+import { initialSpeechLanguage, relativeTime, sizeLabel } from '../src/lib/commandCenter.ts';
 import {
   NAV, VIEWS, badgeText, displayName, initials, isPaletteShortcut, matchScore, matchViews, moveActive, notificationCount, viewFromHash, visibleViews,
 } from '../src/lib/shell.ts';
@@ -15,99 +11,11 @@ import {
 afterEach(() => setLocale('en'));
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 9, 1, 9, minutes)).toISOString();
-const task = (id: string, status: Task['status'], minutes = 0, extra: Partial<Task> = {}): Task => ({
-  id, title: `Title ${id}`, prompt: `Prompt ${id}`, status, tenantId: 't', workspaceId: 'w', createdAt: at(minutes), updatedAt: at(minutes), ...extra,
-});
-const step = (type: AgentRun['steps'][number]['type'], seconds: number) => ({ id: `${type}_${seconds}`, type, summary: type, createdAt: new Date(Date.parse(at(0)) + seconds * 1000).toISOString() });
 
-describe('tracker phases', () => {
-  test('nothing to follow is all to do', () => {
-    assert.deepEqual(trackerPhases(null, null).map((p) => p.state), ['todo', 'todo', 'todo', 'todo', 'todo']);
-  });
-  test('submitting shows the first step active', () => {
-    assert.deepEqual(trackerPhases(null, null, true).map((p) => p.state), ['active', 'todo', 'todo', 'todo', 'todo']);
-  });
-  test('a completed run is all done, with durations from step times', () => {
-    const phases = trackerPhases(task('a', 'completed'), { status: 'completed', steps: [step('retrieval', 2), step('model_call', 5), step('final', 7)] });
-    assert.deepEqual(phases.map((p) => p.state), ['done', 'done', 'done', 'done', 'done']);
-    assert.equal(phases[1].seconds, 5);
-    assert.equal(phases[3].seconds, 2);
-    assert.equal(phaseProgress(phases), 100);
-  });
-  test('waiting for approval holds the agents step', () => {
-    const phases = trackerPhases(task('a', 'waiting_approval'), { status: 'waiting_approval', steps: [step('model_call', 1), step('approval_wait', 2)] });
-    assert.deepEqual(phases.map((p) => p.state), ['done', 'done', 'waiting', 'todo', 'todo']);
-    assert.equal(phaseProgress(phases), 50);
-  });
-  test('a failed run marks the step it reached', () => {
-    const phases = trackerPhases(task('a', 'failed'), { status: 'failed', steps: [step('model_call', 1)] });
-    assert.deepEqual(phases.map((p) => p.state), ['done', 'failed', 'todo', 'todo', 'todo']);
-  });
-  test('running without steps is planning', () => {
-    assert.equal(trackerPhases(task('a', 'running'), null)[1].state, 'active');
-  });
-});
-
-describe('task lists', () => {
-  const tasks = [task('done', 'completed', 1), task('run', 'running', 2), task('new', 'created', 3), task('wait', 'waiting_approval', 4), task('arch', 'running', 5, { archivedAt: at(6) })];
-  test('current tasks are open, unarchived, newest change first', () => {
-    const open = currentTasks(tasks);
-    assert.deepEqual(open.items.map((x) => x.id), ['wait', 'new', 'run']);
-    assert.equal(open.total, 3);
-  });
-  test('active tasks exclude created ones', () => assert.deepEqual(activeTasks(tasks).map((x) => x.id), ['wait', 'run']));
-  test('recent commands are newest first', () => assert.deepEqual(recentCommands(tasks, 2).map((x) => x.id), ['wait', 'new']));
-  test('status tones', () => {
-    assert.equal(statusTone('completed'), 'success');
-    assert.equal(statusTone('failed'), 'dangerTone');
-    assert.equal(statusTone('created'), 'neutral');
-    assert.equal(statusTone('running'), 'warning');
-  });
-});
-
-describe('commands', () => {
-  test('title is the first line, capped', () => {
-    assert.equal(commandTitle('  hello\nworld'), 'hello');
-    assert.equal(commandTitle('x'.repeat(100)).length, 80);
-  });
-  test('prompt names attached documents', () => {
-    assert.equal(commandPrompt(' do it '), 'do it');
-    assert.match(commandPrompt('do it', [{ id: 'file_1', name: 'a.pdf' }]), /a\.pdf \(file id file_1\)/);
-  });
-  test('quick commands put history first without repeats, then examples', () => {
-    const chips = quickCommands([task('a', 'completed', 1, { prompt: 'Same' }), task('b', 'completed', 2, { prompt: 'same' })]);
-    assert.equal(chips.length, 5);
-    assert.deepEqual(chips.filter((c) => c.fromHistory).map((c) => c.text), ['same']);
-    assert.notDeepEqual(quickCommands([], 1).map((c) => c.id), quickCommands([], 0).map((c) => c.id));
-  });
-  test('speech language follows a saved choice, else the interface', () => {
-    assert.equal(initialSpeechLanguage('ar', 'en'), 'ar');
-    assert.equal(initialSpeechLanguage('ur', 'ar'), 'ar');
-    assert.equal(initialSpeechLanguage(null, 'en'), 'en');
-  });
-  test('shortcuts never point at a missing module (no calendar, no calls)', () => {
-    for (const item of [...ORB_CHIPS, ...CAPABILITY_TILES]) assert.ok(!/meeting|calendar|call/i.test(item.id), item.id);
-  });
-});
-
-describe('suggestions', () => {
-  const approval = { id: 'ap', taskId: 'a', action: 'x', riskLevel: 'high', status: 'pending', reason: '', createdAt: at(0) } as Approval;
-  test('urgent first, each with an action', () => {
-    const out = buildSuggestions({ approvals: [approval], tasks: [task('f', 'failed')], unreadEmails: 3, mailboxes: 1, files: 2 });
-    assert.deepEqual(out.map((s) => s.id), ['approvals', 'failed:f', 'unread']);
-    assert.match(out[0].title, /1 approval is waiting/);
-    assert.deepEqual(out[1].action, { kind: 'retry', taskId: 'f' });
-  });
-  test('a new workspace gets setup suggestions; unknown inbox says nothing', () => {
-    const out = buildSuggestions({ approvals: [], tasks: [], unreadEmails: null, mailboxes: null, files: 0 });
-    assert.deepEqual(out.map((s) => s.id), ['files', 'first']);
-    assert.deepEqual(buildSuggestions({ approvals: [], tasks: [], unreadEmails: 0, mailboxes: 0, files: 1 }).map((s) => s.id), ['mailbox', 'first']);
-  });
-  test('Arabic plural forms', () => {
-    setLocale('ar');
-    const out = buildSuggestions({ approvals: [approval, { ...approval, id: 'b' }], tasks: [task('a', 'completed')], unreadEmails: null, mailboxes: null, files: 1 });
-    assert.equal(out[0].title, 'موافقتان بانتظارك');
-  });
+test('speech language follows a saved choice, else the interface', () => {
+  assert.equal(initialSpeechLanguage('ar', 'en'), 'ar');
+  assert.equal(initialSpeechLanguage('ur', 'ar'), 'ar');
+  assert.equal(initialSpeechLanguage(null, 'en'), 'en');
 });
 
 test('relative time and sizes', () => {

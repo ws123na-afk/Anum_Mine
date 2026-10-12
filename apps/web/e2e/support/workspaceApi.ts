@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
 import { handleMeetings } from './meetingsApi';
 import { createTeamMock, type TeamMockOptions } from './teamApi';
+import { createHomeMock, type HomeMockState } from './homeApi';
 
 // One mocked workspace with something on every main view (the Command Center home, Assistant, Tasks, Approvals, Memory,
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
@@ -195,8 +196,9 @@ const agent = {
   autonomy: { read: 'auto', write: 'ask', external: 'ask' }, knowledge_mode: 'none', knowledge_sources: [], sharing: 'workspace', template_id: 'fleet',
 };
 
-export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions = {}): Promise<void> {
+export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions = {}): Promise<HomeMockState> {
   const team = createTeamMock(teamOptions);
+  const home = createHomeMock();
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -319,8 +321,10 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/reports' && method === 'GET') return json({ items: [{ id: 'report_tyre', ...reportSummary, row_count: 2 }], total: 1, limit: 20, offset: 0, types: [{ type: 'tyre', count: 1 }] });
     if (path === '/api/v1/reports/generators') return json([{ type: 'task_summary', title: 'Task summary', description: '' }, { type: 'automation_summary', title: 'Automation summary', description: '' }]);
     if (path === '/api/v1/reports/report_tyre') return json(libraryReport);
+    if (await home.handle(route, path, method)) return;
     return route.abort();
   });
+  return home.state;
 }
 
 /** Start the page in `locale` the way a person's saved choice does (this browser's storage). */
