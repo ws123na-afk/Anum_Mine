@@ -66,6 +66,10 @@ A task such as "ANUM, any urgent customer emails?" selects the `anum.email` skil
 
 At the end of a sync, new mail in a **shared** mailbox (never a private one, never the first history sync, never sent, draft or bulk mail) is offered with its subject and preview to department assistants that opted into email; a keyword match becomes a work item, once per open thread. Best effort: a routing failure never fails the sync ([Team work](team-work.md#inbound-routing)).
 
+## Web page layout
+
+The Inbox follows the shared [page layout](design/anum360.md#page-layout): one header row with the mailbox status chip (count, last sync and any mailbox needing attention; it opens the mailbox setup in a drawer) and **Sync all**; a summary band from `GET /email/summary` (unread, high-priority unread, unread customer questions and orders) and `GET /email/drafts` (reply drafts still waiting: draft, waiting for approval or failed); then three panes that fill the window: filters with the **Drafts waiting** queue (opening a draft opens its message), the message list, and the message. From 1024 to 1279px the filters sit in a row above the list and message. On a wide screen the message pane opens on the first unread message. With no mailbox connected, the setup is the page's empty state.
+
 ## Email summary (mobile)
 
 The Flutter route `/email/summary` (`?tab=urgent|replied|other`) is the ANUM 360 email summary: the urgent and unread counts from `GET /api/v1/email/summary`, the All / Urgent (`urgent=true`) / Replied (`replied=true`) / Other (`urgent=false&replied=false`) tabs with sender initials, subject and a High / Medium / Low priority pill, paging, and View all emails (the inbox). Opening a message shows it with its drafts and the approve-to-send card, as in the inbox.

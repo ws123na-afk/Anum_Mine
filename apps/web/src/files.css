@@ -1,18 +1,31 @@
 /* Files view (FilesView.tsx): storage meter, upload queue, toolbar, rows and previews. Spacing from the shared tokens. */
-.filesUsage, .uploadQueue { display: grid; gap: var(--d-s2); margin-bottom: var(--d-s4); padding: var(--d-s4) var(--d-s5); }
-.filesUsageTop, .uploadItemTop { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); justify-content: space-between; min-width: 0; }
-.filesUsageTop span { color: var(--d-muted); font-size: 14px; }
+.uploadQueue { display: grid; gap: var(--d-s2); margin-bottom: var(--d-s4); padding: var(--d-s4) var(--d-s5); }
+.uploadItemTop { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); justify-content: space-between; min-width: 0; }
+/* The storage meter under the summary figures. */
+.filesUsageLine { display: grid; gap: var(--d-s1); }
+.filesUsageLine .meterTrack { max-width: 520px; }
 .uploadQueue { gap: var(--d-s4); }
 .uploadItem { display: grid; gap: var(--d-s2); min-width: 0; }
 .uploadItem strong { min-width: 0; overflow-wrap: anywhere; }
 .uploadItem .notice { margin: 0; }
-.filesToolbar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0 0 var(--d-s4); }
-.filesToolbar input { flex: 1 1 240px; min-width: 0; }
-.filesToolbar select { flex: 0 1 200px; width: auto; }
-.filesTable .memoryRow { grid-template-columns: minmax(0, 1fr) auto auto; }
-.filesTable .memoryRow p { overflow-wrap: anywhere; }
-.filesTable .rowActions { align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-.filesTable .rowActions button.danger, .filesTable .rowActions button.secondary { min-height: 36px; padding: var(--d-s1) var(--d-s3); }
+/* List pane: search, sort and filters stay on top while the table scrolls. */
+@media (min-width: 1024px) { .splitView.filesSplit { grid-template-columns: minmax(340px, 2fr) minmax(0, 3fr); } }
+.filesToolbar { justify-content: flex-start; }
+.filesToolbar input[type="search"] { flex: 1 1 calc(100% - 56px); }
+.filesToolbar .iconOnly { justify-content: center; padding: 0; width: 40px; }
+.filesToolbar select { flex: 1 1 110px; }
+.filesDetailPane .fileDetail { margin: 0; padding: 0; }
+.filesTable .cellIcon { color: var(--d-violet); flex: none; height: 16px; margin-inline-end: var(--d-s2); vertical-align: -3px; width: 16px; }
+.filesTable .cellActions button.danger, .filesTable .cellActions button.secondary { border-radius: var(--d-r-control); min-height: 34px; padding: 0 var(--d-s3); }
+.filesMore { justify-items: start; }
+.filesDetailPane .taskMeta { margin: 0; }
+.fileActions { margin-top: 0; }
+button.secondary.dangerText { color: var(--d-stop); }
+.fileShare { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3); }
+.fileShare label { color: var(--d-muted); font-size: 13px; font-weight: 600; }
+.fileShareRow { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fileShareRow input { flex: 1 1 240px; font-family: var(--d-mono); font-size: 12.5px; min-width: 0; }
+.fileShareRow button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); padding: 0 var(--d-s3); }
 .fileDetail dd .statusBadge { margin-inline-end: var(--d-s2); }
 .fileDetail .taskMeta dd { overflow-wrap: anywhere; }
 .renameForm { margin-top: var(--d-s4); }
@@ -21,7 +34,7 @@
 .fieldError { color: var(--d-stop); }
 .filesNote { align-items: center; display: flex; gap: var(--d-s2); margin-top: var(--d-s3); }
 .filesNote svg { flex: none; height: 16px; width: 16px; }
-.filePreview { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); margin-top: var(--d-s5); padding-top: var(--d-s4); min-width: 0; }
+.filePreview { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); margin-top: var(--d-s2); padding-top: var(--d-s3); min-width: 0; }
 .filePreview h3 { font-size: 16px; }
 .filePreviewHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .filePreviewHead .actions { margin-top: 0; }
@@ -40,11 +53,10 @@
 .pdfPreview { display: grid; gap: var(--d-s2); justify-items: center; min-width: 0; }
 .pdfPreview canvas { background: #fff; border-radius: var(--d-s1); max-width: 100%; }
 .pdfPager { align-items: center; display: flex; gap: var(--d-s3); }
+/* In the split view the preview fills its pane instead of a fixed share of the window. */
+@media (min-width: 1024px) { .filesDetailPane :is(.filePreviewText, .filePreviewDoc) { max-height: none; } }
 @media (max-width: 720px) {
-  .filesUsage, .uploadQueue { padding: var(--d-s4); }
-  /* Name and details on the first line; the index badge and the actions share the second. */
-  .filesTable .memoryRow { gap: var(--d-s2) var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; }
-  .filesTable .memoryRow > div:first-child { grid-column: 1 / -1; }
-  .filesTable .memoryRow > .statusBadge { justify-self: start; }
-  .filesToolbar select { flex: 1 1 100%; }
+  .uploadQueue { padding: var(--d-s4); }
+  .filesToolbar select { flex: 1 1 calc(50% - var(--d-s2)); }
+  .filesTable .num { display: none; }
 }

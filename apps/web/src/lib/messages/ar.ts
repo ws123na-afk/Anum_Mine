@@ -13,6 +13,7 @@ import { voiceAr } from './ar.voice.ts';
 import { agentSkillsAr } from './agentSkills.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
+import { pagesAr } from './pages.ar.ts';
 
 export const ar: Record<MessageKey, Message> = {
   // ---- Commerce (commerce.ar.ts) ----
@@ -22,6 +23,7 @@ export const ar: Record<MessageKey, Message> = {
   ...agentSkillsAr,
   ...chatAr,
   ...setupAr,
+  ...pagesAr,
   // ---- Common ----
   'common.listAnd': '{head} و{last}',
   'common.listSeparator': '، ',

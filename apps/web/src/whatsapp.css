@@ -3,8 +3,9 @@
 .waLayout { display: grid; gap: var(--d-s4); min-width: 0; }
 .waLayout .notice { margin: 0; }
 .waLayout .errorNotice { align-items: center; flex-wrap: wrap; }
+.waLayout > .pageHeader { margin-bottom: 0; }
 .waTabs { align-items: center; margin-bottom: 0; }
-.waTabStatus { margin-inline-start: auto; max-width: 100%; overflow-wrap: anywhere; }
+.waLayout .waTabStatus { background: var(--d-glass-1); border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-text); font-size: 13px; font-weight: 600; max-width: 100%; min-height: 36px; padding: 4px var(--d-s3); }
 
 /* Buttons inside the view that are not in an .actions row get the same shape. :where keeps this
    rule at the lowest specificity, so the variants below (secondary, chips, rows, links) win. */
@@ -27,10 +28,18 @@
 .waFootnote { font-size: 13px; }
 .waError { background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .28); border-radius: var(--d-r-control); color: var(--d-error-text); font-size: 13px; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
 
-/* ---------- Inbox: list and thread side by side on wide screens ---------- */
-.waInbox { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); min-width: 0; }
+/* ---------- Inbox: list, thread and the conversation rail (PageParts.tsx SplitView) ---------- */
 .waList, .waThread { display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s4); }
 .waList { align-content: start; }
+.waRail { padding: var(--d-s1) 0; }
+.waRail .waSuggestion { background: transparent; border: 0; padding: 0; }
+@media (min-width: 1024px) {
+  /* The thread is a column: header and suggestion on top, the messages fill and scroll, the composer at the bottom. */
+  .waThread { display: flex; flex-direction: column; }
+  .waThread > * { flex: none; }
+  .waThread > .waMessages { align-content: start; flex: 1 1 auto; max-height: none; min-height: 180px; }
+  .waConversations { max-height: none; }
+}
 .waSearch { display: flex; gap: var(--d-s2); min-width: 0; }
 .waSearch input { flex: 1 1 auto; min-width: 0; }
 .waFilters, .waComposerTabs { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
@@ -41,7 +50,7 @@
 .waChip[aria-pressed="true"] { background: var(--d-glass-3); border-color: rgb(var(--c-violet) / .5); color: var(--d-text); }
 .waListEmpty { padding: var(--d-s5) var(--d-s3); }
 
-.waConversations { display: grid; gap: var(--d-s1); list-style: none; margin: 0; max-height: min(70vh, 760px); overflow-y: auto; padding: 0; }
+.waConversations { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
 .waConversation {
   background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); display: grid; font-size: 15px;
   font-weight: 400; gap: var(--d-s1); justify-content: stretch; min-width: 0; padding: var(--d-s3); text-align: start; width: 100%;
@@ -64,7 +73,7 @@
 .waWindowDot.closed::before { background: var(--d-warn); }
 .waUnread { background: var(--d-primary-grad); border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700; margin-inline-start: auto; min-width: 22px; padding: 1px var(--d-s2); text-align: center; }
 
-.waThreadEmpty { color: var(--d-muted); justify-items: center; padding: var(--d-s7) var(--d-s5); text-align: center; }
+.waThread.waThreadEmpty { align-items: center; color: var(--d-muted); justify-content: center; justify-items: center; padding: var(--d-s7) var(--d-s5); text-align: center; }
 .waThreadEmpty svg { color: var(--d-violet); height: 28px; width: 28px; }
 .waThreadHeader { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); min-width: 0; }
 .waThreadWho { flex: 1 1 200px; min-width: 0; }
@@ -142,13 +151,10 @@
 @media (max-width: 1180px) {
   .waSetup { grid-template-columns: minmax(0, 1fr); }
 }
-/* One pane at a time: the list, or the chosen conversation with a way back. */
-@media (max-width: 900px) {
-  .waInbox { grid-template-columns: minmax(0, 1fr); }
-  .waInbox.showList .waThread { display: none; }
-  .waInbox.showThread .waList { display: none; }
+/* One pane at a time below 1024px: the list, or the chosen conversation with a way back (SplitView data-show). */
+@media (max-width: 1023px) {
   .waBack { display: inline-flex !important; }
-  .waConversations, .waMessages { max-height: none; }
+  .waMessages { max-height: none; }
   .waBubbleBody { max-width: 90%; }
 }
 @media (max-width: 560px) {

@@ -38,6 +38,18 @@ The owner's mockups for the ANUM 360 redesign are in [`anum360-mockups/`](anum36
 
 Numbers and names in the mockups (costs, vehicles, people) are illustrations only. The app shows the workspace's real data, and a screen with no data shows an empty state with the next action.
 
+## Page layout
+
+The working pages of the web app (AI Chat, the Knowledge Base, Documents, Inbox, WhatsApp, Calls & Meetings and Marketing) share one arrangement, modelled on Tyre planning. The building blocks are in `apps/web/src/PageParts.tsx` and `pageParts.css`; the pure parts (figures, fill height, default selection, the counts each band shows) are in `apps/web/src/lib/pageSummary.ts` (unit tested in `test/pageSummary.test.ts`).
+
+- **One header row** (`PageHeader`): the title and a one-line subtitle on the start side, the page's actions (New..., Upload, Import, status chips) on the end side. These views are in `OWN_HEADER` (`src/lib/shell.ts`), so the shell does not draw a second title. The Knowledge Base keeps the shell title because its two tabs sit under it.
+- **Summary band** (`PageSummary`): three to five figures straight from the API, the only place with emphasis (large figures, status colour). A figure still loading shows a quiet placeholder; a figure whose request failed says **Unavailable** (never 0) and the band offers **Load the figures again**.
+- **Split view** (`SplitView`): from 1024px wide the list and the open record sit side by side and fill the window's height, each pane scrolling on its own (`--fill-h`, measured from the pane's top edge; never shorter than 480px, so short windows scroll the page). From 1280px a third pane (a context rail, or Inbox's filters) appears. Below 1024px the panes stack, and a list with an open record shows one or the other with a way back. On a wide screen the reading pane opens on the first unread or newest record; a record opened by a person also gets focus.
+- **Records are tables**: dense, quiet rows (`.dataTable`) with a sticky header; less important columns are hidden on phones.
+- **Create and setup forms stay out of the way**: "New..." opens a dialog (`DialogButton`, `Modal`), and setup that is done once (mailboxes, chat memory, the WhatsApp number, Zoom and Teams) collapses to a status chip that opens it. When nothing is set up yet, the setup is the page's empty state and its next action.
+
+Tests: `apps/web/e2e/page-layout.spec.ts` (the bands, default selection, the chat rail, share links, Unavailable figures, and no horizontal overflow on every one of these pages at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 in English and Arabic), plus each page's own spec.
+
 ## Web Command Center
 
 The web app (`apps/web`) follows `web-command-center.jpg`. The Command Center is the home (`#home`, also the landing page; `#command` opens the same page with the composer focused). Code: `src/CommandCenter.tsx` and `src/commandCenter.css` for the page, `src/Shell.tsx` for the shell, `src/lib/commandCenter.ts` and `src/lib/shell.ts` for the pure logic (unit tested in `test/commandCenter.test.ts`), and `src/lib/commandApi.ts` for every API call the page makes.

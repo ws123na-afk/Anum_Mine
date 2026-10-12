@@ -4,7 +4,7 @@ import { apiBaseUrl, apiRequest, authHeaders, mapApproval, type ApiApproval } fr
 import { apiErrorFromResponse } from './errors';
 import {
   messagesQuery, type ActionResult, type AnalyzeResult, type ApiApprovalLike, type DraftCreateResult, type EmailAccount, type EmailDraft,
-  type EmailProvider, type EmailSetup, type Filters, type MessageDetail, type MessagePage,
+  type EmailProvider, type EmailSetup, type Filters, type InboxSummary, type MessageDetail, type MessagePage,
 } from './email';
 
 const base = '/api/v1/email';
@@ -12,6 +12,10 @@ const id = encodeURIComponent;
 
 export const getEmailSetup = (): Promise<EmailSetup> => apiRequest(`${base}/setup`, { method: 'GET' });
 export const listEmailAccounts = (): Promise<EmailAccount[]> => apiRequest(`${base}/accounts`, { method: 'GET' });
+/** Unread, high-priority and per-category counts for the summary band. */
+export const getEmailSummary = (): Promise<InboxSummary> => apiRequest(`${base}/summary`, { method: 'GET' });
+/** Recent reply drafts across the visible mailboxes, newest first (the API allows at most 100). */
+export const listEmailDrafts = (limit = 50): Promise<EmailDraft[]> => apiRequest(`${base}/drafts?limit=${limit}`, { method: 'GET' });
 export const syncEmailAccount = (accountId: string): Promise<EmailAccount> => apiRequest(`${base}/accounts/${id(accountId)}/sync`, { method: 'POST' });
 export const disconnectEmailAccount = (accountId: string): Promise<{ revoked_at_provider: boolean; detail: string }> =>
   apiRequest(`${base}/accounts/${id(accountId)}`, { method: 'DELETE' });

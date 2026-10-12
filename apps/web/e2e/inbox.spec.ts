@@ -72,8 +72,13 @@ test('owners read a message as plain text and send the AI draft only through app
   const calls = await mockInbox(page);
   await page.goto('/#inbox');
   await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible();
-  await expect(page.getByText('shop@example.com').first()).toBeVisible();
-  await expect(page.locator('.inboxSetupNote').filter({ hasText: 'Zoho Mail' })).toContainText('ANUM_EMAIL_ZOHO_CLIENT_ID');
+  // The mailbox setup sits behind the status chip; the summary band reads GET /email/summary and /email/drafts.
+  await expect(page.getByRole('region', { name: 'Inbox at a glance' })).toContainText('Drafts waiting');
+  await page.getByRole('button', { name: /1 mailbox/ }).click();
+  const mailboxes = page.getByRole('dialog', { name: 'Mailboxes' });
+  await expect(mailboxes.getByText('shop@example.com').first()).toBeVisible();
+  await expect(mailboxes.locator('.inboxSetupNote').filter({ hasText: 'Zoho Mail' })).toContainText('ANUM_EMAIL_ZOHO_CLIENT_ID');
+  await mailboxes.getByRole('button', { name: 'Close' }).click();
   await page.getByRole('button', { name: /Sara Customer/ }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Do you have 205/55R16 in stock?' })).toBeVisible();
   // The email's markup is text: nothing in it runs.

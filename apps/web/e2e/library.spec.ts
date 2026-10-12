@@ -222,8 +222,9 @@ test('knowledge base: create a collection, write a note, ask with citations', as
   await page.getByRole('button', { name: 'Create collection' }).click();
   await expect(page.getByText('Created Tyre policies.')).toBeVisible();
   await expect(page.getByText(/Private: only you see this collection/)).toBeVisible();
-  // An upload into a private collection says plainly that documents are workspace files.
-  await expect(page.getByText(/an uploaded document is a workspace file/)).toBeVisible();
+  // Adding opens a dialog; an upload into a private collection says plainly that documents are workspace files.
+  await page.locator('.kbCollectionActions').getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByRole('dialog').getByText(/an uploaded document is a workspace file/)).toBeVisible();
   await page.getByRole('tab', { name: 'Write a note' }).click();
   await page.getByRole('textbox', { name: 'Title' }).fill('Winter policy');
   await page.getByRole('textbox', { name: 'Text' }).fill('Fit winter tyres from November to March.');

@@ -1,6 +1,7 @@
 /* Marketing (MarketingView.tsx). Spacing and colour from the shared tokens; logical properties for RTL. */
 .mkLayout { display: grid; gap: var(--d-s4); min-width: 0; }
-.mkLayout > .moduleIntro, .mkLayout > .notice, .mkLayout .settingsTabs { margin: 0; }
+.mkLayout { gap: var(--d-s3); }
+.mkLayout > .pageHeader, .mkLayout > .pageSummary, .mkLayout > .notice, .mkLayout .settingsTabs { margin: 0; }
 .mkLayout section { min-width: 0; }
 .mkPanel { align-items: flex-start; display: grid; gap: var(--d-s4); grid-template-columns: 24px minmax(0, 1fr); padding: var(--d-s5); }
 .mkPanel > svg { color: var(--d-violet); height: 24px; width: 24px; }
@@ -31,7 +32,32 @@
 .mkError { background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .25); border-radius: var(--d-r-control); display: grid; font-size: 14px; gap: var(--d-s1); padding: var(--d-s3); }
 .mkError span { color: var(--d-muted); }
 .mkPostActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.mkPostActions .iconButton { margin-inline-start: auto; }
+.mkPostActions .mkDelete { margin-inline-start: auto; }
+button.secondary.dangerText { color: var(--d-stop); }
+
+/* Posts: a dense table next to the planning rail (best times, this week). A row opens the post in a drawer. */
+.mkPosts { align-items: start; display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1280px) { .mkPosts { grid-template-columns: minmax(0, 1fr) minmax(250px, 290px); } }
+.mkPostsMain { display: grid; gap: var(--d-s3); min-width: 0; }
+.mkPostFilters input[type="search"] { flex: 1 1 220px; }
+.mkPostFilters select { flex: 0 1 170px; }
+.mkPostTable .mkExcerpt { -webkit-box-orient: vertical; -webkit-line-clamp: 2; display: -webkit-box; overflow: hidden; }
+.mkPostTable td small, .mkAccountTable th small, .mkProviderTable small { color: var(--d-faint); display: block; font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.mkPostTable .mkPlatform, .mkAccountTable .mkPlatform { font-size: 11px; }
+.mkPlanRail { display: grid; min-width: 0; padding: var(--d-s1) 0; }
+.mkSlots .railItem { cursor: default; }
+.mkWeekHead { display: grid; gap: 2px; }
+.mkWeekHead small { color: var(--d-faint); font-size: 12px; }
+.mkWeekLines { color: var(--d-text); display: grid; font-size: 13px; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s4); }
+.mkDrawerPost > .mkPost { border: 0; box-shadow: none; padding: 0; background: transparent; }
+.mkProviderTable caption { caption-side: top; font-size: 14px; font-weight: 650; padding: var(--d-s3) var(--d-s3) var(--d-s2); text-align: start; }
+.mkProviderTable th strong, .mkAccountTable th strong { font-weight: 600; }
+.mkProviderTable details summary { cursor: pointer; font-size: 13px; }
+.mkProviderTable details p { font-size: 13px; margin-top: var(--d-s1); }
+.mkProviderTable code { font-size: 12px; margin-inline-end: var(--d-s1); overflow-wrap: anywhere; }
+.mkAccountTable .mkError { margin-top: var(--d-s2); }
+.mkProviderTable .cellActions button, .mkAccountTable .cellActions button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); min-height: 36px; padding: 0 var(--d-s3); }
+.mkAccountTable .cellActions { flex-wrap: wrap; }
 .secondaryLink { align-items: center; display: inline-flex; gap: var(--d-s1); font-size: 14px; min-height: 40px; }
 .secondaryLink svg { height: 16px; width: 16px; }
 .mkScheduleForm { display: grid; gap: var(--d-s2); }

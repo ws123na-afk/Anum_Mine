@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
-  ArrowDown, CircleDot, Download, FileText, MessageSquarePlus, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Search, Send, Sparkles, Square, Trash2, WifiOff, X,
+  ArrowDown, CircleDot, Download, FileText, MessageSquarePlus, PanelRight, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Search, Send, Sparkles, Square, Trash2, WifiOff, X,
 } from 'lucide-react';
 import { AnswerFeedback, type Rating } from './AnswerFeedback';
 import { getRatings } from './lib/learningApi';
@@ -14,7 +14,7 @@ import {
 import { ApiError, budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
 import { markdownToPlainText } from './lib/markdown';
 import { copyText, downloadText } from './lib/clipboard';
-import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { useDeveloperAssist } from './DeveloperAssist';
 import { FavoritesStrip, StarButton, useStars } from './Favorites';
 import { ReportAnswerCard } from './ReportAnswerCard';
@@ -24,6 +24,14 @@ import { ChatCardView, type ChatTarget } from './ChatCardView';
 import { ConfirmDialog } from './Dialog';
 import { MessageMarkdown } from './MessageMarkdown';
 import { ActionMenu, CopyAction, MessageActions, useToast, type MenuItem } from './MessageActions';
+import { ChatContextRail, type ChatMemories } from './ChatContextRail';
+import { Drawer } from './Dialog';
+import { apiRequest, searchMemories } from './lib/api';
+import { agentListPath } from './lib/agents';
+import { memoriesFromChat } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { PageHeader, RAIL_QUERY, SplitView, useMediaQuery } from './PageParts';
+import type { AgentPage } from '@anum/contracts';
 import './chat.css';
 
 const SUGGESTIONS: MessageKey[] = ['chat.suggestion.1', 'chat.suggestion.2', 'chat.suggestion.3'];
@@ -72,8 +80,17 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
   agent?: { id: string; name: string };
 }) {
   const stars = useStars('conversation');
-  // With `agent`: the threads with that agent (docs/agents.md); its persona answers.
-  const agentId = agent?.id;
+  // The AI Chat page (no `agent`) has its header, the "Talk to" choice and the context rail; inside an
+  // agent's page the chat is embedded and keeps its two columns.
+  const page = !agent;
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
+  const [talkTo, setTalkTo] = useState('');
+  const [railOpen, setRailOpen] = useState(false);
+  const railShown = useMediaQuery(RAIL_QUERY);
+  const [memories, setMemories] = useState<ChatMemories>({ state: 'loading' });
+  // With `agent` (or an agent chosen under "Talk to"): the threads with that agent (docs/agents.md); its persona answers.
+  const agentId = agent?.id ?? (talkTo || undefined);
+  const activeAgent = agent ?? agents.find((item) => item.id === talkTo) ?? null;
   // "build ..." / "developer, ..." goes to developer mode after a confirmation (docs/developer-mode.md).
   const developer = useDeveloperAssist({ source: 'text', onOpenDeveloper });
   const online = useOnline();
@@ -169,6 +186,27 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
     return () => controller.current?.abort();
   }, [loadList, initialConversationId]);
 
+  // "Talk to": the agents the caller can chat with (GET /api/v1/agents); none listed hides the choice.
+  useEffect(() => {
+    if (!page) return;
+    apiRequest<AgentPage>(agentListPath({ category: 'all', q: '', status: 'active', limit: 50 }), { method: 'GET' })
+      .then((result) => setAgents(result.items.map((item) => ({ id: item.id, name: item.name }))), () => setAgents([]));
+  }, [page]);
+
+  // Memories the Assistant remembered from the caller's chats, for the context rail.
+  const loadMemories = useCallback(() => {
+    if (!page) return;
+    searchMemories('', true).then((items) => setMemories({ state: 'ready', items }), () => setMemories({ state: 'error', retry: () => { setMemories({ state: 'loading' }); loadMemories(); } }));
+  }, [page]);
+  useEffect(() => { loadMemories(); }, [loadMemories]);
+
+  function chooseTalkTo(value: string) {
+    controller.current?.abort();
+    acted.current = false;
+    setTalkTo(value);
+    void open(null);
+  }
+
   // Search as the person types, once they pause (the server matches titles and messages).
   useEffect(() => {
     const next = search.trim();
@@ -256,6 +294,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
       if (controller.current === abort) controller.current = null;
       setStreaming(false);
       void refreshList();
+      loadMemories();
       input.current?.focus();
     }
   }
@@ -373,11 +412,11 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
     ]} />
   </li>;
 
-  return <div className="chatLayout">
-    <aside className="surface chatList" aria-labelledby="chat-list-heading">
+  const listPane = <aside className={`${page ? 'pane' : 'surface'} chatList`} data-pane="list" aria-labelledby="chat-list-heading">
       <div className="chatListHeader">
         <h2 id="chat-list-heading">{t('chat.conversations')}</h2>
-        <button type="button" className="secondary" onClick={startNew} disabled={streaming}><MessageSquarePlus aria-hidden="true" />{t('chat.new')}</button>
+        {!page && <button type="button" className="secondary" onClick={startNew} disabled={streaming}><MessageSquarePlus aria-hidden="true" />{t('chat.new')}</button>}
+        {page && conversations.length > 0 && <span className="muted">{formatNumber(conversations.length)}{cursor ? '+' : ''}</span>}
       </div>
       <div className="chatSearch" role="search">
         <Search aria-hidden="true" />
@@ -394,19 +433,23 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
         {recent.length > 0 && <>{pinned.length > 0 && <h3 className="chatListGroup">{t('chat.recentGroup')}</h3>}<ul aria-label={pinned.length > 0 ? t('chat.recentGroup') : t('chat.conversations')}>{recent.map(row)}</ul></>}
         {cursor && <button type="button" className="secondary chatMore" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? t('chat.loadingMore') : t('chat.loadMore')}</button>}
       </div>}
-    </aside>
-    <section className="surface chatPanel" aria-label={t('chat.panel')}>
+    </aside>;
+  const openConversation = activeId ? (active ?? openMeta) : null;
+  const rail = <ChatContextRail conversation={openConversation} turns={turns} agentName={activeAgent?.name ?? null}
+    memories={memories.state === 'ready' ? { state: 'ready', items: memoriesFromChat(memories.items, activeId) } : memories} onOpen={onOpenTarget} />;
+  const panel = <section className={`${page ? 'pane' : 'surface'} chatPanel`} data-pane="detail" aria-label={t('chat.panel')}>
       <header className="chatHeader">
         <Sparkles aria-hidden="true" /><h2 dir="auto">{active?.pinned && <><Pin className="chatPinMark" aria-hidden="true" /><span className="visuallyHidden">{t('chat.pinnedMark')}: </span></>}{title}</h2>
         {streaming && <span className="statusBadge warning">{t('chat.answering')}</span>}
         {active && <StarButton starred={stars.ids.has(active.id)} label={conversationTitle(active)} onToggle={() => void stars.toggle(active.id)} />}
         {active && <ActionMenu className="iconButton" label={t('chat.conversationActions')} items={conversationMenu} />}
+        {page && !railShown && <button type="button" className="iconButton chatRailToggle" aria-label={t('pages.chat.rail.open')} title={t('pages.chat.rail.open')} aria-haspopup="dialog" onClick={() => setRailOpen(true)}><PanelRight aria-hidden="true" /></button>}
       </header>
       <div className="chatLog" ref={log} onScroll={onScroll} role="log" aria-live="polite" aria-busy={streaming || opening} tabIndex={0} aria-label={t('chat.messages')}>
         {(opening || (listState === 'loading' && turns.length === 0 && !query)) && <p className="chatLoading" role="status">{t('chat.loadingMessages')}</p>}
         {showEmpty && <div className="chatEmpty">
-          <p>{agent ? t('agents.chat.intro', { name: agent.name }) : t('chat.intro')}</p>
-          {!agent && onOpenFavorite && onOpenFavorites && <FavoritesStrip onOpen={onOpenFavorite} onOpenAll={onOpenFavorites} />}
+          <p>{activeAgent ? t('agents.chat.intro', { name: activeAgent.name }) : t('chat.intro')}</p>
+          {!activeAgent && onOpenFavorite && onOpenFavorites && <FavoritesStrip onOpen={onOpenFavorite} onOpenAll={onOpenFavorites} />}
           <div className="chatSuggestions">{SUGGESTIONS.map((key) => <button type="button" className="secondary" key={key} onClick={() => void ask({ content: t(key) })} disabled={streaming || !online}>{t(key)}</button>)}</div>
         </div>}
         {turns.map((turn) => {
@@ -484,7 +527,9 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
         </div>
       </form>
       {toast}
-    </section>
+    </section>;
+
+  const dialogs = <>
     {pending?.kind === 'deleteConversation' && <ConfirmDialog title={t('chat.deleteTitle')} confirmLabel={t('chat.deleteConfirm')} danger busy={busy} onConfirm={() => void confirmPending()} onCancel={() => setPending(null)}>
       <p dir="auto">{t('chat.confirmDelete', { title: conversationTitle(pending.conversation) })}</p>
     </ConfirmDialog>}
@@ -497,7 +542,23 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
         onChange={(e) => setPending({ ...pending, title: e.target.value })}
         onKeyDown={(e) => { if (e.key === 'Enter' && pending.title.trim()) { e.preventDefault(); void confirmPending(); } }} />
     </ConfirmDialog>}
-  </div>;
+    {railOpen && !railShown && <Drawer title={t('pages.chat.rail.title')} onClose={() => setRailOpen(false)}>{rail}</Drawer>}
+  </>;
+
+  if (!page) return <div className="chatLayout">{listPane}{panel}{dialogs}</div>;
+  return <>
+    <PageHeader title={viewLabel('assistant')} subtitle={t('pages.chat.subtitle')} actions={<>
+      {agents.length > 0 && <label className="chatTalkTo"><span>{t('pages.chat.talkTo')}</span>
+        <select value={talkTo} disabled={streaming} onChange={(e) => chooseTalkTo(e.target.value)}><option value="">{t('pages.chat.assistant')}</option>{agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+      <button type="button" onClick={startNew} disabled={streaming}><MessageSquarePlus aria-hidden="true" />{t('pages.chat.newChat')}</button>
+    </>} />
+    <SplitView layout="three" className="chatLayout chatSplit">
+      {listPane}
+      {panel}
+      <aside className="pane chatRailPane" data-pane="rail" aria-label={t('pages.chat.rail.title')}>{railShown && rail}</aside>
+    </SplitView>
+    {dialogs}
+  </>;
 }
 
 function when(value: string): string {
