@@ -361,7 +361,7 @@ void main() {
           _app(AutomationsScreen(automations: AutomationsController(repo))));
       await tester.pumpAndSettle();
       expect(find.text('No automations yet'), findsOneWidget);
-      await tester.tap(find.text('Create automation'));
+      await tester.tap(find.byKey(const Key('auto-custom')));
       await tester.pumpAndSettle();
       final submit = find.widgetWithText(FilledButton, 'Create automation');
       await tester.ensureVisible(submit);
@@ -380,8 +380,11 @@ void main() {
       await tester.pumpWidget(
           _app(AutomationsScreen(automations: AutomationsController(repo))));
       await tester.pumpAndSettle();
-      expect(find.text(manageHint), findsOneWidget);
-      expect(find.text('New'), findsNothing);
+      expect(find.byKey(const Key('auto-viewer-hint')), findsOneWidget);
+      expect(find.byKey(const Key('auto-custom')), findsNothing);
+      expect(find.byTooltip('New automation'), findsNothing);
+      // Not their automation to change: no switch, a status pill instead.
+      expect(find.byKey(const Key('auto-switch-wf_1')), findsNothing);
       await tester.tap(find.text('Weekly digest'));
       await tester.pumpAndSettle();
       expect(find.text('Run now'), findsNothing);
@@ -422,9 +425,9 @@ void main() {
       await tester.pumpWidget(
           _app(AutomationsScreen(automations: AutomationsController(repo))));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Show more'));
+      await tester.ensureVisible(find.byKey(const Key('auto-load-more')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Show more'));
+      await tester.tap(find.byKey(const Key('auto-load-more')));
       await tester.pumpAndSettle();
       expect(repo.calls, contains('list:::20'));
     });

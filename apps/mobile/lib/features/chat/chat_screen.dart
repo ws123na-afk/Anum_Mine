@@ -3,13 +3,17 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import '../voice/speech_service.dart';
+import '../workspace/list_kit.dart';
 import '../developer/developer_assist.dart';
 import '../developer/developer_assist_panel.dart';
 import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
 import 'chat_card_view.dart';
 import 'chat_cards.dart';
+import 'chat_attachments.dart';
 import 'chat_controller.dart';
 import 'chat_models.dart';
 import '../library/library_models.dart' show visibleReply;
@@ -29,6 +33,8 @@ class AssistantScreen extends StatefulWidget {
     this.openLink = openInBrowser,
     this.onOpenReport,
     this.onOpenTarget,
+    this.attachments = const DeviceChatAttachmentPicker(),
+    this.dictation,
     super.key,
   });
 
@@ -40,6 +46,13 @@ class AssistantScreen extends StatefulWidget {
   /// Opens a card's link (an email, a WhatsApp conversation, a file, the
   /// task or Approvals) in its own screen (docs/conversations.md#tools-in-chat).
   final ValueChanged<ChatTarget>? onOpenTarget;
+
+  /// Picks a text file to attach to the next question (mockup 07).
+  final ChatAttachmentPicker? attachments;
+
+  /// Speech to text for the composer's microphone; without it the
+  /// microphone is not offered.
+  final SpeechService? dictation;
 
   /// "build ..." / "developer, ..." go to developer mode after a
   /// confirmation instead of the model (docs/developer-mode.md).
@@ -71,6 +84,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
   bool _followScheduled = false;
   String? _shownId;
   bool _wasStreaming = false;
+
+  /// Files attached to the next question, and why the last one was refused.
+  final List<ChatAttachment> _attached = [];
+  String? _composerError;
+  bool _listening = false;
 
   ChatController get controller => widget.controller;
 
@@ -116,6 +134,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   void dispose() {
     controller.removeListener(_onChange);
     widget.developer?.setActive(false);
+    if (_listening) unawaited(widget.dictation?.cancel());
     _draft.dispose();
     _scroll.dispose();
     _input.dispose();
@@ -184,9 +203,84 @@ class _AssistantScreenState extends State<AssistantScreen> {
     }
   }
 
+  Future<void> _attach() async {
+    final l = AnumLocalizations.maybeOf(context);
+    final picker = widget.attachments;
+    if (picker == null) return;
+    try {
+      final file = await picker.pick();
+      if (file == null || !mounted) return;
+      setState(() {
+        _attached.add(file);
+        _composerError = null;
+      });
+    } on ChatAttachmentException catch (e) {
+      if (mounted) {
+        setState(() => _composerError = l.t('chatAttach_${e.reason}'));
+      }
+    } catch (_) {
+      if (mounted) setState(() => _composerError = l.t('chatAttachFailed'));
+    }
+  }
+
+  Future<void> _dictate() async {
+    final speech = widget.dictation;
+    if (speech == null) return;
+    final l = AnumLocalizations.maybeOf(context);
+    if (_listening) {
+      await speech.stop();
+      return;
+    }
+    final availability = await speech.initialize();
+    if (!mounted) return;
+    if (availability != SpeechAvailability.ready) {
+      setState(() => _composerError = availability == SpeechAvailability.denied
+          ? l.t('chatMicDenied')
+          : l.t('chatMicUnavailable'));
+      return;
+    }
+    final before = _draft.text.trim();
+    setState(() {
+      _listening = true;
+      _composerError = null;
+    });
+    await speech.listen(
+      locale: l.isArabic ? 'ar-SA' : 'en-US',
+      onResult: (text, _) {
+        if (!mounted) return;
+        final joined = before.isEmpty ? text : '$before $text';
+        _draft.value = TextEditingValue(
+            text: joined,
+            selection: TextSelection.collapsed(offset: joined.length));
+      },
+      onDone: () {
+        if (mounted) setState(() => _listening = false);
+      },
+      onError: (message, _) {
+        if (mounted) {
+          setState(() {
+            _listening = false;
+            _composerError = message;
+          });
+        }
+      },
+    );
+  }
+
   void _submit() {
-    final content = _draft.text.trim();
-    if (content.isEmpty || controller.streaming) return;
+    final l = AnumLocalizations.maybeOf(context);
+    final typed = _draft.text.trim();
+    if ((typed.isEmpty && _attached.isEmpty) || controller.streaming) return;
+    final content = questionWithAttachments(typed, _attached);
+    if (content.length > 8000) {
+      setState(() => _composerError = l.t('chatTooLong'));
+      return;
+    }
+    if (_listening) unawaited(widget.dictation?.stop());
+    setState(() {
+      _attached.clear();
+      _composerError = null;
+    });
     _draft.clear();
     final developer = widget.developer;
     if (developer == null) {
@@ -365,46 +459,107 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ),
           LayoutId(
             id: _ChatSlot.composer,
-            child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Expanded(
-                child: TextField(
-                  key: const Key('chat-input'),
-                  controller: _draft,
-                  focusNode: _input,
-                  minLines: 1,
-                  maxLines: 5,
-                  maxLength: 8000,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: InputDecoration(
-                    hintText: 'Ask the assistant…',
-                    counterText: '',
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: AnumSpacing.md, vertical: AnumSpacing.sm),
-                    hintStyle: TextStyle(color: p.faint),
-                  ),
-                ),
-              ),
-              const SizedBox(width: AnumSpacing.xs),
-              if (controller.streaming)
-                IconButton.filledTonal(
-                  key: const Key('chat-stop'),
-                  tooltip: 'Stop',
-                  onPressed: controller.stop,
-                  icon: const Icon(Icons.stop_rounded),
-                )
-              else
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _draft,
-                  builder: (context, value, _) => IconButton.filled(
-                    key: const Key('chat-send'),
-                    tooltip: 'Send',
-                    onPressed: value.text.trim().isEmpty ? null : _submit,
-                    icon: const Icon(Icons.arrow_upward),
-                  ),
-                ),
-            ]),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_attached.isNotEmpty || _composerError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
+                      child: Wrap(
+                          spacing: AnumSpacing.xs,
+                          runSpacing: AnumSpacing.xs,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            for (var i = 0; i < _attached.length; i++)
+                              InputChip(
+                                key: Key('chat-attachment-$i'),
+                                avatar: const Icon(Icons.description_outlined,
+                                    size: 18),
+                                label: Text(_attached[i].name),
+                                onDeleted: () =>
+                                    setState(() => _attached.removeAt(i)),
+                                deleteButtonTooltipMessage:
+                                    AnumLocalizations.maybeOf(context).f(
+                                        'chatAttachRemove',
+                                        {'name': _attached[i].name}),
+                              ),
+                            if (_composerError != null)
+                              Semantics(
+                                liveRegion: true,
+                                child: Text(_composerError!,
+                                    key: const Key('chat-composer-error'),
+                                    style:
+                                        TextStyle(color: p.stop, fontSize: 13)),
+                              ),
+                          ]),
+                    ),
+                  Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    if (widget.attachments != null)
+                      IconButton(
+                        key: const Key('chat-attach'),
+                        tooltip:
+                            AnumLocalizations.maybeOf(context).t('chatAttach'),
+                        onPressed: controller.streaming ? null : _attach,
+                        icon: const Icon(Icons.attach_file),
+                      ),
+                    Expanded(
+                      child: TextField(
+                        key: const Key('chat-input'),
+                        controller: _draft,
+                        focusNode: _input,
+                        minLines: 1,
+                        maxLines: 5,
+                        maxLength: 8000,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.newline,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText:
+                              AnumLocalizations.maybeOf(context).t('chatAsk'),
+                          counterText: '',
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: AnumSpacing.md,
+                              vertical: AnumSpacing.sm),
+                          hintStyle: TextStyle(color: p.faint),
+                        ),
+                      ),
+                    ),
+                    if (widget.dictation != null)
+                      IconButton(
+                        key: const Key('chat-mic'),
+                        tooltip: _listening
+                            ? AnumLocalizations.maybeOf(context)
+                                .t('chatMicStop')
+                            : AnumLocalizations.maybeOf(context).t('chatMic'),
+                        isSelected: _listening,
+                        onPressed: controller.streaming ? null : _dictate,
+                        icon: const Icon(Icons.mic_none),
+                        selectedIcon: Icon(Icons.mic, color: p.stop),
+                      ),
+                    const SizedBox(width: AnumSpacing.xs),
+                    if (controller.streaming)
+                      IconButton.filledTonal(
+                        key: const Key('chat-stop'),
+                        tooltip: 'Stop',
+                        onPressed: controller.stop,
+                        icon: const Icon(Icons.stop_rounded),
+                      )
+                    else
+                      ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _draft,
+                        builder: (context, value, _) => IconButton.filled(
+                          key: const Key('chat-send'),
+                          tooltip: 'Send',
+                          onPressed:
+                              value.text.trim().isEmpty && _attached.isEmpty
+                                  ? null
+                                  : _submit,
+                          icon: const Icon(Icons.arrow_upward),
+                        ),
+                      ),
+                  ]),
+                ]),
           ),
         ]);
   }
@@ -417,14 +572,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
         (listLoading &&
             controller.turns.isEmpty &&
             controller.activeId == null)) {
+      // Scrolls when a short screen at large text leaves little room.
       return Center(
-        child: Semantics(
-          liveRegion: true,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: AnumSpacing.sm),
-            Text('Loading messages…', style: TextStyle(color: p.muted)),
-          ]),
+        child: SingleChildScrollView(
+          child: Semantics(
+            liveRegion: true,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: AnumSpacing.sm),
+              Text('Loading messages…', style: TextStyle(color: p.muted)),
+            ]),
+          ),
         ),
       );
     }
@@ -561,9 +719,33 @@ class _ChatHeader extends StatelessWidget {
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (!dense) ...[
-            Text('Assistant',
-                style: TextStyle(
-                    color: p.sky, fontSize: 12.5, fontWeight: FontWeight.w600)),
+            Row(children: [
+              // The mark only where the height allows it.
+              if (MediaQuery.textScalerOf(context).scale(1) <= 1.3) ...[
+                const ExcludeSemantics(
+                    child: AnumIconChip(icon: Icons.auto_awesome)),
+                const SizedBox(width: AnumSpacing.xs),
+              ],
+              Flexible(
+                child: Text.rich(
+                    TextSpan(children: [
+                      const TextSpan(text: 'ANUM 360  '),
+                      TextSpan(
+                          text: controller.streaming
+                              ? AnumLocalizations.maybeOf(context)
+                                  .t('chatAnswering')
+                              : AnumLocalizations.maybeOf(context)
+                                  .t('chatOnline'),
+                          style: TextStyle(
+                              color: controller.streaming ? p.sky : p.ok,
+                              fontWeight: FontWeight.w600)),
+                    ]),
+                    style: TextStyle(
+                        color: p.muted,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700)),
+              ),
+            ]),
             const SizedBox(height: AnumSpacing.xxs),
           ],
           Semantics(
@@ -666,9 +848,9 @@ class _TurnView extends StatelessWidget {
             label: 'You',
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: p.violet.withValues(alpha: 0.18),
+                gradient: anumAccentGradient(context),
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: p.violet.withValues(alpha: 0.3)),
+                border: Border.all(color: p.edge),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -677,10 +859,14 @@ class _TurnView extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(turn.content, style: body),
+                      Text(turn.content,
+                          style: body.copyWith(color: anumOnAccent(context))),
                       if (turn.status == ChatTurnStatus.failed) ...[
                         const SizedBox(height: AnumSpacing.xxs),
-                        Text('Not sent.', style: error),
+                        Text('Not sent.',
+                            style: error.copyWith(
+                                color: anumOnAccent(context),
+                                fontWeight: FontWeight.w700)),
                       ],
                     ]),
               ),

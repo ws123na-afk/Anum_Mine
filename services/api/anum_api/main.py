@@ -574,6 +574,8 @@ async def create_task(
         created_at=now,
         updated_at=now,
         created_by=context.user_id,
+        priority=payload.priority,
+        due_at=_utc(payload.due_at),
     )
     repository.create_task(task)
     repository.record_event(
@@ -590,6 +592,12 @@ async def create_task(
 
 
 TASK_MANAGER_REQUIRED = "Only the task's creator or a workspace owner can change this task."
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """A date-time in UTC; one without an offset is read as UTC."""
+    aware = _aware(value)
+    return None if aware is None else aware.astimezone(timezone.utc)
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -779,12 +787,16 @@ async def update_task(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
-    """Rename a task; its instructions change only while it has never run."""
+    """Rename or re-plan a task (priority, due date); its instructions change only while
+    it has never run."""
     require_permission(context, Permission.TASK_READ)
     task = _get_task_for_context(task_id, context, repository, for_update=True)
     _require_task_manager(context, task)
-    if payload.title is None and payload.prompt is None:
-        raise HTTPException(status_code=422, detail="Send a new title, new instructions or both")
+    due_sent = "due_at" in payload.model_fields_set
+    if payload.title is None and payload.prompt is None and payload.priority is None and not due_sent:
+        raise HTTPException(
+            status_code=422, detail="Send a new title, instructions, priority or due date"
+        )
     if task.archived_at is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before editing it")
     changed: list[str] = []
@@ -799,6 +811,12 @@ async def update_task(
     if payload.title is not None and payload.title != task.title:
         task.title = payload.title
         changed.append("title")
+    if payload.priority is not None and payload.priority != task.priority:
+        task.priority = payload.priority
+        changed.append("priority")
+    if due_sent and _utc(payload.due_at) != task.due_at:
+        task.due_at = _utc(payload.due_at)
+        changed.append("due_at")
     if not changed:
         return task
     task.updated_at = utc_now()

@@ -7,6 +7,9 @@ export type TaskStatus =
   | 'failed'
   | 'cancelled';
 
+/** How urgent a task is (0036_task_planning, docs/tasks.md); stored tasks without one read as medium. */
+export type TaskPriority = 'low' | 'medium' | 'high';
+
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type RiskLevel = 'low' | 'medium' | 'high' | 'blocked';
 
@@ -33,6 +36,10 @@ export interface Task {
   /** Set while the task is archived (hidden from the default list, history kept; docs/tasks.md). */
   archivedAt?: string | null;
   archivedBy?: string | null;
+  /** Planning fields (docs/tasks.md): never change what the agent may do. */
+  priority?: TaskPriority;
+  /** When the result is wanted, UTC; null for no due date. */
+  dueAt?: string | null;
 }
 
 /** `GET /api/v1/tasks/summary`: per-status counts for the list's other filters (docs/tasks.md). */

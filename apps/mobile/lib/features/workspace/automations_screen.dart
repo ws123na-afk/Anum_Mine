@@ -2,13 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
-import '../../src/localization/anum_localizations.dart';
 import '../automations/automation_models.dart';
 import '../automations/automation_repository.dart';
 import '../automations/automation_triggers_card.dart';
+import '../automations/automation_templates.dart';
 import '../automations/automations_controller.dart';
+import 'list_kit.dart';
 
 AnumTone automationTone(String status) => switch (status) {
       'running' || 'active' => AnumTone.info,
@@ -24,9 +26,32 @@ void _say(BuildContext context, String message) =>
     ScaffoldMessenger.maybeOf(context)
         ?.showSnackBar(SnackBar(content: Text(message)));
 
-/// Automations (docs/automation.md): searchable list with "Show more"; each
-/// automation opens its steps, schedules and run history. Owners change any
-/// automation, members their own, viewers read only — and the screen says so.
+/// The tabs of the Automations list (mockup 11). The API has no draft
+/// state: a paused automation is the one that does not fire, so the
+/// mockup's "Draft" tab is "Paused" here (docs/mobile.md).
+enum AutomationTab { all, active, paused, templates }
+
+String automationTabStatus(AutomationTab tab) => switch (tab) {
+      AutomationTab.active => 'active',
+      AutomationTab.paused => 'disabled',
+      _ => '',
+    };
+
+/// The icon of an automation: what its first step does.
+IconData automationIcon(AutomationWorkflow w) {
+  final action = w.steps.isEmpty ? '' : w.steps.first.action;
+  return switch (action) {
+    'task.create' => Icons.smart_toy_outlined,
+    'notify' => Icons.notifications_active_outlined,
+    'pause' => Icons.front_hand_outlined,
+    _ => Icons.account_tree_outlined,
+  };
+}
+
+/// Automations (docs/automation.md): the list with a pause/resume switch on
+/// each row, search, tabs and "Show more"; each automation opens its steps,
+/// schedules and run history. Owners change any automation, members their
+/// own, viewers read only, and the screen says so.
 class AutomationsScreen extends StatefulWidget {
   const AutomationsScreen({required this.automations, super.key});
   final AutomationsController automations;
@@ -38,6 +63,11 @@ class AutomationsScreen extends StatefulWidget {
 class _AutomationsScreenState extends State<AutomationsScreen> {
   late final TextEditingController _search =
       TextEditingController(text: widget.automations.query);
+  late AutomationTab _tab = switch (widget.automations.status) {
+    'active' => AutomationTab.active,
+    'disabled' => AutomationTab.paused,
+    _ => AutomationTab.all,
+  };
 
   @override
   void initState() {
@@ -46,160 +76,256 @@ class _AutomationsScreenState extends State<AutomationsScreen> {
   }
 
   @override
+  void didUpdateWidget(AutomationsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Another workspace's controller: load it too.
+    if (oldWidget.automations != widget.automations) widget.automations.start();
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     super.dispose();
   }
 
-  Future<void> _create() async {
+  Future<void> _create([AutomationTemplate? template]) async {
     final created = await Navigator.of(context).push<AutomationWorkflow>(
         MaterialPageRoute(
-            builder: (_) =>
-                AutomationEditorScreen(controller: widget.automations)));
+            builder: (_) => AutomationEditorScreen(
+                controller: widget.automations, template: template)));
     if (created != null && mounted) {
-      _say(context, 'Created "${created.name}".');
-      _open(created.id);
+      _say(
+          context,
+          AnumLocalizations.maybeOf(context)
+              .f('autoCreated', {'name': created.name}));
+      _open(created.id, suggest: template);
     }
   }
 
-  void _open(String id) => Navigator.of(context).push<void>(MaterialPageRoute(
-      builder: (_) => AutomationDetailScreen(
-          controller: widget.automations, workflowId: id)));
+  void _open(String id, {AutomationTemplate? suggest}) =>
+      Navigator.of(context).push<void>(MaterialPageRoute(
+          builder: (_) => AutomationDetailScreen(
+              controller: widget.automations,
+              workflowId: id,
+              suggest: suggest)));
+
+  void _select(AutomationTab tab) {
+    setState(() => _tab = tab);
+    if (tab != AutomationTab.templates) {
+      widget.automations.filter(automationTabStatus(tab));
+    }
+  }
+
+  Future<void> _toggle(AutomationWorkflow w, bool enabled) async {
+    final l = AnumLocalizations.maybeOf(context);
+    final failure = await widget.automations.setEnabled(w, enabled);
+    if (!mounted) return;
+    _say(
+        context,
+        failure ??
+            l.f(enabled ? 'autoResumed' : 'autoPaused', {'name': w.name}));
+  }
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: widget.automations,
         builder: (context, _) {
           final c = widget.automations;
+          final l = AnumLocalizations.maybeOf(context);
           final p = context.palette;
           return AnumPage(
             onRefresh: c.refresh,
             children: [
-              AnumHeader(
-                eyebrow: 'Durable work',
-                title: 'Automations',
-                subtitle:
-                    'Agent work that runs on demand or on a schedule, with every run recorded.',
-                large: true,
-                trailing: c.canManage
-                    ? FilledButton.icon(
-                        onPressed: _create,
-                        icon: const Icon(Icons.add),
-                        label: const Text('New'))
-                    : null,
+              AnumListHeader(
+                title: l.t('autoTitle'),
+                subtitle: l.t('autoSubtitle'),
+                actionTooltip: l.t('autoNew'),
+                onAction: c.canManage ? () => _create() : null,
               ),
-              if (!c.canManage)
-                AnumSurface(
-                    child: Text(manageHint,
-                        style: TextStyle(color: p.muted, fontSize: 13.5))),
-              AnumSurface(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextField(
-                        controller: _search,
-                        decoration: const InputDecoration(
-                            labelText: 'Search automations',
-                            prefixIcon: Icon(Icons.search)),
-                        textInputAction: TextInputAction.search,
-                        onChanged: c.search,
-                      ),
-                      const SizedBox(height: AnumSpacing.sm),
-                      Wrap(
-                          spacing: AnumSpacing.xs,
-                          runSpacing: AnumSpacing.xs,
-                          children: [
-                            for (final entry in const {
-                              '': 'All',
-                              'active': 'Active',
-                              'disabled': 'Paused'
-                            }.entries)
-                              ChoiceChip(
-                                  label: Text(entry.value),
-                                  selected: c.status == entry.key,
-                                  onSelected: (_) => c.filter(entry.key)),
-                          ]),
-                      const SizedBox(height: AnumSpacing.xs),
-                      ..._list(context, c),
-                    ]),
+              AnumSegmentTabs<AutomationTab>(
+                segments: [
+                  AnumSegment(AutomationTab.all, l.t('listTabAll'),
+                      key: const Key('auto-tab-all')),
+                  AnumSegment(AutomationTab.active, l.t('autoTabActive'),
+                      key: const Key('auto-tab-active')),
+                  AnumSegment(AutomationTab.paused, l.t('autoTabPaused'),
+                      key: const Key('auto-tab-paused')),
+                  AnumSegment(AutomationTab.templates, l.t('autoTabTemplates'),
+                      key: const Key('auto-tab-templates')),
+                ],
+                selected: _tab,
+                onSelected: _select,
               ),
-              const SizedBox(height: AnumSpacing.lg),
+              if (!c.canManage && c.role != null)
+                Text(l.t('autoViewerHint'),
+                    key: const Key('auto-viewer-hint'),
+                    style: TextStyle(color: p.muted, fontSize: 13.5)),
+              if (_tab == AutomationTab.templates)
+                ..._templates(context, c)
+              else ...[
+                TextField(
+                  key: const Key('auto-search'),
+                  controller: _search,
+                  decoration: InputDecoration(
+                      hintText: l.t('autoSearch'),
+                      prefixIcon: const Icon(Icons.search)),
+                  textInputAction: TextInputAction.search,
+                  onChanged: c.search,
+                ),
+                ..._list(context, c),
+              ],
             ],
           );
         },
       );
 
+  List<Widget> _templates(BuildContext context, AutomationsController c) {
+    final l = AnumLocalizations.maybeOf(context);
+    return [
+      Text(l.t('autoTemplatesHint'),
+          style: TextStyle(color: context.palette.muted, fontSize: 13.5)),
+      AnumListCard(children: [
+        for (final template in automationTemplates)
+          AnumListRow(
+            key: Key('auto-template-${template.id}'),
+            leading: AnumTileIcon(
+                icon: template.icon,
+                color: anumToneColor(context, template.tone)),
+            title: template.name(l),
+            subtitle: template.description(l),
+            onTap: c.canManage ? () => _create(template) : null,
+            trailing: c.canManage
+                ? null
+                : Icon(Icons.lock_outline, color: context.palette.faint),
+          ),
+      ]),
+    ];
+  }
+
   List<Widget> _list(BuildContext context, AutomationsController c) {
+    final l = AnumLocalizations.maybeOf(context);
+    final p = context.palette;
     if (c.phase == AutomationLoad.loading) {
-      return const [
-        Padding(
-            padding: EdgeInsets.all(AnumSpacing.lg),
-            child: Center(
-                child: CircularProgressIndicator(
-                    semanticsLabel: 'Loading automations')))
-      ];
+      return [AnumListLoading(label: l.t('autoLoading'))];
     }
     if (c.phase == AutomationLoad.error) {
       return [
-        AnumEmpty(
-          icon: Icons.cloud_off_outlined,
-          title: 'Could not load automations',
-          message: c.error ?? 'Try again.',
-          action: c.errorStatus == 403 ? null : 'Try again',
-          onAction: c.errorStatus == 403 ? null : c.refresh,
+        AnumSurface(
+          accent: p.stop,
+          child: AnumEmpty(
+            icon: c.errorStatus == 403
+                ? Icons.lock_outline
+                : Icons.cloud_off_outlined,
+            title: c.errorStatus == 403
+                ? l.t('autoDenied')
+                : l.t('autoLoadFailed'),
+            message: c.errorStatus == 403
+                ? '${c.error ?? ''} ${l.t('autoDeniedHint')}'.trim()
+                : c.error ?? l.t('retry'),
+            action: c.errorStatus == 403 ? null : l.t('retry'),
+            onAction: c.errorStatus == 403 ? null : c.refresh,
+          ),
         )
       ];
     }
+    final custom = AnumListRow(
+      key: const Key('auto-custom'),
+      leading: AnumTileIcon(icon: Icons.tune, color: p.violet),
+      title: l.t('autoCustom'),
+      subtitle: l.t('autoCustomHint'),
+      onTap: () => _create(),
+    );
     if (c.workflows.isEmpty) {
       return [
-        c.filtered
-            ? AnumEmpty(
-                icon: Icons.search_off,
-                title: 'No matches',
-                message: 'No automation matches this search or filter.',
-                action: 'Clear filters',
-                onAction: () {
-                  _search.clear();
-                  c.clearFilters();
-                })
-            : AnumEmpty(
-                icon: Icons.account_tree_outlined,
-                title: 'No automations yet',
-                message: c.canManage
-                    ? 'Create one to turn recurring work into agent tasks, notifications and approvals.'
-                    : 'A workspace owner or member can create the first one.',
-                action: c.canManage ? 'Create automation' : null,
-                onAction: c.canManage ? _create : null,
-              )
+        AnumSurface(
+          child: c.filtered
+              ? AnumEmpty(
+                  icon: Icons.search_off,
+                  title: l.t('autoNoMatch'),
+                  message:
+                      _tab == AutomationTab.paused && c.query.trim().isEmpty
+                          ? l.t('autoNoPaused')
+                          : l.t('autoNoMatchHint'),
+                  action: l.t('tasksClearFilters'),
+                  onAction: () {
+                    _search.clear();
+                    setState(() => _tab = AutomationTab.all);
+                    c.clearFilters();
+                  })
+              : AnumEmpty(
+                  icon: Icons.account_tree_outlined,
+                  title: l.t('autoEmpty'),
+                  message: c.canManage
+                      ? l.t('autoEmptyHint')
+                      : l.t('autoEmptyViewer'),
+                  action: c.canManage ? l.t('autoBrowseTemplates') : null,
+                  onAction: c.canManage
+                      ? () => _select(AutomationTab.templates)
+                      : null,
+                ),
+        ),
+        if (c.canManage && !c.filtered) AnumListCard(children: [custom]),
       ];
     }
     return [
-      for (final w in c.workflows)
-        AnumRow(
-          icon: Icons.account_tree_outlined,
-          tone: automationTone(w.lastRunStatus ?? w.status),
-          title: w.name,
-          subtitle: w.lastRunStatus == null
-              ? 'Never run'
-              : 'Last run ${statusLabel(w.lastRunStatus!).toLowerCase()} '
-                  '${w.lastRunAt == null ? '' : relativeWhen(w.lastRunAt!)}',
-          detail: w.paused
-              ? 'Paused'
-              : w.nextRunAt == null
-                  ? '${w.steps.length} steps · no schedule'
-                  : '${w.steps.length} steps · next ${relativeWhen(w.nextRunAt!)}',
-          trailing: AnumPill(
-              label: statusLabel(w.status), tone: automationTone(w.status)),
-          onTap: () => _open(w.id),
-        ),
+      AnumListCard(
+        footer: c.canManage ? custom : null,
+        children: [
+          for (final w in c.workflows) _row(context, c, w),
+        ],
+      ),
       if (c.hasMore)
-        Padding(
-          padding: const EdgeInsets.only(top: AnumSpacing.xs),
-          child: OutlinedButton(
-              onPressed: c.loadingMore ? null : c.loadMore,
-              child: Text(c.loadingMore ? 'Loading...' : 'Show more')),
-        ),
+        AnumLoadMore(
+            key: const Key('auto-load-more'),
+            loading: c.loadingMore,
+            onPressed: c.loadMore),
     ];
+  }
+
+  Widget _row(
+      BuildContext context, AutomationsController c, AutomationWorkflow w) {
+    final l = AnumLocalizations.maybeOf(context);
+    final schedule = c.scheduleOf(w.id);
+    final when = w.paused
+        ? l.t('autoPausedLine')
+        : schedule != null
+            ? schedule.words(arabic: l.isArabic)
+            : w.nextRunAt != null
+                ? l.f('autoNext', {'when': relativeWhen(w.nextRunAt!)})
+                : l.t('autoOnDemand');
+    final last = w.lastRunStatus == null
+        ? l.t('autoNeverRun')
+        : l.f('autoLastRun', {
+            'status': statusLabel(w.lastRunStatus!),
+            'when': w.lastRunAt == null ? '' : relativeWhen(w.lastRunAt!),
+          }).trim();
+    final editable = c.canEdit(w.createdBy);
+    final tone = automationTone(w.lastRunStatus ?? w.status);
+    return AnumListRow(
+      key: Key('auto-row-${w.id}'),
+      leading: AnumTileIcon(
+          icon: automationIcon(w), color: anumToneColor(context, tone)),
+      title: w.name,
+      subtitle: when,
+      detail: Text(last,
+          style: TextStyle(color: context.palette.faint, fontSize: 12)),
+      semanticLabel: '${w.name}, $when, $last',
+      trailing: editable
+          ? Semantics(
+              label: l.f('autoSwitchLabel', {'name': w.name}),
+              child: Switch(
+                key: Key('auto-switch-${w.id}'),
+                value: !w.paused,
+                onChanged: c.toggling.contains(w.id)
+                    ? null
+                    : (value) => _toggle(w, value),
+              ),
+            )
+          : AnumPill(
+              label: w.paused ? l.t('autoTabPaused') : l.t('autoTabActive'),
+              tone: w.paused ? AnumTone.warn : AnumTone.info),
+      onTap: () => _open(w.id),
+    );
   }
 }
 
@@ -207,9 +333,16 @@ class _AutomationsScreenState extends State<AutomationsScreen> {
 
 class AutomationDetailScreen extends StatefulWidget {
   const AutomationDetailScreen(
-      {required this.controller, required this.workflowId, super.key});
+      {required this.controller,
+      required this.workflowId,
+      this.suggest,
+      super.key});
   final AutomationsController controller;
   final String workflowId;
+
+  /// The template it was just created from: its suggested schedule is
+  /// offered at once (added only if the person saves it).
+  final AutomationTemplate? suggest;
 
   @override
   State<AutomationDetailScreen> createState() => _AutomationDetailState();
@@ -231,6 +364,12 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
   void initState() {
     super.initState();
     _load();
+    final suggest = widget.suggest;
+    if (suggest != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _schedule(null, suggest);
+      });
+    }
   }
 
   Future<void> _load() async {
@@ -329,13 +468,19 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
     }
   }
 
-  Future<void> _schedule([AutomationScheduleItem? existing]) async {
+  Future<void> _schedule(
+      [AutomationScheduleItem? existing, AutomationTemplate? suggest]) async {
+    final l = AnumLocalizations.maybeOf(context);
     final saved = await showModalBottomSheet<AutomationScheduleItem>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => ScheduleSheet(
-          controller: c, workflowId: widget.workflowId, existing: existing),
+          controller: c,
+          workflowId: widget.workflowId,
+          existing: existing,
+          initialName: suggest?.scheduleName(l),
+          initialCron: suggest?.cron),
     );
     if (saved != null && mounted) {
       _say(
@@ -745,22 +890,30 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
 
 class AutomationEditorScreen extends StatefulWidget {
   const AutomationEditorScreen(
-      {required this.controller, this.existing, super.key});
+      {required this.controller, this.existing, this.template, super.key});
   final AutomationsController controller;
   final AutomationWorkflow? existing;
+
+  /// Fills a new automation from a template (name, description, steps).
+  final AutomationTemplate? template;
 
   @override
   State<AutomationEditorScreen> createState() => _AutomationEditorState();
 }
 
 class _AutomationEditorState extends State<AutomationEditorScreen> {
-  late final name = TextEditingController(text: widget.existing?.name ?? '');
-  late final description =
-      TextEditingController(text: widget.existing?.description ?? '');
-  late String overlap = widget.existing?.overlapPolicy ?? 'allow';
-  late final List<StepDraft> steps = widget.existing == null
-      ? [newStepDraft(const [])]
-      : widget.existing!.steps.map(StepDraft.fromStep).toList();
+  late final AnumLocalizations _l = AnumLocalizations.maybeOf(context);
+  late final name = TextEditingController(
+      text: widget.existing?.name ?? widget.template?.name(_l) ?? '');
+  late final description = TextEditingController(
+      text: widget.existing?.description ??
+          widget.template?.description(_l) ??
+          '');
+  late String overlap = widget.existing?.overlapPolicy ??
+      (widget.template == null ? 'allow' : 'skip');
+  late final List<StepDraft> steps = widget.existing != null
+      ? widget.existing!.steps.map(StepDraft.fromStep).toList()
+      : widget.template?.steps(_l) ?? [newStepDraft(const [])];
   Map<String, String> errors = const {};
   String? summary;
   bool busy = false;
@@ -1047,19 +1200,25 @@ class ScheduleSheet extends StatefulWidget {
       {required this.controller,
       required this.workflowId,
       this.existing,
+      this.initialName,
+      this.initialCron,
       super.key});
   final AutomationsController controller;
   final String workflowId;
   final AutomationScheduleItem? existing;
+
+  /// A template's suggested schedule, for a new one.
+  final String? initialName, initialCron;
 
   @override
   State<ScheduleSheet> createState() => _ScheduleSheetState();
 }
 
 class _ScheduleSheetState extends State<ScheduleSheet> {
-  late final name = TextEditingController(text: widget.existing?.name ?? '');
-  late final cron =
-      TextEditingController(text: widget.existing?.cron ?? '0 9 * * 1-5');
+  late final name = TextEditingController(
+      text: widget.existing?.name ?? widget.initialName ?? '');
+  late final cron = TextEditingController(
+      text: widget.existing?.cron ?? widget.initialCron ?? '0 9 * * 1-5');
   late final timezone =
       TextEditingController(text: widget.existing?.timezone ?? 'UTC');
   SchedulePreview? preview;

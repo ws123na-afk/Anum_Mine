@@ -245,7 +245,7 @@ void main() {
             title: i == 3 ? 'Invoice summary' : null),
     ]);
     await _pump(tester, fake);
-    expect(find.text('55 in this workspace'), findsOneWidget);
+    expect(find.text('1 open of 55 in this workspace'), findsOneWidget);
     await tester.dragUntilVisible(find.byKey(const Key('tasks-load-more')),
         find.byType(ListView).first, const Offset(0, -600));
     await tester.ensureVisible(find.byKey(const Key('tasks-load-more')));
@@ -256,18 +256,24 @@ void main() {
 
     await tester.drag(find.byType(ListView).first, const Offset(0, 20000));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'invoice');
+    await tester.enterText(find.byKey(const Key('tasks-search')), 'invoice');
     await tester.pump(const Duration(milliseconds: 350));
     await tester.pumpAndSettle();
     expect(fake.queries.last.search, 'invoice');
     expect(find.text('Invoice summary'), findsOneWidget);
     expect(find.text('Report 1'), findsNothing);
 
-    await tester.ensureVisible(find.textContaining('Failed or cancelled'));
-    await tester.tap(find.textContaining('Failed or cancelled'));
+    await tester.ensureVisible(find.byKey(const Key('tasks-tab-agents')));
+    await tester.tap(find.byKey(const Key('tasks-tab-agents')));
     await tester.pumpAndSettle();
-    expect(
-        fake.queries.last.statuses, {WorkStatus.failed, WorkStatus.cancelled});
+    expect(fake.queries.last.statuses,
+        {WorkStatus.queued, WorkStatus.running, WorkStatus.waitingApproval});
+    await tester.ensureVisible(find.byKey(const Key('tasks-tab-mine')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('tasks-tab-mine')));
+    await tester.pumpAndSettle();
+    expect(fake.queries.last.mine, isTrue);
+    expect(fake.queries.last.queryString(), contains('created_by=me'));
     expect(tester.takeException(), isNull);
   });
 

@@ -149,6 +149,49 @@ def test_instructions_are_fixed_once_the_task_ran_but_the_title_is_not() -> None
     assert client.put(f"/api/v1/tasks/{task['id']}", headers=owner, json={"title": "Renamed"}).status_code == 200
 
 
+def test_priority_and_due_date_are_set_on_create_and_edited_any_time_before_archive() -> None:
+    due = "2026-10-20T09:00:00+03:00"
+    created = client.post(
+        "/api/v1/tasks",
+        headers=member,
+        json={"title": "Supplier quote", "prompt": "Review the quote", "priority": "high", "due_at": due},
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+    assert task["priority"] == "high"
+    assert task["due_at"].startswith("2026-10-20T06:00:00")  # stored in UTC
+    plain = _create("Plain")
+    assert plain["priority"] == "medium" and plain["due_at"] is None
+    # A naive date-time is read as UTC.
+    naive = client.post("/api/v1/tasks", headers=owner, json={"title": "N", "prompt": "p", "due_at": "2026-11-01T08:00:00"})
+    assert naive.json()["due_at"].startswith("2026-11-01T08:00:00")
+
+    client.post(f"/api/v1/tasks/{task['id']}/run", headers=member)
+    lowered = client.put(f"/api/v1/tasks/{task['id']}", headers=member, json={"priority": "low"})
+    assert lowered.status_code == 200 and lowered.json()["priority"] == "low"
+    assert lowered.json()["due_at"] is not None  # leaving due_at out keeps it
+    cleared = client.put(f"/api/v1/tasks/{task['id']}", headers=member, json={"due_at": None})
+    assert cleared.status_code == 200 and cleared.json()["due_at"] is None
+    events = client.get(f"/api/v1/tasks/{task['id']}/events", headers=owner).json()
+    assert events[0]["payload"]["fields"] == ["due_at"]
+    assert events[1]["payload"]["fields"] == ["priority"]
+    # Unchanged values record nothing.
+    same = client.put(f"/api/v1/tasks/{task['id']}", headers=member, json={"priority": "low"})
+    assert same.status_code == 200
+    assert len(client.get(f"/api/v1/tasks/{task['id']}/events", headers=owner).json()) == len(events)
+
+
+def test_priority_is_validated_and_planning_follows_edit_rules() -> None:
+    bad = client.post("/api/v1/tasks", headers=owner, json={"title": "x", "prompt": "y", "priority": "urgent"})
+    assert bad.status_code == 422
+    task = _create("Mine", headers=member)
+    assert client.put(f"/api/v1/tasks/{task['id']}", headers=other_member, json={"priority": "high"}).status_code == 403
+    assert client.put(f"/api/v1/tasks/{task['id']}", headers=owner, json={"priority": "urgent"}).status_code == 422
+    client.post(f"/api/v1/tasks/{task['id']}/archive", headers=member)
+    archived = client.put(f"/api/v1/tasks/{task['id']}", headers=member, json={"priority": "high"})
+    assert archived.status_code == 409
+
+
 def test_edit_permissions_creator_or_owner_only() -> None:
     task = _create("Mine", headers=member)
     denied = client.put(f"/api/v1/tasks/{task['id']}", headers=other_member, json={"title": "Taken"})

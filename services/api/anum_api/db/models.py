@@ -113,6 +113,9 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     archived_by_user_id: Mapped[str | None] = mapped_column(String(120))
     # Migration 0039_team_work: the department assistant the task runs as, if any.
     assistant_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Planning (0048_task_planning, docs/tasks.md): null priority reads as medium.
+    priority: Mapped[str | None] = mapped_column(String(10))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     workspace: Mapped[Workspace] = relationship(back_populates="tasks")
     runs: Mapped[list["AgentRunRecord"]] = relationship(back_populates="task")

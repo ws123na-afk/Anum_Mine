@@ -10,7 +10,17 @@ from typing import Any
 import pytest
 
 from anum_api.repository import UnknownCursorError
-from anum_api.schemas import AgentRun, AgentRunStep, Approval, ApprovalStatus, DomainEvent, RiskLevel, Task, TaskStatus
+from anum_api.schemas import (
+    AgentRun,
+    AgentRunStep,
+    Approval,
+    ApprovalStatus,
+    DomainEvent,
+    RiskLevel,
+    Task,
+    TaskPriority,
+    TaskStatus,
+)
 from anum_api.tasks import TaskFilters
 
 from conftest import FIXED_NOW, TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B, tenant_context
@@ -95,6 +105,28 @@ def test_archive_columns_round_trip_and_hide_from_the_default_list(
         assert summary.by_status == {"completed": 1}
         assert summary.total == 1 and summary.archived == 1
         assert summary.creators == ["user_test"]
+
+
+def test_priority_and_due_date_round_trip(seed_scopes: None, repository_factory: Callable[..., Any]) -> None:
+    context = tenant_context()
+    with repository_factory(context, commit=True) as repository:
+        planned = _task("task_planned", minutes=1)
+        planned.priority = TaskPriority.HIGH
+        planned.due_at = FIXED_NOW + timedelta(days=2)
+        repository.create_task(planned)
+        repository.create_task(_task("task_unplanned", minutes=2))
+    with repository_factory(context, commit=True) as repository:
+        stored = repository.get_task("task_planned", context)
+        assert stored is not None
+        assert stored.priority == TaskPriority.HIGH and stored.due_at == FIXED_NOW + timedelta(days=2)
+        unplanned = repository.get_task("task_unplanned", context)
+        assert unplanned is not None and unplanned.priority == TaskPriority.MEDIUM and unplanned.due_at is None
+        stored.priority = TaskPriority.LOW
+        stored.due_at = None
+        repository.save_task(stored)
+    with repository_factory(context) as repository:
+        again = repository.get_task("task_planned", context)
+        assert again is not None and again.priority == TaskPriority.LOW and again.due_at is None
 
 
 def test_runs_events_and_approvals_of_a_task(seed_scopes: None, repository_factory: Callable[..., Any]) -> None:

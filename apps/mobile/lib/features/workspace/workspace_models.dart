@@ -10,6 +10,15 @@ enum WorkStatus {
   cancelled
 }
 
+/// How urgent a task is (docs/tasks.md); tasks stored without one are medium.
+enum TaskPriority { low, medium, high }
+
+TaskPriority taskPriorityFromWire(String? value) => switch (value) {
+      'low' => TaskPriority.low,
+      'high' => TaskPriority.high,
+      _ => TaskPriority.medium,
+    };
+
 class WorkspaceTask {
   const WorkspaceTask(
       {required this.id,
@@ -21,8 +30,15 @@ class WorkspaceTask {
       this.run,
       this.approval,
       this.createdBy,
-      this.archivedAt});
+      this.archivedAt,
+      this.priority = TaskPriority.medium,
+      this.dueAt});
   final String id, title, prompt;
+
+  /// Planning fields (docs/tasks.md): shown on the lists, never change what
+  /// the agent may do. [dueAt] is local time; null for no due date.
+  final TaskPriority priority;
+  final DateTime? dueAt;
   final WorkStatus status;
   final DateTime createdAt, updatedAt;
   final WorkspaceRun? run;

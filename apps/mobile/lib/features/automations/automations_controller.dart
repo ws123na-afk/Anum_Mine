@@ -55,10 +55,62 @@ class AutomationsController extends ChangeNotifier {
     await refresh();
   }
 
+  /// Every schedule of the workspace by workflow, for the list's schedule
+  /// line ("Every day at 08:00"). Loaded with the list; a failure here only
+  /// leaves the line out.
+  Map<String, List<AutomationScheduleItem>> schedulesByWorkflow = const {};
+
+  /// Workflows whose switch is being changed; their switch is disabled.
+  final Set<String> toggling = {};
+
+  /// The schedule line of [workflowId]: its first enabled schedule (or its
+  /// first one), or null when it has none.
+  AutomationScheduleItem? scheduleOf(String workflowId) {
+    final items = schedulesByWorkflow[workflowId];
+    if (items == null || items.isEmpty) return null;
+    return items.firstWhere((s) => s.enabled, orElse: () => items.first);
+  }
+
+  Future<void> _loadSchedules() async {
+    try {
+      // No workflow id: every schedule the caller may read (up to 500).
+      final items = await repository.schedules('');
+      final grouped = <String, List<AutomationScheduleItem>>{};
+      for (final item in items) {
+        grouped.putIfAbsent(item.workflowId, () => []).add(item);
+      }
+      schedulesByWorkflow = grouped;
+    } catch (_) {
+      // The rows still show the next run time from the workflow itself.
+    }
+  }
+
+  /// Pauses or resumes [workflow] (its schedules stop or start firing).
+  /// Returns null on success or the message to show; the switch stays where
+  /// the server left it.
+  Future<String?> setEnabled(AutomationWorkflow workflow, bool enabled) async {
+    if (toggling.contains(workflow.id)) return null;
+    toggling.add(workflow.id);
+    notifyListeners();
+    try {
+      final updated = await repository.setWorkflowEnabled(workflow.id, enabled);
+      replace(updated);
+      return null;
+    } catch (e) {
+      return automationErrorText(e);
+    } finally {
+      toggling.remove(workflow.id);
+      notifyListeners();
+    }
+  }
+
   Future<void> refresh() async {
     final generation = ++_generation;
     if (workflows.isEmpty) phase = AutomationLoad.loading;
     notifyListeners();
+    unawaited(_loadSchedules().then((_) {
+      if (generation == _generation) notifyListeners();
+    }));
     try {
       final page = await repository.workflows(
           query: query, status: status, limit: pageSize, offset: 0);
@@ -144,6 +196,7 @@ class AutomationsController extends ChangeNotifier {
     started = false;
     phase = AutomationLoad.loading;
     workflows = const [];
+    schedulesByWorkflow = const {};
     hasMore = false;
     query = '';
     status = '';

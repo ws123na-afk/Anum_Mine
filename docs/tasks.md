@@ -8,11 +8,11 @@ All paths are under `/api/v1`. Lists are newest first and keyset-paged: `cursor`
 
 | Method and path | Permission | What it does |
 | --- | --- | --- |
-| `POST /tasks` | `task:create` | Create a task (`title` 1-160, `prompt` 1-8000 characters). |
+| `POST /tasks` | `task:create` | Create a task (`title` 1-160, `prompt` 1-8000 characters; optional `priority` `low` / `medium` / `high`, default `medium`, and `due_at`). |
 | `GET /tasks` | `task:read` | List tasks. Filters below; `limit` 1-100 (default 50). |
 | `GET /tasks/summary` | `task:read` | `{total, by_status, archived, creators}` for the same filters except `status`. |
 | `GET /tasks/{id}` | `task:read` | One task. |
-| `PUT /tasks/{id}` | creator or owner | Rename (`title`) and, while the task has never run, change its `prompt`. |
+| `PUT /tasks/{id}` | creator or owner | Rename (`title`), change `priority` or `due_at` (`"due_at": null` removes it) and, while the task has never run, change its `prompt`. |
 | `POST /tasks/{id}/run` | `task:run` | Plan and run a task that has not run yet (`created` or `queued`). |
 | `POST /tasks/{id}/retry` | `task:run` | Start a new run of a `failed` or `cancelled` task. |
 | `POST /tasks/{id}/cancel` | `task:cancel` | Cancel a task that is not finished; its pending approvals expire. |
@@ -50,7 +50,11 @@ A refusal is `403` with a sentence that names who can act, for example "Only the
 
 ### Editing
 
-A task's title can change at any time while it is not archived. Its instructions are fixed once it has run (`409`): the run history must stay true to what was asked, and retry runs the same instructions. Edits record `task.updated` with the changed field names only (never the instructions) and an audit record.
+A task's title, priority and due date can change at any time while it is not archived. Its instructions are fixed once it has run (`409`): the run history must stay true to what was asked, and retry runs the same instructions. Edits record `task.updated` with the changed field names only (never the instructions) and an audit record.
+
+### Priority and due date
+
+`priority` (`low`, `medium`, `high`) and `due_at` (UTC; a date-time without an offset is read as UTC) are planning fields from migration `0048_task_planning` (two nullable columns, expand only; a task stored before it reads as `medium` with no due date). They are shown on the lists and edited with `PUT`; they never change what an agent may do, when it runs or which approvals it needs, and the list stays newest first. Changes record `task.updated` with the field names `priority` / `due_at`.
 
 ### Archive
 
@@ -83,11 +87,12 @@ Tests: `apps/web/test/tasks.test.ts`, `apps/web/test/tasksQuery.test.ts`, `apps/
 
 ## Flutter (Tasks screens)
 
-`apps/mobile/lib/features/workspace/tasks_screen.dart` with `task_management.dart`:
+`apps/mobile/lib/features/workspace/tasks_screen.dart` with `task_management.dart` (the ANUM 360 list, mockup 10):
 
-- The list fetches with its filters (status chips with server counts, debounced search, an Archived chip) and pages with "Load more tasks"; a failed load says what failed and offers "Try again"; empty, no-match and no-archived states each name the next step.
-- Task detail: Cancel, Retry (failed or cancelled), Rename, Archive or Restore, and "Copy run log" (the JSON export on the clipboard); run history chips switch the step timeline between runs. A `403` or `409` shows the API's sentence on the screen and keeps the workspace usable.
-- Layout is covered from 320 to 1440 wide at 200 percent text (`test/task_management_test.dart`).
+- Tabs **All**, **My Tasks** (`created_by=me`), **Agents** (what agents are doing now: `queued`, `running` and `waiting_approval`) and **Completed**, fetched with the debounced search and paged with "Load more"; an archive toggle in the header shows archived tasks. Each row has the status icon and word, the **High / Medium / Low** pill and the due label (Today, Tomorrow, a short date, or Overdue in red; a finished task shows its date, never Overdue). A failed load says what failed and offers "Try again"; each tab's empty state says what appears there.
+- The **+** button and the floating button open the create sheet: what to do, an optional title, priority, a due date and time, and **Start now** (on: create and run; off: saved as a to-do that the detail starts with **Start now**).
+- Task detail: priority and due date with **Change priority**, **Change due date** and **Remove due date**; Cancel, Retry (failed or cancelled), Rename, Archive or Restore, and "Copy run log" (the JSON export on the clipboard); run history chips switch the step timeline between runs. A `403` or `409` shows the API's sentence on the screen and keeps the workspace usable.
+- Layout is covered from 320 to 1440 wide at 200 percent text, in English and Arabic (`test/task_management_test.dart`, `test/lists/tasks_list_test.dart`).
 
 ## Known limits
 

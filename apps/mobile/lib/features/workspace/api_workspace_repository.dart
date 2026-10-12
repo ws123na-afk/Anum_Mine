@@ -110,6 +110,34 @@ class ApiWorkspaceRepository
   }
 
   @override
+  Future<WorkspaceTask> createPlannedTask(TaskDraft draft) async {
+    final created = JsonReader(
+        await api.request('POST', '/api/v1/tasks', body: draft.body()));
+    if (!draft.runNow) return _task(created);
+    final value = JsonReader(
+        await api.request('POST', _taskPath(created.string('id'), '/run')));
+    return _task(value.optObject('task') ?? created,
+        run: value.optObject('run'), approval: value.optObject('approval'));
+  }
+
+  @override
+  Future<WorkspaceTask> runTask(String taskId) async {
+    final value =
+        JsonReader(await api.request('POST', _taskPath(taskId, '/run')));
+    return _task(value.object('task'),
+        run: value.optObject('run'), approval: value.optObject('approval'));
+  }
+
+  @override
+  Future<WorkspaceTask> planTask(String taskId,
+          {TaskPriority? priority,
+          DateTime? dueAt,
+          bool clearDue = false}) async =>
+      _task(JsonReader(await api.request('PUT', _taskPath(taskId),
+          body: taskPlanBody(
+              priority: priority, dueAt: dueAt, clearDue: clearDue))));
+
+  @override
   Future<WorkspaceTask> renameTask(String taskId, String title) async =>
       _task(JsonReader(
           await api.request('PUT', _taskPath(taskId), body: {'title': title})));
@@ -232,6 +260,8 @@ class ApiWorkspaceRepository
         approval: approval == null ? null : _approval(approval),
         createdBy: j.optString('created_by'),
         archivedAt: j['archived_at'] == null ? null : _date(j, 'archived_at'),
+        priority: taskPriorityFromWire(j.optString('priority')),
+        dueAt: j.optDate('due_at')?.toLocal(),
       );
   WorkspaceRun _run(JsonReader j) => WorkspaceRun(
         id: j.string('id'),

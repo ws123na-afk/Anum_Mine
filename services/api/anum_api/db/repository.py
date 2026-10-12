@@ -15,6 +15,7 @@ from anum_api.schemas import (
     DomainEvent,
     RiskLevel,
     Task,
+    TaskPriority,
     TaskStatus,
     TaskSummary,
     Tenant,
@@ -417,6 +418,8 @@ class SqlAlchemyRepository(AnumRepository):
         record.archived_at = task.archived_at
         record.archived_by_user_id = task.archived_by
         record.assistant_id = task.assistant_id
+        record.priority = task.priority.value
+        record.due_at = task.due_at
         record.created_at = task.created_at
         record.updated_at = task.updated_at
         self.session.flush()
@@ -1009,6 +1012,8 @@ class SqlAlchemyRepository(AnumRepository):
             archived_at=record.archived_at,
             archived_by=record.archived_by_user_id,
             assistant_id=record.assistant_id,
+            priority=TaskPriority(record.priority) if record.priority else TaskPriority.MEDIUM,
+            due_at=record.due_at,
         )
 
     @staticmethod

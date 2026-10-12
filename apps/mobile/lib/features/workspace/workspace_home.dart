@@ -1,3 +1,6 @@
+import '../integrations/integrations_controller.dart';
+import '../integrations/integrations_repository.dart';
+import '../integrations/integrations_screen.dart';
 import 'package:flutter/material.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
@@ -133,6 +136,14 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         ? ApiAutomationTriggerRepository(repository.api)
         : const UnavailableAutomationRepository());
   }
+
+  /// Integrations (docs/mobile.md#anum-360-lists): its own screen on the
+  /// integrations API; Resources > Services without the API repository.
+  late final IntegrationsController? _integrations =
+      widget.controller.repository is ApiWorkspaceRepository
+          ? IntegrationsController(ApiIntegrationsRepository(
+              (widget.controller.repository as ApiWorkspaceRepository).api))
+          : null;
 
   late final RestorableInt _index;
   int get index => _index.value;
@@ -300,6 +311,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 onOpenDeveloper: openDeveloper,
                 onOpenReport: widget.library == null ? null : _openReport,
                 onOpenTarget: _openChatTarget,
+                dictation: widget.voiceController.speech,
               ),
               HomeScreen(
                 controller: widget.controller,
@@ -560,8 +572,16 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
           page(
               'shellIntegrations',
               Icons.hub_outlined,
-              () => _openResources(
-                  ResourcesTab.services, l.t('shellIntegrations'))),
+              () => _integrations == null
+                  ? _openResources(
+                      ResourcesTab.services, l.t('shellIntegrations'))
+                  : _push(Scaffold(
+                      appBar: AppBar(),
+                      body: IntegrationsScreen(
+                          controller: _integrations,
+                          onOpenInbox: widget.emailController == null
+                              ? null
+                              : _openInbox)))),
           if (widget.library != null) ...[
             page('shellKnowledge', Icons.menu_book_outlined, _openKnowledge),
             page('libFavorites', Icons.star_outline, _openFavorites),
@@ -623,6 +643,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   void dispose() {
     _index.dispose();
     if (_ownsAutomations) _automations.dispose();
+    _integrations?.dispose();
     if (widget.themeController == null) _theme.dispose();
     super.dispose();
   }

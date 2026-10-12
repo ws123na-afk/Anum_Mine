@@ -17,6 +17,14 @@ class TaskStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class TaskPriority(StrEnum):
+    """How urgent a task is to the person (0048_task_planning, docs/tasks.md)."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class RunPhase(StrEnum):
     PLANNING = "planning"
     TOOL_READY = "tool_ready"
@@ -142,6 +150,10 @@ class WorkspaceInvitation(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     prompt: str = Field(min_length=1, max_length=8000)
+    # Planning fields (docs/tasks.md): how urgent it is and when it is due. They order
+    # nothing on the server and never change what the agent may do.
+    priority: TaskPriority = TaskPriority.MEDIUM
+    due_at: datetime | None = None
 
 
 class Task(BaseModel):
@@ -162,13 +174,20 @@ class Task(BaseModel):
     # (0026_task_archive, docs/tasks.md). Null while the task is in the active list.
     archived_at: datetime | None = None
     archived_by: str | None = None
+    # Planning (0048_task_planning): tasks stored before it read as medium with no due date.
+    priority: TaskPriority = TaskPriority.MEDIUM
+    due_at: datetime | None = None
 
 
 class TaskUpdate(BaseModel):
-    """``PUT /api/v1/tasks/{id}``: a new title, and new instructions while the task never ran."""
+    """``PUT /api/v1/tasks/{id}``: a new title, priority or due date at any time before
+    archive, and new instructions while the task never ran. ``"due_at": null`` sent
+    explicitly removes the due date; leaving the key out keeps it."""
 
     title: str | None = Field(default=None, min_length=1, max_length=160)
     prompt: str | None = Field(default=None, min_length=1, max_length=8000)
+    priority: TaskPriority | None = None
+    due_at: datetime | None = None
 
     @field_validator("title", "prompt")
     @classmethod

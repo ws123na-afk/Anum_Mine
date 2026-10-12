@@ -100,6 +100,24 @@ class WorkspaceController extends ChangeNotifier {
   /// 409 why the state does not allow it); shown on the task's screen.
   String? taskRefusal;
 
+  /// Creates a task with a priority and due date (and runs it when asked).
+  /// Without task management only the prompt can be sent, and it runs.
+  Future<WorkspaceTask?> createPlannedTask(TaskDraft draft) {
+    final m = taskManagement;
+    if (m == null) return createTask(draft.prompt.trim());
+    taskRefusal = null;
+    return _mutate(() => _keepRunApproval(m.createPlannedTask(draft)),
+        onRefused: (message) => taskRefusal = message);
+  }
+
+  /// Changes a task's priority or due date (creator or owner).
+  Future<WorkspaceTask?> planTask(String id,
+          {TaskPriority? priority, DateTime? dueAt, bool clearDue = false}) =>
+      _taskAction((m) =>
+          m.planTask(id, priority: priority, dueAt: dueAt, clearDue: clearDue));
+
+  Future<WorkspaceTask?> runTask(String id) =>
+      _taskAction((m) => _keepRunApproval(m.runTask(id)));
   Future<WorkspaceTask?> retryTask(String id) =>
       _taskAction((m) => _keepRunApproval(m.retryTask(id)));
   Future<WorkspaceTask?> renameTask(String id, String title) =>

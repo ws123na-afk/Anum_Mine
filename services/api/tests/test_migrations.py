@@ -718,3 +718,17 @@ def test_chat_cards_migration_adds_one_nullable_column() -> None:
     assert upgrade.count("op.add_column(") == 1 and "nullable=true" in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+
+
+def test_task_planning_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0048_task_planning.py").read_text(encoding="utf-8")
+    assert 'revision = "0048_task_planning"' in revision_text and len("0048_task_planning") <= 32
+    assert 'down_revision = "0047_chat_cards"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0048_task_planning.py"]
+    assert not [path for path in others if 'down_revision = "0047_chat_cards"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Nullable columns only: the previous release keeps inserting tasks without them.
+    assert upgrade.count("op.add_column(") == 2 and upgrade.count("nullable=true") == 2
+    assert "drop" not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
