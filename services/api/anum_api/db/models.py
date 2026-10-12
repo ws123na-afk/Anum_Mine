@@ -1,14 +1,16 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     Double,
     ForeignKeyConstraint,
     Identity,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -66,6 +68,9 @@ class Workspace(Base, TimestampMixin, TenantScopedMixin):
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
+    # Migration 0029: an archived workspace refuses writes until an owner restores it.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
     tenant: Mapped[Tenant] = relationship(back_populates="workspaces")
     tasks: Mapped[list["TaskRecord"]] = relationship(back_populates="workspace")
@@ -103,6 +108,17 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     title: Mapped[str] = mapped_column(String(160), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
+    # The agent the task runs as (migration 0041_agent_profiles); no foreign key: a
+    # deleted agent's tasks stay in the workspace history.
+    agent_id: Mapped[str | None] = mapped_column(String(80))
+    # Archive (0026_task_archive, docs/tasks.md): null while the task is in the active list.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_by_user_id: Mapped[str | None] = mapped_column(String(120))
+    # Migration 0039_team_work: the department assistant the task runs as, if any.
+    assistant_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Planning (0048_task_planning, docs/tasks.md): null priority reads as medium.
+    priority: Mapped[str | None] = mapped_column(String(10))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     workspace: Mapped[Workspace] = relationship(back_populates="tasks")
     runs: Mapped[list["AgentRunRecord"]] = relationship(back_populates="task")
@@ -123,6 +139,15 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
             "workspace_id",
             text("created_at DESC"),
             text("id DESC"),
+        ),
+        Index(
+            "ix_tasks_scope_agent",
+            "tenant_id",
+            "workspace_id",
+            "agent_id",
+            text("created_at DESC"),
+            text("id DESC"),
+            postgresql_where=text("agent_id is not null"),
         ),
     )
 
@@ -149,6 +174,15 @@ class AgentRunRecord(Base, TimestampMixin, WorkspaceScopedMixin):
         ),
         UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_agent_runs_scope_id"),
         Index("ix_agent_runs_tenant_workspace_task", "tenant_id", "workspace_id", "task_id"),
+        # Keyset paging of GET /api/v1/tasks/{id}/runs (migration 0026_task_archive).
+        Index(
+            "ix_agent_runs_task_created",
+            "tenant_id",
+            "workspace_id",
+            "task_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
     )
 
 
@@ -462,6 +496,9 @@ class AuditRecordRow(Base, WorkspaceScopedMixin):
             name="fk_audit_records_workspace",
         ),
         Index("ix_audit_records_scope_created", "tenant_id", "workspace_id", "created_at"),
+        # Migration 0029: the audit log's actor and action filters, newest first.
+        Index("ix_audit_records_scope_actor", "tenant_id", "workspace_id", "actor", "created_at"),
+        Index("ix_audit_records_scope_action", "tenant_id", "workspace_id", "action", "created_at"),
     )
 
 
@@ -661,6 +698,41 @@ class IntegrationConfigurationRecord(Base):
     __table_args__ = (_workspace_fk("integration_configurations"),)
 
 
+class IntegrationHealthCheckRecord(Base):
+    """The latest health check of one integration in one workspace, and its latest failure."""
+
+    __tablename__ = "integration_health_checks"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    detail: Mapped[str] = mapped_column(String(500), nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    checked_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (_workspace_fk("integration_health_checks"),)
+
+
+class IntegrationCredentialRecord(Base):
+    """A workspace's own credential for an integration; Fernet ciphertext only (``secret_box``)."""
+
+    __tablename__ = "integration_credentials"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    credential_hint: Mapped[str] = mapped_column(String(16), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("integration_credentials"),)
+
+
 class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     """File metadata. The bytes live in object storage under ``storage_key``."""
 
@@ -674,10 +746,16 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     storage_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Last rename (migration 0029_file_management); null for a file never renamed.
+    updated_by: Mapped[str | None] = mapped_column(String(160))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         _workspace_fk("workspace_files"),
         Index("ix_workspace_files_scope_created", "tenant_id", "workspace_id", "created_at"),
+        # Keyset paging by name and by size (migration 0029_file_management).
+        Index("ix_workspace_files_scope_name", "tenant_id", "workspace_id", text('(lower(name) collate "C")'), "id"),
+        Index("ix_workspace_files_scope_size", "tenant_id", "workspace_id", "size_bytes", "id"),
     )
 
 
@@ -693,9 +771,43 @@ class NotificationPreferenceRecord(Base):
     automation_failed: Mapped[bool] = mapped_column(nullable=False)
     email_enabled: Mapped[bool] = mapped_column(nullable=False)
     desktop_enabled: Mapped[bool] = mapped_column(nullable=False)
+    # Migration 0027_push_devices; the server default keeps older releases' inserts valid.
+    push_enabled: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
+    # Migration 0038_commerce; the server default keeps older releases' inserts valid.
+    commerce_alerts: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
+    tyre_alerts: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("notification_preferences"),)
+
+
+class PushDeviceRecord(Base):
+    """A phone registered for push by one user in one workspace (migration ``0027_push_devices``).
+
+    Private to the user: the RLS policy checks ``anum.user_id`` as well as the tenant and
+    workspace. The token is stored only encrypted (``token_ciphertext``).
+    """
+
+    __tablename__ = "push_devices"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(80))
+    token_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    token_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    token_hint: Mapped[str] = mapped_column(String(8), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("push_devices"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "token_sha256", name="uq_push_devices_user_token"),
+        Index("ix_push_devices_scope_user", "tenant_id", "workspace_id", "user_id", "created_at"),
+    )
 
 
 class UserPreferenceRecord(Base):
@@ -776,6 +888,11 @@ class AutomationWorkflowRecord(Base, WorkspaceScopedMixin):
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     version: Mapped[int] = mapped_column(nullable=False)
+    # Migration 0034: allow | skip | cancel_previous, and the last editor.
+    overlap_policy: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="allow", server_default=text("'allow'")
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(160))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -809,6 +926,8 @@ class AutomationScheduleRecord(Base, WorkspaceScopedMixin):
     enabled: Mapped[bool] = mapped_column(nullable=False)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Migration 0034: what the scheduler did at the last fire time.
+    last_outcome: Mapped[str | None] = mapped_column(String(40))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -827,11 +946,77 @@ class AutomationRunRecord(Base, WorkspaceScopedMixin):
     retry_of: Mapped[str | None] = mapped_column(String(80))
     current_step: Mapped[int] = mapped_column(nullable=False, default=0)
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    # Migration 0034: the workflow version the run executed (null for older runs).
+    workflow_version: Mapped[int | None] = mapped_column()
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Migration 0049: the trigger that started the run and what it delivered; when the
+    # engine looks at the run again; the agent task the current step waits on.
+    trigger_id: Mapped[str | None] = mapped_column(String(80))
+    trigger_type: Mapped[str | None] = mapped_column(String(160))
+    trigger_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    wake_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    waiting_task_id: Mapped[str | None] = mapped_column(String(80))
+
+    __table_args__ = (
+        _workspace_fk("automation_runs"),
+        _workflow_fk("automation_runs"),
+        Index("ix_automation_runs_workflow", "tenant_id", "workspace_id", "workflow_id", "created_at"),
+        Index("ix_automation_runs_wake", "wake_at", postgresql_where=text("wake_at is not null")),
+        Index(
+            "ix_automation_runs_waiting_task",
+            "tenant_id",
+            "workspace_id",
+            "waiting_task_id",
+            postgresql_where=text("waiting_task_id is not null"),
+        ),
+        Index("ix_automation_runs_trigger", "tenant_id", "workspace_id", "trigger_id", "created_at"),
+    )
+
+
+class AutomationTriggerRecord(Base, WorkspaceScopedMixin):
+    """An event or webhook trigger of a workflow (migration 0049)."""
+
+    __tablename__ = "automation_triggers"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(160))
+    conditions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=True, server_default=text("true"))
+    rate_limit_per_minute: Mapped[int] = mapped_column(nullable=False, default=30, server_default=text("30"))
+    replay_window_seconds: Mapped[int] = mapped_column(nullable=False, default=300, server_default=text("300"))
+    secret_ciphertext: Mapped[str | None] = mapped_column(Text)
+    secret_hint: Mapped[str | None] = mapped_column(String(8))
+    secret_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cursor_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_outcome: Mapped[str | None] = mapped_column(String(40))
+    fire_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (_workspace_fk("automation_runs"), _workflow_fk("automation_runs"))
+    __table_args__ = (
+        _workspace_fk("automation_triggers"),
+        _workflow_fk("automation_triggers"),
+        CheckConstraint("kind in ('event', 'webhook')", name="ck_automation_triggers_kind"),
+        CheckConstraint(
+            "(kind = 'event' and event_type is not null) or (kind = 'webhook' and secret_ciphertext is not null)",
+            name="ck_automation_triggers_shape",
+        ),
+        CheckConstraint("rate_limit_per_minute between 1 and 600", name="ck_automation_triggers_rate"),
+        CheckConstraint("replay_window_seconds between 30 and 3600", name="ck_automation_triggers_replay"),
+        Index("ix_automation_triggers_event", "tenant_id", "workspace_id", "event_type", "enabled"),
+        Index("ix_automation_triggers_workflow", "tenant_id", "workspace_id", "workflow_id"),
+    )
 
 
 class ConversationRecord(Base, WorkspaceScopedMixin):
@@ -842,6 +1027,8 @@ class ConversationRecord(Base, WorkspaceScopedMixin):
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(160), nullable=False)
     title: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    # A thread with an agent (migration 0041_agent_profiles); None for the Assistant.
+    agent_id: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -861,6 +1048,8 @@ class ConversationTurnRecord(Base, WorkspaceScopedMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # The card of a question run as a task (migration 0047_chat_cards); null for plain chat.
+    card: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # Insertion order: turns are read back in the order they were written.
     seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
 
@@ -876,4 +1065,504 @@ class ConversationTurnRecord(Base, WorkspaceScopedMixin):
             name="fk_conversation_turns_conversation",
             ondelete="CASCADE",
         ),
+    )
+
+
+class AutonomyGuardrailsRecord(Base):
+    """The organization's autonomy floors (migration ``0034_autonomy``, docs/autonomy.md)."""
+
+    __tablename__ = "autonomy_guardrails"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_tenant_fk("autonomy_guardrails"),)
+
+
+class WorkspaceAutonomyRecord(Base):
+    """One workspace's autonomy settings (migration ``0034_autonomy``)."""
+
+    __tablename__ = "workspace_autonomy_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("workspace_autonomy_settings"),)
+
+
+class AutonomyRuleRecord(Base):
+    __tablename__ = "autonomy_rules"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    pattern_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    tool: Mapped[str] = mapped_column(String(160), nullable=False)
+    template: Mapped[str | None] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    action_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    level: Mapped[str] = mapped_column(String(20), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("autonomy_rules"),
+        UniqueConstraint("tenant_id", "workspace_id", "pattern_key", name="uq_autonomy_rules_pattern"),
+    )
+
+
+class AutonomyProposalRecord(Base):
+    __tablename__ = "autonomy_proposals"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    pattern_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    tool: Mapped[str] = mapped_column(String(160), nullable=False)
+    template: Mapped[str | None] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    action_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    proposed_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    approvals: Mapped[int] = mapped_column(nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    last_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(160))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("autonomy_proposals"),
+        UniqueConstraint("tenant_id", "workspace_id", "pattern_key", name="uq_autonomy_proposals_pattern"),
+    )
+
+
+class AutonomousActionRecord(Base):
+    __tablename__ = "autonomy_actions"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    tool: Mapped[str] = mapped_column(String(160), nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    action_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    level: Mapped[str] = mapped_column(String(20), nullable=False)
+    pattern_key: Mapped[str] = mapped_column(String(320), nullable=False)
+    template: Mapped[str | None] = mapped_column(String(120))
+    summary: Mapped[str] = mapped_column(String(500), nullable=False)
+    target: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    undo_tool: Mapped[str | None] = mapped_column(String(160))
+    undo_arguments: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    undo_token: Mapped[str | None] = mapped_column(String(80))
+    undo_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    undone_by: Mapped[str | None] = mapped_column(String(160))
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    undo_error: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("autonomy_actions"),
+        Index("ix_autonomy_actions_feed", "tenant_id", "workspace_id", "created_at", "id"),
+    )
+
+
+class AutonomyRecipientRecord(Base):
+    """A recipient already contacted in a category, stored only as a SHA-256 digest."""
+
+    __tablename__ = "autonomy_recipients"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    category: Mapped[str] = mapped_column(String(20), primary_key=True)
+    recipient_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("autonomy_recipients"),)
+
+
+# --------------------------------------------------------------------------- learning
+# What ANUM learned (migration ``0036_learning``, docs/learning.md). Every row is private
+# to one user in one workspace: forced RLS checks the tenant, workspace and user.
+
+
+class LearningProfileRecord(Base):
+    __tablename__ = "learning_profiles"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+    derived: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    overrides: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    derived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("learning_profiles"),)
+
+
+class LearningSignalRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "learning_signals"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    surface: Mapped[str] = mapped_column(String(20), nullable=False)
+    subject_id: Mapped[str | None] = mapped_column(String(120))
+    skill: Mapped[str | None] = mapped_column(String(120))
+    tool: Mapped[str | None] = mapped_column(String(120))
+    contact: Mapped[str | None] = mapped_column(String(160))
+    language: Mapped[str | None] = mapped_column(String(10))
+    original_text: Mapped[str | None] = mapped_column(Text)
+    final_text: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(String(500))
+    signal_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("learning_signals"),)
+
+
+class LearningPreferenceRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "learning_preferences"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    scope: Mapped[str] = mapped_column(String(200), nullable=False, default="all")
+    text: Mapped[str] = mapped_column(String(300), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
+    suggestion_id: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("learning_preferences"),)
+
+
+class LearningRoutineRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "learning_routines"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    cadence: Mapped[str] = mapped_column(String(10), nullable=False)
+    cron: Mapped[str] = mapped_column(String(120), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(80), nullable=False)
+    steps: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    occurrences: Mapped[int] = mapped_column(nullable=False, default=0)
+    weeks_observed: Mapped[int] = mapped_column(nullable=False, default=0)
+    confidence: Mapped[float] = mapped_column(Double, nullable=False, default=0.0)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    workflow_id: Mapped[str | None] = mapped_column(String(80))
+    schedule_id: Mapped[str | None] = mapped_column(String(80))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("learning_routines"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "fingerprint", name="uq_learning_routines_fingerprint"),
+    )
+
+
+class LearningNoteRecord(Base):
+    __tablename__ = "learning_notes"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    week: Mapped[str] = mapped_column(String(10), primary_key=True)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("learning_notes"),)
+
+
+class LearningSuggestionRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "learning_suggestions"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    week: Mapped[str] = mapped_column(String(10), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(200), nullable=False)
+    rule: Mapped[str] = mapped_column(String(40), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(String(1000), nullable=False)
+    target: Mapped[str | None] = mapped_column(String(200))
+    change: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("learning_suggestions"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "fingerprint", name="uq_learning_suggestions_fingerprint"),
+    )
+
+
+# Calls & Meetings (migration 0026_meetings, docs/meetings.md). Meetings and their
+# transcript lines belong to the workspace (tenant and workspace RLS); connector accounts
+# hold one user's encrypted OAuth tokens (tenant, workspace *and* user RLS).
+
+
+class MeetingRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "meetings"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    language: Mapped[str] = mapped_column(String(8), nullable=False)
+    requested_language: Mapped[str] = mapped_column(String(8), nullable=False)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int | None] = mapped_column()
+    agent_skill_id: Mapped[str | None] = mapped_column(String(160))
+    recording_file_id: Mapped[str | None] = mapped_column(String(80))
+    source_file_name: Mapped[str | None] = mapped_column(String(255))
+    external_id: Mapped[str | None] = mapped_column(String(512))
+    segment_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(40))
+    error: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    decisions: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    action_items: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    follow_up: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("meetings"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_meetings_scope_id"),
+        Index("ix_meetings_scope_created", "tenant_id", "workspace_id", "created_at"),
+        Index(
+            "uq_meetings_external",
+            "tenant_id",
+            "workspace_id",
+            "source",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id is not null"),
+        ),
+    )
+
+
+class MeetingTranscriptSegmentRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "meeting_transcript_segments"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    meeting_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    seq: Mapped[int] = mapped_column(nullable=False)
+    speaker: Mapped[str | None] = mapped_column(String(120))
+    start_ms: Mapped[int | None] = mapped_column(BigInteger)
+    end_ms: Mapped[int | None] = mapped_column(BigInteger)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "meeting_id"],
+            ["meetings.tenant_id", "meetings.workspace_id", "meetings.id"],
+            name="fk_meeting_transcript_segments_meeting",
+            ondelete="CASCADE",
+        ),
+        Index("ix_meeting_segments_meeting_seq", "tenant_id", "workspace_id", "meeting_id", "seq"),
+    )
+
+
+class MeetingConnectorAccountRecord(Base):
+    __tablename__ = "meeting_connector_accounts"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20), primary_key=True)
+    account_label: Mapped[str] = mapped_column(String(200), nullable=False)
+    external_user_id: Mapped[str | None] = mapped_column(String(200))
+    scopes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    token_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("meeting_connector_accounts"),)
+
+
+# Favorites, knowledge base and reports (migration 0042_library). Favorites are private to
+# one user (RLS checks anum.user_id); collections, their items and reports are shared with
+# the workspace when owner_user_id is null and private to that user otherwise (a
+# restrictive owner policy, like memories).
+
+
+class FavoriteRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "favorites"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    item_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    item_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("favorites"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "item_type", "item_id", name="uq_favorites_item"),
+    )
+
+
+class KnowledgeCollectionRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "kb_collections"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    owner_user_id: Mapped[str | None] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("kb_collections"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_kb_collections_scope_id"),
+    )
+
+
+class KnowledgeItemRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "kb_items"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    collection_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    owner_user_id: Mapped[str | None] = mapped_column(String(160))
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "collection_id"],
+            ["kb_collections.tenant_id", "kb_collections.workspace_id", "kb_collections.id"],
+            name="fk_kb_items_collection",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint("tenant_id", "workspace_id", "collection_id", "kind", "source_id", name="uq_kb_items_source"),
+    )
+
+
+class ReportRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "reports"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    report_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    period_start: Mapped[date | None] = mapped_column(Date)
+    period_end: Mapped[date | None] = mapped_column(Date)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    metrics: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    highlights: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    body_markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    owner_user_id: Mapped[str | None] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_by_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_conversation_id: Mapped[str | None] = mapped_column(String(80))
+    source_turn_id: Mapped[str | None] = mapped_column(String(80))
+    source_automation_run_id: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Typed sections and their tabs (migration 0045_reports_calendar, docs/reports.md).
+    tabs: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    sections: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+
+    __table_args__ = (_workspace_fk("reports"),)
+# Team work and organisation tables are Core tables on the same metadata (migration
+# 0039_team_work); importing them here registers them with Base.metadata.
+from . import team_repository as _team_tables  # noqa: E402,F401
+
+
+class AgentProfileRecord(Base, WorkspaceScopedMixin):
+    """A user-built agent (migration 0041_agent_profiles, docs/agents.md).
+
+    Forced RLS: the tenant and workspace, and either ``sharing = 'workspace'`` or the
+    owner's ``anum.user_id``, so a private agent is invisible to everyone else.
+    """
+
+    __tablename__ = "agent_profiles"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    icon: Mapped[str] = mapped_column(String(40), nullable=False)
+    color: Mapped[str] = mapped_column(String(7), nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    department: Mapped[str | None] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model_route: Mapped[str] = mapped_column(String(20), nullable=False)
+    allowed_skills: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    allowed_tools: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    autonomy: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    knowledge_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    knowledge_sources: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    sharing: Mapped[str] = mapped_column(String(20), nullable=False)
+    template_id: Mapped[str | None] = mapped_column(String(40))
+    version: Mapped[int] = mapped_column(nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("agent_profiles"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_agent_profiles_scope_id"),
+        CheckConstraint("category in ('work', 'personal', 'custom')", name="ck_agent_profiles_category"),
+        CheckConstraint("status in ('active', 'paused')", name="ck_agent_profiles_status"),
+        CheckConstraint("sharing in ('private', 'workspace')", name="ck_agent_profiles_sharing"),
+        CheckConstraint("model_route in ('fast', 'capable')", name="ck_agent_profiles_model_route"),
+        CheckConstraint(
+            "knowledge_mode in ('none', 'workspace', 'selected')", name="ck_agent_profiles_knowledge_mode"
+        ),
+        Index("ix_agent_profiles_scope_updated", "tenant_id", "workspace_id", text("updated_at DESC")),
+    )
+
+
+class AgentMemoryRecord(Base, WorkspaceScopedMixin):
+    """A memory that belongs to one agent (migration 0041_agent_profiles).
+
+    Visible only where its agent is (the RLS policy checks the agent row, itself under RLS).
+    """
+
+    __tablename__ = "agent_memories"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String(80))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "agent_id"],
+            ["agent_profiles.tenant_id", "agent_profiles.workspace_id", "agent_profiles.id"],
+            name="fk_agent_memories_agent",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("source in ('manual', 'task')", name="ck_agent_memories_source"),
+        Index("ix_agent_memories_agent", "tenant_id", "workspace_id", "agent_id", text("created_at DESC")),
     )

@@ -5,13 +5,19 @@ coding request to the ``anum-developer.yml`` workflow, find that request's workf
 and pull request, read the CI state of the pull request's head commit, and, only from
 the approved ``developer.merge_pull_request`` tool, squash-merge it.
 
-The token is a fine-grained personal access token for exactly one repository. It is held
-as a ``SecretStr`` and only ever placed in the ``Authorization`` header: errors carry the
-HTTP status and GitHub's short ``message`` field, never the request headers or body.
+One client serves one project's repository (``docs/developer-mode.md#projects``): it also
+checks that the repository is reachable and has the workflow (Test connection) and opens
+the pull request that installs the workflow (Install workflow).
+
+The token is a fine-grained personal access token (one per project, or one covering the
+selected repositories). It is held as a ``SecretStr`` and only ever placed in the
+``Authorization`` header: errors carry the HTTP status and GitHub's short ``message``
+field, never the request headers or body.
 """
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -78,6 +84,14 @@ class ChecksState:
             "pending": self.pending,
             "failing": list(self.failing),
         }
+
+
+@dataclass(frozen=True)
+class RepositoryInfo:
+    full_name: str
+    default_branch: str
+    private: bool
+    html_url: str
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -253,6 +267,74 @@ class GitHubClient:
                     failed += 1
                     failing.append(str(item.get("context") or "status"))
         return ChecksState(total=total, passed=passed, failed=failed, pending=pending, failing=sorted(failing))
+
+    # -- project setup (Test connection, Install workflow) --------------------------------
+
+    async def repository_info(self) -> RepositoryInfo:
+        """The repository as the token sees it; 404 when it does not exist or is not covered."""
+        _, body = await self._call("GET", self._repo(""))
+        body = body if isinstance(body, dict) else {}
+        return RepositoryInfo(
+            full_name=str(body.get("full_name") or self.repository),
+            default_branch=str(body.get("default_branch") or ""),
+            private=bool(body.get("private")),
+            html_url=str(body.get("html_url") or ""),
+        )
+
+    async def branch_sha(self, branch: str) -> str | None:
+        """The commit a branch points at, or None when there is no such branch."""
+        code, body = await self._call("GET", self._repo(f"/git/ref/heads/{branch}"), allow=frozenset({404}))
+        if code == 404 or not isinstance(body, dict):
+            return None
+        return str((body.get("object") or {}).get("sha") or "") or None
+
+    async def file_sha(self, path: str, ref: str) -> str | None:
+        """The blob sha of ``path`` on ``ref``, or None when the file is not there."""
+        code, body = await self._call(
+            "GET", self._repo(f"/contents/{path}"), params={"ref": ref}, allow=frozenset({404})
+        )
+        if code == 404 or not isinstance(body, dict):
+            return None
+        return str(body.get("sha") or "") or None
+
+    async def workflow_readable(self) -> bool:
+        """True when the token can read this workflow through the Actions API (Actions: read)."""
+        code, _ = await self._call(
+            "GET", self._repo(f"/actions/workflows/{self.workflow_file}"), allow=frozenset({403, 404})
+        )
+        return code < 400
+
+    async def create_branch(self, branch: str, sha: str) -> None:
+        await self._call("POST", self._repo("/git/refs"), json={"ref": f"refs/heads/{branch}", "sha": sha})
+
+    async def put_file(self, path: str, content: str, *, message: str, branch: str, sha: str | None = None) -> None:
+        """Create or replace one file on ``branch`` (Contents: write; Workflows: write for workflow files)."""
+        body: dict[str, Any] = {
+            "message": message,
+            "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+            "branch": branch,
+        }
+        if sha:
+            body["sha"] = sha
+        await self._call("PUT", self._repo(f"/contents/{path}"), json=body)
+
+    async def open_pull(self, branch: str) -> PullRequest | None:
+        """The open pull request from ``branch``, if there is one."""
+        _, body = await self._call(
+            "GET",
+            self._repo("/pulls"),
+            params={"state": "open", "head": f"{self.owner}:{branch}", "per_page": 5},
+        )
+        items = body if isinstance(body, list) else []
+        return _pull(items[0]) if items else None
+
+    async def create_pull(self, *, title: str, head: str, base: str, body: str) -> PullRequest:
+        _, created = await self._call(
+            "POST",
+            self._repo("/pulls"),
+            json={"title": title[:250], "head": head, "base": base, "body": body, "draft": False},
+        )
+        return _pull(created)
 
     async def mark_ready_for_review(self, pull: PullRequest) -> None:
         """Draft pull requests cannot be merged; the GraphQL API is the only way to undraft."""

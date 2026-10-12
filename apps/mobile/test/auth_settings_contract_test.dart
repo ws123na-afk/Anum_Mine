@@ -4,10 +4,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('authentication exposes every approved journey state', () {
-    final source =
-        File('lib/features/auth/auth_screens.dart').readAsStringSync();
+    final source = [
+      File('lib/features/auth/auth_screens.dart').readAsStringSync(),
+      // ANUM 360 splash, onboarding, Login and Create account.
+      File('lib/features/auth/welcome_screens.dart').readAsStringSync(),
+    ].join('\n');
     for (final label in <String>[
-      'Your work, coordinated.',
+      "'authRestoring'",
+      "'loginTitle'",
+      "'signupTitle'",
+      "'onboarding1Title'",
       'Sign in to ANUM',
       'Set up your workspace',
       'Connect a model',

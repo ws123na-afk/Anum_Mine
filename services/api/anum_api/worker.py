@@ -55,16 +55,21 @@ def build_activities(
     from .onboarding import budgeted_model_gateway
 
     gateway = model_gateway or build_default_model_gateway(config)
+    from . import email_inbox
+    from .commerce.tools import register_commerce_tools
     from .developer import register_developer_tools
+    from .tyre.tools import register_tyre_tools
+    from .marketing import register_marketing_tools
+    from .whatsapp import register_whatsapp_tools
 
-    registry = tools or register_developer_tools(
+    integrations = default_integration_registry(config)
+    email_inbox.integration_enabled = lambda context, integration_id: not integrations.switched_off(integration_id, context)
+    registry = tools or register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(
         default_tool_registry(
-            configured_external_handler(config),
-            configured_web_search_handler(
-                config, default_integration_registry(config).workspace_enabled(SEARXNG_INTEGRATION_ID)
-            ),
+            configured_external_handler(config, integrations),
+            configured_web_search_handler(config, integrations.workspace_enabled(SEARXNG_INTEGRATION_ID)),
         )
-    )
+    ))))))
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
         from .retrieval_api import retriever_for
@@ -132,7 +137,12 @@ async def run_worker(config: Settings = settings) -> None:
         except NotImplementedError:  # pragma: no cover - Windows
             pass
 
+    # Runs finished by this worker push to phones too (docs/notifications.md).
+    from .push import push_dispatcher
+
+    event_runtime.add_listener(push_dispatcher.submit)
     await event_runtime.start()
+    push_dispatcher.start()
     try:
         async with worker:
             logger.info(
@@ -144,6 +154,7 @@ async def run_worker(config: Settings = settings) -> None:
             await stop.wait()
             logger.info("Shutting down; in-flight activities are retried by Temporal")
     finally:
+        await push_dispatcher.stop()
         await event_runtime.stop()
         shutdown_telemetry()
         shutdown_error_reporting()

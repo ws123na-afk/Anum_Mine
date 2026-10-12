@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -7,6 +8,10 @@ from .agent_tools import ToolCall, ToolRegistry
 from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gateway
 from .retrieval import build_cache_layout_prompt, build_task_prompt
 from .schemas import Task
+from .team_commands import looks_like_assignment
+
+if TYPE_CHECKING:
+    from .agent_policy import AgentRunProfile
 
 
 class AgentPlan(BaseModel):
@@ -31,18 +36,47 @@ class AgentPlanner:
         self.skills = skills
         self.tools = tools
 
-    async def plan(self, task: Task, *, context_blocks: Sequence[str] = ()) -> PlanResult:
+    async def plan(
+        self,
+        task: Task,
+        *,
+        context_blocks: Sequence[str] = (),
+        learned_block: str | None = None,
+        agent: "AgentRunProfile | None" = None,
+    ) -> PlanResult:
         """Plan ``task``; ``context_blocks`` are provenance-labeled retrieved data.
 
         Skills and the tool are chosen from the user's own prompt only. Retrieved
         blocks reach the model as labeled data and can never select a skill or tool
         (threat model G5); tool policy is evaluated by the runtime afterwards.
+        ``learned_block`` (the user's learned style and preferences, docs/learning.md)
+        precedes the task in the model prompt only; it never selects a skill or tool.
+
+        As an ``agent`` (docs/agents.md): only the agent's skills and tools can be
+        selected, its persona and instructions come before the task in the model
+        prompt (they never select anything), and its model route is used.
         """
-        selected = self.skills.select(task.prompt, self.tools.names)
-        # Planning is agent work: the capable model (docs/model-gateway.md#model-routing).
-        planner = route_gateway(self.model_gateway, ModelRoute.CAPABLE)
-        response = await self._generate(planner, task.prompt, context_blocks)
-        call = self._select_tool(task.prompt, selected, response)
+        tools = self.tools.names
+        if agent is not None:
+            tools = {name for name in tools if agent.tool_allowed(name)}
+        selected = self.skills.select(task.prompt, tools)
+        if agent is not None:
+            selected = [skill for skill in selected if agent.skill_allowed(skill.id)]
+        # Planning is agent work: the capable model (docs/model-gateway.md#model-routing),
+        # unless the agent asks for the fast one.
+        route = ModelRoute(agent.model_route) if agent is not None else ModelRoute.CAPABLE
+        planner = route_gateway(self.model_gateway, route)
+        # The agent's persona, then the user's learned style, then the task: text for
+        # the model only, never what selects a skill or tool.
+        preface = [part for part in (agent.persona() if agent is not None else None, learned_block) if part]
+        prompt = "\n\n".join([*preface, f"Task:\n{task.prompt}"]) if preface else task.prompt
+        response = await self._generate(planner, prompt, context_blocks)
+        # As an agent, only its tools can be chosen (team work's ``team.assign_task`` too).
+        call = _marketing_call(task, selected) or (
+            self._select_tool(task.prompt, selected, response)
+            if agent is None
+            else self._select_tool(task.prompt, selected, response, tools)
+        )
         return PlanResult(
             plan=AgentPlan(
                 objective=task.prompt,
@@ -69,14 +103,74 @@ class AgentPlanner:
         prompt: str,
         skills: list[SkillManifest],
         response: ModelResponse,
+        available_tools: Collection[str] | None = None,
     ) -> ToolCall:
-        if any(skill.id == "anum.external-action" for skill in skills):
-            return ToolCall(
-                name="external.action",
-                arguments={"action": prompt, "planned_response": response.text},
-            )
-        if any(skill.id == "anum.web-search" for skill in skills):
-            # The query is the user's own prompt, never retrieved text or model output
-            # (threat model G5); the tool caps its length.
-            return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
-        return ToolCall(name="anum.respond", arguments={"text": response.text})
+        tools = self.tools.names if available_tools is None else available_tools
+        return choose_tool_call(prompt, skills, response.text, tools)
+
+
+def choose_tool_call(
+    prompt: str, skills: Sequence[SkillManifest], planned_text: str, available_tools: Collection[str] = ()
+) -> ToolCall:
+    """The one tool call a task's prompt and selected skills lead to.
+
+    Deterministic and free of model output except ``planned_text`` (the model's answer,
+    used only by ``anum.respond``), so the command plan preview (docs/command.md) can show
+    exactly which tool a step will use before anything runs.
+    """
+    if "team.assign_task" in available_tools and looks_like_assignment(prompt):
+        # "ask Ahmed to call the supplier by Thursday": the tool parses the user's own
+        # sentence (never model output) and resolves the person in the workspace.
+        return ToolCall(name="team.assign_task", arguments={"command": " ".join(prompt.split())[:500]})
+    if any(skill.id == "anum.whatsapp-inbox" for skill in skills):
+        # Read-only: which conversations need attention. Replies are drafted and sent
+        # from the inbox, where a person approves them (docs/whatsapp.md#agent-tools).
+        words = set(prompt.lower().split())
+        waiting = bool(
+            words & {"reply", "replies", "unanswered", "answer", "waiting", "ينتظر", "تنتظر", "بانتظار", "رد", "الرد"}
+        )
+        return ToolCall(
+            name="list_whatsapp_conversations",
+            arguments={"filter": "needs_reply" if waiting else "all", "limit": 20},
+        )
+    if any(skill.id == "anum.email" for skill in skills):
+        # Mail questions read the inbox; filters come from the user's own words (threat
+        # model G5). Sending is never planned here: it is a draft approved in the Inbox.
+        from .email_inbox import SEARCH_TOOL, tool_arguments_from_prompt
+
+        return ToolCall(name=SEARCH_TOOL, arguments=tool_arguments_from_prompt(prompt))
+    if any(skill.id == "anum.commerce" for skill in skills):
+        # Parsed from the user's own prompt only (threat model G5); None falls through.
+        from .commerce.tools import plan_call
+
+        call = plan_call(prompt)
+        if call is not None:
+            if call.name == "anum.respond" and "text" not in call.arguments:
+                call.arguments["text"] = planned_text
+            return call
+    if any(skill.id == "anum.external-action" for skill in skills):
+        return ToolCall(
+            name="external.action",
+            arguments={"action": prompt, "planned_response": planned_text},
+        )
+    if any(skill.id == "anum.tyre-planning" for skill in skills):
+        # Read-only tyre tools; the tool and its arguments come from the user's own words.
+        from .tyre.tools import choose_call
+
+        return choose_call(prompt)
+    if any(skill.id == "anum.web-search" for skill in skills):
+        # The query is the user's own prompt, never retrieved text or model output
+        # (threat model G5); the tool caps its length.
+        return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
+    return ToolCall(name="anum.respond", arguments={"text": planned_text})
+
+
+def _marketing_call(task: Task, skills: Sequence[SkillManifest]) -> ToolCall | None:
+    """Drafts, publish requests and performance questions about the workspace's own social
+    accounts (docs/marketing.md#assistant), chosen from the user's own prompt. Publishing
+    pauses for approval."""
+    if not any(skill.id == "anum.marketing" for skill in skills):
+        return None
+    from .marketing.tools import planned_call
+
+    return planned_call(task, task.prompt)

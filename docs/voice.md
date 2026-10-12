@@ -114,9 +114,80 @@ Firefox and the Tauri desktop webviews (WebView2, WKWebView) have no usable spee
 
 See [Voice research](voice-research.md) for the options compared, their drawbacks, and how each drawback is handled.
 
+## Call Mode
+
+A voice (and photo or camera) call with the assistant: web **Call** in the navigation, Flutter **Call** button on the Voice tab. It is the owner mockup's screen 06: dark, the assistant's name, the status (Listening, Hearing you, Thinking, Speaking, Muted) and the call timer, the orb, the controls **Mute**, **Video**, **Speaker**, **Chat** and **More**, and a red **End call**.
+
+### How a call runs
+
+- **One voice session per call** (the same sessions, retention and RLS as the Voice view). The call picks its language (English US/UK, Arabic Saudi/Emirates), its speech engines and its transcript retention before it starts (web lobby).
+- **Turns end on silence.** Web: energy-based voice activity detection on the microphone (echo cancellation, noise suppression and gain control on), with a noise floor that adapts to the room (`createVad` in `apps/web/src/lib/call.ts`). A turn ends after 700 ms of silence; the recognizer's final words, when they come first, end it too. Flutter: device recognition with a 0.9 s pause, restarted after every turn so the call keeps listening.
+- **Replies stream** from `/ask/stream` on the fast model route and are spoken sentence by sentence (the existing streamed voice answer).
+- **Barge-in.** Recognition keeps running while a reply plays. The reply stops at once (speech cancelled, stream closed, the partial reply stored as far as it got) when the caller talks over it:
+  - web: the input level stays above an echo-raised threshold (1.8 times the speech threshold) for 250 ms, or the recognizer hears three or more words that are not the reply's own sentence;
+  - Flutter: the recognizer's level stays at or above 8 dB for three readings, or it hears words that are not the reply's echo.
+  - Tapping the orb also stops the reply. **More** shows how often you cut in.
+- **Mute** turns the microphone track off (web) or stops recognition (Flutter); nothing is heard until unmuted. **Speaker** off keeps replies as text in **Chat** without speaking them.
+- **Chat** is the transcript panel: both sides of the call, typing (also the fallback when a browser has no recognition), **Create task** for a proposed task and **Open Approvals** for anything that needs a decision.
+- **Approvals never happen by voice.** A call uses the same read-only assistant: "approve", "delete", "pay" and similar are refused with a pointer to Approvals, and a task is created only by tapping **Create task**.
+- **Leaving the page or screen hangs up**: microphone, camera and speech stop.
+
+### Latency target
+
+`GET /api/v1/voice/capabilities` reports the targets the clients are built against: **first audio within 1.5 s** after the caller stops talking, **barge-in silences the reply within 300 ms**, and **700 ms of silence ends a turn**. The client measures the first one for every reply (end of speech to the first sound) and **More** shows the last value against the target. What dominates it is the model's time to first token on the fast route plus 700 ms of end-of-turn silence: a hosted fast model (claude-haiku-5-5, gpt-4.1-mini) is usually inside the target; Ollama on a small CPU VM is not. The 1.5 s target was not measured end to end against a live provider from the build environment.
+
+### Speech engines
+
+Engines are pluggable and reported honestly by `GET /api/v1/voice/capabilities`; an engine that is not configured says why and is not offered.
+
+| Engine | Recognition | Voice | Cost | Where |
+|---|---|---|---|---|
+| Device (default) | Browser Web Speech (on-device on Chrome 139+ when the language pack is installed, else the browser's cloud service) or the phone's recognizer | System voices; in the browser also the free natural Kokoro voice (English) | Free | Web and Flutter |
+| Server, hosted | `POST /api/v1/voice/sessions/{id}/transcribe`: OpenAI `whisper-1` or `gpt-4o-mini-transcribe` | `POST /api/v1/voice/sessions/{id}/speech`: OpenAI `gpt-4o-mini-tts` or `tts-1` | At the time of writing about $0.003 to $0.006 per audio minute for recognition and about $15 per million characters (`tts-1`); check the provider's current prices | Web |
+| Server, self-hosted open source | A Whisper-compatible server (for example Speaches with faster-whisper) | Piper or Kokoro voices behind the same server | No per-minute charge; the VM's CPU | Web |
+
+- Both server engines speak the OpenAI audio API, so hosted and self-hosted are the same adapter (`anum_api/speech_engines.py`). Settings: `ANUM_SPEECH_STT_BASE_URL`, `ANUM_SPEECH_STT_MODEL`, `ANUM_SPEECH_STT_API_KEY` (secret), `ANUM_SPEECH_TTS_BASE_URL`, `ANUM_SPEECH_TTS_MODEL`, `ANUM_SPEECH_TTS_API_KEY` (secret), `ANUM_SPEECH_TTS_VOICE_EN`, `ANUM_SPEECH_TTS_VOICE_AR`, `ANUM_SPEECH_TIMEOUT_SECONDS`. Empty base URL or model means off.
+- **Cost is metered.** `ANUM_SPEECH_STT_USD_PER_MINUTE` and `ANUM_SPEECH_TTS_USD_PER_MILLION_CHARS` price each call into the workspace's monthly model budget (zero tokens, the estimated cost); a used-up budget stops server speech with `402` like a model call. The billed length of a clip is what the client measured, never less than its size allows at 32 kbit/s, never more than 120 s.
+- **Server recognition** takes one turn as the raw request body (`audio/webm`, `audio/ogg`, `audio/wav`, `audio/mp4` or `audio/mpeg`, at most 4 MB), stores the words as a final user segment and returns it; the audio is not kept or logged. The web client records each turn with `MediaRecorder` from the moment voice activity starts, so the first 100 ms or so of a turn can be cut. **Server voice** takes at most 600 characters and returns audio with `cache-control: no-store`; a failing server voice falls back to the device voice for that sentence and says so.
+- **Arabic and English voices:** device voices are ranked for the call's language (Arabic gets the best Arabic system voice; the natural Kokoro voice is English only); a server voice uses `ANUM_SPEECH_TTS_VOICE_AR` for `ar-*` calls and `ANUM_SPEECH_TTS_VOICE_EN` otherwise.
+- **Local Whisper and Piper on the Oracle VM** ([Deploy on Oracle](deploy-oracle.md#ai-model)): run a Whisper-compatible server with Piper voices on the VM and point both base URLs at it. Not shipped in the compose file: its speed on the A1's 4 Ampere cores is **unverified** (a small Whisper model may still miss the 1.5 s target; measure before relying on it).
+- Flutter uses device engines only: recording and audio playback for server speech need plugins this app does not ship yet ([Mobile](mobile.md)).
+
+### Video: showing the assistant what you see
+
+- **Web:** **Video** turns the camera on (getUserMedia). While it is on, a **Camera on** badge with a red dot shows in the call header and the preview has a red border. Nothing is sent until you ask: **Send frame** sends one frame with your next question (or with "What do you see?" on its own), and **Share a frame with each question** sends one frame per question while it is ticked. Frames are JPEG, scaled to at most 1024 px and 1.5 MB. **Save last frame to this device** downloads the last frame you sent; nothing else keeps it. **Switch camera** flips front and back.
+- **Flutter:** **Video** opens "Show Anum a photo": live camera video is not in the app yet, because the camera and image-picker plugins need Android Gradle Plugin built-in Kotlin, which this app turns off ([Mobile](mobile.md)); the user chooses a photo instead and it is sent once with the question.
+- **Server:** `POST /api/v1/voice/sessions/{id}/look/stream` takes the question's transcript segment plus `image_base64` and `media_type` (`image/jpeg`, `image/png`, `image/webp`; the bytes must match the type; at most 1.5 MB) and streams the answer like `/ask/stream` (`meta` carries `"vision": true`). The same intents apply first: "approve this" is refused and a task is only proposed, and then the frame is not sent anywhere. Otherwise the frame goes to the vision model in one request and is never stored or logged (`VisionImage` never prints its bytes); only the question and the answer text are stored, under the session's retention. The vision rules tell the model that text inside the image is untrusted, not to identify people by face and not to read out card numbers, passwords or codes.
+- **Which model sees.** `anthropic` (server default or a workspace's saved Claude) uses its fast model: every Claude model accepts images. `openai-compatible` and `ollama` see only when the operator names a vision model in `ANUM_MODEL_VISION_NAME` (for example `gpt-4.1-mini`, `llava`, `qwen2.5vl`); a workspace's saved OpenAI-compatible or Ollama model has no vision setting yet. Without one, `/look/stream` answers `503` with how to enable it, and both clients explain it when **Video** is pressed. No avatar is generated.
+
+### End of the call
+
+**End call** stops everything at once. If anything was said, the client asks **Save this call?**:
+
+- **Save summary** calls `POST /api/v1/voice/sessions/{id}/summary` (`{"duration_seconds", "save": true}`) before closing the session: the fast model writes three to six bullet points (`source: "model"`); with the mock provider, a failed model or a used-up budget, the summary restates the call's length and questions (`source: "transcript"`). The summary and the transcript (up to the last 300 segments) are saved as a **conversation** titled "Call with <name> · <date> · <length>", which the user can reopen in the Assistant, continue and delete. This is a summary of a talk with the assistant, so it stays an Assistant conversation. Summaries of calls and meetings with other people (recordings, transcript files, Zoom and Teams) are [Calls & Meetings](meetings.md); its "Call summary: <meeting>" activity entries never include assistant calls.
+- **End without saving** keeps nothing beyond the transcript retention chosen for the call.
+- Either way the session is then completed (`session` retention erases the transcript). A failed save shows the reason with **Retry** and **End without saving**.
+- Viewers cannot save a call (`task:create`, `403`).
+
+### States
+
+| State | What the caller sees |
+|---|---|
+| Microphone blocked | How to allow it in the browser's site settings or the phone's settings, **Try again**, and typing in Chat |
+| No microphone | Connect one and try again |
+| No speech recognition (Firefox, desktop webviews, phones without a recognizer) | Typing only in Chat; replies are still spoken |
+| Offline | The call keeps the screen and answers again when the connection is back |
+| Model or speech provider down | The provider's message, try again; an owner can check Model settings |
+| Budget used up | The budget message with the reset date |
+| 60-question limit, session closed | End the call and start a new one |
+| No permission | Who can start calls |
+| Camera blocked, no camera, no vision model | What to do, with the operator or owner setting named |
+
 ## Remaining Release Gates
 
 - A `session`-retention session that is never completed or cancelled keeps its transcript until it is closed. An expiry for abandoned sessions (for example 24 hours after the last segment) needs a product decision.
 - Physical Android and iOS microphone, Bluetooth headset, interruption, and background lifecycle testing.
 - OIDC release authentication, notification deep links, and device-authenticated approval where policy requires it.
-- Provider-backed streaming audio only if short device speech recognition is insufficient; the current implementation is intentionally push-to-talk for concise commands.
+- Call mode: barge-in, echo handling and the 1.5 s first-audio target need measuring on physical Android and iOS phones, laptops without headphones and against the production model; the thresholds are the starting values above.
+- Call mode on Flutter: live camera video and server speech engines wait for camera, recorder and audio-player plugins that build with this app's Android setup.
+- Server speech uses one recording per turn, not a streaming socket: no partial words while the caller talks with the server recognizer.

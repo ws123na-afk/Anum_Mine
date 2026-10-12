@@ -1,6 +1,7 @@
 // Pure helpers for the Memory, Skills and Agents views. Every path here maps to an endpoint
 // that exists in services/api: GET/POST/DELETE /api/v1/memories, GET /api/v1/retrieval/status,
 // POST /api/v1/retrieval/index and GET/POST/PATCH/DELETE /api/v1/skills/installations.
+import { t } from './i18n.ts';
 
 export type IndexState = 'indexed' | 'failed' | 'skipped' | 'pending' | 'not_indexed';
 
@@ -43,18 +44,18 @@ export function memorySource(note: MemoryLike): MemorySource {
   const { source_type: type, source_id: id, metadata } = note.provenance;
   if (type === 'conversation' && id) {
     const raw = metadata?.conversation_title;
-    const title = typeof raw === 'string' && raw.trim() ? raw.trim() : 'Untitled chat';
-    return { kind: 'chat', label: 'From chat', title, conversationId: id };
+    const title = typeof raw === 'string' && raw.trim() ? raw.trim() : t('memory.untitledChat');
+    return { kind: 'chat', label: t('memory.fromChat'), title, conversationId: id };
   }
-  const label = type.replace(/_/g, ' ').trim() || 'note';
+  const label = type.replace(/_/g, ' ').trim() || t('memory.note');
   return note.task_id ? { kind: 'task', label, taskId: note.task_id } : { kind: 'other', label };
 }
 
 export function indexSummary(status: RetrievalIndexStatus | null): string {
-  if (!status) return 'Retrieval index status unavailable.';
-  const parts = [`${status.indexed} indexed`, `${status.chunks} chunks`];
-  if (status.failed) parts.push(`${status.failed} failed`);
-  if (status.stale) parts.push(`${status.stale} stale`);
+  if (!status) return t('memory.index.unavailable');
+  const parts = [t('memory.index.indexed', { count: status.indexed }), t('memory.index.chunks', { count: status.chunks })];
+  if (status.failed) parts.push(t('memory.index.failed', { count: status.failed }));
+  if (status.stale) parts.push(t('memory.index.stale', { count: status.stale }));
   return `${parts.join(' · ')} (${status.embedding_model})`;
 }
 

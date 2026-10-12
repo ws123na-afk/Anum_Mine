@@ -97,7 +97,7 @@ class NoFiles implements WorkspaceFileTransfer {
 }
 
 void main() {
-  test('workspace maps automation joins and create contracts', () async {
+  test('workspace maps automation joins', () async {
     final sessions = MemorySessionStore();
     await sessions.write(LocalSession(
         accessToken: 'token',
@@ -118,20 +118,5 @@ void main() {
     final snapshot = await repository.loadWorkspace();
     expect(snapshot.automations.single.workflowId, 'workflow_1');
     expect(snapshot.automations.single.name, 'Daily review');
-    await repository.createAutomation(
-        name: 'Daily review',
-        description: 'Review work',
-        action: 'task.execute');
-    final workflowRequest = transport.requests.last;
-    expect(workflowRequest.uri.path, '/api/v1/automation/workflows');
-    expect((workflowRequest.body!['steps'] as List).length, 1);
-    await repository.createSchedule(
-        workflowId: 'workflow_1',
-        name: 'Weekdays',
-        cron: '0 9 * * 1',
-        timezone: 'UTC');
-    final scheduleRequest = transport.requests.last;
-    expect(scheduleRequest.uri.path, '/api/v1/automation/schedules');
-    expect(scheduleRequest.body!['enabled'], isTrue);
   });
 }

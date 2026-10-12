@@ -1,0 +1,54 @@
+/* Audit log (src/AuditLogView.tsx) and workspace administration (src/WorkspaceAdmin.tsx). */
+.auditFilters { padding: var(--d-s5); }
+.auditFilterGrid { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); }
+.auditFilterGrid .auditSearch { grid-column: span 2; }
+.auditFilters .field { margin-top: var(--d-s3); }
+.auditFilters .actions { margin-top: var(--d-s4); }
+.auditCorrelation { margin-top: var(--d-s3); overflow-wrap: anywhere; }
+.auditPanel { margin-top: var(--d-s5); padding: var(--d-s5); }
+.auditTable { display: grid; margin-top: var(--d-s3); }
+.auditRow {
+  align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3);
+  grid-template-columns: minmax(150px, 1.1fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.2fr) auto; padding: var(--d-s2) 0;
+}
+.auditHead { border-top: 0; color: var(--d-muted); font-size: 12px; font-weight: 700; padding-top: 0; }
+.auditRow > span { min-width: 0; overflow-wrap: anywhere; }
+.auditRow > span strong { display: block; font-size: 14px; font-weight: 600; }
+.auditRow > span small { color: var(--d-faint); display: block; font-family: var(--d-mono); font-size: 11.5px; }
+.auditActor, .auditTarget { font-family: var(--d-mono); font-size: 12.5px; }
+.auditWhen .linkButton { font-size: 13px; }
+.auditMore { justify-content: center; }
+.auditRetention { border-top: 1px solid var(--d-line); margin-top: var(--d-s4); padding-top: var(--d-s3); }
+.auditDetail, .auditMeta { display: grid; gap: var(--d-s3); margin: 0; }
+.auditDetail > div, .auditMeta > div { display: grid; gap: 2px; }
+.auditDetail dt, .auditMeta dt { color: var(--d-muted); font-size: 12px; font-weight: 700; }
+.auditDetail dd, .auditMeta dd { margin: 0; overflow-wrap: anywhere; }
+.auditDetail dd small { color: var(--d-faint); display: block; font-size: 12px; }
+.auditDetail code, .auditMeta code { font-family: var(--d-mono); font-size: 12.5px; }
+.auditMetaTitle { border-top: 1px solid var(--d-line); font-size: 15px; padding-top: var(--d-s4); }
+/* Workspace administration */
+.workspaceAdmin { display: grid; gap: var(--d-s4); margin-bottom: var(--d-s5); padding: var(--d-s5); }
+.workspaceFacts { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); margin: 0; }
+.workspaceFacts > div { display: grid; gap: 2px; min-width: 0; }
+.workspaceFacts dt { color: var(--d-muted); font-size: 12px; font-weight: 700; }
+.workspaceFacts dd { margin: 0; overflow-wrap: anywhere; }
+.workspaceForms { display: grid; gap: var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.workspaceForms form { border-top: 1px solid var(--d-line); display: grid; align-content: start; gap: var(--d-s2); padding-top: var(--d-s3); }
+.workspaceForms form h3 { font-size: 15px; }
+.workspaceForms .field { margin-top: var(--d-s1); }
+.workspaceForms .actions { margin-top: var(--d-s2); }
+.archivedBanner { border-color: rgba(252, 211, 141, .45); }
+@media (max-width: 1100px) {
+  .auditRow { grid-template-columns: minmax(140px, 1fr) minmax(0, 1fr) minmax(0, 1.3fr) auto; }
+  .auditRow > .auditTarget { display: none; }
+}
+@media (max-width: 760px) {
+  .auditFilterGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .auditFilterGrid .auditSearch { grid-column: 1 / -1; }
+  .auditHead { clip: rect(0 0 0 0); height: 1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px; }
+  .auditRow { gap: var(--d-s1) var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding: var(--d-s3) 0; }
+  .auditRow > span { grid-column: 1; }
+  .auditRow > span:last-child { grid-column: 2; grid-row: 1; justify-self: end; }
+  .auditRow > .auditTarget { display: block; }
+  .auditRow > .auditActor::before, .auditRow > .auditTarget::before { color: var(--d-faint); content: attr(data-label) ": "; font-family: var(--d-font); }
+}

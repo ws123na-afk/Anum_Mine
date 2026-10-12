@@ -45,6 +45,9 @@ DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
     "text-embedding-3-large": ModelPrice(input_per_million=0.13, output_per_million=0.0),
 }
 
+# Keycloak identity provider aliases ANUM's clients know how to offer (kc_idp_hint).
+SIGN_IN_PROVIDERS = ("google", "apple")
+
 
 class Settings(BaseSettings):
     app_name: str = "ANUM API"
@@ -110,6 +113,28 @@ class Settings(BaseSettings):
     # after ``model_stream_timeout_seconds``. Nothing is retried once text has streamed.
     model_first_token_timeout_seconds: float = Field(default=20.0, gt=0)
     model_stream_timeout_seconds: float = Field(default=120.0, gt=0)
+    # Vision in voice calls (docs/voice.md#call-mode): the model that reads a camera
+    # frame. Empty means none for openai-compatible and ollama (a text-only model would
+    # fail on an image); with the anthropic provider the fast model is used, since every
+    # Claude model accepts images. Examples: gpt-4.1-mini, llava, qwen2.5vl.
+    model_vision_name: str = ""
+    # Optional server-side speech for voice calls (docs/voice.md#speech-engines). Both
+    # speak the OpenAI audio API (POST {base}/audio/transcriptions and
+    # {base}/audio/speech), which OpenAI and self-hosted Whisper/Piper servers such as
+    # Speaches serve. Empty base URL or model = off; clients then use device speech.
+    speech_stt_base_url: str = ""
+    speech_stt_api_key: str | None = None
+    speech_stt_model: str = ""
+    # USD per audio minute, charged to the workspace's model budget; 0 for self-hosted.
+    speech_stt_usd_per_minute: float = Field(default=0.0, ge=0, le=10)
+    speech_tts_base_url: str = ""
+    speech_tts_api_key: str | None = None
+    speech_tts_model: str = ""
+    speech_tts_voice_en: str = ""
+    speech_tts_voice_ar: str = ""
+    # USD per million characters of speech, charged to the workspace's model budget.
+    speech_tts_usd_per_million_chars: float = Field(default=0.0, ge=0, le=1000)
+    speech_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     # Conversations (anum_api/conversations.py): how many earlier turns go back to the
     # model with each question, and the character budget those turns may use.
     conversation_history_turns: int = Field(default=12, ge=0, le=50)
@@ -125,6 +150,14 @@ class Settings(BaseSettings):
     # larger export is refused with 413 rather than truncated.
     privacy_policy_url: str = Field(default="", max_length=2048, pattern=r"^(|https?://\S+)$")
     privacy_export_max_bytes: int = Field(default=25 * 1024 * 1024, ge=64 * 1024, le=512 * 1024 * 1024)
+    # Sign-in options the clients offer before anyone is signed in
+    # (GET /api/v1/auth/sign-in-options, docs/identity.md#google-and-apple-sign-in):
+    # the Keycloak identity providers configured in realm anum ("google", "apple",
+    # comma-separated; infra/keycloak/social_login.py prints the value to set) and
+    # whether Keycloak's self sign-up page is on. They only decide which buttons the
+    # clients show; Keycloak is what accepts or refuses a sign-in.
+    sign_in_providers: str = ""
+    self_sign_up: bool = False
     # Conversation memory (anum_api/conversation_memory.py, docs/memory.md#from-conversations).
     # After a reply completes, a small background model call (at most
     # ``conversation_memory_max_tokens``, metered against the budget) extracts durable
@@ -142,6 +175,13 @@ class Settings(BaseSettings):
     conversation_memory_recall_k: int = Field(default=4, ge=0, le=20)
     conversation_memory_recall_chars: int = Field(default=2000, ge=0, le=20_000)
     conversation_memory_recall_timeout_seconds: float = Field(default=3.0, gt=0)
+    # What ANUM learned (anum_api/learning.py, docs/learning.md): feedback signals, the
+    # style profile, routines and weekly improvement notes, per user. ``false`` stops
+    # all new learning and the learned block in prompts; stored data stays viewable and
+    # deletable. Signals older than ``learning_signal_retention_days`` are deleted the
+    # next time their user's learning data is used.
+    learning_enabled: bool = True
+    learning_signal_retention_days: int = Field(default=180, ge=7, le=3650)
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))
@@ -218,6 +258,15 @@ class Settings(BaseSettings):
     web_search_max_results: int = Field(default=5, ge=1, le=20)
     # SearXNG safesearch level: 0 off, 1 moderate, 2 strict.
     web_search_safe_search: int = Field(default=1, ge=0, le=2)
+    # Tyre planning (docs/tyre-planning.md): reads the owner's fleet data from their own
+    # Supabase (PostgreSQL or REST) or Firebase (Firestore). Workspace-saved Supabase
+    # hosts must be public HTTPS/TLS endpoints outside local; this comma-separated list of
+    # host or host:port entries is the operator's escape hatch for a self-hosted database
+    # on a private network (same format as ANUM_MODEL_ALLOWED_HOSTS).
+    tyre_source_allowed_hosts: str = ""
+    # Rows read per mapped table or collection in one sync; the rest is reported as cut.
+    tyre_max_rows_per_entity: int = Field(default=50_000, ge=100, le=500_000)
+    tyre_source_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     # Automation (docs/automation.md): workflows, schedules and runs live in this SQLite
     # file with ANUM_REPOSITORY_BACKEND=memory and in PostgreSQL with postgresql.
     automation_database_path: str = ".anum/automation.db"
@@ -227,10 +276,30 @@ class Settings(BaseSettings):
     automation_scheduler_enabled: bool = False
     automation_scheduler_poll_seconds: float = Field(default=30.0, gt=0)
     automation_scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
+    # Team work (docs/team-work.md#reminders): overdue reminders, ANUM follow-ups and
+    # notification email retries run in the same background loop as the automation
+    # scheduler (ANUM_AUTOMATION_SCHEDULER_ENABLED) and use the same anum_maintenance grant.
+    team_reminder_poll_seconds: float = Field(default=60.0, gt=0)
+    team_reminder_batch_size: int = Field(default=200, ge=1, le=2000)
+    # Notification email (docs/team-work.md#notifications). Unset host: email is recorded
+    # as not_configured and only the in-app notification is delivered. "tls" is implicit
+    # TLS (port 465), "starttls" upgrades a plain connection and refuses to send if the
+    # server does not offer it; "none" (no encryption) is honoured only in local and test.
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_security: str = Field(default="starttls", pattern="^(starttls|tls|none)$")
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_from: str | None = None
+    smtp_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     # HTTP hardening (anum_api/hardening.py, docs/security.md). Uploads to
     # /api/v1/files get max_upload_body_bytes; every other request gets the general limit.
     max_request_body_bytes: int = 1_048_576
     max_upload_body_bytes: int = 25 * 1024 * 1024
+    # Workspace files (docs/files.md): bytes one workspace may store in total (every
+    # workspace gets this quota), and how long a signed download or preview link works.
+    files_workspace_quota_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1)
+    files_link_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     rate_limit_enabled: bool = True
     rate_limit_requests_per_minute: int = 600
     rate_limit_burst: int = 120
@@ -251,6 +320,49 @@ class Settings(BaseSettings):
     # (anum_api/error_reporting.py, docs/observability.md#error-reporting). Empty: off.
     # Outside local it must be https, or http to a private service name (no dots).
     sentry_dsn: SecretStr | None = None
+    # Phone push through Firebase Cloud Messaging HTTP v1 (anum_api/push.py,
+    # docs/notifications.md). The whole service-account JSON key of the Firebase project
+    # (it carries a private key: keep it in a secret store). Empty: push is off and
+    # GET /api/v1/push/status says so. Android and iOS both deliver through FCM.
+    fcm_service_account_json: SecretStr | None = None
+    # Bounded fan-out: at most this many recipients per event and devices per recipient,
+    # each message tried at most push_max_attempts times with exponential backoff.
+    push_max_recipients: int = Field(default=50, ge=1, le=500)
+    push_max_devices_per_user: int = Field(default=10, ge=1, le=50)
+    push_max_attempts: int = Field(default=4, ge=1, le=10)
+    push_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    # Events waiting for delivery in each process; beyond this the oldest are dropped.
+    push_max_pending: int = Field(default=1000, ge=10, le=100_000)
+    # Calls & Meetings (anum_api/meetings.py, docs/meetings.md). Recording uploads are
+    # capped at ``meeting_recording_max_bytes`` (hosted Whisper APIs accept 25 MB) and
+    # transcript files at ``meeting_transcript_max_bytes``. The analysis prompt holds at
+    # most ``meeting_analysis_max_chars`` of transcript (the rest is marked truncated) and
+    # the answer at most ``meeting_analysis_max_tokens``.
+    meeting_recording_max_bytes: int = Field(default=25 * 1024 * 1024, ge=1024 * 1024, le=512 * 1024 * 1024)
+    meeting_transcript_max_bytes: int = Field(default=5 * 1024 * 1024, ge=64 * 1024, le=50 * 1024 * 1024)
+    meeting_analysis_max_chars: int = Field(default=60_000, ge=2_000, le=400_000)
+    meeting_analysis_max_tokens: int = Field(default=2_000, ge=256, le=16_000)
+    # Speech-to-text for recordings (anum_api/transcription.py). "none" (default): only
+    # transcript files and Zoom/Teams transcripts can be imported. "openai-compatible":
+    # POST {base_url}/audio/transcriptions, which a local Whisper server (faster-whisper
+    # server, Speaches, whisper.cpp server, LocalAI) or a hosted provider (OpenAI, Groq)
+    # answers. "deepgram": Deepgram's hosted pre-recorded API, with speaker labels.
+    transcription_provider: str = Field(default="none", pattern="^(none|openai-compatible|deepgram)$")
+    transcription_base_url: str = Field(default="", max_length=500)
+    transcription_model: str = Field(default="", max_length=200)
+    transcription_api_key: SecretStr | None = None
+    transcription_timeout_seconds: float = Field(default=600.0, gt=0, le=3600)
+    # Zoom and Microsoft Teams transcript connectors (anum_api/meeting_connectors.py).
+    # Each needs an OAuth app the owner registers (docs/meetings.md#connectors); empty
+    # client ids switch the connector off. ``meetings_oauth_redirect_uri`` is the web
+    # app's callback page, for example https://app.example.com/meetings/connected, and
+    # must be registered as the redirect URL of both apps.
+    zoom_client_id: str = Field(default="", max_length=200)
+    zoom_client_secret: SecretStr | None = None
+    microsoft_client_id: str = Field(default="", max_length=200)
+    microsoft_client_secret: SecretStr | None = None
+    microsoft_tenant: str = Field(default="organizations", pattern=r"^[A-Za-z0-9.\-]{1,100}$")
+    meetings_oauth_redirect_uri: str = Field(default="", max_length=500, pattern=r"^(|https?://\S+)$")
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",
@@ -269,6 +381,22 @@ class Settings(BaseSettings):
         parse_allowed_hosts(value)
         return value
 
+    @field_validator("sign_in_providers")
+    @classmethod
+    def _valid_sign_in_providers(cls, value: str) -> str:
+        names: list[str] = []
+        for raw in value.split(","):
+            name = raw.strip().lower()
+            if not name:
+                continue
+            if name not in SIGN_IN_PROVIDERS:
+                raise ValueError(
+                    f"ANUM_SIGN_IN_PROVIDERS lists {name!r}; allowed: {', '.join(SIGN_IN_PROVIDERS)}"
+                )
+            if name not in names:
+                names.append(name)
+        return ",".join(names)
+
     @field_validator("sentry_dsn")
     @classmethod
     def _valid_sentry_dsn(cls, value: SecretStr | None) -> SecretStr | None:
@@ -279,6 +407,19 @@ class Settings(BaseSettings):
         problem = dsn_problem(value.get_secret_value())
         if problem:
             # The message names the setting only: a DSN carries the project's key.
+            raise ValueError(problem)
+        return value
+
+    @field_validator("fcm_service_account_json")
+    @classmethod
+    def _valid_fcm_service_account(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None or not value.get_secret_value().strip():
+            return None
+        from .push_fcm import service_account_problem
+
+        problem = service_account_problem(value.get_secret_value())
+        if problem:
+            # The message names the setting and the problem only, never the key.
             raise ValueError(problem)
         return value
 

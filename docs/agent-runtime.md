@@ -23,6 +23,8 @@ Before planning, a run retrieves the nearest chunks of the workspace's indexed m
 
 Agent state should be durable enough to resume after worker restarts. Temporal should manage long-running execution, retries, timers, and waits. PostgreSQL should store canonical run state and audit records. Valkey can hold ephemeral locks, short-lived caches, and live coordination data.
 
+A task can have several runs: `POST /api/v1/tasks/{id}/retry` starts a new run of a failed or cancelled task and keeps the earlier runs, steps and approvals in its history, and `resume` continues a run stranded at `tool_ready`. The latest run is the newest by `(created_at, id)`; an approval decision resumes the approval's own run ([Tasks](tasks.md#retry)).
+
 ## Durable Execution
 
 `ANUM_RUNTIME_BACKEND` picks where a run executes:
@@ -57,6 +59,10 @@ Because a step always starts from what the repository holds, a run survives a wo
 ### Observability
 
 With OpenTelemetry export on ([Observability](observability.md)), the API's Temporal client and the worker share a tracing interceptor, so a run's trace continues from `POST /tasks/{id}/run` through `StartWorkflow` into each `RunActivity:anum.advance_run` span (tagged with the tenant and workspace ids); the worker's workflow sandbox passes `opentelemetry` through (`anum_api.worker.sandbox_runner`). Every activity call records `anum.temporal.activity.outcomes` and its duration by outcome (`advanced`, `locked`, `not_visible_yet`, `not_found`, `coordination_unavailable`, `cancelled`, `error`), and failed lock acquisitions record `anum.run_lock.contention` (`busy` or `unavailable`, from the API or a worker). Stuck and failing runs: [Runbooks](runbooks.md#temporal-stuck-or-failing-runs).
+
+## Agents
+
+A task can run as a user-built [agent](agents.md): the run's checkpoint carries a snapshot of the agent (instructions, model route, skills, tools, autonomy, knowledge), the planner uses only its skills and tools and puts its persona before the task, its memories join the retrieved context as labeled untrusted blocks, and `AgentRuntime.evaluate` applies the agent's tool allowlist and autonomy after the runtime's own policy, so an agent can only make a decision stricter.
 
 ## Guardrails
 

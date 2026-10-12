@@ -26,7 +26,7 @@ interface MockOptions { forbidden?: boolean; runStatus?: number; /** The API's `
 
 async function mockApi(page: Page, options: MockOptions = {}) {
   const calls: { method: string; path: string; body: unknown; workspace: string | undefined }[] = [];
-  let members = [memberRow('user_local', 'owner'), memberRow('user_member', 'member')];
+  let members: Json[] = [memberRow('user_local', 'owner'), { ...memberRow('user_member', 'member'), email: 'member@example.com' }];
   let invitations = [invitationRow()];
   let budgets: Json = {
     period_start: '2026-10-01',
@@ -63,8 +63,29 @@ async function mockApi(page: Page, options: MockOptions = {}) {
       const workspace = request.headers()['x-workspace-id'];
       return json({ ...memberRow('user_local', workspace === 'workspace_sales' ? 'member' : 'owner'), workspace_id: workspace });
     }
-    if (path === '/api/v1/workspace-members') return options.forbidden ? forbidden(route) : json(members);
-    if (path === '/api/v1/workspace-invitations' && method === 'GET') return options.forbidden ? forbidden(route) : json(invitations);
+    const query = new URL(request.url()).searchParams;
+    if (path === '/api/v1/workspace-members/summary') {
+      if (options.forbidden) return forbidden(route);
+      const active = members.filter((m) => m.active);
+      return json({ total: members.length, active: active.length, deactivated: members.length - active.length, active_owners: active.filter((m) => m.role === 'owner').length, pending_invitations: invitations.filter((x) => x.status === 'pending').length });
+    }
+    if (path === '/api/v1/workspace-members') {
+      if (options.forbidden) return forbidden(route);
+      const q = (query.get('q') ?? '').toLowerCase();
+      const status = query.get('status');
+      const wanted = members.filter((m) => (!q || String(m.user_id).toLowerCase().includes(q) || String(m.email ?? '').toLowerCase().includes(q))
+        && (!status || (status === 'active') === m.active) && (!query.get('role') || m.role === query.get('role')));
+      return json(wanted);
+    }
+    if (path === '/api/v1/workspace-invitations' && method === 'GET') {
+      if (options.forbidden) return forbidden(route);
+      const status = query.get('status');
+      return json(status ? invitations.filter((x) => x.status === status) : invitations);
+    }
+    if (path === '/api/v1/workspace-invitations/invitation_existing/resend') {
+      invitations = invitations.map((x) => x.id === 'invitation_existing' ? { ...x, status: 'pending', expires_at: inAWeek } : x);
+      return json({ invitation: invitations.find((x) => x.id === 'invitation_existing'), token: `${token}_resent` });
+    }
     if (path === '/api/v1/workspace-invitations' && method === 'POST') {
       const created = invitationRow({ id: 'invitation_new', role: (body as Json).role, invitee_user_id: (body as Json).invitee_user_id ?? null, invitee_email: (body as Json).invitee_email ?? null });
       invitations = [created, ...invitations];
@@ -110,29 +131,57 @@ async function mockApi(page: Page, options: MockOptions = {}) {
   return calls;
 }
 
-test('owner lists members, sees the last-owner refusal, and deactivates a member', async ({ page }) => {
+test('owner lists members, sees the last-owner protection, and changes a role and access after confirming', async ({ page }) => {
   const calls = await mockApi(page);
   await page.goto('/#members');
 
   const list = page.getByRole('region', { name: 'Members' });
-  await expect(list.getByRole('article', { name: 'Member user_local' })).toBeVisible();
-  await expect(list.getByText('Last active owner: the API refuses to demote or deactivate them.')).toBeVisible();
-
-  await list.getByRole('article', { name: 'Member user_local' }).getByRole('button', { name: 'Deactivate' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'The last active owner cannot be demoted or deactivated' })).toBeVisible();
+  const me = list.getByRole('article', { name: 'Member user_local' });
+  await expect(me).toBeVisible();
+  await expect(me.getByText(/Last active owner: make someone else an owner/)).toBeVisible();
+  // The only active owner cannot be deactivated or demoted from the page; the API refuses it too (409).
+  await expect(me.getByRole('button', { name: 'Deactivate' })).toBeDisabled();
+  await expect(me.getByLabel('Role for user_local').locator('option[value="viewer"]')).toHaveJSProperty('disabled', true);
 
   const bob = list.getByRole('article', { name: 'Member user_member' });
+  await expect(bob.getByText('member@example.com')).toBeVisible();
   await bob.getByLabel('Role for user_member').selectOption('viewer');
+  const dialog = page.getByRole('alertdialog', { name: 'Make user_member viewer?' });
+  await expect(dialog.getByText(/Viewers can read but not create or run tasks/)).toBeVisible();
+  // Cancel changes nothing.
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(bob.getByLabel('Role for user_member')).toHaveValue('member');
+
+  await bob.getByLabel('Role for user_member').selectOption('viewer');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Change role' }).click();
   await expect(page.getByText('user_member is now viewer.')).toBeVisible();
   await bob.getByRole('button', { name: 'Deactivate' }).click();
+  await page.getByRole('alertdialog', { name: 'Deactivate user_member?' }).getByRole('button', { name: 'Deactivate' }).click();
   await expect(bob.getByText('deactivated', { exact: true })).toBeVisible();
   await expect(bob.getByRole('button', { name: 'Reactivate' })).toBeVisible();
 
   expect(calls.filter((c) => c.method !== 'GET' && c.path.startsWith('/api/v1/workspace-')).map((c) => `${c.method} ${c.path}`)).toEqual([
-    'POST /api/v1/workspace-members/user_local/deactivate',
     'PUT /api/v1/workspace-members/user_member/role',
     'POST /api/v1/workspace-members/user_member/deactivate',
   ]);
+});
+
+test('members search by email and filter by status', async ({ page }) => {
+  const calls = await mockApi(page);
+  await page.goto('/#members');
+  const list = page.getByRole('region', { name: 'Members' });
+  await expect(list.getByRole('article')).toHaveCount(2);
+  await list.getByLabel('Search').fill('member@');
+  await expect(list.getByRole('article')).toHaveCount(1);
+  await expect(list.getByRole('article', { name: 'Member user_member' })).toBeVisible();
+  await expect.poll(() => calls.some((c) => c.path === '/api/v1/workspace-members' && c.method === 'GET')).toBe(true);
+  await list.getByLabel('Search').fill('nobody');
+  await expect(list.getByRole('heading', { name: 'No members match' })).toBeVisible();
+  await list.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(list.getByRole('article')).toHaveCount(2);
+  await list.getByLabel('Status').selectOption('deactivated');
+  await expect(list.getByRole('heading', { name: 'No members match' })).toBeVisible();
 });
 
 test('creating an invitation shows the token once with copy actions, and revoke works', async ({ page, context, browserName }) => {
@@ -165,8 +214,17 @@ test('creating an invitation shows the token once with copy actions, and revoke 
   await expect(invitations.getByRole('article', { name: 'Invitation for ana@example.com' })).toBeVisible();
   const existing = invitations.getByRole('article', { name: 'Invitation for user_pending' });
   await expect(existing.getByText(/Expires in (6|7) d/)).toBeVisible();
+  await existing.getByRole('button', { name: 'Resend' }).click();
+  await expect(page.getByRole('region', { name: 'New invitation token' }).getByTestId('invitation-token')).toHaveText(`${token}_resent`);
+  await expect(page.getByText(/The previous one no longer works/)).toBeVisible();
+  await page.getByRole('region', { name: 'New invitation token' }).getByRole('button', { name: 'Done' }).click();
   await existing.getByRole('button', { name: 'Revoke' }).click();
-  await expect(existing.getByText('revoked', { exact: true })).toBeVisible();
+  await page.getByRole('alertdialog', { name: 'Revoke the invitation for user_pending?' }).getByRole('button', { name: 'Revoke invitation' }).click();
+  // Revoked invitations leave the pending list; the "Revoked" filter shows them.
+  await expect(existing).toHaveCount(0);
+  await invitations.getByRole('button', { name: 'Revoked' }).click();
+  await expect(invitations.getByRole('article', { name: 'Invitation for user_pending' }).getByText('revoked', { exact: true })).toBeVisible();
+  expect(calls.some((c) => c.method === 'POST' && c.path === '/api/v1/workspace-invitations/invitation_existing/resend')).toBe(true);
 });
 
 test('non-owners see the API permission answer and can still accept an invitation link', async ({ page }) => {

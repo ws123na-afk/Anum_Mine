@@ -7,17 +7,52 @@ import 'settings_controller.dart';
 import '../../src/widgets/depth.dart';
 import '../auth/account_screens.dart';
 import '../admin/admin.dart';
+import '../autonomy/autonomy_controller.dart';
+import '../autonomy/autonomy_repository.dart';
+import '../autonomy/autonomy_screens.dart';
+import '../learning/learning_controller.dart';
+import '../learning/learning_screen.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
+import '../push/push_settings_card.dart';
+import '../team/team_screens.dart';
+import '../team/team_strings.dart';
+
+/// Parts of Settings that Profile and settings opens directly.
+enum SettingsSection { profile, notifications, privacy, security }
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({required this.controller, super.key});
+  const SettingsScreen(
+      {required this.controller, this.initialSection, super.key});
   final SettingsController controller;
+
+  /// Scrolled into view once Settings has loaded.
+  final SettingsSection? initialSection;
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  // The chat memory card, for the Privacy screen's way back to its switch.
+  final _chatMemoryKey = GlobalKey();
+  final _sections = {
+    for (final section in SettingsSection.values) section: GlobalKey()
+  };
+  bool _revealed = false;
+
+  /// Brings [SettingsScreen.initialSection] into view, once.
+  void _reveal() {
+    final section = widget.initialSection;
+    if (_revealed || section == null) return;
+    _revealed = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _sections[section]?.currentContext;
+      if (target != null && target.mounted) {
+        Scrollable.ensureVisible(target, alignment: 0);
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -54,13 +89,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 action: widget.controller.load),
             SettingsPhase.ready ||
             SettingsPhase.saving =>
-              AnumBackdrop(child: _Content(controller: widget.controller)),
+              AnumBackdrop(child: Builder(builder: (context) {
+                _reveal();
+                return _Content(
+                    controller: widget.controller,
+                    chatMemoryKey: _chatMemoryKey,
+                    sections: _sections);
+              })),
           }));
 }
 
 class _Content extends StatelessWidget {
-  const _Content({required this.controller});
+  const _Content(
+      {required this.controller,
+      required this.chatMemoryKey,
+      required this.sections});
   final SettingsController controller;
+  final GlobalKey chatMemoryKey;
+  final Map<SettingsSection, GlobalKey> sections;
+
+  /// From Privacy back to "Remember things from my chats": close Privacy and
+  /// bring the chat memory card into view.
+  void _openChatMemory(BuildContext context) {
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = chatMemoryKey.currentContext;
+      if (target != null && target.mounted) {
+        Scrollable.ensureVisible(target,
+            alignment: 0.2, duration: const Duration(milliseconds: 250));
+      }
+    });
+  }
 
   Future<void> _changeModel(BuildContext context) => showModalBottomSheet<void>(
       context: context,
@@ -72,11 +131,13 @@ class _Content extends StatelessWidget {
   Widget build(BuildContext context) {
     final session = controller.session!;
     return Stack(children: [
-      ListView(
+      SingleChildScrollView(
           padding: const EdgeInsetsDirectional.fromSTEB(
               AnumSpacing.md, AnumSpacing.sm, AnumSpacing.md, AnumSpacing.xl),
-          children: [
-            _Heading('Profile and session'),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _Heading('Profile and session',
+                key: sections[SettingsSection.profile]),
             Card(
                 child: Column(children: [
               ListTile(
@@ -108,6 +169,14 @@ class _Content extends StatelessWidget {
                                 currentWorkspaceId: session.context.workspaceId,
                                 role: session.context.roles.join(', '),
                                 onSwitched: controller.load))))),
+            if (controller.autonomy != null) ...[
+              _Heading('Autonomy'),
+              _AutonomyCard(repository: controller.autonomy!),
+            ],
+            if (controller.team != null) ...[
+              _Heading(TeamText.of(context).t('section')),
+              TeamHubCard(repository: controller.team!),
+            ],
             if (controller.admin != null) ...[
               _Heading('Workspace administration'),
               _AdminCard(
@@ -128,10 +197,10 @@ class _Content extends StatelessWidget {
                     : Column(children: [
                         ListTile(
                             leading: const Icon(Icons.smart_toy_outlined),
-                            title: Text(controller.model!.provider ==
-                                    'anthropic'
-                                ? providerLabel('anthropic')
-                                : controller.model!.model),
+                            title: Text(
+                                controller.model!.provider == 'anthropic'
+                                    ? providerLabel('anthropic')
+                                    : controller.model!.model),
                             subtitle: Text(
                                 controller.model!.provider == 'anthropic'
                                     ? 'Chat and voice: ${controller.model!.fastModel}\n'
@@ -175,12 +244,33 @@ class _Content extends StatelessWidget {
                                               .colorScheme
                                               .error)))),
                       ])),
-            _Heading('Notifications'),
+            _Heading('Notifications',
+                key: sections[SettingsSection.notifications]),
             _NotificationCard(controller: controller),
+            if (controller.push != null) ...[
+              const SizedBox(height: AnumSpacing.xs),
+              PhonePushCard(controller: controller.push!),
+            ],
             _Heading('Chat memory'),
-            _ChatMemoryCard(controller: controller),
+            _ChatMemoryCard(key: chatMemoryKey, controller: controller),
+            if (controller.learning != null)
+              Card(
+                  child: ListTile(
+                      leading: const Icon(Icons.school_outlined),
+                      title: const Text('What ANUM learned'),
+                      subtitle: const Text(
+                          'Your style, preferences, routines and weekly suggestions. Edit, delete or turn learning off.'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => LearningScreen(
+                                  controller:
+                                      LearningController(controller.learning!),
+                                  onOpenChatMemory: () =>
+                                      _openChatMemory(context)))))),
             if (controller.privacy != null) ...[
-              _Heading('Privacy'),
+              _Heading('Privacy', key: sections[SettingsSection.privacy]),
               Card(
                   child: ListTile(
                       leading: const Icon(Icons.privacy_tip_outlined),
@@ -192,10 +282,12 @@ class _Content extends StatelessWidget {
                           context,
                           MaterialPageRoute<void>(
                               builder: (_) => PrivacyScreen(
-                                  controller: PrivacyController(
-                                      controller.privacy!)))))),
+                                  controller:
+                                      PrivacyController(controller.privacy!),
+                                  onOpenChatMemory: () =>
+                                      _openChatMemory(context)))))),
             ],
-            _Heading('Security'),
+            _Heading('Security', key: sections[SettingsSection.security]),
             Card(
                 child: Column(children: [
               const ListTile(
@@ -219,7 +311,7 @@ class _Content extends StatelessWidget {
                   padding: const EdgeInsets.only(top: AnumSpacing.md),
                   child: Text(controller.message!,
                       style: Theme.of(context).textTheme.bodySmall)),
-          ]),
+          ])),
       if (controller.phase == SettingsPhase.saving)
         const LinearProgressIndicator()
     ]);
@@ -246,14 +338,18 @@ class _NotificationState extends State<_NotificationCard> {
           bool? failure,
           bool? automation,
           bool? email,
-          bool? desktop}) =>
+          bool? desktop,
+          bool? push,
+          bool? commerce}) =>
       NotificationPreferences(
           taskCompleted: task ?? value.taskCompleted,
           approvalRequired: approval ?? value.approvalRequired,
           runFailed: failure ?? value.runFailed,
           automationFailed: automation ?? value.automationFailed,
           emailEnabled: email ?? value.emailEnabled,
-          desktopEnabled: desktop ?? value.desktopEnabled);
+          desktopEnabled: desktop ?? value.desktopEnabled,
+          pushEnabled: push ?? value.pushEnabled,
+          commerceAlerts: commerce ?? value.commerceAlerts);
   @override
   Widget build(BuildContext context) => Card(
           child: Column(children: [
@@ -277,6 +373,13 @@ class _NotificationState extends State<_NotificationCard> {
             title: const Text('Automation failed'),
             value: value.automationFailed,
             onChanged: (v) => update(copy(automation: v))),
+        SwitchListTile(
+            secondary: const Icon(Icons.storefront_outlined),
+            title: const Text('Store alerts'),
+            subtitle: const Text(
+                'Low stock, late orders, return spikes and price changes.'),
+            value: value.commerceAlerts,
+            onChanged: (v) => update(copy(commerce: v))),
         const Divider(height: 1),
         SwitchListTile(
             secondary: const Icon(Icons.email_outlined),
@@ -284,8 +387,15 @@ class _NotificationState extends State<_NotificationCard> {
             value: value.emailEnabled,
             onChanged: (v) => update(copy(email: v))),
         SwitchListTile(
+            secondary: const Icon(Icons.phone_iphone),
+            title: const Text('Phone push'),
+            subtitle: const Text(
+                'Send these to your phones, even when the app is closed.'),
+            value: value.pushEnabled,
+            onChanged: (v) => update(copy(push: v))),
+        SwitchListTile(
             secondary: const Icon(Icons.notifications_outlined),
-            title: const Text('Device notifications'),
+            title: const Text('Desktop notifications'),
             value: value.desktopEnabled,
             onChanged: (v) => update(copy(desktop: v)))
       ]));
@@ -295,7 +405,7 @@ class _NotificationState extends State<_NotificationCard> {
 /// saved at once, with what it means now and a way to delete the memories
 /// already remembered.
 class _ChatMemoryCard extends StatelessWidget {
-  const _ChatMemoryCard({required this.controller});
+  const _ChatMemoryCard({required this.controller, super.key});
   final SettingsController controller;
 
   Future<void> _confirmDelete(BuildContext context) async {
@@ -376,7 +486,7 @@ class _ChatMemoryCard extends StatelessWidget {
 }
 
 class _Heading extends StatelessWidget {
-  const _Heading(this.text);
+  const _Heading(this.text, {super.key});
   final String text;
   @override
   Widget build(BuildContext context) => Padding(
@@ -468,7 +578,8 @@ class _ModelSheetState extends State<_ModelSheet> {
           ? (widget.current!.routing.fastModel ?? '')
           : anthropicFastModel);
   late final capableModel = TextEditingController(
-      text: _claudeSaved ? widget.current!.capableModel : anthropicCapableModel);
+      text:
+          _claudeSaved ? widget.current!.capableModel : anthropicCapableModel);
   late String fastEffort =
       _claudeSaved ? (widget.current!.routing.fastEffort ?? '') : 'low';
   late String capableEffort =
@@ -543,9 +654,9 @@ class _ModelSheetState extends State<_ModelSheet> {
           key: form,
           child: SingleChildScrollView(
               child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                 Text('Change model',
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 4),
@@ -594,8 +705,7 @@ class _ModelSheetState extends State<_ModelSheet> {
                       obscureText: true,
                       textDirection: TextDirection.ltr,
                       decoration: InputDecoration(
-                          labelText:
-                              _claude ? 'Anthropic API key' : 'API key',
+                          labelText: _claude ? 'Anthropic API key' : 'API key',
                           helperMaxLines: 3,
                           helperText: switch (_keyState) {
                             SavedKeyState.keep =>
@@ -643,6 +753,48 @@ class _ModelSheetState extends State<_ModelSheet> {
               ]))));
 }
 
+/// What ANUM did on its own, and when it may act without asking
+/// (docs/autonomy.md). Each pushed screen owns its controller.
+class _AutonomyCard extends StatelessWidget {
+  const _AutonomyCard({required this.repository});
+  final AutonomyRepository repository;
+
+  void _settings(BuildContext context) => Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+          builder: (_) => OwnedController<AutonomySettingsController>(
+              create: () => AutonomySettingsController(repository),
+              builder: (_, c) => AutonomySettingsScreen(controller: c))));
+
+  @override
+  Widget build(BuildContext context) => Card(
+          child: Column(children: [
+        ListTile(
+            key: const Key('open-activity'),
+            leading: const Icon(Icons.history),
+            title: const Text('Activity'),
+            subtitle: const Text(
+                'Everything ANUM did on its own, with Undo and suggestions.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => OwnedController<ActivityController>(
+                        create: () => ActivityController(repository),
+                        builder: (ctx, c) => ActivityScreen(
+                            controller: c,
+                            onOpenSettings: () => _settings(ctx)))))),
+        ListTile(
+            key: const Key('open-autonomy'),
+            leading: const Icon(Icons.tune),
+            title: const Text('Autonomy levels'),
+            subtitle: const Text(
+                'When ANUM may act without asking, by area and threshold.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _settings(context)),
+      ]));
+}
+
 /// Members, invitations, model budgets and the approval policy. Shown to
 /// everyone: the screens show the API's answer to non-owners instead of
 /// guessing roles. Each pushed screen owns its controller and disposes it
@@ -675,6 +827,14 @@ class _AdminCard extends StatelessWidget {
                     controller: c,
                     repository: repository,
                     currentWorkspaceId: workspaceId))),
+        ListTile(
+            leading: const Icon(Icons.receipt_long_outlined),
+            title: const Text('Audit log'),
+            subtitle: const Text(
+                'Who changed what, and when. Owners and organization administrators.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _push(context, () => AuditLogController(repository),
+                (c) => AuditLogScreen(controller: c))),
         ListTile(
             leading: const Icon(Icons.speed_outlined),
             title: const Text('Model budgets'),

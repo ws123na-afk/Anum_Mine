@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../src/localization/anum_localizations.dart';
@@ -7,7 +6,8 @@ import '../../src/widgets/depth.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
-import 'workspace_sheets.dart';
+import 'files_screen.dart';
+import '../meetings/meetings_screen.dart';
 
 /// Files, memory, skills and integrations: the workspace's resources.
 class ResourcesScreen extends StatefulWidget {
@@ -29,7 +29,7 @@ class ResourcesScreen extends StatefulWidget {
 class _ResourcesScreenState extends State<ResourcesScreen>
     with SingleTickerProviderStateMixin {
   late final _tabs =
-      TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
+      TabController(length: 5, vsync: this, initialIndex: widget.initialTab);
 
   @override
   void dispose() {
@@ -53,7 +53,9 @@ class _ResourcesScreenState extends State<ResourcesScreen>
                     eyebrow: 'Workspace',
                     title: 'Resources',
                     subtitle: [
-                      _plural(c.files.length, 'file'),
+                      _plural(
+                          c.filesController?.usage?.fileCount ?? c.files.length,
+                          'file'),
                       _plural(c.memories.length, 'memory', 'memories'),
                       _plural(c.skills.length, 'skill'),
                       _plural(c.integrations.length, 'service'),
@@ -69,11 +71,12 @@ class _ResourcesScreenState extends State<ResourcesScreen>
                   unselectedLabelColor: p.muted,
                   indicatorColor: p.violet,
                   dividerColor: p.line,
-                  tabs: const [
+                  tabs: [
                     Tab(text: 'Files'),
                     Tab(text: 'Memory'),
                     Tab(text: 'Skills'),
                     Tab(text: 'Services'),
+                    Tab(text: AnumLocalizations.maybeOf(context).t('meetings')),
                   ],
                 ),
                 Expanded(
@@ -83,6 +86,7 @@ class _ResourcesScreenState extends State<ResourcesScreen>
                         controller: c, focusMemoryId: widget.focusMemoryId),
                     _SkillsTab(controller: c),
                     _ServicesTab(controller: c),
+                    _MeetingsTab(controller: c),
                   ]),
                 ),
               ]),
@@ -112,75 +116,22 @@ class _FilesTab extends StatelessWidget {
   const _FilesTab({required this.controller});
   final WorkspaceController controller;
 
-  Future<void> _upload(BuildContext context) async {
-    final picked = await FilePicker.platform.pickFiles(withData: false);
-    final path = picked?.files.single.path;
-    if (path == null) return;
-    await controller.uploadFile(path);
-  }
-
-  IconData _icon(String type) {
-    if (type.startsWith('image/')) return Icons.image_outlined;
-    if (type.contains('pdf')) return Icons.picture_as_pdf_outlined;
-    if (type.startsWith('text/') || type.contains('json')) {
-      return Icons.description_outlined;
-    }
-    if (type.startsWith('audio/')) return Icons.audio_file_outlined;
-    return Icons.insert_drive_file_outlined;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final files = [...controller.files]
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final total = files.fold<int>(0, (sum, f) => sum + f.sizeBytes);
-    return _tabList(context, controller.load, [
-      AnumSurface(
-        child: Row(children: [
-          Expanded(
-            child: AnumHeader(
-              title: '${files.length} files',
-              subtitle:
-                  '${formatBytes(total)} stored · checksum verified on upload',
-            ),
-          ),
-          FilledButton.icon(
-            onPressed: controller.mutating ? null : () => _upload(context),
-            icon: const Icon(Icons.upload_rounded),
-            label: const Text('Upload'),
-          ),
-        ]),
-      ),
-      if (files.isEmpty)
-        const AnumSurface(
-          child: AnumEmpty(
-            icon: Icons.folder_open,
-            title: 'No files yet',
-            message: 'Upload documents your agents can read in this workspace.',
-          ),
-        )
-      else
+    final files = controller.filesController;
+    if (files == null) {
+      return _tabList(context, controller.load, const [
         AnumSurface(
-          child: Column(children: [
-            for (final f in files)
-              AnumRow(
-                icon: _icon(f.contentType),
-                title: f.name,
-                subtitle: '${f.contentType} · ${formatBytes(f.sizeBytes)}',
-                detail: 'Added ${exactTime(f.createdAt)}',
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => showModalBottomSheet<void>(
-                  context: context,
-                  builder: (_) => FileDetailSheet(
-                    file: f,
-                    onDownload: () => controller.repository.downloadFile(f),
-                    onDelete: () => controller.deleteFile(f.id),
-                  ),
-                ),
-              ),
-          ]),
+          child: AnumEmpty(
+            icon: Icons.folder_off_outlined,
+            title: 'Files are not available',
+            message:
+                'This build of the app has no connection to the files API.',
+          ),
         ),
-    ]);
+      ]);
+    }
+    return FilesTab(controller: files, currentUserId: controller.currentUserId);
   }
 }
 
@@ -190,6 +141,33 @@ abstract final class ResourcesTab {
   static const memory = 1;
   static const skills = 2;
   static const services = 3;
+
+  /// Calls & Meetings (docs/meetings.md#mobile).
+  static const meetings = 4;
+}
+
+class _MeetingsTab extends StatelessWidget {
+  const _MeetingsTab({required this.controller});
+  final WorkspaceController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final meetings = controller.meetingsController;
+    if (meetings == null) {
+      return _tabList(context, controller.load, [
+        AnumSurface(
+          child: AnumEmpty(
+            icon: Icons.phone_disabled_outlined,
+            title: AnumLocalizations.maybeOf(context).t('meetings'),
+            message:
+                'This build of the app has no connection to the meetings API.',
+          ),
+        ),
+      ]);
+    }
+    return MeetingsTab(
+        controller: meetings, currentUserId: controller.currentUserId);
+  }
 }
 
 /// Opens the Memory tab on its own page with [memoryId] scrolled into view
@@ -378,13 +356,21 @@ class _SkillsTab extends StatelessWidget {
     final skills = controller.skills;
     final p = context.palette;
     return _tabList(context, controller.load, [
+      if (controller.skillNotice != null)
+        AnumSurface(
+          child: Semantics(
+            liveRegion: true,
+            child: Text(controller.skillNotice!,
+                style: TextStyle(color: p.text, fontSize: 13.5)),
+          ),
+        ),
       if (skills.isEmpty)
         const AnumSurface(
           child: AnumEmpty(
             icon: Icons.extension_outlined,
             title: 'No skills published',
             message:
-                'Skills are reviewed capability packs. Published versions will appear here to install.',
+                'An organization administrator publishes skills for every workspace. Ask one to publish the skill you need; it then appears here to install.',
           ),
         )
       else
@@ -406,9 +392,12 @@ class _SkillsTab extends StatelessWidget {
                                 fontWeight: FontWeight.w700)),
                         Text('v${s.version} · ${s.skillId}',
                             style: TextStyle(color: p.faint, fontSize: 12)),
+                        const SizedBox(height: 6),
+                        // Under the name so it never squeezes it on narrow screens.
+                        AnumPill(
+                            label: '${s.risk} risk', tone: riskTone(s.risk)),
                       ]),
                 ),
-                AnumPill(label: '${s.risk} risk', tone: riskTone(s.risk)),
               ]),
               const SizedBox(height: 10),
               Text(s.description,
@@ -423,23 +412,65 @@ class _SkillsTab extends StatelessWidget {
                 ]),
               ],
               const SizedBox(height: 12),
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: s.installed
-                    ? const AnumPill(
-                        label: 'Installed',
-                        tone: AnumTone.ok,
-                        icon: Icons.check)
-                    : FilledButton(
-                        onPressed: controller.mutating
-                            ? null
-                            : () => controller.installSkill(s),
-                        child: const Text('Install'),
-                      ),
+              Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (s.installed) ...[
+                    AnumPill(
+                        label: s.enabled ? 'Installed' : 'Disabled',
+                        tone: s.enabled ? AnumTone.ok : AnumTone.warn,
+                        icon: s.enabled ? Icons.check : Icons.pause),
+                    OutlinedButton(
+                      onPressed: controller.mutating
+                          ? null
+                          : () => controller.setSkillEnabled(s, !s.enabled),
+                      child: Text(s.enabled ? 'Disable' : 'Enable'),
+                    ),
+                    TextButton(
+                      onPressed: controller.mutating
+                          ? null
+                          : () => _confirmUninstall(context, s),
+                      child: const Text('Uninstall'),
+                    ),
+                  ] else ...[
+                    if (s.hasInstall)
+                      AnumPill(label: 'v${s.installedVersion} installed'),
+                    FilledButton(
+                      onPressed: controller.mutating
+                          ? null
+                          : () => controller.installSkill(s),
+                      child: Text(
+                          s.hasInstall ? 'Install v${s.version}' : 'Install'),
+                    ),
+                  ],
+                ],
               ),
             ]),
           ),
     ]);
+  }
+
+  Future<void> _confirmUninstall(BuildContext context, WorkspaceSkill s) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Uninstall ${s.name}?'),
+        content: const Text(
+            'Agents in this workspace stop using it and its tool grants are removed. The change is audited.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Uninstall')),
+        ],
+      ),
+    );
+    if (yes == true) await controller.uninstallSkill(s);
   }
 }
 
@@ -463,17 +494,41 @@ class _ServicesTab extends StatelessWidget {
         AnumSurface(
           child: Column(children: [
             for (final x in items)
-              AnumRow(
-                icon: _icon(x.kind),
-                tone: integrationTone(x.status),
-                title: x.name,
-                subtitle: x.detail,
-                detail:
-                    '${x.endpoint}${x.latencyMs == null ? '' : ' · ${x.latencyMs} ms'}',
-                trailing: AnumPill(
-                    label: integrationLabel(x.status),
-                    tone: integrationTone(x.status)),
-              ),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                AnumRow(
+                  icon: _icon(x.kind),
+                  tone: integrationTone(x.status),
+                  title: x.name,
+                  subtitle: x.detail,
+                  detail:
+                      '${x.endpoint}${x.latencyMs == null ? '' : ' · ${x.latencyMs} ms'}',
+                ),
+                // The status sits under the text so it never squeezes it
+                // (narrow phones, large text).
+                Padding(
+                  padding:
+                      const EdgeInsetsDirectional.only(start: 52, bottom: 10),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AnumPill(
+                            label: integrationLabel(x.status),
+                            tone: integrationTone(x.status)),
+                        if (x.remediation != null) ...[
+                          const SizedBox(height: 6),
+                          Text('How to fix: ${x.remediation}',
+                              style: TextStyle(
+                                  color: context.palette.text, fontSize: 13)),
+                        ],
+                        if (x.lastError != null && x.lastError != x.detail) ...[
+                          const SizedBox(height: 4),
+                          Text('Last error: ${x.lastError}',
+                              style: TextStyle(
+                                  color: context.palette.warn, fontSize: 12)),
+                        ],
+                      ]),
+                ),
+              ]),
           ]),
         ),
     ]);

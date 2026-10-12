@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../workspace/workspace_models.dart';
 import 'developer_models.dart';
 import 'developer_repository.dart';
@@ -18,6 +19,9 @@ enum DevPhase { initial, loading, ready, error, forbidden }
 /// Mirrors the web `DeveloperView`.
 class DeveloperController extends ChangeNotifier {
   DeveloperController(this.repository);
+
+  /// The language of the notices this controller writes; the screens set it.
+  AnumLocalizations l = AnumLocalizations.english;
 
   final DeveloperRepository repository;
 
@@ -37,6 +41,15 @@ class DeveloperController extends ChangeNotifier {
   DevSetup? setup;
   List<DevRequest> items = const [];
   bool hasMore = false;
+
+  /// The workspace's projects (GitHub repositories), by name.
+  List<DevProject> projects = const [];
+
+  /// The project the request form sends to; null until one is chosen.
+  String? projectId;
+
+  /// The project used for the last request, preferred next time.
+  String? _lastProject;
 
   /// The search the list shows; empty for all requests.
   String query = '';
@@ -71,8 +84,23 @@ class DeveloperController extends ChangeNotifier {
       };
 
   bool get ready => setup?.ready ?? false;
-  bool get activeExists => items.any((item) =>
-      item.status == DevStatus.queued || item.status == DevStatus.coding);
+
+  /// The chosen project already has a queued or coding request.
+  bool get activeExists =>
+      projectId != null && busyProjects(items).contains(projectId);
+
+  List<DevProject> get sendable => sendableProjects(projects);
+  DevProject? get selectedProject {
+    for (final project in projects) {
+      if (project.id == projectId) return project;
+    }
+    return null;
+  }
+
+  void selectProject(String? id) {
+    projectId = id;
+    _notify();
+  }
 
   DevRequest? find(String id) {
     for (final item in items) {
@@ -124,7 +152,7 @@ class DeveloperController extends ChangeNotifier {
       } else {
         ownerState = OwnerState.error;
         roleError =
-            'Your role could not be checked. ${explainDeveloperError(error)}';
+            l.f('dev.n.roleError', {'reason': explainDeveloperError(error)});
       }
     } finally {
       _roleLoad = null;
@@ -156,6 +184,9 @@ class DeveloperController extends ChangeNotifier {
     loadError = null;
     setup = null;
     items = const [];
+    projects = const [];
+    projectId = null;
+    _lastProject = null;
     hasMore = false;
     query = '';
     busy = null;
@@ -198,11 +229,13 @@ class DeveloperController extends ChangeNotifier {
       final results = await Future.wait<Object>([
         repository.setup(),
         repository.list(limit: pageSize, query: query),
+        _projectsOrEmpty(),
       ]);
       if (_disposed || token != _loadToken) return false;
       refreshing = false;
       setup = results[0] as DevSetup;
       final list = results[1] as List<DevRequest>;
+      _setProjects(results[2] as List<DevProject>);
       items = list;
       hasMore = list.length == pageSize;
       phase = DevPhase.ready;
@@ -215,18 +248,123 @@ class DeveloperController extends ChangeNotifier {
         loadError = explainDeveloperError(error);
       } else if (phase == DevPhase.ready) {
         // A failed refresh keeps the last known list on screen.
-        _fail('Requests could not be refreshed. '
-            '${explainDeveloperError(error)}');
+        _fail(l.f(
+            'dev.n.refreshFailed', {'reason': explainDeveloperError(error)}));
       } else {
         phase = DevPhase.error;
         loadError =
-            'Developer requests could not be loaded. ${explainDeveloperError(error)}';
+            l.f('dev.n.loadFailed', {'reason': explainDeveloperError(error)});
       }
     }
     _notify();
     _schedulePoll();
     return ok;
   }
+
+  /// Not set up, or not enabled here: the setup card explains it and the
+  /// list is simply empty.
+  Future<List<DevProject>> _projectsOrEmpty() async {
+    try {
+      return await repository.projects();
+    } on ApiException catch (error) {
+      if (error.statusCode == 409 || error.statusCode == 403) return const [];
+      rethrow;
+    }
+  }
+
+  void _setProjects(List<DevProject> list) {
+    projects = list;
+    if (projectId == null ||
+        !sendableProjects(list).any((p) => p.id == projectId)) {
+      projectId = defaultProjectId(list, _lastProject);
+    }
+  }
+
+  /// Reads the projects and the setup again (after a project changed).
+  Future<void> reloadProjects() async {
+    final results =
+        await Future.wait<Object>([repository.setup(), _projectsOrEmpty()]);
+    if (_disposed) return;
+    setup = results[0] as DevSetup;
+    _setProjects(results[1] as List<DevProject>);
+    _notify();
+  }
+
+  DevProject? findProject(String id) {
+    for (final project in projects) {
+      if (project.id == id) return project;
+    }
+    return null;
+  }
+
+  /// Adds a project or saves changes to one. Returns the error to show next
+  /// to the form, or null when it was saved.
+  Future<String?> saveProject(ProjectDraft draft,
+      {DevProject? existing}) async {
+    final payload = projectPayload(draft);
+    if (payload is InvalidProject) return payload.error;
+    final body = (payload as ValidProject).body;
+    busy = 'project-save';
+    notice = null;
+    _notify();
+    try {
+      final saved = existing == null
+          ? await repository.createProject(body)
+          : await repository.updateProject(existing.id, body);
+      await reloadProjects();
+      noticeFailed = false;
+      notice = l.f(existing == null ? 'dev.n.added' : 'dev.n.saved',
+          {'name': saved.name});
+      return null;
+    } on Object catch (error) {
+      return error is ApiException && error.isPermissionDenied
+          ? l.t('dev.n.projectsOwnerOnly')
+          : explainDeveloperError(error);
+    } finally {
+      busy = null;
+      _notify();
+    }
+  }
+
+  Future<void> testProject(DevProject project) =>
+      _act('project-test:${project.id}', () async {
+        final tested = await repository.testProject(project.id);
+        await reloadProjects();
+        final check = tested.lastCheck;
+        noticeFailed = !(check?.ok ?? false);
+        notice = '${project.name}: ${check?.message ?? 'tested.'}';
+      });
+
+  Future<void> installWorkflow(DevProject project) =>
+      _act('project-install:${project.id}', () async {
+        final result = await repository.installWorkflow(project.id);
+        await reloadProjects();
+        noticeFailed = false;
+        notice = l.f(
+            result.created ? 'dev.n.workflowOpened' : 'dev.n.workflowWaiting',
+            {'number': result.number, 'repository': project.repository});
+      });
+
+  Future<void> toggleProject(DevProject project) =>
+      _act('project-toggle:${project.id}', () async {
+        await repository
+            .updateProject(project.id, {'enabled': !project.enabled});
+        await reloadProjects();
+        noticeFailed = false;
+        notice = project.enabled
+            ? '${project.name} is turned off: it takes no requests and no '
+                'merges.'
+            : '${project.name} is turned on.';
+      });
+
+  /// The screen asks first.
+  Future<void> deleteProject(DevProject project) =>
+      _act('project-delete:${project.id}', () async {
+        await repository.deleteProject(project.id);
+        await reloadProjects();
+        noticeFailed = false;
+        notice = l.f('dev.n.deleted', {'name': project.name});
+      });
 
   void _schedulePoll() {
     _poll?.cancel();
@@ -268,8 +406,7 @@ class DeveloperController extends ChangeNotifier {
       ];
       hasMore = page.length == pageSize;
     } on Object catch (error) {
-      _fail('More requests could not be loaded. '
-          '${explainDeveloperError(error)}');
+      _fail(l.f('dev.n.moreFailed', {'reason': explainDeveloperError(error)}));
     } finally {
       busy = null;
       _notify();
@@ -278,6 +415,12 @@ class DeveloperController extends ChangeNotifier {
 
   /// Validates and sends a new request. Returns true when it was created.
   Future<bool> create(String text, {bool allowProtected = false}) async {
+    final project = selectedProject;
+    if (project == null) {
+      _fail(l.t('dev.n.chooseProject'));
+      _notify();
+      return false;
+    }
     final body = requestBody(text, allowProtected: allowProtected);
     if (body is InvalidRequest) {
       _fail(body.error);
@@ -291,8 +434,11 @@ class DeveloperController extends ChangeNotifier {
     _notify();
     try {
       final created = await repository.create(valid.text,
-          source: 'text', allowProtectedPaths: valid.allowProtectedPaths);
+          source: 'text',
+          allowProtectedPaths: valid.allowProtectedPaths,
+          projectId: project.id);
       if (_disposed) return true;
+      _lastProject = project.id;
       items = [
         created,
         for (final item in items)
@@ -300,14 +446,14 @@ class DeveloperController extends ChangeNotifier {
       ];
       setup = setup?.withOneMore();
       noticeFailed = false;
-      notice = 'Sent to the developer. Progress appears below; the pull '
-          'request opens when the change and its checks are done.';
+      notice =
+          l.f('dev.n.sent', {'project': created.projectName ?? project.name});
       return true;
     } on Object catch (error) {
       if (error is ApiException && error.isBudgetExceeded) {
         budget = error.message;
       } else {
-        _fail('Not sent: ${explainDeveloperError(error)}');
+        _fail(l.f('dev.n.notSent', {'reason': explainDeveloperError(error)}));
       }
       return false;
     } finally {
@@ -330,7 +476,7 @@ class DeveloperController extends ChangeNotifier {
       await action();
     } on Object catch (error) {
       _fail(error is ApiException && error.isPermissionDenied
-          ? 'Refused: ${explainDeveloperError(error)}'
+          ? l.f('dev.n.refused', {'reason': explainDeveloperError(error)})
           : explainDeveloperError(error));
     } finally {
       busy = null;
@@ -349,7 +495,8 @@ class DeveloperController extends ChangeNotifier {
   Future<void> cancel(DevRequest item) => _act('cancel:${item.id}', () async {
         _replace(await repository.cancel(item.id));
         noticeFailed = false;
-        notice = 'Cancelled "${shortText(item.text, limit: 60)}".';
+        notice =
+            l.f('dev.n.cancelled', {'text': shortText(item.text, limit: 60)});
       });
 
   /// "Approve & merge": opens the merge approval with its payload hash. It
@@ -371,8 +518,7 @@ class DeveloperController extends ChangeNotifier {
   Future<void> merge(DevRequest item, WorkspaceApproval approval) =>
       _act('merge:${item.id}', () async {
         if (approval.payloadHash == null) {
-          _fail('This approval is not bound to a payload hash; ask for the '
-              'merge again.');
+          _fail(l.t('dev.n.unbound'));
           return;
         }
         String? result;
@@ -380,8 +526,9 @@ class DeveloperController extends ChangeNotifier {
           result = await repository.approve(approval);
         } on ApiException catch (error) {
           _fail(error.isPermissionDenied
-              ? 'Merge refused: ${error.message}'
-              : 'Not merged: ${explainDeveloperError(error)}');
+              ? l.f('dev.n.mergeRefused', {'reason': error.message})
+              : l.f(
+                  'dev.n.notMerged', {'reason': explainDeveloperError(error)}));
           return;
         }
         _reviews.remove(item.id);
@@ -389,9 +536,9 @@ class DeveloperController extends ChangeNotifier {
         _replace(updated);
         if (updated.status == DevStatus.merged) {
           noticeFailed = false;
-          notice = 'Merged pull request #${updated.prNumber}.';
+          notice = l.f('dev.n.merged', {'number': updated.prNumber ?? ''});
         } else {
-          _fail(updated.mergeError ?? result ?? 'The merge did not happen.');
+          _fail(updated.mergeError ?? result ?? l.t('dev.n.noMerge'));
         }
       });
 

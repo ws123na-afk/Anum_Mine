@@ -99,6 +99,75 @@ On the Oracle VM the same without the console: `bash ~/anum/infra/oracle/keycloa
 
 **Break-glass** (the owner cannot reach the admin console, for example lost the master-realm admin's OTP): every `keycloak-2fa.sh` action takes `--temporary-admin`, which creates a temporary master-realm service account inside the Keycloak container with `kc.sh bootstrap-admin service`, uses it through `kcadm` and deletes it at the end. The secret is generated on the VM and reaches the container on stdin. To get back into the console itself, the same command creates a temporary user instead (it asks for the password): `cd ~/anum/infra/oracle && docker compose exec keycloak /opt/keycloak/bin/kc.sh bootstrap-admin user --optimized --username temporary-admin`, then sign in, fix the account (master realm → Users → your admin → Credentials → delete OTP; it asks for a new one at the next sign-in) and delete `temporary-admin`.
 
+## Google and Apple Sign-In
+
+"Continue with Google" and "Continue with Apple" are Keycloak identity brokering: the clients never talk to Google or Apple. Every button starts the same authorization code + PKCE (S256) request against realm `anum` as before, with one extra parameter, `kc_idp_hint=google` or `kc_idp_hint=apple`, which makes Keycloak skip its own page and send the person straight to the provider. The provider returns to Keycloak (`https://<AUTH>/realms/anum/broker/<google|apple>/endpoint`), Keycloak runs ANUM's flows below and issues the usual ANUM tokens. The API sees no difference: the token still has to carry `tenant_id`, and the membership still decides the role.
+
+| Piece | Where |
+| --- | --- |
+| Provider and flow setup | `infra/keycloak/social_login.py` through `kcadm` (Oracle: `keycloak-2fa.sh google`, `apple`, `remove-provider`, and its plain run converges the flows; Render: the admin console, [Deploying on Render](deploy-render.md#google-and-apple-sign-in)) |
+| Which buttons the clients show | `GET /api/v1/auth/sign-in-options` (public, no token): `identity_providers` from `ANUM_SIGN_IN_PROVIDERS` (`google`, `apple`; anything else refuses API startup), `self_sign_up` from `ANUM_SELF_SIGN_UP`, `privacy_policy_url` from `ANUM_PRIVACY_POLICY_URL`. Deployment configuration only, cached for 60 seconds; Keycloak still decides every sign-in, and a button for a provider Keycloak lacks just lands on Keycloak's own page. `social_login.py status` prints the values to set. |
+| Web | `src/SignInView.tsx`, `src/lib/signIn.ts`, `src/lib/oidc.ts` (`beginSignIn(..., { idpHint, create })`) |
+| Flutter | `lib/features/auth/welcome_screens.dart` (the Login and Create account screens, `OidcSignInView`, drawn from the options: only offered providers, Create account only with a privacy policy, the email sign-up only with self sign-up; and `PendingAccountScreen`), `sign_in_options.dart`, `oidc.dart` (`OidcSignInOptions`: `kc_idp_hint` as an additional parameter, `prompt=create` as a prompt value, `login_hint`; `pendingAccountOf`). English and Arabic. |
+
+**What Keycloak runs** (converged by `social_login.py apply`, rebuilt in place if someone edits it in the console, so the providers keep pointing at the same flows):
+
+```text
+anum-first-broker-login                        first sign-in of a Google or Apple identity
+  Review Profile                    REQUIRED   only fields the provider did not send
+  anum-broker-user                  REQUIRED
+    Create User If Unique           ALTERNATIVE   new email: a new account, with no tenant_id
+    anum-broker-existing            ALTERNATIVE   the email belongs to an account already
+      Confirm link existing account REQUIRED
+      anum-broker-verify            REQUIRED
+        Verify existing account by Email     ALTERNATIVE   a link to that account's address
+        anum-broker-reauth          ALTERNATIVE
+          Username Password Form    REQUIRED   that account's password
+          anum-broker-reauth-2fa    CONDITIONAL
+            Condition - user configured  REQUIRED
+            OTP Form / Recovery Authentication Code Form  ALTERNATIVE
+
+anum-post-broker-2fa                           after every Google or Apple sign-in
+  anum-broker-2fa-verify            CONDITIONAL
+    Condition - user configured     REQUIRED
+    OTP Form / Passkey (WebAuthn Passwordless) / Recovery Authentication Code Form  ALTERNATIVE
+  anum-broker-2fa-enrol             CONDITIONAL
+    Condition - sub-flow executed   REQUIRED   anum-broker-2fa-verify not executed
+    OTP Form                        REQUIRED   set up an authenticator app now
+```
+
+- **Linking by verified email.** Keycloak never links on the provider's word alone: Keycloak's "Automatically set existing user" is not in the flow (`apply` removes it if added). When the provider's email belongs to an existing ANUM account, the person confirms the link and proves they own that account, either through the link Keycloak emails to that account's address (when the realm has an email server) or with that account's password and its second factor. Providers are created with **Trust email** on (Google's `email_verified`; Apple only returns verified addresses), so a new account's email counts as verified and email-bound [invitations](#invitations-and-membership-management) work.
+- **Two-factor rule kept.** A Google or Apple sign-in is one factor as far as ANUM is concerned. The post-login flow asks for the person's authenticator app, passkey or a recovery code, and someone who has none sets up an authenticator app before the sign-in completes, the same rule as [Two-factor sign-in](#two-factor-sign-in).
+- **Provider settings.** Sync mode **Import** (the profile is copied on the first sign-in only, so the provider cannot later change the email), no stored provider tokens, Google with PKCE. Secrets reach Keycloak in a request body on `kcadm`'s stdin; the script reads them from its own stdin and never prints them; `GET` answers mask them.
+- **No tenant from a provider.** Nothing in either flow sets `tenant_id`, `default_workspace_id` or a role. The user profile keeps those attributes admin-only, so "Review Profile" cannot show them either.
+
+### Pending accounts
+
+A Google or Apple sign-in of a new email, and every [self sign-up](#self-sign-up), creates a Keycloak account **without** `tenant_id`. The decision: no self-created account reaches any company's data without an invitation, and ANUM does not invent personal tenants (a tenant per stranger would be an unbounded, unowned set of organizations).
+
+- **API.** A correctly signed token without `tenant_id` (absent or empty) is refused on every tenant-scoped route with `403` and code `account_pending` ("Your account is not part of an organization yet ..."), never `401`, so clients do not loop back to sign-in. A header cannot supply the tenant, and onboarding cannot create one for it. A malformed `tenant_id` stays a `401`.
+- **Clients.** Web and Flutter read the claim before calling the API and show "Your account is waiting for access" with the account's email and account ID (copyable, which is what an administrator needs), **Check again** (refreshes the token: Keycloak reads the attributes again, so an assignment shows at once) and **Sign out**. Flutter keeps a pending account's tokens in memory only and stores no session.
+- **Getting access.** An administrator lists such accounts with `keycloak-2fa.sh pending-users` and assigns one with `keycloak-2fa.sh assign-tenant <username> <tenant_id> [<workspace_id>]` (or the admin console: realm **anum** → **Users** → the user → **Attributes**: `tenant_id`, `default_workspace_id`). That grants nothing by itself: a workspace owner then invites the person in **Members** (bound to their email, which is verified for Google and Apple accounts, or to their account ID). `assign-tenant` refuses to move a user who already has another tenant; that stays a deliberate console change.
+
+### Self sign-up
+
+`keycloak-2fa.sh sign-up` (`social_login.py enable-sign-up --privacy-url ...`) turns on Keycloak's own registration page, which the clients open with `prompt=create` ("Sign up with email"):
+
+- email as username, **Verify email** on, duplicate emails refused; it refuses to run while the realm has no email server (realm settings, **Email**), since nobody could verify their address;
+- password policy `length(12) and maxLength(128) and lowerCase(1) and upperCase(1) and digits(1) and notUsername and notEmail and passwordHistory(3)`, enforced by Keycloak on submit;
+- the **ANUM login theme** (`infra/keycloak/themes/anum`, a child of Keycloak 26's `keycloak.v2`, installed by `infra/render/keycloak.Dockerfile`): under the password field of the sign-up and change-password pages it lists every rule of the realm's policy, read from the policy at render time, and ticks each one while the person types (each item also says "Met" or "Not met yet" to screen readers). English and Arabic texts;
+- the **Terms and Conditions** required action, enabled and a default action for every new account (sign-up, Google, Apple, or created by an admin): one page with a link to `ANUM_PRIVACY_POLICY_URL`, set as the realm's English and Arabic `termsText`; accepting records the time in the user's `terms_and_conditions` attribute; declining ends the sign-in.
+
+Mobile-number sign-up is not offered: Keycloak has no SMS sender, and adding one means choosing and paying for an SMS provider ([Production plan](production-plan.md)). `keycloak-2fa.sh sign-up-off` turns registration off again; accounts already created stay. The client screens are the in-app front door: "Create account" shows the providers and "Sign up with email" only after a required "I have read and accept the privacy policy" checkbox (the link opens `privacy_policy_url`), and only when the API reports a privacy policy and some way to create an account.
+
+### Apple
+
+Keycloak has no built-in Apple provider: Apple answers with `form_post` and wants a client secret that is a JWT signed with the team's key, which Keycloak's generic OIDC provider cannot do. ANUM uses a provider extension (provider id `apple`; configuration `clientId` = Services ID, `teamId`, `keyId`, `p8Content`), installed into the image only when `APPLE_PROVIDER_URL` (the extension's release jar, https) and `APPLE_PROVIDER_SHA256` are given as build arguments (Oracle: `ANUM_KEYCLOAK_APPLE_PROVIDER_URL` and `..._SHA256` in `.env`; Render: the `anum-keycloak` environment). The build refuses a URL without a checksum or a jar that does not match it. Without the extension `set-provider --provider apple` stops with that explanation and nothing changes. **Not verified here:** the extension's jar could not be downloaded in the environment this was built in, so the configuration keys come from the extension's documentation and the Apple path has not run against a real Keycloak; check the first Apple sign-in on staging.
+
+**App Store rule.** Apple's App Store Review Guideline 4.8 requires "Sign in with Apple" in an iOS app that offers another social sign-in. The Flutter app therefore hides "Continue with Google" on iOS unless Apple is offered too (`SignInOptions.visibleProviders`).
+
+**Tests.** `services/api/tests/test_keycloak_social_login.py` (flows, providers, secrets on stdin, sign-up, pending accounts, assignment, the theme's rule list and the image, against the stand-in of Keycloak's admin API), `test_sign_in_options.py` and `test_identity.py` (pending tokens), `apps/web/test/signIn.test.ts` (options, pending claims, `kc_idp_hint` and `prompt=create` on the PKCE request, the theme's rule checks), `apps/web/e2e/social-sign-in.spec.ts` (mocked Keycloak redirect: Google button, create account with consent, pending screen and Check again, options unavailable, axe and keyboard), `apps/mobile/test/social_sign_in_test.dart` (options, iOS rule, hints, create account, pending screen in English and Arabic, layouts at 320 to 1440 wide and 200% text) and `test/auth/welcome_screens_test.dart`. The script, both flows and the theme were also run against a real Keycloak 26.4.0: `apply` twice (second run reads only), Google provider creation (`kc_idp_hint=google` redirects to Google with the client ID and the broker endpoint), a second realm brokered as an OIDC provider standing in for Google (new account created without `tenant_id`, authenticator app enrolment, privacy policy page with its link, code on the next sign-in, linking an existing account only after its password), and the sign-up page's live rules at 1280 and 390 pixels wide.
+
 ## Token Contract
 
 The API accepts an access token only when all of these hold:
@@ -106,6 +175,7 @@ The API accepts an access token only when all of these hold:
 - Header `alg` is `RS256` and `kid` names a signature key (`use: sig`, `kty: RSA`) in the issuer's JWKS. Encryption keys Keycloak also publishes are ignored.
 - The signature verifies; `iss` equals `ANUM_KEYCLOAK_ISSUER`; `aud` contains `ANUM_OIDC_AUDIENCE` (`anum-api`); `exp`, `iat`, `iss`, `sub`, `aud` are present; `exp`/`nbf` pass with `ANUM_OIDC_LEEWAY_SECONDS` (default 30) of clock skew.
 - `tenant_id` is present and matches `^[A-Za-z0-9_-]{3,80}$`. `workspace_id` is optional (a default workspace) and must match the same pattern when present.
+- `tenant_ids` is optional: further organisations the user may act in (a list, or one string; invalid entries are ignored, at most 50). See [Customer organisations](customer-organisations.md#switching-organisations).
 
 Roles are read from `realm_access.roles` and a top-level `roles` array, lowercased, and filtered to the ANUM roles.
 
@@ -115,7 +185,7 @@ Roles are read from `realm_access.roles` and a top-level `roles` array, lowercas
 
 ## Tenant and Workspace Resolution
 
-1. The tenant is always the token's `tenant_id`. An `x-tenant-id` header is optional; when sent it must equal the token tenant or the request fails with `403`.
+1. The tenant is the token's `tenant_id`. An `x-tenant-id` header is optional; when sent it must equal the token tenant or be listed in its `tenant_ids` claim, otherwise the request fails with `403`. In another listed organisation the organisation roles (`org_admin`, `platform_operator`) are dropped.
 2. The workspace is the `x-workspace-id` header when present, otherwise the token's `workspace_id` claim. With neither, the request fails with `400` asking for `x-workspace-id`.
 3. The membership `(tenant, workspace, sub)` is looked up through the repository. With PostgreSQL the lookup runs in its own session after `set_tenant_context`, so row-level security scopes it. A missing or inactive membership fails with `403 Active workspace membership required`.
 4. The request's `TenantContext.roles` becomes the membership role. Token realm roles cannot elevate it.
@@ -135,10 +205,12 @@ Implemented in `services/api/anum_api/workspace_members.py`, persisted in `works
 | Route | Who | Effect |
 | --- | --- | --- |
 | `POST /api/v1/workspace-invitations` `{role, invitee_user_id?, invitee_email?, ttl_hours?}` | `membership:manage` (owners) | Creates a pending invitation for `owner`, `member` or `viewer`, bound to a user id (the OIDC `sub`), a verified email, or both. `ttl_hours` defaults to 168 (7 days), 1 to 720. Returns the invitation and the token, once. |
-| `GET /api/v1/workspace-invitations` | owners | Lists the workspace's invitations; a pending invitation past `expires_at` shows as `expired`. |
+| `GET /api/v1/workspace-invitations?status=` | owners | Lists the workspace's invitations, newest first; a pending invitation past `expires_at` shows as `expired`. `status` (`all` default, `pending`, `accepted`, `revoked`, `expired`) filters on the shown status. |
+| `POST /api/v1/workspace-invitations/{id}/resend` `{ttl_hours?}` | owners | Issues a new token for a pending or expired invitation and restarts its expiry (default 168 hours). The previous token stops working at once (only the new hash is kept). Returns the invitation and the new token, once. Accepted or revoked invitations answer `409`. ANUM does not send email: the owner passes the new token or link on. |
 | `POST /api/v1/workspace-invitations/{id}/revoke` | owners | Revokes a pending invitation. |
 | `POST /api/v1/workspace-invitations/accept` `{token}` | any authenticated caller, membership not required | Redeems the token for a membership in the workspace selected by `x-workspace-id` (or the token's default workspace). |
-| `GET /api/v1/workspace-members` | owners | Lists memberships, active and inactive. |
+| `GET /api/v1/workspace-members?q=&status=&role=&limit=&cursor=` | owners | Lists memberships, active first, then owners, members and viewers, then by user id. Each carries `email`: the verified email of the invitation the member accepted, or null. `q` matches the user id or that email (case-insensitive), `status` is `all`, `active` or `deactivated`, `role` one role. Without `limit` every match is returned; with `limit` (1 to 200) one page, and the `X-Next-Cursor` response header (exposed to browsers by CORS) holds the cursor of the next one. |
+| `GET /api/v1/workspace-members/summary` | owners | `{total, active, deactivated, active_owners, pending_invitations}` for the whole workspace, independent of search and paging. Clients use `active_owners` for the last-owner protection. |
 | `PUT /api/v1/workspace-members/{user_id}/role` `{role}` | owners | Changes a member's role. |
 | `POST /api/v1/workspace-members/{user_id}/deactivate` / `reactivate` | owners | Deactivates (the member then gets `403 Active workspace membership required`) or reactivates a membership. |
 
@@ -151,21 +223,43 @@ Rules:
 - In `oidc` mode the tenant still comes from the invitee's token, so an invitation can only be accepted by a user whose IdP-managed `tenant_id` is the invitation's tenant.
 - The invitee's token realm roles grant nothing: the new membership gets the invitation's role. An already active member gets `409`; a deactivated member is reactivated with the invited role.
 - The last active owner of a workspace cannot be demoted or deactivated (`409`). Role changes and deactivations lock all active owner rows (in a fixed order) before the target row, so two owners demoting each other at the same moment cannot leave the workspace without an owner.
-- Every change writes an append-only audit record (`workspace_invitation.create|accept|revoke`, `workspace_member.add|role_change|deactivate|reactivate`; the actor is the caller; RLS allows only select and insert on `audit_records`) and a canonical event ([Events](events.md#membership-events)), both in the request's transaction. With PostgreSQL the event is a durable outbox row, so it reaches NATS only if the change commits.
+- An invitation cannot be accepted into an [archived](#workspace-lifecycle) workspace (`409`).
+- Every change writes an append-only audit record (`workspace_invitation.create|accept|resend|revoke`, `workspace_member.add|role_change|deactivate|reactivate`; the actor is the caller; RLS allows only select and insert on `audit_records`) and a canonical event ([Events](events.md#membership-events)), both in the request's transaction. With PostgreSQL the event is a durable outbox row, so it reaches NATS only if the change commits.
 - Refused attempts are not audited yet (the transaction rolls back).
 
 ### Client screens
 
 Web (`Members` in the navigation, `apps/web/src/AdminViews.tsx`) and Flutter (Settings › Workspace administration, `apps/mobile/lib/features/admin/`) show live data from these routes only:
 
-- **Members:** user id, role, active or deactivated, and a hint on the only active owner. Owners change roles and deactivate or reactivate members; the API's `409` last-owner refusal is shown in its own words.
-- **Invitations:** create with a user id, an email or both, a role and an expiry (1 to 720 hours, default 168), validated like the API before sending. The token is shown once, with a copy action, the expiry and a warning that it cannot be shown again; it is kept only in memory and dropped on Done. The web client also shows a link, `<web app URL>#invitation=<token>&workspace=<workspace_id>`: the token travels in the URL fragment, which browsers never send to a server. Pending invitations can be revoked; accepted, revoked and expired ones stay listed with their dates.
+- **Members:** summary counts from `/workspace-members/summary`; the list with user id, email (when known), role, active or deactivated. The web list is searched (user id or email, debounced) and filtered by status and role on the server and paged with "Load more members" (50 at a time); Flutter loads the list and searches it on the phone. A role change or a deactivation opens a confirmation that says what the new role may do (web: a modal dialog with focus moved in and returned, Escape to cancel; Flutter: an alert dialog). The only active owner's other roles and Deactivate are disabled with the reason next to them; the API's `409` last-owner refusal still stands behind it and is shown in its own words.
+- **Invitations:** create with a user id, an email or both, a role and an expiry (1 to 720 hours, default 168), validated like the API before sending. The token is shown once, with a copy action, the expiry and a warning that it cannot be shown again; it is kept only in memory and dropped on Done. The web client also shows a link, `<web app URL>#invitation=<token>&workspace=<workspace_id>`: the token travels in the URL fragment, which browsers never send to a server. Invitations are filtered by status (web: Pending, Expired, Accepted, Revoked, All; Pending by default). Pending invitations can be resent (a new token, shown once like a new invitation; "Renew" for an expired one) or revoked after a confirmation; accepted, revoked and expired ones stay listed with their dates.
 - **Accept an invitation** is open to everyone signed in: paste the token or the link (Flutter also offers paste from the clipboard). Opening a link in the web app reads it once, removes it from the address bar and history, and pre-fills the form. The workspace from the link (or typed in) is sent as `x-workspace-id` for the accept call only, so an invitee can join a workspace other than the one the client has selected; the client then says to switch workspace. The web client also remembers the joined workspace for its [workspace switcher](#workspace-switcher) and offers a "Switch to <workspace>" button.
 - **Invitation link in Flutter:** with `--dart-define=ANUM_WEB_APP_URL=<web app URL>` (an absolute `http(s)` URL), the one-time reveal also shows and copies the same `<web app URL>#invitation=<token>&workspace=<workspace_id>` link as the web client. Without it the app shows the token and the workspace id only, because it does not know where the web app lives.
 - **Approval policy:** the owner screen for the workspace's two-person rule and medium-risk approval sits next to these ([Approvals and risk](approvals-and-risk.md#policy-screens)).
 - **Controllers:** in Flutter every screen opened from Settings › Workspace administration owns its controller and disposes it when the screen is closed (`OwnedController`, `apps/mobile/lib/features/admin/owned_controller.dart`).
 - **Permissions are the API's answer.** Clients do not guess roles from the token: listing members or invitations answers `403` for non-owners, and the screens then explain that the owner role is needed and quote the API's message. A `403` on a change is shown in place the same way.
-- Tests: `apps/web/test/admin.test.ts` (mapping, validation, links, error envelope), `apps/web/e2e/admin.spec.ts` (desktop and mobile projects, mocked API) and `apps/mobile/test/admin_test.dart` (repository, controllers and screens with a fake transport, the web link with and without `ANUM_WEB_APP_URL`, and controller disposal on pop).
+- **Audit log:** owners and organization administrators read the workspace's [audit log](governance-and-scale.md#audit-log) in the web app (Audit log in the navigation) and in Flutter (Settings › Workspace administration › Audit log, read-only).
+- Tests: `apps/web/test/admin.test.ts` and `apps/web/test/audit.test.ts` (mapping, validation, links, member query, last-owner check, error envelope), `apps/web/e2e/admin.spec.ts` (desktop and mobile projects, mocked API: confirmations, search, resend, status filter) and `apps/mobile/test/admin_test.dart` plus `apps/mobile/test/audit_admin_test.dart` (repository, controllers and screens with a fake transport, search, confirmed role change, last-owner lock, resend, the web link with and without `ANUM_WEB_APP_URL`, and controller disposal on pop). API: `services/api/tests/test_workspace_members.py`, `test_audit_log.py` and `test_postgres_audit_log.py`.
+
+## Workspace lifecycle
+
+Implemented in `services/api/anum_api/workspace_admin.py`; `workspaces.archived_at` and `archived_by` come from migration `0028_workspace_admin` (nullable, expand-only).
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `GET /api/v1/workspaces/current` | any member | The workspace, with `archived_at` and `archived_by` (null unless archived). |
+| `GET /api/v1/workspaces/current/permissions` | any member | `{workspace_id, role, organization_admin, can_manage_workspace, can_create_workspace, can_manage_members, can_read_audit, can_export_audit}`: the API's answer for the caller, so clients show or hide controls without guessing from the token. |
+| `PATCH /api/v1/workspaces/current` `{name}` | owners (`workspace:manage`) or organization administrators with a membership here | Renames the workspace (1 to 160 characters, spaces collapsed). |
+| `POST /api/v1/workspaces/current/archive` `{confirm_name}` | same | Archives it. `confirm_name` must equal the current name exactly (`422` otherwise). |
+| `POST /api/v1/workspaces/current/restore` | same | Restores an archived workspace; restoring an active one changes nothing. |
+| `POST /api/v1/organization/workspaces` `{name, workspace_id?}` | owners of the request's workspace (`workspace:create`) or organization administrators | Creates another workspace in the caller's tenant and makes the caller its first owner, in its own transaction in the new workspace's RLS scope. `workspace_id` follows the `x-workspace-id` pattern; left out, the API generates `ws_<name slug>_<8 hex>`. An id already in use answers `409`, and so does a tenant that has not finished onboarding. |
+
+- **Archived means read-only.** Every request to an archived workspace with a method other than `GET`, `HEAD` or `OPTIONS` is refused with `409` and the message "This workspace is archived, so it is read-only. A workspace owner or an organization administrator can restore it in Settings > Workspace." (`dependencies.refuse_writes_to_archived_workspace`, run by `tenant_context`, so it covers every workspace route), except the restore route. Accepting an invitation into it is refused too. Reads, the audit log and its export keep working. Automation schedules of an archived workspace advance without running (both the PostgreSQL scheduler and the local engine), so restoring does not replay missed fires.
+- **Nothing is deleted.** Archiving keeps the data, the memberships and the audit log. Deleting a workspace is not offered.
+- **Audit and events.** `workspace.rename`, `workspace.archive`, `workspace.restore` and `workspace.create` audit records with canonical events `workspace.renamed|archived|restored|created` ([Events](events.md#membership-events)), in the request's transaction. A created workspace records `workspace.create` in the new workspace (with `created_from`) and again in the workspace it was created from.
+- **Switchers.** [`GET /api/v1/me/workspace-memberships`](#my-workspaces) marks archived workspaces (`archived: true`); the web switcher labels them "archived (read-only)". An archived workspace can still be switched to, so it can be restored.
+- **Clients.** Web: Settings › Workspace › This workspace shows the name, id, organization, creation date and status, and for those allowed the Rename form, Archive (a dialog that asks for the typed name; the confirm button stays disabled until it matches) or Restore, and Create another workspace, with a "Switch to <name>" button after creation. Everyone else sees the facts and who can change them. Every view shows a read-only banner while the current workspace is archived. Flutter does not offer the workspace lifecycle yet (web only; listed below).
+- Tests: `services/api/tests/test_audit_log.py` (permissions, rename, archive with confirmation, write refusal, restore, create and both audit records, CORS for `PATCH` and the exposed headers), `test_postgres_audit_log.py` (the same under RLS as the app role, including the reader role's new column), `test_automation.py` / `test_postgres_automation.py` (schedules of archived workspaces), `apps/web/test/audit.test.ts` and `apps/web/e2e/audit.spec.ts` (rename, archive, restore, create and switch; a viewer's read-only view; layout at the five gate sizes).
 
 ## Errors
 
@@ -174,6 +268,7 @@ Web (`Members` in the navigation, `apps/web/src/AdminViews.tsx`) and Flutter (Se
 | `401 unauthorized` | Missing bearer token, malformed token, wrong algorithm, unknown `kid` (after the refresh), bad signature, wrong issuer or audience, expired, missing required claims, or an `anum_local_*` token in `oidc` mode. The response carries `WWW-Authenticate: Bearer realm="anum", error="invalid_token", error_description="..."`. |
 | `400 bad_request` | No workspace selected, or `x-workspace-id` is malformed. |
 | `403 forbidden` | `x-tenant-id` mismatch, missing or inactive membership, or a permission the membership role does not grant. |
+| `403 account_pending` | A valid token without `tenant_id`: a self sign-up or Google/Apple account no administrator has assigned yet ([Pending accounts](#pending-accounts)). |
 | `503 service_unavailable` | Keycloak's JWKS cannot be fetched and no keys are cached. |
 
 ## Client Sign-In
@@ -221,6 +316,17 @@ The workspace in the top bar (`tenant / workspace`) opens the switcher (`apps/we
 | `ANUM_WORKSPACE_ID` | Optional workspace sent when the token has no `workspace_id` claim. |
 | `ANUM_WEB_APP_URL` | Optional web app address; when set, a new invitation also shows the web invitation link ([Client screens](#client-screens)). |
 
+- The sign-in screens (ANUM 360 Login and Create account, `lib/features/auth/welcome_screens.dart`) never collect a password: the password is typed on Keycloak's page in the system browser. Each button starts the same authorization code + PKCE flow with a hint (`OidcSignInOptions`):
+
+  | Button | Authorization request |
+  | --- | --- |
+  | Sign In (Email or Mobile tab) | `login_hint=<email or +number>` (prefills Keycloak's username field; empty is allowed) |
+  | Continue with Google | `kc_idp_hint=google` |
+  | Continue with Apple | `kc_idp_hint=apple` |
+  | Create Account | `prompt=create` (Keycloak's registration form), plus `login_hint` when an email was typed; the terms box must be ticked first |
+  | Forgot password? | opens `<issuer>/login-actions/reset-credentials?client_id=anum-flutter` in the browser (not a code flow); afterwards the person signs in |
+
+  What Keycloak needs for these to work: identity providers with the aliases **`google`** and **`apple`** in the `anum` realm (an OIDC/Google provider and an Apple provider, each with its client id and secret or key held by Keycloak, never by the app), and a first-broker-login flow that maps a new social account to a user with the `tenant_id` attribute (and optionally `default_workspace_id`), because the API refuses tokens without `tenant_id`; `registrationAllowed: true` for Create Account (it is `false` in the local realm import, so `prompt=create` falls back to the login page there) and the same tenant mapping for self-registered users; `resetPasswordAllowed: true` (already on) and working realm e-mail for Forgot password; and, to match the password guidance on Create account, a password policy such as `length(8) and upperCase(1) and digits(1) and specialChars(1)`. Sign-in with a mobile number works only when Keycloak accepts the number as a username (or has a phone authenticator). Tests: `apps/mobile/test/auth/welcome_screens_test.dart`, `test/oidc_session_test.dart`.
 - Tokens (access, refresh, ID) are stored with the session in `flutter_secure_storage`. `OidcSessionStore` refreshes a session read within 60 seconds of expiry, so API calls, file transfer and audit export always send a fresh token; concurrent reads share one refresh. `invalid_grant` clears the session; network failures keep it for the next attempt.
 - Workspace switching with an OIDC session first calls `GET /api/v1/workspace-memberships/current` with the target as `x-workspace-id` and switches only on an active membership there; then it changes the stored workspace (and so `x-workspace-id`) without calling the local session API. A local session is re-issued by `POST /api/v1/auth/local/workspace/switch`, which checks the membership itself.
 - Settings › Switch workspace (`WorkspaceSwitcherScreen` in `lib/features/auth/account_screens.dart`) is the workspace picker: it lists the caller's memberships from [`GET /api/v1/me/workspace-memberships`](#my-workspaces) (name, id and role, the current one marked) and switches on a tap, after the check above; a refusal stays on the screen with the reason. A workspace ID can still be typed, and if the list cannot be loaded the screen says so. Tests: `apps/mobile/test/workspace_picker_test.dart` and `test/oidc_session_test.dart`.
@@ -239,14 +345,14 @@ The Kotlin Android app (`anum-android`) does not sign in through Keycloak and is
 [{"tenant_id": "tenant_local", "workspace_id": "workspace_finance", "workspace_name": "Finance", "role": "viewer", "status": "active"}]
 ```
 
-- **Who may call it.** Any authenticated caller. The tenant comes from the token (`tenant_id` claim; an `x-tenant-id` header must agree) and the user from its subject; in local/test header mode from the development headers or the `anum_local_*` session. No membership in the selected workspace is needed: someone deactivated there can still find where they may switch. With OIDC no workspace needs to be selected at all (no `x-workspace-id` and no `workspace_id` claim), so a client whose user has no `default_workspace_id` can list the workspaces to choose from; this is the only route that accepts an unselected workspace (`directory_identity` in `anum_api/dependencies.py`), and a malformed `x-workspace-id` is still refused. Header mode keeps requiring the development workspace header. It reveals only the caller's own memberships, never other users' or other tenants'. Deactivated memberships are not listed; `workspace_name` is null if the workspace row cannot be read.
+- **Who may call it.** Any authenticated caller. The tenant comes from the token (`tenant_id` claim; an `x-tenant-id` header must agree) and the user from its subject; in local/test header mode from the development headers or the `anum_local_*` session. No membership in the selected workspace is needed: someone deactivated there can still find where they may switch. With OIDC no workspace needs to be selected at all (no `x-workspace-id` and no `workspace_id` claim), so a client whose user has no `default_workspace_id` can list the workspaces to choose from; this is the only route that accepts an unselected workspace (`directory_identity` in `anum_api/dependencies.py`), and a malformed `x-workspace-id` is still refused. Header mode keeps requiring the development workspace header. It reveals only the caller's own memberships, never other users' or other tenants'. Deactivated memberships are not listed; `workspace_name` is null if the workspace row cannot be read. `archived` is true for an [archived workspace](#workspace-lifecycle).
 - **Switching still checks.** The list is a convenience. Clients switch only after `GET /api/v1/workspace-memberships/current` (or the local session switch) confirms an active membership in the target, so a membership deactivated after the list was loaded is refused.
 - **How it stays inside RLS.** `workspace_memberships` and `workspaces` are under forced RLS that admits one workspace at a time (`anum.tenant_id` and `anum.workspace_id`), so the application role cannot list a user's memberships across workspaces. The route reads them in its own short transaction that starts with `SET LOCAL ROLE anum_membership_reader`, sets `anum.tenant_id` and `anum.user_id` from the authenticated identity (and no workspace), runs one query and always rolls back (`anum_api/membership_directory.py`). The role comes from migration `0013_approvers_and_directory`:
 
   | Table | Columns granted | Policy (`for select to anum_membership_reader`) |
   | --- | --- | --- |
   | `workspace_memberships` | `tenant_id`, `workspace_id`, `user_id`, `role`, `active` | `tenant_id = anum.tenant_id and user_id = anum.user_id and active` |
-  | `workspaces` | `tenant_id`, `id`, `name` | same tenant, and an active membership of `anum.user_id` in that workspace exists |
+  | `workspaces` | `tenant_id`, `id`, `name`, `archived_at` (migration `0028_workspace_admin`) | same tenant, and an active membership of `anum.user_id` in that workspace exists |
 
   The role is `NOLOGIN`, has no write privilege and no `BYPASSRLS`, and nothing is `SECURITY DEFINER`. Without `anum.user_id` or `anum.tenant_id` it sees nothing. Deployments grant it to the API login **`WITH INHERIT FALSE, SET TRUE`** (`infra/helm/bootstrap-database.sql`): permissive policies `TO` a role also apply to every member that inherits its privileges, so an inheriting grant would widen what the application role's own queries see. With `INHERIT FALSE` the API can only switch to it with `SET ROLE`, and only this route does. See [Multi-tenancy](multi-tenancy.md#membership-directory-role).
 - **In-memory backend.** The repository filters the process store by tenant, user and `active`.
@@ -271,8 +377,8 @@ The API must allow the web origin (`ANUM_CORS_ORIGINS`) and run in `oidc` mode; 
 
 ## Now
 
-Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients, the caller's own memberships across the tenant's workspaces (`GET /api/v1/me/workspace-memberships`) listed by the web workspace switcher and the Flutter workspace picker, both checking the membership before switching, fail-fast refusal of development authentication outside local/test, two-factor sign-in on shared Keycloaks (authenticator app or recovery code for every password sign-in, passkeys, enrolment at the next sign-in; [Two-factor sign-in](#two-factor-sign-in)), and authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients.
+Realm as code, `oidc` mode with JWKS rotation, persisted membership resolution, workspace selection by header, workspace invitations and membership management with owner screens in the web and Flutter clients (search, paging, confirmed role changes, resend, last-owner protection), the workspace lifecycle (create, rename, archive, restore) in the API and the web client, the caller's own memberships across the tenant's workspaces (`GET /api/v1/me/workspace-memberships`) listed by the web workspace switcher and the Flutter workspace picker, both checking the membership before switching, fail-fast refusal of development authentication outside local/test, two-factor sign-in on shared Keycloaks (authenticator app or recovery code for every password sign-in, passkeys, enrolment at the next sign-in; [Two-factor sign-in](#two-factor-sign-in)), authorization code + PKCE sign-in with refresh and logout in the web, desktop (shared web build), and Flutter clients, "Continue with Google / Apple" through Keycloak brokering with ANUM's first-login and post-login flows, self sign-up on Keycloak's page with live password rules and privacy-policy acceptance, and pending accounts that wait for an administrator and an invitation ([Google and Apple sign-in](#google-and-apple-sign-in)).
 
 ## Later
 
-Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; federation policy; two-factor configuration as part of a declarative realm sync (today a one-time `keycloak-2fa.sh` run or console steps per Keycloak).
+the workspace lifecycle screens in Flutter (rename, archive, restore and create are web-only today); deleting a workspace; Keycloak sign-in in the Kotlin Android app; system-browser plus loopback redirect for desktop (RFC 8252) instead of the in-webview flow; an end-to-end CI journey against a real Keycloak; invitation delivery by email; audit records for refused invitation attempts; per-environment realm configuration with secrets from the deployment secret store; token revocation and session events in the audit log; federation policy; two-factor configuration as part of a declarative realm sync (today a one-time `keycloak-2fa.sh` run or console steps per Keycloak); assigning a pending account to an organization from inside ANUM (today `keycloak-2fa.sh assign-tenant` or the console, because the API holds no Keycloak admin credential); mobile-number sign-up (needs an SMS provider); a verified Apple extension pin in the image.

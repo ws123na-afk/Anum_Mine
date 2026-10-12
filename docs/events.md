@@ -21,6 +21,9 @@ Each event should include an ID, type, version, tenant ID, workspace ID when app
 - `memory.created`
 - `integration.webhook.received`
 
+Task lifecycle events published today: `task.created`, `task.cancelled`, `task.updated` (payload `fields`: the changed field names, never the instructions), `task.archived`, `task.unarchived` and `task.retried` (payload `previous_run_id`); every task event's correlation id is the task id, which is how `GET /api/v1/tasks/{id}/events` finds a task's history ([Tasks](tasks.md)).
+Autonomy publishes `autonomy.action_taken` (an action ANUM took on its own and announces; payload `action_id`, `task_id`, `tool`, `category`, `level`, `summary`, optional `undo_until`), `autonomy.action_undone` and `autonomy.proposal_created` ([Autonomy](autonomy.md)).
+
 Approval decisions are published today as `approval.approved`, `approval.rejected` and `approval.expired` (after `approval.requested`). In an [approval chain](approvals-and-risk.md#approval-chains) every approval that does not yet complete the chain publishes `approval.partially_approved` (subject: the approval id; payload `task_id`, `approvals`, `required_approvals`, `approvers` and the optional `reason`), and the completing `approval.approved` adds the same counts.
 
 ## Delivery Rules
@@ -73,9 +76,38 @@ The in-memory repository has no durable storage, so after the request finishes t
 
 Both outboxes report `anum.outbox.backlog`, `anum.outbox.oldest_unpublished_age` and `anum.outbox.parked` gauges plus published, failed and rejected counters ([Observability](observability.md#metrics)). The PostgreSQL relay reads the backlog as `anum_outbox_relay` from its own loop, also while NATS is down. Each publish is a `publish ANUM_EVENTS` producer span, and the message carries a W3C `traceparent` header next to `Nats-Msg-Id` so consumers can continue the trace. Alerts and the procedure are in [Runbooks](runbooks.md#outbox-backlog).
 
+## Developer Request Events
+
+A refresh of a developer-mode request (when someone views it, or the developer watcher with phone push on, [Notifications](notifications.md#developer-mode)) that changes its status records `developer_request.ready_for_review` (now `waiting_approval`: the pull request is open with green checks) or `developer_request.failed` (now `ci_failed` or `failed`). Subject: the request id. Payload: `status`, `previous_status` and `pr_number`; never the request text or the pull request title.
+
+## In-process Consumers
+
+`EventBusRuntime.add_listener` registers a callback that receives every committed batch in the process that committed it, next to the outbox hand-off: the API request path, `tenant_unit_of_work` and the worker. Listeners must only queue work and never raise; phone push is the one listener today ([Notifications](notifications.md#delivery)). They see each event once per committing process, not once per cluster, and nothing is replayed after a restart.
+## Automation Events
+
+Automation runs publish `automation_run.completed`, `automation_run.paused`, `automation_run.failed` and `automation_run.cancelled`, and a `notify` step publishes `automation.notification` ([Automation](automation.md#events-and-notifications)). They are written in the automation engine's transaction. Failure and notification payloads carry `notify_user_ids`, the users the clients alert (for failures only those whose "automation failed" notification preference is on); payloads never carry step inputs or task prompts.
+
+## Inbound Events
+
+So automations can react to the outside world ([Automation](automation.md#triggers)), three events announce new inbound data; payloads carry ids and short metadata, never message bodies or file contents:
+
+- `email.received` (subject: the message id): an incremental mailbox sync found new mail not sent by the mailbox itself; payload `account_id`, `message_id`, `from`, `subject` (at most 300 characters), `category`, `priority`, `private: false`. For a private mailbox only `account_id`, `message_id` and `private: true`. The first sync of a mailbox announces nothing.
+- `whatsapp.message_received` (subject: the message id): a customer message on the connected number; payload `conversation_id`, `message_id`, `from` (the WhatsApp number), `contact_name`, `kind`, `category`.
+- `file.uploaded` (subject: the file id): payload `file_id`, `name`, `content_type`, `size_bytes`, `uploaded_by`.
+
+They are recorded right after the item is stored, in their own unit of work (`automation_triggers.record_inbound_events`); a failure is logged and never fails the sync, webhook or upload.
+
+The automation dispatcher (`anum_api/automation_dispatch.py`) is the second in-process consumer: it starts event triggers' runs and wakes automation steps waiting on an agent task. Because in-process listeners see events only in the committing process, the automation scheduler also catches triggers up from `domain_events` ([Automation](automation.md#triggers)).
+
 ## Membership Events
 
-Workspace invitations and membership management ([Identity](identity.md#invitations-and-membership-management)) emit `workspace_invitation.created`, `workspace_invitation.accepted`, `workspace_invitation.revoked`, `workspace_member.added`, `workspace_member.role_changed`, `workspace_member.deactivated` and `workspace_member.reactivated`. Payloads carry ids, roles, the expiry and whether an invitation is email-bound; never the invitation token or the invitee's email (the email is kept in the audit record only).
+A tyre planning sync (or an assumptions change) that raises new critical or warning alerts records one `tyre_alerts.raised` ([Tyre planning](tyre-planning.md#alerts)). Subject: `tyre_alerts`. Payload: the `critical` and `warning` counts only; never tyre data. Phone push turns it into one "Tyre alerts" notification per workspace for members whose `tyre_alerts` preference is on.
+
+Team work ([Team work](team-work.md#events)) emits `work_item.created`, `work_item.updated`, `work_item.assigned`, `work_item.completed`, `work_item.deleted`, `work_item.commented`, `work_item.reminded`, `notification.created`, `assistant.changed` and `assistant.routed`, with ids, statuses, priorities and assignee ids only; `notification.created` names its recipient and is also the phone push trigger ([Notifications](notifications.md)).
+
+Workspace invitations and membership management ([Identity](identity.md#invitations-and-membership-management)) emit `workspace_invitation.created`, `workspace_invitation.accepted`, `workspace_invitation.resent`, `workspace_invitation.revoked`, `workspace_member.added`, `workspace_member.role_changed`, `workspace_member.deactivated` and `workspace_member.reactivated`. The workspace lifecycle ([Identity](identity.md#workspace-lifecycle)) emits `workspace.created` (in the new workspace), `workspace.renamed`, `workspace.archived` and `workspace.restored`. Payloads carry ids, roles, the expiry and whether an invitation is email-bound; never the invitation token or the invitee's email (the email is kept in the audit record only).
+
+[Calls & Meetings](meetings.md) emit `meeting.imported`, `meeting.summarized` and `meeting.failed` (subject: the meeting id). Payloads carry the title, source, linked agent, action item count or error code; never transcript text.
 
 ## Now
 
@@ -84,3 +116,5 @@ Define event naming, publish core task and approval events to NATS JetStream, pe
 ## Later
 
 Add an outbox backlog metric and alert, event replay tools, dead-letter dashboards, schema registry checks, tenant-level event exports, and external event subscriptions.
+
+Commerce ([Commerce](commerce.md#alerts)) records `commerce.alert.raised` when a sync or a store webhook raises a new alert (low stock, an order not shipped in time, a return spike, a lost buy box, a competitor below the price, a sync problem). Subject: the alert id. Payload: `alert_id`, `kind`, `severity`, `title` and `channel`; never buyer details. Phone push turns it into a fixed sentence without the title.

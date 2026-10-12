@@ -46,6 +46,15 @@ class MembersController extends ChangeNotifier {
   List<WorkspaceInvitation> get pending =>
       invitations.where((x) => x.pending).toList(growable: false);
 
+  /// Search text over user id and email (the loaded list is filtered here).
+  String query = '';
+  List<WorkspaceMember> get visibleMembers => filterMembers(members, query);
+
+  void search(String value) {
+    query = value;
+    notifyListeners();
+  }
+
   Future<void> load() async {
     phase = AdminPhase.loading;
     loadMessage = null;
@@ -85,6 +94,12 @@ class MembersController extends ChangeNotifier {
   Future<bool> invite(InvitationDraft draft) => _act(() async {
         created = await repository.createInvitation(draft);
         return 'Invitation created. Copy the token now: it is shown only once.';
+      });
+
+  /// New token for a pending or expired invitation, shown once like a new one.
+  Future<bool> resend(WorkspaceInvitation invitation) => _act(() async {
+        created = await repository.resendInvitation(invitation.id);
+        return 'New token issued for ${invitation.invitee}. The previous one no longer works. Copy the new one now: it is shown only once.';
       });
 
   Future<bool> revoke(WorkspaceInvitation invitation) => _act(() async {
@@ -328,6 +343,75 @@ class ApprovalPolicyController extends ChangeNotifier {
       return false;
     } finally {
       saving = false;
+      notifyListeners();
+    }
+  }
+}
+
+/// The audit log on the phone: read-only, filtered and paged by the API.
+/// Owners and organization administrators may read it; anyone else gets
+/// the API's 403, shown as [AdminPhase.forbidden].
+class AuditLogController extends ChangeNotifier {
+  AuditLogController(this.repository);
+  final AdminRepository repository;
+
+  AdminPhase phase = AdminPhase.initial;
+  List<AuditRecord> records = const [];
+  List<String> actions = const [];
+  String? nextCursor;
+  String retention = defaultAuditRetention;
+  String? loadMessage;
+  AuditFilter filter = const AuditFilter();
+  bool loadingMore = false;
+  String? moreError;
+  int _generation = 0;
+
+  Future<void> load([AuditFilter? next]) async {
+    if (next != null) filter = next;
+    final generation = ++_generation;
+    phase = AdminPhase.loading;
+    loadMessage = null;
+    moreError = null;
+    notifyListeners();
+    if (actions.isEmpty) {
+      repository.auditActions().then((value) {
+        actions = value;
+        notifyListeners();
+      }, onError: (Object _) {});
+    }
+    try {
+      final page = await repository.auditPage(filter);
+      if (generation != _generation) return;
+      records = page.items;
+      nextCursor = page.nextCursor;
+      retention = page.retention;
+      phase = AdminPhase.ready;
+    } on Object catch (error) {
+      if (generation != _generation) return;
+      loadMessage = describeAdminError(error);
+      phase = error is ApiException && error.isPermissionDenied
+          ? AdminPhase.forbidden
+          : _offline(error)
+              ? AdminPhase.offline
+              : AdminPhase.error;
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadMore() async {
+    final cursor = nextCursor;
+    if (cursor == null || loadingMore) return;
+    loadingMore = true;
+    moreError = null;
+    notifyListeners();
+    try {
+      final page = await repository.auditPage(filter, cursor: cursor);
+      records = [...records, ...page.items];
+      nextCursor = page.nextCursor;
+    } on Object catch (error) {
+      moreError = describeAdminError(error);
+    } finally {
+      loadingMore = false;
       notifyListeners();
     }
   }

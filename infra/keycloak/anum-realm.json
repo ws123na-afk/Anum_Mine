@@ -31,6 +31,10 @@
       {
         "name": "org_admin",
         "description": "ANUM organization administrator for the user's tenant_id: may change tenant-wide policy (policy packs, role templates, approval rules, memory governance). Authoritative; grant it only to the tenant's administrators."
+      },
+      {
+        "name": "platform_operator",
+        "description": "ANUM platform operator: runs this deployment for customer organisations; may create customer organisations and read their counts and health (never their data). Applies to the user's own tenant_id; grant it only to the person who operates the platform."
       }
     ]
   },
@@ -102,6 +106,23 @@
             "access.token.claim": "true",
             "id.token.claim": "true",
             "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "anum-tenant-ids",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_ids",
+            "claim.name": "tenant_ids",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "aggregate.attrs": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
             "introspection.token.claim": "true"
           }
         },
@@ -185,6 +206,23 @@
           }
         },
         {
+          "name": "anum-tenant-ids",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_ids",
+            "claim.name": "tenant_ids",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "aggregate.attrs": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
           "name": "anum-default-workspace-id",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-usermodel-attribute-mapper",
@@ -253,6 +291,23 @@
             "access.token.claim": "true",
             "id.token.claim": "true",
             "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "anum-tenant-ids",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_ids",
+            "claim.name": "tenant_ids",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "aggregate.attrs": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
             "introspection.token.claim": "true"
           }
         },
@@ -329,6 +384,23 @@
           }
         },
         {
+          "name": "anum-tenant-ids",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_ids",
+            "claim.name": "tenant_ids",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "aggregate.attrs": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
           "name": "anum-default-workspace-id",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-usermodel-attribute-mapper",
@@ -385,7 +457,7 @@
         "subComponents": {},
         "config": {
           "kc.user.profile.config": [
-            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":3,\"max\":255},\"username-prohibited-characters\":{},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"firstName\",\"displayName\":\"${firstName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"lastName\",\"displayName\":\"${lastName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"tenant_id\",\"displayName\":\"ANUM tenant\",\"validations\":{\"pattern\":{\"pattern\":\"^[A-Za-z0-9_-]{3,80}$\",\"error-message\":\"invalid tenant_id\"}},\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]},\"multivalued\":false},{\"name\":\"default_workspace_id\",\"displayName\":\"ANUM default workspace\",\"validations\":{\"pattern\":{\"pattern\":\"^[A-Za-z0-9_-]{3,80}$\",\"error-message\":\"invalid default_workspace_id\"}},\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]},\"multivalued\":false}],\"groups\":[{\"name\":\"user-metadata\",\"displayHeader\":\"User metadata\",\"displayDescription\":\"Attributes, which refer to user metadata\"}]}"
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":3,\"max\":255},\"username-prohibited-characters\":{},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"firstName\",\"displayName\":\"${firstName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"lastName\",\"displayName\":\"${lastName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"tenant_id\",\"displayName\":\"ANUM tenant\",\"validations\":{\"pattern\":{\"pattern\":\"^[A-Za-z0-9_-]{3,80}$\",\"error-message\":\"invalid tenant_id\"}},\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]},\"multivalued\":false},{\"name\":\"tenant_ids\",\"displayName\":\"ANUM other organisations\",\"validations\":{\"pattern\":{\"pattern\":\"^[A-Za-z0-9_-]{3,80}$\",\"error-message\":\"invalid tenant id\"}},\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]},\"multivalued\":true},{\"name\":\"default_workspace_id\",\"displayName\":\"ANUM default workspace\",\"validations\":{\"pattern\":{\"pattern\":\"^[A-Za-z0-9_-]{3,80}$\",\"error-message\":\"invalid default_workspace_id\"}},\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]},\"multivalued\":false}],\"groups\":[{\"name\":\"user-metadata\",\"displayHeader\":\"User metadata\",\"displayDescription\":\"Attributes, which refer to user metadata\"}]}"
           ]
         }
       }

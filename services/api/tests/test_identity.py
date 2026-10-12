@@ -133,7 +133,11 @@ def test_valid_token_yields_claims_and_caches_jwks() -> None:
              "iat": datetime.now(timezone.utc) - timedelta(minutes=10)},
             "Bearer token has expired",
         ),
-        ({"tenant_id": None}, "Bearer token is missing a valid tenant_id claim"),
+        (
+            {"tenant_id": None},
+            "Your account is not part of an organization yet. An administrator assigns it "
+            "to your organization, then a workspace owner invites you.",
+        ),
         ({"tenant_id": "bad tenant!"}, "Bearer token is missing a valid tenant_id claim"),
         ({"sub": None}, "Bearer token is missing the sub claim"),
     ],
@@ -415,6 +419,39 @@ def test_oidc_rejects_unauthenticated_requests_with_401(oidc_api, headers_for, m
     assert response.headers["www-authenticate"].startswith('Bearer realm="anum"')
 
 
+@pytest.mark.parametrize("tenant", [None, ""], ids=["no-claim", "empty-claim"])
+def test_oidc_account_without_a_tenant_is_pending_not_unauthenticated(oidc_api, tenant) -> None:
+    # A Google, Apple or email self sign-up: a correctly signed token with no tenant_id
+    # (docs/identity.md#pending-accounts). 403 account_pending, never data, never 401.
+    client, key, _ = oidc_api
+    add_membership(Role.OWNER)
+    token = key.sign(tenant_id=tenant, workspace_id=None, email="new@example.com", email_verified=True)
+    for path in ("/api/v1/tasks", "/api/v1/me/workspace-memberships", "/api/v1/onboarding"):
+        response = client.get(path, headers=bearer(token, **{"x-workspace-id": WORKSPACE}))
+        assert response.status_code == 403, path
+        assert response.json()["error"]["code"] == "account_pending"
+        assert "invites you" in response.json()["error"]["message"]
+    # Naming a tenant in a header does not help: the tenant only ever comes from the token.
+    forced = client.get(
+        "/api/v1/tasks", headers=bearer(token, **{"x-tenant-id": TENANT, "x-workspace-id": WORKSPACE})
+    )
+    assert forced.status_code == 403 and forced.json()["error"]["code"] == "account_pending"
+    # Onboarding cannot create a tenant for it either.
+    created = client.put(
+        "/api/v1/onboarding",
+        headers=bearer(token, **{"x-workspace-id": WORKSPACE}),
+        json={"organization_name": "Mine", "workspace_name": "Mine"},
+    )
+    assert created.status_code == 403 and created.json()["error"]["code"] == "account_pending"
+    assert store.tenants == {}
+
+
+def test_oidc_pending_needs_a_valid_signature_first(oidc_api) -> None:
+    client, _, _ = oidc_api
+    forged = SigningKey("kid-1").sign(tenant_id=None)  # the trusted kid, another key
+    assert client.get("/api/v1/tasks", headers=bearer(forged)).status_code == 401
+
+
 def test_oidc_identity_provider_outage_is_503(oidc_api) -> None:
     client, key, endpoint = oidc_api
     endpoint.fail = True
@@ -509,7 +546,7 @@ def test_header_mode_runtime_guard_refuses_non_local_environment(monkeypatch) ->
     with pytest.raises(RuntimeError, match="local/test"):
         asyncio.run(
             dependencies.tenant_context(
-                authorization=None, x_tenant_id="t_1", x_workspace_id="w_1",
+                request=None, authorization=None, x_tenant_id="t_1", x_workspace_id="w_1",
                 x_user_id="u_1", x_user_roles="owner",
             )
         )
@@ -563,7 +600,8 @@ def test_realm_public_clients_use_pkce_and_issue_anum_claims() -> None:
             for mapper in client["protocolMappers"]
             if mapper["protocolMapper"] == "oidc-usermodel-attribute-mapper"
         }
-        assert claims == {"tenant_id": "tenant_id", "workspace_id": "default_workspace_id"}
+        # tenant_ids lists the organisations a person may switch to (docs/customer-organisations.md).
+        assert claims == {"tenant_id": "tenant_id", "workspace_id": "default_workspace_id", "tenant_ids": "tenant_ids"}
 
 
 def test_realm_tenant_attributes_are_admin_only() -> None:

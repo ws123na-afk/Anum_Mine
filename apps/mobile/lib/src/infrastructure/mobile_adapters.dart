@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -9,8 +10,10 @@ import 'package:http/http.dart' as http;
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
+import '../../features/meetings/meetings_repository.dart';
 import '../../features/auth/workspace_selection.dart';
 import '../../features/workspace/api_workspace_repository.dart';
+import '../../features/workspace/files_repository.dart';
 import '../../features/workspace/workspace_models.dart';
 import '../../features/governance/api_governance_repository.dart';
 import '../../features/privacy/privacy_repository.dart';
@@ -89,16 +92,27 @@ class SecureWorkspacePreferenceStore implements WorkspacePreferenceStore {
       _storage.write(key: _key(tenantId, userId), value: workspaceId);
 }
 
-class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {
+/// Workspace file bytes (docs/files.md#mobile): streamed uploads with
+/// progress and cancel, previews and downloads through short-lived links.
+class HttpWorkspaceFileTransfer
+    implements
+        WorkspaceFileTransfer,
+        FileStreamTransfer,
+        MeetingUploadTransfer {
   HttpWorkspaceFileTransfer({
     required this.baseUri,
     required this.sessions,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+    http.Client Function()? uploadClient,
+  })  : _client = client ?? http.Client(),
+        _uploadClient = uploadClient ?? http.Client.new;
 
   final Uri baseUri;
   final SessionStore sessions;
   final http.Client _client;
+
+  /// One client per upload, so cancelling closes only that connection.
+  final http.Client Function() _uploadClient;
 
   Future<Map<String, String>> _headers() async {
     final session = await sessions.read();
@@ -108,44 +122,120 @@ class HttpWorkspaceFileTransfer implements WorkspaceFileTransfer {
     return sessionHeaders(session);
   }
 
+  Uri _uploadUri(String endpoint, Map<String, String> query) =>
+      baseUri.resolve(endpoint).replace(queryParameters: query);
+
   @override
   Future<JsonMap> upload(String path) async {
     final file = File(path);
-    final bytes = await file.readAsBytes();
-    final response = await _client.post(
-      baseUri.resolve('api/v1/files'),
-      headers: {
-        ...await _headers(),
-        'content-type': 'application/octet-stream',
-        'x-file-name': file.uri.pathSegments.last,
-      },
-      body: bytes,
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(response.statusCode, _detail(response.body));
-    }
-    return jsonObject(jsonDecode(response.body));
+    return uploadStream(path,
+        name: file.uri.pathSegments.last,
+        onProgress: (_, __) {},
+        cancellation: UploadCancellation());
   }
 
   @override
-  Future<void> download(WorkspaceFile file) async {
-    final response = await _client.get(
-      baseUri.resolve('api/v1/files/${file.id}/content'),
-      headers: await _headers(),
+  Future<JsonMap> uploadStream(
+    String path, {
+    required String name,
+    required void Function(int sent, int total) onProgress,
+    required UploadCancellation cancellation,
+  }) =>
+      uploadTo('api/v1/files', {'name': name}, path,
+          onProgress: onProgress, cancellation: cancellation);
+
+  /// Streams the file at [path] to [endpoint] (Files, or a meeting
+  /// recording or transcript import, docs/meetings.md) with progress.
+  @override
+  Future<JsonMap> uploadTo(
+    String endpoint,
+    Map<String, String> query,
+    String path, {
+    required void Function(int sent, int total) onProgress,
+    required UploadCancellation cancellation,
+  }) async {
+    final file = File(path);
+    final total = await file.length();
+    final client = _uploadClient();
+    var sent = 0;
+    final request = http.StreamedRequest('POST', _uploadUri(endpoint, query))
+      ..headers.addAll({
+        ...await _headers(),
+        'content-type': 'application/octet-stream',
+      })
+      ..contentLength = total;
+    unawaited(cancellation.whenCancelled.then((_) => client.close()));
+    unawaited(file
+        .openRead()
+        .listen((chunk) {
+          if (cancellation.isCancelled) return;
+          sent += chunk.length;
+          request.sink.add(chunk);
+          onProgress(sent, total);
+        }, onDone: request.sink.close, onError: request.sink.addError)
+        .asFuture<void>()
+        .catchError((Object _) {}));
+    try {
+      final response =
+          await http.Response.fromStream(await client.send(request));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException(response.statusCode, _detail(response.body));
+      }
+      return jsonObject(jsonDecode(response.body));
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      if (cancellation.isCancelled) throw const UploadCancelledException();
+      rethrow;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// A short-lived link (no bearer token needed to read it).
+  Future<Uri> _link(String fileId, String disposition) async {
+    final response = await _client.post(
+      baseUri.resolve('api/v1/files/${Uri.encodeComponent(fileId)}/links'),
+      headers: {...await _headers(), 'content-type': 'application/json'},
+      body: jsonEncode({'disposition': disposition}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, _detail(response.body));
     }
+    final url = JsonReader.of(jsonDecode(response.body)).string('url');
+    return baseUri.resolve(url.replaceFirst(RegExp(r'^/'), ''));
+  }
+
+  Future<Uint8List> _fetch(Uri link) async {
+    final response = await _client.get(link);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(response.statusCode, _detail(response.body));
+    }
+    return response.bodyBytes;
+  }
+
+  @override
+  Future<Uint8List> bytes(String fileId) async =>
+      _fetch(await _link(fileId, 'inline'));
+
+  @override
+  Future<void> saveCopy(WorkspaceFile file) => download(file);
+
+  @override
+  Future<void> download(WorkspaceFile file) async {
+    final bytes = await _fetch(await _link(file.id, 'attachment'));
     await FilePicker.platform.saveFile(
       dialogTitle: 'Save ${file.name}',
       fileName: file.name,
-      bytes: response.bodyBytes,
+      bytes: bytes,
     );
   }
 
   String _detail(String body) {
     try {
-      return JsonReader.of(jsonDecode(body)).optString('detail') ??
+      final reader = JsonReader.of(jsonDecode(body));
+      return reader.optObject('error')?.optString('message') ??
+          reader.optString('detail') ??
           'File transfer failed';
     } on Object {
       return 'File transfer failed';

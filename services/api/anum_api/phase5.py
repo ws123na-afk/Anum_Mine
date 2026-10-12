@@ -7,12 +7,13 @@ from enum import StrEnum
 from threading import RLock
 from typing import Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
+from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import require_permission, tenant_context
-from .schemas import TenantContext, utc_now
+from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
 
@@ -23,14 +24,15 @@ class MarketplaceKind(StrEnum):
 
 
 class MarketplacePackage(BaseModel):
-    id: str
-    name: str
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]{1,79}$")
+    name: str = Field(min_length=1, max_length=160)
     kind: MarketplaceKind
-    version: str
-    publisher: str
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    publisher: str = Field(min_length=1, max_length=160)
     verified: bool
-    permissions: list[str]
-    regions: list[str]
+    # What installing grants; shown to the owner before they install.
+    permissions: list[str] = Field(max_length=50)
+    regions: list[str] = Field(max_length=20)
 
 
 class PackageInstall(BaseModel):
@@ -148,6 +150,18 @@ class ScaleStore(Protocol):
     def uninstall(self, package_id: str, context: TenantContext) -> bool: ...
     def targets(self, context: TenantContext) -> list[RoutingTarget]: ...
     def upsert_target(self, target: RoutingTarget, context: TenantContext) -> RoutingTarget: ...
+    def record_audit(self, record: AuditRecord) -> AuditRecord: ...
+
+
+def _audit(store: ScaleStore, context: TenantContext, action: str, package_id: str, metadata: dict[str, object]) -> None:
+    store.record_audit(
+        AuditRecord(
+            id=new_id("audit"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+            actor=context.user_id, action=action, target=f"marketplace_package:{package_id}",
+            outcome="success", correlation_id=new_id("correlation"), created_at=utc_now(),
+            metadata=metadata,
+        )
+    )
 
 
 def new_package_install(package: MarketplacePackage, context: TenantContext, version: str | None) -> PackageInstall:
@@ -232,6 +246,12 @@ class Phase5Store:
             self._targets[(context.tenant_id, target.id)] = target
         return target
 
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        # The same in-memory recorder the audit export reads.
+        from .governance import governance_store
+
+        return governance_store.record_audit(record)
+
 
 store = Phase5Store()
 
@@ -255,12 +275,21 @@ router = APIRouter(prefix="/api/v1", tags=["scale-and-ecosystem"])
 @router.get("/marketplace/packages", response_model=list[MarketplacePackage])
 async def list_packages(
     kind: MarketplaceKind | None = None,
+    q: str | None = Query(default=None, max_length=200),
+    verified: bool | None = None,
     context: TenantContext = Depends(tenant_context),
 ) -> list[MarketplacePackage]:
+    """The tenant's catalog; ``q`` matches id, name or publisher, ``verified`` filters."""
     require_permission(context, Permission.MARKETPLACE_READ)
     with open_scale_store(context) as scoped:
         catalog = scoped.catalog(context)
-    return [item for item in catalog if kind is None or item.kind == kind]
+    needle = (q or "").strip().casefold()
+    return [
+        item for item in catalog
+        if (kind is None or item.kind == kind)
+        and (verified is None or item.verified == verified)
+        and (not needle or needle in item.id.casefold() or needle in item.name.casefold() or needle in item.publisher.casefold())
+    ]
 
 
 @router.put("/marketplace/packages/{package_id}", response_model=MarketplacePackage)
@@ -271,7 +300,13 @@ async def upsert_package(package_id: str, payload: MarketplacePackage, context: 
     if payload.id != package_id:
         raise HTTPException(status_code=422, detail="Marketplace package id does not match path")
     with open_scale_store(context) as scoped:
-        return scoped.upsert_package(context, payload)
+        existed = any(item.id == package_id for item in scoped.catalog(context))
+        result = scoped.upsert_package(context, payload)
+        _audit(scoped, context, "marketplace.package_updated" if existed else "marketplace.package_published", package_id, {
+            "version": payload.version, "kind": payload.kind.value, "verified": payload.verified,
+            "permissions": list(payload.permissions),
+        })
+        return result
 
 
 @router.delete("/marketplace/packages/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -280,6 +315,8 @@ async def delete_package(package_id: str, context: TenantContext = Depends(tenan
     try:
         with open_scale_store(context) as scoped:
             deleted = scoped.delete_package(context, package_id)
+            if deleted:
+                _audit(scoped, context, "marketplace.package_deleted", package_id, {})
     except PackageInstalledError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not deleted:
@@ -310,7 +347,11 @@ async def install_package(
             package = next((item for item in scoped.catalog(context) if item.id == package_id), None)
             if package is None:
                 raise HTTPException(status_code=404, detail="Marketplace package not found")
-            return scoped.install(package, context, payload.version)
+            result = scoped.install(package, context, payload.version)
+            _audit(scoped, context, "marketplace.package_installed", package_id, {
+                "version": result.version, "permissions": list(package.permissions),
+            })
+            return result
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -323,6 +364,8 @@ async def uninstall_package(
     require_permission(context, Permission.MARKETPLACE_MANAGE)
     with open_scale_store(context) as scoped:
         removed = scoped.uninstall(package_id, context)
+        if removed:
+            _audit(scoped, context, "marketplace.package_uninstalled", package_id, {})
     if not removed:
         raise HTTPException(status_code=404, detail="Package installation not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

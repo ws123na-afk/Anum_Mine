@@ -199,15 +199,17 @@ def test_governance_and_its_audit_trail_survive_a_restart(client: TestClient, da
     assert client.get("/api/v1/policy-packs", headers=B).json() == []
 
     # Audit records are append-only rows in audit_records, scoped to the acting workspace.
+    # The export is newest first and does not include its own audit.export record.
     exported = client.get("/api/v1/audit/export", headers=A).json()
     assert [row["action"] for row in exported] == [
-        "policy_pack.created", "policy_pack.created", "role_template.created",
-        "approval_rule.created", "memory_governance.updated", "policy_pack.activated",
+        "policy_pack.activated", "memory_governance.updated", "approval_rule.created",
+        "role_template.created", "policy_pack.created", "policy_pack.created",
     ]
     assert {row["tenant_id"] for row in exported} == {TENANT_A}
     assert client.get("/api/v1/audit/export", headers=A2).json() == []
     assert client.get("/api/v1/audit/export", headers=B).json() == []
-    assert _count(database_engine, "audit_records") == 6
+    # Six changes plus one audit.export record per export above.
+    assert _count(database_engine, "audit_records") == 9
 
 
 def test_a_workspace_owner_without_org_admin_writes_no_tenant_policy(
@@ -308,7 +310,10 @@ def test_a_workspace_owner_without_org_admin_writes_no_tenant_catalog_routing_or
     assert _count(database_engine, "marketplace_packages") == 1
     assert _count(database_engine, "routing_targets") == 0
     assert _count(database_engine, "skill_versions") == 0
-    assert _count(database_engine, "audit_records") == 0
+    # Only the org admin's publish is audited; the refused attempts left no record.
+    with database_engine.connect() as connection:
+        actions = connection.execute(text("select action from audit_records")).scalars().all()
+    assert actions == ["marketplace.package_published"]
     # The workspace-scoped actions stay with the workspace owner.
     assert client.post(f"/api/v1/marketplace/packages/{PACKAGE['id']}/install", headers=workspace_owner,
                        json={}).status_code == 201

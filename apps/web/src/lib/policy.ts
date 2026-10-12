@@ -2,6 +2,7 @@
 // docs/approvals-and-risk.md (Workspace Approval Policy). Pure functions, so
 // `pnpm --filter @anum/web test:unit` can exercise them without a DOM.
 import type { WorkspaceApprovalPolicy, WorkspaceMember } from '@anum/contracts';
+import { t, type MessageKey } from './i18n.ts';
 
 /** `GET`/`PUT /api/v1/approval-policy` answer. */
 export interface ApiApprovalPolicy {
@@ -39,26 +40,24 @@ export const policyDraft = (policy: WorkspaceApprovalPolicy): PolicyDraft => ({
 export const policyChanged = (policy: WorkspaceApprovalPolicy, draft: PolicyDraft): boolean =>
   policy.twoPersonRule !== draft.twoPersonRule || policy.mediumRiskRequiresApproval !== draft.mediumRiskRequiresApproval;
 
+/** A switch whose words are read in the current page language (policy.* messages). */
+function policySwitch(key: PolicyKey, prefix: 'twoPerson' | 'medium'): { key: PolicyKey; title: string; on: string; off: string } {
+  const text = (part: 'title' | 'on' | 'off') => t(`policy.${prefix}.${part}` as MessageKey);
+  return { key, get title() { return text('title'); }, get on() { return text('on'); }, get off() { return text('off'); } };
+}
+
 /** What each switch does, in the words the screens show. Same text in the Flutter client. */
 export const POLICY_SWITCHES: readonly { key: PolicyKey; title: string; on: string; off: string }[] = [
-  {
-    key: 'twoPersonRule',
-    title: 'Two-person rule for high-risk actions',
-    on: 'Whoever created a task or started its run cannot approve its high-risk actions. Another owner must approve them. Anyone may still reject their own.',
-    off: 'The owner who started a task may approve its high-risk actions themselves.',
-  },
-  {
-    key: 'mediumRiskRequiresApproval',
-    title: 'Approval for medium-risk actions',
-    on: 'Medium-risk tools pause and wait for an owner, like high-risk ones.',
-    off: 'Medium-risk tools run without waiting. High-risk tools always wait for approval.',
-  },
+  policySwitch('twoPersonRule', 'twoPerson'),
+  policySwitch('mediumRiskRequiresApproval', 'medium'),
 ];
 
 /** "Last changed ... by ..." or the default, for the policy's footer. */
 export function policyUpdatedLabel(policy: WorkspaceApprovalPolicy, format: (iso: string) => string): string {
-  if (!policy.updatedAt) return 'Never changed: both switches are off by default.';
-  return `Last changed ${format(policy.updatedAt)}${policy.updatedBy ? ` by ${policy.updatedBy}` : ''}.`;
+  if (!policy.updatedAt) return t('policy.neverChanged');
+  return policy.updatedBy
+    ? t('policy.lastChangedBy', { when: format(policy.updatedAt), user: policy.updatedBy })
+    : t('policy.lastChanged', { when: format(policy.updatedAt) });
 }
 
 /**
@@ -69,7 +68,5 @@ export function twoPersonWarning(draft: PolicyDraft, members: WorkspaceMember[] 
   if (!draft.twoPersonRule || members === null) return null;
   const owners = members.filter((m) => m.active && m.role === 'owner').length;
   if (owners >= 2) return null;
-  return owners === 1
-    ? 'This workspace has one active owner. With the two-person rule on, nobody can approve the high-risk actions of tasks that owner starts. Invite a second owner first.'
-    : 'This workspace has no active owner who could approve high-risk actions.';
+  return owners === 1 ? t('policy.warnOneOwner') : t('policy.warnNoOwner');
 }

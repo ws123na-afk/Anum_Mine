@@ -69,6 +69,13 @@ OWNER_VALUES = {
     "ANUM_S3_ACCESS_KEY": "example",
     "ANUM_S3_SECRET_KEY": "example",
     "ANUM_VALKEY_URL": "redis://red-example:6379",
+    # Optional: empty keeps phone push off (docs/notifications.md).
+    "ANUM_FCM_SERVICE_ACCOUNT_JSON": "",
+    # The email OAuth redirect host and the web app (docs/email.md).
+    "ANUM_EMAIL_PUBLIC_API_URL": "https://api.example.test",
+    "ANUM_EMAIL_WEB_URL": "https://app.example.test",
+    # Copied by the cron job from the API's literal value.
+    "ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS": "0",
 }
 
 
@@ -167,7 +174,7 @@ def test_keycloak_image_serves_plain_http_behind_renders_tls_proxy() -> None:
 
 
 def test_cron_environment_alone_is_enough_for_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The cron job has only four variables; Settings must not demand the API's others."""
+    """The cron job has only a few variables; Settings must not demand the API's others."""
     import os
 
     for key in list(os.environ):
@@ -408,3 +415,26 @@ def test_realm_script_writes_the_import_file(tmp_path: Path) -> None:
     written = json.loads(target.read_text(encoding="utf-8"))
     assert written["realm"] == "anum"
     assert "users" not in written
+
+
+def test_module_settings_reach_the_api_and_pass_its_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ANUM_EMAIL_*, ANUM_WHATSAPP_* and ANUM_LEARNING_* parse as the API reads them (docs/deploy-render.md)."""
+    from anum_api.email_inbox import EmailSettings
+    from anum_api.whatsapp import WhatsAppSettings
+
+    services = _services()
+    api = _env(services["anum-api"])
+    for key in ("ANUM_EMAIL_PUBLIC_API_URL", "ANUM_EMAIL_WEB_URL", "ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS", "ANUM_LEARNING_ENABLED"):
+        assert key in api, key
+    # OAuth client secrets are added in the Dashboard, never written here.
+    assert not [key for key in api if key.startswith("ANUM_EMAIL_") and key.endswith("_SECRET")]
+    cron = _env(services["anum-voice-retention"])
+    assert cron["ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS"]["fromService"]["envVarKey"] == "ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS"
+    for key, entry in api.items():
+        if key.startswith(("ANUM_EMAIL_", "ANUM_WHATSAPP_", "ANUM_LEARNING_")):
+            monkeypatch.setenv(key, str(entry["value"]) if "value" in entry else OWNER_VALUES[key])
+    assert EmailSettings(_env_file=None).redirect_uri == "https://api.example.test/api/v1/email/oauth/callback"
+    assert WhatsAppSettings(_env_file=None).message_retention_days == 0
+    monkeypatch.setenv("ANUM_SECRETS_KEY", Fernet.generate_key().decode())
+    settings = Settings(_env_file=None)
+    assert settings.learning_enabled is True and settings.learning_signal_retention_days == 180

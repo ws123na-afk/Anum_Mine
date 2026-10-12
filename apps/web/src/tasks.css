@@ -1,19 +1,69 @@
-/* Tasks view (TasksView.tsx): filters, paging, task detail and the rendered answer. */
-.taskFilters { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) minmax(0, 150px); }
-.taskFilters .field { margin-top: 12px; }
+/* Tasks view (TasksView.tsx): server-side filters, bulk actions, keyset paging, task detail,
+   run history, step timeline and activity. Spacing comes from the shared --d-s* tokens. */
+/* 200px columns: a date field cannot shrink below its own "mm/dd/yyyy" editor (about 190px in DejaVu Sans,
+   the fallback font on CI runners without Inter), so narrower columns let it spill past the panel. */
+.taskFilters { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.taskFilters .taskSearch { grid-column: 1 / -1; }
+.taskFilters .field { margin-top: var(--d-s3); }
+.taskFilterBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); justify-content: space-between; margin-top: var(--d-s3); }
+.taskToggle { align-items: center; color: var(--d-muted); cursor: pointer; display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s2); min-height: 32px; }
+.taskToggle input, .taskRow input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; min-height: 18px; padding: 0; width: 18px; }
+.taskSelectAll { margin-top: var(--d-s3); }
+button.taskSmallButton { align-items: center; border-radius: var(--d-r-control); cursor: pointer; display: inline-flex; font-size: 13px; font-weight: 650; gap: var(--d-s1); min-height: 36px; padding: var(--d-s1) var(--d-s3); }
+button.taskSmallButton svg { height: 16px; width: 16px; }
+.taskBulkBar { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s3); padding: var(--d-s2) var(--d-s3); }
+.taskBulkBar strong { font-size: 13px; margin-inline-end: auto; }
+.taskErrorRow { align-items: center; flex-wrap: wrap; }
+.taskErrorRow span { flex: 1 1 200px; }
 .taskList { max-height: 420px; }
-.taskList .recordButton { gap: 10px; }
+.taskRow { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr); }
+.taskList .recordButton { gap: var(--d-s3); }
 .taskList .recordButton > span { min-width: 0; }
 .taskPromptPreview { color: var(--d-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.taskDetail, .taskAnswer { margin-top: 16px; }
-.taskMeta { display: grid; gap: 10px 18px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 14px 0 0; }
+.taskLoading { padding: var(--d-s3) 0; }
+.taskHint { margin-top: var(--d-s3); }
+.taskDetail, .taskAnswer { margin-top: var(--d-s5); padding: var(--d-s5); }
+.taskDetail .sectionHeader { align-items: flex-start; flex-wrap: nowrap; }
+.taskDetailTitle { min-width: 0; }
+.taskDetailTitle h2 { overflow-wrap: anywhere; }
+.taskBadges { display: inline-flex; flex: none; flex-wrap: wrap; gap: var(--d-s1); justify-content: flex-end; }
+.taskToolbar { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s4); }
+.taskToolbar button {
+  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; cursor: pointer;
+  display: inline-flex; font-size: 13px; font-weight: 650; gap: var(--d-s1); min-height: 40px; padding: var(--d-s2) var(--d-s3);
+}
+.taskToolbar button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
+.taskToolbar button svg { height: 16px; width: 16px; }
+.taskMeta { display: grid; gap: var(--d-s3) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); margin: var(--d-s4) 0 0; }
 .taskMeta dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
 .taskMeta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
-.taskSubheading { color: var(--d-muted); font-size: 12px; font-weight: 700; margin: 18px 0 6px; }
-.taskInstructions { background: var(--d-glass-1); border-radius: 6px; margin: 0; overflow-wrap: anywhere; padding: 10px 12px; white-space: pre-wrap; }
-.taskApprovals { display: grid; gap: 6px; list-style: none; margin: 12px 0 0; padding: 0; }
-.taskApprovals li { align-items: center; background: var(--d-glass-1); border-radius: 5px; display: flex; gap: 10px; justify-content: space-between; padding: 9px; }
+.taskSubheading { color: var(--d-muted); font-size: 12px; font-weight: 700; margin: var(--d-s4) 0 var(--d-s1); }
+.taskInstructions { background: var(--d-glass-1); border-radius: 6px; padding: var(--d-s2) var(--d-s3); }
+.taskText { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.timelineBody .taskText { color: var(--d-muted); font-size: 14px; margin-top: var(--d-s1); }
+.linkButton { background: none; border: 0; color: var(--d-sky); cursor: pointer; font-size: 13px; font-weight: 600; min-height: 32px; padding: 0; text-decoration: underline; }
+.taskEdit { margin-top: var(--d-s2); }
+.taskEdit textarea:disabled { opacity: .7; }
+.taskApprovals, .taskRuns, .taskEvents { display: grid; gap: var(--d-s1); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
+.taskApprovals li { align-items: center; background: var(--d-glass-1); border-radius: 5px; display: flex; gap: var(--d-s3); justify-content: space-between; padding: var(--d-s2) var(--d-s3); }
 .taskApprovals li > span { min-width: 0; }
 .taskApprovals strong, .taskApprovals small { display: block; overflow-wrap: anywhere; }
 .taskApprovals small { color: var(--d-muted); }
-@media (max-width: 640px) { .taskFilters { grid-template-columns: 1fr; } }
+.taskRuns { max-height: 280px; overflow: auto; }
+ol.timeline { list-style: none; padding: 0; }
+.stepFacts { display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s4); margin: var(--d-s2) 0 0; }
+.stepFacts div { display: flex; gap: var(--d-s1); min-width: 0; }
+.stepFacts dt { font-size: 12px; }
+.stepFacts dd { color: var(--d-muted); font-size: 12px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.taskEvents { max-height: 360px; overflow: auto; }
+.taskEvents li { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; padding: var(--d-s2) 0; }
+.taskEvents li:last-child { border-bottom: 0; }
+.taskEvents time { color: var(--d-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+@media (max-width: 480px) {
+  .taskDetail, .taskAnswer { padding: var(--d-s4); }
+  .taskDetail .sectionHeader { flex-wrap: wrap; }
+  .taskToolbar button { flex: 1 1 calc(50% - var(--d-s2)); justify-content: center; }
+}
+.taskListStale { opacity: .6; }
+/* The history (filters and list) gets the wider column so its filters sit in one row on desktop. */
+@media (min-width: 1101px) { .taskLayout.tasksPage { grid-template-columns: minmax(300px, 1fr) minmax(0, 1.4fr); } }

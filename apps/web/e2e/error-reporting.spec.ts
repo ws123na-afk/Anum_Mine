@@ -40,7 +40,7 @@ test('an unhandled error is reported scrubbed, with the tenant tag only', async 
   });
   await mockApi(page);
   await page.goto(`${reportingOrigin}/?code=example&state=example#memory`);
-  await expect(page.getByRole('heading', { level: 1, name: 'Memory' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Knowledge Base' })).toBeVisible();
 
   // The SDK loads after the first render; throw until it reports (each error differs, so Dedupe keeps it).
   let attempt = 0;
@@ -79,7 +79,7 @@ test('a build without VITE_SENTRY_DSN loads no reporter and sends nothing', asyn
   page.on('request', (request) => requests.push(request.url()));
   await mockApi(page);
   await page.goto('/#memory');
-  await expect(page.getByRole('heading', { level: 1, name: 'Memory' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Knowledge Base' })).toBeVisible();
   await page.evaluate(() => { setTimeout(() => { throw new Error('unreported'); }, 0); });
   await page.waitForTimeout(500);
   expect(requests.filter((url) => url.includes('errors.anum.test') || url.includes('errorReportingStart'))).toEqual([]);

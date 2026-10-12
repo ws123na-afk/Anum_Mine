@@ -1,0 +1,145 @@
+/* Favorites, knowledge base and reports (src/Favorites.tsx, KnowledgeView.tsx, ReportsView.tsx,
+   ReportAnswerCard.tsx). Spacing from the shared scale; heights follow content. */
+.libSrOnly { clip: rect(0 0 0 0); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+.libraryPanel { display: grid; gap: var(--d-s3); margin-bottom: var(--d-s4); min-width: 0; padding: var(--d-s5); }
+.libraryPanel > h3 { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.libraryPanel > h3 svg { color: var(--d-violet); height: 18px; width: 18px; }
+.libraryPanelHead { align-items: flex-start; display: flex; gap: var(--d-s3); justify-content: space-between; min-width: 0; }
+.libraryPanel .actions { margin-top: 0; }
+.libraryPanel .field { margin-top: 0; }
+.libraryState { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); padding: var(--d-s2) 0; }
+.libraryState svg { color: var(--d-warn); height: 18px; width: 18px; }
+.surface.libraryState { margin-bottom: var(--d-s4); padding: var(--d-s5); }
+.libraryFilters { align-items: end; display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); }
+.libraryFilters .librarySearch { grid-column: span 2; }
+.libraryFilterActions { align-self: end; }
+.libraryChips { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-bottom: var(--d-s4); }
+.libraryPanel .libraryChips { margin-bottom: 0; }
+.libChip {
+  align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted);
+  display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s1); max-width: 100%; min-height: 32px; overflow: hidden;
+  padding: 0 var(--d-s3); text-overflow: ellipsis; white-space: nowrap;
+}
+.libChip svg { height: 15px; width: 15px; }
+.libChip:hover { border-color: var(--d-line-strong); color: var(--d-text); }
+.libChip.active, .libChip[aria-selected="true"] { background: rgba(167, 139, 250, .16); border-color: rgba(167, 139, 250, .5); color: var(--d-text); }
+.libraryList { display: grid; list-style: none; margin: 0; padding: 0; }
+.libraryRow { align-items: center; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; min-width: 0; padding: var(--d-s3) 0; }
+.libraryRow:first-child { border-top: 0; }
+.libraryMain { display: grid; gap: var(--d-s1); min-width: 0; }
+.libraryMain small { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 12.5px; gap: var(--d-s1) var(--d-s2); }
+.libraryMain q { color: var(--d-muted); font-size: 13px; overflow-wrap: anywhere; }
+.libraryTitle { align-items: center; display: inline-flex; font-size: 15px; font-weight: 650; gap: var(--d-s2); justify-self: start; overflow-wrap: anywhere; text-align: start; }
+.libraryTitle svg { flex: none; height: 15px; width: 15px; }
+.libraryPrivate { align-items: center; display: inline-flex; gap: 2px; }
+.libraryPrivate svg, .reportMeta svg, .kbCollectionHead svg { height: 14px; width: 14px; vertical-align: -2px; }
+.libraryMore { justify-content: center; }
+.starButton svg { height: 18px; width: 18px; }
+.starButton.starred { border-color: rgba(252, 211, 141, .5); color: var(--d-warn); }
+.starButton.starred svg { fill: currentColor; }
+.favoritesStrip { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: center; margin-top: var(--d-s3); }
+.favoritesStripLabel { align-items: center; color: var(--d-muted); display: inline-flex; font-size: 13px; font-weight: 650; gap: var(--d-s1); }
+.favoritesStripLabel svg { color: var(--d-warn); height: 15px; width: 15px; }
+.favoritesStrip .libChip { max-width: 220px; }
+
+/* Reports */
+.reportMetrics { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); margin: 0; }
+.reportMetrics > div { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: 2px; min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.reportMetrics dt { color: var(--d-muted); font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+.reportMetrics dd { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
+.reportMetrics strong { font-size: 18px; overflow-wrap: anywhere; }
+.reportChange { border-radius: 999px; font-size: 12px; font-weight: 700; padding: 0 var(--d-s2); }
+.reportChange.up { background: rgba(252, 211, 141, .14); color: var(--d-warn); }
+.reportChange.down { background: rgba(134, 239, 172, .12); color: var(--d-ok); }
+.reportChange.flat { background: var(--d-glass-2); color: var(--d-muted); }
+.reportRow .reportMetrics { margin-top: var(--d-s1); }
+.reportGenerate .libraryFilters { grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); }
+.reportScheduleNote { font-size: 12.5px; }
+.reportDetail { display: grid; gap: var(--d-s4); min-width: 0; }
+.reportDetail section { display: grid; gap: var(--d-s2); }
+.reportMeta { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s2); }
+.reportHighlights { display: grid; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s5); }
+.reportTableWrap { border: 1px solid var(--d-line); border-radius: var(--d-r-control); max-height: 360px; overflow: auto; }
+.reportTable { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.reportTable th, .reportTable td { border-bottom: 1px solid var(--d-line); padding: var(--d-s1) var(--d-s2); text-align: start; white-space: nowrap; }
+.reportTable th { background: var(--d-surface-2); color: var(--d-muted); position: sticky; top: 0; }
+.reportSource { align-items: center; display: inline-flex; gap: var(--d-s1); justify-self: start; }
+.reportSource svg { height: 15px; width: 15px; }
+.reportManage { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-top: var(--d-s4); }
+.reportRename { display: grid; gap: var(--d-s2); }
+.reportRename .field { margin-top: 0; }
+.reportCard { background: var(--d-glass-1); border: 1px solid rgba(167, 139, 250, .35); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); margin-top: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
+.reportCard header { align-items: center; display: flex; gap: var(--d-s3); }
+.reportCard header svg { color: var(--d-violet); flex: none; height: 20px; width: 20px; }
+.reportCard header small { color: var(--d-muted); font-size: 12.5px; }
+.reportCard .actions { margin-top: 0; }
+
+/* Knowledge base */
+.kbLayout { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); }
+.kbCollections { position: sticky; top: var(--d-s4); }
+.kbCollectionList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.kbCollectionButton {
+  background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); display: grid; gap: 2px;
+  min-height: 44px; padding: var(--d-s2) var(--d-s3); text-align: start; width: 100%;
+}
+.kbCollectionButton span { font-weight: 650; overflow-wrap: anywhere; }
+.kbCollectionButton small { align-items: center; color: var(--d-muted); display: flex; font-size: 12.5px; gap: var(--d-s1); }
+.kbCollectionButton small svg { height: 13px; width: 13px; }
+.kbCollectionButton:hover { background: var(--d-glass-1); }
+.kbCollectionButton.active { background: rgba(167, 139, 250, .14); border-color: rgba(167, 139, 250, .4); }
+.kbCreate, .kbEdit, .kbAddForm { display: grid; gap: var(--d-s3); }
+.kbCreate { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
+.kbCreate h4 { font-size: 14px; }
+.kbCreate .field, .kbEdit .field, .kbAddForm .field { margin-top: 0; }
+.kbVisibility { border: 0; display: grid; gap: var(--d-s1); margin: 0; padding: 0; }
+.kbVisibility legend { color: var(--d-muted); font-size: 13px; font-weight: 600; margin-bottom: var(--d-s1); }
+.kbVisibility label { align-items: center; display: flex; gap: var(--d-s2); min-height: 32px; }
+.kbVisibility input { min-height: 0; width: auto; }
+.kbDetail { min-width: 0; }
+.kbCollectionHead { display: grid; gap: var(--d-s1); min-width: 0; }
+.kbCollectionHead h3 { font-size: 18px; overflow-wrap: anywhere; }
+.kbTags { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.kbTags .libChip { font-size: 12px; min-height: 26px; }
+.kbAskForm { align-items: end; display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) minmax(160px, 240px) auto; }
+.kbAskForm .field { margin-top: 0; }
+.kbAskActions { flex-wrap: nowrap; }
+.kbAnswer, .kbResults { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-top: var(--d-s3); }
+.kbAnswerText { white-space: pre-wrap; }
+.kbAnswer h4 { font-size: 14px; }
+.kbCitations { display: grid; gap: var(--d-s2); margin: 0; padding-inline-start: var(--d-s5); }
+.kbCitations li { display: grid; gap: 2px; }
+.kbCitations small { color: var(--d-muted); font-size: 12px; }
+.kbCitations q { color: var(--d-muted); font-size: 13px; overflow-wrap: anywhere; }
+.kbUntrusted { font-size: 12.5px; }
+
+@media (max-width: 1100px) {
+  .kbAskForm { grid-template-columns: minmax(0, 1fr) minmax(150px, 200px); }
+  .kbAskActions { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .kbLayout { grid-template-columns: minmax(0, 1fr); }
+  .kbCollections { position: static; }
+}
+@media (max-width: 640px) {
+  .libraryPanel { padding: var(--d-s4); }
+  .libraryFilters .librarySearch { grid-column: 1 / -1; }
+  .kbAskForm { grid-template-columns: minmax(0, 1fr); }
+  .kbAskActions { flex-wrap: wrap; }
+  .libraryRow { align-items: flex-start; }
+}
+
+/* Buttons outside an .actions row get the shared control shape. */
+.libraryRow > button:not(.iconButton), .libraryState > button {
+  align-items: center; border-radius: var(--d-r-control); display: inline-flex; flex: none; font-size: 14px; font-weight: 650;
+  gap: var(--d-s2); justify-content: center; min-height: 44px; padding: 10px var(--d-s4);
+}
+.libraryRow > button svg, .libraryState > button svg, .libraryPanel .actions button svg, .reportCard .actions button svg { height: 16px; width: 16px; }
+
+/* "Print or save as PDF" prints only the open report. */
+@media print {
+  body * { visibility: hidden; }
+  #report-print, #report-print * { color: #000 !important; visibility: visible; }
+  #report-print { color: #000; inset-inline-start: 0; position: absolute; top: 0; width: 100%; }
+  #report-print .reportTableWrap { max-height: none; overflow: visible; }
+  #report-print .reportMetrics > div, #report-print .reportTable th { background: #fff; color: #000; }
+}

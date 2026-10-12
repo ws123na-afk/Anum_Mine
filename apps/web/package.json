@@ -18,12 +18,14 @@
     "kokoro-js": "1.2.1",
     "lucide-react": "latest",
     "ogl": "^1.0.11",
+    "pdfjs-dist": "6.3.289",
     "react": "latest",
     "react-dom": "latest",
     "typescript": "^7.0.2",
     "vite": "latest"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@playwright/test": "^1.63.0",
     "@types/react": "latest",
     "@types/react-dom": "latest"

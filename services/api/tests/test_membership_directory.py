@@ -82,11 +82,11 @@ def test_lists_only_the_callers_active_memberships_in_their_tenant(client: TestC
     assert response.status_code == 200, response.text
     assert response.json() == [
         {"tenant_id": TENANT, "workspace_id": "workspace_dir_unnamed", "workspace_name": None,
-         "role": "member", "status": "active"},
+         "role": "member", "status": "active", "archived": False},
         {"tenant_id": TENANT, "workspace_id": "workspace_dir_b", "workspace_name": "Finance",
-         "role": "viewer", "status": "active"},
+         "role": "viewer", "status": "active", "archived": False},
         {"tenant_id": TENANT, "workspace_id": "workspace_dir_a", "workspace_name": "Operations",
-         "role": "owner", "status": "active"},
+         "role": "owner", "status": "active", "archived": False},
     ]
 
 

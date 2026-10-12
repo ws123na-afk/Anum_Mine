@@ -291,3 +291,27 @@ def test_maintenance_role_sees_only_ids_of_expired_sessions_and_cannot_write(
                 with connection.begin():
                     connection.execute(text("set local role anum_maintenance"))
                     connection.execute(text(statement), {"id": expired})
+
+
+def test_a_saved_call_keeps_its_summary_as_a_private_conversation(client: TestClient, database_engine: Engine) -> None:
+    """Voice call mode (docs/voice.md#end-of-the-call): the summary and transcript are written
+    as the caller's own conversation under RLS, then the session-only transcript is erased."""
+    session_id = _session(client, "session")
+    _say(client, session_id, "What is running?", 0)
+    saved = client.post(f"/api/v1/voice/sessions/{session_id}/summary", headers=A, json={"duration_seconds": 61})
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["source"] == "transcript"
+    assert body["turns_saved"] == 2
+    assert client.post(f"/api/v1/voice/sessions/{session_id}/complete", headers=A).status_code == 200
+
+    detail = client.get(f"/api/v1/conversations/{body['conversation_id']}", headers=A).json()
+    assert [turn["role"] for turn in detail["turns"]] == ["user", "assistant"]
+    assert detail["turns"][1]["content"].startswith("Call summary")
+    other = client.get(f"/api/v1/conversations/{body['conversation_id']}", headers=headers("user_other"))
+    assert other.status_code == 404
+    with database_engine.connect() as connection:
+        left = connection.execute(
+            text("select count(*) from voice_transcript_segments where session_id = :id"), {"id": session_id}
+        ).scalar_one()
+    assert left == 0

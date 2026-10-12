@@ -1,11 +1,30 @@
 import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
+import '../meetings/meetings_controller.dart';
+import '../meetings/meetings_repository.dart';
+import 'files_controller.dart';
+import 'files_repository.dart';
+import 'task_management.dart';
 import 'workspace_models.dart';
 import 'workspace_repository.dart';
 
 class WorkspaceController extends ChangeNotifier {
-  WorkspaceController(this.repository);
+  WorkspaceController(this.repository,
+      {FilesRepository? files, MeetingsRepository? meetings}) {
+    if (files != null) {
+      filesController = FilesController(files, onChanged: load);
+    }
+    if (meetings != null) meetingsController = MeetingsController(meetings);
+  }
+
+  /// Calls & Meetings (docs/meetings.md#mobile). Null when the app wires no
+  /// meetings API.
+  MeetingsController? meetingsController;
   final WorkspaceRepository repository;
+
+  /// The Files tab (docs/files.md#mobile): paged list, uploads with progress,
+  /// previews and per-role actions. Null when the app wires no file API.
+  FilesController? filesController;
   LoadPhase phase = LoadPhase.initial;
   WorkspaceSnapshot? snapshot;
   String? message;
@@ -56,10 +75,66 @@ class WorkspaceController extends ChangeNotifier {
   Future<WorkspaceTask?> createTask(String prompt) =>
       _mutate(() => _keepRunApproval(repository.createAndRunTask(prompt)));
   Future<WorkspaceTask> loadTask(String id) => repository.loadTask(id);
-  Future<WorkspaceTask?> cancelTask(String id) =>
-      _mutate(() => repository.cancelTask(id));
-  Future<WorkspaceTask?> resumeTask(String id) =>
-      _mutate(() => _keepRunApproval(repository.resumeTask(id)));
+  Future<WorkspaceTask?> cancelTask(String id) {
+    taskRefusal = null;
+    return _mutate(() => repository.cancelTask(id),
+        onRefused: (message) => taskRefusal = message);
+  }
+
+  Future<WorkspaceTask?> resumeTask(String id) {
+    taskRefusal = null;
+    return _mutate(() => _keepRunApproval(repository.resumeTask(id)),
+        onRefused: (message) => taskRefusal = message);
+  }
+
+  /// Filtered paging, retry, rename, archive, run history and export, when
+  /// the repository offers them (the API repository does; docs/tasks.md).
+  TaskManagementRepository? get taskManagement {
+    final value = repository;
+    return value is TaskManagementRepository
+        ? value as TaskManagementRepository
+        : null;
+  }
+
+  /// The API's refusal of the last task action (a 403 names who may act, a
+  /// 409 why the state does not allow it); shown on the task's screen.
+  String? taskRefusal;
+
+  /// Creates a task with a priority and due date (and runs it when asked).
+  /// Without task management only the prompt can be sent, and it runs.
+  Future<WorkspaceTask?> createPlannedTask(TaskDraft draft) {
+    final m = taskManagement;
+    if (m == null) return createTask(draft.prompt.trim());
+    taskRefusal = null;
+    return _mutate(() => _keepRunApproval(m.createPlannedTask(draft)),
+        onRefused: (message) => taskRefusal = message);
+  }
+
+  /// Changes a task's priority or due date (creator or owner).
+  Future<WorkspaceTask?> planTask(String id,
+          {TaskPriority? priority, DateTime? dueAt, bool clearDue = false}) =>
+      _taskAction((m) =>
+          m.planTask(id, priority: priority, dueAt: dueAt, clearDue: clearDue));
+
+  Future<WorkspaceTask?> runTask(String id) =>
+      _taskAction((m) => _keepRunApproval(m.runTask(id)));
+  Future<WorkspaceTask?> retryTask(String id) =>
+      _taskAction((m) => _keepRunApproval(m.retryTask(id)));
+  Future<WorkspaceTask?> renameTask(String id, String title) =>
+      _taskAction((m) => m.renameTask(id, title));
+  Future<WorkspaceTask?> archiveTask(String id) =>
+      _taskAction((m) => m.archiveTask(id));
+  Future<WorkspaceTask?> unarchiveTask(String id) =>
+      _taskAction((m) => m.unarchiveTask(id));
+
+  Future<WorkspaceTask?> _taskAction(
+      Future<WorkspaceTask> Function(TaskManagementRepository m) action) {
+    final m = taskManagement;
+    if (m == null) return Future.value(null);
+    taskRefusal = null;
+    return _mutate(() => action(m),
+        onRefused: (message) => taskRefusal = message);
+  }
 
   /// Approvals a run response created that the approvals list has not
   /// returned yet, by id.
@@ -122,33 +197,21 @@ class WorkspaceController extends ChangeNotifier {
   /// second approval (set by the app once signed in; null until then).
   String? currentUserId;
 
+  /// Called after the person decided an approval; the app offers phone push
+  /// after the first one (docs/notifications.md).
+  VoidCallback? onApprovalDecided;
+
   Future<void> decide(WorkspaceApproval approval,
       {required bool approve, String? reason}) async {
     decisionRefusals.remove(approval.id);
-    await _mutate(
-        () => repository.decideApproval(approval,
-            approve: approve, reason: reason),
-        onRefused: (message) => decisionRefusals[approval.id] = message);
-  }
-
-  Future<void> startAutomation(String id) async {
-    await _mutate(() => repository.startAutomation(id));
-  }
-
-  Future<void> createAutomation(
-      String name, String description, String action) async {
-    await _mutate(() => repository.createAutomation(
-        name: name, description: description, action: action));
-  }
-
-  Future<void> createSchedule(
-      String workflowId, String name, String cron, String timezone) async {
-    await _mutate(() => repository.createSchedule(
-        workflowId: workflowId, name: name, cron: cron, timezone: timezone));
-  }
-
-  Future<void> transitionAutomation(String id, String action) async {
-    await _mutate(() => repository.transitionAutomation(id, action));
+    var decided = false;
+    await _mutate(() async {
+      final result = await repository.decideApproval(approval,
+          approve: approve, reason: reason);
+      decided = true;
+      return result;
+    }, onRefused: (message) => decisionRefusals[approval.id] = message);
+    if (decided) onApprovalDecided?.call();
   }
 
   Future<void> uploadFile(String path) async {
@@ -168,8 +231,31 @@ class WorkspaceController extends ChangeNotifier {
     await _mutate(() => repository.deleteMemory(id));
   }
 
+  /// Why the last skill change was refused (403/409), in words that say who can.
+  String? skillNotice;
+
+  static const skillOwnersOnly =
+      'Only workspace owners can install, enable, disable or uninstall skills. Ask an owner of this workspace.';
+
+  void _skillRefused(String message) =>
+      skillNotice = 'Not allowed: $message $skillOwnersOnly';
+
   Future<void> installSkill(WorkspaceSkill skill) async {
-    await _mutate(() => repository.installSkill(skill));
+    skillNotice = null;
+    await _mutate(() => repository.installSkill(skill),
+        onRefused: _skillRefused);
+  }
+
+  Future<void> setSkillEnabled(WorkspaceSkill skill, bool enabled) async {
+    skillNotice = null;
+    await _mutate(() => repository.setSkillEnabled(skill.skillId, enabled),
+        onRefused: _skillRefused);
+  }
+
+  Future<void> uninstallSkill(WorkspaceSkill skill) async {
+    skillNotice = null;
+    await _mutate(() => repository.uninstallSkill(skill.skillId),
+        onRefused: _skillRefused);
   }
 
   Future<T?> _mutate<T>(Future<T> Function() operation,

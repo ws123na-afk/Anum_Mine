@@ -220,7 +220,7 @@ cert_window() {
     | openssl x509 -noout -startdate -enddate 2>/dev/null)" || return 0
   start="$(printf '%s\n' "$dates" | sed -n 's/^notBefore=//p')"
   end="$(printf '%s\n' "$dates" | sed -n 's/^notAfter=//p')"
-  [ -n "$start" ] && [ -n "$end" ] || return 0
+  if ! { [ -n "$start" ] && [ -n "$end" ]; }; then return 0; fi
   start_s="$(to_epoch "$start")" && end_s="$(to_epoch "$end")" || return 0
   echo "$((end_s - $(date +%s))) $((end_s - start_s))"
 }

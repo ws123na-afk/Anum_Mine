@@ -15,6 +15,80 @@ export interface WorkspaceMember {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Verified email of the invitation the member accepted, when there was one. */
+  email?: string | null;
+}
+
+/** `GET /api/v1/workspace-members/summary`: counts independent of search and paging. */
+export interface MembersSummary {
+  total: number;
+  active: number;
+  deactivated: number;
+  activeOwners: number;
+  pendingInvitations: number;
+}
+
+/** One page of `GET /api/v1/workspace-members?limit=` (the cursor comes from `X-Next-Cursor`). */
+export interface MemberPage {
+  items: WorkspaceMember[];
+  nextCursor: string | null;
+}
+
+/** A workspace (docs/identity.md#workspace-lifecycle). Archived workspaces are read-only. */
+export interface WorkspaceInfo {
+  id: string;
+  tenantId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  archivedBy: string | null;
+}
+
+/** `GET /api/v1/workspaces/current/permissions`: the API's answer for the caller. */
+export interface WorkspacePermissions {
+  workspaceId: string;
+  role: WorkspaceRole | null;
+  organizationAdmin: boolean;
+  canManageWorkspace: boolean;
+  canCreateWorkspace: boolean;
+  canManageMembers: boolean;
+  canReadAudit: boolean;
+  canExportAudit: boolean;
+}
+
+/** One append-only audit record (docs/governance-and-scale.md#audit-log). */
+export interface AuditRecord {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  actor: string;
+  action: string;
+  target: string;
+  outcome: string;
+  correlationId: string;
+  createdAt: string;
+  /** Ids, counts and settings; secret-looking keys arrive as "[REDACTED]". */
+  metadata: Record<string, unknown>;
+}
+
+/** Audit log filters. `action` ending in `*` matches a prefix; `until` is exclusive. */
+export interface AuditFilters {
+  actor?: string;
+  action?: string;
+  target?: string;
+  outcome?: string;
+  correlationId?: string;
+  since?: string;
+  until?: string;
+  q?: string;
+}
+
+/** `GET /api/v1/audit-records`: newest first, keyset paged. */
+export interface AuditPage {
+  items: AuditRecord[];
+  nextCursor: string | null;
+  retention: string;
 }
 
 export interface WorkspaceInvitation {
@@ -102,6 +176,8 @@ export type ApiErrorCode =
   | 'bad_request'
   | 'unauthorized'
   | 'forbidden'
+  /** A valid token without a tenant: a self sign-up nobody has assigned to an organization yet (403). */
+  | 'account_pending'
   | 'not_found'
   | 'conflict'
   | 'model_budget_exceeded'

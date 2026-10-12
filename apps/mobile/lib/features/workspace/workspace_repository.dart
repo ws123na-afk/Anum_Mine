@@ -8,17 +8,7 @@ abstract interface class WorkspaceRepository {
   Future<WorkspaceTask> resumeTask(String taskId);
   Future<WorkspaceApproval> decideApproval(WorkspaceApproval approval,
       {required bool approve, String? reason});
-  Future<WorkspaceAutomation> startAutomation(String automationId);
-  Future<AutomationDefinition> createAutomation(
-      {required String name,
-      required String description,
-      required String action});
-  Future<AutomationSchedule> createSchedule(
-      {required String workflowId,
-      required String name,
-      required String cron,
-      required String timezone});
-  Future<WorkspaceAutomation> transitionAutomation(String runId, String action);
+  // Automation changes go through AutomationRepository (features/automations).
   Future<WorkspaceFile> uploadFile(String path);
   Future<void> downloadFile(WorkspaceFile file);
   Future<void> deleteFile(String fileId);
@@ -26,6 +16,8 @@ abstract interface class WorkspaceRepository {
       {required String taskId, required String content});
   Future<void> deleteMemory(String memoryId);
   Future<void> installSkill(WorkspaceSkill skill);
+  Future<void> setSkillEnabled(String skillId, bool enabled);
+  Future<void> uninstallSkill(String skillId);
 }
 
 class WorkspaceOfflineException implements Exception {

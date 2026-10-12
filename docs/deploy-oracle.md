@@ -238,7 +238,7 @@ Before anyone else uses it:
 3. On the VM, turn on two-factor sign-in for ANUM users while the bootstrap admin still works (it signs in with the values in `.env`, nothing to type): `bash ~/anum/infra/oracle/keycloak-2fa.sh` ([Two-factor sign-in](#two-factor-sign-in)).
 4. Sign out, sign in as the new user, set up OTP, then **Users** → `anum-bootstrap-admin` → **Delete**.
 5. On the VM, empty both bootstrap values in `.env` (keep the lines, so `update.sh` does not add them again): `KC_BOOTSTRAP_ADMIN_USERNAME=` and `KC_BOOTSTRAP_ADMIN_PASSWORD=`; then `cd ~/anum/infra/oracle && docker compose up -d keycloak`. Keycloak only creates the bootstrap admin against an empty database, so this only removes the password from the container.
-6. Realm **anum** → **Realm settings**: "User registration" stays off; set up e-mail if you want password-reset mail. Then **Clients** → `anum-web` → **Valid redirect URIs** must show `https://<WEB>/*`.
+6. Realm **anum** → **Realm settings**: leave "User registration" off unless you want self sign-up, which is switched on by a script with the privacy policy and password rules ([Google and Apple sign-in](#google-and-apple-sign-in)); set up e-mail if you want password-reset mail. Then **Clients** → `anum-web` → **Valid redirect URIs** must show `https://<WEB>/*`.
 
 Create ANUM users as on Render: realm **anum** → **Users** → **Add user**, attribute `tenant_id` (and optionally `default_workspace_id`), realm role `owner` for a tenant's first person, a temporary password sent out of band. At their first sign-in they set a new password and an authenticator app. Whoever may change the organization's policy (policy packs, role templates, approval rules, memory governance) also needs the realm role `org_admin`; nobody gets it by default ([Organization administrators](#organization-administrators)).
 
@@ -274,6 +274,32 @@ It signs in to Keycloak exactly as the two-factor script does (add `--temporary-
 
 It is never granted automatically, not even to the first owner: the role lets its holder change policy for every workspace of the tenant, and only you know who should have that. Instead, `update.sh` (and so `install.sh`) ends with a one-line `NOTICE` while realm `anum` has no `org_admin` role or nobody holds it (directly or through a group). It reads Keycloak's own tables in a read-only transaction as the PostgreSQL container's local superuser, so it needs no Keycloak admin; when Keycloak has not imported the realm yet (the first minute of a fresh install) or the query fails, it prints nothing. The query was written against Keycloak's documented table layout (`realm`, `keycloak_role`, `user_role_mapping`, `group_role_mapping`) and has not been run against a live Keycloak database.
 
+### Google and Apple sign-in
+
+Optional. People then see "Continue with Google" and "Continue with Apple" next to the email sign-in, and can create an account themselves. A new account belongs to no organization: it waits on "Your account is waiting for access" until you put it in yours and a workspace owner invites it ([Identity: Pending accounts](identity.md#pending-accounts)). The second factor still applies after Google or Apple ([Identity: Google and Apple sign-in](identity.md#google-and-apple-sign-in)). Below, `<AUTH>` is your auth host name (`ANUM_AUTH_HOST`); every redirect URI must match exactly.
+
+**Privacy policy first.** Publish the policy ([privacy policy template](privacy-policy.md)) and set `ANUM_PRIVACY_POLICY_URL=https://...` in `~/anum/infra/oracle/.env`. Without it the apps offer no "Create account".
+
+**Google** (Google Cloud console, console.cloud.google.com, any project of yours):
+
+1. **Google Auth Platform** → **Branding**: app name `ANUM`, support email, app domain (the web host), authorized domain (your domain, or `duckdns.org` with DuckDNS), developer email → **Save**. **Audience**: **External**, then **Publish app** (while in "Testing" only listed test users can sign in). **Data Access**: the default `openid`, `email` and `profile` scopes are all ANUM asks for.
+2. **Google Auth Platform** → **Clients** → **Create client** → Application type **Web application**, name `ANUM Keycloak` → **Authorized redirect URIs** → **Add URI**: `https://<AUTH>/realms/anum/broker/google/endpoint` → **Create**. Copy the **Client ID** and the **Client secret** (the secret is shown in full only now; keep it in your password manager).
+3. On the VM: `bash ~/anum/infra/oracle/keycloak-2fa.sh google` (add `--temporary-admin` if your master-realm admin has OTP). It asks for the client ID and then the secret (typed without echo; neither goes on a command line or into a log), creates or updates the `google` provider with ANUM's flows and prints the redirect URI to compare with step 2.
+
+**Apple** (needs the paid Apple Developer membership, developer.apple.com → Account):
+
+1. **Certificates, Identifiers & Profiles** → **Identifiers** → the app's App ID `com.anum.app` (create it if it does not exist) → enable **Sign in with Apple** → **Save**.
+2. **Identifiers** → **+** → **Services IDs** → description `ANUM sign-in`, identifier for example `com.anum.signin` (this is the client ID) → **Continue** → **Register**. Open it → enable **Sign in with Apple** → **Configure**: primary App ID `com.anum.app`; **Domains and Subdomains**: `<AUTH>`; **Return URLs**: `https://<AUTH>/realms/anum/broker/apple/endpoint` → **Next** → **Done** → **Continue** → **Save**.
+3. **Keys** → **+** → name `ANUM sign-in`, enable **Sign in with Apple** → **Configure** → primary App ID `com.anum.app` → **Save** → **Continue** → **Register** → **Download** the `AuthKey_<KEYID>.p8` file (Apple lets you download it once) and note the **Key ID**. The **Team ID** is under **Membership details**.
+4. Keycloak needs the Apple provider extension. Put its release jar URL and the jar's SHA-256 in `.env` as `ANUM_KEYCLOAK_APPLE_PROVIDER_URL` and `ANUM_KEYCLOAK_APPLE_PROVIDER_SHA256` (on your PC: download the jar from the extension's release page, `Get-FileHash <jar> -Algorithm SHA256`), then `cd ~/anum/infra/oracle && docker compose build keycloak && docker compose up -d keycloak`. A wrong checksum stops the build ([Identity: Apple](identity.md#apple)).
+5. Copy the `.p8` file to the VM (`scp -i "$HOME\.ssh\anum_oracle" AuthKey_<KEYID>.p8 ubuntu@<VM_IP>:`), run `bash ~/anum/infra/oracle/keycloak-2fa.sh apple`, answer the Services ID, Team ID, Key ID and the file's path, then delete the file from the VM as the script reminds you. The key reaches Keycloak on stdin only.
+
+**Tell the API which buttons to show.** `keycloak-2fa.sh status` ends with the line to copy, for example `ANUM_SIGN_IN_PROVIDERS=google,apple`. Set it in `.env`, then `cd ~/anum/infra/oracle && docker compose up -d api`. The iOS app shows Google only when Apple is offered too (App Store rule 4.8).
+
+**Sign-up with email (optional).** Keycloak must be able to send mail first: admin console, realm **anum** → **Realm settings** → **Email**: From address, host, port, encryption and the SMTP login of a mailbox you own (Gmail, Outlook and Zoho Mail need an app password for SMTP) → **Test connection** → **Save**. Then `bash ~/anum/infra/oracle/keycloak-2fa.sh sign-up` (it uses `ANUM_PRIVACY_POLICY_URL` from `.env`), set `ANUM_SELF_SIGN_UP=true` in `.env` and `docker compose up -d api`. `keycloak-2fa.sh sign-up-off` turns it off again.
+
+**Letting someone in.** `bash ~/anum/infra/oracle/keycloak-2fa.sh pending-users` lists accounts without an organization (name, email, whether it is verified, Google/Apple/password). `bash ~/anum/infra/oracle/keycloak-2fa.sh assign-tenant <username> <tenant_id> [<workspace_id>]` puts one in your organization; then, as a workspace owner, **Members** → **Invite** with their email. They press **Check again** in the app. Removing a provider: `keycloak-2fa.sh remove-provider google` (accounts stay; those people use **Forgot password** or the other provider).
+
 ## AI Model
 
 The VM has no GPU. Staging starts with `ANUM_MODEL_PROVIDER=mock` (placeholder answers; production refuses it in the release gate). Three real options:
@@ -296,9 +322,38 @@ then `cd ~/anum/infra/oracle && docker compose up -d`. `ollama-pull` downloads t
 
 **Claude through the native Anthropic API.** Prompts leave the VM; repeated prompt prefixes are cached and billed at the cache rate. In `.env`: `ANUM_MODEL_PROVIDER=anthropic` and `ANUM_MODEL_API_KEY=<key>`, keeping `ANUM_MODEL_NAME` and `ANUM_MODEL_BASE_URL` at the example's defaults (the provider then uses `https://api.anthropic.com`, `claude-haiku-5-5` for chat and voice replies and `claude-sonnet-5-5` for planning), then `docker compose up -d api`. `ANUM_MODEL_FAST_NAME`, `ANUM_MODEL_CAPABLE_NAME`, `ANUM_MODEL_FAST_EFFORT` and `ANUM_MODEL_CAPABLE_EFFORT` change the routing ([Model routing](model-gateway.md#model-routing)).
 
+**Voice calls: camera answers and local speech.** Camera answers need a vision model: with Claude nothing more is needed; with an OpenAI-compatible provider or Ollama set `ANUM_MODEL_VISION_NAME` (for example `qwen2.5vl:3b` pulled into Ollama; slow on CPU). Server speech is optional (calls use the browser's and phone's speech by default): a Whisper-compatible recognizer with Piper voices can run on the VM behind one OpenAI audio API (for example a Speaches container on the compose network); set `ANUM_SPEECH_STT_BASE_URL` and `ANUM_SPEECH_TTS_BASE_URL` to it, `ANUM_SPEECH_STT_MODEL`, `ANUM_SPEECH_TTS_MODEL`, `ANUM_SPEECH_TTS_VOICE_EN` and `ANUM_SPEECH_TTS_VOICE_AR`, and leave the prices at 0. It is not in the compose file, and its speed on the A1 is unverified: time a few turns against the 1.5 s target before using it ([Voice call mode](voice.md#speech-engines)).
+
 ## Web Search
 
 The stack runs a private SearXNG and the API has `ANUM_SEARXNG_URL=http://searxng:8080`, so agents get the read-only `web_search` tool: a task that asks to search the web runs a query and its result lists titles and links. Queries leave the VM for the search engines SearXNG asks (no ANUM tenant or user identity goes with them). The tool is low risk and needs no approval unless a workspace or organization rule asks for one; a workspace owner turns it off under **Integrations > SearXNG web search**, and an organization can deny it with a policy pack (`web_search`, effect `deny`). The Integrations page shows whether SearXNG answers. After an update from a version without it, `update.sh` adds `SEARXNG_SECRET` to `.env` and starts the container. To switch web search off for the whole deployment, remove the `ANUM_SEARXNG_URL` line from the `api` service and `docker compose up -d api`.
+
+## Phone Push
+
+Off until you give the API a Firebase service account key ([Notifications](notifications.md#server), Firebase setup in [Flutter mobile](mobile.md#owner-steps-firebase-project)). Put the key file's JSON on one line, in single quotes, into `infra/oracle/.env`:
+
+```bash
+jq -c . service-account.json   # prints the key on one line; paste it as ANUM_FCM_SERVICE_ACCOUNT_JSON='...'
+```
+
+Then `docker compose up -d api` and delete the downloaded file. The API refuses to start if the value is not a service-account key; `GET /api/v1/push/status` and Settings › Notifications in the web app say whether push is on. The developer watcher that announces ready pull requests uses the `anum_maintenance` role the bootstrap already grants `anum_app`. Pushes leave the VM for Google's FCM servers with a fixed title ("Approval needed") and ids only.
+
+### Email (unified inbox)
+
+The API passes the mail settings from `.env` through (`infra/oracle/compose.yaml`): `ANUM_EMAIL_GOOGLE_CLIENT_ID`, `ANUM_EMAIL_GOOGLE_CLIENT_SECRET`, `ANUM_EMAIL_MICROSOFT_CLIENT_ID`, `ANUM_EMAIL_MICROSOFT_CLIENT_SECRET`, `ANUM_EMAIL_MICROSOFT_TENANT` (default `common`), `ANUM_EMAIL_ZOHO_CLIENT_ID`, `ANUM_EMAIL_ZOHO_CLIENT_SECRET` and `ANUM_EMAIL_ZOHO_DATA_CENTRE` (default `com`; `sa` for a Saudi Zoho account). `ANUM_EMAIL_PUBLIC_API_URL` and `ANUM_EMAIL_WEB_URL` are set from `ANUM_API_HOST` and `ANUM_WEB_HOST`, so the redirect URI to register with each provider is `https://<API>/api/v1/email/oauth/callback`. Each provider stays "not set up" until its id and secret are filled in. Create the OAuth clients as [Email: owner setup](email.md#owner-setup) describes, add the values to `.env` over SSH (`nano ~/anum/infra/oracle/.env`), then `cd ~/anum/infra/oracle && docker compose up -d api`. Mail traffic leaves the VM only to the providers' API hosts; the background sync runs every `ANUM_EMAIL_SYNC_INTERVAL_SECONDS` (300; `0` turns it off) with PostgreSQL. The client secrets and every mailbox token are protected by `ANUM_SECRETS_KEY`; after rotating it, run `docker compose run --rm retention python -m anum_api.rotate_secrets` ([Runbooks](runbooks.md#rotating-anum_secrets_key)), which also re-encrypts mailbox and WhatsApp tokens.
+
+### WhatsApp and what ANUM learned
+
+`.env` also sets, with these defaults:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS` | `0` | Days of WhatsApp history kept for workspaces that chose no retention in WhatsApp → Setup (`0` keeps it). Passed to the API and to the `retention` job, which deletes older messages every night ([WhatsApp](whatsapp.md#retention)). |
+| `ANUM_WHATSAPP_TRIAGE_ON_ARRIVAL` | `true` | Sort new customer messages with the workspace's model as they arrive. |
+| `ANUM_LEARNING_ENABLED` | `true` | `false` stops new learning for everyone ([What ANUM learned](learning.md)). |
+| `ANUM_LEARNING_SIGNAL_RETENTION_DAYS` | `180` | Feedback signals older than this (7 to 3650 days) are deleted. |
+
+The API refuses to start with a value outside these ranges; `docker compose logs api` names the variable. WhatsApp credentials are per workspace (encrypted in the database), never in `.env`.
 
 ## Check the Deployment
 

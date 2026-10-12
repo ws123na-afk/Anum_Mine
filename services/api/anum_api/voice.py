@@ -37,6 +37,7 @@ from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .sse import SSE_HEADERS, sse
+from .tyre.tools import tyre_grounding
 from .voice_assistant import (
     MAX_REPLY_CHARS,
     SMALL_TALK,
@@ -443,9 +444,16 @@ async def ask_voice_assistant(
     """Answer a spoken question. Read-only: it never changes tasks or approvals."""
     asked = _prepare_ask(session_id, payload, context, repository)
     reply = asked.reply
+    grounding = await tyre_grounding(context, asked.text) if reply is None else None
+    if grounding is not None and getattr(gateway, "provider", "") == "mock":
+        # No model to phrase it: say the tool's own answer, numbers included.
+        reply = grounding.result.summary[:MAX_REPLY_CHARS]
     if reply is None:
         try:
-            reply = await answer_question(gateway, asked.text, asked.facts, asked.name, asked.arabic)
+            reply = await answer_question(
+                gateway, asked.text, asked.facts, asked.name, asked.arabic,
+                data_blocks=[grounding.block] if grounding else (),
+            )
         except ModelBudgetExceededError as exc:
             # Said aloud instead of an error: the monthly model budget is used up.
             reply = exc.spoken(asked.arabic)
@@ -477,6 +485,21 @@ class _PreparedAsk:
     proposal: str | None
     # A fixed reply (status, small talk, refusals); None when the model must answer.
     reply: str | None
+
+
+def _marketing_reply(context: TenantContext, text: str, arabic: bool) -> str:
+    """The marketing summary tool's answer, spoken (read-only, from the last pulled numbers)."""
+    from .authorization import Permission
+    from .dependencies import has_permission
+    from .marketing.tools import days_in, platform_in, summary_for
+
+    if not has_permission(context, Permission.MARKETING_READ):
+        return "أرقام التسويق متاحة لأعضاء مساحة العمل فقط." if arabic else "Marketing numbers are for members of this workspace."
+    try:
+        return summary_for(context, platform=platform_in(text), days=days_in(text), arabic=arabic)[:MAX_REPLY_CHARS]
+    except Exception:
+        logger.warning("voice_marketing_summary_failed", extra={"anum_voice": {"event": "marketing_summary_failed"}})
+        return "لم أستطع قراءة أرقام التسويق الآن. افتح صفحة التسويق." if arabic else "I couldn't read the marketing numbers just now. Open Marketing to see them."
 
 
 def _prepare_ask(
@@ -517,8 +540,25 @@ def _prepare_ask(
         tier, reply = VoiceRiskTier.CONFIRM, confirm_reply(proposal, arabic)
     elif intent == VoiceIntent.STATUS:
         reply = status_reply(facts, arabic)
+    elif intent == VoiceIntent.EMAIL:
+        # Read-only inbox facts from the synced metadata (docs/email.md#voice).
+        from .email_inbox import voice_email_reply
+
+        reply = voice_email_reply(context, text, arabic)
+    elif intent == VoiceIntent.MARKETING_SUMMARY:
+        reply = _marketing_reply(context, text, arabic)
     elif intent in SMALL_TALK:
         reply = small_talk_reply(intent, name, facts, arabic)
+    elif intent == VoiceIntent.QUESTION:
+        # "How were Amazon sales today?" is answered from the synced data (docs/commerce.md).
+        from .commerce.voice import commerce_voice_reply
+
+        commerce = commerce_voice_reply(context, text, arabic)
+        if commerce is not None:
+            tier_value, reply, proposal = commerce
+            tier = VoiceRiskTier(tier_value)
+            if proposal is not None:
+                intent = VoiceIntent.CREATE_TASK
     return _PreparedAsk(
         session=session,
         segment=segment,
@@ -563,9 +603,36 @@ async def stream_voice_assistant(
     unit of work (a partial reply too, when the client stops listening).
     """
     asked = _prepare_ask(session_id, payload, context, repository)
+    events = stream_prepared_answer(asked, context, session_id, gateway)
+    return StreamingResponse(
+        events,
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
+
+
+def stream_prepared_answer(
+    asked: _PreparedAsk,
+    context: TenantContext,
+    session_id: str,
+    gateway: ModelGateway,
+    *,
+    vision: ModelGateway | None = None,
+    extra_rules: str = "",
+) -> AsyncIterator[str]:
+    """The server-sent events of one spoken answer (``/ask/stream`` and the call's
+    ``/look/stream``): ``meta``, ``delta`` pieces, then ``done`` or ``error``.
+
+    ``vision`` is a gateway with a camera frame attached (voice_call.py). Only a
+    question reaches it: a fixed reply (status, small talk, refusals, task proposals)
+    never sends the frame anywhere.
+    """
     sequence = asked.segment.client_sequence
 
-    async def body() -> AsyncIterator[str]:
+    async def answer() -> AsyncIterator[str]:
+        looking = vision is not None and asked.reply is None
+        # Tyre data for a tyre question (its own store session, never the request's).
+        grounding = await tyre_grounding(context, asked.text) if asked.reply is None else None
         yield sse(
             "meta",
             {
@@ -573,20 +640,26 @@ async def stream_voice_assistant(
                 "risk_tier": asked.tier.value,
                 "proposed_task": asked.proposal,
                 "workspace": asked.facts.model_dump(mode="json"),
+                "vision": looking,
             },
         )
         fixed = asked.reply
-        if fixed is None and getattr(gateway, "provider", "") == "mock":
-            fixed = mock_answer(asked.facts, asked.arabic)
+        if fixed is None and not looking and getattr(gateway, "provider", "") == "mock":
+            fixed = grounding.result.summary[:MAX_REPLY_CHARS] if grounding else mock_answer(asked.facts, asked.arabic)
         parts: list[str] = []
         if fixed is not None:
             parts.append(fixed)
             yield sse("delta", {"text": fixed})
         else:
             try:
-                messages = voice_messages(asked.text, asked.facts, asked.name, asked.history)
-                fast = route_gateway(gateway, ModelRoute.FAST)
-                async for chunk in fast.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS):
+                messages = voice_messages(
+                    asked.text, asked.facts, asked.name, asked.history,
+                    data_blocks=[grounding.block] if grounding else (),
+                )
+                if extra_rules:
+                    messages[0] = {"role": "system", "content": f"{messages[0]['content']}\n{extra_rules}"}
+                answering = vision if looking and vision is not None else route_gateway(gateway, ModelRoute.FAST)
+                async for chunk in answering.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS):
                     room = MAX_REPLY_CHARS - sum(len(part) for part in parts)
                     if room <= 0:
                         break
@@ -608,11 +681,7 @@ async def stream_voice_assistant(
         segment = _store_voice_reply(context, session_id, "".join(parts).strip(), sequence)
         yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None})
 
-    return StreamingResponse(
-        body(),
-        media_type="text/event-stream",
-        headers=SSE_HEADERS,
-    )
+    return answer()
 
 
 @router.post("/sessions/{session_id}/complete", response_model=VoiceSession)

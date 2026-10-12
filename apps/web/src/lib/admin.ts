@@ -14,6 +14,7 @@ import type {
   WorkspaceMember,
   WorkspaceRole,
 } from '@anum/contracts';
+import { getLocale, intlLocale, t } from './i18n.ts';
 
 export const ROLES: readonly WorkspaceRole[] = ['owner', 'member', 'viewer'];
 export const INVITATION_PREFIX = 'anum_inv_';
@@ -22,7 +23,7 @@ export const MAX_TTL_HOURS = 720;
 
 // ------------------------------------------------------------------ wire shapes
 
-export interface ApiMember { tenant_id: string; workspace_id: string; user_id: string; role: string; active: boolean; created_at: string; updated_at: string }
+export interface ApiMember { tenant_id: string; workspace_id: string; user_id: string; role: string; active: boolean; created_at: string; updated_at: string; email?: string | null }
 export interface ApiInvitation {
   id: string; tenant_id: string; workspace_id: string; role: string;
   invitee_user_id: string | null; invitee_email: string | null; status: string;
@@ -43,7 +44,7 @@ export interface ApiBudgetOverview { period_start: string; resets_on: string; te
 const role = (value: string): WorkspaceRole => (ROLES as readonly string[]).includes(value) ? value as WorkspaceRole : 'viewer';
 
 export function mapMember(value: ApiMember): WorkspaceMember {
-  return { tenantId: value.tenant_id, workspaceId: value.workspace_id, userId: value.user_id, role: role(value.role), active: value.active, createdAt: value.created_at, updatedAt: value.updated_at };
+  return { tenantId: value.tenant_id, workspaceId: value.workspace_id, userId: value.user_id, role: role(value.role), active: value.active, createdAt: value.created_at, updatedAt: value.updated_at, email: value.email ?? null };
 }
 
 export function mapInvitation(value: ApiInvitation): WorkspaceInvitation {
@@ -91,17 +92,17 @@ export type DraftResult<T> = { ok: true; value: T } | { ok: false; error: string
 export function invitationRequest(draft: InvitationDraft): DraftResult<InvitationRequest> {
   const userId = draft.userId.trim();
   const email = draft.email.trim();
-  if (!userId && !email) return { ok: false, error: 'Enter the invitee’s user id, email address, or both.' };
-  if (userId.length > 120) return { ok: false, error: 'User ids are at most 120 characters.' };
+  if (!userId && !email) return { ok: false, error: t('invite.err.noInvitee') };
+  if (userId.length > 120) return { ok: false, error: t('invite.err.userIdLength') };
   if (email) {
     const [local, domain = ''] = email.split(/@(.*)/s);
     if (!email.includes('@') || !local || !domain.includes('.') || /\s/.test(email) || email.length > 320) {
-      return { ok: false, error: 'Enter a valid email address.' };
+      return { ok: false, error: t('invite.err.email') };
     }
   }
   const ttlText = draft.ttlHours.trim();
   const ttl = ttlText ? Number(ttlText) : DEFAULT_TTL_HOURS;
-  if (!Number.isInteger(ttl) || ttl < 1 || ttl > MAX_TTL_HOURS) return { ok: false, error: `Expiry must be a whole number of hours from 1 to ${MAX_TTL_HOURS}.` };
+  if (!Number.isInteger(ttl) || ttl < 1 || ttl > MAX_TTL_HOURS) return { ok: false, error: t('invite.err.ttl', { max: MAX_TTL_HOURS }) };
   return { ok: true, value: { role: draft.role, ...(userId ? { inviteeUserId: userId } : {}), ...(email ? { inviteeEmail: email } : {}), ttlHours: ttl } };
 }
 
@@ -125,7 +126,7 @@ export function invitationLink(appUrl: string, token: string, workspaceId: strin
 }
 
 /** Read a pasted token or invitation link. Returns null when it holds no ANUM invitation token. */
-export function parseInvitationInput(text: string): { token: string; workspaceId: string | null } | null {
+export function parseInvitationInput(text: string): { token: string; workspaceId: string | null; tenantId?: string | null } | null {
   const value = text.trim();
   if (!value) return null;
   if (value.startsWith(INVITATION_PREFIX) && !/[\s&#?]/.test(value)) return { token: value, workspaceId: null };
@@ -133,20 +134,27 @@ export function parseInvitationInput(text: string): { token: string; workspaceId
   const token = params.get('invitation');
   if (!token || !token.startsWith(INVITATION_PREFIX)) return null;
   const workspace = params.get('workspace');
-  return { token, workspaceId: workspace && workspace.trim() ? workspace.trim() : null };
+  // A customer organisation's first-admin link also names its organisation (docs/customer-organisations.md).
+  const tenant = params.get('tenant');
+  return {
+    token, workspaceId: workspace && workspace.trim() ? workspace.trim() : null,
+    ...(tenant && /^[A-Za-z0-9_-]{3,80}$/.test(tenant.trim()) ? { tenantId: tenant.trim() } : {}),
+  };
 }
 
 export function inviteeLabel(invitation: WorkspaceInvitation): string {
-  return [invitation.inviteeUserId, invitation.inviteeEmail].filter(Boolean).join(' · ') || 'Anyone with the token';
+  return [invitation.inviteeUserId, invitation.inviteeEmail].filter(Boolean).join(' · ') || t('invite.anyone');
 }
 
 /** "Expires in 3 d", "Expires in 5 h", "Expired 2 h ago". */
 export function expiryLabel(expiresAt: string, now: Date = new Date()): string {
   const ms = new Date(expiresAt).getTime() - now.getTime();
-  if (Number.isNaN(ms)) return 'Expiry unknown';
+  if (Number.isNaN(ms)) return t('invite.expiry.unknown');
   const abs = Math.abs(ms);
-  const amount = abs >= 86_400_000 ? `${Math.floor(abs / 86_400_000)} d` : abs >= 3_600_000 ? `${Math.floor(abs / 3_600_000)} h` : `${Math.max(1, Math.floor(abs / 60_000))} min`;
-  return ms > 0 ? `Expires in ${amount}` : `Expired ${amount} ago`;
+  const [unit, count] = abs >= 86_400_000 ? ['Days', Math.floor(abs / 86_400_000)] as const
+    : abs >= 3_600_000 ? ['Hours', Math.floor(abs / 3_600_000)] as const
+    : ['Minutes', Math.max(1, Math.floor(abs / 60_000))] as const;
+  return t(`invite.expiry.${ms > 0 ? 'in' : 'ago'}${unit}`, { count });
 }
 
 export function activeOwnerCount(members: WorkspaceMember[]): number {
@@ -210,14 +218,14 @@ export function budgetMeters(view: ModelBudgetScopeView): BudgetMeter[] {
     const format = kind === 'cost' ? formatUsd : formatTokens;
     return {
       kind,
-      label: kind === 'cost' ? 'Estimated cost' : 'Tokens',
+      label: kind === 'cost' ? t('budgets.meter.cost') : t('budgets.meter.tokens'),
       used,
       limit,
       rawPercent: raw,
       percent: raw === null ? null : Math.min(100, Math.max(0, raw)),
       tone: meterTone(raw),
       usedText: format(used),
-      limitText: limit === null ? 'No limit' : format(limit),
+      limitText: limit === null ? t('budgets.noLimit') : format(limit),
     };
   };
   return [
@@ -226,11 +234,16 @@ export function budgetMeters(view: ModelBudgetScopeView): BudgetMeter[] {
   ];
 }
 
-/** "1 November 2026 (UTC)" for an ISO date; the API's months are UTC calendar months. */
-export function formatResetDate(isoDate: string): string {
+/**
+ * "1 November 2026 (UTC)" for an ISO date, in the page language ("1 نوفمبر 2026 (UTC)" in Arabic);
+ * the API's months are UTC calendar months. `withZone: false` leaves out the "(UTC)".
+ */
+export function formatResetDate(isoDate: string, withZone = true): string {
   const date = new Date(`${isoDate}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return isoDate;
-  return `${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(date)} (UTC)`;
+  const locale = getLocale();
+  const text = new Intl.DateTimeFormat(locale === 'en' ? 'en-GB' : intlLocale(locale), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(date);
+  return withZone ? t('budgets.utc', { date: text }, { isolate: false }) : text;
 }
 
 export type LimitDraft = { cost: string; tokens: string };
@@ -250,11 +263,11 @@ export function parseLimits(draft: LimitDraft): DraftResult<ModelBudgetLimits> {
   let tokens: number | null = null;
   if (costText) {
     cost = Number(costText);
-    if (!Number.isFinite(cost) || cost < 0 || cost > 1_000_000_000) return { ok: false, error: 'Cost limit must be a dollar amount from 0 to 1,000,000,000, or empty for no limit.' };
+    if (!Number.isFinite(cost) || cost < 0 || cost > 1_000_000_000) return { ok: false, error: t('budgets.err.cost') };
   }
   if (tokenText) {
     tokens = Number(tokenText);
-    if (!Number.isSafeInteger(tokens) || tokens < 0 || tokens > 10 ** 15) return { ok: false, error: 'Token limit must be a whole number from 0 to 10^15, or empty for no limit.' };
+    if (!Number.isSafeInteger(tokens) || tokens < 0 || tokens > 10 ** 15) return { ok: false, error: t('budgets.err.tokens') };
   }
   return { ok: true, value: { monthlyCostLimitUsd: cost, monthlyTokenLimit: tokens } };
 }

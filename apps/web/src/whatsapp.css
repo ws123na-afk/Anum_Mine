@@ -1,0 +1,160 @@
+/* WhatsApp inbox (WhatsAppView.tsx, docs/whatsapp.md). Spacing and colour from the shared tokens;
+   logical properties only, so Arabic mirrors without extra rules. */
+.waLayout { display: grid; gap: var(--d-s4); min-width: 0; }
+.waLayout .notice { margin: 0; }
+.waLayout .errorNotice { align-items: center; flex-wrap: wrap; }
+.waTabs { align-items: center; margin-bottom: 0; }
+.waTabStatus { margin-inline-start: auto; max-width: 100%; overflow-wrap: anywhere; }
+
+/* Buttons inside the view that are not in an .actions row get the same shape. :where keeps this
+   rule at the lowest specificity, so the variants below (secondary, chips, rows, links) win. */
+.waLayout :where(button) {
+  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff;
+  display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 44px; padding: 10px var(--d-s4);
+}
+.waLayout button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
+.waLayout button.danger { background: #be123c; }
+.waLayout button.iconOnly { padding: 10px; width: 44px; }
+.waLayout .linkButton { background: none; border: 0; color: var(--d-sky); cursor: pointer; display: inline; font: inherit; min-height: 0; padding: 0; text-decoration: underline; }
+
+.waPanel { align-items: flex-start; display: grid; gap: var(--d-s4); grid-template-columns: 28px minmax(0, 1fr); padding: var(--d-s5); }
+.waPanelIcon { color: var(--d-violet); height: 24px; width: 24px; }
+.waPanel h2 { margin-bottom: var(--d-s1); }
+.actions.waInline, .actions.waCenter, .actions.waInlineActions { margin-top: 0; }
+.waInline { margin-inline-start: auto; }
+.waCenter { justify-content: center; }
+.waCenterText { text-align: center; }
+.waFootnote { font-size: 13px; }
+.waError { background: rgba(253, 164, 175, .08); border: 1px solid rgba(253, 164, 175, .28); border-radius: var(--d-r-control); color: #fee2e6; font-size: 13px; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
+
+/* ---------- Inbox: list and thread side by side on wide screens ---------- */
+.waInbox { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); min-width: 0; }
+.waList, .waThread { display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s4); }
+.waList { align-content: start; }
+.waSearch { display: flex; gap: var(--d-s2); min-width: 0; }
+.waSearch input { flex: 1 1 auto; min-width: 0; }
+.waFilters, .waComposerTabs { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.waChip {
+  background: var(--d-glass-1); border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-muted);
+  font-size: 13px; font-weight: 600; min-height: 36px; padding: 6px var(--d-s3);
+}
+.waChip[aria-pressed="true"] { background: var(--d-glass-3); border-color: rgba(167, 139, 250, .5); color: var(--d-text); }
+.waListEmpty { padding: var(--d-s5) var(--d-s3); }
+
+.waConversations { display: grid; gap: var(--d-s1); list-style: none; margin: 0; max-height: min(70vh, 760px); overflow-y: auto; padding: 0; }
+.waConversation {
+  background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); display: grid; font-size: 15px;
+  font-weight: 400; gap: var(--d-s1); justify-content: stretch; min-width: 0; padding: var(--d-s3); text-align: start; width: 100%;
+}
+.waConversation:hover { background: var(--d-glass-1); }
+.waConversation[aria-current="true"] { background: var(--d-glass-2); border-color: rgba(167, 139, 250, .4); }
+.waRowTop { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
+.waRowTop strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.waRowTop time { color: var(--d-faint); flex: none; font-size: 12px; }
+.waPreview { color: var(--d-muted); display: -webkit-box; font-size: 14px; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.waRowMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.waCategory { border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-muted); font-size: 12px; padding: 1px var(--d-s2); }
+.waCategory.complaint { border-color: rgba(253, 164, 175, .4); color: var(--d-stop); }
+.waCategory.order_status { border-color: rgba(125, 211, 252, .4); color: var(--d-sky); }
+.waCategory.price_stock { border-color: rgba(134, 239, 172, .4); color: var(--d-ok); }
+.waCategory.supplier { border-color: rgba(167, 139, 250, .45); color: var(--d-violet); }
+.waWindowDot { align-items: center; color: var(--d-faint); display: inline-flex; font-size: 12px; gap: var(--d-s1); }
+.waWindowDot::before { border-radius: 50%; content: ""; height: 8px; width: 8px; }
+.waWindowDot.open::before { background: var(--d-ok); }
+.waWindowDot.closed::before { background: var(--d-warn); }
+.waUnread { background: var(--d-primary); border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700; margin-inline-start: auto; min-width: 22px; padding: 1px var(--d-s2); text-align: center; }
+
+.waThreadEmpty { color: var(--d-muted); justify-items: center; padding: var(--d-s7) var(--d-s5); text-align: center; }
+.waThreadEmpty svg { color: var(--d-violet); height: 28px; width: 28px; }
+.waThreadHeader { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); min-width: 0; }
+.waThreadWho { flex: 1 1 200px; min-width: 0; }
+.waThreadWho h2 { overflow-wrap: anywhere; }
+.waThreadWho h2:focus { outline: none; }
+.waBack { display: none !important; }
+.waWindow { align-items: center; border-radius: 999px; display: inline-flex; font-size: 13px; gap: var(--d-s2); padding: var(--d-s1) var(--d-s3); }
+.waWindow svg { height: 16px; width: 16px; }
+.waWindow.open { background: rgba(134, 239, 172, .1); color: var(--d-ok); }
+.waWindow.closed { background: rgba(252, 211, 141, .1); color: var(--d-warn); }
+
+.waSuggestion { background: var(--d-glass-1); border: 1px solid rgba(167, 139, 250, .3); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.waSuggestionHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.waSuggestionHead h3 { align-items: center; display: flex; gap: var(--d-s2); }
+.waSuggestionHead h3 svg { color: var(--d-violet); height: 18px; width: 18px; }
+.waSummary { font-size: 14px; overflow-wrap: anywhere; }
+.waDraftText { border-inline-start: 3px solid var(--d-violet); margin: 0; overflow-wrap: anywhere; padding-inline-start: var(--d-s3); white-space: pre-wrap; }
+.waProvenance { align-items: flex-start; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s2); }
+.waProvenance svg { color: var(--d-warn); flex: none; height: 16px; margin-top: 2px; width: 16px; }
+.waInlineActions { align-items: center; }
+
+.waMessages { display: grid; gap: var(--d-s2); max-height: min(58vh, 640px); min-width: 0; overflow-y: auto; padding-inline-end: var(--d-s1); }
+.waBubbles { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.waBubble { display: flex; min-width: 0; }
+.waBubble.outbound { justify-content: flex-end; }
+.waBubbleBody { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); max-width: min(78%, 560px); min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.waBubble.outbound .waBubbleBody { background: rgba(91, 75, 224, .22); border-color: rgba(167, 139, 250, .3); }
+.waText { overflow-wrap: anywhere; white-space: pre-wrap; }
+.waTemplateTag { align-items: center; color: var(--d-violet); display: flex; font-size: 12px; gap: var(--d-s1); }
+.waTemplateTag svg { height: 14px; width: 14px; }
+.waMedia { display: grid; gap: var(--d-s1); justify-items: start; }
+.waBubbleMeta { align-items: center; color: var(--d-faint); display: flex; flex-wrap: wrap; font-size: 12px; gap: var(--d-s2); }
+.waApproval { background: var(--d-glass-1); border: 1px solid rgba(125, 211, 252, .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.waApproval h4 { align-items: center; display: flex; font-size: 14px; gap: var(--d-s2); margin: 0; }
+.waApproval h4 svg { color: var(--d-sky); height: 16px; width: 16px; }
+
+.waComposer { display: grid; gap: var(--d-s2); min-width: 0; }
+.waComposer .field { margin-top: 0; }
+.waComposer textarea { min-height: 88px; }
+.waComposerFooter { align-items: center; justify-content: space-between; margin-top: 0; }
+.waComposerFooter > small { flex: 1 1 220px; min-width: 0; }
+.waClosed { align-items: center; background: rgba(252, 211, 141, .07); border: 1px solid rgba(252, 211, 141, .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: 20px minmax(0, 1fr) auto; padding: var(--d-s3) var(--d-s4); }
+.waClosed svg { color: var(--d-warn); height: 18px; width: 18px; }
+.waTemplatePreview { background: var(--d-glass-1); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); padding: var(--d-s3); }
+.waTemplatePreview p { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* ---------- Templates ---------- */
+.waTemplates { display: grid; gap: var(--d-s4); min-width: 0; }
+.waTemplates > .moduleIntro { margin-bottom: 0; }
+.waTemplateList { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); list-style: none; margin: 0; padding: 0; }
+.waTemplateCard { align-content: start; display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s4); }
+.waTemplateCard header { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.waTemplateCard h3 { overflow-wrap: anywhere; }
+.waTemplateHeader { font-weight: 600; }
+.waTemplateBody { color: var(--d-muted); font-size: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.waCheck { align-items: flex-start; color: var(--d-muted); display: flex; font-size: 14px; gap: var(--d-s2); margin-top: var(--d-s2); }
+.waCheck input { accent-color: var(--d-violet); flex: none; height: 18px; margin: 2px 0 0; min-height: 0; width: 18px; }
+
+/* ---------- Setup ---------- */
+.waSetup { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); min-width: 0; }
+.waSetupStatus, .waSetupForm { display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s5); }
+.waSetupStatus > .actions, .waSetupForm > .actions { margin-top: 0; }
+.waFacts { display: grid; gap: var(--d-s2); margin: 0; }
+.waFacts > div { display: grid; gap: var(--d-s3); grid-template-columns: minmax(120px, 40%) minmax(0, 1fr); }
+.waFacts dt { color: var(--d-muted); font-size: 13px; }
+.waFacts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.waWebhook { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.waWebhook > span { flex-basis: 100%; font-size: 13px; }
+.waWebhook code { background: rgba(2, 6, 23, .45); border: 1px solid var(--d-line); border-radius: var(--d-r-control); flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
+.waFormGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.waFormGrid .field { margin-top: var(--d-s3); }
+.waInputRow { display: flex; gap: var(--d-s2); min-width: 0; }
+.waInputRow input { flex: 1 1 auto; min-width: 0; }
+
+@media (max-width: 1180px) {
+  .waSetup { grid-template-columns: minmax(0, 1fr); }
+}
+/* One pane at a time: the list, or the chosen conversation with a way back. */
+@media (max-width: 900px) {
+  .waInbox { grid-template-columns: minmax(0, 1fr); }
+  .waInbox.showList .waThread { display: none; }
+  .waInbox.showThread .waList { display: none; }
+  .waBack { display: inline-flex !important; }
+  .waConversations, .waMessages { max-height: none; }
+  .waBubbleBody { max-width: 90%; }
+}
+@media (max-width: 560px) {
+  .waList, .waThread, .waSetupStatus, .waSetupForm, .waPanel { padding: var(--d-s3); }
+  .waClosed { grid-template-columns: 20px minmax(0, 1fr); }
+  .waClosed button { grid-column: 1 / -1; }
+  .waFacts > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .waTabStatus { margin-inline-start: 0; }
+}

@@ -1,5 +1,7 @@
 import asyncio
-from datetime import datetime
+from dataclasses import replace
+import json
+from datetime import datetime, timezone
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -11,6 +13,7 @@ from pydantic import BaseModel
 from .authorization import Permission
 from .dependencies import (
     event_runtime,
+    has_permission,
     list_events_for_stream,
     memory_repository,
     memory_repository_context,
@@ -24,7 +27,15 @@ from .approval_integrity import as_viewed
 from .audit import AuditRecord
 from .errors import ApplicationError, ErrorCode, application_error_handler, error_response, register_exception_handlers
 from .events import CanonicalEventName, create_event
-from .integrations import IntegrationConfiguration, IntegrationConfigurationView, IntegrationHealth, default_integration_registry
+from .integrations import (
+    CredentialNotAcceptedError,
+    IntegrationConfiguration,
+    IntegrationConfigurationView,
+    IntegrationCredentialUpdate,
+    IntegrationHealth,
+    WorkspaceCredentialView,
+    default_integration_registry,
+)
 from .integration_tools import configured_external_handler
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
 from .model_gateway import build_default_model_gateway
@@ -60,8 +71,14 @@ from .schemas import (
     RunTaskResponse,
     RunPhase,
     Task,
+    TaskBulkAction,
+    TaskBulkItemResult,
+    TaskBulkRequest,
+    TaskBulkResponse,
     TaskCreate,
     TaskStatus,
+    TaskSummary,
+    TaskUpdate,
     Tenant,
     TenantCreate,
     TenantContext,
@@ -75,23 +92,76 @@ from .schemas import (
 )
 from .settings import settings
 from .store import store
+from .tasks import (
+    ACTIVE_STATUSES,
+    EVENT_PAGE_DEFAULT,
+    EVENT_PAGE_MAX,
+    EXPORT_MAX_EVENTS,
+    EXPORT_MAX_RUNS,
+    RETRYABLE_STATUSES,
+    RUN_PAGE_DEFAULT,
+    RUN_PAGE_MAX,
+    SEARCH_MAX_CHARS,
+    TaskFilters,
+    export_document,
+    export_markdown,
+    is_task_creator,
+    normalize_query,
+)
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
-from .hardening import docs_routes, enforce_startup_policy, install_hardening
+from .hardening import BodyLimitRule, docs_routes, enforce_startup_policy, install_hardening
+from .meetings import router as meetings_router
 from .voice import router as voice_router
+from .voice_call import call_router as voice_call_router
+from . import chat_tools
+from .agent_skills import default_skill_registry
 from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
+from .whatsapp import register_whatsapp_tools, router as whatsapp_router
+from . import email_inbox
+from .email_api import router as email_router
+from .commerce.api import router as commerce_router
+from .commerce.scheduler import build_commerce_scheduler
+from .commerce.tools import register_commerce_tools
+from .calendar_api import router as calendar_router
+from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .user_preferences import router as user_preferences_router
+from .home import router as home_router
+from .push import push_dispatcher, router as push_router
+from .developer_watch import build_developer_watcher
+from .autonomy_api import router as autonomy_router
+from .learning import SignalKind, Surface
+from .learning_api import router as learning_router
+from .learning_store import new_signal, record_server_signal
+from . import delivery
+from .tyre.api import router as tyre_router
+from .tyre.tools import register_tyre_tools
+from .commands import router as commands_router
+from .favorites import router as favorites_router
+from .knowledge_base import router as knowledge_router
+from .reports import router as reports_router
+from .agent_policy import AgentRunProfile
+from .agent_profiles import NOT_FOUND as AGENT_NOT_FOUND, AgentStatus, configure_runtime_catalog, load_agent
+from .agent_profiles import router as agents_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
-from .automation import build_automation_scheduler, router as automation_router
+from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
+from .assistants import router as assistants_router
+from .notifications import router as notifications_router
+from .organisations import router as organisations_router
+from .team_work import build_team_reminder_scheduler, router as team_router
+from .automation_dispatch import automation_dispatcher
 from .files import router as files_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
-from .skills_api import router as skills_router
+from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
 from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
+from .audit_log import router as audit_log_router
+from .workspace_admin import router as workspace_admin_router
+from .sign_in_options import router as sign_in_options_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
@@ -103,16 +173,47 @@ validate_auth_configuration(settings)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await event_runtime.start()
+    # Phone push from committed events when ANUM_FCM_SERVICE_ACCOUNT_JSON is set
+    # (docs/notifications.md); the developer watcher refreshes in-progress developer
+    # requests so "ready for review" reaches a closed app.
+    push_dispatcher.start()
+    # Runs automation steps after their transaction commits and reacts to committed events.
+    automation_dispatcher.start()
+    developer_watcher = build_developer_watcher()
+    if developer_watcher is not None:
+        developer_watcher.start()
     # Fires due automation schedules when ANUM_AUTOMATION_SCHEDULER_ENABLED=true; safe on
     # every replica with PostgreSQL (docs/automation.md#scheduler).
     scheduler = build_automation_scheduler(settings)
     if scheduler is not None:
         scheduler.start()
+    # Background mailbox sync (docs/email.md#sync), PostgreSQL only.
+    email_scheduler = email_inbox.build_email_scheduler(settings)
+    if email_scheduler is not None:
+        email_scheduler.start()
+    # Syncs due sales-channel connectors when ANUM_COMMERCE_SYNC_ENABLED=true (docs/commerce.md#sync).
+    commerce_scheduler = build_commerce_scheduler()
+    if commerce_scheduler is not None:
+        commerce_scheduler.start()
+    # Overdue reminders, ANUM follow-ups and notification email retries (docs/team-work.md).
+    reminders = build_team_reminder_scheduler(settings)
+    if reminders is not None:
+        reminders.start()
     try:
         yield
     finally:
+        if reminders is not None:
+            await reminders.stop()
+        if commerce_scheduler is not None:
+            await commerce_scheduler.stop()
+        if email_scheduler is not None:
+            await email_scheduler.stop()
         if scheduler is not None:
             await scheduler.stop()
+        if developer_watcher is not None:
+            await developer_watcher.stop()
+        await automation_dispatcher.stop()
+        await push_dispatcher.stop()
         await event_runtime.stop()
         shutdown_telemetry()
         shutdown_error_reporting()
@@ -129,12 +230,18 @@ install_hardening(
     settings,
     upload_path_prefix=files_router.prefix,
     upload_max_bytes=settings.max_upload_body_bytes,
+    # Meeting recordings and transcript files (docs/meetings.md) have their own caps.
+    extra_upload_rules=(
+        BodyLimitRule("POST", f"{meetings_router.prefix}/recordings", settings.meeting_recording_max_bytes + 1024),
+        BodyLimitRule("POST", f"{meetings_router.prefix}/transcripts", settings.meeting_transcript_max_bytes + 1024),
+    ),
 )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    # PATCH: renaming a workspace and toggling a skill installation.
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
         "content-type",
         "authorization",
@@ -144,10 +251,15 @@ app.add_middleware(
         "x-user-roles",
         "last-event-id",
         "idempotency-key",
+        # File uploads (docs/files.md): the name and the optional checksum of the body.
+        "x-file-name",
+        "x-content-sha256",
         CORRELATION_ID_HEADER,
     ],
-    # Content-Disposition: the file name of a download (GET /api/v1/privacy/export).
-    expose_headers=[CORRELATION_ID_HEADER, "Retry-After", "Content-Disposition"],
+    # Content-Disposition: the file name of a download (privacy and audit exports).
+    # X-Next-Cursor: the next page of GET /api/v1/workspace-members?limit=.
+    # X-Total-Count: the total behind a page of /api/v1/automation lists.
+    expose_headers=[CORRELATION_ID_HEADER, "Retry-After", "Content-Disposition", "X-Next-Cursor", "X-Total-Count"],
 )
 # Outermost ANUM middleware, so 413/429 answers and CORS preflights are counted too.
 app.add_middleware(HttpMetricsMiddleware)
@@ -167,6 +279,7 @@ async def model_budget_exceeded_handler(request: Request, exc: ModelBudgetExceed
 
 
 app.include_router(voice_router)
+app.include_router(voice_call_router)
 app.include_router(conversations_router)
 app.include_router(privacy_router)
 app.include_router(phase5_router)
@@ -178,20 +291,75 @@ app.include_router(skills_router)
 app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
+app.include_router(audit_log_router)
+app.include_router(workspace_admin_router)
 app.include_router(model_budget_router)
 app.include_router(developer_router)
+app.include_router(whatsapp_router)
+app.include_router(email_router)
+app.include_router(calendar_router)
+app.include_router(marketing_router)
 app.include_router(user_preferences_router)
+app.include_router(push_router)
+app.include_router(commerce_router)
+app.include_router(tyre_router)
+event_runtime.add_listener(push_dispatcher.submit)
+# Event triggers and steps waiting on agent tasks (docs/automation.md#triggers).
+event_runtime.add_listener(automation_dispatcher.submit_events)
+app.include_router(autonomy_router)
+app.include_router(learning_router)
+app.include_router(meetings_router)
+# ANUM Command (docs/command.md): plan preview, command records, quick commands.
+app.include_router(commands_router)
+app.include_router(sign_in_options_router)
+app.include_router(favorites_router)
+app.include_router(knowledge_router)
+app.include_router(reports_router)
+app.include_router(team_router)
+app.include_router(notifications_router)
+app.include_router(assistants_router)
+app.include_router(organisations_router)
+app.include_router(agents_router)
+app.include_router(home_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_developer_tools(default_tool_registry(
-    configured_external_handler(settings),
+tool_registry = register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+    configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
-))
+)))))))
+# Reports and other features send through whichever delivery tools are registered.
+delivery.configure(tool_registry)
+# Skill details describe required tools as this runtime would treat them (docs/skills.md).
+configure_tool_catalog(tool_registry.definition)
+# A workspace owner can switch a mail provider off under Integrations (email_<provider>).
+email_inbox.integration_enabled = lambda context, integration_id: not integration_registry.switched_off(integration_id, context)
+# Approved social posts publish at their time on every scheduler pass (docs/marketing.md#publishing).
+register_scheduler_pass("marketing_publisher", run_due_posts)
+# Agents are built from exactly the tools this runtime has (docs/agents.md).
+configure_runtime_catalog(tool_registry)
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)
 run_dispatcher = build_run_dispatcher(settings)
+# The autonomy routes run undo actions through the same registry (docs/autonomy.md).
+app.state.tool_registry = tool_registry
+# Chat questions that need data or an action run as tasks through this same runtime,
+# registry and durable dispatcher (docs/conversations.md#tools-in-chat).
+chat_tools.configure(
+    chat_tools.ChatTaskRuntime(
+        tools=tool_registry,
+        skills=default_skill_registry(),
+        retriever=lambda context: retriever_for(context, model_gateway),
+        durable=(
+            (lambda task, context, repository, runtime: _queue_durable_run(task, context, repository, runtime))
+            if run_dispatcher is not None
+            else None
+        ),
+    )
+)
+# Home's insights read the last recorded integration checks (docs/home.md).
+app.state.integration_registry = integration_registry
 
 
 @asynccontextmanager
@@ -215,11 +383,16 @@ async def _task_lock(context: TenantContext, task_id: str) -> AsyncIterator[None
         await run_locks.release(lock)
 
 
-async def _dispatch(context: TenantContext, task_id: str, run_id: str) -> None:
+async def _dispatch(
+    context: TenantContext, task_id: str, run_id: str, *, replace_existing: bool = False
+) -> None:
     if run_dispatcher is None:
         raise RuntimeError("ANUM_RUNTIME_BACKEND is not temporal")
     try:
-        await run_dispatcher.start(run_input_for(context, task_id, run_id))
+        if replace_existing:
+            await run_dispatcher.start(run_input_for(context, task_id, run_id), replace_existing=True)
+        else:
+            await run_dispatcher.start(run_input_for(context, task_id, run_id))
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -356,6 +529,44 @@ async def configure_integration(integration_id: str, payload: IntegrationConfigu
         raise HTTPException(status_code=404, detail="Integration not found") from exc
 
 
+@app.post("/api/v1/integrations/{integration_id}/test", response_model=IntegrationHealth)
+async def test_integration(integration_id: str, context: TenantContext = Depends(tenant_context)) -> IntegrationHealth:
+    """Probe one integration now; the result and its failure (if any) are recorded and audited."""
+    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    try:
+        return await integration_registry.test(integration_id, context)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Integration not found") from exc
+
+
+@app.put("/api/v1/integrations/{integration_id}/credential", response_model=WorkspaceCredentialView)
+def set_integration_credential(
+    integration_id: str, payload: IntegrationCredentialUpdate, context: TenantContext = Depends(tenant_context)
+) -> WorkspaceCredentialView:
+    """Store this workspace's own credential, encrypted at rest; it is never returned."""
+    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    try:
+        return integration_registry.set_credential(integration_id, context, payload.secret)
+    except CredentialNotAcceptedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Integration not found") from exc
+
+
+@app.delete("/api/v1/integrations/{integration_id}/credential", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_integration_credential(integration_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    require_permission(context, Permission.ORGANIZATION_MANAGE)
+    try:
+        removed = integration_registry.delete_credential(integration_id, context)
+    except CredentialNotAcceptedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Integration not found") from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="No workspace credential is stored for this integration")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.post("/api/v1/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
 async def create_task(
     payload: TaskCreate,
@@ -363,6 +574,8 @@ async def create_task(
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
     require_permission(context, Permission.TASK_CREATE)
+    if payload.agent_id is not None:
+        _usable_agent(context, payload.agent_id)
     now = utc_now()
     task = Task(
         id=new_id("task"),
@@ -374,6 +587,9 @@ async def create_task(
         created_at=now,
         updated_at=now,
         created_by=context.user_id,
+        priority=payload.priority,
+        due_at=_utc(payload.due_at),
+        agent_id=payload.agent_id,
     )
     repository.create_task(task)
     repository.record_event(
@@ -389,20 +605,144 @@ async def create_task(
     return task
 
 
+TASK_MANAGER_REQUIRED = "Only the task's creator or a workspace owner can change this task."
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """A date-time in UTC; one without an offset is read as UTC."""
+    aware = _aware(value)
+    return None if aware is None else aware.astimezone(timezone.utc)
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    """Treat a date-time without an offset as UTC."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
+
+
+def _task_filters(
+    context: TenantContext,
+    statuses: list[TaskStatus] | None,
+    q: str | None,
+    created_by: str | None,
+    created_after: datetime | None,
+    created_before: datetime | None,
+    archived: bool,
+) -> TaskFilters:
+    after, before = _aware(created_after), _aware(created_before)
+    if after is not None and before is not None and after >= before:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="created_after must be earlier than created_before",
+        )
+    creator = created_by.strip() if created_by else None
+    if creator == "me":
+        creator = context.user_id
+    return TaskFilters(
+        statuses=frozenset(statuses or ()),
+        query=normalize_query(q),
+        created_by=creator or None,
+        created_after=after,
+        created_before=before,
+        archived=archived,
+    )
+
+
+class _TaskListQuery:
+    """The task list's filters, shared by ``GET /tasks`` and ``GET /tasks/summary``."""
+
+    def __init__(
+        self,
+        status_filter: list[TaskStatus] | None = Query(default=None, alias="status"),
+        q: str | None = Query(default=None, max_length=SEARCH_MAX_CHARS),
+        created_by: str | None = Query(default=None, max_length=160),
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        archived: bool = False,
+        agent_id: str | None = Query(default=None, max_length=80, description="Only tasks run as this agent"),
+    ) -> None:
+        self.agent_id = agent_id or None
+        self.statuses = status_filter
+        self.q = q
+        self.created_by = created_by
+        self.created_after = created_after
+        self.created_before = created_before
+        self.archived = archived
+
+    def filters(self, context: TenantContext) -> TaskFilters:
+        return replace(
+            _task_filters(
+                context,
+                self.statuses,
+                self.q,
+                self.created_by,
+                self.created_after,
+                self.created_before,
+                self.archived,
+            ),
+            agent_id=self.agent_id,
+        )
+
+
 @app.get("/api/v1/tasks", response_model=list[Task])
 async def list_tasks(
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
+    query: _TaskListQuery = Depends(),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[Task]:
+    """Tasks newest first, keyset-paged; archived tasks only with ``archived=true``."""
     require_permission(context, Permission.TASK_READ)
+    filters = query.filters(context)
     try:
-        return repository.list_tasks(context, limit=limit, after=cursor or None)
+        return repository.list_tasks(context, limit=limit, after=cursor or None, filters=filters)
     except UnknownCursorError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown or invalid cursor"
         ) from None
+
+
+@app.get("/api/v1/tasks/summary", response_model=TaskSummary)
+async def summarize_tasks(
+    query: _TaskListQuery = Depends(),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> TaskSummary:
+    """Counts per status for the list's other filters, the archived count and creators."""
+    require_permission(context, Permission.TASK_READ)
+    return repository.summarize_tasks(context, query.filters(context))
+
+
+@app.post("/api/v1/tasks/bulk", response_model=TaskBulkResponse)
+async def bulk_tasks(
+    payload: TaskBulkRequest,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> TaskBulkResponse:
+    """Archive, restore or cancel up to 100 tasks; each task answers as its single route would."""
+    require_permission(context, Permission.TASK_READ)
+    handlers = {
+        TaskBulkAction.ARCHIVE: archive_task,
+        TaskBulkAction.UNARCHIVE: unarchive_task,
+        TaskBulkAction.CANCEL: cancel_task,
+    }
+    handler = handlers[payload.action]
+    results: list[TaskBulkItemResult] = []
+    for task_id in payload.task_ids:
+        try:
+            task = await handler(task_id, context=context, repository=repository)
+        except HTTPException as exc:
+            results.append(
+                TaskBulkItemResult(task_id=task_id, ok=False, status_code=exc.status_code, message=str(exc.detail))
+            )
+            continue
+        results.append(TaskBulkItemResult(task_id=task_id, ok=True, status_code=200, task=task))
+    succeeded = sum(1 for result in results if result.ok)
+    return TaskBulkResponse(
+        action=payload.action, succeeded=succeeded, failed=len(results) - succeeded, results=results
+    )
 
 
 @app.get("/api/v1/tasks/{task_id}", response_model=Task)
@@ -413,6 +753,258 @@ async def get_task(
 ) -> Task:
     require_permission(context, Permission.TASK_READ)
     return _get_task_for_context(task_id, context, repository)
+
+
+def _require_task_manager(context: TenantContext, task: Task) -> None:
+    """Owners (``task:manage``) change any task; a member only a task they created."""
+    if has_permission(context, Permission.TASK_MANAGE):
+        return
+    require_permission(context, Permission.TASK_CREATE)
+    if not is_task_creator(task, context.user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TASK_MANAGER_REQUIRED)
+
+
+def _audit_task(
+    repository: AnumRepository,
+    context: TenantContext,
+    task: Task,
+    action: str,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    repository.record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            actor=context.user_id,
+            action=action,
+            target=task.id,
+            outcome="succeeded",
+            correlation_id=task.id,
+            created_at=utc_now(),
+            metadata=metadata or {},
+        )
+    )
+
+
+def _record_task_event(
+    repository: AnumRepository,
+    context: TenantContext,
+    task: Task,
+    name: CanonicalEventName,
+    payload: dict[str, object],
+) -> None:
+    repository.record_event(
+        create_event(name, context, task.id, {"task_id": task.id, **payload}, correlation_id=task.id).event
+    )
+
+
+@app.put("/api/v1/tasks/{task_id}", response_model=Task)
+async def update_task(
+    task_id: str,
+    payload: TaskUpdate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Task:
+    """Rename or re-plan a task (priority, due date); its instructions change only while
+    it has never run."""
+    require_permission(context, Permission.TASK_READ)
+    task = _get_task_for_context(task_id, context, repository, for_update=True)
+    _require_task_manager(context, task)
+    due_sent = "due_at" in payload.model_fields_set
+    if payload.title is None and payload.prompt is None and payload.priority is None and not due_sent:
+        raise HTTPException(
+            status_code=422, detail="Send a new title, instructions, priority or due date"
+        )
+    if task.archived_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before editing it")
+    changed: list[str] = []
+    if payload.prompt is not None and payload.prompt != task.prompt:
+        if task.status != TaskStatus.CREATED or repository.find_run_for_task(task.id, context) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Instructions cannot change after the task has run; create a new task instead",
+            )
+        task.prompt = payload.prompt
+        changed.append("prompt")
+    if payload.title is not None and payload.title != task.title:
+        task.title = payload.title
+        changed.append("title")
+    if payload.priority is not None and payload.priority != task.priority:
+        task.priority = payload.priority
+        changed.append("priority")
+    if due_sent and _utc(payload.due_at) != task.due_at:
+        task.due_at = _utc(payload.due_at)
+        changed.append("due_at")
+    if not changed:
+        return task
+    task.updated_at = utc_now()
+    repository.save_task(task)
+    # Field names only: events never carry the instructions themselves (docs/events.md).
+    _record_task_event(repository, context, task, CanonicalEventName.TASK_UPDATED, {"fields": changed})
+    _audit_task(repository, context, task, "task.updated", {"fields": changed})
+    return task
+
+
+@app.post("/api/v1/tasks/{task_id}/archive", response_model=Task)
+async def archive_task(
+    task_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Task:
+    """Hide a finished (or never run) task from the default list; nothing is deleted."""
+    require_permission(context, Permission.TASK_READ)
+    task = _get_task_for_context(task_id, context, repository, for_update=True)
+    _require_task_manager(context, task)
+    if task.archived_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is already archived")
+    if task.status in ACTIVE_STATUSES and task.status != TaskStatus.CREATED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Cancel the task or let it finish before archiving it"
+        )
+    task.archived_at = task.updated_at = utc_now()
+    task.archived_by = context.user_id
+    repository.save_task(task)
+    _record_task_event(repository, context, task, CanonicalEventName.TASK_ARCHIVED, {})
+    _audit_task(repository, context, task, "task.archived")
+    return task
+
+
+@app.post("/api/v1/tasks/{task_id}/unarchive", response_model=Task)
+async def unarchive_task(
+    task_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Task:
+    """Return an archived task to the default list."""
+    require_permission(context, Permission.TASK_READ)
+    task = _get_task_for_context(task_id, context, repository, for_update=True)
+    _require_task_manager(context, task)
+    if task.archived_at is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is not archived")
+    task.archived_at = None
+    task.archived_by = None
+    task.updated_at = utc_now()
+    repository.save_task(task)
+    _record_task_event(repository, context, task, CanonicalEventName.TASK_UNARCHIVED, {})
+    _audit_task(repository, context, task, "task.unarchived")
+    return task
+
+
+@app.get("/api/v1/tasks/{task_id}/runs", response_model=list[AgentRun])
+async def list_task_runs(
+    task_id: str,
+    limit: int = Query(default=RUN_PAGE_DEFAULT, ge=1, le=RUN_PAGE_MAX),
+    cursor: str | None = None,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> list[AgentRun]:
+    """Every run of the task newest first (a retried task has several), keyset-paged."""
+    require_permission(context, Permission.TASK_READ)
+    _get_task_for_context(task_id, context, repository)
+    try:
+        return repository.list_runs_for_task(task_id, context, limit=limit, after=cursor or None)
+    except UnknownCursorError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown or invalid cursor") from None
+
+
+@app.get("/api/v1/tasks/{task_id}/events", response_model=list[DomainEvent])
+async def list_task_events(
+    task_id: str,
+    limit: int = Query(default=EVENT_PAGE_DEFAULT, ge=1, le=EVENT_PAGE_MAX),
+    cursor: str | None = None,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> list[DomainEvent]:
+    """The task's events (correlation id = task id) newest first, keyset-paged."""
+    require_permission(context, Permission.TASK_READ)
+    require_permission(context, Permission.EVENT_READ)
+    _get_task_for_context(task_id, context, repository)
+    try:
+        return repository.list_task_events(task_id, context, limit=limit, after=cursor or None)
+    except UnknownCursorError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown or invalid cursor") from None
+
+
+@app.get("/api/v1/tasks/{task_id}/export")
+async def export_task(
+    task_id: str,
+    export_format: str = Query(default="json", alias="format", pattern="^(json|markdown)$"),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Response:
+    """Download the task's run log: every run with its steps, approvals and events."""
+    require_permission(context, Permission.TASK_READ)
+    task = _get_task_for_context(task_id, context, repository)
+    runs = repository.list_runs_for_task(task_id, context, limit=EXPORT_MAX_RUNS + 1)
+    events = repository.list_task_events(task_id, context, limit=EXPORT_MAX_EVENTS + 1)
+    now = utc_now()
+    document = export_document(
+        task,
+        list(reversed(runs[:EXPORT_MAX_RUNS])),
+        [as_viewed(approval, now) for approval in repository.list_task_approvals(task_id, context)],
+        list(reversed(events[:EXPORT_MAX_EVENTS])),
+        exported_at=now,
+        exported_by=context.user_id,
+        runs_truncated=len(runs) > EXPORT_MAX_RUNS,
+        events_truncated=len(events) > EXPORT_MAX_EVENTS,
+    )
+    _audit_task(repository, context, task, "task.exported", {"format": export_format})
+    safe_id = "".join(char for char in task.id if char.isalnum() or char in "_-")[:80]
+    if export_format == "markdown":
+        body, media_type, extension = export_markdown(document), "text/markdown; charset=utf-8", "md"
+    else:
+        body = json.dumps(document, ensure_ascii=False, indent=2)
+        media_type, extension = "application/json", "json"
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_id}-run-log.{extension}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/api/v1/tasks/{task_id}/retry", response_model=RunTaskResponse)
+async def retry_task(
+    task_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> RunTaskResponse:
+    """Start a new run of a failed or cancelled task; earlier runs stay in its history."""
+    require_permission(context, Permission.TASK_RUN)
+    check_model_budget(context)
+    async with _task_lock(context, task_id):
+        task = _get_task_for_context(task_id, context, repository, for_update=True)
+        if task.archived_at is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before retrying it")
+        if task.status not in RETRYABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Only a failed or cancelled task can be retried"
+            )
+        # A retry as an agent uses the agent as it is now (docs/agents.md).
+        agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+        previous = repository.find_run_for_task(task.id, context)
+        _record_task_event(
+            repository,
+            context,
+            task,
+            CanonicalEventName.TASK_RETRIED,
+            {"previous_run_id": previous.id} if previous is not None else {},
+        )
+        runtime = AgentRuntime(
+            budgeted_model_gateway(context, model_gateway),
+            repository,
+            tools=tool_registry,
+            retriever=retriever_for(context, model_gateway),
+        )
+        if run_dispatcher is not None:
+            return await _queue_durable_run(task, context, repository, runtime, retry=True, agent=agent)
+        run, approval = await runtime.run_task(task, context, agent=agent)
+        repository.save_task(task)
+        repository.save_run(run)
+        return RunTaskResponse(task=task, run=run, approval=_approval_with_progress(approval, context, repository))
 
 
 @app.post("/api/v1/tasks/{task_id}/run", response_model=RunTaskResponse)
@@ -426,8 +1018,12 @@ async def run_task(
     check_model_budget(context)
     async with _task_lock(context, task_id):
         task = _get_task_for_context(task_id, context, repository, for_update=True)
+        if task.archived_at is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before running it")
         if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
+        # A task as an agent runs with a snapshot of the agent as it is now (docs/agents.md).
+        agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
 
         runtime = AgentRuntime(
             budgeted_model_gateway(context, model_gateway),
@@ -436,20 +1032,43 @@ async def run_task(
             retriever=retriever_for(context, model_gateway),
         )
         if run_dispatcher is not None:
-            return await _queue_durable_run(task, context, repository, runtime)
-        run, approval = await runtime.run_task(task, context)
+            return await _queue_durable_run(task, context, repository, runtime, agent=agent)
+        run, approval = await runtime.run_task(task, context, agent=agent)
         repository.save_task(task)
         repository.save_run(run)
         return RunTaskResponse(task=task, run=run, approval=_approval_with_progress(approval, context, repository))
 
 
+def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-untyped-def]
+    """The agent a task runs as, or 404/409 saying why it cannot run now."""
+    profile = load_agent(context, agent_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=AGENT_NOT_FOUND)
+    if profile.status != AgentStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{profile.name} is paused. Resume it in Agents to run tasks with it.",
+        )
+    return profile
+
+
 async def _queue_durable_run(
-    task: Task, context: TenantContext, repository: AnumRepository, runtime: AgentRuntime
+    task: Task,
+    context: TenantContext,
+    repository: AnumRepository,
+    runtime: AgentRuntime,
+    *,
+    retry: bool = False,
+    agent: AgentRunProfile | None = None,
 ) -> RunTaskResponse:
-    """Persist a queued run and start its Temporal workflow (ANUM_RUNTIME_BACKEND=temporal)."""
-    if repository.find_run_for_task(task.id, context) is not None:
+    """Persist a queued run and start its Temporal workflow (ANUM_RUNTIME_BACKEND=temporal).
+
+    A retry replaces any workflow still open for the task: the task is failed or
+    cancelled, so such a workflow can only be finishing the previous run.
+    """
+    if not retry and repository.find_run_for_task(task.id, context) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task already has a run")
-    run = runtime.new_run(task, status=TaskStatus.QUEUED)
+    run = runtime.new_run(task, status=TaskStatus.QUEUED, agent=agent)
     workflow_id = workflow_id_for(context.tenant_id, context.workspace_id, task.id)
     run.steps.append(
         AgentRunStep(
@@ -464,8 +1083,48 @@ async def _queue_durable_run(
     task.updated_at = run.updated_at
     repository.save_task(task)
     repository.save_run(run)
-    await _dispatch(context, task.id, run.id)
+    await _dispatch(context, task.id, run.id, replace_existing=retry)
     return RunTaskResponse(task=task, run=run, approval=None)
+
+
+async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
+    """Run an automation's agent task like ``POST /tasks/{id}/run`` (docs/automation.md).
+
+    ``context`` is the run's actor with their current role; budget, ToolPolicy and
+    approvals apply exactly as for a person pressing Run. Refusals become ``StepFailed``.
+    """
+    from .automation import StepFailed
+    from .durable_runs import tenant_unit_of_work
+
+    try:
+        check_model_budget(context)
+    except ModelBudgetExceededError as exc:
+        raise StepFailed(str(exc), retryable=True) from None
+    try:
+        async with _task_lock(context, task_id):
+            with tenant_unit_of_work(context) as unit:
+                task = unit.get_task(task_id, context)
+                if task is None:
+                    raise StepFailed(f"The agent task {task_id} no longer exists in this workspace.")
+                if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED} or unit.find_run_for_task(task.id, context):
+                    return  # already started (a repeated hand-off)
+                runtime = AgentRuntime(
+                    budgeted_model_gateway(context, model_gateway),
+                    unit,
+                    tools=tool_registry,
+                    retriever=retriever_for(context, model_gateway),
+                )
+                if run_dispatcher is not None:
+                    await _queue_durable_run(task, context, unit, runtime)
+                    return
+                run, _approval = await runtime.run_task(task, context)
+                unit.save_task(task)
+                unit.save_run(run)
+    except HTTPException as exc:
+        raise StepFailed(str(exc.detail), retryable=exc.status_code in {409, 503}) from None
+
+
+automation_dispatcher.configure(task_runner=run_task_for_automation)
 
 
 @app.post("/api/v1/tasks/{task_id}/cancel", response_model=Task)
@@ -476,6 +1135,8 @@ async def cancel_task(
 ) -> Task:
     require_permission(context, Permission.TASK_CANCEL)
     task = _get_task_for_context(task_id, context, repository, for_update=True)
+    if task.archived_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before cancelling it")
     if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be cancelled")
 
@@ -750,7 +1411,10 @@ async def delete_my_conversation_memories(
             detail="Only memories from your chats can be deleted together (source_type=conversation)",
         )
     deleted = 0
-    filters = MemoryListFilters(source_types={CONVERSATION_SOURCE_TYPE}, include_expired=True, limit=MEMORY_LIST_MAX_LIMIT)
+    # owner_only: shared notes never fill a page, so a page shorter than the limit is the last.
+    filters = MemoryListFilters(
+        source_types={CONVERSATION_SOURCE_TYPE}, include_expired=True, limit=MEMORY_LIST_MAX_LIMIT, owner_only=True
+    )
     while True:
         own = [note for note in memories.list(context, filters, utc_now()) if note.owner_user_id == context.user_id]
         removed = 0
@@ -1086,7 +1750,10 @@ async def _decide_approval_locked(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval already decided")
 
     runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
-    run = repository.find_run_for_task(task.id, context)
+    # The approval's own run: a retried task has several runs (docs/tasks.md#retry).
+    run = (
+        repository.get_run(approval.run_id, context) if approval.run_id else None
+    ) or repository.find_run_for_task(task.id, context)
     now = utc_now()
     if runtime.expire_if_due(task, approval, context, now):
         # Commit the expiry (and the failed run) but refuse the decision. Nothing is
@@ -1187,6 +1854,7 @@ async def _decide_approval_locked(
         )
         approvers = [*approvers, approver]
         if len(approvers) < requirements.required:
+            _learn_from_decision(context, approval, ApprovalStatus.APPROVED, reason)
             return _record_partial_approval(
                 context, repository, task, run, approval, approvers, requirements, reason, now
             )
@@ -1239,6 +1907,7 @@ async def _decide_approval_locked(
             },
         )
     )
+    _learn_from_decision(context, approval, decision, reason)
     (shown,) = _with_progress([approval], context, repository)
     if run_dispatcher is not None:
         # The workflow applies the decision; a lost signal is caught by its next poll.
@@ -1250,6 +1919,27 @@ async def _decide_approval_locked(
     if resumed_run:
         repository.save_run(resumed_run)
     return ApprovalDecisionResponse(approval=shown, task=task, run=resumed_run)
+
+
+def _learn_from_decision(
+    context: TenantContext, approval: Approval, decision: ApprovalStatus, reason: str | None
+) -> None:
+    """The decider's approve or reject (with reason) as a learning signal (docs/learning.md).
+
+    Best effort and only while the decider's learning is on; it never changes the decision.
+    """
+    kind = SignalKind.APPROVAL_APPROVED if decision == ApprovalStatus.APPROVED else SignalKind.APPROVAL_REJECTED
+    record_server_signal(
+        context,
+        new_signal(
+            kind,
+            Surface.APPROVAL,
+            subject_id=approval.id,
+            tool=approval.action,
+            reason=reason,
+            metadata={"risk_level": approval.risk_level.value, "task_id": approval.task_id},
+        ),
+    )
 
 
 def _record_partial_approval(

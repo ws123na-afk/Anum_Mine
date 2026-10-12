@@ -221,6 +221,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('developer-draft')),
         'Rotate the API keys in the workflow files');
     await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('developer-send')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('developer-send')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Tick "Allow changes'), findsOneWidget);

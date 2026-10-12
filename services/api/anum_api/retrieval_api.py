@@ -125,6 +125,19 @@ async def index_uploaded_file(context: TenantContext, record: Any, content: byte
         return None
 
 
+def current_embedding_model(context: TenantContext) -> str:
+    """The embedding model new index rows of this workspace would use (stale detection)."""
+    return build_embedder(context, default_model_gateway()).model_name
+
+
+async def reindex_one_file(context: TenantContext, record: Any, content: bytes) -> IndexOutcome:
+    """Index one file again (``POST /api/v1/files/{id}/reindex``). Unlike the upload hook a
+    failure to reach the store raises; a failed embedding is recorded on the row."""
+    with open_retrieval_store(context) as store:
+        indexer = RetrievalIndexer(store, build_embedder(context, default_model_gateway()))
+        return await indexer.index_file(context, record, content)
+
+
 def forget_file(context: TenantContext, file_id: str) -> None:
     try:
         with open_retrieval_store(context) as store:
@@ -306,7 +319,9 @@ async def source_names(
         if note is None or note.is_expired(now):
             names.append(SourceName(source_type=SourceType.MEMORY, source_id=note_id, found=False))
             continue
-        chat = note.provenance.source_type == CONVERSATION_SOURCE_TYPE
+        # Private (owned) memories are the ones remembered from the caller's chats; a shared
+        # note is a task note whatever source label it was saved with.
+        chat = note.owner_user_id is not None and note.provenance.source_type == CONVERSATION_SOURCE_TYPE
         names.append(
             SourceName(
                 source_type=SourceType.MEMORY,

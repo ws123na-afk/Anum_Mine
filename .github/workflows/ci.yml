@@ -527,6 +527,10 @@ jobs:
           cache: true
       # android/ and ios/ are committed; test/configure_native_test.dart fails if they drift.
       - run: flutter pub get
+      # After pub get, so the formatter takes the language version (and so the style)
+      # from the pubspec's SDK constraint, as `dart format` does locally (docs/mobile.md).
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib test tool
       - name: Run Flutter analyzer (infos and warnings are errors)
         run: flutter analyze --fatal-infos --fatal-warnings
       - uses: actions/setup-go@v7

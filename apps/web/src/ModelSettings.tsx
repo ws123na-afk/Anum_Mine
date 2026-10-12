@@ -26,21 +26,21 @@ import {
   type ModelEffort,
   type ModelProvider,
 } from './lib/modelConfig';
+import { t } from './lib/i18n';
+import { rich } from './rich';
 import './model-settings.css';
 
 type Load = { kind: 'loading' } | { kind: 'ready'; config: ModelConfig | null } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 type Flash = { text: string; tone: 'ok' | 'error' | 'info' } | null;
-
-const OWNER_ONLY = 'Choosing the model, saving its API key and testing the connection need the owner role for this organization. Ask an owner to change the model, or to change your role.';
 
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
   return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>;
 }
 
 function Forbidden({ detail }: { detail: string | null }) {
-  return <section className="surface adminForbidden" aria-label="Owner access required">
+  return <section className="surface adminForbidden" aria-label={t('model.ownerRequired')}>
     <span className="adminIcon"><Lock aria-hidden="true" /></span>
-    <div><h3>Owner access required</h3><p>{OWNER_ONLY}</p>{detail && <p className="muted">The API answered: {detail}</p>}</div>
+    <div><h3>{t('model.ownerRequired')}</h3><p>{t('model.ownerOnly')}</p>{detail && <p className="muted">{t('model.apiAnswered', { detail })}</p>}</div>
   </section>;
 }
 
@@ -55,14 +55,14 @@ function Field({ label, error, hint, children }: { label: string; error?: string
 }
 
 function saveFailure(error: unknown): string {
-  if (error instanceof ApiError && error.status === 409) return `${describeError(error)} Finish "Workspace onboarding" above, then save again.`;
-  if (error instanceof ApiError && error.status === 422) return `The API refused these settings: ${describeError(error)}`;
-  return `The model was not saved. ${describeError(error)}`;
+  if (error instanceof ApiError && error.status === 409) return t('model.saveConflict', { reason: describeError(error) });
+  if (error instanceof ApiError && error.status === 422) return t('model.saveRefused', { reason: describeError(error) });
+  return t('model.saveFailed', { reason: describeError(error) });
 }
 
 function testFailure(error: unknown): string {
-  if (error instanceof ApiError && error.status === 404) return 'There is no saved workspace model to test. Save one first.';
-  return `Connection failed. ${describeError(error)} Fix the settings, save, and test again.`;
+  if (error instanceof ApiError && error.status === 404) return t('model.testNothing');
+  return t('model.testFailed', { reason: describeError(error) });
 }
 
 export function ModelGatewaySettings({ onboarded }: { onboarded: boolean | null }) {
@@ -93,7 +93,7 @@ export function ModelGatewaySettings({ onboarded }: { onboarded: boolean | null 
   const save = async () => {
     const problems = validateDraft(draft, config);
     setErrors(problems);
-    if (Object.keys(problems).length) { setFlash({ tone: 'error', text: 'Check the highlighted fields.' }); return; }
+    if (Object.keys(problems).length) { setFlash({ tone: 'error', text: t('model.checkFields') }); return; }
     setBusy('save'); setFlash(null);
     try {
       const saved = await saveModelConfigBody(modelConfigBody(draft));
@@ -101,8 +101,8 @@ export function ModelGatewaySettings({ onboarded }: { onboarded: boolean | null 
       setDraft(draftFromConfig(saved));
       const routes = routeSummary(saved);
       setFlash({ tone: 'ok', text: saved.provider === 'anthropic'
-        ? `Saved. ${providerLabel(saved.provider)} now answers this workspace: ${routes.fast} for chat, voice and memory, ${routes.capable} for planning. Test the connection to check the key.`
-        : `Saved. ${providerLabel(saved.provider)} (${saved.model}) now answers this workspace.` });
+        ? t('model.savedClaude', { provider: providerLabel(saved.provider), fast: routes.fast, capable: routes.capable })
+        : t('model.savedOther', { provider: providerLabel(saved.provider), model: saved.model }) });
     } catch (error) {
       if (isPermissionDenied(error)) { setDenied(describeError(error)); setFlash(null); }
       else setFlash({ tone: 'error', text: saveFailure(error) });
@@ -110,7 +110,7 @@ export function ModelGatewaySettings({ onboarded }: { onboarded: boolean | null 
   };
 
   const test = async () => {
-    if (!config) { setFlash({ tone: 'info', text: 'This workspace uses the server default model: there is no workspace model to test. Save one first.' }); return; }
+    if (!config) { setFlash({ tone: 'info', text: t('model.testServerDefault') }); return; }
     setBusy('test'); setFlash(null);
     try {
       const result = await testModelConfig();
@@ -123,66 +123,66 @@ export function ModelGatewaySettings({ onboarded }: { onboarded: boolean | null 
 
   const keyState = savedKeyState(draft, config);
   const keyHint = keyState === 'keep'
-    ? `Leave empty to keep the saved key (${config?.credential_hint ?? 'hidden'}); it is never shown. Paste a new key to replace it.`
+    ? t('model.keyKeep', { hint: config?.credential_hint ?? t('model.hidden') })
     : keyState === 'moved'
-      ? `The base URL changed: paste the key for this address. The saved key (${config?.credential_hint ?? 'hidden'}) is only used with the address it was saved for.`
-      : isClaude ? 'Create one in the Anthropic Console (API keys). It is stored encrypted and never shown again.' : undefined;
+      ? t('model.keyMoved', { hint: config?.credential_hint ?? t('model.hidden') })
+      : isClaude ? t('model.keyClaude') : undefined;
   const effortSelect = (value: ModelEffort, onChange: (next: ModelEffort) => void) => (props: { id: string }) =>
     <select {...props} value={value} onChange={(event) => onChange(event.target.value as ModelEffort)}>{EFFORTS.map((item) => <option key={item.value || 'default'} value={item.value}>{item.label}</option>)}</select>;
 
   return <section className="surface settingsForm modelSettings" aria-labelledby="model-gateway-heading">
     <div className="sectionHeader">
-      <div><p className="eyebrow">Runtime</p><h2 id="model-gateway-heading">Model gateway</h2></div>
+      <div><p className="eyebrow">{t('model.eyebrow')}</p><h2 id="model-gateway-heading">{t('model.title')}</h2></div>
       {load.kind === 'ready' && (config
-        ? <span className={`statusBadge ${config.credential_configured ? 'success' : 'neutral'}`}>{providerLabel(config.provider)}{config.credential_configured ? ` · key ${config.credential_hint ?? 'saved'}` : ''}</span>
-        : <span className="statusBadge neutral">server default</span>)}
+        ? <span className={`statusBadge ${config.credential_configured ? 'success' : 'neutral'}`}>{config.credential_configured ? t('model.badgeKey', { provider: providerLabel(config.provider), hint: config.credential_hint ?? t('model.saved') }) : providerLabel(config.provider)}</span>
+        : <span className="statusBadge neutral">{t('model.serverDefault')}</span>)}
     </div>
-    {load.kind === 'loading' && <Notice>Loading the workspace model...</Notice>}
+    {load.kind === 'loading' && <Notice>{t('model.loading')}</Notice>}
     {load.kind === 'error' && <>
-      <Notice error>The model settings could not be loaded. {load.detail} Check that the API is running, then retry.</Notice>
-      <div className="actions"><button type="button" className="secondary" onClick={() => void refresh()}><RefreshCw aria-hidden="true" />Retry</button></div>
+      <Notice error>{t('model.loadFailed', { detail: load.detail })}</Notice>
+      <div className="actions"><button type="button" className="secondary" onClick={() => void refresh()}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div>
     </>}
     {load.kind === 'forbidden' && <Forbidden detail={load.detail} />}
-    {load.kind === 'ready' && <form noValidate aria-label="Workspace model" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    {load.kind === 'ready' && <form noValidate aria-label={t('model.form')} onSubmit={(event) => { event.preventDefault(); void save(); }}>
       {config
         ? <p className="muted">{(() => { const routes = routeSummary(config); return config.provider === 'anthropic'
-          ? `Saved: ${routes.fast} answers chat, voice and memory; ${routes.capable} plans tasks. Every call counts against this workspace's model budget.`
-          : `Saved: ${providerLabel(config.provider)}, model ${config.model}. It answers chat, voice and task planning.`; })()}</p>
-        : <p className="muted">This workspace uses the deployment's model settings. Choose a provider only to override them for this workspace.{onboarded === false ? ' Complete workspace onboarding first.' : ''}</p>}
+          ? t('model.summaryClaude', { fast: routes.fast, capable: routes.capable })
+          : t('model.summaryOther', { provider: providerLabel(config.provider), model: config.model }); })()}</p>
+        : <p className="muted">{t('model.usesDeployment')}{onboarded === false ? ` ${t('model.onboardFirst')}` : ''}</p>}
       <div className="formGrid">
-        <Field label="Provider" error={errors.provider}>{(props) =>
+        <Field label={t('model.provider')} error={errors.provider}>{(props) =>
           <select {...props} value={draft.provider} onChange={(event) => { setDraft(presetDraft(event.target.value as ModelProvider | '')); setErrors({}); setFlash(null); }}>
-            {!config && <option value="">Server default</option>}
+            {!config && <option value="">{t('model.serverDefaultOption')}</option>}
             {PROVIDERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>}</Field>
-        {!isClaude && draft.provider && <Field label="Model" error={errors.model}>{(props) => <input {...props} value={draft.model} onChange={(event) => set({ model: event.target.value })} autoComplete="off" />}</Field>}
-        {draft.provider && <Field label={isClaude ? 'Base URL (optional)' : 'Base URL'} error={errors.baseUrl} hint={isClaude ? 'Leave empty for api.anthropic.com.' : undefined}>{(props) =>
-          <input {...props} value={draft.baseUrl} placeholder={isClaude ? ANTHROPIC_BASE_URL : undefined} onChange={(event) => set({ baseUrl: event.target.value })} autoComplete="off" inputMode="url" />}</Field>}
-        {draft.provider && draft.provider !== 'mock' && <Field label={isClaude ? 'Anthropic API key' : 'API key'} error={errors.apiKey} hint={keyHint}>{(props) =>
+        {!isClaude && draft.provider && <Field label={t('model.model')} error={errors.model}>{(props) => <input {...props} value={draft.model} onChange={(event) => set({ model: event.target.value })} autoComplete="off" />}</Field>}
+        {draft.provider && <Field label={isClaude ? t('model.baseUrlOptional') : t('model.baseUrl')} error={errors.baseUrl} hint={isClaude ? t('model.baseUrlClaudeHint') : undefined}>{(props) =>
+          <input {...props} value={draft.baseUrl} placeholder={isClaude ? ANTHROPIC_BASE_URL : undefined} onChange={(event) => set({ baseUrl: event.target.value })} autoComplete="off" inputMode="url" dir="ltr" />}</Field>}
+        {draft.provider && draft.provider !== 'mock' && <Field label={isClaude ? t('model.anthropicKey') : t('model.apiKey')} error={errors.apiKey} hint={keyHint}>{(props) =>
           <input {...props} type="password" value={draft.apiKey} onChange={(event) => set({ apiKey: event.target.value })} autoComplete="new-password" spellCheck={false}
-            placeholder={keyState === 'keep' ? 'Leave empty to keep the saved key' : draft.provider === 'ollama' ? 'Optional for local models' : isClaude ? 'sk-ant-...' : 'Required for external providers'} />}</Field>}
+            placeholder={keyState === 'keep' ? t('model.placeholderKeep') : draft.provider === 'ollama' ? t('model.placeholderOllama') : isClaude ? 'sk-ant-...' : t('model.placeholderExternal')} />}</Field>}
       </div>
       {isClaude && <fieldset className="modelRoutes">
-        <legend>Model routing</legend>
-        <p className="muted">Quick replies use a fast model; planning uses a capable one. Effort is how much the model thinks before answering.</p>
+        <legend>{t('model.routing')}</legend>
+        <p className="muted">{t('model.routingIntro')}</p>
         <div className="formGrid modelRouteGrid">
-          <Field label="Quick replies model" error={errors.fastModel} hint="Chat, voice and memory. Empty uses the planning model.">{(props) =>
+          <Field label={t('model.fastModel')} error={errors.fastModel} hint={t('model.fastModelHint')}>{(props) =>
             <input {...props} value={draft.fastModel} placeholder={ANTHROPIC_FAST_MODEL} onChange={(event) => set({ fastModel: event.target.value })} autoComplete="off" />}</Field>
-          <Field label="Quick replies effort">{effortSelect(draft.fastEffort, (fastEffort) => set({ fastEffort }))}</Field>
-          <Field label="Planning model" error={errors.capableModel} hint="Tasks and agent runs; also the workspace's default model.">{(props) =>
+          <Field label={t('model.fastEffort')}>{effortSelect(draft.fastEffort, (fastEffort) => set({ fastEffort }))}</Field>
+          <Field label={t('model.capableModel')} error={errors.capableModel} hint={t('model.capableModelHint')}>{(props) =>
             <input {...props} value={draft.capableModel} placeholder={ANTHROPIC_CAPABLE_MODEL} onChange={(event) => set({ capableModel: event.target.value })} autoComplete="off" />}</Field>
-          <Field label="Planning effort">{effortSelect(draft.capableEffort, (capableEffort) => set({ capableEffort }))}</Field>
+          <Field label={t('model.capableEffort')}>{effortSelect(draft.capableEffort, (capableEffort) => set({ capableEffort }))}</Field>
         </div>
-        <p className="muted">Anthropic has no embeddings: memory search uses ANUM's local embedder, so no text leaves the server for it. Clear the effort for a model that does not support it (for example claude-haiku-4-5).</p>
+        <p className="muted">{t('model.embeddingsNote')}</p>
       </fieldset>}
-      {draft.provider === 'ollama' && <p className="muted">Free and private: runs on your computer. Install Ollama, then run <code>ollama pull {draft.model || 'llama3.2'}</code> and <code>ollama serve</code>.</p>}
+      {draft.provider === 'ollama' && <p className="muted">{rich('model.ollamaNote', { pull: <code dir="ltr">ollama pull {draft.model || 'llama3.2'}</code>, serve: <code dir="ltr">ollama serve</code> })}</p>}
       {denied && <Forbidden detail={denied} />}
       {flash && <Notice error={flash.tone === 'error'}>{flash.text}</Notice>}
       <div className="actions">
-        <button type="submit" disabled={!draft.provider || busy !== null}><Save aria-hidden="true" />{busy === 'save' ? 'Saving...' : 'Save model'}</button>
-        <button type="button" className="secondary" disabled={busy !== null} onClick={() => void test()}><PlugZap aria-hidden="true" />{busy === 'test' ? 'Testing...' : 'Test connection'}</button>
+        <button type="submit" disabled={!draft.provider || busy !== null}><Save aria-hidden="true" />{busy === 'save' ? t('model.saving') : t('model.save')}</button>
+        <button type="button" className="secondary" disabled={busy !== null} onClick={() => void test()}><PlugZap aria-hidden="true" />{busy === 'test' ? t('model.testing') : t('model.test')}</button>
       </div>
-      {config && <p className="muted modelTestNote">The test calls the saved settings with a tiny request{config.provider === 'anthropic' ? ' per model (not cached, not counted against the budget)' : ''}.</p>}
+      {config && <p className="muted modelTestNote">{config.provider === 'anthropic' ? t('model.testNoteClaude') : t('model.testNote')}</p>}
     </form>}
   </section>;
 }

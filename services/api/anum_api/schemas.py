@@ -17,6 +17,14 @@ class TaskStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class TaskPriority(StrEnum):
+    """How urgent a task is to the person (0048_task_planning, docs/tasks.md)."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class RunPhase(StrEnum):
     PLANNING = "planning"
     TOOL_READY = "tool_ready"
@@ -80,6 +88,10 @@ class Workspace(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime
+    # Archived workspaces stay readable (and restorable by an owner) but refuse every
+    # other write (docs/identity.md#workspace-lifecycle).
+    archived_at: datetime | None = None
+    archived_by: str | None = None
 
 
 class WorkspaceMembership(BaseModel):
@@ -104,6 +116,8 @@ class CallerMembership(BaseModel):
     workspace_name: str | None = None
     role: str
     status: str = "active"
+    # The workspace was archived by an owner: still listed so it can be opened and restored.
+    archived: bool = False
 
 
 class InvitationStatus(StrEnum):
@@ -136,6 +150,12 @@ class WorkspaceInvitation(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     prompt: str = Field(min_length=1, max_length=8000)
+    # Planning fields (docs/tasks.md): how urgent it is and when it is due. They order
+    # nothing on the server and never change what the agent may do.
+    priority: TaskPriority = TaskPriority.MEDIUM
+    due_at: datetime | None = None
+    # Run as this agent (docs/agents.md): its instructions, tools and autonomy apply.
+    agent_id: str | None = Field(default=None, max_length=80)
 
 
 class Task(BaseModel):
@@ -149,6 +169,90 @@ class Task(BaseModel):
     updated_at: datetime
     # User id of whoever created the task (the two-person rule refuses their approval).
     created_by: str | None = None
+    # The department assistant this task runs as (docs/team-work.md#department-assistants):
+    # the runtime narrows tool policy to that assistant's allowed tools and autonomy.
+    assistant_id: str | None = None
+    # The agent the task runs as (docs/agents.md), or None for the plain runtime.
+    agent_id: str | None = None
+    # Archived tasks leave the default list but keep their runs, approvals and events
+    # (0026_task_archive, docs/tasks.md). Null while the task is in the active list.
+    archived_at: datetime | None = None
+    archived_by: str | None = None
+    # Planning (0048_task_planning): tasks stored before it read as medium with no due date.
+    priority: TaskPriority = TaskPriority.MEDIUM
+    due_at: datetime | None = None
+
+
+class TaskUpdate(BaseModel):
+    """``PUT /api/v1/tasks/{id}``: a new title, priority or due date at any time before
+    archive, and new instructions while the task never ran. ``"due_at": null`` sent
+    explicitly removes the due date; leaving the key out keeps it."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    prompt: str | None = Field(default=None, min_length=1, max_length=8000)
+    priority: TaskPriority | None = None
+    due_at: datetime | None = None
+
+    @field_validator("title", "prompt")
+    @classmethod
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("must not be blank")
+        return value.strip() if value is not None else None
+
+
+class TaskBulkAction(StrEnum):
+    ARCHIVE = "archive"
+    UNARCHIVE = "unarchive"
+    CANCEL = "cancel"
+
+
+TASK_BULK_MAX_IDS = 100
+
+
+class TaskBulkRequest(BaseModel):
+    action: TaskBulkAction
+    task_ids: list[str] = Field(min_length=1, max_length=TASK_BULK_MAX_IDS)
+
+    @field_validator("task_ids")
+    @classmethod
+    def _unique(cls, value: list[str]) -> list[str]:
+        if any(not item or len(item) > 80 for item in value):
+            raise ValueError("task ids must be 1-80 characters")
+        if len(set(value)) != len(value):
+            raise ValueError("task ids must be unique")
+        return value
+
+
+class TaskBulkItemResult(BaseModel):
+    """One task's outcome: ``status_code`` is what the single-task route would answer."""
+
+    task_id: str
+    ok: bool
+    status_code: int
+    message: str | None = None
+    task: Task | None = None
+
+
+class TaskBulkResponse(BaseModel):
+    action: TaskBulkAction
+    succeeded: int
+    failed: int
+    results: list[TaskBulkItemResult]
+
+
+class TaskSummary(BaseModel):
+    """Counts for the task list's filters (``GET /api/v1/tasks/summary``).
+
+    ``by_status`` counts the tasks matching every filter except ``status``; ``total`` is
+    their sum. ``archived`` counts archived tasks matching the other filters, and
+    ``creators`` are the distinct creator ids in the workspace (at most 200).
+    """
+
+    total: int
+    by_status: dict[str, int]
+    archived: int
+    creators: list[str]
 
 
 class AgentRunStep(BaseModel):
@@ -166,6 +270,10 @@ class RunCheckpoint(BaseModel):
     tool_call: dict[str, Any] | None = None
     approval_id: str | None = None
     last_step_id: str | None = None
+    # The autonomy decision for the checkpointed call (docs/autonomy.md); None before it.
+    autonomy: dict[str, Any] | None = None
+    # The agent snapshot this run applies (anum_api.agent_policy.AgentRunProfile), if any.
+    agent: dict[str, Any] | None = None
 
 
 class AgentRun(BaseModel):

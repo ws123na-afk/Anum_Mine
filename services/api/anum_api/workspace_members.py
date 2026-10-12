@@ -16,7 +16,10 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import base64
+import binascii
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .audit import AuditRecord
@@ -123,6 +126,28 @@ class InvitationAccepted(BaseModel):
 
 class MemberRoleUpdate(BaseModel):
     role: Role
+
+
+class InvitationResend(BaseModel):
+    ttl_hours: int = Field(default=DEFAULT_TTL_HOURS, ge=1, le=MAX_TTL_HOURS)
+
+
+class MemberView(WorkspaceMembership):
+    # The verified email of the invitation this member accepted, when there was one.
+    # Memberships themselves hold only the sign-in subject (user id).
+    email: str | None = None
+
+
+class MembersSummary(BaseModel):
+    total: int
+    active: int
+    deactivated: int
+    active_owners: int
+    pending_invitations: int
+
+
+MEMBER_PAGE_MAX = 200
+_ROLE_RANK = {Role.OWNER.value: 0, Role.MEMBER.value: 1, Role.VIEWER.value: 2}
 
 
 # --------------------------------------------------------------------------- helpers
@@ -271,12 +296,69 @@ async def create_invitation(
 
 @router.get("/workspace-invitations", response_model=list[InvitationView])
 async def list_invitations(
+    invitation_status: str = Query(
+        default="all", alias="status", pattern="^(all|pending|accepted|revoked|expired)$"
+    ),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[InvitationView]:
+    """Newest first. ``status`` filters on the shown status (``expired`` is derived)."""
     _require_manager(context)
     now = utc_now()
-    return [invitation_view(invitation, now) for invitation in repository.list_invitations(context)]
+    views = [invitation_view(invitation, now) for invitation in repository.list_invitations(context)]
+    if invitation_status != "all":
+        views = [view for view in views if view.status.value == invitation_status]
+    return views
+
+
+@router.post("/workspace-invitations/{invitation_id}/resend", response_model=InvitationCreated)
+async def resend_invitation(
+    invitation_id: str,
+    payload: InvitationResend | None = None,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> InvitationCreated:
+    """Issue a new token for a pending (or expired) invitation and restart its expiry.
+
+    The previous token stops working at once: only the new token's hash is kept. ANUM
+    does not send email, so the owner passes the new token or link on, as at creation.
+    """
+    _require_manager(context)
+    invitation = repository.get_invitation_for_update(invitation_id, context)
+    if invitation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+    if invitation.status != InvitationStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Invitation is already {invitation.status.value}; create a new one instead",
+        )
+    now = utc_now()
+    ttl_hours = (payload or InvitationResend()).ttl_hours
+    token = new_invitation_token()
+    previous_expiry = invitation.expires_at
+    invitation = repository.save_invitation(
+        invitation.model_copy(
+            update={
+                "token_hash": hash_invitation_token(token),
+                "expires_at": now + timedelta(hours=ttl_hours),
+                "updated_at": now,
+            }
+        )
+    )
+    _record_change(
+        repository,
+        context,
+        event_type=CanonicalEventName.WORKSPACE_INVITATION_RESENT,
+        audit_action="workspace_invitation.resend",
+        target=invitation.id,
+        payload={
+            "invitation_id": invitation.id,
+            "previous_expires_at": previous_expiry.isoformat(),
+            "expires_at": invitation.expires_at.isoformat(),
+        },
+        now=now,
+    )
+    return InvitationCreated(invitation=invitation_view(invitation, now), token=token)
 
 
 @router.post("/workspace-invitations/{invitation_id}/revoke", response_model=InvitationView)
@@ -354,6 +436,12 @@ async def accept_invitation(
             detail="This invitation is for a different verified email address",
         )
 
+    workspace = repository.get_workspace(context.workspace_id, context)
+    if workspace is not None and workspace.archived_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This workspace is archived. Ask a workspace owner to restore it, then accept again.",
+        )
     existing = repository.get_member_for_update(context.user_id, context)
     if existing is not None and existing.active:
         raise HTTPException(
@@ -413,13 +501,96 @@ async def accept_invitation(
 # --------------------------------------------------------------------------- members
 
 
-@router.get("/workspace-members", response_model=list[WorkspaceMembership])
+def _member_sort_key(member: WorkspaceMembership) -> tuple[int, int, str]:
+    """Active first, then owners, members, viewers, then by user id."""
+    return (0 if member.active else 1, _ROLE_RANK.get(member.role, 3), member.user_id)
+
+
+def _encode_member_cursor(key: tuple[int, int, str]) -> str:
+    raw = f"{key[0]}|{key[1]}|{key[2]}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_member_cursor(cursor: str) -> tuple[int, int, str]:
+    try:
+        raw = base64.urlsafe_b64decode((cursor + "=" * (-len(cursor) % 4)).encode("ascii")).decode("utf-8")
+        active, rank, user_id = raw.split("|", 2)
+        return int(active), int(rank), user_id
+    except (ValueError, UnicodeError, binascii.Error):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown or invalid cursor") from None
+
+
+def _accepted_emails(repository: AnumRepository, context: TenantContext) -> dict[str, str]:
+    emails: dict[str, str] = {}
+    # Listed newest first: walk oldest first so the latest accepted invitation's email wins.
+    for invitation in reversed(repository.list_invitations(context)):
+        if invitation.status == InvitationStatus.ACCEPTED and invitation.accepted_by_user_id and invitation.invitee_email:
+            emails[invitation.accepted_by_user_id] = invitation.invitee_email
+    return emails
+
+
+@router.get("/workspace-members", response_model=list[MemberView])
 async def list_members(
+    response: Response,
+    q: str | None = Query(default=None, max_length=320, description="Text in the user id or email"),
+    member_status: str = Query(default="all", alias="status", pattern="^(all|active|deactivated)$"),
+    role: Role | None = None,
+    limit: int | None = Query(default=None, ge=1, le=MEMBER_PAGE_MAX),
+    cursor: str | None = Query(default=None, max_length=400),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> list[WorkspaceMembership]:
+) -> list[MemberView]:
+    """Members, active first, then by role and user id.
+
+    Without ``limit`` every match is returned (older clients). With ``limit`` one page is
+    returned and the ``X-Next-Cursor`` header carries the cursor of the next one.
+    """
     _require_manager(context)
-    return repository.list_memberships(context)
+    emails = _accepted_emails(repository, context)
+    needle = q.strip().casefold() if q and q.strip() else None
+    members = [
+        MemberView(**member.model_dump(), email=emails.get(member.user_id))
+        for member in repository.list_memberships(context)
+        if (member_status == "all" or member.active == (member_status == "active"))
+        and (role is None or member.role == role.value)
+    ]
+    if needle is not None:
+        members = [
+            member
+            for member in members
+            if needle in member.user_id.casefold() or (member.email is not None and needle in member.email.casefold())
+        ]
+    members.sort(key=_member_sort_key)
+    if cursor:
+        after = _decode_member_cursor(cursor)
+        members = [member for member in members if _member_sort_key(member) > after]
+    if limit is not None and len(members) > limit:
+        members = members[:limit]
+        response.headers["X-Next-Cursor"] = _encode_member_cursor(_member_sort_key(members[-1]))
+    return members
+
+
+@router.get("/workspace-members/summary", response_model=MembersSummary)
+async def members_summary(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> MembersSummary:
+    """Counts for the members page, independent of its search and paging."""
+    _require_manager(context)
+    members = repository.list_memberships(context)
+    now = utc_now()
+    pending = sum(
+        1
+        for invitation in repository.list_invitations(context)
+        if invitation.status == InvitationStatus.PENDING and invitation.expires_at > now
+    )
+    return MembersSummary(
+        total=len(members),
+        active=sum(1 for member in members if member.active),
+        deactivated=sum(1 for member in members if not member.active),
+        active_owners=sum(1 for member in members if member.active and member.role == Role.OWNER.value),
+        pending_invitations=pending,
+    )
 
 
 def _validated_user_id(user_id: str) -> str:

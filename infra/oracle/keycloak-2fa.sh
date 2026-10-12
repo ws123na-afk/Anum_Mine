@@ -16,6 +16,17 @@
 #   keycloak-2fa.sh grant-org-admin <name>
 #                                        give that user the org_admin realm role: they
 #                                        may change tenant-wide policy for their tenant_id
+#   keycloak-2fa.sh google | apple       add or update "Continue with Google / Apple"; asks
+#                                        for the client ID and secret (Apple: Services ID,
+#                                        Team ID, Key ID and the .p8 key file's path)
+#   keycloak-2fa.sh remove-provider <google|apple>
+#   keycloak-2fa.sh sign-up | sign-up-off
+#                                        Keycloak's own sign-up page on or off (needs
+#                                        ANUM_PRIVACY_POLICY_URL in .env and realm email)
+#   keycloak-2fa.sh pending-users        accounts without an organization (tenant_id)
+#   keycloak-2fa.sh assign-tenant <name> <tenant_id> [<workspace_id>]
+#                                        put a pending account in an organization; a
+#                                        workspace owner then invites it in ANUM
 #
 #   --temporary-admin   sign in with a temporary master-realm service account created by
 #                       `kc.sh bootstrap-admin service` inside the container, deleted again
@@ -32,11 +43,12 @@ set -euo pipefail
 ORACLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TWO_FACTOR="$ORACLE_DIR/../keycloak/two_factor.py"
 REALM_ROLES="$ORACLE_DIR/../keycloak/realm_roles.py"
+SOCIAL_LOGIN="$ORACLE_DIR/../keycloak/social_login.py"
 ENV_FILE="$ORACLE_DIR/.env"
 dc() { docker compose --project-directory "$ORACLE_DIR" -f "$ORACLE_DIR/compose.yaml" "$@"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^'\(.*\)'$/\1/"; }
-usage() { sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 TEMPORARY_ADMIN=false
 ARGS=()
@@ -49,14 +61,43 @@ for argument in "$@"; do
 done
 ACTION="${ARGS[0]:-apply}"
 case "$ACTION" in
-  apply|status|ensure-roles) [ "${#ARGS[@]}" -le 1 ] || usage ;;
+  apply|status|ensure-roles|google|apple|sign-up|sign-up-off|pending-users) [ "${#ARGS[@]}" -le 1 ] || usage ;;
   reset-user|grant-org-admin) [ "${#ARGS[@]}" -eq 2 ] || usage; TARGET_USERNAME="${ARGS[1]}" ;;
+  remove-provider) [ "${#ARGS[@]}" -eq 2 ] || usage; PROVIDER="${ARGS[1]}" ;;
+  assign-tenant)
+    if ! { [ "${#ARGS[@]}" -ge 3 ] && [ "${#ARGS[@]}" -le 4 ]; }; then usage; fi
+    TARGET_USERNAME="${ARGS[1]}"; TARGET_TENANT="${ARGS[2]}"; TARGET_WORKSPACE="${ARGS[3]:-}" ;;
   *) usage ;;
 esac
 
 [ -r "$ENV_FILE" ] || die "cannot read $ENV_FILE; run this as the user who ran install.sh"
 [ -f "$TWO_FACTOR" ] || die "$TWO_FACTOR is missing; update the checkout (update.sh)"
 [ -f "$REALM_ROLES" ] || die "$REALM_ROLES is missing; update the checkout (update.sh)"
+[ -f "$SOCIAL_LOGIN" ] || die "$SOCIAL_LOGIN is missing; update the checkout (update.sh)"
+
+# Provider values are asked for before anyone signs in to Keycloak, without echo for the
+# secrets, and reach social_login.py on stdin (docs/deploy-oracle.md#google-and-apple-sign-in).
+case "$ACTION" in
+  google)
+    [ -t 0 ] || die "run this in an SSH session: it asks for the Google client ID and secret"
+    read -r -p "Google client ID (ends in .apps.googleusercontent.com): " google_client_id
+    read -r -s -p "Google client secret: " google_secret
+    echo
+    if ! { [ -n "$google_client_id" ] && [ -n "$google_secret" ]; }; then die "both the client ID and the secret are needed"; fi
+    ;;
+  apple)
+    [ -t 0 ] || die "run this in an SSH session: it asks for the Apple identifiers and key file"
+    read -r -p "Apple Services ID (for example com.example.signin): " apple_services_id
+    read -r -p "Apple Team ID (10 characters): " apple_team_id
+    read -r -p "Apple Key ID (10 characters): " apple_key_id
+    read -r -p "Path to the private key file on this VM (AuthKey_<KEYID>.p8): " apple_key_file
+    [ -r "$apple_key_file" ] || die "cannot read $apple_key_file; copy the .p8 file to the VM first (scp), and delete it after"
+    ;;
+  sign-up)
+    PRIVACY_URL="$(env_value ANUM_PRIVACY_POLICY_URL)"
+    [ -n "$PRIVACY_URL" ] || die "set ANUM_PRIVACY_POLICY_URL in $ENV_FILE (the published privacy policy, https) first"
+    ;;
+esac
 command -v python3 >/dev/null || die "python3 is missing"
 AUTH_HOST="$(env_value ANUM_AUTH_HOST)"
 [ -n "$AUTH_HOST" ] || die "ANUM_AUTH_HOST is not set in $ENV_FILE"
@@ -126,13 +167,42 @@ case "$ACTION" in
   apply)
     python3 "$TWO_FACTOR" apply --rp-id "$AUTH_HOST" --config "$KCADM_CONFIG" -- "${KCADM[@]}"
     python3 "$REALM_ROLES" ensure-roles --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    python3 "$SOCIAL_LOGIN" apply --config "$KCADM_CONFIG" -- "${KCADM[@]}"
     echo
     python3 "$TWO_FACTOR" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
     python3 "$REALM_ROLES" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    python3 "$SOCIAL_LOGIN" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
     ;;
   status)
     python3 "$TWO_FACTOR" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
     python3 "$REALM_ROLES" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    python3 "$SOCIAL_LOGIN" status --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    ;;
+  google)
+    printf '%s\n%s\n' "$google_client_id" "$google_secret" \
+      | python3 "$SOCIAL_LOGIN" set-provider --provider google --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    unset google_secret
+    echo "Next: set ANUM_SIGN_IN_PROVIDERS in $ENV_FILE (status prints the value), then: docker compose up -d api"
+    ;;
+  apple)
+    { printf '%s\n%s\n%s\n' "$apple_services_id" "$apple_team_id" "$apple_key_id"; cat "$apple_key_file"; } \
+      | python3 "$SOCIAL_LOGIN" set-provider --provider apple --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    echo "Delete the key file from the VM now: rm $apple_key_file (Apple keeps no copy; keep yours offline)."
+    echo "Next: set ANUM_SIGN_IN_PROVIDERS in $ENV_FILE (status prints the value), then: docker compose up -d api"
+    ;;
+  remove-provider) python3 "$SOCIAL_LOGIN" remove-provider --provider "$PROVIDER" --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;
+  sign-up)
+    python3 "$SOCIAL_LOGIN" enable-sign-up --privacy-url "$PRIVACY_URL" --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    echo "Next: ANUM_SELF_SIGN_UP=true in $ENV_FILE, then: docker compose up -d api"
+    ;;
+  sign-up-off)
+    python3 "$SOCIAL_LOGIN" disable-sign-up --config "$KCADM_CONFIG" -- "${KCADM[@]}"
+    echo "Next: ANUM_SELF_SIGN_UP=false in $ENV_FILE, then: docker compose up -d api"
+    ;;
+  pending-users) python3 "$SOCIAL_LOGIN" pending-users --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;
+  assign-tenant)
+    python3 "$SOCIAL_LOGIN" assign-tenant --username "$TARGET_USERNAME" --tenant "$TARGET_TENANT" \
+      ${TARGET_WORKSPACE:+--workspace "$TARGET_WORKSPACE"} --config "$KCADM_CONFIG" -- "${KCADM[@]}"
     ;;
   reset-user) python3 "$TWO_FACTOR" reset-user --username "$TARGET_USERNAME" --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;
   ensure-roles) python3 "$REALM_ROLES" ensure-roles --config "$KCADM_CONFIG" -- "${KCADM[@]}" ;;

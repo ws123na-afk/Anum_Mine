@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .schemas import TenantContext, new_id
 
@@ -29,6 +29,9 @@ class RetentionPolicy(BaseModel):
 
 # Memories remembered from a user's conversations (anum_api/conversation_memory.py).
 CONVERSATION_SOURCE_TYPE = "conversation"
+# Notes written in a knowledge base collection (anum_api/knowledge_base.py): no task; shared
+# with the workspace in a shared collection, private to the owner in a private one.
+KNOWLEDGE_BASE_SOURCE_TYPE = "knowledge_base"
 
 
 class MemoryNote(BaseModel):
@@ -63,6 +66,18 @@ class MemoryCreate(BaseModel):
     source_metadata: dict[str, Any] = Field(default_factory=dict)
     retention: RetentionPolicy = Field(default_factory=RetentionPolicy)
 
+    @field_validator("source_type")
+    @classmethod
+    def _not_reserved(cls, value: str) -> str:
+        # Reserved for the user-private memories the assistant remembers from chats: a
+        # shared task note under that label would read as someone's private chat memory
+        # and crowd their own out of "Delete all from my chats" and fact dedupe.
+        if value.strip().casefold() == CONVERSATION_SOURCE_TYPE:
+            raise ValueError(
+                f"source_type '{CONVERSATION_SOURCE_TYPE}' is reserved for memories the Assistant remembers from chats"
+            )
+        return value
+
 
 # GET /api/v1/memories returns at most this many notes (the newest), oldest first.
 MEMORY_LIST_DEFAULT_LIMIT = 200
@@ -76,6 +91,8 @@ class MemoryListFilters(BaseModel):
     include_expired: bool = False
     # Keep only the newest ``limit`` matches (still returned oldest first); None = no bound.
     limit: int | None = None
+    # Only the caller's own private memories (owner_user_id is the caller), never shared notes.
+    owner_only: bool = False
 
 
 class MemoryAccess(BaseModel):
@@ -136,6 +153,8 @@ class InMemoryMemoryRepository:
         notes = []
         for note in self._notes.values():
             if not _in_scope(note, context):
+                continue
+            if filters.owner_only and note.owner_user_id != context.user_id:
                 continue
             if filters.task_id is not None and note.task_id != filters.task_id:
                 continue

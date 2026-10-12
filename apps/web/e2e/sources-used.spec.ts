@@ -11,7 +11,10 @@ const memoryNote = {
   retention: { kind: 'task', expires_at: null }, created_at: now,
 };
 const otherNote = { ...memoryNote, id: 'memory_other', content: 'Unrelated note about the office.' };
-const notesFile = { id: 'file_notes', name: 'launch-notes.md', content_type: 'text/markdown', size_bytes: 2048, sha256: 'a'.repeat(64), created_by: 'user_local', created_at: now };
+const notesFile = {
+  id: 'file_notes', name: 'launch-notes.md', content_type: 'text/markdown', size_bytes: 2048, sha256: 'a'.repeat(64), created_by: 'user_local', created_at: now,
+  kind: 'markdown', previewable: true, can_manage: true, index: { status: 'indexed', error: null, chunk_count: 2, embedding_model: 'anum-local-hash-v1', indexed_at: now },
+};
 const names: Record<string, Json> = {
   memory_launch: { source_type: 'memory', source_id: 'memory_launch', found: true, title: 'Launch notes: ship on Friday after the signed tag.', kind: 'task_note', task_id: 'task_rag', size_bytes: null },
   file_notes: { source_type: 'file', source_id: 'file_notes', found: true, title: 'launch-notes.md', kind: 'text/markdown', task_id: null, size_bytes: 2048 },
@@ -71,6 +74,7 @@ async function mockRun(page: Page, retrievalStep: Json | null, options: Options 
     if (path === '/api/v1/me/preferences') return json({ remember_conversations: false });
     if (path === '/api/v1/files') return json([notesFile]);
     if (path === '/api/v1/files/file_notes') return options.fileGone ? json({ detail: 'File not found' }, 404) : json(notesFile);
+    if (path === '/api/v1/files/file_notes/preview') return json({ kind: 'markdown', text: '# Launch notes\nShip on Friday.', truncated: false, size_bytes: 2048 });
     return route.abort();
   });
   return {
@@ -123,7 +127,8 @@ test('opening a file shows its detail in the Files view', async ({ page }) => {
   await page.getByRole('region', { name: 'Sources used' }).getByRole('button', { name: /^Open file launch-notes\.md/ }).click();
   await expect(page).toHaveURL(/#files$/);
   const detail = page.getByRole('region', { name: 'launch-notes.md' });
-  await expect(detail.getByText('Markdown file')).toBeVisible();
+  await expect(detail.getByText('Markdown (text/markdown)')).toBeVisible();
+  await expect(detail.getByRole('region', { name: 'Preview' }).getByRole('heading', { name: 'Launch notes' })).toBeVisible();
   await expect(detail.getByText('2.0 KB')).toBeVisible();
   await expect(detail.getByRole('button', { name: 'Download' })).toBeVisible();
   await expect(detail.getByRole('heading', { name: 'launch-notes.md' })).toBeFocused();

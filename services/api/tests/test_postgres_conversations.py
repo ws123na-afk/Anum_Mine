@@ -307,3 +307,24 @@ def test_maintenance_grant_without_inherit_keeps_conversation_reads_to_one_user(
         assert seen == own | {"conv_a_idle_other_user", "conv_a2_idle", "conv_b_idle"}
     else:
         assert seen == own
+
+
+def test_a_chat_action_card_is_stored_and_follows_the_approval(client: TestClient, database_engine: Engine) -> None:
+    """Tools in chat (docs/conversations.md#tools-in-chat) on PostgreSQL: the task and its
+    approval are real rows, the card survives a restart and is refreshed after the decision."""
+    owner = {**A, "x-user-id": "owner_chat", "x-user-roles": "owner"}
+    conversation_id = client.post("/api/v1/conversations", headers=owner, json={}).json()["id"]
+    frames = _frames(client.post(f"/api/v1/conversations/{conversation_id}/ask", headers=owner, json={"content": "Send the quarterly report to the bank"}))
+    card = [data["card"] for kind, data in frames if kind == "tool"][-1]
+    assert card["state"] == "approval" and card["approval"]["can_decide"] is True
+    assert _count(database_engine, "tasks") >= 1 and _count(database_engine, "approvals") >= 1
+
+    conversation_store.clear()
+    stored = client.get(f"/api/v1/conversations/{conversation_id}", headers=owner).json()["turns"][-1]["card"]
+    assert stored["approval"]["payload_hash"] == card["approval"]["payload_hash"]
+    decided = client.post(
+        f"/api/v1/approvals/{card['approval']['id']}/approve", headers=owner, json={"payload_hash": card["approval"]["payload_hash"]}
+    )
+    assert decided.status_code == 200, decided.text
+    refreshed = client.get(f"/api/v1/conversations/{conversation_id}", headers=owner).json()["turns"][-1]["card"]
+    assert refreshed["state"] == "results" and refreshed["approval"]["status"] == "approved"

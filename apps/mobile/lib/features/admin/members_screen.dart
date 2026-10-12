@@ -45,6 +45,66 @@ class _MembersScreenState extends State<MembersScreen> {
               builder: (_, controller) =>
                   AcceptInvitationScreen(controller: controller))));
 
+  /// Every consequential change is confirmed first (it is also audited).
+  Future<bool> _confirm(String title, String message, String action,
+      {bool danger = false}) async {
+    final answer = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              style: danger
+                  ? FilledButton.styleFrom(
+                      backgroundColor:
+                          Theme.of(dialogContext).colorScheme.error)
+                  : null,
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(action)),
+        ],
+      ),
+    );
+    return answer ?? false;
+  }
+
+  Future<void> _memberAction(WorkspaceMember member, String value) async {
+    final c = widget.controller;
+    if (value == 'reactivate') {
+      await c.setActive(member, active: true);
+    } else if (value == 'deactivate') {
+      if (await _confirm(
+          'Deactivate ${member.userId}?',
+          'They lose access to this workspace at once. Their work stays, and an owner can reactivate them later. Recorded in the audit log.',
+          'Deactivate',
+          danger: true)) {
+        await c.setActive(member, active: false);
+      }
+    } else if (await _confirm(
+        'Make ${member.userId} ${roleLabel(value).toLowerCase()}?',
+        '${roleLabel(member.role)} to ${roleLabel(value).toLowerCase()}. ${roleEffect(value)} Recorded in the audit log.',
+        'Change role')) {
+      await c.changeRole(member, value);
+    }
+  }
+
+  Future<void> _invitationAction(
+      WorkspaceInvitation invitation, String value) async {
+    final c = widget.controller;
+    if (value == 'resend') {
+      await c.resend(invitation);
+    } else if (await _confirm(
+        'Revoke the invitation for ${invitation.invitee}?',
+        'The token stops working at once. You can create a new invitation later.',
+        'Revoke invitation',
+        danger: true)) {
+      await c.revoke(invitation);
+    }
+  }
+
   Future<void> _invite() => showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -172,7 +232,27 @@ class _MembersScreenState extends State<MembersScreen> {
             const AnumEmpty(
                 title: 'No members',
                 message: 'This workspace has no memberships yet.'),
-          for (final member in c.members)
+          if (c.members.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AnumSpacing.sm),
+              child: TextField(
+                key: const Key('members-search'),
+                onChanged: c.search,
+                autocorrect: false,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                    labelText: 'Search members',
+                    hintText: 'User id or email',
+                    prefixIcon: Icon(Icons.search)),
+              ),
+            ),
+          if (c.members.isNotEmpty && c.visibleMembers.isEmpty)
+            AnumEmpty(
+                icon: Icons.search_off,
+                title: 'No members match',
+                message:
+                    'Nobody here has "${c.query.trim()}" in their user id or email.'),
+          for (final member in c.visibleMembers)
             AnumRow(
               key: Key('member-${member.userId}'),
               icon: member.active
@@ -181,28 +261,27 @@ class _MembersScreenState extends State<MembersScreen> {
               tone: member.active ? AnumTone.info : AnumTone.neutral,
               title: member.userId,
               subtitle:
-                  '${roleLabel(member.role)} · ${member.active ? 'active' : 'deactivated'}',
+                  '${roleLabel(member.role)} · ${member.active ? 'active' : 'deactivated'}${member.email == null ? '' : ' · ${member.email}'}',
               detail: isLastActiveOwner(c.members, member)
                   ? 'Last active owner: the API refuses to demote or deactivate them.'
                   : 'Joined ${relativeTime(member.createdAt)}',
               trailing: PopupMenuButton<String>(
                 tooltip: 'Actions for ${member.userId}',
                 enabled: !c.busy,
-                onSelected: (value) {
-                  if (value == 'deactivate' || value == 'reactivate') {
-                    c.setActive(member, active: value == 'reactivate');
-                  } else {
-                    c.changeRole(member, value);
-                  }
-                },
+                onSelected: (value) => _memberAction(member, value),
                 itemBuilder: (_) => [
                   for (final role in workspaceRoles)
                     if (role != member.role)
                       PopupMenuItem(
-                          value: role, child: Text('Make ${roleLabel(role)}')),
+                          value: role,
+                          // The only active owner keeps the role (the API
+                          // refuses it too, 409).
+                          enabled: !isLastActiveOwner(c.members, member),
+                          child: Text('Make ${roleLabel(role)}')),
                   const PopupMenuDivider(),
                   PopupMenuItem(
                     value: member.active ? 'deactivate' : 'reactivate',
+                    enabled: !isLastActiveOwner(c.members, member),
                     child: Text(member.active ? 'Deactivate' : 'Reactivate',
                         style: TextStyle(color: member.active ? p.stop : null)),
                   ),
@@ -243,11 +322,26 @@ class _MembersScreenState extends State<MembersScreen> {
                       : invitation.revokedAt != null
                           ? 'Revoked ${exactTime(invitation.revokedAt!)}'
                           : 'Expired ${exactTime(invitation.expiresAt)}',
-              trailing: invitation.pending
-                  ? TextButton(
-                      onPressed: c.busy ? null : () => c.revoke(invitation),
-                      style: TextButton.styleFrom(foregroundColor: p.stop),
-                      child: const Text('Revoke'))
+              trailing: invitation.pending || invitation.status == 'expired'
+                  ? PopupMenuButton<String>(
+                      tooltip:
+                          'Actions for the invitation to ${invitation.invitee}',
+                      enabled: !c.busy,
+                      onSelected: (value) =>
+                          _invitationAction(invitation, value),
+                      itemBuilder: (_) => [
+                        PopupMenuItem(
+                            value: 'resend',
+                            child: Text(invitation.pending
+                                ? 'Resend (new token)'
+                                : 'Renew (new token)')),
+                        if (invitation.pending)
+                          PopupMenuItem(
+                              value: 'revoke',
+                              child: Text('Revoke',
+                                  style: TextStyle(color: p.stop))),
+                      ],
+                    )
                   : AnumPill(label: invitation.status),
             ),
         ]),

@@ -1,27 +1,35 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/sse.dart';
+import 'chat_cards.dart';
 import 'chat_models.dart';
 
 /// The conversations API (docs/conversations.md). Listing and reading need
 /// `task:read`; creating, asking and deleting need `task:create`.
 class ChatRepository {
-  const ChatRepository(this.api, this.events);
+  const ChatRepository(this.api, this.events, {this.agentId});
 
   final AnumApiClient api;
   final EventStreamClient events;
+
+  /// The threads with this agent (docs/agents.md); null for the Assistant's.
+  final String? agentId;
 
   static const _base = '/api/v1/conversations';
 
   /// The caller's 50 most recently active conversations, newest first.
   Future<List<Conversation>> list() async {
-    final items = JsonReader(await api.request('GET', _base))
+    final path = agentId == null
+        ? _base
+        : '$_base?agent_id=${Uri.encodeQueryComponent(agentId!)}';
+    final items = JsonReader(await api.request('GET', path))
         .optObjects('data', Conversation.fromReader);
     return items..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
-  Future<Conversation> create() async => Conversation.fromReader(
-      JsonReader(await api.request('POST', _base, body: const {})));
+  Future<Conversation> create() async =>
+      Conversation.fromReader(JsonReader(await api.request('POST', _base,
+          body: agentId == null ? const {} : {'agent_id': agentId})));
 
   Future<ConversationDetail> get(String id) async =>
       ConversationDetail.fromReader(JsonReader(
@@ -42,6 +50,19 @@ class ChatRepository {
       if (retryTurnId != null) 'retry_turn_id': retryTurnId,
     });
   }
+
+  /// Approves or rejects the approval a chat card shows, through the
+  /// ordinary approvals route with the payload hash the card displayed
+  /// (docs/approvals-and-risk.md). Returns `{approval, task, run}`.
+  Future<JsonMap> decide(ChatCardApproval approval, {required bool approve}) =>
+      api.request(
+          'POST',
+          '/api/v1/approvals/${Uri.encodeComponent(approval.id)}/'
+              '${approve ? 'approve' : 'reject'}',
+          body: {
+            if (approval.payloadHash != null)
+              'payload_hash': approval.payloadHash,
+          });
 
   /// The workspace the signed-in session works in, to notice a switch.
   Future<String?> workspaceId() async =>

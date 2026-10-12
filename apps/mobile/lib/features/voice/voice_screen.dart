@@ -4,6 +4,8 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../developer/developer_assist_panel.dart';
 import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
+import 'call_controller.dart';
+import 'call_screen.dart';
 import 'voice_controller.dart';
 import 'voice_models.dart';
 import 'voice_orb.dart';
@@ -139,7 +141,9 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
               child: Column(children: [
                 Padding(
                   padding: EdgeInsets.fromLTRB(gutter, 12, gutter * 0.5, 4),
-                  child: _VoiceHeader(controller: controller),
+                  child: _VoiceHeader(
+                      controller: controller,
+                      onOpenApprovals: widget.onOpenApprovals),
                 ),
                 Expanded(
                   child: ListView(
@@ -192,8 +196,9 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
 }
 
 class _VoiceHeader extends StatelessWidget {
-  const _VoiceHeader({required this.controller});
+  const _VoiceHeader({required this.controller, this.onOpenApprovals});
   final VoiceController controller;
+  final VoidCallback? onOpenApprovals;
 
   @override
   Widget build(BuildContext context) {
@@ -239,6 +244,23 @@ class _VoiceHeader extends StatelessWidget {
       ),
     ];
     final actions = <Widget>[
+      IconButton(
+        tooltip: arabic ? 'اتصل بـ $name' : 'Call $name',
+        onPressed: () => openCall(
+          context,
+          create: () => CallController(
+              repository: controller.repository, speech: controller.speech),
+          locale: controller.locale,
+          name: name,
+          // The Voice tab stops listening for its name while the call runs.
+          prepare: () => controller.setVisible(false),
+          restore: () => controller.setVisible(true),
+          onOpenApprovals: onOpenApprovals,
+          openSettings: controller.openSettings,
+        ),
+        color: p.muted,
+        icon: const Icon(Icons.call_rounded),
+      ),
       _WakeToggle(controller: controller),
       IconButton(
         tooltip:

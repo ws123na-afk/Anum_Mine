@@ -20,6 +20,19 @@ class ToolDefinition(BaseModel):
     # The configured integration target (host only: no scheme, credentials, port,
     # path or query), shown on approvals (threat model G2). None for internal tools.
     target: str | None = None
+    # Autonomy (docs/autonomy.md): the tool's category (email, whatsapp, commerce,
+    # developer, files, tasks, general) and kind of action (read, draft, reply, send,
+    # archive, pause, create, update, delete, price_change, stock_change, payment,
+    # merge_code, other). Undeclared values are guessed from the name, cautiously.
+    category: str | None = None
+    action_kind: str | None = None
+    # A reversible tool names its compensating tool; the result's ``output["undo"]``
+    # holds that tool's arguments, and the undo stays available this many seconds.
+    undo_tool: str | None = None
+    undo_window_seconds: int = Field(default=0, ge=0, le=7 * 24 * 3600)
+    # Set by tools that deliver to people outside ANUM ("email", "whatsapp"): the generic
+    # delivery path (anum_api/delivery.py) finds them by channel.
+    delivery_channel: str | None = Field(default=None, pattern=r"^[a-z_]{2,30}$")
 
 
 class ToolCall(BaseModel):
@@ -55,21 +68,42 @@ class ToolPolicyDecision(BaseModel):
     risk_level: RiskLevel
     # Governance rules (approval rules, policy pack versions) that shaped the decision.
     governance_rules: list[str] = Field(default_factory=list)
+    # True only when approval is required by the platform's high-risk default alone, so
+    # the workspace's autonomy policy may let the call act on its own (docs/autonomy.md).
+    lowerable: bool = False
+    # The autonomy decision applied by the runtime (``autonomy.AutonomyDecision``).
+    autonomy: dict[str, Any] | None = None
 
 
 ToolHandler = Callable[[ToolCall, TenantContext], Awaitable[ToolResult]]
+# What a connector knows about one call for autonomy (returns ``autonomy.AutonomyFacts``).
+AutonomyFactsProvider = Callable[[ToolCall, TenantContext], Any]
 
 
 class ToolRegistry:
     def __init__(self) -> None:
         self._definitions: dict[str, ToolDefinition] = {}
         self._handlers: dict[str, ToolHandler] = {}
+        self._facts: dict[str, AutonomyFactsProvider] = {}
 
-    def register(self, definition: ToolDefinition, handler: ToolHandler) -> None:
+    def register(
+        self, definition: ToolDefinition, handler: ToolHandler, *, autonomy_facts: AutonomyFactsProvider | None = None
+    ) -> None:
         if definition.name in self._definitions:
             raise ValueError(f"tool already registered: {definition.name}")
         self._definitions[definition.name] = definition
         self._handlers[definition.name] = handler
+        if autonomy_facts is not None:
+            self._facts[definition.name] = autonomy_facts
+
+    def autonomy_facts(self, call: ToolCall, context: TenantContext) -> Any:
+        """The tool module's facts for autonomy (``autonomy.AutonomyFacts``), or None.
+
+        Read in the caller's tenant context; a failure propagates, so a call never acts
+        on a guess (docs/autonomy.md).
+        """
+        provider = self._facts.get(call.name)
+        return provider(call, context) if provider is not None else None
 
     @property
     def names(self) -> set[str]:
@@ -146,6 +180,9 @@ class ToolPolicy:
                 reason="External or high-impact actions require explicit approval.",
                 risk_level=definition.risk_level,
                 governance_rules=match.approval_labels,
+                # An organization rule or a workspace two-person rule keeps it asking.
+                lowerable=not match.requires_approval
+                and not (workspace_policy is not None and workspace_policy.two_person_rule),
             )
         if match.requires_approval:
             return ToolPolicyDecision(
@@ -233,6 +270,8 @@ def default_tool_registry(
             description="Create an internal response without external side effects.",
             risk_level=RiskLevel.LOW,
             idempotent=True,
+            category="general",
+            action_kind="read",
         ),
         _respond,
     )
@@ -243,9 +282,17 @@ def default_tool_registry(
             risk_level=RiskLevel.HIGH,
             required_roles=frozenset({"owner", "member"}),
             target=getattr(external_handler, "target_host", None),
+            category="general",
+            action_kind="other",
         ),
         external_handler or _external_action,
     )
+    # Team work (docs/team-work.md#assigning-in-words): creates an assigned work item from
+    # the user's own sentence and notifies the assignee. Imported lazily (it needs the API's
+    # stores), so registries that never call it stay light.
+    from .team_work import TEAM_ASSIGN_DEFINITION, assign_from_command
+
+    registry.register(TEAM_ASSIGN_DEFINITION, assign_from_command)
     if web_search_handler is not None:
         # Registered only when ANUM_SEARXNG_URL is set (anum_api/web_search.py): without
         # it the tool does not exist, so no skill can select it.
@@ -257,6 +304,8 @@ def default_tool_registry(
                 timeout_seconds=30,
                 idempotent=True,
                 target=getattr(web_search_handler, "target_host", None),
+                category="general",
+                action_kind="read",
             ),
             web_search_handler,
         )

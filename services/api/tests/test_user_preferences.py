@@ -184,3 +184,65 @@ def test_deleting_together_needs_the_conversation_source_and_delete_permission(c
     assert client.delete("/api/v1/memories", params={"source_type": "user"}, headers=headers()).status_code == 422
     assert client.delete("/api/v1/memories", headers=headers()).status_code == 422
     assert client.delete("/api/v1/memories", params={"source_type": "conversation"}, headers=headers(role="viewer")).status_code == 403
+
+
+# --------------------------------------------------------------------------- the reserved "conversation" source
+
+
+def _shared_conversation_labelled(count: int, *, user: str = "user_other") -> list[str]:
+    """Shared task notes saved under the `conversation` label (possible before it was reserved)."""
+    from anum_api.memory import MemoryNote, MemoryProvenance, RetentionPolicy
+
+    later = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    ids = []
+    for index in range(count):
+        note = MemoryNote(
+            id=f"memory_shared_{index:04d}",
+            tenant_id=TENANT,
+            workspace_id=WORKSPACE,
+            task_id="task_shared",
+            content=f"Shared note {index}",
+            provenance=MemoryProvenance(source_type="conversation", created_by_user_id=user, created_at=later),
+            retention=RetentionPolicy(),
+            created_at=later,
+        )
+        memory_note_repository.create(note)
+        ids.append(note.id)
+    return ids
+
+
+def test_new_shared_notes_cannot_use_the_conversation_source(client: TestClient) -> None:
+    owner = headers(role="owner")
+    task = client.post("/api/v1/tasks", headers=owner, json={"title": "t", "prompt": "Collect notes"})
+    assert task.status_code == 201, task.text
+    for label in ("conversation", " Conversation "):
+        refused = client.post(
+            "/api/v1/memories", headers=owner, json={"task_id": task.json()["id"], "content": "x", "source_type": label}
+        )
+        assert refused.status_code == 422, label
+        assert "reserved" in refused.text
+    assert client.post(
+        "/api/v1/memories", headers=owner, json={"task_id": task.json()["id"], "content": "x", "source_type": "note"}
+    ).status_code == 201
+
+
+def test_shared_conversation_labelled_notes_never_crowd_out_the_callers_own(client: TestClient) -> None:
+    from anum_api.memory import MEMORY_LIST_MAX_LIMIT
+
+    _remember(["The user prefers tea over coffee.", "The user lives in Porto."])
+    shared = _shared_conversation_labelled(MEMORY_LIST_MAX_LIMIT)
+
+    # Fact dedupe still sees the caller's own memory behind a full page of newer shared notes.
+    result = asyncio.run(
+        remember_facts(ctx(), "conv_again", "Again", ["The user prefers tea over coffee."], embedder=LocalEmbedder(), clock=lambda: NOW)
+    )
+    assert (result.created, result.unchanged) == ([], 1)
+
+    # A shared note is named as a task note, never as one of the caller's chat memories.
+    names = client.get("/api/v1/retrieval/sources", headers=headers(), params={"memory_id": shared[0]}).json()["sources"]
+    assert (names[0]["found"], names[0]["kind"]) == (True, "task_note")
+
+    # "Delete all from my chats" removes both of mine and none of the shared notes.
+    response = client.delete("/api/v1/memories", params={"source_type": "conversation"}, headers=headers())
+    assert response.json() == {"deleted": 2}
+    assert len([note for note in memory_note_repository._notes.values() if note.owner_user_id is None]) == len(shared)

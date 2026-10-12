@@ -8,6 +8,7 @@ import 'resources_screen.dart';
 import 'retrieval_sources.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
+import 'files_screen.dart';
 import 'workspace_sheets.dart';
 
 /// Which workspace memories and files the run's prompt used, from the run's
@@ -236,14 +237,18 @@ class _SourceRow extends StatelessWidget {
     if (file != null) {
       final listed = file;
       opens = l.t('sourcesOpensFile');
-      open = () => showModalBottomSheet<void>(
-            context: context,
-            builder: (_) => FileDetailSheet(
-              file: listed,
-              onDownload: () => controller.repository.downloadFile(listed),
-              onDelete: () => controller.deleteFile(listed.id),
-            ),
-          );
+      final files = controller.filesController;
+      open = files != null
+          ? () => openFileDetail(context, files, listed,
+              currentUserId: controller.currentUserId)
+          : () => showModalBottomSheet<void>(
+                context: context,
+                builder: (_) => FileDetailSheet(
+                  file: listed,
+                  onDownload: () => controller.repository.downloadFile(listed),
+                  onDelete: () => controller.deleteFile(listed.id),
+                ),
+              );
     } else if (memory != null) {
       final listed = memory;
       opens = l.t('sourcesOpensMemory');

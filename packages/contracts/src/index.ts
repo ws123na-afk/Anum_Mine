@@ -7,6 +7,9 @@ export type TaskStatus =
   | 'failed'
   | 'cancelled';
 
+/** How urgent a task is (0036_task_planning, docs/tasks.md); stored tasks without one read as medium. */
+export type TaskPriority = 'low' | 'medium' | 'high';
+
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type RiskLevel = 'low' | 'medium' | 'high' | 'blocked';
 
@@ -28,6 +31,44 @@ export interface Task {
   updatedAt: string;
   /** User id of whoever created the task. */
   createdBy?: string | null;
+  /** The department assistant the task runs as (docs/team-work.md). */
+  assistantId?: string | null;
+  /** The agent the task runs as (docs/agents.md), or null for the plain runtime. */
+  agentId?: string | null;
+  /** Set while the task is archived (hidden from the default list, history kept; docs/tasks.md). */
+  archivedAt?: string | null;
+  archivedBy?: string | null;
+  /** Planning fields (docs/tasks.md): never change what the agent may do. */
+  priority?: TaskPriority;
+  /** When the result is wanted, UTC; null for no due date. */
+  dueAt?: string | null;
+}
+
+/** `GET /api/v1/tasks/summary`: per-status counts for the list's other filters (docs/tasks.md). */
+export interface TaskSummary {
+  total: number;
+  byStatus: Partial<Record<TaskStatus, number>>;
+  archived: number;
+  /** Distinct creator user ids in the workspace (at most 200). */
+  creators: string[];
+}
+
+export type TaskBulkAction = 'archive' | 'unarchive' | 'cancel';
+
+/** One task's outcome in `POST /api/v1/tasks/bulk`; `statusCode` is what the single-task route answers. */
+export interface TaskBulkItemResult {
+  taskId: string;
+  ok: boolean;
+  statusCode: number;
+  message: string | null;
+  task: Task | null;
+}
+
+export interface TaskBulkResult {
+  action: TaskBulkAction;
+  succeeded: number;
+  failed: number;
+  results: TaskBulkItemResult[];
 }
 
 export interface AgentRunStep {
@@ -55,6 +96,10 @@ export interface AgentRun {
   status: TaskStatus;
   steps: AgentRunStep[];
   result?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  /** Checkpoint phase (`planning`, `tool_ready`, `waiting_approval`, `executing`, or a terminal phase). */
+  phase?: string;
 }
 
 export interface Approval {
@@ -110,6 +155,8 @@ export interface CallerMembership {
   workspaceName: string | null;
   role: string;
   status: 'active';
+  /** The workspace is archived (read-only until an owner restores it). */
+  archived?: boolean;
 }
 
 /** Per-workspace approval policy; only owners change it (docs/approvals-and-risk.md). */
@@ -135,3 +182,11 @@ export interface DomainEvent<TPayload = Record<string, unknown>> {
 export * from './governance.js';
 export * from './phase2.js';
 export * from './admin.js';
+export * from './account.js';
+export * from './autonomy.js';
+export * from './learning.js';
+export * from './commerce.js';
+export * from './command.js';
+export * from './library.js';
+export * from './team.js';
+export * from './agents.js';

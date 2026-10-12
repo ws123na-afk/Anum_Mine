@@ -110,7 +110,8 @@ Widget _app(GovernanceController controller,
         [GovernanceSection section = GovernanceSection.policies]) =>
     MaterialApp(
         theme: AnumTheme.dark(),
-        home: GovernanceScreen(controller: controller, initialSection: section));
+        home:
+            GovernanceScreen(controller: controller, initialSection: section));
 
 void main() {
   testWidgets(

@@ -1,10 +1,10 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
-from anum_api.audit import AuditRecord, DuplicateAuditRecordError
+from anum_api.audit import AuditCursor, AuditFilter, AuditRecord, DuplicateAuditRecordError
 from anum_api.repository import AnumRepository, UnknownCursorError
 from anum_api.schemas import (
     AgentRun,
@@ -15,7 +15,9 @@ from anum_api.schemas import (
     DomainEvent,
     RiskLevel,
     Task,
+    TaskPriority,
     TaskStatus,
+    TaskSummary,
     Tenant,
     InvitationStatus,
     TenantContext,
@@ -26,6 +28,7 @@ from anum_api.schemas import (
     utc_now,
 )
 
+from anum_api.tasks import CREATORS_MAX, TaskFilters, like_pattern
 from anum_api.tool_governance import ToolGovernance, tool_governance_from
 
 from .models import (
@@ -95,6 +98,21 @@ class SqlAlchemyRepository(AnumRepository):
             updated_at=workspace.updated_at,
         )
         self.session.add(record)
+        self.session.flush()
+        return self._workspace_from_record(record)
+
+    def save_workspace(self, workspace: Workspace) -> Workspace:
+        record = self.session.scalar(
+            select(WorkspaceRecord)
+            .where(WorkspaceRecord.id == workspace.id, WorkspaceRecord.tenant_id == workspace.tenant_id)
+            .with_for_update()
+        )
+        if record is None:
+            raise ValueError(f"Workspace does not exist: {workspace.id}")
+        record.name = workspace.name
+        record.archived_at = workspace.archived_at
+        record.archived_by = workspace.archived_by
+        record.updated_at = workspace.updated_at
         self.session.flush()
         return self._workspace_from_record(record)
 
@@ -205,6 +223,7 @@ class SqlAlchemyRepository(AnumRepository):
             or record.workspace_id != invitation.workspace_id
         ):
             raise ValueError(f"Invitation {invitation.id!r} cannot be moved between scopes")
+        record.token_hash = invitation.token_hash
         record.role = invitation.role
         record.invitee_user_id = invitation.invitee_user_id
         record.invitee_email = invitation.invitee_email
@@ -289,21 +308,93 @@ class SqlAlchemyRepository(AnumRepository):
             )
             .order_by(AuditRecordRow.created_at, AuditRecordRow.id)
         ).all()
-        return [
-            AuditRecord(
-                id=row.id,
-                tenant_id=row.tenant_id,
-                workspace_id=row.workspace_id,
-                actor=row.actor,
-                action=row.action,
-                target=row.target,
-                outcome=row.outcome,
-                correlation_id=row.correlation_id,
-                created_at=row.created_at,
-                metadata=dict(row.record_metadata or {}),
+        return [self._audit_from_row(row) for row in rows]
+
+    def list_audit_page(
+        self,
+        context: TenantContext,
+        audit_filter: AuditFilter,
+        *,
+        limit: int,
+        after: AuditCursor | None = None,
+    ) -> list[AuditRecord]:
+        """One keyset page, newest first, inside the request's RLS scope."""
+        query = select(AuditRecordRow).where(
+            AuditRecordRow.tenant_id == context.tenant_id,
+            AuditRecordRow.workspace_id == context.workspace_id,
+        )
+        if audit_filter.actor is not None:
+            query = query.where(AuditRecordRow.actor == audit_filter.actor)
+        if audit_filter.action is not None:
+            if audit_filter.action.endswith("*"):
+                query = query.where(
+                    AuditRecordRow.action.startswith(audit_filter.action[:-1], autoescape=True)
+                )
+            else:
+                query = query.where(AuditRecordRow.action == audit_filter.action)
+        if audit_filter.target is not None:
+            query = query.where(AuditRecordRow.target == audit_filter.target)
+        if audit_filter.outcome is not None:
+            query = query.where(AuditRecordRow.outcome == audit_filter.outcome)
+        if audit_filter.correlation_id is not None:
+            query = query.where(AuditRecordRow.correlation_id == audit_filter.correlation_id)
+        if audit_filter.since is not None:
+            query = query.where(AuditRecordRow.created_at >= audit_filter.since)
+        if audit_filter.until is not None:
+            query = query.where(AuditRecordRow.created_at < audit_filter.until)
+        if audit_filter.text:
+            query = query.where(
+                or_(
+                    AuditRecordRow.actor.icontains(audit_filter.text, autoescape=True),
+                    AuditRecordRow.action.icontains(audit_filter.text, autoescape=True),
+                    AuditRecordRow.target.icontains(audit_filter.text, autoescape=True),
+                )
             )
-            for row in rows
-        ]
+        if after is not None:
+            query = query.where(tuple_(AuditRecordRow.created_at, AuditRecordRow.id) < tuple_(*after))
+        rows = self.session.scalars(
+            query.order_by(AuditRecordRow.created_at.desc(), AuditRecordRow.id.desc()).limit(limit)
+        ).all()
+        return [self._audit_from_row(row) for row in rows]
+
+    def get_audit_record(self, record_id: str, context: TenantContext) -> AuditRecord | None:
+        row = self.session.scalar(
+            select(AuditRecordRow).where(
+                AuditRecordRow.id == record_id,
+                AuditRecordRow.tenant_id == context.tenant_id,
+                AuditRecordRow.workspace_id == context.workspace_id,
+            )
+        )
+        return None if row is None else self._audit_from_row(row)
+
+    def list_audit_actions(self, context: TenantContext) -> list[str]:
+        return list(
+            self.session.scalars(
+                select(AuditRecordRow.action)
+                .where(
+                    AuditRecordRow.tenant_id == context.tenant_id,
+                    AuditRecordRow.workspace_id == context.workspace_id,
+                )
+                .group_by(AuditRecordRow.action)
+                .order_by(AuditRecordRow.action)
+                .limit(500)
+            ).all()
+        )
+
+    @staticmethod
+    def _audit_from_row(row: AuditRecordRow) -> AuditRecord:
+        return AuditRecord(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            workspace_id=row.workspace_id,
+            actor=row.actor,
+            action=row.action,
+            target=row.target,
+            outcome=row.outcome,
+            correlation_id=row.correlation_id,
+            created_at=row.created_at,
+            metadata=dict(row.record_metadata or {}),
+        )
 
     def create_task(self, task: Task) -> Task:
         record = self.session.get(TaskRecord, task.id)
@@ -323,24 +414,70 @@ class SqlAlchemyRepository(AnumRepository):
 
         record.title = task.title
         record.prompt = task.prompt
+        # Fixed at creation like the creator: a task never changes the agent it runs as.
+        if record.agent_id is None and task.agent_id is not None:
+            record.agent_id = task.agent_id
+        task.agent_id = record.agent_id
         record.status = task.status.value
+        record.archived_at = task.archived_at
+        record.archived_by_user_id = task.archived_by
+        record.assistant_id = task.assistant_id
+        record.priority = task.priority.value
+        record.due_at = task.due_at
         record.created_at = task.created_at
         record.updated_at = task.updated_at
         self.session.flush()
         return self._task_from_record(record)
 
+    @staticmethod
+    def _task_conditions(context: TenantContext, filters: TaskFilters) -> list[Any]:
+        conditions: list[Any] = [
+            TaskRecord.tenant_id == context.tenant_id,
+            TaskRecord.workspace_id == context.workspace_id,
+            TaskRecord.archived_at.is_not(None) if filters.archived else TaskRecord.archived_at.is_(None),
+        ]
+        if filters.statuses:
+            conditions.append(TaskRecord.status.in_(sorted(status.value for status in filters.statuses)))
+        if filters.created_by is not None:
+            conditions.append(TaskRecord.created_by_user_id == filters.created_by)
+        if filters.agent_id is not None:
+            conditions.append(TaskRecord.agent_id == filters.agent_id)
+        if filters.created_after is not None:
+            conditions.append(TaskRecord.created_at >= filters.created_after)
+        if filters.created_before is not None:
+            conditions.append(TaskRecord.created_at < filters.created_before)
+        if filters.query:
+            pattern = like_pattern(filters.query)
+            conditions.append(
+                or_(
+                    TaskRecord.title.ilike(pattern, escape="\\"),
+                    TaskRecord.prompt.ilike(pattern, escape="\\"),
+                    TaskRecord.id.ilike(pattern, escape="\\"),
+                )
+            )
+        return conditions
+
     def list_tasks(
-        self, context: TenantContext, *, limit: int | None = None, after: str | None = None
+        self,
+        context: TenantContext,
+        *,
+        limit: int | None = None,
+        after: str | None = None,
+        filters: TaskFilters | None = None,
     ) -> list[Task]:
         """Newest first, keyset-paged on ``(created_at, id)`` (``ix_tasks_scope_created``).
 
         ``after`` is the id of the last task already shown; an id outside the caller's scope
-        raises :class:`UnknownCursorError` rather than returning an empty page.
+        raises :class:`UnknownCursorError` rather than returning an empty page. Without
+        ``filters`` every task is listed, archived ones included.
         """
-        statement = select(TaskRecord).where(
-            TaskRecord.tenant_id == context.tenant_id,
-            TaskRecord.workspace_id == context.workspace_id,
-        )
+        if filters is not None:
+            statement = select(TaskRecord).where(*self._task_conditions(context, filters))
+        else:
+            statement = select(TaskRecord).where(
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
         if after is not None:
             anchor = self.session.execute(
                 select(TaskRecord.created_at, TaskRecord.id).where(
@@ -359,6 +496,113 @@ class SqlAlchemyRepository(AnumRepository):
             statement = statement.limit(limit)
         records = self.session.scalars(statement).all()
         return [self._task_from_record(record) for record in records]
+
+    def summarize_tasks(self, context: TenantContext, filters: TaskFilters) -> TaskSummary:
+        unfiltered = filters.without_status()
+        rows = self.session.execute(
+            select(TaskRecord.status, func.count())
+            .where(*self._task_conditions(context, unfiltered))
+            .group_by(TaskRecord.status)
+        ).all()
+        by_status = {str(status): int(count) for status, count in rows}
+        archived = self.session.scalar(
+            select(func.count())
+            .select_from(TaskRecord)
+            .where(*self._task_conditions(context, unfiltered.with_archived(True)))
+        )
+        creators = self.session.scalars(
+            select(TaskRecord.created_by_user_id)
+            .where(
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+            .distinct()
+            .order_by(TaskRecord.created_by_user_id)
+            .limit(CREATORS_MAX)
+        ).all()
+        return TaskSummary(
+            total=sum(by_status.values()),
+            by_status=by_status,
+            archived=int(archived or 0),
+            creators=[creator for creator in creators if creator],
+        )
+
+    def list_runs_for_task(
+        self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[AgentRun]:
+        """The task's runs newest first, keyset-paged (``ix_agent_runs_task_created``)."""
+        statement = (
+            select(AgentRunRecord)
+            .join(TaskRecord, AgentRunRecord.task_id == TaskRecord.id)
+            .where(
+                AgentRunRecord.task_id == task_id,
+                AgentRunRecord.tenant_id == context.tenant_id,
+                AgentRunRecord.workspace_id == context.workspace_id,
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+        )
+        if after is not None:
+            anchor = self.session.execute(
+                select(AgentRunRecord.created_at, AgentRunRecord.id).where(
+                    AgentRunRecord.id == after,
+                    AgentRunRecord.task_id == task_id,
+                    AgentRunRecord.tenant_id == context.tenant_id,
+                    AgentRunRecord.workspace_id == context.workspace_id,
+                )
+            ).first()
+            if anchor is None:
+                raise UnknownCursorError(after)
+            statement = statement.where(
+                tuple_(AgentRunRecord.created_at, AgentRunRecord.id) < tuple_(anchor[0], anchor[1])
+            )
+        statement = statement.order_by(AgentRunRecord.created_at.desc(), AgentRunRecord.id.desc())
+        if limit is not None:
+            statement = statement.limit(limit)
+        return [self._run_from_record(record) for record in self.session.scalars(statement).all()]
+
+    def list_task_events(
+        self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
+    ) -> list[DomainEvent]:
+        """The task's events (correlation id = task id) newest first, keyset-paged."""
+        statement = select(DomainEventRecord).where(
+            DomainEventRecord.tenant_id == context.tenant_id,
+            DomainEventRecord.workspace_id == context.workspace_id,
+            DomainEventRecord.correlation_id == task_id,
+        )
+        if after is not None:
+            anchor = self.session.execute(
+                select(DomainEventRecord.created_at, DomainEventRecord.id).where(
+                    DomainEventRecord.id == after,
+                    DomainEventRecord.tenant_id == context.tenant_id,
+                    DomainEventRecord.workspace_id == context.workspace_id,
+                    DomainEventRecord.correlation_id == task_id,
+                )
+            ).first()
+            if anchor is None:
+                raise UnknownCursorError(after)
+            statement = statement.where(
+                tuple_(DomainEventRecord.created_at, DomainEventRecord.id) < tuple_(anchor[0], anchor[1])
+            )
+        statement = statement.order_by(DomainEventRecord.created_at.desc(), DomainEventRecord.id.desc())
+        if limit is not None:
+            statement = statement.limit(limit)
+        return [self._event_from_record(record) for record in self.session.scalars(statement).all()]
+
+    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]:
+        records = self.session.scalars(
+            select(ApprovalRecord)
+            .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
+            .where(
+                ApprovalRecord.task_id == task_id,
+                ApprovalRecord.tenant_id == context.tenant_id,
+                ApprovalRecord.workspace_id == context.workspace_id,
+                TaskRecord.tenant_id == context.tenant_id,
+                TaskRecord.workspace_id == context.workspace_id,
+            )
+            .order_by(ApprovalRecord.created_at, ApprovalRecord.id)
+        ).all()
+        return [self._approval_from_record(record) for record in records]
 
     def save_task(self, task: Task) -> Task:
         return self.create_task(task)
@@ -666,6 +910,12 @@ class SqlAlchemyRepository(AnumRepository):
             )
         return result
 
+    def autonomy_store(self):  # type: ignore[no-untyped-def]
+        """The workspace autonomy data in this session's unit of work and RLS scope."""
+        from .autonomy_repository import SqlAlchemyAutonomyStore
+
+        return SqlAlchemyAutonomyStore(self.session)
+
     def get_tool_governance(self, context: TenantContext) -> ToolGovernance:
         """Enabled approval rules and active policy packs of the caller's tenant.
 
@@ -765,6 +1015,12 @@ class SqlAlchemyRepository(AnumRepository):
             created_at=record.created_at,
             updated_at=record.updated_at,
             created_by=record.created_by_user_id,
+            archived_at=record.archived_at,
+            archived_by=record.archived_by_user_id,
+            assistant_id=record.assistant_id,
+            priority=TaskPriority(record.priority) if record.priority else TaskPriority.MEDIUM,
+            due_at=record.due_at,
+            agent_id=record.agent_id,
         )
 
     @staticmethod
@@ -785,6 +1041,8 @@ class SqlAlchemyRepository(AnumRepository):
             name=record.name,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            archived_at=record.archived_at,
+            archived_by=record.archived_by,
         )
 
     @staticmethod

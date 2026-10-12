@@ -1,6 +1,8 @@
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 
 from .agent_planning import AgentPlanner
+from .agent_policy import AgentRunProfile, apply_agent_policy
 from .agent_skills import SkillRegistry, default_skill_registry
 from .agent_tools import (
     ToolCall,
@@ -12,8 +14,19 @@ from .agent_tools import (
     default_tool_registry,
 )
 from .approval_integrity import display_arguments, is_expired, payload_hash
+from .autonomy import (
+    AutonomyEngine,
+    AutonomyMode,
+    apply_autonomy,
+    observe_approval,
+    profile_call,
+    recipient_hash,
+    record_autonomous_action,
+    store_of,
+)
 from .audit import AuditRecord
 from .events import CanonicalEventName, create_event
+from .prompt_provenance import Provenance, label_untrusted
 from .model_gateway import ModelGateway
 from .repository import AnumRepository
 from .retrieval import RetrievalResult, Retriever
@@ -32,6 +45,10 @@ from .schemas import (
 )
 
 
+# Skills whose output is a draft the user sends or keeps: they get the learned style block.
+DRAFTING_SKILLS = frozenset({"anum.document-drafting"})
+
+
 class AgentRuntime:
     def __init__(
         self,
@@ -43,6 +60,7 @@ class AgentRuntime:
         tool_policy: ToolPolicy | None = None,
         approval_ttl_seconds: float | None = None,
         retriever: Retriever | None = None,
+        agent_memory_loader: Callable[[TenantContext, str], Sequence[object]] | None = None,
     ) -> None:
         if approval_ttl_seconds is None:
             from .settings import settings
@@ -56,41 +74,95 @@ class AgentRuntime:
         self.planner = AgentPlanner(model_gateway, self.skills, self.tools)
         # Workspace memory and file retrieval (threat model G5); None plans without it.
         self.retriever = retriever
+        # An agent's own memories for runs as that agent (docs/agents.md).
+        self.agent_memory_loader = agent_memory_loader
 
-    def new_run(self, task: Task, *, status: TaskStatus = TaskStatus.RUNNING) -> AgentRun:
-        """A fresh run for ``task`` at the planning checkpoint (not yet saved)."""
+    @staticmethod
+    def agent_of(run: AgentRun | None) -> AgentRunProfile | None:
+        """The agent snapshot a run applies (docs/agents.md), or None."""
+        if run is None or not run.checkpoint.agent:
+            return None
+        return AgentRunProfile.model_validate(run.checkpoint.agent)
+
+    def new_run(
+        self, task: Task, *, status: TaskStatus = TaskStatus.RUNNING, agent: AgentRunProfile | None = None
+    ) -> AgentRun:
+        """A fresh run for ``task`` at the planning checkpoint (not yet saved).
+
+        ``agent`` is the snapshot of the agent the task runs as; it stays on the
+        checkpoint so every later decision for this run applies it.
+        """
         now = utc_now()
-        return AgentRun(
+        run = AgentRun(
             id=new_id("run"),
             task_id=task.id,
             status=status,
             created_at=now,
             updated_at=now,
         )
+        if agent is not None:
+            run.checkpoint.agent = agent.model_dump(mode="json")
+        return run
 
     def workspace_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy:
         """The workspace's approval policy (defaults when none is stored)."""
         return self.repository.get_approval_policy(context)
 
-    def evaluate(self, call: ToolCall, context: TenantContext) -> ToolPolicyDecision:
+    def evaluate(
+        self,
+        call: ToolCall,
+        context: TenantContext,
+        task: Task | None = None,
+        run: AgentRun | None = None,
+    ) -> ToolPolicyDecision:
         """Tool policy for ``call`` (outside the model).
 
         Uses the workspace's approval policy and the tenant's governance rules (enabled
         approval rules and active policy packs), both read through the repository in the
         caller's tenant scope. A failure to read them propagates: the call never runs
-        on a guess.
+        on a guess. A run as an agent then applies the agent's tools and autonomy,
+        which can only make the decision stricter (``agent_policy``).
         """
-        return self.tool_policy.evaluate(
+        definition = self.tools.definition(call.name)
+        decision = self.tool_policy.evaluate(
             call,
-            self.tools.definition(call.name),
+            definition,
             context,
             self.workspace_policy(context),
             self.repository.get_tool_governance(context),
         )
+        decision = self._with_autonomy(call, definition, decision, context)
+        if task is not None and task.assistant_id:
+            # A department assistant only ever narrows the decision (docs/team-work.md).
+            from .assistants import narrow_for_assistant
 
-    async def run_task(self, task: Task, context: TenantContext) -> tuple[AgentRun, Approval | None]:
+            decision = narrow_for_assistant(decision, call, context, task.assistant_id)
+        # A run as an agent: its tools and autonomy, last, so they can only tighten
+        # (autonomy may lower a lowerable approval; the agent never lets it).
+        agent = self.agent_of(run)
+        if agent is not None:
+            decision = apply_agent_policy(agent, call, definition, decision)
+        return decision
+
+    def _with_autonomy(
+        self,
+        call: ToolCall,
+        definition: object,
+        decision: ToolPolicyDecision,
+        context: TenantContext,
+    ) -> ToolPolicyDecision:
+        """Apply the workspace's autonomy policy on top of the tool policy (docs/autonomy.md).
+
+        Read through the run's repository (same unit of work and RLS scope). A failure
+        to read it propagates like the governance rules: the call never runs on a guess.
+        """
+        return with_workspace_autonomy(self.repository, call, definition, decision, context, tools=self.tools)
+
+    async def run_task(
+        self, task: Task, context: TenantContext, *, agent: AgentRunProfile | None = None
+    ) -> tuple[AgentRun, Approval | None]:
         """Plan and, when policy allows, execute in one call (the inline backend)."""
-        run = self.new_run(task)
+        run = self.new_run(task, agent=agent)
         approval = await self.plan_run(task, run, context)
         if run.checkpoint.phase == RunPhase.TOOL_READY:
             await self.execute_checkpoint(task, run, context)
@@ -109,8 +181,13 @@ class AgentRuntime:
         task.status = run.status = TaskStatus.RUNNING
         task.updated_at = run.updated_at = utc_now()
 
-        retrieved = await self._retrieve(task, run, context)
-        planned = await self.planner.plan(task, context_blocks=retrieved.blocks if retrieved else ())
+        agent = self.agent_of(run)
+        retrieved = await self._retrieve(task, run, context, agent)
+        blocks = list(retrieved.blocks) if retrieved else []
+        if agent is not None:
+            blocks = self._agent_memory_blocks(run, context, agent) + blocks
+        learned = self._learned_block(task, context)
+        planned = await self.planner.plan(task, context_blocks=blocks, learned_block=learned, agent=agent)
         model_step = AgentRunStep(
                 id=new_id("step"),
                 type="model_call",
@@ -119,12 +196,15 @@ class AgentRuntime:
                 metadata={
                     "usage": planned.model_response.usage.model_dump(),
                     "selected_skills": planned.plan.skill_ids,
+                    # Whether the user's learned style shaped this draft (docs/learning.md); never its text.
+                    "learned_preferences": learned is not None,
+                    **({"agent_id": agent.id, "agent_version": agent.version} if agent else {}),
                 },
             )
         run.steps.append(model_step)
 
         call = planned.plan.tool_calls[0]
-        decision = self.evaluate(call, context)
+        decision = self.evaluate(call, context, task, run)
         proposal_step = AgentRunStep(
                 id=new_id("step"),
                 type="tool_proposal",
@@ -135,9 +215,12 @@ class AgentRuntime:
                     "risk_level": decision.risk_level.value,
                     "policy_outcome": decision.outcome.value,
                     "governance_rules": list(decision.governance_rules),
+                    "autonomy_mode": (decision.autonomy or {}).get("mode"),
+                    "autonomy_reason": (decision.autonomy or {}).get("reason"),
                 },
             )
         run.steps.append(proposal_step)
+        run.checkpoint.autonomy = decision.autonomy
         run.checkpoint.phase = RunPhase.TOOL_READY
         run.checkpoint.version += 1
         run.checkpoint.selected_skills = list(planned.plan.skill_ids)
@@ -154,7 +237,67 @@ class AgentRuntime:
             return approval
         return None
 
-    async def _retrieve(self, task: Task, run: AgentRun, context: TenantContext) -> RetrievalResult | None:
+    def _learned_block(self, task: Task, context: TenantContext) -> str | None:
+        """The user's learned style and preferences, for drafting tasks only (docs/learning.md)."""
+        selected = self.skills.select(task.prompt, self.tools.names)
+        if not any(skill.id in DRAFTING_SKILLS for skill in selected):
+            return None
+        from .learning_store import learned_instructions
+
+        tools = sorted({tool for skill in selected for tool in skill.required_tools})
+        return learned_instructions(
+            context, surface="task", skill_ids=tuple(skill.id for skill in selected), tools=tuple(tools)
+        )
+
+    def _agent_memory_blocks(self, run: AgentRun, context: TenantContext, agent: AgentRunProfile) -> list[str]:
+        """The agent's own memories as labeled, untrusted blocks (ids recorded, never text)."""
+        loader = self.agent_memory_loader
+        if loader is None:
+            from .agent_profiles import agent_memories_for_run
+
+            loader = agent_memories_for_run
+        try:
+            memories = list(loader(context, agent.id))
+        except Exception:  # the run goes on without them; the step says so
+            run.steps.append(
+                AgentRunStep(
+                    id=new_id("step"),
+                    type="retrieval",
+                    summary="The agent's memories were unavailable; the task ran without them.",
+                    created_at=utc_now(),
+                    metadata={"status": "unavailable", "agent_id": agent.id, "source": "agent_memory"},
+                )
+            )
+            return []
+        if not memories:
+            return []
+        run.steps.append(
+            AgentRunStep(
+                id=new_id("step"),
+                type="retrieval",
+                summary=f"Used {len(memories)} of the agent's memories as labeled, untrusted context.",
+                created_at=utc_now(),
+                metadata={
+                    "status": "ok",
+                    "agent_id": agent.id,
+                    "source": "agent_memory",
+                    "memory_ids": [str(getattr(memory, "id", "")) for memory in memories],
+                },
+            )
+        )
+        return [
+            label_untrusted(
+                str(getattr(memory, "content", "")),
+                source=Provenance.MEMORY,
+                origin=f"agent-memory/{getattr(memory, 'id', 'unknown')}",
+                max_chars=2000,
+            )
+            for memory in memories
+        ]
+
+    async def _retrieve(
+        self, task: Task, run: AgentRun, context: TenantContext, agent: AgentRunProfile | None = None
+    ) -> RetrievalResult | None:
         """Retrieve labeled workspace context and record which chunks were used.
 
         The step's metadata holds chunk ids, sources and scores, never the text. The
@@ -163,7 +306,19 @@ class AgentRuntime:
         """
         if self.retriever is None:
             return None
-        result = await self.retriever.retrieve(context, task.prompt)
+        if agent is not None and agent.knowledge_mode == "none":
+            run.steps.append(
+                AgentRunStep(
+                    id=new_id("step"),
+                    type="retrieval",
+                    summary=f"Workspace retrieval skipped: {agent.name} uses no workspace knowledge.",
+                    created_at=utc_now(),
+                    metadata={"status": "skipped", "reason": "agent_knowledge_none", "agent_id": agent.id},
+                )
+            )
+            return None
+        sources = agent.knowledge_filter() if agent is not None else None
+        result = await self.retriever.retrieve(context, task.prompt, sources=sources)
         run.steps.append(
             AgentRunStep(
                 id=new_id("step"),
@@ -257,7 +412,7 @@ class AgentRuntime:
             if approval.target is not None and approval.target != current_target:
                 self._reject_target_mismatch(task, run, context, approval, current_target)
                 return None
-            decision = self.evaluate(call, context)
+            decision = self.evaluate(call, context, task, run)
             if decision.outcome == ToolPolicyOutcome.BLOCK:
                 self._fail(
                     task,
@@ -271,7 +426,8 @@ class AgentRuntime:
             if not run.checkpoint.tool_call:
                 raise ValueError("Run has no executable checkpoint")
             call = ToolCall.model_validate(run.checkpoint.tool_call)
-            decision = self.evaluate(call, context)
+            decision = self.evaluate(call, context, task, run)
+            run.checkpoint.autonomy = decision.autonomy
             if decision.outcome == ToolPolicyOutcome.BLOCK:
                 self._fail(task, run, context, decision.reason)
                 return None
@@ -314,7 +470,7 @@ class AgentRuntime:
             raise ValueError("Run is not interrupted mid-execution")
         call = ToolCall.model_validate(run.checkpoint.tool_call)
         definition = self.tools.definition(call.name)
-        decision = self.evaluate(call, context)
+        decision = self.evaluate(call, context, task, run)
         if decision.outcome != ToolPolicyOutcome.ALLOW or definition is None or not definition.idempotent:
             self._fail(
                 task,
@@ -667,7 +823,107 @@ class AgentRuntime:
         if approval_id:
             payload["approval_id"] = approval_id
         self._record_event("agent_run.completed", context, run.id, payload, task.id)
+        self._after_success(task, run, context, result, approval_id)
         return run
+
+    def _after_success(
+        self,
+        task: Task,
+        run: AgentRun,
+        context: TenantContext,
+        result: ToolResult,
+        approval_id: str | None,
+    ) -> None:
+        """Autonomy bookkeeping for a completed call (docs/autonomy.md).
+
+        Recipients of the call become known. A call that ran on its own is recorded in
+        the activity feed (with its undo token when the tool reported how to reverse it)
+        and announced; an approved call counts towards proposing more autonomy for its
+        pattern, which is announced when it becomes a proposal. Never raises autonomy.
+        """
+        store = store_of(self.repository)
+        if store is None or not run.checkpoint.tool_call:
+            return
+        call = ToolCall.model_validate(run.checkpoint.tool_call)
+        definition = self.tools.definition(call.name)
+        profile = profile_call(call, definition)
+        now = utc_now()
+        if profile.recipients:
+            store.remember_recipients(
+                context,
+                profile.category.value,
+                [recipient_hash(context, profile.category.value, r) for r in profile.recipients],
+                now,
+            )
+        info = run.checkpoint.autonomy or {}
+        if approval_id is not None:
+            proposal = observe_approval(store, context, profile, info, now=now)
+            if proposal is not None:
+                self._record_event(
+                    "autonomy.proposal_created",
+                    context,
+                    proposal.id,
+                    {"pattern_key": proposal.pattern_key, "tool": proposal.tool, "approvals": str(proposal.approvals)},
+                    task.id,
+                )
+                self._audit(
+                    context,
+                    "autonomy.proposal_created",
+                    proposal.id,
+                    "success",
+                    task.id,
+                    {"pattern_key": proposal.pattern_key, "tool": proposal.tool, "approvals": proposal.approvals},
+                    actor="system",
+                )
+            return
+        mode = info.get("mode")
+        if mode not in {AutonomyMode.NOTIFY.value, AutonomyMode.SILENT.value}:
+            return
+        undo = result.output.get("undo") if isinstance(result.output, dict) else None
+        action = record_autonomous_action(
+            store,
+            context,
+            task_id=task.id,
+            run_id=run.id,
+            profile=profile,
+            decision=info,
+            summary=result.summary,
+            undo_tool=definition.undo_tool if definition is not None else None,
+            undo_arguments=undo if isinstance(undo, dict) else None,
+            undo_window_seconds=definition.undo_window_seconds if definition is not None else 0,
+            now=now,
+        )
+        if mode == AutonomyMode.NOTIFY.value:
+            # Silent actions are only listed in the activity feed; these are announced.
+            payload = {
+                "action_id": action.id,
+                "task_id": task.id,
+                "tool": action.tool,
+                "category": action.category.value,
+                "level": action.level.value,
+                "summary": action.summary[:200],
+            }
+            if action.undo_expires_at is not None:
+                payload["undo_until"] = action.undo_expires_at.isoformat()
+            self._record_event("autonomy.action_taken", context, action.id, payload, task.id)
+        self._audit(
+            context,
+            "autonomy.action_taken",
+            action.id,
+            "success",
+            task.id,
+            {
+                "task_id": task.id,
+                "run_id": run.id,
+                "tool": action.tool,
+                "category": action.category.value,
+                "action_kind": action.action_kind.value,
+                "level": action.level.value,
+                "pattern_key": action.pattern_key,
+                "rule_id": info.get("rule_id"),
+                "reversible": action.undo_tool is not None,
+            },
+        )
 
     def _fail(
         self,
@@ -710,3 +966,31 @@ class AgentRuntime:
             correlation_id=correlation_id,
         )
         self.repository.record_event(envelope.event)
+
+
+def with_workspace_autonomy(
+    repository: AnumRepository,
+    call: ToolCall,
+    definition: object,
+    decision: ToolPolicyDecision,
+    context: TenantContext,
+    *,
+    tools: ToolRegistry,
+) -> ToolPolicyDecision:
+    """The tool policy ``decision`` with the workspace's autonomy policy applied.
+
+    Shared by the runtime and the command plan preview (docs/command.md), so a preview
+    says "needs approval" exactly when a run would pause for one.
+    """
+    store = store_of(repository)
+    if store is None or definition is None or decision.outcome == ToolPolicyOutcome.BLOCK:
+        return decision
+    profile = profile_call(call, definition)  # type: ignore[arg-type]
+    verdict = AutonomyEngine(store).evaluate(
+        profile,
+        context,
+        platform_allows=decision.outcome == ToolPolicyOutcome.ALLOW,
+        # Connector facts (amounts, recipients) exactly as a run would see them.
+        facts=tools.autonomy_facts(call, context),
+    )
+    return apply_autonomy(decision, profile, verdict)

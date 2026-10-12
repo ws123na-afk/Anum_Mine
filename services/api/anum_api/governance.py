@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import csv
-import io
-import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -10,10 +7,10 @@ from enum import StrEnum
 from threading import RLock
 from typing import Any, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from .audit import AuditRecord, InMemoryAuditRecorder
+from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import has_permission, require_permission, tenant_context
 from .schemas import TenantContext, new_id, utc_now
@@ -138,7 +135,6 @@ class GovernanceStore:
         self.role_templates: dict[str, list[RoleTemplate]] = {}
         self.approval_rules: dict[str, list[ApprovalRule]] = {}
         self.memory_governance: dict[str, MemoryGovernance] = {}
-        self.audit = InMemoryAuditRecorder()
         self._lock = RLock()
 
     def clear(self) -> None:
@@ -147,7 +143,6 @@ class GovernanceStore:
             self.role_templates.clear()
             self.approval_rules.clear()
             self.memory_governance.clear()
-            self.audit = InMemoryAuditRecorder()
 
     def list_policy_packs(self, context: TenantContext) -> list[PolicyPack]:
         with self._lock:
@@ -212,12 +207,19 @@ class GovernanceStore:
             self.memory_governance[value.tenant_id] = value
         return value
 
+    # Audit records go to the same in-memory store as every other audit record, so the
+    # audit log and its export show governance changes next to membership changes, as
+    # with PostgreSQL (one ``audit_records`` table).
     def record_audit(self, record: AuditRecord) -> AuditRecord:
+        from .dependencies import memory_repository
+
         with self._lock:
-            return self.audit.record(record)
+            return memory_repository.record_audit(record)
 
     def query_audit(self, context: TenantContext) -> list[AuditRecord]:
-        return list(self.audit.query(context))
+        from .dependencies import memory_repository
+
+        return memory_repository.list_audit_records(context)
 
 
 governance_store = GovernanceStore()
@@ -378,31 +380,3 @@ def get_memory_governance(context: TenantContext = Depends(tenant_context)) -> M
     if result is None:
         raise HTTPException(status_code=404, detail="Memory governance is not configured")
     return result
-
-
-@router.get("/audit/export")
-def export_audit(
-    format: str = Query(default="json", pattern="^(json|csv)$"),
-    context: TenantContext = Depends(tenant_context),
-) -> Response:
-    _owner(context, Permission.AUDIT_EXPORT)
-    with open_governance_store(context) as store:
-        records = store.query_audit(context)
-    rows = [{
-        "id": r.id, "tenant_id": r.tenant_id, "workspace_id": r.workspace_id,
-        "actor": r.actor, "action": r.action, "target": r.target,
-        "outcome": r.outcome, "correlation_id": r.correlation_id,
-        "created_at": r.created_at.isoformat(), "metadata": dict(r.metadata),
-    } for r in records]
-    if format == "json":
-        return Response(json.dumps(rows, default=list), media_type="application/json",
-                        headers={"Content-Disposition": "attachment; filename=audit-export.json"})
-    output = io.StringIO()
-    fields = ["id", "tenant_id", "workspace_id", "actor", "action", "target", "outcome", "correlation_id", "created_at", "metadata"]
-    writer = csv.DictWriter(output, fieldnames=fields)
-    writer.writeheader()
-    for row in rows:
-        row["metadata"] = json.dumps(row["metadata"], sort_keys=True, default=list)
-        writer.writerow(row)
-    return Response(output.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=audit-export.csv"})

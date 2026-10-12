@@ -18,6 +18,7 @@ from datetime import datetime
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
+from anum_api.chat_tools import ChatCard
 from anum_api.conversations import (
     Conversation,
     ConversationCreate,
@@ -41,6 +42,7 @@ def _conversation(record: ConversationRecord) -> Conversation:
         title=record.title,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        agent_id=record.agent_id,
     )
 
 
@@ -52,7 +54,18 @@ def _turn(record: ConversationTurnRecord) -> ConversationTurn:
         content=record.content,
         status=TurnStatus(record.status),
         created_at=record.created_at,
+        card=_card(record.card),
     )
+
+
+def _card(value: object) -> ChatCard | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return ChatCard.model_validate(value)
+    except ValueError:
+        # A card this release cannot read (a newer one wrote it): the text still shows.
+        return None
 
 
 class SqlAlchemyConversationStore:
@@ -84,6 +97,7 @@ class SqlAlchemyConversationStore:
             workspace_id=context.workspace_id,
             user_id=context.user_id,
             title=(payload.title or "").strip(),
+            agent_id=payload.agent_id,
             created_at=now,
             updated_at=now,
         )
@@ -91,10 +105,13 @@ class SqlAlchemyConversationStore:
         self.session.flush()
         return _conversation(record)
 
-    def list(self, context: TenantContext, limit: int) -> list[Conversation]:
+    def list(self, context: TenantContext, limit: int, agent_id: str | None = None) -> list[Conversation]:
+        agent_filter = (
+            ConversationRecord.agent_id.is_(None) if agent_id is None else ConversationRecord.agent_id == agent_id
+        )
         records = self.session.scalars(
             select(ConversationRecord)
-            .where(*self._scope())
+            .where(*self._scope(), agent_filter)
             .order_by(ConversationRecord.updated_at.desc(), ConversationRecord.id.desc())
             .limit(limit)
         ).all()
@@ -126,7 +143,12 @@ class SqlAlchemyConversationStore:
         )
 
     def add_turn(
-        self, conversation: Conversation, role: TurnRole, content: str, turn_status: TurnStatus
+        self,
+        conversation: Conversation,
+        role: TurnRole,
+        content: str,
+        turn_status: TurnStatus,
+        card: ChatCard | None = None,
     ) -> ConversationTurn:
         now = utc_now()
         record = ConversationTurnRecord(
@@ -139,6 +161,7 @@ class SqlAlchemyConversationStore:
             content=content,
             status=turn_status.value,
             created_at=now,
+            card=card.model_dump(mode="json") if card is not None else None,
         )
         self.session.add(record)
         self.session.flush()

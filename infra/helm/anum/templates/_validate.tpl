@@ -20,6 +20,9 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if has (upper (toString $key)) (list "KEYCLOAK_ADMIN" "KEYCLOAK_ADMIN_PASSWORD" "KC_BOOTSTRAP_ADMIN_USERNAME" "KC_BOOTSTRAP_ADMIN_PASSWORD") -}}
 {{- fail (printf "%s is a Keycloak admin credential: ANUM never uses it, it must not be in config or extraEnv (rendered into a ConfigMap), and the API refuses the compose default admin/admin at startup" $key) -}}
 {{- end -}}
+{{- if and (eq (upper (toString $key)) "ANUM_FCM_SERVICE_ACCOUNT_JSON") (trim (toString (default "" $value))) -}}
+{{- fail "ANUM_FCM_SERVICE_ACCOUNT_JSON carries the Firebase service account's private key: put it in the secrets.app Secret (listed in secrets.app.optional), never in config or extraEnv (rendered into a ConfigMap). The API refuses a value that is not a service-account JSON key at startup" -}}
+{{- end -}}
 {{- end -}}
 {{- if not $c.ANUM_OIDC_AUDIENCE -}}
 {{- fail "config.ANUM_OIDC_AUDIENCE is required" -}}
@@ -84,6 +87,7 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if or (not (regexMatch "^[0-9]{1,4}$" $retention)) (gt (atoi $retention) 3650) -}}
 {{- fail (printf "config.ANUM_CONVERSATION_RETENTION_DAYS=%q must be a whole number of days from 0 (keep forever) to 3650" $retention) -}}
 {{- end -}}
+{{- include "anum.validateModules" . -}}
 {{- if not .Values.secrets.app.name -}}
 {{- fail "secrets.app.name is required (an existing Secret with ANUM_SECRETS_KEY and ANUM_DATABASE_URL)" -}}
 {{- end -}}
@@ -100,5 +104,88 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- end -}}
 {{- if and .Values.backup.enabled (not .Values.backup.persistentVolumeClaim) -}}
 {{- fail "backup.persistentVolumeClaim is required when backup.enabled" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+WhatsApp, email and learning settings (anum_api/whatsapp.py WhatsAppSettings,
+anum_api/email_inbox.py EmailSettings, anum_api/settings.py learning_*). The API reads
+them with pydantic at import time and refuses to start on a value outside these bounds,
+so the chart refuses the same values. OAuth client secrets belong in secrets.app only.
+*/}}
+{{- define "anum.validateModules" -}}
+{{- $c := .Values.config -}}
+{{- $all := merge (dict) (default (dict) .Values.extraEnv) (default (dict) $c) -}}
+{{- range $key, $value := $all -}}
+{{- if and (regexMatch "^ANUM_EMAIL_(GOOGLE|MICROSOFT|ZOHO)_CLIENT_SECRET$" (upper (toString $key))) (trim (toString (default "" $value))) -}}
+{{- fail (printf "%s is an OAuth client secret: put it in the secrets.app Secret (listed in secrets.app.optional), never in config or extraEnv (rendered into a ConfigMap)" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- $ints := list
+  (list "ANUM_WHATSAPP_WEBHOOK_MAX_BODY_BYTES" 1024 1048576)
+  (list "ANUM_WHATSAPP_MEDIA_MAX_BYTES" 1024 104857600)
+  (list "ANUM_WHATSAPP_REPLAY_WINDOW_HOURS" 1 720)
+  (list "ANUM_WHATSAPP_WEBHOOK_BURST" 1 10000)
+  (list "ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS" 0 3650)
+  (list "ANUM_EMAIL_INITIAL_SYNC_DAYS" 1 365)
+  (list "ANUM_EMAIL_SYNC_MAX_MESSAGES" 10 2000)
+  (list "ANUM_EMAIL_BODY_MAX_BYTES" 4096 4194304)
+  (list "ANUM_EMAIL_ATTACHMENT_MAX_BYTES" 1024 52428800)
+  (list "ANUM_EMAIL_OAUTH_STATE_TTL_SECONDS" 60 3600)
+  (list "ANUM_LEARNING_SIGNAL_RETENTION_DAYS" 7 3650) -}}
+{{- range $ints -}}
+{{- $key := index . 0 -}}
+{{- $raw := trim (toString (get $all $key | default "")) -}}
+{{- if $raw -}}
+{{- if or (not (regexMatch "^[0-9]{1,10}$" $raw)) (lt (atoi $raw) (index . 1)) (gt (atoi $raw) (index . 2)) -}}
+{{- fail (printf "config.%s=%q must be a whole number from %d to %d (the API refuses other values at startup)" $key $raw (index . 1) (index . 2)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $floats := list
+  (list "ANUM_WHATSAPP_WEBHOOK_RATE_PER_SECOND" "0" "1000" false)
+  (list "ANUM_WHATSAPP_TEMPLATE_CACHE_SECONDS" "0" "86400" true)
+  (list "ANUM_EMAIL_SYNC_INTERVAL_SECONDS" "0" "86400" true) -}}
+{{- range $floats -}}
+{{- $key := index . 0 -}}
+{{- $raw := trim (toString (get $all $key | default "")) -}}
+{{- if $raw -}}
+{{- $low := float64 (index . 1) -}}
+{{- $bad := or (not (regexMatch "^[0-9]{1,6}(\\.[0-9]+)?$" $raw)) (gt (float64 $raw) (float64 (index . 2))) -}}
+{{- if not $bad -}}
+{{- $bad = ternary (lt (float64 $raw) $low) (le (float64 $raw) $low) (index . 3) -}}
+{{- end -}}
+{{- if $bad -}}
+{{- fail (printf "config.%s=%q must be a number from %s%s to %s (the API refuses other values at startup)" $key $raw (ternary "" "above " (index . 3)) (index . 1) (index . 2)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- range $key := list "ANUM_WHATSAPP_TRIAGE_ON_ARRIVAL" "ANUM_LEARNING_ENABLED" -}}
+{{- $raw := lower (trim (toString (get $all $key | default ""))) -}}
+{{- if and $raw (not (has $raw (list "true" "false" "1" "0" "yes" "no" "on" "off"))) -}}
+{{- fail (printf "config.%s=%q must be true or false" $key $raw) -}}
+{{- end -}}
+{{- end -}}
+{{- $version := trim (toString (get $all "ANUM_WHATSAPP_GRAPH_API_VERSION" | default "")) -}}
+{{- if and $version (not (regexMatch "^v[0-9]{1,3}\\.[0-9]{1,2}$" $version)) -}}
+{{- fail (printf "config.ANUM_WHATSAPP_GRAPH_API_VERSION=%q must look like v23.0 (the API refuses other values at startup)" $version) -}}
+{{- end -}}
+{{- $graph := trim (toString (get $all "ANUM_WHATSAPP_GRAPH_API_URL" | default "")) -}}
+{{- if and $graph (not (regexMatch "^https://[^/\\s]+" $graph)) -}}
+{{- fail "config.ANUM_WHATSAPP_GRAPH_API_URL must be an https URL (the API turns WhatsApp off otherwise)" -}}
+{{- end -}}
+{{- $tenant := trim (toString (get $all "ANUM_EMAIL_MICROSOFT_TENANT" | default "")) -}}
+{{- if and $tenant (not (regexMatch "^[A-Za-z0-9.-]{1,100}$" $tenant)) -}}
+{{- fail (printf "config.ANUM_EMAIL_MICROSOFT_TENANT=%q must be common, organizations, consumers or a tenant id (the API refuses other values at startup)" $tenant) -}}
+{{- end -}}
+{{- $zoho := trim (toString (get $all "ANUM_EMAIL_ZOHO_DATA_CENTRE" | default "")) -}}
+{{- if and $zoho (not (has $zoho (list "com" "eu" "in" "com.au" "jp" "ca" "sa" "com.cn"))) -}}
+{{- fail (printf "config.ANUM_EMAIL_ZOHO_DATA_CENTRE=%q must be one of com, eu, in, com.au, jp, ca, sa, com.cn" $zoho) -}}
+{{- end -}}
+{{- range $key := list "ANUM_EMAIL_PUBLIC_API_URL" "ANUM_EMAIL_WEB_URL" -}}
+{{- $url := trim (toString (get $all $key | default "")) -}}
+{{- if and $url (not (regexMatch "^https://[^/\\s]+" $url)) -}}
+{{- fail (printf "config.%s must be an https URL (mail providers refuse other OAuth redirects outside localhost)" $key) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}

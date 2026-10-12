@@ -207,43 +207,44 @@ class _BudgetCardState extends State<_BudgetCard> {
                         style: TextStyle(color: p.muted, fontSize: 13))),
               ])
         else ...[
-        TextField(
-            key: Key('${widget.scope}-cost'),
-            controller: cost,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-                labelText: 'Monthly cost limit (USD)', hintText: 'No limit')),
-        const SizedBox(height: AnumSpacing.sm),
-        TextField(
-            key: Key('${widget.scope}-tokens'),
-            controller: tokens,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-                labelText: 'Monthly token limit', hintText: 'No limit')),
-        const SizedBox(height: 6),
-        Text('Leave a field empty for no limit. 0 blocks every model call.',
-            style: TextStyle(color: p.faint, fontSize: 12)),
-        if (notice != null) ...[
-          const SizedBox(height: 8),
-          Text(notice,
-              key: Key('${widget.scope}-notice'),
-              style: TextStyle(color: failed ? p.stop : p.ok)),
-        ],
-        const SizedBox(height: 12),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          FilledButton.icon(
-              onPressed: c.savingScope != null
-                  ? null
-                  : () => c.save(widget.scope, cost.text, tokens.text),
-              icon: const Icon(Icons.save_outlined),
-              label: Text(saving ? 'Saving...' : 'Save limits')),
-          if (v.budget != null)
-            OutlinedButton(
+          TextField(
+              key: Key('${widget.scope}-cost'),
+              controller: cost,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                  labelText: 'Monthly cost limit (USD)', hintText: 'No limit')),
+          const SizedBox(height: AnumSpacing.sm),
+          TextField(
+              key: Key('${widget.scope}-tokens'),
+              controller: tokens,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Monthly token limit', hintText: 'No limit')),
+          const SizedBox(height: 6),
+          Text('Leave a field empty for no limit. 0 blocks every model call.',
+              style: TextStyle(color: p.faint, fontSize: 12)),
+          if (notice != null) ...[
+            const SizedBox(height: 8),
+            Text(notice,
+                key: Key('${widget.scope}-notice'),
+                style: TextStyle(color: failed ? p.stop : p.ok)),
+          ],
+          const SizedBox(height: 12),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.icon(
                 onPressed: c.savingScope != null
                     ? null
-                    : () => c.save(widget.scope, '', ''),
-                child: const Text('Remove limits')),
-        ]),
+                    : () => c.save(widget.scope, cost.text, tokens.text),
+                icon: const Icon(Icons.save_outlined),
+                label: Text(saving ? 'Saving...' : 'Save limits')),
+            if (v.budget != null)
+              OutlinedButton(
+                  onPressed: c.savingScope != null
+                      ? null
+                      : () => c.save(widget.scope, '', ''),
+                  child: const Text('Remove limits')),
+          ]),
         ],
       ]),
     );

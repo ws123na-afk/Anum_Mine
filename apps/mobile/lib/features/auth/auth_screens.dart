@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../src/widgets/brand.dart';
 import '../../src/widgets/depth.dart';
 
 import '../../src/theme/anum_theme.dart';
@@ -7,19 +8,34 @@ import '../../data/api_models.dart';
 import '../settings/model_choice.dart';
 import 'auth_controller.dart';
 import 'account_screens.dart';
+import 'intro.dart';
+import 'welcome_screens.dart';
 
 class AuthFlow extends StatelessWidget {
-  const AuthFlow({required this.controller, super.key});
+  const AuthFlow({required this.controller, this.intro, super.key});
   final AuthController controller;
+
+  /// The onboarding pages, shown once per device before the first sign-in;
+  /// without it sign-in comes straight after the splash.
+  final IntroController? intro;
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-      listenable: controller,
+      listenable: Listenable.merge([controller, intro]),
       builder: (_, __) => switch (controller.phase) {
             AuthPhase.restoring => const SplashScreen(),
-            AuthPhase.signedOut => SignInScreen(controller: controller),
+            AuthPhase.signedOut when intro?.show ?? false => OnboardingScreen(
+                onSignIn: () => intro!.finish(),
+                onGetStarted: () =>
+                    intro!.finish(register: controller.oidcEnabled)),
+            AuthPhase.signedOut => SignInScreen(
+                controller: controller,
+                startWithRegistration: intro?.takeRegistration() ?? false),
             AuthPhase.workspacePicker =>
               WorkspacePickerScreen(controller: controller),
             AuthPhase.noWorkspace => NoWorkspaceScreen(controller: controller),
+            AuthPhase.accountPending =>
+              PendingAccountScreen(controller: controller),
             AuthPhase.onboarding =>
               WorkspaceSetupScreen(controller: controller),
             AuthPhase.modelSetup =>
@@ -53,31 +69,9 @@ class _Page extends StatelessWidget {
                               AnumSpacing.lg,
                               AnumSpacing.lg),
                           children: [
-                            Row(children: [
-                              Container(
-                                width: 32,
-                                height: 32,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(10),
-                                  gradient: LinearGradient(colors: [
-                                    context.palette.sky,
-                                    context.palette.violet,
-                                    context.palette.rose
-                                  ]),
-                                ),
-                                child: const Text('A',
-                                    style: TextStyle(
-                                        color: Color(0xFF0B1020),
-                                        fontWeight: FontWeight.w900)),
-                              ),
-                              const SizedBox(width: 8),
-                              Text('ANUM',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleLarge
-                                      ?.copyWith(fontWeight: FontWeight.w700))
-                            ]),
+                            const Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: AnumWordmark(markSize: 36)),
                             const SizedBox(height: AnumSpacing.xl),
                             Text(eyebrow.toUpperCase(),
                                 style: Theme.of(context)
@@ -102,21 +96,22 @@ class _Page extends StatelessWidget {
                           ]))))));
 }
 
+/// Splash (ANUM 360 mockup 01) while the session is restored.
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
   @override
-  Widget build(BuildContext context) => const _Page(
-      eyebrow: 'Private agent workspace',
-      title: 'Your work, coordinated.',
-      subtitle: 'Restoring your encrypted session and workspace access.',
-      body: Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: CircularProgressIndicator()));
+  Widget build(BuildContext context) => const AnumSplash();
 }
 
 class SignInScreen extends StatefulWidget {
-  const SignInScreen({required this.controller, super.key});
+  const SignInScreen(
+      {required this.controller,
+      this.startWithRegistration = false,
+      super.key});
   final AuthController controller;
+
+  /// Open Create account instead of Login (onboarding's "Get Started").
+  final bool startWithRegistration;
   @override
   State<SignInScreen> createState() => _SignInState();
 }
@@ -139,18 +134,9 @@ class _SignInState extends State<SignInScreen> {
 
   @override
   Widget build(BuildContext context) => widget.controller.oidcEnabled
-      ? _Page(
-          eyebrow: 'Welcome back',
-          title: 'Sign in to ANUM',
-          subtitle:
-              'Continue with your organization account. Sign-in opens in your browser and returns here.',
-          body:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            FilledButton.icon(
-                onPressed: widget.controller.signInWithOidc,
-                icon: const Icon(Icons.login),
-                label: const Text('Continue with organization account')),
-          ]))
+      ? OidcSignInView(
+          controller: widget.controller,
+          startWithRegistration: widget.startWithRegistration)
       : _localSignIn(context);
 
   Widget _localSignIn(BuildContext context) => _Page(

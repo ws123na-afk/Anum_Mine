@@ -18,6 +18,17 @@ const _privateLabels = <String, String>{
   'voice_transcript_segments': 'Voice transcript lines',
   'notification_preferences': 'Notification preferences',
   'user_preferences': 'Your preferences (all workspaces)',
+  'push_devices': 'Phones registered for push',
+  'learning_signals': 'Feedback ANUM learned from',
+  'learned_items': 'Learned style, preferences, routines and notes',
+  'favorites': 'Your favorites',
+  'private_collections': 'Private knowledge collections',
+  'private_reports': 'Private reports',
+  'email_mailboxes': 'Private mailboxes you connected',
+  'email_messages': 'Email details synced from those mailboxes',
+  'email_drafts': 'Email drafts you never sent',
+  'team_notifications': 'Your team notifications',
+  'team_profile': 'Your team profile (name, email, title)',
 };
 
 const _sharedLabels = <String, String>{
@@ -25,6 +36,19 @@ const _sharedLabels = <String, String>{
   'approvals_decided': 'Approvals you decided',
   'shared_memories_created': 'Shared memories you added',
   'files_uploaded': 'Files you uploaded',
+  'email_mailboxes_connected': 'Workspace mailboxes you connected',
+  'email_drafts_sent': 'Emails you sent or sent for approval',
+  'whatsapp_messages_sent': 'WhatsApp messages you sent',
+  'autonomy_actions_requested': 'Actions ANUM took for you',
+  'work_items_created': 'Work items you created',
+  'work_items_assigned': 'Work items assigned to you',
+  'tyre_connections_created': 'Tyre data connection you set up',
+  'tyre_reports_created': 'Tyre reports you created',
+  'commerce_connectors_created': 'Sales channels you connected',
+  'marketing_accounts_connected': 'Social accounts you connected',
+  'marketing_campaigns_created': 'Marketing campaigns you created',
+  'calendar_events_created': 'Calendar events you created',
+  'automation_triggers_created': 'Automation triggers you added',
 };
 
 List<PrivacyCount> _counts(JsonReader json, Map<String, String> labels) => [
@@ -49,6 +73,7 @@ class PrivacySummary {
     required this.auditRetention,
     required this.provider,
     required this.memoryExtraction,
+    required this.conversationMemory,
     required this.policyUrl,
     required this.confirmation,
     required this.exportMaxBytes,
@@ -76,6 +101,8 @@ class PrivacySummary {
           provider.optString('workspace') ?? provider.string('deployment'),
       memoryExtraction:
           provider.optBool('conversation_memory_enabled') ?? false,
+      conversationMemory:
+          provider.optString('conversation_memory') ?? 'unknown',
       policyUrl: url == null || url.isEmpty ? null : url,
       confirmation: json.optString('delete_confirmation') ?? 'DELETE MY DATA',
       exportMaxBytes: json.optInt('export_max_bytes') ?? 0,
@@ -95,7 +122,14 @@ class PrivacySummary {
   final String taskMemoryRetention;
   final String auditRetention;
   final String provider;
+
+  /// The deployment-wide switch (ANUM_CONVERSATION_MEMORY_ENABLED) only.
   final bool memoryExtraction;
+
+  /// What applies to the caller (`model_provider.conversation_memory`, the
+  /// same value as `GET /api/v1/me/preferences`): on, off_by_user,
+  /// off_on_server, off_for_organization or not_for_role.
+  final String conversationMemory;
   final String? policyUrl;
   final String confirmation;
   final int exportMaxBytes;
@@ -119,15 +153,35 @@ class PrivacySummary {
         ('Audit log', auditRetention),
       ];
 
-  String get providerSentence {
-    final memory = memoryExtraction
-        ? ' After a reply, a short model call also picks out facts you stated to remember as private memories.'
-        : '';
-    return 'To produce answers, your messages, voice questions and task prompts are sent to ${providerLabel(provider)}.$memory';
-  }
+  String get providerSentence =>
+      'To produce answers, your messages, voice questions and task prompts are sent to ${providerLabel(provider)}.';
+
+  /// The caller turned "Remember things from my chats" off: offer the switch.
+  bool get offerChatMemorySwitch => conversationMemory == 'off_by_user';
+
+  /// What happens to the caller's chats after a reply. The post-reply
+  /// extraction call runs only when memory is `on`; recall stops only when the
+  /// caller or the server turned memory off.
+  String get memorySentence => switch (conversationMemory) {
+        'on' =>
+          'After each reply, a second short call to the same provider picks out lasting facts you stated (such as your name, role or how you like answers) and saves them as private memories only you can see. Memories that match your later questions are added to what is sent to the model.',
+        'off_by_user' =>
+          'You turned off Remember things from my chats, so no facts are picked out of your chats and no memories are added to your questions. Memories already saved from your chats stay until you delete them.',
+        'off_on_server' =>
+          'Chat memory is turned off on this server (ANUM_CONVERSATION_MEMORY_ENABLED), so no facts are picked out of your chats and no memories are added to your questions.',
+        'off_for_organization' =>
+          'Your organization’s memory policy does not allow memories from chats, so no facts are picked out of your chats. $_recallStill An organization administrator can allow the "conversation" source under Governance.',
+        'not_for_role' =>
+          'Your role in this workspace cannot save memories, so no facts are picked out of your chats. $_recallStill A workspace owner can change your role.',
+        _ =>
+          'This server did not say whether facts are picked out of your chats. Check Remember things from my chats in Settings, or update the server.',
+      };
 
   bool matches(String typed) => typed.trim() == confirmation;
 }
+
+const _recallStill =
+    'Memories you can read that match your question (ones you or your workspace saved) are still added to what is sent to the model.';
 
 String _days(int n) => '$n ${n == 1 ? 'day' : 'days'}';
 
@@ -145,7 +199,10 @@ String providerLabel(String provider) =>
 /// `POST /api/v1/privacy/delete`: what went, what stayed.
 class PrivacyDeleteResult {
   const PrivacyDeleteResult(
-      {required this.deleted, required this.kept, required this.accountNote});
+      {required this.deleted,
+      required this.kept,
+      required this.accountNote,
+      this.notes = const []});
 
   factory PrivacyDeleteResult.fromJson(Map<String, Object?> body) {
     final json = JsonReader(body);
@@ -153,6 +210,7 @@ class PrivacyDeleteResult {
       deleted: _counts(json.object('deleted'), _privateLabels),
       kept: _counts(json.object('kept'), _sharedLabels),
       accountNote: json.optString('account_note') ?? '',
+      notes: json.optStrings('notes') ?? const [],
     );
   }
 
@@ -160,14 +218,19 @@ class PrivacyDeleteResult {
   final List<PrivacyCount> kept;
   final String accountNote;
 
+  /// The server's own sentences about what still needs the caller (e.g. a
+  /// mailbox provider where ANUM could not withdraw its access).
+  final List<String> notes;
+
   String get sentence {
     final removed = totalOf(deleted), stayed = totalOf(kept);
     final head = removed > 0
         ? 'Deleted $removed private ${removed == 1 ? 'item' : 'items'}.'
         : 'There was nothing private to delete.';
-    return stayed > 0
+    final base = stayed > 0
         ? '$head $stayed shared workspace ${stayed == 1 ? 'record stays' : 'records stay'}.'
         : head;
+    return [base, ...notes].join(' ');
   }
 }
 

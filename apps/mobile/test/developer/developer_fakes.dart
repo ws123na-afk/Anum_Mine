@@ -63,6 +63,58 @@ JsonMap approvalJson(String id, {String? hash = exampleHash, int pr = 42}) => {
       'expires_at': '2099-01-01T00:00:00Z',
     };
 
+JsonMap projectJson(
+  String id,
+  String name, {
+  String repository = 'example/anum',
+  String description = '',
+  bool enabled = true,
+  bool token = true,
+  String tokenSource = 'project',
+  List<String> protectedPaths = const [],
+  JsonMap? lastCheck,
+  int? installPr,
+}) {
+  final problems = [
+    if (!enabled)
+      'The project is turned off. Turn it on to send requests to it.',
+    if (!token)
+      'No GitHub token: add a fine-grained token for this repository.',
+    if (lastCheck != null && lastCheck['ok'] != true) lastCheck['message'],
+  ];
+  return {
+    'id': id,
+    'name': name,
+    'github_owner': repository.split('/').first,
+    'github_repo': repository.split('/').last,
+    'repository': repository,
+    'default_branch': 'main',
+    'description': description,
+    'enabled': enabled,
+    'protected_paths': protectedPaths,
+    'workflow_file': 'anum-developer.yml',
+    'token_source': tokenSource,
+    'token_configured': token,
+    'token_updated_at': null,
+    'last_check': lastCheck,
+    'install_pr_number': installPr,
+    'install_pr_url': installPr == null
+        ? null
+        : 'https://github.com/$repository/pull/$installPr',
+    'ready': problems.isEmpty,
+    'problems': problems,
+    'created_by': 'user_test',
+    'created_at': '2026-10-11T09:00:00Z',
+    'updated_at': '2026-10-11T09:00:00Z',
+  };
+}
+
+JsonMap anumProject() =>
+    projectJson('devproj_anum', 'ANUM', description: 'The ANUM agent platform');
+JsonMap tyreProject() => projectJson('devproj_tyre', 'TyrePulse',
+    repository: 'example/tyrepulse',
+    description: 'Tyre pressure monitoring for fleets');
+
 JsonMap requestJson(
   String id, {
   String text = 'Add a dark/light toggle to Settings',
@@ -75,6 +127,9 @@ JsonMap requestJson(
   String? failureReason,
   String? mergeError,
   String createdAt = '2026-10-11T10:00:00Z',
+  String? projectId = 'devproj_anum',
+  String? projectName = 'ANUM',
+  String? repository = 'example/anum',
 }) {
   final title = prTitle ?? text;
   return {
@@ -84,6 +139,9 @@ JsonMap requestJson(
     'source': source,
     'status': status,
     'allow_protected_paths': false,
+    'project_id': projectId,
+    'project_name': projectName,
+    'repository': repository,
     'branch': 'anum-dev/$id',
     'run_id': 7,
     'run_url': 'https://github.com/example/anum/actions/runs/7',
@@ -152,11 +210,14 @@ class FakeDeveloperApi implements ApiTransport {
   FakeDeveloperApi({
     List<JsonMap>? requests,
     JsonMap? setup,
+    List<JsonMap>? projects,
     this.role = 'owner',
   })  : requests = requests ?? [],
+        projects = projects ?? [anumProject()],
         setup = setup ?? setupJson();
 
   final List<JsonMap> requests;
+  final List<JsonMap> projects;
   JsonMap setup;
   String? role;
   final sent = <ApiRequest>[];
@@ -229,6 +290,45 @@ class FakeDeveloperApi implements ApiTransport {
       }
       return _fail('GET setup') ?? ApiResponse(statusCode: 200, body: setup);
     }
+    if (path.startsWith('$base/projects')) return _project(request);
+    if (path == '$base/resolve') {
+      final failed = _fail('POST resolve');
+      if (failed != null) return failed;
+      final text = request.body!['text']! as String;
+      final sendable = [
+        for (final p in projects)
+          if (p['enabled'] == true && p['token_configured'] == true) p
+      ];
+      JsonMap ref(JsonMap p) => {
+            'id': p['id'],
+            'name': p['name'],
+            'repository': p['repository'],
+            'description': p['description'],
+          };
+      for (final p in sendable) {
+        final suffix = ' in ${(p['name']! as String).toLowerCase()}';
+        if (text.toLowerCase().endsWith(suffix)) {
+          return ApiResponse(statusCode: 200, body: {
+            'status': 'resolved',
+            'text': text.substring(0, text.length - suffix.length),
+            'project': ref(p),
+            'candidates': <JsonMap>[],
+            'matched_by': 'name',
+          });
+        }
+      }
+      return ApiResponse(statusCode: 200, body: {
+        'status': sendable.isEmpty
+            ? 'none'
+            : sendable.length == 1
+                ? 'resolved'
+                : 'ambiguous',
+        'text': text,
+        'project': sendable.length == 1 ? ref(sendable.single) : null,
+        'candidates': sendable.length > 1 ? sendable.map(ref).toList() : [],
+        'matched_by': sendable.length == 1 ? 'only_project' : null,
+      });
+    }
     if (path == '$base/requests' && method == 'GET') {
       if (role != 'owner') {
         return const ApiResponse(
@@ -256,10 +356,15 @@ class FakeDeveloperApi implements ApiTransport {
       final failed = _fail('POST create');
       if (failed != null) return failed;
       final body = request.body!;
+      final project = projects.firstWhere((p) => p['id'] == body['project_id'],
+          orElse: () => projects.first);
       final created = requestJson('dev_new_${++_ids}',
           text: body['text']! as String,
           status: 'queued',
-          source: body['source']! as String);
+          source: body['source']! as String,
+          projectId: project['id'] as String?,
+          projectName: project['name'] as String?,
+          repository: project['repository'] as String?);
       requests.insert(0, created);
       return ApiResponse(statusCode: 201, body: created);
     }
@@ -295,6 +400,112 @@ class FakeDeveloperApi implements ApiTransport {
           statusCode: 200, body: {'request': next, 'approval': approval});
     }
     return const ApiResponse(statusCode: 404, body: {'detail': 'Not found'});
+  }
+
+  /// `/api/v1/developer/projects[/{id}[/test|/install-workflow]]`. Failure
+  /// keys: `GET projects`, `POST project`, `PATCH project`, `DELETE project`,
+  /// `POST test`, `POST install`.
+  ApiResponse _project(ApiRequest request) {
+    final method = request.method;
+    final rest = request.uri.path
+        .substring('/api/v1/developer/projects'.length)
+        .split('/')
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (rest.isEmpty && method == 'GET') {
+      return _fail('GET projects') ??
+          ApiResponse(statusCode: 200, body: {'data': projects});
+    }
+    if (rest.isEmpty && method == 'POST') {
+      final failed = _fail('POST project');
+      if (failed != null) return failed;
+      final body = request.body!;
+      final name = body['name']! as String;
+      if (projects.any(
+          (p) => (p['name']! as String).toLowerCase() == name.toLowerCase())) {
+        return const ApiResponse(statusCode: 409, body: {
+          'detail': 'Another project already has this name. Choose another '
+              'name.'
+        });
+      }
+      final created = projectJson('devproj_${body['github_repo']}', name,
+          repository: '${body['github_owner']}/${body['github_repo']}',
+          description: body['description'] as String? ?? '',
+          protectedPaths: [
+            for (final path in body['protected_paths']! as List) path as String
+          ],
+          token: body['token'] != null,
+          tokenSource: body['token_source'] as String? ?? 'project');
+      projects.add(created);
+      return ApiResponse(statusCode: 201, body: created);
+    }
+    final index = projects.indexWhere((p) => p['id'] == rest.first);
+    if (index < 0) {
+      return const ApiResponse(
+          statusCode: 404, body: {'detail': 'Project not found'});
+    }
+    final current = projects[index];
+    if (rest.length == 2 && rest[1] == 'test') {
+      final failed = _fail('POST test');
+      if (failed != null) return failed;
+      final next = projectJson(
+          current['id']! as String, current['name']! as String,
+          repository: current['repository']! as String,
+          lastCheck: {
+            'ok': false,
+            'checked_at': '2026-10-11T10:00:00Z',
+            'repository_reachable': true,
+            'default_branch_exists': true,
+            'workflow_present': false,
+            'actions_readable': false,
+            'message': '.github/workflows/anum-developer.yml is not on main '
+                'yet. Use Install workflow, merge that pull request in '
+                'GitHub, then test again.',
+          });
+      projects[index] = next;
+      return ApiResponse(statusCode: 200, body: next);
+    }
+    if (rest.length == 2 && rest[1] == 'install-workflow') {
+      final failed = _fail('POST install');
+      if (failed != null) return failed;
+      final next = {
+        ...current,
+        'install_pr_number': 51,
+        'install_pr_url': 'https://github.com/${current['repository']}/pull/51',
+      };
+      projects[index] = next;
+      return ApiResponse(statusCode: 200, body: {
+        'project': next,
+        'pull_request_number': 51,
+        'pull_request_url': next['install_pr_url'],
+        'created': true,
+      });
+    }
+    if (method == 'PATCH') {
+      final failed = _fail('PATCH project');
+      if (failed != null) return failed;
+      final body = request.body!;
+      final enabled = body['enabled'] as bool? ?? current['enabled']! as bool;
+      final next = {
+        ...current,
+        ...body,
+        'enabled': enabled,
+        'ready': enabled && current['token_configured'] == true,
+        'problems': [
+          if (!enabled)
+            'The project is turned off. Turn it on to send requests to it.'
+        ],
+      }..remove('token');
+      projects[index] = next;
+      return ApiResponse(statusCode: 200, body: next);
+    }
+    if (method == 'DELETE') {
+      final failed = _fail('DELETE project');
+      if (failed != null) return failed;
+      projects.removeAt(index);
+      return const ApiResponse(statusCode: 204);
+    }
+    return ApiResponse(statusCode: 200, body: current);
   }
 }
 

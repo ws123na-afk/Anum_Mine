@@ -1,6 +1,7 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/sse.dart';
+import 'call_models.dart';
 import 'voice_models.dart';
 
 class VoiceRepository {
@@ -80,6 +81,29 @@ class VoiceRepository {
       status: task.string('status'),
     );
   }
+
+  /// What a call can use in this workspace (docs/voice.md#call-mode):
+  /// whether camera answers are available and why not, and latency targets.
+  Future<CallCapabilities> capabilities() async => CallCapabilities.fromJson(
+      await api.request('GET', '/api/v1/voice/capabilities'));
+
+  /// A spoken question about one photo, streamed like [askStream]. The photo
+  /// is sent once and never stored by the server.
+  Stream<SseEvent>? lookStream(String sessionId, String segmentId,
+          String imageBase64, String mediaType) =>
+      events?.post('/api/v1/voice/sessions/$sessionId/look/stream', {
+        'transcript_segment_id': segmentId,
+        'image_base64': imageBase64,
+        'media_type': mediaType,
+      });
+
+  /// The end-of-call summary; with [save] it is kept as a conversation
+  /// together with the transcript. Call before [complete].
+  Future<CallSummary> summarize(String sessionId,
+          {required int durationSeconds, required bool save}) async =>
+      CallSummary.fromJson(await api.request(
+          'POST', '/api/v1/voice/sessions/$sessionId/summary',
+          body: {'duration_seconds': durationSeconds, 'save': save}));
 
   Future<void> complete(String sessionId) async {
     await api.request('POST', '/api/v1/voice/sessions/$sessionId/complete');

@@ -10,7 +10,7 @@ nobody holds `org_admin`, and every change to tenant-wide policy (policy packs, 
 templates, approval rules, memory governance) is refused with 403, owners included.
 
 * ``ensure-roles`` creates the ANUM realm roles that are missing (``owner``, ``member``,
-  ``viewer``, ``org_admin``) with the realm file's descriptions. Existing roles are not
+  ``viewer``, ``org_admin``, ``platform_operator``) with the realm file's descriptions. Existing roles are not
   touched, and no user is given anything.
 * ``grant-org-admin`` ensures the roles, then assigns the realm role ``org_admin`` to one
   existing user of the realm. It is never granted implicitly: an organization
@@ -46,6 +46,11 @@ REALM_ROLES: dict[str, str] = {
         "ANUM organization administrator for the user's tenant_id: may change tenant-wide "
         "policy (policy packs, role templates, approval rules, memory governance). "
         "Authoritative; grant it only to the tenant's administrators."
+    ),
+    "platform_operator": (
+        "ANUM platform operator: runs this deployment for customer organisations; may create "
+        "customer organisations and read their counts and health (never their data). Applies "
+        "to the user's own tenant_id; grant it only to the person who operates the platform."
     ),
 }
 

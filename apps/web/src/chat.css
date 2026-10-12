@@ -11,7 +11,7 @@
 .chatList li.active { background: var(--d-glass-2); box-shadow: inset 3px 0 0 var(--d-violet); }
 .chatListItem {
   background: transparent; border: 0; border-radius: var(--d-r-control); color: var(--d-muted); display: grid; flex: 1; gap: 2px;
-  min-height: 44px; min-width: 0; padding: var(--d-s2) var(--d-s3); text-align: left;
+  min-height: 44px; min-width: 0; padding: var(--d-s2) var(--d-s3); text-align: start;
 }
 .chatListItem:hover { background: var(--d-glass-1); color: var(--d-text); }
 .chatList li.active .chatListItem { color: var(--d-text); }
@@ -43,7 +43,7 @@
 .chatEmpty { color: var(--d-muted); display: grid; gap: var(--d-s3); }
 .chatEmpty p { max-width: 60ch; }
 .chatSuggestions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.chatSuggestions button { text-align: left; }
+.chatSuggestions button { text-align: start; }
 .chatLoading { color: var(--d-muted); font-size: 14px; }
 
 .chatTurn { max-width: min(78ch, 100%); min-width: 0; }
@@ -67,7 +67,7 @@
 
 .chatJump { bottom: 96px; justify-self: center; position: absolute; z-index: 1; }
 .chatPanel .notice { align-items: center; flex-wrap: wrap; margin: 0 var(--d-s4) var(--d-s3); }
-.chatPanel .notice button { margin-left: auto; }
+.chatPanel .notice button { margin-inline-start: auto; }
 
 .chatComposer { align-items: end; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
 .chatComposer textarea { field-sizing: content; max-height: 160px; min-height: 44px; resize: none; }
@@ -84,4 +84,54 @@
   .chatActions { justify-content: flex-end; width: 100%; }
   .chatActions button { flex: 1 1 auto; }
   .chatTurn.user { max-width: 92%; }
+}
+
+/* Cards: a chat question that ran as a task (ChatCardView.tsx, docs/conversations.md#tools-in-chat). */
+.chatCard {
+  background: var(--d-glass-1); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3);
+  margin-top: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4);
+}
+.chatCard.approval { border-color: rgba(252, 211, 141, .35); box-shadow: inset 3px 0 0 var(--d-warn); }
+.chatCard.failed, .chatCard.denied { border-color: rgba(253, 164, 175, .35); }
+.chatCardHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.chatCardHead > svg { color: var(--d-violet); flex: none; height: 18px; width: 18px; }
+.chatCardHead h3 { flex: 1 1 auto; font-size: 14px; margin: 0; min-width: 0; }
+.chatCardHead .statusBadge { align-items: center; gap: var(--d-s1); }
+.chatCardSpin { animation: chatSpin 1s linear infinite; height: 14px; width: 14px; }
+@keyframes chatSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .chatCardSpin { animation: none; } }
+.chatCardItems { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.chatCardItem {
+  align-items: start; background: transparent; border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text);
+  display: grid; gap: 2px var(--d-s2); grid-template-columns: minmax(0, 1fr) auto; min-height: 44px; padding: var(--d-s2) var(--d-s3);
+  text-align: start; text-decoration: none; width: 100%;
+}
+.chatCardItem > span { grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
+button.chatCardItem:hover, a.chatCardItem:hover { background: var(--d-glass-2); }
+.chatCardItemIcon { color: var(--d-faint); grid-column: 2; grid-row: 1; height: 16px; width: 16px; }
+.chatCardItemTitle { font-size: 14px; font-weight: 650; }
+.chatCardItemMeta { color: var(--d-faint); font-size: 12px; }
+.chatCardItemDetail { color: var(--d-muted); display: -webkit-box; font-size: 13px; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chatCardBadges { display: flex; flex-wrap: wrap; gap: var(--d-s1); margin-top: 2px; }
+.chatCardNote { align-items: center; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s1); margin: 0; overflow-wrap: anywhere; }
+.chatCardNote.subtle { color: var(--d-faint); font-size: 12px; }
+.chatCardNote > svg { flex: none; height: 14px; width: 14px; }
+.chatCardActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.chatCardApprove {
+  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex;
+  font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: var(--d-s2) var(--d-s4);
+}
+.chatCardApprove:hover:not(:disabled) { background: var(--d-primary-hover); }
+.chatCardApprove svg, .chatCardActions button svg { height: 16px; width: 16px; }
+.chatCardFacts, .chatCardArgs dl { display: grid; gap: var(--d-s2); margin: 0; }
+.chatCardFacts div, .chatCardArgs dl div { display: grid; gap: var(--d-s2); grid-template-columns: minmax(96px, 140px) minmax(0, 1fr); }
+.chatCardFacts dt, .chatCardArgs dt { color: var(--d-faint); font-size: 12px; }
+.chatCardFacts dd, .chatCardArgs dd { font-size: 13px; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.chatCardHash { font-family: var(--d-mono); font-size: 12px; overflow-wrap: anywhere; word-break: break-all; }
+.chatCardArgs summary { color: var(--d-muted); cursor: pointer; font-size: 13px; min-height: 32px; }
+.chatCardArgs dd { white-space: pre-wrap; }
+@media (max-width: 480px) {
+  .chatCard { padding: var(--d-s3); }
+  .chatCardFacts div, .chatCardArgs dl div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .chatCardActions button { flex: 1 1 auto; justify-content: center; }
 }

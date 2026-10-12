@@ -32,6 +32,7 @@ import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import './voice.css';
 import { takeSentences } from './lib/chat';
 import { useDeveloperAssist } from './DeveloperAssist';
+import { getLocale, t, translate, type MessageKey } from './lib/i18n';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -50,13 +51,14 @@ interface PushToTalkController {
   cancel: () => void;
 }
 
-const modeLabel: Record<RecognitionMode, { text: string; icon: ReactNode; hint: string }> = {
-  'on-device': { text: 'On-device', icon: <Cpu size={14} />, hint: 'Speech is recognised on this device and never leaves it.' },
-  cloud: { text: 'Browser cloud', icon: <Globe2 size={14} />, hint: 'Your browser sends audio to its speech service for recognition.' },
-  typing: { text: 'Typing only', icon: <Keyboard size={14} />, hint: 'This browser has no speech recognition. Type your message instead.' },
+// The interface follows the page language (Settings > Language); the speech language below only
+// picks what the browser listens for and how replies are spoken (docs/web-localization.md).
+const modeKeys: Record<RecognitionMode, { text: MessageKey; hint: MessageKey; icon: ReactNode }> = {
+  'on-device': { text: 'voice.mode.onDevice', hint: 'voice.mode.onDeviceHint', icon: <Cpu size={14} aria-hidden="true" /> },
+  cloud: { text: 'voice.mode.cloud', hint: 'voice.mode.cloudHint', icon: <Globe2 size={14} aria-hidden="true" /> },
+  typing: { text: 'voice.mode.typing', hint: 'voice.mode.typingHint', icon: <Keyboard size={14} aria-hidden="true" /> },
 };
-
-const tierLabel = { read: 'Answer', confirm: 'Needs your OK', visual_only: 'On screen only' } as const;
+const modeLabel = (mode: RecognitionMode) => ({ text: t(modeKeys[mode].text), hint: t(modeKeys[mode].hint), icon: modeKeys[mode].icon });
 
 function stored(key: string, fallback: string): string {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -67,7 +69,8 @@ function store(key: string, value: string) {
 
 export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApprovals?: () => void; onOpenDeveloper?: () => void } = {}) {
   const [session, setSession] = useState<VoiceSession | null>(null);
-  const [locale, setLocale] = useState(() => stored('anum.voice.locale', navigator.language || 'en-US'));
+  // Without a saved speech language, an Arabic interface listens and speaks in Arabic.
+  const [locale, setLocale] = useState(() => stored('anum.voice.locale', getLocale() === 'ar' ? 'ar-SA' : navigator.language || 'en-US'));
   const [name, setName] = useState(() => stored('anum.voice.name', 'Anum'));
   const [nameDraft, setNameDraft] = useState(name);
   const [wakeOn, setWakeOn] = useState(() => stored('anum.voice.wake', 'on') === 'on');
@@ -105,15 +108,14 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
 
   const wakeOnRef = useRef(wakeOn);
   wakeOnRef.current = wakeOn;
-  const arabic = locale.toLowerCase().startsWith('ar');
-  const idleHint = wakeOn
-    ? (arabic ? `قل "${name}" أو اضغط الميكروفون.` : `Say “${name}” or tap the mic.`)
-    : (arabic ? 'اضغط الميكروفون وتحدث.' : 'Tap the mic and just talk.');
+  // The example phrases are meant to be said, so they follow the speech language.
+  const speech = locale.toLowerCase().startsWith('ar') ? 'ar' : 'en';
+  const idleHint = wakeOn ? t('voice.idleWake', { name }) : t('voice.idleTap');
   const stateText: Record<ConsoleState, string> = {
-    idle: wakeOn ? `Listening for “${name}”` : 'Ready',
-    listening: "I'm listening",
-    thinking: 'One moment',
-    speaking: `${name} is speaking`,
+    idle: wakeOn ? t('voice.state.listeningFor', { name }) : t('voice.state.ready'),
+    listening: t('voice.state.listening'),
+    thinking: t('voice.state.thinking'),
+    speaking: t('voice.state.speaking', { name }),
   };
   const rankedVoices = rankVoices(voices, locale);
   const effectiveVoice: ReplyVoice = voice === 'natural' && !naturalVoiceSupports(locale) ? '' : voice;
@@ -184,7 +186,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
     followUp.current = followUpTurn;
     stopSpeaking();
     const activeMode = await ensureMode();
-    if (activeMode === 'typing') { setNotice(modeLabel.typing.hint); return; }
+    if (activeMode === 'typing') { setNotice(t('voice.mode.typingHint')); return; }
     wake.current?.pause();
     heard.current = '';
     setDraft('');
@@ -200,7 +202,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
         else {
           setState('idle');
           // A silent follow-up window just hands back to listening for the name.
-          if (!followUp.current) setNotice(arabic ? 'لم أسمع شيئًا. حاول مرة أخرى.' : "I didn't catch that. Try again?");
+          if (!followUp.current) setNotice(t('voice.notHeard'));
           wake.current?.resume();
         }
       },
@@ -250,7 +252,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
           await speakAndWait(queue.shift()!, {
             locale,
             voice: effectiveVoice,
-            onFallback: () => setNotice('The natural voice could not load, so I used your device voice.'),
+            onFallback: () => setNotice(t('voice.naturalFallback')),
           });
         }
         speaking = null;
@@ -287,7 +289,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
       setState('idle');
       wake.current?.resume();
       if (abort.signal.aborted) return;
-      setNotice(isBudgetExceeded(error) ? `Monthly model budget reached. ${budgetMessage(error)}` : error instanceof Error ? error.message : 'I could not answer. Check the connection and try again.');
+      setNotice(isBudgetExceeded(error) ? t('common.budgetReached', { message: budgetMessage(error) }) : error instanceof Error ? error.message : t('voice.noAnswer'));
     } finally {
       if (replyAbort.current === abort) replyAbort.current = null;
     }
@@ -307,7 +309,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
       return ensureMode();
     })().then((activeMode) => {
       if (cancelled || !activeMode) return;
-      if (activeMode === 'typing') { setNotice(modeLabel.typing.hint); return; }
+      if (activeMode === 'typing') { setNotice(t('voice.mode.typingHint')); return; }
       wake.current = createWakeListener(name, locale, activeMode === 'on-device', (rest) => {
         playWakeChime();
         if (rest) void askRef.current(rest);
@@ -342,9 +344,9 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
       const segment = await appendTranscript(session.id, turn.result.proposed_task, sequence.current++);
       const created = await submitVoiceCommand(session.id, segment.id);
       setTurns((current) => current.map((item) => item.id === turn.id ? { ...item, resolved: 'created' } : item));
-      setNotice(`Task created: ${created.task.title}`);
+      setNotice(t('voice.taskCreated', { title: created.task.title }));
     } catch (error) {
-      setNotice(isBudgetExceeded(error) ? `Monthly model budget reached. ${budgetMessage(error)}` : error instanceof Error ? error.message : 'The task could not be created.');
+      setNotice(isBudgetExceeded(error) ? t('common.budgetReached', { message: budgetMessage(error) }) : error instanceof Error ? error.message : t('voice.taskFailed'));
     }
   }
 
@@ -359,7 +361,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
     }
     setSession(null);
     setTurns([]);
-    setNotice('Conversation cleared. Transcripts follow your retention choice.');
+    setNotice(t('voice.cleared'));
   }
 
   function saveName() {
@@ -377,7 +379,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
     setArmed(next);
     store('anum.voice.wake', next ? 'on' : 'off');
     if (next && (await ensureMode()) === 'cloud') {
-      setNotice(`While “${name}” is on, your browser's speech service hears the room until you turn it off.`);
+      setNotice(t('voice.cloudWake', { name }));
     } else if (!next) {
       setNotice('');
     }
@@ -393,18 +395,18 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void ask(); }
   }
   const orbScale = state === 'listening' ? 1 + level * 0.1 : 1;
-  const modeInfo = modeLabel[mode];
-  const caption = notice || (state === 'listening' ? (draft || (arabic ? 'تفضل…' : 'Go ahead…')) : state === 'idle' && !needsTap ? idleHint : '');
+  const modeInfo = modeLabel(mode);
+  const caption = notice || (state === 'listening' ? (draft || t('voice.goAhead')) : state === 'idle' && !needsTap ? idleHint : '');
 
-  return <section className="voiceConsole" data-state={state} aria-label={`${name} voice assistant`}>
+  return <section className="voiceConsole" data-state={state} aria-label={t('voice.label', { name }, { isolate: false })}>
     <header className="voiceTopline">
       <span className="voiceBadge" title={modeInfo.hint}>{modeInfo.icon}{modeInfo.text}</span>
       <div className="voiceConsoleMeta">
-        <button type="button" className={wakeOn ? 'voicePill on' : 'voicePill'} onClick={() => void toggleWake()} aria-pressed={wakeOn} title={`When on, saying “${name}” wakes the assistant. Audio is only processed while this page is open.`}>
-          <Radio size={16} />{wakeOn ? `“${name}” is on` : `Wake on “${name}”`}
+        <button type="button" className={wakeOn ? 'voicePill on' : 'voicePill'} onClick={() => void toggleWake()} aria-pressed={wakeOn} title={t('voice.wakeTitle', { name }, { isolate: false })}>
+          <Radio size={16} aria-hidden="true" />{wakeOn ? t('voice.wakeOn', { name }) : t('voice.wakeOff', { name })}
         </button>
-        <button type="button" className="voiceIconButton" onClick={() => { setMuted(!muted); if (!muted) stopSpeaking(); }} aria-pressed={muted} aria-label={muted ? 'Unmute spoken replies' : 'Mute spoken replies'} title={muted ? 'Spoken replies are off' : 'Spoken replies are on'}>
-          {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        <button type="button" className="voiceIconButton" onClick={() => { setMuted(!muted); if (!muted) stopSpeaking(); }} aria-pressed={muted} aria-label={muted ? t('voice.unmute') : t('voice.mute')} title={muted ? t('voice.mutedTitle') : t('voice.unmutedTitle')}>
+          {muted ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
         </button>
       </div>
     </header>
@@ -416,84 +418,82 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
         style={{ transform: `scale(${orbScale})`, width: orbSize, height: orbSize }}
         onClick={onOrbClick}
         disabled={state === 'thinking'}
-        aria-label={state === 'listening' ? 'Stop listening' : state === 'speaking' ? 'Stop speaking' : 'Tap to talk'}
+        aria-label={state === 'listening' ? t('voice.stopListening') : state === 'speaking' ? t('voice.stopSpeaking') : t('voice.tapToTalk')}
       >
         <span className="voiceOrbHalo" aria-hidden="true" />
         <span className="voiceOrbGlow" aria-hidden="true" />
         <Orb3D state={state} alert={pendingApprovals > 0} level={level} size={orbSize} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />
         <span className="voiceOrbIcon" aria-hidden="true">{state === 'listening' ? <Square size={26} /> : state === 'speaking' ? <VolumeX size={28} /> : <Mic size={30} />}</span>
       </button>
-      <h2 className="voiceGreeting">{greeting(name, locale, hour)}</h2>
+      <h2 className="voiceGreeting" dir="auto">{greeting(name, locale, hour)}</h2>
       <p className="voiceStateLabel" role="status" aria-live="polite">{stateText[state]}</p>
-      <p className={state === 'listening' && draft ? 'voiceCaption live' : 'voiceCaption'}>{caption}</p>
+      <p className={state === 'listening' && draft ? 'voiceCaption live' : 'voiceCaption'} dir="auto">{caption}</p>
       <div className="voiceStageActions">
-        {needsTap && !micBlocked && <button type="button" className="voiceAllowMic" onClick={() => setArmed(true)}><Radio size={16} />Start listening for “{name}”</button>}
-        {micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setMicBlocked(false); setNotice(''); setArmed(true); setWakeOn(false); window.setTimeout(() => setWakeOn(true), 0); }}>Allow microphone</button>}
+        {needsTap && !micBlocked && <button type="button" className="voiceAllowMic" onClick={() => setArmed(true)}><Radio size={16} aria-hidden="true" />{t('voice.startListening', { name })}</button>}
+        {micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setMicBlocked(false); setNotice(''); setArmed(true); setWakeOn(false); window.setTimeout(() => setWakeOn(true), 0); }}>{t('voice.allowMic')}</button>}
         {pendingApprovals > 0 && <button type="button" className="voiceScope" onClick={onOpenApprovals}>
-          {pendingApprovals === 1 ? '1 approval waiting for you' : `${pendingApprovals} approvals waiting for you`}
+          {t('voice.approvalsWaiting', { count: pendingApprovals })}
         </button>}
       </div>
     </div>
 
     {developer.panel}
 
-    <ol className="voiceLog" aria-label="Conversation">
+    <ol className="voiceLog" aria-label={t('voice.conversation')}>
       {turns.length === 0 && <li className="voiceEmpty">
-        <span className="voiceEmptyLead">{arabic ? 'جرّب أن تقول' : 'Try saying'}</span>
-        <span>“{arabic ? 'ما اسمك؟' : "What's your name?"}”</span>
-        <span>“{arabic ? 'ما حالة مهامي؟' : "What's the status of my workspace?"}”</span>
-        <span>“{arabic ? 'أنشئ مهمة: تجهيز التقرير الأسبوعي' : 'Create a task: draft the weekly report'}”</span>
+        <span className="voiceEmptyLead">{t('voice.trySaying')}</span>
+        {(['voice.example.name', 'voice.example.status', 'voice.example.task'] as const).map((key) => <span key={key} lang={speech} dir="auto">“{translate(speech, key)}”</span>)}
       </li>}
       {turns.filter((turn) => turn.text).map((turn) => <li key={turn.id} className={`voiceTurn ${turn.speaker}`}>
-        {turn.speaker === 'assistant' && <span className="voiceSpeaker">{name}</span>}
-        <p>{turn.text}</p>
-        {turn.result && turn.result.risk_tier !== 'read' && <span className={`voiceTier ${turn.result.risk_tier}`}>{tierLabel[turn.result.risk_tier]}</span>}
+        {turn.speaker === 'assistant' && <span className="voiceSpeaker" dir="auto">{name}</span>}
+        <p dir="auto">{turn.text}</p>
+        {turn.result && turn.result.risk_tier !== 'read' && <span className={`voiceTier ${turn.result.risk_tier}`}>{t(`voice.tier.${turn.result.risk_tier}`)}</span>}
         {turn.result?.risk_tier === 'confirm' && turn.result.proposed_task && !turn.resolved && <div className="voiceConfirm">
-          <button type="button" onClick={() => void confirmTask(turn)}><Check size={16} />Create task</button>
-          <button type="button" className="secondary" onClick={() => dismiss(turn)}><X size={16} />Not now</button>
+          <button type="button" onClick={() => void confirmTask(turn)}><Check size={16} aria-hidden="true" />{t('voice.createTask')}</button>
+          <button type="button" className="secondary" onClick={() => dismiss(turn)}><X size={16} aria-hidden="true" />{t('voice.notNow')}</button>
         </div>}
-        {turn.resolved === 'created' && <span className="voiceResolved">Task created</span>}
+        {turn.resolved === 'created' && <span className="voiceResolved">{t('voice.taskCreatedBadge')}</span>}
         {turn.result?.risk_tier === 'visual_only' && onOpenApprovals && <div className="voiceConfirm">
-          <button type="button" className="secondary" onClick={onOpenApprovals}><ShieldAlert size={16} />Open Approvals</button>
+          <button type="button" className="secondary" onClick={onOpenApprovals}><ShieldAlert size={16} aria-hidden="true" />{t('voice.openApprovals')}</button>
         </div>}
       </li>)}
       <li ref={logEnd} aria-hidden="true" className="voiceLogEnd" />
     </ol>
 
     <footer className="voiceDock">
-      <button type="button" className="voiceDockMic voiceTalk" onClick={onOrbClick} disabled={state === 'thinking'} aria-label={state === 'listening' ? 'Stop listening' : 'Push to talk'} title="Push to talk (or hold Space)">
-        {state === 'listening' ? <Square size={18} /> : <Mic size={18} />}
+      <button type="button" className="voiceDockMic voiceTalk" onClick={onOrbClick} disabled={state === 'thinking'} aria-label={state === 'listening' ? t('voice.stopListening') : t('voice.pushToTalk')} title={t('voice.pushToTalkTitle')}>
+        {state === 'listening' ? <Square size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
       </button>
       <label className="voiceDraft">
-        <span className="visuallyHidden">Your message</span>
-        <textarea value={state === 'listening' ? '' : draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onDraftKey} rows={1} placeholder={arabic ? 'أو اكتب رسالتك هنا' : `Message ${name}`} disabled={state === 'listening'} />
+        <span className="visuallyHidden">{t('voice.yourMessage')}</span>
+        <textarea dir="auto" value={state === 'listening' ? '' : draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onDraftKey} rows={1} placeholder={t('voice.messagePlaceholder', { name }, { isolate: false })} disabled={state === 'listening'} />
       </label>
-      <button type="button" className="voiceAsk" onClick={() => void ask()} disabled={!draft.trim() || state === 'thinking' || state === 'listening'} aria-label="Send" title="Send"><ArrowUp size={18} /></button>
+      <button type="button" className="voiceAsk" onClick={() => void ask()} disabled={!draft.trim() || state === 'thinking' || state === 'listening'} aria-label={t('voice.send')} title={t('voice.send')}><ArrowUp size={18} aria-hidden="true" /></button>
     </footer>
 
     <details className="voiceSettings">
-      <summary><Settings2 size={16} />Voice settings</summary>
+      <summary><Settings2 size={16} aria-hidden="true" />{t('voice.settings')}</summary>
       <div className="voiceSettingsGrid">
-        <label className="field"><span>Assistant name</span>
-          <input value={nameDraft} maxLength={40} onChange={(event) => setNameDraft(event.target.value)} onBlur={saveName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveName(); } }} />
+        <label className="field"><span>{t('voice.assistantName')}</span>
+          <input dir="auto" value={nameDraft} maxLength={40} onChange={(event) => setNameDraft(event.target.value)} onBlur={saveName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveName(); } }} />
         </label>
-        <label className="field"><span>Language</span><select value={locale} onChange={(event) => setLocale(event.target.value)} disabled={state !== 'idle'}>
+        <label className="field"><span>{t('voice.language')}</span><select value={locale} onChange={(event) => setLocale(event.target.value)} disabled={state !== 'idle'}>
           <option value="en-US">English (US)</option><option value="en-GB">English (UK)</option><option value="ar-SA">العربية (السعودية)</option><option value="ar-AE">العربية (الإمارات)</option>
           {!['en-US', 'en-GB', 'ar-SA', 'ar-AE'].includes(locale) && <option value={locale}>{locale}</option>}
         </select></label>
-        <label className="field"><span>Reply voice</span><select value={voice} onChange={(event) => { setVoice(event.target.value); store('anum.voice.reply', event.target.value); }}>
-          <option value="natural">Natural (free, English, downloads once)</option>
-          <option value="">Best voice on this device</option>
-          {hasVoiceServer() && <option value="server">Self-hosted voice (consented clone)</option>}
+        <label className="field"><span>{t('voice.replyVoice')}</span><select value={voice} onChange={(event) => { setVoice(event.target.value); store('anum.voice.reply', event.target.value); }}>
+          <option value="natural">{t('voice.reply.natural')}</option>
+          <option value="">{t('voice.reply.device')}</option>
+          {hasVoiceServer() && <option value="server">{t('voice.reply.server')}</option>}
           {rankedVoices.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
         </select></label>
-        <label className="field"><span>Transcript retention</span><select value={retention} onChange={(event) => setRetention(event.target.value as TranscriptRetention)} disabled={Boolean(session)}>
-          <option value="session">Delete when session ends</option><option value="30_days">Keep for 30 days</option><option value="permanent">Keep until deleted</option>
+        <label className="field"><span>{t('voice.retention')}</span><select value={retention} onChange={(event) => setRetention(event.target.value as TranscriptRetention)} disabled={Boolean(session)}>
+          {(['session', '30_days', 'permanent'] as const).map((choice) => <option key={choice} value={choice}>{t(`voice.retention.${choice}`)}</option>)}
         </select></label>
       </div>
-      {voice === 'natural' && !naturalVoiceSupports(locale) && <p className="muted">The natural voice speaks English only, so Arabic replies use the best Arabic voice on this device.</p>}
-      <p className="muted">{name} never approves, deletes or pays by voice. Those always need your tap on screen.</p>
-      {session && <button type="button" className="secondary" onClick={() => void endSession()}>Clear conversation</button>}
+      {voice === 'natural' && !naturalVoiceSupports(locale) && <p className="muted">{t('voice.naturalEnglishOnly')}</p>}
+      <p className="muted">{t('voice.neverByVoice', { name })}</p>
+      {session && <button type="button" className="secondary" onClick={() => void endSession()}>{t('voice.clear')}</button>}
     </details>
   </section>;
 }

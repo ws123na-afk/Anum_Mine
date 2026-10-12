@@ -8,12 +8,21 @@
 // RFC 8252 loopback redirect (http://127.0.0.1:<port>/callback) served by the shell, instead of
 // loading the identity provider inside the webview. See docs/desktop.md, "Sign-In".
 import { desktopShell } from './desktop';
-import { OidcClient, OidcError, oidcConfigFromEnv, type TokenSet } from './oidc';
+import { OidcClient, OidcError, oidcConfigFromEnv, type SignInRequestOptions, type TokenSet } from './oidc';
+import { pendingAccount, type PendingAccount } from './signIn';
 
 export type AuthStatus =
   | { kind: 'local' }
   | { kind: 'signedIn'; claims: Record<string, unknown> }
+  /** Signed in, but the account belongs to no organization yet (docs/identity.md#pending-accounts). */
+  | { kind: 'pending'; account: PendingAccount }
   | { kind: 'signedOut'; message?: string };
+
+/** Signed in, or pending when the token names no tenant. */
+export function statusForClaims(claims: Record<string, unknown>): AuthStatus {
+  const pending = pendingAccount(claims);
+  return pending ? { kind: 'pending', account: pending } : { kind: 'signedIn', claims };
+}
 
 const config = oidcConfigFromEnv(import.meta.env as Record<string, string | boolean | undefined>, window.location);
 const client = config ? new OidcClient(config, { fetch: (input, init) => fetch(input, init), storage: window.sessionStorage, crypto: window.crypto }) : null;
@@ -76,14 +85,15 @@ async function refreshTokens(): Promise<TokenSet | null> {
 export async function initAuth(): Promise<AuthStatus> {
   if (!client) return { kind: 'local' };
   const url = new URL(window.location.href);
-  if (client.isRedirectCallback(url)) {
+  // The Zoom/Teams sign-in also returns code and state, to its own page (docs/meetings.md).
+  if (client.isRedirectCallback(url) && !url.pathname.endsWith('/meetings/connected')) {
     // Code and state are single-use; drop them from the address bar and history either way.
     const clean = `${url.origin}${url.pathname}`;
     try {
       const result = await client.completeSignIn(url);
       accept(result.tokens);
       window.history.replaceState(null, '', `${clean}${result.returnTo}`);
-      return { kind: 'signedIn', claims: result.tokens.claims };
+      return statusForClaims(result.tokens.claims);
     } catch (error) {
       window.history.replaceState(null, '', clean);
       return { kind: 'signedOut', message: error instanceof Error ? error.message : 'Sign-in failed.' };
@@ -91,7 +101,7 @@ export async function initAuth(): Promise<AuthStatus> {
   }
   try {
     const restored = await refreshTokens();
-    return restored ? { kind: 'signedIn', claims: restored.claims } : { kind: 'signedOut' };
+    return restored ? statusForClaims(restored.claims) : { kind: 'signedOut' };
   } catch (error) {
     return { kind: 'signedOut', message: error instanceof OidcError ? error.message : 'The identity provider is unreachable.' };
   }
@@ -101,22 +111,26 @@ export async function initAuth(): Promise<AuthStatus> {
  * Starts a sign-in. In the browser this navigates to the provider. In the desktop shell it opens
  * the system browser and returns; the session arrives through onAuthChange when the loopback
  * callback completes. Calling it again restarts the desktop sign-in.
+ *
+ * `options.idpHint` (`google`, `apple`) goes straight to that provider through Keycloak
+ * (`kc_idp_hint`); `options.create` opens Keycloak's sign-up page (`prompt=create`). Both use
+ * the same authorization code + PKCE request.
  */
-export async function signIn(): Promise<void> {
+export async function signIn(options: SignInRequestOptions = {}): Promise<void> {
   if (!client) return;
   if (!desktop) {
-    window.location.assign(await client.beginSignIn(window.location.hash));
+    window.location.assign(await client.beginSignIn(window.location.hash, undefined, options));
     return;
   }
   const port = await desktop.listenForSignIn();
-  const authorizationUrl = await client.beginSignIn(window.location.hash, `http://127.0.0.1:${port}/callback`);
+  const authorizationUrl = await client.beginSignIn(window.location.hash, `http://127.0.0.1:${port}/callback`, options);
   const callback = desktop.authorizeInBrowser(authorizationUrl);
   void callback
     .then(async (url) => {
       const result = await client.completeSignIn(new URL(url));
       accept(result.tokens);
       if (result.returnTo) window.history.replaceState(null, '', `${window.location.pathname}${result.returnTo}`);
-      emit({ kind: 'signedIn', claims: result.tokens.claims });
+      emit(statusForClaims(result.tokens.claims));
     })
     .catch((error: unknown) => {
       // A restarted sign-in supersedes this one; its own result is reported instead.
@@ -140,6 +154,16 @@ export async function signOut(): Promise<void> {
   const url = await client.signOutUrl(idToken);
   if (url) window.location.assign(url);
   else drop();
+}
+
+/**
+ * "Check again" on the pending screen: a fresh token carries the tenant an administrator
+ * assigned since (Keycloak reads the user's attributes on every refresh).
+ */
+export async function checkAgain(): Promise<AuthStatus> {
+  if (!client) return { kind: 'local' };
+  const next = await refreshTokens();
+  return next ? statusForClaims(next.claims) : { kind: 'signedOut', message: 'Your session ended. Sign in again.' };
 }
 
 /** A current access token, refreshed first when it is about to expire. */

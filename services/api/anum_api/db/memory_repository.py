@@ -12,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from anum_api.memory import (
+    KNOWLEDGE_BASE_SOURCE_TYPE,
     MemoryListFilters,
     MemoryNote,
     MemoryProvenance,
@@ -52,7 +53,8 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
             )
             if task is None:
                 raise ValueError("Cannot create memory for an unavailable task")
-        elif note.owner_user_id is None:
+        elif note.owner_user_id is None and note.provenance.source_type != KNOWLEDGE_BASE_SOURCE_TYPE:
+            # Shared notes belong to a task, or to a knowledge base collection (docs/knowledge-base.md).
             raise ValueError("A memory without a task must be private to its owner")
         if self.session.get(MemoryRecord, note.id) is not None:
             raise ValueError(f"Memory already exists: {note.id}")
@@ -91,6 +93,8 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
             *_visible(context),
             MemoryRecord.kind.in_(LISTED_KINDS),
         )
+        if filters.owner_only:
+            statement = statement.where(MemoryRecord.owner_user_id == context.user_id)
         if filters.task_id is not None:
             statement = statement.where(MemoryRecord.source_task_id == filters.task_id)
         if filters.source_types:

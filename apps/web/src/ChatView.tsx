@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { ArrowDown, CircleDot, MessageSquarePlus, RefreshCw, RotateCcw, Send, Sparkles, Square, Trash2 } from 'lucide-react';
 import { Answer } from './AnswerView';
+import { AnswerFeedback, type Rating } from './AnswerFeedback';
+import { getRatings } from './lib/learningApi';
 import {
   applyAskEvent, canRetry, conversationTitle, endAsk, fromStored, isNearBottom, retryTarget, startAsk,
   type Conversation, type UiTurn,
@@ -8,16 +10,21 @@ import {
 import { askInConversation, createConversation, deleteConversation, getConversation, listConversations, type AskBody } from './lib/chatApi';
 import { ApiError, budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
 import { parseAnswer } from './lib/tasks';
+import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { useDeveloperAssist } from './DeveloperAssist';
+import { FavoritesStrip, StarButton, useStars } from './Favorites';
+import { ReportAnswerCard } from './ReportAnswerCard';
+import { visibleReply } from './lib/library';
+import type { Favorite } from '@anum/contracts';
+import { ChatCardView, type ChatTarget } from './ChatCardView';
 import './chat.css';
 
-const SUGGESTIONS = ['What is waiting for my approval?', 'Draft a short status update for my team', 'Explain how approvals protect this workspace'];
-const NO_PERMISSION = 'Your role cannot use the assistant in this workspace. Ask a workspace owner or admin to give you the member role.';
+const SUGGESTIONS: MessageKey[] = ['chat.suggestion.1', 'chat.suggestion.2', 'chat.suggestion.3'];
 
-/** What went wrong, in words that say how to fix it. */
-function explain(error: unknown, action: string): string {
-  if (isPermissionDenied(error)) return NO_PERMISSION;
-  return `${action}: ${describeError(error)}`;
+/** What went wrong, in words that say how to fix it. `action` names the failed step and takes the reason. */
+function explain(error: unknown, action: MessageKey): string {
+  if (isPermissionDenied(error)) return t('chat.noPermission');
+  return t(action, { reason: describeError(error) });
 }
 
 /**
@@ -25,7 +32,20 @@ function explain(error: unknown, action: string): string {
  * Replies render through the safe answer renderer (text nodes only); Stop aborts the request,
  * which stops the model on the server.
  */
-export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId = null }: { onOpenBudgets: () => void; onOpenDeveloper?: () => void; initialConversationId?: string | null }) {
+export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initialConversationId = null, onOpenReport, onOpenFavorite, onOpenFavorites, agent }: {
+  onOpenBudgets: () => void; onOpenDeveloper?: () => void; initialConversationId?: string | null;
+  /** Links on task cards (docs/conversations.md#tools-in-chat). */
+  onOpenTarget?: (target: ChatTarget) => void;
+  /** "View Full Report" on a structured answer (docs/reports.md). */
+  onOpenReport?: (reportId: string) => void;
+  /** Quick access to starred items on the empty Assistant home (docs/knowledge-base.md#favorites). */
+  onOpenFavorite?: (favorite: Favorite) => void; onOpenFavorites?: () => void;
+  /** A thread with this agent (docs/agents.md); its persona answers. */
+  agent?: { id: string; name: string };
+}) {
+  const stars = useStars('conversation');
+  // With `agent`: the threads with that agent (docs/agents.md); its persona answers.
+  const agentId = agent?.id;
   // "build ..." / "developer, ..." goes to developer mode after a confirmation (docs/developer-mode.md).
   const developer = useDeveloperAssist({ source: 'text', onOpenDeveloper });
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -39,6 +59,8 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
   const [notice, setNotice] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+  // The caller's rating of each answer (docs/learning.md); unknown until the lookup answers.
+  const [ratings, setRatings] = useState<Record<string, Rating>>({});
   const controller = useRef<AbortController | null>(null);
   const log = useRef<HTMLDivElement | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
@@ -53,14 +75,22 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
     setAtBottom(true);
     if (!id) { setTurns([]); return; }
     setOpening(true);
-    try { setTurns(fromStored((await getConversation(id)).turns)); }
+    try {
+      const detail = await getConversation(id);
+      const stored = fromStored(detail.turns, detail.reports);
+      setTurns(stored);
+      const answers = stored.filter((turn) => turn.role === 'assistant' && turn.status === 'complete').map((turn) => turn.id);
+      setRatings({});
+      // Thumbs show their saved state; without it (an older server, learning data unreadable) they still work.
+      if (answers.length) void getRatings('chat', answers.slice(-100)).then((r) => setRatings(Object.fromEntries(r.ratings.map((x) => [x.subject_id, x.rating])))).catch(() => undefined);
+    }
     catch (e) {
       setTurns([]);
       if (e instanceof ApiError && e.status === 404) {
         // A link from the Memory view to a chat that was deleted since: its memories stay.
         setActiveId(null);
-        setNotice('That chat was deleted. Memories remembered from it stay in Memory until you delete them there.');
-      } else setNotice(explain(e, 'This conversation could not be loaded'));
+        setNotice(t('chat.chatDeleted'));
+      } else setNotice(explain(e, 'chat.loadConversationFailed'));
     }
     finally { setOpening(false); }
   }, []);
@@ -69,7 +99,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
     setListState('loading');
     setListError(null);
     try {
-      const items = await listConversations();
+      const items = await listConversations(agentId);
       setConversations(items);
       setListState('ready');
       // Opened from the Memory view: that conversation, even when it is older than the list.
@@ -77,9 +107,9 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
       else if (openFirst && items[0]) await open(items[0].id);
     } catch (e) {
       setListState('error');
-      setListError(explain(e, 'Conversations could not be loaded'));
+      setListError(explain(e, 'chat.loadListFailed'));
     }
-  }, [open]);
+  }, [open, agentId]);
 
   useEffect(() => {
     void loadList(true, initialConversationId);
@@ -104,7 +134,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
   };
 
   async function refreshList() {
-    try { setConversations(await listConversations()); } catch { /* the list keeps its last good state */ }
+    try { setConversations(await listConversations(agentId)); } catch { /* the list keeps its last good state */ }
   }
 
   async function ask(body: AskBody) {
@@ -121,7 +151,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
     try {
       let id = activeId;
       if (!id) {
-        const created = await createConversation();
+        const created = await createConversation(agentId);
         id = created.id;
         setActiveId(id);
         setConversations((current) => [created, ...current]);
@@ -129,7 +159,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
       await askInConversation(id, body, abort.signal, (event) => {
         if (event.event === 'done' || event.event === 'error') ended = true;
         const data = event.data as { code?: string; message?: string } | null;
-        if (event.event === 'error' && data?.code === 'model_budget_exceeded') setBudget(data.message ?? 'Monthly model budget reached.');
+        if (event.event === 'error' && data?.code === 'model_budget_exceeded') setBudget(data.message ?? t('chat.budgetReached'));
         setTurns((current) => applyAskEvent(current, event));
       });
       if (!ended) setTurns((current) => endAsk(current, { stopped: false }));
@@ -137,8 +167,8 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
       if (abort.signal.aborted) setTurns((current) => endAsk(current, { stopped: true }));
       else if (isBudgetExceeded(e)) {
         setBudget(budgetMessage(e));
-        setTurns((current) => endAsk(current, { stopped: false, error: 'Not sent: the monthly model budget is used up.', errorCode: 'model_budget_exceeded' }));
-      } else setTurns((current) => endAsk(current, { stopped: false, error: explain(e, 'Not answered') }));
+        setTurns((current) => endAsk(current, { stopped: false, error: t('chat.notSentBudget'), errorCode: 'model_budget_exceeded' }));
+      } else setTurns((current) => endAsk(current, { stopped: false, error: explain(e, 'chat.notAnswered') }));
     } finally {
       if (controller.current === abort) controller.current = null;
       setStreaming(false);
@@ -162,13 +192,13 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
     if (target) void ask({ retry_turn_id: target.id });
   }
   async function remove(conversation: Conversation) {
-    if (!confirm(`Delete "${conversationTitle(conversation)}" and all its messages?`)) return;
+    if (!confirm(t('chat.confirmDelete', { title: conversationTitle(conversation) }))) return;
     try {
       await deleteConversation(conversation.id);
       const rest = conversations.filter((c) => c.id !== conversation.id);
       setConversations(rest);
       if (activeId === conversation.id) await open(rest[0]?.id ?? null);
-    } catch (e) { setNotice(explain(e, 'The conversation could not be deleted')); }
+    } catch (e) { setNotice(explain(e, 'chat.deleteFailed')); }
   }
   function startNew() {
     void open(null);
@@ -178,51 +208,57 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const showEmpty = turns.length === 0 && !opening && listState !== 'loading';
   return <div className="chatLayout">
-    <aside className="surface chatList" aria-label="Conversations">
+    <aside className="surface chatList" aria-labelledby="chat-list-heading">
       <div className="chatListHeader">
-        <h2>Conversations</h2>
-        <button type="button" className="secondary" onClick={startNew} disabled={streaming}><MessageSquarePlus aria-hidden="true" />New</button>
+        <h2 id="chat-list-heading">{t('chat.conversations')}</h2>
+        <button type="button" className="secondary" onClick={startNew} disabled={streaming}><MessageSquarePlus aria-hidden="true" />{t('chat.new')}</button>
       </div>
-      {listState === 'loading' && <p className="chatListState" role="status">Loading conversations...</p>}
-      {listState === 'error' && <div className="chatListState" role="alert"><p>{listError}</p><button type="button" className="secondary" onClick={() => void loadList(!activeId)}><RefreshCw aria-hidden="true" />Try again</button></div>}
-      {listState === 'ready' && conversations.length === 0 && <p className="chatListState">No conversations yet. Ask a question to start one.</p>}
+      {listState === 'loading' && <p className="chatListState" role="status">{t('chat.loadingList')}</p>}
+      {listState === 'error' && <div className="chatListState" role="alert"><p>{listError}</p><button type="button" className="secondary" onClick={() => void loadList(!activeId)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
+      {listState === 'ready' && conversations.length === 0 && <p className="chatListState">{t('chat.emptyList')}</p>}
       {conversations.length > 0 && <ul>{conversations.map((c) => <li key={c.id} className={c.id === activeId ? 'active' : ''}>
         <button type="button" className="chatListItem" aria-current={c.id === activeId ? 'true' : undefined} onClick={() => void open(c.id)} disabled={streaming && c.id !== activeId}>
-          <span>{conversationTitle(c)}</span><time dateTime={c.updated_at}>{when(c.updated_at)}</time>
+          <span dir="auto">{conversationTitle(c)}</span><time dateTime={c.updated_at}>{when(c.updated_at)}</time>
         </button>
-        {c.id === activeId && <button type="button" className="iconButton chatDelete" title="Delete conversation" aria-label={`Delete ${conversationTitle(c)}`} onClick={() => void remove(c)} disabled={streaming}><Trash2 aria-hidden="true" /></button>}
+        {c.id === activeId && <button type="button" className="iconButton chatDelete" title={t('chat.deleteConversation')} aria-label={t('chat.deleteNamed', { title: conversationTitle(c) })} onClick={() => void remove(c)} disabled={streaming}><Trash2 aria-hidden="true" /></button>}
       </li>)}</ul>}
     </aside>
-    <section className="surface chatPanel" aria-label="Assistant chat">
-      <header className="chatHeader"><Sparkles aria-hidden="true" /><h2>{active ? conversationTitle(active) : 'New conversation'}</h2>{streaming && <span className="statusBadge warning">answering</span>}</header>
-      <div className="chatLog" ref={log} onScroll={onScroll} role="log" aria-live="polite" aria-busy={streaming || opening} tabIndex={0} aria-label="Messages">
-        {(opening || (listState === 'loading' && turns.length === 0)) && <p className="chatLoading" role="status">Loading messages...</p>}
+    <section className="surface chatPanel" aria-label={t('chat.panel')}>
+      <header className="chatHeader"><Sparkles aria-hidden="true" /><h2 dir="auto">{active ? conversationTitle(active) : t('chat.newConversation')}</h2>{streaming && <span className="statusBadge warning">{t('chat.answering')}</span>}{active && <StarButton starred={stars.ids.has(active.id)} label={conversationTitle(active)} onToggle={() => void stars.toggle(active.id)} />}</header>
+      <div className="chatLog" ref={log} onScroll={onScroll} role="log" aria-live="polite" aria-busy={streaming || opening} tabIndex={0} aria-label={t('chat.messages')}>
+        {(opening || (listState === 'loading' && turns.length === 0)) && <p className="chatLoading" role="status">{t('chat.loadingMessages')}</p>}
         {showEmpty && <div className="chatEmpty">
-          <p>Ask anything. Answers stream in as they are written, and follow-ups remember this conversation. To have something done, ask for a task: tasks run under this workspace's approvals.</p>
-          <div className="chatSuggestions">{SUGGESTIONS.map((s) => <button type="button" className="secondary" key={s} onClick={() => void ask({ content: s })} disabled={streaming}>{s}</button>)}</div>
+          <p>{agent ? t('agents.chat.intro', { name: agent.name }) : t('chat.intro')}</p>
+          {!agent && onOpenFavorite && onOpenFavorites && <FavoritesStrip onOpen={onOpenFavorite} onOpenAll={onOpenFavorites} />}
+          <div className="chatSuggestions">{SUGGESTIONS.map((key) => <button type="button" className="secondary" key={key} onClick={() => void ask({ content: t(key) })} disabled={streaming}>{t(key)}</button>)}</div>
         </div>}
-        {turns.map((turn) => <article key={turn.id} className={`chatTurn ${turn.role} ${turn.status}`} aria-label={turn.role === 'user' ? 'You' : 'Assistant'}>
+        {turns.map((turn) => <article key={turn.id} className={`chatTurn ${turn.role} ${turn.status}`} aria-label={turn.role === 'user' ? t('chat.you') : t('chat.assistant')}>
           {turn.role === 'user'
-            ? <><p className="chatQuestion">{turn.content}</p>{turn.status === 'failed' && <p className="chatMeta chatError">Not sent.</p>}</>
+            ? <><p className="chatQuestion" dir="auto">{turn.content}</p>{turn.status === 'failed' && <p className="chatMeta chatError">{t('chat.notSent')}</p>}</>
             : <>
-              {turn.content ? <Answer blocks={parseAnswer(turn.content)} /> : turn.status === 'streaming' ? <p className="chatThinking" role="status" aria-label="Thinking"><span /><span /><span /></p> : null}
-              {turn.status === 'streaming' && turn.content && <span className="chatCaret" aria-hidden="true" />}
-              {turn.status === 'cancelled' && <p className="chatMeta">Stopped{turn.content ? '' : ' before any answer'}.</p>}
-              {turn.status === 'failed' && <p className="chatMeta chatError">{turn.error ?? 'No answer.'}</p>}
+              {/* A card's own words are localized; only a results card shows the written answer above it. */}
+              {visibleReply(turn.content) && (!turn.card || turn.card.state === 'results') ? <Answer blocks={parseAnswer(visibleReply(turn.content))} /> : turn.status === 'streaming' && !turn.card ? <p className="chatThinking" role="status" aria-label={t('chat.thinking')}><span /><span /><span /></p> : null}
+              {turn.card && <ChatCardView card={turn.card} live={turn.status === 'streaming'} onOpen={onOpenTarget} onChange={(card) => setTurns((current) => current.map((x) => x.id === turn.id ? { ...x, card } : x))} />}
+              {turn.status === 'streaming' && turn.content && (!turn.card || turn.card.state === 'results') && <span className="chatCaret" aria-hidden="true" />}
+              {turn.report && <ReportAnswerCard card={turn.report} onOpen={onOpenReport} />}
+              {turn.status === 'cancelled' && <p className="chatMeta">{turn.content ? t('chat.stopped') : t('chat.stoppedEarly')}</p>}
+              {turn.status === 'failed' && <p className="chatMeta chatError" dir="auto">{turn.error ?? t('chat.noAnswer')}</p>}
+              {turn.status === 'complete' && turn.content && (!turn.card || turn.card.state === 'results') && !turn.id.startsWith('pending') && !turn.id.startsWith('local-') && !streaming && <AnswerFeedback turnId={turn.id} content={turn.content} rating={ratings[turn.id] ?? null} onRated={(rating) => setRatings((current) => ({ ...current, [turn.id]: rating }))} />}
             </>}
         </article>)}
       </div>
-      {!atBottom && <button type="button" className="secondary chatJump" onClick={jumpToLatest}><ArrowDown aria-hidden="true" />Jump to latest</button>}
+      {!atBottom && <button type="button" className="secondary chatJump" onClick={jumpToLatest}><ArrowDown aria-hidden="true" />{t('chat.jump')}</button>}
       {developer.panel}
-      {budget && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{budget}</span><button type="button" className="secondary" onClick={onOpenBudgets}>Open Budgets</button></p>}
+      {budget && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{budget}</span><button type="button" className="secondary" onClick={onOpenBudgets}>{t('chat.openBudgets')}</button></p>}
+      {stars.error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{stars.error}</span></p>}
       {notice && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{notice}</span></p>}
       <form className="chatComposer" onSubmit={submit}>
-        <textarea ref={input} value={draft} rows={1} placeholder="Ask the assistant..." aria-label="Message the assistant" onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} maxLength={8000} />
+        <textarea ref={input} value={draft} rows={1} placeholder={t('chat.placeholder')} aria-label={t('chat.inputLabel')} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} maxLength={8000} />
         <div className="chatActions">
-          {!streaming && canRetry(turns) && <button type="button" className="secondary" onClick={retry}><RotateCcw aria-hidden="true" />Retry</button>}
+          {!streaming && canRetry(turns) && <button type="button" className="secondary" onClick={retry}><RotateCcw aria-hidden="true" />{t('chat.retry')}</button>}
           {streaming
-            ? <button type="button" className="chatStop" onClick={() => controller.current?.abort()}><Square aria-hidden="true" />Stop</button>
-            : <button type="submit" className="chatSend" disabled={!draft.trim()}><Send aria-hidden="true" />Send</button>}
+            ? <button type="button" className="chatStop" onClick={() => controller.current?.abort()}><Square aria-hidden="true" />{t('chat.stop')}</button>
+            : <button type="submit" className="chatSend" disabled={!draft.trim()}><Send aria-hidden="true" />{t('chat.send')}</button>}
         </div>
       </form>
     </section>
@@ -232,6 +268,6 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
 function when(value: string): string {
   const date = new Date(value);
   return date.toDateString() === new Date().toDateString()
-    ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date)
-    : new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
+    ? formatDateTime(date, { hour: '2-digit', minute: '2-digit' })
+    : formatDateTime(date, { month: 'short', day: 'numeric' });
 }

@@ -5,6 +5,7 @@ import { matchWakeWord } from './wake';
 
 export { defaultAssistantName, greeting, matchWakeWord, sanitizeAssistantName } from './wake';
 import { postSse } from './chatApi';
+import { t } from './i18n';
 
 
 export type TranscriptRetention = 'session' | '30_days' | 'permanent';
@@ -79,7 +80,7 @@ export async function submitVoiceCommand(
   });
 }
 
-export type VoiceIntent = 'question' | 'status' | 'create_task' | 'visual_only' | 'identity' | 'greeting' | 'thanks';
+export type VoiceIntent = 'question' | 'status' | 'marketing_summary' | 'create_task' | 'visual_only' | 'identity' | 'greeting' | 'thanks';
 export type VoiceRiskTier = 'read' | 'confirm' | 'visual_only';
 
 export interface VoiceAskResult {
@@ -131,11 +132,11 @@ export async function streamVoiceAssistant(
     } else if (event.event === 'done') {
       segment = (data.assistant_segment as TranscriptSegment | null) ?? null;
     } else if (event.event === 'error') {
-      failure = typeof data.message === 'string' ? data.message : 'I could not answer.';
+      failure = typeof data.message === 'string' ? data.message : t('voice.err.couldNotAnswer');
     }
   });
   if (failure) throw new Error(failure);
-  if (!meta) throw new Error('The voice answer ended early. Try again.');
+  if (!meta) throw new Error(t('voice.err.endedEarly'));
   const now = new Date().toISOString();
   return {
     ...(meta as Omit<VoiceAskResult, 'reply' | 'assistant_segment'>),
@@ -225,7 +226,7 @@ export function createPushToTalk(
   if (!Constructor) {
     return {
       supported: false,
-      start: () => onError('Speech recognition is not supported by this browser.'),
+      start: () => onError(t('voice.err.unsupported')),
       stop: () => undefined,
       cancel: () => undefined,
     };
@@ -247,7 +248,7 @@ export function createPushToTalk(
     }
     onTranscript(text.replace(/\s+/g, ' ').trim(), isFinal);
   };
-  recognition.onerror = () => onError('Speech recognition failed. Check microphone permission.');
+  recognition.onerror = () => onError(t('voice.err.recognition'));
   recognition.onend = () => onEnd?.();
   return {
     supported: true,
@@ -367,7 +368,7 @@ export async function speak(text: string, options: SpeakOptions): Promise<void> 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text, language: options.locale }),
       });
-      if (!response.ok) throw new Error(`Voice server failed: ${response.status}`);
+      if (!response.ok) throw new Error(t('voice.err.server', { status: String(response.status) }));
       await playBlob(await response.blob(), options);
       return;
     }
@@ -378,7 +379,7 @@ export async function speak(text: string, options: SpeakOptions): Promise<void> 
       return;
     }
   } catch (error) {
-    options.onFallback?.(error instanceof Error ? error.message : 'Voice engine unavailable');
+    options.onFallback?.(error instanceof Error ? error.message : t('voice.err.engine'));
   }
   await speakWithSystemVoice(text, { ...options, voice: options.voice === 'natural' || options.voice === 'server' ? '' : options.voice });
 }
@@ -465,7 +466,7 @@ export function createWakeListener(
       const code = (event as Event & { error?: string }).error;
       if (code === 'not-allowed' || code === 'service-not-allowed') {
         running = false;
-        onError('Microphone permission is blocked. Allow it in the browser to use the wake name.');
+        onError(t('voice.err.micBlocked'));
       }
     };
     recognition.onend = () => { if (running && !paused) window.setTimeout(begin, 250); };

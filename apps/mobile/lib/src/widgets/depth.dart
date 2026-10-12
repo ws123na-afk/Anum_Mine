@@ -199,7 +199,8 @@ class AnumHeader extends StatelessWidget {
           ],
         ]),
       ),
-      if (trailing != null) trailing!,
+      // Shares the row at large text sizes instead of pushing it over.
+      if (trailing != null) Flexible(child: trailing!),
     ]);
   }
 }

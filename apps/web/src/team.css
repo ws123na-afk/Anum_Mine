@@ -1,0 +1,164 @@
+/* Team work, assistants, organisations and the notification bell. Shared tokens only
+   (spacing --d-s*, radii --d-r-*), logical properties for right-to-left. */
+.srOnly { block-size: 1px; clip: rect(0 0 0 0); inline-size: 1px; overflow: hidden; position: absolute; white-space: nowrap; }
+.inlineIcon { block-size: 14px; inline-size: 14px; margin-inline-end: var(--d-s1); vertical-align: -2px; }
+.fieldError { color: var(--d-stop); font-size: 13px; }
+.warnText { color: var(--d-warn) !important; }
+.linkButton { align-items: center; display: inline-flex; font-size: 13px; gap: var(--d-s1); min-height: 36px; padding: var(--d-s1) var(--d-s3); border-radius: var(--d-r-control); }
+.teamPanel, .commandBox, .workDetail, .assistantCard, .orgCard { padding: var(--d-s5); }
+.teamView, .assistantsView, .orgsView { display: grid; gap: var(--d-s4); min-width: 0; }
+.teamView > .moduleIntro, .assistantsView > .moduleIntro, .orgsView > .moduleIntro { margin-bottom: 0; }
+.teamTabs { margin-bottom: 0; }
+
+/* Ask ANUM */
+.commandBox h2 { align-items: center; display: flex; gap: var(--d-s2); }
+.commandBox h2 svg { color: var(--d-violet); block-size: 18px; inline-size: 18px; }
+.commandRow { align-items: end; display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; }
+.commandRow .actions, .commandRow .field { margin-top: var(--d-s3); }
+.commandPreview .inlineDetails { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--d-s4); }
+
+/* Lists and the split with the detail panel */
+.teamSplit { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); }
+.teamSplit.hasDetail { grid-template-columns: minmax(0, 1fr) minmax(340px, 440px); }
+.teamMain { min-width: 0; }
+.teamFilters { display: grid; gap: 0 var(--d-s3); grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+.workList { display: grid; gap: var(--d-s1); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
+.workRow small { align-items: center; display: flex; flex-wrap: wrap; gap: 0 var(--d-s1); }
+.workRowMeta { align-items: flex-end; display: grid; flex: none; gap: var(--d-s1); justify-items: end; }
+.priority.urgent { color: var(--d-stop); font-weight: 700; }
+.priority.high { color: var(--d-warn); font-weight: 650; }
+.due { color: var(--d-muted); font-size: 12px; white-space: nowrap; }
+.due.overdue { color: var(--d-stop); font-weight: 650; }
+.due.today { color: var(--d-warn); font-weight: 650; }
+.board { display: grid; gap: var(--d-s3); grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: var(--d-s4); }
+.boardColumn { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); min-width: 0; padding: var(--d-s3); }
+.boardColumn h3 { font-size: 14px; }
+.boardColumn .workList { margin-top: var(--d-s2); }
+.boardColumn .recordButton { align-items: flex-start; flex-direction: column; }
+.boardColumn .workRowMeta { justify-items: start; }
+.boardEmpty { margin-top: var(--d-s2); }
+.boardTools { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
+.boardTools .field, .boardTools .actions { margin-top: 0; }
+.loadMore { margin-top: var(--d-s2); min-height: 40px; width: 100%; border-radius: var(--d-r-control); }
+
+/* Workload */
+.tableScroll { margin-top: var(--d-s4); max-inline-size: 100%; overflow-x: auto; }
+.workloadTable { border-collapse: collapse; font-size: 14px; min-inline-size: 560px; width: 100%; }
+.workloadTable th, .workloadTable td { border-bottom: 1px solid var(--d-line); padding: var(--d-s2) var(--d-s3); text-align: start; }
+.workloadTable thead th { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.workloadTable td { font-variant-numeric: tabular-nums; }
+.overdueCell { color: var(--d-stop); font-weight: 700; }
+.loadBar { background: var(--d-glass-2); border-radius: 999px; display: block; min-inline-size: 140px; overflow: hidden; position: relative; }
+.loadBar > span { background: var(--d-ok); display: block; block-size: 8px; }
+.loadBar.high > span { background: var(--d-warn); }
+.loadBar.over > span { background: var(--d-stop); }
+.loadBar em { color: var(--d-muted); display: block; font-size: 12px; font-style: normal; padding: 2px var(--d-s2); }
+
+/* Activity */
+.activityList { display: grid; gap: var(--d-s2); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
+.activity { align-items: center; display: grid; gap: var(--d-s3); grid-template-columns: 28px minmax(0, 1fr) auto; }
+.activity small { color: var(--d-faint); display: block; font-size: 12px; }
+.activityIcon { color: var(--d-sky); display: grid; place-items: center; }
+.activity.assistant .activityIcon, .activity.anum .activityIcon { color: var(--d-violet); }
+.activityIcon svg { block-size: 18px; inline-size: 18px; }
+
+/* People */
+.peopleList, .templateList, .assistantList, .orgList, .bellList, .checklist, .attachmentList, .commentList { list-style: none; margin: 0; padding: 0; }
+.peopleList { display: grid; gap: var(--d-s2); margin-top: var(--d-s3); }
+.person { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding-top: var(--d-s3); }
+.person small { color: var(--d-muted); display: block; font-size: 13px; overflow-wrap: anywhere; }
+.person > button { border-radius: var(--d-r-control); min-height: 40px; padding: 0 var(--d-s3); }
+.profileForm { grid-column: 1 / -1; }
+
+/* Detail */
+.workDetail { display: grid; gap: var(--d-s2); min-width: 0; position: sticky; top: var(--d-s4); }
+.workDetail h2 { overflow-wrap: anywhere; }
+.workDetail h2:focus { outline: none; }
+.backButton { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); min-height: 40px; padding: 0 var(--d-s3); }
+.detailFields { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.teamView input[type="datetime-local"] { min-width: 0; }
+.dueLine { margin-top: var(--d-s2); }
+.description { color: var(--d-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.handOff { background: rgba(167, 139, 250, .08); border: 1px solid rgba(167, 139, 250, .3); border-radius: var(--d-r-control); margin-top: var(--d-s2); padding: var(--d-s3); }
+.handOff .actions { margin-top: var(--d-s3); }
+.detailSection { border-top: 1px solid var(--d-line); margin-top: var(--d-s3); padding-top: var(--d-s3); }
+.detailSection h3 { align-items: center; display: flex; gap: var(--d-s2); }
+.detailSection h3 svg { block-size: 16px; inline-size: 16px; color: var(--d-sky); }
+.checklist li, .attachmentList li { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; min-height: 44px; }
+.checklist label { align-items: center; display: flex; gap: var(--d-s2); min-width: 0; }
+.checklist input { accent-color: var(--d-violet); block-size: 20px; inline-size: 20px; min-height: 0; }
+.checklist .done { color: var(--d-muted); text-decoration: line-through; }
+.checklist .iconButton, .attachmentList .iconButton { block-size: 36px; inline-size: 36px; }
+.inlineForm { align-items: end; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) auto; }
+.inlineForm > button { border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); align-items: center; min-height: 44px; padding: 0 var(--d-s3); }
+.inlineForm textarea { min-height: 72px; }
+.attachTools { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s2); }
+.attachTools .field { margin-top: 0; }
+.attachTools > button { border-radius: var(--d-r-control); min-height: 44px; padding: 0 var(--d-s3); }
+.secondaryUpload { background: var(--d-glass-2) !important; border: 1px solid var(--d-line-strong) !important; box-shadow: none !important; color: var(--d-text) !important; }
+.commentList { display: grid; gap: var(--d-s2); margin-top: var(--d-s2); }
+.comment { background: var(--d-glass-1); border-radius: var(--d-r-control); padding: var(--d-s2) var(--d-s3); }
+.comment.anum, .comment.assistant { border-inline-start: 3px solid var(--d-violet); }
+.comment > div { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.comment small { color: var(--d-faint); font-size: 12px; }
+.comment p { overflow-wrap: anywhere; white-space: pre-wrap; }
+.dangerZone { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
+
+/* Assistants */
+.templateList { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); margin-top: var(--d-s3); }
+.templateList li { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; gap: var(--d-s2); justify-content: space-between; padding: var(--d-s3); }
+.templateList small { color: var(--d-muted); display: block; font-size: 12px; }
+.templateList button { border-radius: var(--d-r-control); flex: none; min-height: 40px; padding: 0 var(--d-s3); }
+.assistantList, .orgList { display: grid; gap: var(--d-s4); grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.assistantCard .instructions { color: var(--d-text); font-size: 14px; margin-top: var(--d-s2); overflow-wrap: anywhere; }
+.assistantCard .muted { display: block; margin-top: var(--d-s1); }
+
+/* Organisations */
+.orgCounts { display: grid; gap: var(--d-s3); grid-template-columns: repeat(4, minmax(0, 1fr)); margin: var(--d-s4) 0 0; }
+.orgActions { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
+.orgActions .actions { margin-top: 0; }
+.orgPrivacy { max-width: 70ch; }
+.inviteReveal input { font-family: var(--d-mono); font-size: 13px; }
+.brandingRow { align-items: end; display: grid; gap: var(--d-s4); grid-template-columns: 72px minmax(0, 1fr); }
+.logoPreview { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); block-size: 72px; color: var(--d-muted); display: flex; inline-size: 72px; justify-content: center; overflow: hidden; }
+.logoPreview img { block-size: 100%; inline-size: 100%; object-fit: contain; }
+.brandLogo { block-size: 32px; border-radius: 10px; flex: none; inline-size: 32px; object-fit: contain; background: #fff; }
+.organisationOptions h3 { align-items: center; display: flex; font-size: 13px; gap: var(--d-s2); margin-bottom: var(--d-s2); }
+.organisationOptions h3 svg { block-size: 14px; inline-size: 14px; }
+
+/* Team notifications inside the top bar's notifications menu (Shell.tsx) */
+.teamNotifications { border-block-start: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
+.teamNotifications .sectionHeader { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; }
+.teamNotifications h3 { font-size: 14px; margin: 0; }
+.teamNotifications .sectionHeader .linkButton { min-height: 32px; }
+.popoverList .bellItem { border: 1px solid transparent; }
+.popoverList .bellItem.unread { background: var(--d-glass-1); border-color: rgba(125, 211, 252, .3); }
+
+@media (max-width: 1100px) {
+  .teamSplit.hasDetail { grid-template-columns: minmax(0, 1fr); }
+  .teamSplit.hasDetail .teamMain { display: none; }
+  .workDetail { position: static; }
+  .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .orgCounts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .commandRow, .detailFields, .inlineForm { grid-template-columns: minmax(0, 1fr); }
+  .teamFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .teamFilters > :first-child { grid-column: 1 / -1; }
+  .commandPreview .inlineDetails { grid-template-columns: minmax(0, 1fr); }
+  .board { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .workRow { align-items: flex-start; flex-direction: column; }
+  .workRowMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+  .teamPanel, .commandBox, .workDetail, .assistantCard, .orgCard { padding: var(--d-s4); }
+  .activity { grid-template-columns: 24px minmax(0, 1fr); }
+  .activity > button { grid-column: 2; justify-self: start; }
+  .person { grid-template-columns: minmax(0, 1fr); }
+  .person > button { justify-self: start; }
+}
+.loadMore { font-size: 13px; font-weight: 600; }
+
+/* Auto-route channels in the assistant editor: a plain group, no browser fieldset frame. */
+.assistantChannels { border: 0; padding: 0; margin: var(--d-s4) 0 0; min-width: 0; }
+.assistantChannels > legend { padding: 0; font-weight: 600; }

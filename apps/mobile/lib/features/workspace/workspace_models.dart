@@ -10,6 +10,15 @@ enum WorkStatus {
   cancelled
 }
 
+/// How urgent a task is (docs/tasks.md); tasks stored without one are medium.
+enum TaskPriority { low, medium, high }
+
+TaskPriority taskPriorityFromWire(String? value) => switch (value) {
+      'low' => TaskPriority.low,
+      'high' => TaskPriority.high,
+      _ => TaskPriority.medium,
+    };
+
 class WorkspaceTask {
   const WorkspaceTask(
       {required this.id,
@@ -19,11 +28,25 @@ class WorkspaceTask {
       required this.createdAt,
       required this.updatedAt,
       this.run,
-      this.approval});
+      this.approval,
+      this.createdBy,
+      this.archivedAt,
+      this.priority = TaskPriority.medium,
+      this.dueAt});
   final String id, title, prompt;
+
+  /// Planning fields (docs/tasks.md): shown on the lists, never change what
+  /// the agent may do. [dueAt] is local time; null for no due date.
+  final TaskPriority priority;
+  final DateTime? dueAt;
   final WorkStatus status;
   final DateTime createdAt, updatedAt;
   final WorkspaceRun? run;
+
+  /// Who created the task, and when it was archived (null while it is in
+  /// the active list; docs/tasks.md).
+  final String? createdBy;
+  final DateTime? archivedAt;
 
   /// The approval this run created, from the run response's `approval`
   /// (`POST /tasks/{id}/run` and resume), with its `required_approvals` and
@@ -36,11 +59,13 @@ class WorkspaceRun {
       {required this.id,
       required this.status,
       required this.steps,
-      this.result});
+      this.result,
+      this.createdAt});
   final String id;
   final WorkStatus status;
   final List<RunStep> steps;
   final String? result;
+  final DateTime? createdAt;
 }
 
 class RunStep {
@@ -250,10 +275,21 @@ class WorkspaceSkill {
       required this.description,
       required this.risk,
       required this.tools,
-      required this.installed});
+      required this.installed,
+      this.installedVersion,
+      this.enabled = false});
   final String id, skillId, name, version, description, risk;
   final List<String> tools;
+
+  /// This version is the one installed in the workspace.
   final bool installed;
+
+  /// The version of this skill installed in the workspace, if any.
+  final String? installedVersion;
+
+  /// Whether the installation is enabled (agents may use it).
+  final bool enabled;
+  bool get hasInstall => installedVersion != null;
 }
 
 class WorkspaceIntegration {
@@ -264,9 +300,19 @@ class WorkspaceIntegration {
       required this.status,
       required this.endpoint,
       required this.detail,
-      this.latencyMs});
+      this.latencyMs,
+      this.remediation,
+      this.lastError,
+      this.lastErrorAt});
   final String id, name, kind, status, endpoint, detail;
   final int? latencyMs;
+
+  /// How to fix a degraded or unused integration, from the API.
+  final String? remediation;
+
+  /// The latest failed health check, kept after the service recovers.
+  final String? lastError;
+  final DateTime? lastErrorAt;
 }
 
 class WorkspaceFile {
@@ -275,10 +321,38 @@ class WorkspaceFile {
       required this.name,
       required this.contentType,
       required this.sizeBytes,
-      required this.createdAt});
+      required this.createdAt,
+      this.createdBy = '',
+      this.updatedAt,
+      this.kind,
+      this.previewable = false,
+      this.canManage = false,
+      this.index});
   final String id, name, contentType;
   final int sizeBytes;
   final DateTime createdAt;
+
+  /// Who uploaded it (a user id) and when it was last renamed.
+  final String createdBy;
+  final DateTime? updatedAt;
+
+  /// `text`, `markdown`, `data`, `image`, `pdf`, `document` or `archive`
+  /// (docs/files.md); null for a type uploaded before the allow-list.
+  final String? kind;
+  final bool previewable;
+
+  /// Whether the caller may rename and delete it (uploader or owner).
+  final bool canManage;
+  final FileIndexState? index;
+}
+
+/// Retrieval index state of a file: `indexed`, `stale`, `failed`, `skipped`
+/// or `pending`, with the reason for a skip or failure.
+class FileIndexState {
+  const FileIndexState({required this.status, this.error, this.chunkCount = 0});
+  final String status;
+  final String? error;
+  final int chunkCount;
 }
 
 class WorkspaceMemory {

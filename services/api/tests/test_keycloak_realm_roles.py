@@ -142,7 +142,10 @@ def test_ensure_roles_creates_org_admin_on_an_upgraded_realm_and_grants_nothing(
     rr.ensure_roles(kcadm(keycloak), log=log.append)
     assert keycloak.roles["org_admin"]["description"] == rr.REALM_ROLES["org_admin"]
     assert keycloak.holders("org_admin") == []
-    assert log == ["created realm role org_admin in realm anum"]
+    assert log == [
+        "created realm role org_admin in realm anum",
+        "created realm role platform_operator in realm anum",
+    ]
     # Existing roles are left as they are.
     assert keycloak.roles["owner"]["description"] == "imported"
 

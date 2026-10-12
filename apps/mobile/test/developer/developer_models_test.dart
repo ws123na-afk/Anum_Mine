@@ -56,8 +56,126 @@ void main() {
         expect(isApproveIntent(text), isTrue, reason: text);
       }
       expect(isApproveIntent('approve the budget increase'), isFalse);
-      expect(confirmPrompt('add search'),
-          "I'll ask the developer to: add search. Start?");
+      expect(confirmPrompt('add search', 'TyrePulse'),
+          "I'll ask the developer to: add search in TyrePulse. Start?");
+    });
+
+    test('"ANUM, in <project> ..." is a command too', () {
+      expect(parseDeveloperCommand('ANUM, in TyrePulse add a fleet export'),
+          'in TyrePulse add a fleet export');
+      expect(parseDeveloperCommand('build a login page in TyrePulse'),
+          'a login page in TyrePulse');
+      expect(
+          parseDeveloperCommand('Anum, what is the weather in Riyadh'), isNull);
+    });
+
+    test('asks which project, and matches a spoken answer', () {
+      const anum = ProjectRef(
+          id: 'devproj_anum', name: 'ANUM', repository: 'example/anum');
+      const tyre = ProjectRef(
+          id: 'devproj_tyre',
+          name: 'TyrePulse',
+          repository: 'example/tyrepulse');
+      const shop = ProjectRef(
+          id: 'devproj_shop',
+          name: 'Tyre Shop',
+          repository: 'example/tyre-shop');
+      expect(whichProjectPrompt([anum, tyre]),
+          'Which project is this for: ANUM or TyrePulse?');
+      expect(orList(['A', 'B', 'C']), 'A, B or C');
+      final candidates = [anum, tyre, shop];
+      expect(matchProjectAnswer('TyrePulse', candidates), tyre);
+      expect(matchProjectAnswer('the tyre pulse one please', candidates), tyre);
+      expect(matchProjectAnswer('anum.', candidates), anum);
+      expect(matchProjectAnswer('tyre-shop', candidates), shop);
+      expect(matchProjectAnswer('tyre', candidates), isNull);
+      expect(matchProjectAnswer('something else', candidates), isNull);
+    });
+  });
+
+  group('projects', () {
+    test('parses repositories and protected paths', () {
+      expect(parseRepository('acme/tyrepulse'),
+          (owner: 'acme', repo: 'tyrepulse'));
+      expect(parseRepository(' https://github.com/acme/tyre-pulse.git '),
+          (owner: 'acme', repo: 'tyre-pulse'));
+      expect(parseRepository('git@github.com:acme/app.js.git'),
+          (owner: 'acme', repo: 'app.js'));
+      expect(parseRepository('acme'), isNull);
+      expect(parseRepository('-acme/x'), isNull);
+      expect(parseProtectedPaths(' a/ \n\n ./b ,a/'), ['a/', 'b']);
+    });
+
+    test('builds the payload or names the field to fix', () {
+      const draft = ProjectDraft(
+          name: '  Tyre  Pulse ',
+          repository: 'https://github.com/acme/tyrepulse',
+          description: 'Fleet tyres',
+          protectedPaths: 'docs/legal/\n./billing.py',
+          token: 'example-fine-grained-value');
+      final valid = projectPayload(draft) as ValidProject;
+      expect(valid.body, {
+        'name': 'Tyre Pulse',
+        'github_owner': 'acme',
+        'github_repo': 'tyrepulse',
+        'default_branch': 'main',
+        'description': 'Fleet tyres',
+        'protected_paths': ['docs/legal/', 'billing.py'],
+        'enabled': true,
+        'token_source': 'project',
+        'workflow_file': 'anum-developer.yml',
+        'token': 'example-fine-grained-value',
+      });
+      for (final (bad, field) in [
+        (const ProjectDraft(repository: 'acme/x'), 'name'),
+        (const ProjectDraft(name: 'x', repository: 'nope'), 'repository'),
+        (
+          const ProjectDraft(
+              name: 'x', repository: 'acme/x', defaultBranch: 'a..b'),
+          'branch'
+        ),
+        (
+          const ProjectDraft(
+              name: 'x', repository: 'acme/x', protectedPaths: 'src/*.py'),
+          'protected'
+        ),
+        (
+          const ProjectDraft(name: 'x', repository: 'acme/x', token: 'short'),
+          'token'
+        ),
+      ]) {
+        expect((projectPayload(bad) as InvalidProject).field, field);
+      }
+      // Editing keeps the stored token unless removal is ticked.
+      final kept = projectPayload(const ProjectDraft(
+          name: 'x', repository: 'acme/x', clearToken: true)) as ValidProject;
+      expect(kept.body['clear_token'], isTrue);
+      expect(kept.body.containsKey('token'), isFalse);
+    });
+
+    test('states, the install offer, the default and the busy projects', () {
+      DevProject project(JsonMap json) => DevProject.fromJson(JsonReader(json));
+      final untested = project(anumProject());
+      final off = project(projectJson('p_off', 'Off', enabled: false));
+      final noToken = project(projectJson('p_none', 'None', token: false));
+      expect(projectState(untested), ProjectState.untested);
+      expect(projectState(off), ProjectState.off);
+      expect(projectState(noToken), ProjectState.attention);
+      expect(canInstallWorkflow(untested), isTrue);
+      expect(canInstallWorkflow(noToken), isFalse);
+      expect(sendableProjects([untested, off, noToken]).map((p) => p.id),
+          ['devproj_anum']);
+      expect(defaultProjectId([untested, off], null), 'devproj_anum');
+      final tyre = project(tyreProject());
+      expect(defaultProjectId([untested, tyre], null), isNull);
+      expect(
+          defaultProjectId([untested, tyre], 'devproj_tyre'), 'devproj_tyre');
+      expect(
+          busyProjects([
+            _request('coding'),
+            _request('merged', id: 'dev_2'),
+          ]),
+          {'devproj_anum'});
     });
   });
 
@@ -161,12 +279,12 @@ void main() {
   test('setup lists missing settings by name, never values', () {
     final setup = DevSetup.fromJson(JsonReader(setupJson(
         configured: false,
-        missing: ['ANUM_DEVELOPER_GITHUB_TOKEN', 'ANUM_DEVELOPER_NEW'])));
+        missing: ['ANUM_DEVELOPER_TENANT_ID', 'ANUM_DEVELOPER_NEW'])));
     expect(setup.ready, isFalse);
     final steps = setupSteps(setup);
     expect(steps.map((s) => s.name),
-        ['ANUM_DEVELOPER_GITHUB_TOKEN', 'ANUM_DEVELOPER_NEW']);
-    expect(steps.first.purpose, contains('fine-grained GitHub token'));
+        ['ANUM_DEVELOPER_TENANT_ID', 'ANUM_DEVELOPER_NEW']);
+    expect(steps.first.purpose, contains('organization allowed'));
     expect(steps.last.purpose, contains('docs/developer-mode.md'));
   });
 

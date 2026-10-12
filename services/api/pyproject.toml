@@ -45,6 +45,10 @@ where = ["."]
 include = ["anum_api*"]
 exclude = ["migrations*", "tests*"]
 
+[tool.setuptools.package-data]
+# The coding workflow developer mode installs in target repositories (docs/developer-mode.md).
+anum_api = ["workflow_templates/*.yml"]
+
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
 pythonpath = ["."]

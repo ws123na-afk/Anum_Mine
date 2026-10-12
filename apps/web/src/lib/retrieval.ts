@@ -1,7 +1,8 @@
 // "Sources used" on a run: read from the run's `retrieval` step, which the API records
 // with chunk ids, source ids and scores only (never the retrieved text). Nothing here
 // invents data: a run without a retrieval step shows nothing.
-import type { AgentRun, RetrievedSourceUsed } from '@anum/contracts';
+import type { AgentRun, RetrievalSourceName, RetrievedSourceUsed } from '@anum/contracts';
+import { t } from './i18n.ts';
 
 export type RetrievalState = 'ok' | 'no_results' | 'skipped' | 'unavailable';
 
@@ -59,25 +60,25 @@ export function groupSources(sources: RetrievedSourceUsed[]): Array<{ sourceType
 }
 
 export function sourceLabel(sourceType: 'memory' | 'file'): string {
-  return sourceType === 'memory' ? 'Memory' : 'File';
+  return sourceType === 'memory' ? t('sources.memory') : t('sources.file');
 }
 
 /** One line explaining an empty or degraded retrieval. */
 export function sourcesNote(record: RunSources): string {
   switch (record.state) {
     case 'ok':
-      return record.truncated ? 'Some retrieved text was shortened to fit the prompt limit.' : '';
+      return record.truncated ? t('sources.truncated') : '';
     case 'no_results':
-      return 'No indexed memory or file matched this task.';
+      return t('sources.noResults');
     case 'skipped':
-      return `Retrieval skipped${record.reason ? `: ${record.reason}` : ''}.`;
+      return record.reason ? t('sources.skippedReason', { reason: record.reason }) : t('sources.skipped');
     default:
-      return 'Retrieval was unavailable; the task ran without workspace context.';
+      return t('sources.unavailable');
   }
 }
 
 export function scoreLabel(score: number): string {
-  return `${Math.round(Math.max(0, Math.min(1, score)) * 100)}% match`;
+  return t('sources.match', { percent: Math.round(Math.max(0, Math.min(1, score)) * 100) });
 }
 
 // ---------------------------------------------------------------------------
@@ -87,16 +88,8 @@ export function scoreLabel(score: number): string {
 
 export type SourceGroup = ReturnType<typeof groupSources>[number];
 
-export interface SourceName {
-  sourceType: 'memory' | 'file';
-  sourceId: string;
-  found: boolean;
-  /** A memory's first line or a file's name. */
-  title: string | null;
-  /** `task_note` or `chat` for a memory; the content type for a file. */
-  kind: string | null;
-  sizeBytes: number | null;
-}
+/** One resolved source (packages/contracts/src/account.ts). */
+export type SourceName = RetrievalSourceName;
 
 /** The API refuses more than this many ids in one lookup; a run lists at most 20 passages. */
 export const MAX_SOURCE_LOOKUP = 50;
@@ -142,13 +135,13 @@ const FILE_KINDS: Record<string, string> = {
 
 /** A readable kind: "Task memory", "Memory from your chats", or a file type such as "Markdown file". */
 export function sourceKindLabel(name: Pick<SourceName, 'sourceType' | 'kind'>): string {
-  if (name.sourceType === 'memory') return name.kind === 'chat' ? 'Memory from your chats' : 'Task memory';
-  if (!name.kind) return 'File';
+  if (name.sourceType === 'memory') return name.kind === 'chat' ? t('sources.kind.chatMemory') : t('sources.kind.taskMemory');
+  if (!name.kind) return t('sources.file');
   const known = FILE_KINDS[name.kind.toLowerCase()];
-  if (known) return `${known} file`;
+  if (known) return t('sources.kind.fileOf', { kind: known === 'Text' ? t('sources.kind.text') : known });
   const [major = '', minor = ''] = name.kind.split('/');
   const label = minor.replace(/^(x-|vnd\.)/, '').replace(/\+.*$/, '') || major;
-  return `${label.toUpperCase()} file`;
+  return t('sources.kind.fileOf', { kind: label.toUpperCase() });
 }
 
 export interface SourceDisplay {
@@ -165,6 +158,6 @@ export interface SourceDisplay {
 export function sourceDisplay(group: Pick<SourceGroup, 'sourceType' | 'sourceId'>, names: ReadonlyMap<string, SourceName> | null): SourceDisplay {
   const name = names?.get(sourceKey(group.sourceType, group.sourceId));
   if (!name) return { title: group.sourceId, kind: sourceLabel(group.sourceType), found: false, resolved: false };
-  if (!name.found) return { title: group.sourceId, kind: `${sourceLabel(group.sourceType)} no longer available`, found: false, resolved: true };
+  if (!name.found) return { title: group.sourceId, kind: t('sources.noLongerAvailable', { kind: sourceLabel(group.sourceType) }), found: false, resolved: true };
   return { title: name.title ?? group.sourceId, kind: sourceKindLabel(name), found: true, resolved: true };
 }

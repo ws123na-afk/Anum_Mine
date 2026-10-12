@@ -25,6 +25,17 @@
 .memberMain .memberHint { color: var(--d-warn); }
 .memberRole select { padding: 7px 9px; }
 .memberRow > button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
+.memberFilters { display: grid; gap: 0 var(--d-s3); grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); }
+.memberFilters .field { margin-top: var(--d-s3); }
+.memberMore { justify-content: center; margin-top: var(--d-s3); }
+.invitationActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.invitationActions button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
+.invitationActions button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
+.invitationActions button:disabled, .memberRow > button:disabled { cursor: not-allowed; opacity: .55; }
+.segmented { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 12px; display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; }
+.segmented button { background: none; border: 0; border-radius: 9px; color: var(--d-muted); font-size: 13px; font-weight: 600; min-height: 36px; padding: 6px 12px; }
+.segmented button[aria-pressed="true"] { background: var(--d-glass-3); color: var(--d-text); }
+.segmented button:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 1px; }
 .tokenReveal { border-color: rgba(252, 211, 141, .45); box-shadow: var(--d-elev-2), 0 0 0 1px rgba(252, 211, 141, .15), 0 10px 40px rgba(252, 211, 141, .12); }
 .tokenWarning { align-items: flex-start; color: var(--d-warn); display: flex; font-size: 13px; gap: 8px; margin-top: 10px; }
 .tokenWarning svg { flex: none; height: 17px; margin-top: 2px; width: 17px; }
@@ -64,17 +75,18 @@
   cursor: pointer; flex: none; height: 26px; margin: 0; position: relative; transition: background 200ms var(--d-ease); width: 46px;
 }
 .policySwitch input[type="checkbox"]::after {
-  background: var(--d-text); border-radius: 50%; box-shadow: 0 2px 6px rgba(0, 0, 0, .45); content: ""; height: 20px; left: 2px; position: absolute; top: 2px;
+  background: var(--d-text); border-radius: 50%; box-shadow: 0 2px 6px rgba(0, 0, 0, .45); content: ""; height: 20px; inset-inline-start: 2px; position: absolute; top: 2px;
   transition: transform 200ms var(--d-ease); width: 20px;
 }
 .policySwitch input[type="checkbox"]:checked { background: linear-gradient(135deg, var(--d-sky), var(--d-violet)); border-color: transparent; box-shadow: 0 0 14px rgba(167, 139, 250, .45); }
 .policySwitch input[type="checkbox"]:checked::after { transform: translateX(20px); }
+[dir="rtl"] .policySwitch input[type="checkbox"]:checked::after { transform: translateX(-20px); }
 .policySwitch input[type="checkbox"]:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
 .policySwitch input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .55; }
 .policyExplain { display: grid; gap: 4px; list-style: none; margin: 0; padding: 0; }
 .policyExplain li { color: var(--d-faint); font-size: 12.5px; }
 .policyExplain li.active { color: var(--d-text); }
-.policyExplain li span { color: var(--d-muted); display: inline-block; font-weight: 700; margin-right: 6px; min-width: 64px; }
+.policyExplain li span { color: var(--d-muted); display: inline-block; font-weight: 700; margin-inline-end: 6px; min-width: 64px; }
 /* A refused decision on an approval card (403, e.g. the two-person rule) */
 .approvalRefusal { align-items: flex-start; background: rgba(253, 164, 175, .08); border: 1px solid rgba(253, 164, 175, .4); border-radius: 12px; display: flex; gap: 10px; margin-top: 10px; padding: 10px 12px; }
 .approvalRefusal svg { color: var(--d-stop); flex: none; height: 18px; margin-top: 2px; width: 18px; }
@@ -88,18 +100,18 @@
 /* Workspace switcher in the top bar */
 .workspaceSwitcher { min-width: 0; position: relative; }
 .topbar > div:first-child { min-width: 0; }
-.topActions .workspaceSwitch { align-items: center; cursor: pointer; display: inline-flex; gap: 6px; max-width: min(46vw, 360px); }
+.topActions .workspaceSwitch { align-items: center; cursor: pointer; display: inline-flex; gap: 6px; max-width: min(46vw, 360px, 100%); min-width: 0; }
 .workspaceSwitch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspaceSwitch svg { flex: none; height: 14px; width: 14px; }
 .workspacePanel {
   backdrop-filter: blur(18px); background: var(--d-glass); border: 1px solid var(--d-line-strong); border-radius: var(--d-radius); box-shadow: var(--d-elev-2);
-  display: grid; gap: 10px; padding: 14px; position: absolute; right: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 20;
+  display: grid; gap: 10px; padding: 14px; position: absolute; inset-inline-end: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 20;
 }
 .workspacePanel h2 { font-size: 15px; }
 .workspaceOptions { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
 .workspaceOption { align-items: center; display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) auto; }
 .workspaceOption > button:first-child {
-  background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 12px; color: var(--d-text); display: grid; gap: 1px; min-height: 44px; padding: 8px 12px; text-align: left;
+  background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 12px; color: var(--d-text); display: grid; gap: 1px; min-height: 44px; padding: 8px 12px; text-align: start;
 }
 .workspaceOption > button:first-child[aria-current="true"] { border-color: var(--d-violet); box-shadow: 0 0 0 1px rgba(167, 139, 250, .35); }
 .workspaceOption small { color: var(--d-faint); font-size: 11.5px; }
@@ -113,7 +125,9 @@
 @media (prefers-reduced-motion: reduce) { .meterTrack span { transition: none; } .policySwitch input[type="checkbox"], .policySwitch input[type="checkbox"]::after { transition: none; } }
 @media (max-width: 760px) {
   .memberRow, .memberRow.invitationRow { grid-template-columns: 40px minmax(0, 1fr); }
-  .memberRow > .statusBadge, .memberRow > .memberRole, .memberRow > button { grid-column: 2; justify-self: start; }
+  .memberRow > .statusBadge, .memberRow > .memberRole, .memberRow > button, .memberRow > .invitationActions { grid-column: 2; justify-self: start; }
+  .memberFilters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .memberFilters .memberSearch { grid-column: 1 / -1; }
   .memberRow > span:empty { display: none; }
   .adminFields .wide { grid-column: auto; }
   .budgetStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

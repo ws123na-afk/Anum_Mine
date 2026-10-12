@@ -2,7 +2,7 @@
 .answerBody { color: var(--d-text); font-size: 14px; line-height: 1.6; margin-top: 10px; max-width: 75ch; overflow-wrap: anywhere; }
 .answerBody > * { margin: 0; }
 .answerBody > * + * { margin-top: 10px; }
-.answerBody ul, .answerBody ol { padding-left: 22px; }
+.answerBody ul, .answerBody ol { padding-inline-start: 22px; }
 .answerBody li + li { margin-top: 4px; }
 .answerBody h3 { font-size: 16px; }
 .answerBody h4 { font-size: 14px; }

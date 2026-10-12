@@ -194,3 +194,85 @@ def test_a_chat_is_remembered_and_recalled_through_the_api_on_postgres(
         assert client.delete(f"/api/v1/memories/{memory['id']}", headers=mine).status_code == 204
     with database_engine.connect() as connection:
         assert connection.execute(text("select count(*) from retrieval_sources")).scalar_one() == 0
+
+
+def test_owner_only_lists_skip_shared_notes_labelled_conversation(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    """A shared task note saved under the `conversation` label (before the label was
+    reserved) never counts as the caller's own chat memory in an owner_only list."""
+    from anum_api.memory import MemoryListFilters, MemoryNote, MemoryProvenance, RetentionPolicy
+    from test_postgres_retrieval import _create_task
+
+    sam = _ctx("user_sam")
+    _run(
+        remember_facts(
+            sam, "conv_1", "Planning", ["The user lives in Porto."],
+            embedder=LocalEmbedder(), clock=lambda: FIXED_NOW, open_repository=_opener(app_session),
+        )
+    )
+    with app_session(sam, commit=True) as session:
+        _set_user(session, "user_sam")
+        _create_task(session, sam, "task_labelled")
+        SqlAlchemyMemoryRepository(session).create(
+            MemoryNote(
+                id="memory_labelled",
+                tenant_id=TENANT_A,
+                workspace_id=WORKSPACE_A,
+                task_id="task_labelled",
+                content="Shared note under the conversation label",
+                provenance=MemoryProvenance(source_type="conversation", created_by_user_id="user_kim", created_at=FIXED_NOW),
+                retention=RetentionPolicy(),
+                created_at=FIXED_NOW,
+            )
+        )
+    with app_session(sam) as session:
+        _set_user(session, "user_sam")
+        repository = SqlAlchemyMemoryRepository(session)
+        labelled = MemoryListFilters(source_types={"conversation"}, include_expired=True)
+        assert len(repository.list(sam, labelled, FIXED_NOW)) == 2
+        own = repository.list(sam, labelled.model_copy(update={"owner_only": True}), FIXED_NOW)
+        assert [(note.content, note.owner_user_id) for note in own] == [("The user lives in Porto.", "user_sam")]
+
+
+def test_recall_never_returns_another_users_private_memories_on_postgres(
+    postgres_backend: None,  # noqa: F811
+) -> None:
+    """Two users of one workspace state similar facts; each one's recall (the ask stream's
+    ``memories_used`` and the prompt blocks) holds only their own memories."""
+    from anum_api.conversation_memory import recall_memories
+    from anum_api.main import app
+
+    client = TestClient(app)
+    sam = {"x-tenant-id": TENANT_A, "x-workspace-id": WORKSPACE_A, "x-user-id": "user_sam", "x-user-roles": "member"}
+    kim = {**sam, "x-user-id": "user_kim"}
+
+    def ask(hdrs: dict[str, str], content: str) -> list[str]:
+        conversation_id = client.post("/api/v1/conversations", headers=hdrs, json={}).json()["id"]
+        response = client.post(f"/api/v1/conversations/{conversation_id}/ask", headers=hdrs, json={"content": content})
+        assert response.status_code == 200, response.text
+        first = response.text.strip().split("\n\n")[0]
+        lines = dict(line.split(": ", 1) for line in first.splitlines())
+        assert lines["event"] == "turn"
+        return json.loads(lines["data"])["memories_used"]
+
+    ask(sam, "My name is Sam. I prefer short answers.")
+    sams = {m["id"] for m in client.get("/api/v1/memories", headers=sam).json()}
+    assert len(sams) == 2
+    # Before Kim has memories of her own, nothing is recalled for her, not Sam's.
+    assert ask(kim, "Do you know my name? Do I prefer short answers?") == []
+
+    ask(kim, "My name is Kim. I prefer long answers.")
+    kims = {m["id"] for m in client.get("/api/v1/memories", headers=kim).json()}
+    assert len(kims) == 2 and not kims & sams
+
+    recalled = ask(kim, "Do you know my name and how I prefer answers?")
+    assert recalled and set(recalled) <= kims
+    recalled = ask(sam, "Do you know my name and how I prefer answers?")
+    assert recalled and set(recalled) <= sams
+
+    context = TenantContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A, user_id="user_kim", roles=["member"])
+    recall = _run(recall_memories(context, "name Sam short answers"))
+    assert recall.memory_ids and set(recall.memory_ids) <= kims
+    assert not any("Sam" in block for block in recall.blocks)

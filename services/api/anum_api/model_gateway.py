@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import hashlib
 import json
@@ -95,6 +96,42 @@ def route_gateway(gateway: ModelGateway, route: ModelRoute) -> ModelGateway:
     """``gateway`` set to the model configured for ``route``; itself when it has none."""
     select = getattr(gateway, "for_route", None)
     return select(route) if callable(select) else gateway
+
+
+@dataclass(frozen=True)
+class VisionImage:
+    """One camera frame for a vision-capable model (docs/voice.md#call-mode).
+
+    Sent with a single request and never stored, logged or retried into a log line."""
+
+    data: bytes
+    media_type: str
+
+    def __repr__(self) -> str:  # the bytes never reach a log or traceback
+        return f"VisionImage(media_type={self.media_type!r}, bytes={len(self.data)})"
+
+    @property
+    def base64(self) -> str:
+        return base64.b64encode(self.data).decode("ascii")
+
+
+VISION_MEDIA_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+
+
+def vision_gateway(gateway: ModelGateway, image: VisionImage) -> ModelGateway | None:
+    """``gateway`` set to its vision model with ``image`` attached to the last user
+    message of the next streamed chat; None when it has no vision model."""
+    attach = getattr(gateway, "with_image", None)
+    return attach(image) if callable(attach) else None
+
+
+def vision_model_name(gateway: ModelGateway) -> str:
+    """The model that would read a camera frame, or "" when the gateway has none."""
+    try:
+        name = getattr(gateway, "vision_model", "")
+    except AttributeError:
+        return ""
+    return name if isinstance(name, str) else ""
 
 
 class ModelStreamTimeout(httpx.TimeoutException):
@@ -436,6 +473,9 @@ class OpenAICompatibleGateway:
         self.stream_timeout_seconds = stream_timeout_seconds or settings.model_stream_timeout_seconds
         self._clock = clock
         self.route_models = {ModelRoute(k): v for k, v in (route_models or {}).items() if v}
+        # The model that reads camera frames; "" = none (a text-only model would fail).
+        self.vision_model = ""
+        self._image: VisionImage | None = None
 
     def for_route(self, route: ModelRoute) -> OpenAICompatibleGateway:
         """This gateway using ``route``'s model (shares the client and settings)."""
@@ -445,6 +485,16 @@ class OpenAICompatibleGateway:
         routed = copy.copy(self)
         routed.model = model
         return routed
+
+    def with_image(self, image: VisionImage) -> OpenAICompatibleGateway | None:
+        """A copy that streams with the vision model and ``image`` attached to the last
+        user message; None when no vision model is configured."""
+        if not self.vision_model:
+            return None
+        variant = copy.copy(self)
+        variant.model = self.vision_model
+        variant._image = image
+        return variant
 
     def _new_client(self) -> httpx.AsyncClient:
         if self.egress_guard:
@@ -665,6 +715,8 @@ class OpenAICompatibleGateway:
         self, messages: list[ChatMessage], max_tokens: int
     ) -> tuple[str, dict[str, object]]:
         """The URL and body of one streaming chat request."""
+        if self._image is not None:
+            messages = _attach_image_openai(messages, self._image)
         return f"{self.base_url}/chat/completions", {
             "model": self.model,
             "messages": messages,
@@ -947,6 +999,22 @@ class OpenAICompatibleGateway:
         )
 
 
+def _attach_image_openai(messages: list[ChatMessage], image: VisionImage) -> list[Any]:
+    """The messages with the last user message as text plus an ``image_url`` part."""
+    out: list[Any] = [dict(message) for message in messages]
+    for index in range(len(out) - 1, -1, -1):
+        if out[index]["role"] == "user":
+            out[index] = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": out[index]["content"]},
+                    {"type": "image_url", "image_url": {"url": f"data:{image.media_type};base64,{image.base64}"}},
+                ],
+            }
+            break
+    return out
+
+
 OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
 OLLAMA_DEFAULT_MODEL = "llama3.2"
 OLLAMA_MIN_TIMEOUT_SECONDS = 120.0
@@ -970,12 +1038,45 @@ def build_model_gateway(
     egress_guard: bool = False,
     route_models: Mapping[ModelRoute, str] | None = None,
     route_efforts: Mapping[ModelRoute, str] | None = None,
+    vision_model: str = "",
 ) -> ModelGateway:
     """``egress_guard=True`` for endpoints a workspace chose (SSRF guard, model_egress.py).
 
     ``route_models`` maps :class:`ModelRoute` to a model name (``route_gateway``);
     ``route_efforts`` sets the Anthropic ``output_config.effort`` per route.
+    ``vision_model`` names the model that reads camera frames: required for
+    openai-compatible and ollama (empty = no vision); Anthropic defaults to the fast
+    model, since every Claude model accepts images.
     """
+    gateway = _build_model_gateway(
+        provider,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        client=client,
+        egress_guard=egress_guard,
+        route_models=route_models,
+        route_efforts=route_efforts,
+    )
+    if isinstance(gateway, OpenAICompatibleGateway):
+        if gateway.provider == "anthropic":
+            gateway.vision_model = vision_model or gateway.route_models.get(ModelRoute.FAST) or gateway.model
+        else:
+            gateway.vision_model = vision_model.strip()
+    return gateway
+
+
+def _build_model_gateway(
+    provider: str,
+    *,
+    api_key: str | None,
+    model: str,
+    base_url: str,
+    client: httpx.AsyncClient | None,
+    egress_guard: bool,
+    route_models: Mapping[ModelRoute, str] | None,
+    route_efforts: Mapping[ModelRoute, str] | None,
+) -> ModelGateway:
     provider = normalize_provider(provider)
     if provider == "mock":
         return MockModelGateway()
@@ -1065,4 +1166,5 @@ def build_default_model_gateway(config: Settings | None = None) -> ModelGateway:
             ModelRoute.FAST: config.model_fast_effort,
             ModelRoute.CAPABLE: config.model_capable_effort,
         },
+        vision_model=config.model_vision_name,
     )

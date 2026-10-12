@@ -191,6 +191,24 @@ class SqlAlchemyRetrievalStore:
         ).all()
         return [self._source(row) for row in rows]
 
+    def get_sources(
+        self, context: TenantContext, source_type: SourceType, source_ids: Sequence[str]
+    ) -> dict[str, RetrievalSource]:
+        ids = list(dict.fromkeys(source_ids))
+        if not ids:
+            return {}
+        rows = self.session.execute(
+            text(
+                "select tenant_id, workspace_id, source_type, source_id, name, content_sha256, status, "
+                "error, chunk_count, embedding_model, source_expires_at, indexed_at, owner_user_id "
+                "from retrieval_sources where tenant_id = :tenant_id and workspace_id = :workspace_id "
+                "and (owner_user_id is null or owner_user_id = :user_id) "
+                "and source_type = :source_type and source_id = any(:source_ids)"
+            ),
+            {**self._scope(context), "source_type": str(source_type), "source_ids": ids},
+        ).all()
+        return {row.source_id: self._source(row) for row in rows}
+
     def has_indexed(self, context: TenantContext, embedding_model: str) -> bool:
         return bool(
             self.session.execute(

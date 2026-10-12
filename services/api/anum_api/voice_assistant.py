@@ -10,6 +10,7 @@ visual approval flow.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -24,11 +25,14 @@ MAX_REPLY_CHARS = 1200
 class VoiceIntent(StrEnum):
     QUESTION = "question"
     STATUS = "status"
+    # "How did last week's Instagram posts do?" (docs/marketing.md#assistant): read-only.
+    MARKETING_SUMMARY = "marketing_summary"
     CREATE_TASK = "create_task"
     VISUAL_ONLY = "visual_only"
     IDENTITY = "identity"
     GREETING = "greeting"
     THANKS = "thanks"
+    EMAIL = "email"
 
 
 SMALL_TALK = frozenset({VoiceIntent.IDENTITY, VoiceIntent.GREETING, VoiceIntent.THANKS})
@@ -65,6 +69,10 @@ _STATUS = re.compile(
     r"|(الحالة|الموافقات|المهام الجارية)",
     re.IGNORECASE,
 )
+_EMAIL = re.compile(
+    r"\b(e-?mails?|inbox|mailbox|gmail|outlook|zoho)\b|(بريد|إيميل|ايميل|الرسائل)",
+    re.IGNORECASE,
+)
 _IDENTITY = re.compile(
     r"\b(what'?s your name|what is your name|who are you|your name|what are you)\b"
     r"|(ما اسمك|من أنت|شو اسمك|ايش اسمك)",
@@ -96,8 +104,14 @@ def classify(text: str, name: str = "Anum") -> tuple[VoiceIntent, str | None]:
     if match:
         proposal = text[match.end():].strip(" .")
         return VoiceIntent.CREATE_TASK, proposal or None
+    from .marketing.tools import is_marketing_question
+
+    if is_marketing_question(text):
+        return VoiceIntent.MARKETING_SUMMARY, None
     if _STATUS.search(text):
         return VoiceIntent.STATUS, None
+    if _EMAIL.search(text):
+        return VoiceIntent.EMAIL, None
     if _IDENTITY.search(text):
         return VoiceIntent.IDENTITY, None
     if _THANKS.search(text):
@@ -198,6 +212,7 @@ def voice_messages(
     *,
     max_turns: int = 8,
     max_chars: int = 6000,
+    data_blocks: Sequence[str] = (),
 ) -> list[ChatMessage]:
     """Chat messages for a streamed spoken answer: the rules, the recent spoken turns
     (``(role, text)``, newest last, bounded) and the question, each user turn labeled
@@ -212,7 +227,7 @@ def voice_messages(
     kept.reverse()
     while kept and kept[0][0] != "user":
         kept.pop(0)
-    messages: list[ChatMessage] = [{"role": "system", "content": with_untrusted_rules(voice_rules(name, facts))}]
+    messages: list[ChatMessage] = [{"role": "system", "content": with_untrusted_rules(_rules(name, facts, data_blocks), *data_blocks)}]
     turns = kept + [("user", question)]
     for role, text in turns:
         content = label_untrusted(text, source=Provenance.USER_SPEECH, origin="voice") if role == "user" else text
@@ -223,17 +238,27 @@ def voice_messages(
     return messages
 
 
+def _rules(name: str, facts: WorkspaceSnapshot, data_blocks: Sequence[str]) -> str:
+    if not data_blocks:
+        return voice_rules(name, facts)
+    from .tyre.tools import TYRE_PREFACE
+
+    return f"{voice_rules(name, facts)}\n{TYRE_PREFACE} Say the key numbers aloud; keep it short."
+
+
 async def answer_question(
     gateway: ModelGateway,
     question: str,
     facts: WorkspaceSnapshot,
     name: str,
     arabic: bool,
+    data_blocks: Sequence[str] = (),
 ) -> str:
     if getattr(gateway, "provider", "") == "mock":
         return mock_answer(facts, arabic)
     prompt = with_untrusted_rules(
-        voice_rules(name, facts),
+        _rules(name, facts, data_blocks),
+        *data_blocks,
         label_untrusted(question, source=Provenance.USER_SPEECH, origin="voice"),
     )
     response = await route_gateway(gateway, ModelRoute.FAST).generate_text(prompt)

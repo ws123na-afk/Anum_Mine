@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
+import 'files_models.dart';
+import 'task_management.dart';
 import 'workspace_models.dart';
 import 'workspace_repository.dart';
 
@@ -8,7 +12,8 @@ abstract interface class WorkspaceFileTransfer {
   Future<void> download(WorkspaceFile file);
 }
 
-class ApiWorkspaceRepository implements WorkspaceRepository {
+class ApiWorkspaceRepository
+    implements WorkspaceRepository, TaskManagementRepository {
   const ApiWorkspaceRepository(this.api, {required this.fileTransfer});
   final AnumApiClient api;
   final WorkspaceFileTransfer fileTransfer;
@@ -77,6 +82,96 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
     return _task(JsonReader(task), run: run);
   }
 
+  String _taskPath(String taskId, [String suffix = '']) =>
+      '/api/v1/tasks/${Uri.encodeComponent(taskId)}$suffix';
+
+  @override
+  Future<List<WorkspaceTask>> listTasks(TaskListQuery query,
+          {String? cursor}) async =>
+      (await _list('/api/v1/tasks?'
+              '${query.queryString(cursor: cursor, limit: taskPageSize)}'))
+          .map(_task)
+          .toList();
+
+  @override
+  Future<TaskSummaryCounts> taskSummary(TaskListQuery query) async {
+    final qs = query.queryString(withStatus: false);
+    final j = JsonReader(await api.request(
+        'GET', '/api/v1/tasks/summary${qs.isEmpty ? '' : '?$qs'}'));
+    final byStatus = j.optMap('by_status') ?? const {};
+    return TaskSummaryCounts(
+      total: j.optInt('total') ?? 0,
+      archived: j.optInt('archived') ?? 0,
+      byStatus: {
+        for (final entry in byStatus.entries)
+          if (entry.value is int) _status(entry.key): entry.value as int,
+      },
+    );
+  }
+
+  @override
+  Future<WorkspaceTask> createPlannedTask(TaskDraft draft) async {
+    final created = JsonReader(
+        await api.request('POST', '/api/v1/tasks', body: draft.body()));
+    if (!draft.runNow) return _task(created);
+    final value = JsonReader(
+        await api.request('POST', _taskPath(created.string('id'), '/run')));
+    return _task(value.optObject('task') ?? created,
+        run: value.optObject('run'), approval: value.optObject('approval'));
+  }
+
+  @override
+  Future<WorkspaceTask> runTask(String taskId) async {
+    final value =
+        JsonReader(await api.request('POST', _taskPath(taskId, '/run')));
+    return _task(value.object('task'),
+        run: value.optObject('run'), approval: value.optObject('approval'));
+  }
+
+  @override
+  Future<WorkspaceTask> planTask(String taskId,
+          {TaskPriority? priority,
+          DateTime? dueAt,
+          bool clearDue = false}) async =>
+      _task(JsonReader(await api.request('PUT', _taskPath(taskId),
+          body: taskPlanBody(
+              priority: priority, dueAt: dueAt, clearDue: clearDue))));
+
+  @override
+  Future<WorkspaceTask> renameTask(String taskId, String title) async =>
+      _task(JsonReader(
+          await api.request('PUT', _taskPath(taskId), body: {'title': title})));
+
+  @override
+  Future<WorkspaceTask> archiveTask(String taskId) async => _task(
+      JsonReader(await api.request('POST', _taskPath(taskId, '/archive'))));
+
+  @override
+  Future<WorkspaceTask> unarchiveTask(String taskId) async => _task(
+      JsonReader(await api.request('POST', _taskPath(taskId, '/unarchive'))));
+
+  @override
+  Future<WorkspaceTask> retryTask(String taskId) async {
+    final value =
+        JsonReader(await api.request('POST', _taskPath(taskId, '/retry')));
+    return _task(value.object('task'),
+        run: value.optObject('run'), approval: value.optObject('approval'));
+  }
+
+  @override
+  Future<List<WorkspaceRun>> listRuns(String taskId, {String? cursor}) async {
+    final after =
+        cursor == null ? '' : '&cursor=${Uri.encodeQueryComponent(cursor)}';
+    return (await _list(_taskPath(taskId, '/runs?limit=$runPageSize$after')))
+        .map(_run)
+        .toList();
+  }
+
+  @override
+  Future<String> exportRunLog(String taskId) async =>
+      const JsonEncoder.withIndent('  ').convert(
+          await api.request('GET', _taskPath(taskId, '/export?format=json')));
+
   @override
   Future<WorkspaceTask> cancelTask(String taskId) async => _task(
       JsonReader(await api.request('POST', '/api/v1/tasks/$taskId/cancel')));
@@ -104,52 +199,6 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
         body: body.isEmpty ? null : body);
     return _approval(JsonReader(value).object('approval'));
   }
-
-  @override
-  Future<WorkspaceAutomation> startAutomation(String automationId) async =>
-      _automation(JsonReader(await api.request(
-          'POST', '/api/v1/automation/workflows/$automationId/runs')));
-
-  @override
-  Future<AutomationDefinition> createAutomation(
-          {required String name,
-          required String description,
-          required String action}) async =>
-      _workflow(JsonReader(
-          await api.request('POST', '/api/v1/automation/workflows', body: {
-        'name': name,
-        'description': description,
-        'steps': [
-          {
-            'id': 'execute',
-            'name': 'Execute work',
-            'action': action,
-            'input': <String, Object?>{},
-            'max_attempts': 3
-          }
-        ]
-      })));
-
-  @override
-  Future<AutomationSchedule> createSchedule(
-          {required String workflowId,
-          required String name,
-          required String cron,
-          required String timezone}) async =>
-      _schedule(JsonReader(
-          await api.request('POST', '/api/v1/automation/schedules', body: {
-        'workflow_id': workflowId,
-        'name': name,
-        'cron': cron,
-        'timezone': timezone,
-        'enabled': true
-      })));
-
-  @override
-  Future<WorkspaceAutomation> transitionAutomation(
-          String runId, String action) async =>
-      _automation(JsonReader(
-          await api.request('POST', '/api/v1/automation/runs/$runId/$action')));
 
   @override
   Future<WorkspaceFile> uploadFile(String path) async =>
@@ -186,6 +235,19 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
     });
   }
 
+  @override
+  Future<void> setSkillEnabled(String skillId, bool enabled) async {
+    await api.request(
+        'PATCH', '/api/v1/skills/installations/${Uri.encodeComponent(skillId)}',
+        body: {'enabled': enabled});
+  }
+
+  @override
+  Future<void> uninstallSkill(String skillId) async {
+    await api.request('DELETE',
+        '/api/v1/skills/installations/${Uri.encodeComponent(skillId)}');
+  }
+
   WorkspaceTask _task(JsonReader j, {JsonReader? run, JsonReader? approval}) =>
       WorkspaceTask(
         id: j.string('id'),
@@ -196,6 +258,10 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
         updatedAt: _date(j, 'updated_at'),
         run: run == null ? null : _run(run),
         approval: approval == null ? null : _approval(approval),
+        createdBy: j.optString('created_by'),
+        archivedAt: j['archived_at'] == null ? null : _date(j, 'archived_at'),
+        priority: taskPriorityFromWire(j.optString('priority')),
+        dueAt: j.optDate('due_at')?.toLocal(),
       );
   WorkspaceRun _run(JsonReader j) => WorkspaceRun(
         id: j.string('id'),
@@ -210,6 +276,7 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
                 createdAt: _date(x, 'created_at'),
                 metadata: x.optMap('metadata') ?? const {})),
         result: j.optString('result'),
+        createdAt: j['created_at'] == null ? null : _date(j, 'created_at'),
       );
   WorkspaceApproval _approval(JsonReader j) => workspaceApprovalFromJson(j);
   WorkspaceAutomation _automation(JsonReader j,
@@ -226,12 +293,7 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
         stepCount: j.optList('steps')?.length ?? 0);
   }
 
-  WorkspaceFile _file(JsonReader j) => WorkspaceFile(
-      id: j.string('id'),
-      name: j.string('name'),
-      contentType: j.string('content_type'),
-      sizeBytes: j.integer('size_bytes'),
-      createdAt: _date(j, 'created_at'));
+  WorkspaceFile _file(JsonReader j) => parseWorkspaceFile(j);
   WorkspaceMemory _memory(JsonReader j) => WorkspaceMemory(
       id: j.string('id'),
       taskId: j.string('task_id'),
@@ -254,17 +316,22 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
       cron: j.string('cron'),
       timezone: j.string('timezone'),
       enabled: j.boolean('enabled'));
-  WorkspaceSkill _skill(JsonReader j, List<JsonReader> installs) =>
-      WorkspaceSkill(
-          id: j.string('id'),
-          skillId: j.string('skill_id'),
-          name: j.string('name'),
-          version: j.string('version'),
-          description: j.string('description'),
-          risk: j.string('risk_level'),
-          tools: j.optStrings('required_tools') ?? const [],
-          installed: installs.any((x) =>
-              x['skill_id'] == j['skill_id'] && x['version'] == j['version']));
+  WorkspaceSkill _skill(JsonReader j, List<JsonReader> installs) {
+    final install =
+        installs.where((x) => x['skill_id'] == j['skill_id']).firstOrNull;
+    return WorkspaceSkill(
+        id: j.string('id'),
+        skillId: j.string('skill_id'),
+        name: j.string('name'),
+        version: j.string('version'),
+        description: j.string('description'),
+        risk: j.string('risk_level'),
+        tools: j.optStrings('required_tools') ?? const [],
+        installed: install != null && install['version'] == j['version'],
+        installedVersion: install?.optString('version'),
+        enabled: install?.optBool('enabled') ?? false);
+  }
+
   WorkspaceIntegration _integration(JsonReader j) => WorkspaceIntegration(
       id: j.string('id'),
       name: j.string('name'),
@@ -272,7 +339,12 @@ class ApiWorkspaceRepository implements WorkspaceRepository {
       status: j.string('status'),
       endpoint: j.string('endpoint'),
       detail: j.string('detail'),
-      latencyMs: j.optInt('latency_ms'));
+      latencyMs: j.optInt('latency_ms'),
+      remediation: j.optString('remediation'),
+      lastError: j.optString('last_error'),
+      lastErrorAt: j['last_error_at'] == null
+          ? null
+          : j.date('last_error_at').toLocal());
   DateTime _date(JsonReader j, String key) => j.date(key).toLocal();
 
   /// `updated_at`, or `created_at` for records that were never updated.

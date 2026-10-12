@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from opentelemetry import trace
 
 from .repository import AnumRepository, InMemoryRepository
@@ -23,7 +23,9 @@ from .settings import settings
 from .store import store
 from .error_reporting import tag_tenant
 from .telemetry import set_tenant_attributes
+from .errors import ApplicationError, ErrorCode
 from .identity import (
+    AccountPendingError,
     JwksUnavailableError,
     OidcClaims,
     OidcValidator,
@@ -44,6 +46,12 @@ event_runtime = build_event_runtime(settings)
 # Says how to get the role, because after an upgrade from a realm without org_admin the
 # workspace owner who used to change these settings is refused too
 # (docs/governance-and-scale.md#who-may-change-what).
+PLATFORM_OPERATOR_REQUIRED = (
+    "Platform operator role required: onboarding customer organisations and the platform "
+    "console are for the person who runs this ANUM deployment. Ask the administrator of "
+    "your ANUM sign-in (Keycloak) to assign you the realm role platform_operator "
+    "(docs/customer-organisations.md)."
+)
 ORGANIZATION_ADMIN_REQUIRED = (
     "Organization administrator role required: this setting applies to every workspace "
     "in the organization, so owning a workspace is not enough. Ask the administrator of "
@@ -67,7 +75,7 @@ def require_permission(context: TenantContext, permission: Permission) -> None:
         except AuthorizationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=ORGANIZATION_ADMIN_REQUIRED,
+                detail=PLATFORM_OPERATOR_REQUIRED if permission == Permission.PLATFORM_OPERATE else ORGANIZATION_ADMIN_REQUIRED,
             ) from exc
         return
     _require_workspace_role(context, permission)
@@ -79,6 +87,29 @@ def has_permission(context: TenantContext, permission: Permission) -> bool:
     except HTTPException:
         return False
     return True
+
+
+def is_organization_admin(context: TenantContext) -> bool:
+    """Whether the caller holds the tenant-level ``org_admin`` role (not a workspace role)."""
+    try:
+        policy.require_organization(context, Permission.ORG_POLICY_MANAGE)
+    except AuthorizationError:
+        return False
+    return True
+
+
+def require_owner_or_org_admin(context: TenantContext, permission: Permission, detail: str) -> None:
+    """403 with ``detail`` unless the caller holds ``permission`` through their workspace
+    role (owners) or is an organization administrator with an active membership here.
+
+    Used by the audit log and the workspace lifecycle routes: an organization
+    administrator oversees every workspace they belong to, whatever their role in it.
+    """
+    if has_permission(context, permission):
+        return
+    if is_organization_admin(context) and has_permission(context, Permission.ORGANIZATION_READ):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 def _require_workspace_role(context: TenantContext, permission: Permission) -> None:
@@ -171,13 +202,22 @@ async def _oidc_identity(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Identity provider is unavailable",
         ) from exc
+    except AccountPendingError as exc:
+        raise ApplicationError(
+            ErrorCode.ACCOUNT_PENDING, exc.reason, status_code=status.HTTP_403_FORBIDDEN
+        ) from exc
     except TokenValidationError as exc:
         raise _unauthorized(exc.reason, invalid_token=True) from exc
     if x_tenant_id and x_tenant_id != claims.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="x-tenant-id does not match the authenticated tenant",
-        )
+        # Another of the user's organisations, when the IdP lists it in ``tenant_ids``
+        # (docs/customer-organisations.md#switching); the membership is still required.
+        try:
+            claims = claims.for_tenant(x_tenant_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="x-tenant-id does not match the authenticated tenant",
+            ) from None
     workspace_id = x_workspace_id or claims.workspace_id
     if not workspace_id and not require_workspace:
         return claims, ""
@@ -251,7 +291,71 @@ def _local_session_context(authorization: str) -> TenantContext:
     return context
 
 
+# Archived workspaces stay readable; every write but the restore is refused
+# (docs/identity.md#workspace-lifecycle).
+WORKSPACE_ARCHIVED = (
+    "This workspace is archived, so it is read-only. A workspace owner or an organization "
+    "administrator can restore it in Settings > Workspace."
+)
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_ARCHIVE_EXEMPT_PATHS = frozenset({"/api/v1/workspaces/current/restore"})
+
+
+def workspace_archived(context: TenantContext) -> bool:
+    """Whether the request's workspace is archived, read inside the tenant's RLS scope."""
+    if settings.repository_backend == "memory":
+        workspace = memory_repository.get_workspace(context.workspace_id, context)
+        return workspace is not None and workspace.archived_at is not None
+    if settings.repository_backend != "postgresql":
+        raise RuntimeError(f"Unsupported repository backend: {settings.repository_backend}")
+
+    from .db.repository import SqlAlchemyRepository
+    from .db.session import SessionLocal, set_tenant_context
+
+    session = SessionLocal()
+    try:
+        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        workspace = SqlAlchemyRepository(session).get_workspace(context.workspace_id, context)
+        return workspace is not None and workspace.archived_at is not None
+    finally:
+        session.rollback()
+        session.close()
+
+
+def refuse_writes_to_archived_workspace(request: Request, context: TenantContext) -> None:
+    if request.method in _SAFE_METHODS or request.url.path in _ARCHIVE_EXEMPT_PATHS:
+        return
+    if workspace_archived(context):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=WORKSPACE_ARCHIVED)
+
+
+@contextmanager
+def open_read_only_repository(context: TenantContext) -> Iterator[AnumRepository]:
+    """A repository in its own short, always rolled back session (tenant and workspace RLS).
+
+    For response bodies that outlive the request's dependencies, such as the streamed
+    audit export: they must not read through the request's session.
+    """
+    if settings.repository_backend == "memory":
+        yield memory_repository
+        return
+    if settings.repository_backend != "postgresql":
+        raise RuntimeError(f"Unsupported repository backend: {settings.repository_backend}")
+
+    from .db.repository import SqlAlchemyRepository
+    from .db.session import SessionLocal, set_tenant_context
+
+    session = SessionLocal()
+    try:
+        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        yield SqlAlchemyRepository(session, created_by_user_id=context.user_id)
+    finally:
+        session.rollback()
+        session.close()
+
+
 async def tenant_context(
+    request: Request,
     authorization: str | None = Header(default=None),
     x_tenant_id: str | None = Header(default=None),
     x_workspace_id: str | None = Header(default=None),
@@ -267,8 +371,11 @@ async def tenant_context(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Active workspace membership required",
             )
-        return _traced(_membership_context(identity, membership))
-    return _traced(_header_context(authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles))
+        context = _traced(_membership_context(identity, membership))
+    else:
+        context = _traced(_header_context(authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles))
+    refuse_writes_to_archived_workspace(request, context)
+    return context
 
 
 def _traced(context: TenantContext) -> TenantContext:
@@ -399,6 +506,8 @@ class AuthenticatedIdentity:
     context: TenantContext
     email: str | None = None
     email_verified: bool = False
+    # OIDC: the organisations the token allows (home tenant first); None in header mode.
+    allowed_tenant_ids: tuple[str, ...] | None = None
 
 
 async def authenticated_identity(
@@ -441,7 +550,9 @@ async def directory_identity(
         context = TenantContext(
             tenant_id=claims.tenant_id, workspace_id=workspace_id, user_id=claims.subject, roles=[]
         )
-        return AuthenticatedIdentity(context, claims.email, claims.email_verified)
+        return AuthenticatedIdentity(
+            context, claims.email, claims.email_verified, allowed_tenant_ids=tuple(claims.tenant_ids or [claims.tenant_id])
+        )
     return await authenticated_identity(
         authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles, x_user_email
     )

@@ -79,8 +79,13 @@ async function mockProviderAndApi(page: Page): Promise<Provider> {
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
-    provider.apiHeaders.push(await request.allHeaders());
     const path = new URL(request.url()).pathname;
+    // The public sign-in options call carries no token by design (e2e/social-sign-in.spec.ts).
+    if (path === '/api/v1/auth/sign-in-options') {
+      expect((await request.allHeaders()).authorization).toBeUndefined();
+      return json(route, { identity_providers: [], self_sign_up: false, privacy_policy_url: null });
+    }
+    provider.apiHeaders.push(await request.allHeaders());
     if (path === '/api/v1/events/stream') return route.fulfill({ status: 204, headers: cors });
     if (path === '/api/v1/tasks' || path === '/api/v1/approvals') return json(route, []);
     return json(route, { error: { message: 'not mocked' } }, 404);
@@ -130,6 +135,8 @@ test('signs in with authorization code + PKCE, calls the API with the bearer tok
   expect(provider.tokenRequests.at(-1)?.get('grant_type')).toBe('refresh_token');
   expect(provider.tokenRequests.at(-1)?.get('refresh_token')).toBe('refresh-e2e');
 
+  // Sign out lives in the account menu (top bar).
+  await page.getByRole('button', { name: /Account menu/ }).click();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to ANUM' })).toBeVisible();
   expect(provider.logout?.get('client_id')).toBe('anum-web');

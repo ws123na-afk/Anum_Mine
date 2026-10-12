@@ -6,6 +6,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Phone push (docs/mobile.md#phone-push): the Firebase project comes from the
+// owner's google-services.json, which is gitignored. Without it the build still
+// succeeds and the app reports push as not set up in this build.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Release signing (docs/mobile.md, "Release builds"). Values come from the
 // environment or from the gitignored android/key.properties; neither the
 // keystore nor its passwords are ever committed. When nothing is configured,

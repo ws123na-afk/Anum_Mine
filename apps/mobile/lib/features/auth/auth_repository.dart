@@ -2,14 +2,47 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
 import 'oidc.dart';
+import 'sign_in_options.dart';
 import 'workspace_selection.dart';
+
+/// Told when the signed-in workspace is about to change and when it has
+/// (phone push unregisters and registers here, docs/notifications.md).
+abstract interface class WorkspaceSessionListener {
+  /// Sign-out or a workspace switch is about to happen; the session still works.
+  Future<void> leavingWorkspace();
+
+  /// A workspace switch finished (or failed and the old workspace stays).
+  Future<void> enteredWorkspace();
+}
 
 class AuthRepository {
   const AuthRepository(
       {required this.api,
       required this.sessions,
       this.oidc,
-      this.workspacePreferences});
+      this.workspacePreferences,
+      this.sessionListener});
+
+  /// Phone push, in the app; null in most tests.
+  final WorkspaceSessionListener? sessionListener;
+
+  Future<void> _leaving() async {
+    try {
+      await sessionListener
+          ?.leavingWorkspace()
+          .timeout(const Duration(seconds: 5));
+    } on Object {
+      // Never block signing out or switching on push.
+    }
+  }
+
+  Future<void> _entered() async {
+    try {
+      await sessionListener?.enteredWorkspace();
+    } on Object {
+      // Push reports its own errors in Settings.
+    }
+  }
 
   final AnumApiClient api;
   final SessionStore sessions;
@@ -26,16 +59,58 @@ class AuthRepository {
 
   /// Authorization code + PKCE in the system browser, then the tokens are kept
   /// in platform secure storage.
-  Future<LocalSession> signInWithOidc() async {
+  /// [options] carries Keycloak hints only (login hint, Google or Apple,
+  /// registration); the password is always entered on Keycloak's page.
+  /// Throws [AccountPending] (nothing stored) when the account has no
+  /// organization yet.
+  Future<LocalSession> signInWithOidc(
+      [OidcSignInOptions options = const OidcSignInOptions()]) async {
     final authenticator = oidc;
     if (authenticator == null) {
       throw StateError('OIDC sign-in is not configured');
     }
-    final session = sessionFromOidcTokens(await authenticator.signIn(),
-        defaultWorkspaceId: authenticator.config.defaultWorkspaceId);
+    return _accept(await authenticator.signIn(options));
+  }
+
+  Future<LocalSession> _accept(OidcTokens tokens) async {
+    final pending = pendingAccountOf(tokens);
+    if (pending != null) throw AccountPending(tokens, pending);
+    final session = sessionFromOidcTokens(tokens,
+        defaultWorkspaceId: oidc!.config.defaultWorkspaceId);
     await sessions.write(session);
     return session;
   }
+
+  /// "Check again" for a pending account: a refreshed token carries the
+  /// tenant an administrator assigned since. Throws [AccountPending] again
+  /// (with the new tokens) while there is none.
+  Future<LocalSession> recheckPending(OidcTokens tokens) async {
+    final authenticator = oidc;
+    final refreshToken = tokens.refreshToken;
+    if (authenticator == null || refreshToken == null) {
+      throw const OidcRefreshRejected();
+    }
+    final next = await authenticator.refresh(refreshToken);
+    return _accept(OidcTokens(
+        accessToken: next.accessToken,
+        expiresAt: next.expiresAt,
+        refreshToken: next.refreshToken ?? refreshToken,
+        idToken: next.idToken ?? tokens.idToken));
+  }
+
+  /// Ends the Keycloak session of a pending account (nothing was stored).
+  Future<void> endPendingSession(OidcTokens tokens) async {
+    try {
+      await oidc?.endSession(idToken: tokens.idToken);
+    } on OidcCancelled {
+      // The browser step was closed; nothing is stored locally anyway.
+    }
+  }
+
+  /// `GET /api/v1/auth/sign-in-options`, sent without a token.
+  Future<SignInOptions> signInOptions() async => SignInOptions.fromJson(
+      await api.request('GET', '/api/v1/auth/sign-in-options',
+          authenticated: false));
 
   Future<LocalSession> startLocalSession({
     required String tenantId,
@@ -117,6 +192,26 @@ class AuthRepository {
 
   Future<LocalSession> switchWorkspace(String workspaceId) async {
     final current = await sessions.read();
+    if (current != null &&
+        current.context.workspaceId.isNotEmpty &&
+        current.context.workspaceId != workspaceId) {
+      return _switchAnnounced(current, workspaceId);
+    }
+    return _switch(current, workspaceId);
+  }
+
+  Future<LocalSession> _switchAnnounced(
+      LocalSession current, String workspaceId) async {
+    await _leaving();
+    try {
+      return await _switch(current, workspaceId);
+    } finally {
+      await _entered();
+    }
+  }
+
+  Future<LocalSession> _switch(
+      LocalSession? current, String workspaceId) async {
     if (current != null && current.isOidc) {
       // Ask the API first: only an active membership in the target workspace
       // switches. A refusal (403) throws and leaves the session unchanged.
@@ -220,6 +315,7 @@ class AuthRepository {
   }
 
   Future<void> signOut() async {
+    await _leaving();
     LocalSession? session;
     try {
       session = await sessions.read();

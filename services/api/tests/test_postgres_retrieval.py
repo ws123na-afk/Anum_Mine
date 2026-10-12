@@ -715,3 +715,111 @@ def test_reindex_reembeds_stale_sources_in_postgres_within_the_limit_and_the_wor
             text("select distinct embedding_model from retrieval_sources where tenant_id = :t"), {"t": TENANT_A}
         ).scalars().all()
     assert sources == ["anum-local-hash-next"]
+
+
+def _private_note(hdrs: dict[str, str], content: str) -> str:
+    """A memory private to the caller (remembered from their chat), written as the app role."""
+    from anum_api.memory import MemoryNote, MemoryProvenance
+    from anum_api.schemas import new_id, utc_now
+
+    context = TenantContext(
+        tenant_id=hdrs["x-tenant-id"], workspace_id=hdrs["x-workspace-id"], user_id=hdrs["x-user-id"], roles=["member"]
+    )
+    now = utc_now()
+    with db_session.SessionLocal() as session:
+        db_session.set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
+        note = SqlAlchemyMemoryRepository(session).create(
+            MemoryNote(
+                id=new_id("memory"),
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                task_id=None,
+                content=content,
+                provenance=MemoryProvenance(
+                    source_type="conversation", source_id="conv_x", created_by_user_id=context.user_id, created_at=now
+                ),
+                retention=RetentionPolicy(kind=RetentionKind.INDEFINITE),
+                created_at=now,
+                owner_user_id=context.user_id,
+            )
+        )
+        session.commit()
+    return note.id
+
+
+def test_source_names_lookup_finds_only_what_the_caller_may_see_under_rls(
+    postgres_backend: None,  # noqa: F811
+) -> None:
+    """GET /api/v1/retrieval/sources: another tenant's or workspace's memory or file, and
+    another user's private memory, answer found:false, exactly like an unknown id."""
+    from fastapi.testclient import TestClient
+
+    from anum_api.main import app
+
+    client = TestClient(app)
+    me = {"x-tenant-id": TENANT_A, "x-workspace-id": WORKSPACE_A, "x-user-id": "user_me", "x-user-roles": "member"}
+    colleague = {**me, "x-user-id": "user_colleague"}
+    other_workspace = {**me, "x-workspace-id": WORKSPACE_A2}
+    other_tenant = {**me, "x-tenant-id": TENANT_B, "x-workspace-id": WORKSPACE_B}
+
+    def task_note(hdrs: dict[str, str], content: str) -> str:
+        task = client.post("/api/v1/tasks", headers=hdrs, json={"title": "t", "prompt": "Collect notes"})
+        assert task.status_code == 201, task.text
+        created = client.post(
+            "/api/v1/memories", headers=hdrs, json={"task_id": task.json()["id"], "content": content, "source_type": "note"}
+        )
+        assert created.status_code == 201, created.text
+        return created.json()["id"]
+
+    def upload(hdrs: dict[str, str], name: str) -> str:
+        uploaded = client.post(
+            "/api/v1/files", headers={**hdrs, "x-file-name": name, "content-type": "text/plain"}, content=b"release notes"
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        return uploaded.json()["id"]
+
+    mine_shared = task_note(me, "Release checklist\nsecond line")
+    mine_private = _private_note(me, "The user prefers tea.")
+    mine_file = upload(me, "mine.txt")
+    hidden_memories = {
+        "colleague_private": _private_note(colleague, "Colleague prefers coffee."),
+        "other_workspace_shared": task_note(other_workspace, "Other workspace checklist"),
+        "other_workspace_private": _private_note(other_workspace, "Same user, other workspace."),
+        "other_tenant_shared": task_note(other_tenant, "Other tenant checklist"),
+        "other_tenant_private": _private_note(other_tenant, "Same user id, other tenant."),
+    }
+    hidden_files = {"other_workspace": upload(other_workspace, "a2.txt"), "other_tenant": upload(other_tenant, "b.txt")}
+
+    query = [("memory_id", mine_shared), ("memory_id", mine_private), ("file_id", mine_file)]
+    query += [("memory_id", value) for value in hidden_memories.values()]
+    query += [("file_id", value) for value in hidden_files.values()]
+    query += [("memory_id", "memory_unknown"), ("file_id", "file_unknown")]
+    response = client.get("/api/v1/retrieval/sources", headers=me, params=query)
+    assert response.status_code == 200, response.text
+    by_id = {item["source_id"]: item for item in response.json()["sources"]}
+    assert len(by_id) == len(query)
+
+    assert (by_id[mine_shared]["found"], by_id[mine_shared]["title"], by_id[mine_shared]["kind"]) == (
+        True,
+        "Release checklist",
+        "task_note",
+    )
+    assert (by_id[mine_private]["found"], by_id[mine_private]["kind"]) == (True, "chat")
+    assert (by_id[mine_file]["title"], by_id[mine_file]["size_bytes"]) == ("mine.txt", len(b"release notes"))
+    gone = {"found": False, "title": None, "kind": None, "task_id": None, "size_bytes": None}
+    for hidden in [*hidden_memories.values(), *hidden_files.values(), "memory_unknown", "file_unknown"]:
+        # Indistinguishable from an id that does not exist: nothing about it leaks.
+        assert {key: value for key, value in by_id[hidden].items() if key in gone} == gone, hidden
+
+    # The colleague sees the shared note but not my private one; nobody elsewhere sees either.
+    seen = client.get(
+        "/api/v1/retrieval/sources", headers=colleague, params=[("memory_id", mine_shared), ("memory_id", mine_private)]
+    ).json()["sources"]
+    assert [(item["source_id"], item["found"]) for item in seen] == [(mine_shared, True), (mine_private, False)]
+    for hdrs in (other_workspace, other_tenant):
+        seen = client.get(
+            "/api/v1/retrieval/sources",
+            headers=hdrs,
+            params=[("memory_id", mine_shared), ("memory_id", mine_private), ("file_id", mine_file)],
+        ).json()["sources"]
+        assert [item["found"] for item in seen] == [False, False, False]

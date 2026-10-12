@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
@@ -44,6 +46,66 @@ class OidcConfig {
       defaultWorkspaceId: const String.fromEnvironment('ANUM_WORKSPACE_ID'),
     );
   }
+
+  /// Keycloak's "Forgot password?" page for this client. It is a browser
+  /// page, not part of the code flow: after resetting, the person signs in.
+  /// Keycloak shows it only with the realm's `resetPasswordAllowed` on.
+  Uri get passwordResetUri =>
+      Uri.parse('$issuer/login-actions/reset-credentials')
+          .replace(queryParameters: {'client_id': clientId});
+}
+
+/// Social identity providers the sign-in buttons can ask Keycloak for. The
+/// value is the provider's alias in the realm, sent as `kc_idp_hint`.
+enum OidcIdentityProvider {
+  google('google'),
+  apple('apple');
+
+  const OidcIdentityProvider(this.alias);
+  final String alias;
+}
+
+/// How one sign-in should start. Everything here is a hint to Keycloak; the
+/// app never sees a password.
+@immutable
+class OidcSignInOptions {
+  const OidcSignInOptions(
+      {this.loginHint, this.identityProvider, this.register = false});
+
+  /// Prefills the username field (`login_hint`): an email or mobile number.
+  final String? loginHint;
+
+  /// Skips Keycloak's form and goes straight to Google or Apple
+  /// (`kc_idp_hint`).
+  final OidcIdentityProvider? identityProvider;
+
+  /// Opens Keycloak's registration form instead of the login form
+  /// (`prompt=create`, OIDC "Initiating User Registration").
+  final bool register;
+
+  /// Extra authorization request parameters for [identityProvider].
+  Map<String, String> get additionalParameters => {
+        if (identityProvider != null) 'kc_idp_hint': identityProvider!.alias,
+      };
+
+  /// `prompt` values: `create` for registration.
+  List<String>? get promptValues => register ? const ['create'] : null;
+
+  /// [loginHint] trimmed, or null when empty.
+  String? get trimmedLoginHint {
+    final hint = loginHint?.trim();
+    return hint == null || hint.isEmpty ? null : hint;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is OidcSignInOptions &&
+      other.loginHint == loginHint &&
+      other.identityProvider == identityProvider &&
+      other.register == register;
+
+  @override
+  int get hashCode => Object.hash(loginHint, identityProvider, register);
 }
 
 class OidcTokens {
@@ -79,7 +141,8 @@ class OidcRefreshRejected implements Exception {
 /// use fakes.
 abstract interface class OidcAuthenticator {
   OidcConfig get config;
-  Future<OidcTokens> signIn();
+  Future<OidcTokens> signIn(
+      [OidcSignInOptions options = const OidcSignInOptions()]);
   Future<OidcTokens> refresh(String refreshToken);
   Future<void> endSession({String? idToken});
 }
@@ -96,6 +159,41 @@ JsonMap decodeJwtClaims(String token) {
   } on FormatException {
     return const {};
   }
+}
+
+/// A signed-in account that belongs to no organization yet: its token has no
+/// `tenant_id` (docs/identity.md#pending-accounts). The API answers it with
+/// 403 `account_pending`, so the app shows the pending screen instead.
+class PendingAccount {
+  const PendingAccount({this.email, this.subject});
+  final String? email;
+  final String? subject;
+}
+
+PendingAccount? pendingAccountOf(OidcTokens tokens) {
+  final claims = decodeJwtClaims(tokens.accessToken);
+  final tenant = claims['tenant_id'];
+  if (tenant is String && tenant.trim().isNotEmpty) return null;
+  return PendingAccount(
+    email: switch (claims['email']) {
+      final String e when e.isNotEmpty => e,
+      _ => null
+    },
+    subject: switch (claims['sub']) {
+      final String s when s.isNotEmpty => s,
+      _ => null
+    },
+  );
+}
+
+/// Sign-in finished, but the account is pending; [tokens] stay in memory only
+/// (to check again or end the session), never in storage.
+class AccountPending implements Exception {
+  const AccountPending(this.tokens, this.account);
+  final OidcTokens tokens;
+  final PendingAccount account;
+  @override
+  String toString() => 'Your account is not part of an organization yet';
 }
 
 const _anumRoles = {'owner', 'member', 'viewer'};

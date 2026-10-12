@@ -2,8 +2,51 @@
 // an incremental server-sent-events parser, the chat transcript reducer, sentence
 // splitting for speaking a reply while it streams, and the auto-scroll rule.
 // No browser or Vite APIs, so `pnpm test:unit` exercises them directly.
+import type { ReportCard } from '@anum/contracts';
+import { t as msg } from './i18n.ts';
 
 export type TurnStatus = 'complete' | 'cancelled' | 'failed';
+
+/** A question run as a task (docs/conversations.md#tools-in-chat): its results, approval or failure. */
+export type CardState = 'running' | 'results' | 'approval' | 'failed' | 'cancelled' | 'denied';
+export type CardCategory = 'email' | 'whatsapp' | 'commerce' | 'tyre' | 'web' | 'files' | 'action';
+
+export interface ChatCardItem {
+  kind: 'email' | 'whatsapp' | 'web' | 'file' | 'memory' | 'order' | 'listing' | 'tyre';
+  id?: string | null;
+  title: string;
+  subtitle?: string | null;
+  detail?: string | null;
+  at?: string | null;
+  badges?: string[];
+  url?: string | null;
+}
+
+export interface ChatCardApproval {
+  id: string;
+  action: string;
+  risk_level: string;
+  status: string;
+  reason: string;
+  payload_hash?: string | null;
+  arguments?: Record<string, unknown>;
+  target?: string | null;
+  expires_at?: string | null;
+  can_decide: boolean;
+}
+
+export interface ChatCard {
+  state: CardState;
+  category: CardCategory;
+  task_id?: string | null;
+  run_id?: string | null;
+  tool?: string | null;
+  summary: string;
+  items: ChatCardItem[];
+  total: number;
+  approval?: ChatCardApproval | null;
+  error_code?: string | null;
+}
 
 export interface ChatTurn {
   id: string;
@@ -12,6 +55,7 @@ export interface ChatTurn {
   content: string;
   status: TurnStatus;
   created_at: string;
+  card?: ChatCard | null;
 }
 
 export interface Conversation {
@@ -19,10 +63,14 @@ export interface Conversation {
   title: string;
   created_at: string;
   updated_at: string;
+  /** A thread with an agent (docs/agents.md); absent or null for the Assistant's own. */
+  agent_id?: string | null;
 }
 
 export interface ConversationDetail extends Conversation {
   turns: ChatTurn[];
+  /** Cards for the Assistant's structured answers, by assistant turn (docs/reports.md). */
+  reports?: ReportCard[];
 }
 
 export interface SseEvent {
@@ -79,14 +127,49 @@ export interface UiTurn {
   status: TurnStatus | 'sending' | 'streaming';
   error?: string;
   errorCode?: string;
+  /** A structured answer's report card ("View Full Report"). */
+  report?: ReportCard;
+  card?: ChatCard | null;
 }
 
 export const PENDING_USER = 'pending-user';
 export const PENDING_ASSISTANT = 'pending-assistant';
 let localTurns = 0;
 
-export function fromStored(turns: ChatTurn[]): UiTurn[] {
-  return turns.map((t) => ({ id: t.id, role: t.role, content: t.content, status: t.status }));
+export function fromStored(turns: ChatTurn[], reports: ReportCard[] = []): UiTurn[] {
+  const cards = new Map(reports.filter((r) => r.turn_id).map((r) => [r.turn_id as string, r]));
+  return turns.map((t) => {
+    const report = cards.get(t.id);
+    const card = asCard(t.card);
+    return report ? { id: t.id, role: t.role, content: t.content, status: t.status, card, report } : { id: t.id, role: t.role, content: t.content, status: t.status, card };
+  });
+}
+
+function asReportCard(value: unknown): ReportCard | undefined {
+  return value && typeof value === 'object' && typeof (value as ReportCard).report_id === 'string' && Array.isArray((value as ReportCard).metrics) ? value as ReportCard : undefined;
+}
+
+/** A card the client can show, or null (missing, or a shape this client cannot read). */
+export function asCard(value: unknown): ChatCard | null {
+  if (!value || typeof value !== 'object') return null;
+  const card = value as ChatCard;
+  if (typeof card.state !== 'string' || typeof card.category !== 'string') return null;
+  return { ...card, summary: typeof card.summary === 'string' ? card.summary : '', items: Array.isArray(card.items) ? card.items : [], total: typeof card.total === 'number' ? card.total : 0 };
+}
+
+/** A stored card after an Approve or Reject: the decision's task, run and approval. */
+export function cardAfterDecision(card: ChatCard, decision: { task: { status: string }; run?: { result?: string | null; steps?: { type: string; summary: string }[] } | null; approval: { status: string } }): ChatCard {
+  const approval = card.approval ? { ...card.approval, status: decision.approval.status } : card.approval;
+  const status = decision.task.status;
+  if (status === 'completed') return { ...card, approval, state: 'results', summary: decision.run?.result ?? card.summary };
+  if (status === 'failed') {
+    const steps = decision.run?.steps ?? [];
+    const reason = [...steps].reverse().find((step) => step.type === 'tool_result')?.summary;
+    return { ...card, approval, state: 'failed', summary: reason ?? decision.run?.result ?? card.summary };
+  }
+  if (status === 'cancelled') return { ...card, approval, state: 'cancelled' };
+  if (status === 'waiting_approval') return { ...card, approval, state: 'approval' };
+  return { ...card, approval, state: 'running' };
 }
 
 /** Show the question at once and an empty reply that fills as it streams. A retry reuses the stored question. */
@@ -109,22 +192,28 @@ export function applyAskEvent(turns: UiTurn[], event: SseEvent): UiTurn[] {
     if (!user) return turns;
     return turns.map((t) => t.id === PENDING_USER ? { id: user.id, role: 'user', content: user.content, status: user.status } : t);
   }
+  if (event.event === 'tool') {
+    const card = asCard(data.card);
+    if (!card) return turns;
+    return turns.map((t) => t.id === PENDING_ASSISTANT ? { ...t, card } : t);
+  }
   if (event.event === 'delta' && typeof data.text === 'string') {
     const text = data.text;
     return turns.map((t) => t.id === PENDING_ASSISTANT ? { ...t, content: t.content + text } : t);
   }
   if (event.event === 'done') {
     const reply = asTurn(data.assistant_turn);
+    const report = asReportCard(data.report);
     return turns.map((t) => t.id === PENDING_ASSISTANT
-      ? reply ? { id: reply.id, role: 'assistant', content: reply.content, status: reply.status } : { ...t, id: `local-${++localTurns}`, status: 'complete' }
+      ? reply ? { id: reply.id, role: 'assistant', content: reply.content, status: reply.status, card: asCard(reply.card) ?? t.card ?? null, ...(report ? { report } : {}) } : { ...t, id: `local-${++localTurns}`, status: 'complete' }
       : t);
   }
   if (event.event === 'error') {
     const reply = asTurn(data.assistant_turn);
-    const message = typeof data.message === 'string' ? data.message : 'The model did not answer.';
+    const message = typeof data.message === 'string' ? data.message : msg('chat.modelNoAnswer');
     const code = typeof data.code === 'string' ? data.code : undefined;
     return turns.map((t) => t.id === PENDING_ASSISTANT
-      ? { id: reply?.id ?? `local-${++localTurns}`, role: 'assistant', content: reply?.content ?? t.content, status: 'failed', error: message, errorCode: code }
+      ? { id: reply?.id ?? `local-${++localTurns}`, role: 'assistant', content: reply?.content ?? t.content, status: 'failed', error: message, errorCode: code, card: t.card ?? null }
       : t);
   }
   return turns;
@@ -141,7 +230,7 @@ export function endAsk(turns: UiTurn[], outcome: { stopped: boolean; error?: str
     .map((t): UiTurn => t.status === 'streaming'
       ? outcome.stopped
         ? { ...t, status: 'cancelled' }
-        : { ...t, status: 'failed', error: outcome.error ?? 'The connection dropped before the answer finished.', errorCode: outcome.errorCode }
+        : { ...t, status: 'failed', error: outcome.error ?? msg('chat.connectionDropped'), errorCode: outcome.errorCode }
       : t);
 }
 
@@ -194,5 +283,5 @@ export function isNearBottom(box: { scrollTop: number; scrollHeight: number; cli
 }
 
 export function conversationTitle(conversation: Conversation): string {
-  return conversation.title.trim() || 'New conversation';
+  return conversation.title.trim() || msg('chat.newConversation');
 }

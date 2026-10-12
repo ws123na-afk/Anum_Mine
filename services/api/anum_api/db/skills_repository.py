@@ -2,10 +2,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from anum_api.audit import AuditRecord
 from anum_api.schemas import RiskLevel, TenantContext
-from anum_api.skills_api import SkillInstallation, SkillVersion, SkillVersionExistsError
+from anum_api.skills_api import SkillInstallation, SkillVersion, SkillVersionExistsError, skill_target
 
-from .models import SkillInstallationRecord, SkillVersionRecord
+from .models import AuditRecordRow, SkillInstallationRecord, SkillVersionRecord
 from .scope import require_tenant, require_workspace
 
 
@@ -17,7 +18,34 @@ class SqlAlchemySkillStore:
     """
 
     def __init__(self, session: Session) -> None:
+        from .repository import SqlAlchemyRepository
+
         self.session = session
+        self._audit = SqlAlchemyRepository(session)
+
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        return self._audit.record_audit(record)
+
+    def skill_history(self, context: TenantContext, skill_id: str, limit: int) -> list[AuditRecord]:
+        rows = self.session.scalars(
+            select(AuditRecordRow)
+            .where(
+                AuditRecordRow.tenant_id == context.tenant_id,
+                AuditRecordRow.workspace_id == context.workspace_id,
+                AuditRecordRow.target == skill_target(skill_id),
+            )
+            .order_by(AuditRecordRow.created_at.desc(), AuditRecordRow.id.desc())
+            .limit(limit)
+        ).all()
+        return [
+            AuditRecord(
+                id=row.id, tenant_id=row.tenant_id, workspace_id=row.workspace_id, actor=row.actor,
+                action=row.action, target=row.target, outcome=row.outcome,
+                correlation_id=row.correlation_id, created_at=row.created_at,
+                metadata=dict(row.record_metadata or {}),
+            )
+            for row in rows
+        ]
 
     def add_version(self, version: SkillVersion) -> SkillVersion:
         require_tenant(self.session, version.publisher_tenant_id)

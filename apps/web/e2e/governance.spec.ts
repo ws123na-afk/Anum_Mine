@@ -56,6 +56,7 @@ async function mockApi(page: Page, options: Options) {
     if (path === '/api/v1/marketplace/packages' && method === 'GET') {
       return json([{ id: 'skill.research-core', name: 'Research Core', kind: 'skill', version: '1.0.0', publisher: 'ANUM', verified: true, permissions: ['memory:read'], regions: ['local'] }]);
     }
+    if (path === '/api/v1/marketplace/installs' && method === 'GET') return json([]);
     if (path === '/api/v1/routing/targets' && method === 'GET') return json(targets);
     if (path.startsWith('/api/v1/routing/targets/') && method === 'PUT') {
       if (options.writesForbidden || !options.canManage) return json(envelope('forbidden', orgAdminRequired), 403);
@@ -146,7 +147,7 @@ test('enterprise: a member sees neither routing edits nor installs, and why', as
 
   await expect(page.getByText('Research Core')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Install Research Core' })).toHaveCount(0);
-  await expect(page.getByText('Only workspace owners can install packages into this workspace.')).toBeVisible();
+  await expect(page.getByText(/Only workspace owners can install or uninstall packages/)).toBeVisible();
 });
 
 test('enterprise: an organization administrator adds a routing target', async ({ page }) => {

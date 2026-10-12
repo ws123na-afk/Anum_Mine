@@ -206,16 +206,16 @@ class _PoliciesTab extends StatelessWidget {
         )
       else ...[
         if (canManage)
-        Align(
-          alignment: AlignmentDirectional.centerEnd,
-          child: TextButton.icon(
-            onPressed: controller.mutating
-                ? null
-                : () => controller.baseline('Organization baseline'),
-            icon: const Icon(Icons.add),
-            label: const Text('Add baseline policy'),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton.icon(
+              onPressed: controller.mutating
+                  ? null
+                  : () => controller.baseline('Organization baseline'),
+              icon: const Icon(Icons.add),
+              label: const Text('Add baseline policy'),
+            ),
           ),
-        ),
         for (final policy in s.policies)
           AnumSurface(
             accent: policy.active ? p.ok : null,
@@ -462,29 +462,30 @@ class _RoutingTab extends StatelessWidget {
                 trailing: !canManage
                     ? AnumPill(label: _label(x.status), tone: _tone(x.status))
                     : PopupMenuButton<String>(
-                  tooltip: 'Change status',
-                  onSelected: (status) => controller.updateTarget(RoutingTarget(
-                    id: x.id,
-                    region: x.region,
-                    provider: x.provider,
-                    model: x.model,
-                    status: status,
-                    latencyMs: x.latencyMs,
-                    cost: x.cost,
-                    modalities: x.modalities,
-                    sensitivity: x.sensitivity,
-                  )),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                        value: 'healthy', child: Text('Mark healthy')),
-                    PopupMenuItem(
-                        value: 'degraded', child: Text('Mark degraded')),
-                    PopupMenuItem(
-                        value: 'offline', child: Text('Mark offline')),
-                  ],
-                  child:
-                      AnumPill(label: _label(x.status), tone: _tone(x.status)),
-                ),
+                        tooltip: 'Change status',
+                        onSelected: (status) =>
+                            controller.updateTarget(RoutingTarget(
+                          id: x.id,
+                          region: x.region,
+                          provider: x.provider,
+                          model: x.model,
+                          status: status,
+                          latencyMs: x.latencyMs,
+                          cost: x.cost,
+                          modalities: x.modalities,
+                          sensitivity: x.sensitivity,
+                        )),
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                              value: 'healthy', child: Text('Mark healthy')),
+                          PopupMenuItem(
+                              value: 'degraded', child: Text('Mark degraded')),
+                          PopupMenuItem(
+                              value: 'offline', child: Text('Mark offline')),
+                        ],
+                        child: AnumPill(
+                            label: _label(x.status), tone: _tone(x.status)),
+                      ),
               ),
         ]),
       ),

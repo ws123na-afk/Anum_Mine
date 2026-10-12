@@ -4,7 +4,11 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../admin/admin_repository.dart';
 import '../auth/auth_repository.dart';
+import '../autonomy/autonomy_repository.dart';
+import '../learning/learning_repository.dart';
 import '../privacy/privacy_repository.dart';
+import '../push/push_controller.dart';
+import '../team/team_repository.dart';
 
 enum SettingsPhase {
   initial,
@@ -17,7 +21,13 @@ enum SettingsPhase {
 }
 
 class SettingsController extends ChangeNotifier {
-  SettingsController(this.repository, {this.admin, this.privacy});
+  SettingsController(this.repository,
+      {this.admin,
+      this.privacy,
+      this.push,
+      this.autonomy,
+      this.learning,
+      this.team});
   final AuthRepository repository;
 
   /// Members, invitations and model budgets; the API decides who may use them.
@@ -25,6 +35,19 @@ class SettingsController extends ChangeNotifier {
 
   /// Download my data / Delete my data (docs/privacy.md).
   final PrivacyRepository? privacy;
+
+  /// Phone push on this device (docs/notifications.md); null in tests that
+  /// do not need it.
+  final PushController? push;
+
+  /// Activity and autonomy levels (docs/autonomy.md).
+  final AutonomyRepository? autonomy;
+
+  /// What ANUM learned (docs/learning.md).
+  final LearningRepository? learning;
+
+  /// Team work, notifications, assistants and organisations (docs/team-work.md).
+  final TeamRepository? team;
   SettingsPhase phase = SettingsPhase.initial;
   LocalSession? session;
   ModelConfiguration? model;

@@ -62,9 +62,9 @@ test('the assistant streams answers, remembers the conversation and renders repl
     if (question.startsWith('Inject')) return { text: 'Here: <img src=x onerror="window.__pwned=1"> and **bold**.' };
     return { text: `You asked: ${question}. Here is a list:\n\n- first point\n- second point` };
   });
-  await page.goto('/');
-  // The Assistant is the default view and opens the most recent conversation.
-  await expect(page.getByRole('heading', { name: 'Assistant', level: 1 })).toBeVisible();
+  await page.goto('/#assistant');
+  // AI Chat opens the most recent conversation.
+  await expect(page.getByRole('heading', { name: 'AI Chat', level: 1 })).toBeVisible();
   await expect(page.getByText('Old question')).toBeVisible();
   await expect(page.locator('.chatLog strong', { hasText: 'answer' })).toBeVisible();
 

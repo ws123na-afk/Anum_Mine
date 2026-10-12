@@ -11,4 +11,11 @@ data:
   {{ $key }}: {{ toString $value | quote }}
   {{- end }}
   {{- end }}
+  {{- /* The email OAuth redirect and the page the browser returns to (docs/email.md). */}}
+  {{- if and (not .Values.config.ANUM_EMAIL_PUBLIC_API_URL) .Values.ingress.hosts.api }}
+  ANUM_EMAIL_PUBLIC_API_URL: {{ printf "https://%s" .Values.ingress.hosts.api | quote }}
+  {{- end }}
+  {{- if and (not .Values.config.ANUM_EMAIL_WEB_URL) .Values.ingress.hosts.web }}
+  ANUM_EMAIL_WEB_URL: {{ printf "https://%s" .Values.ingress.hosts.web | quote }}
+  {{- end }}
   FORWARDED_ALLOW_IPS: {{ .Values.api.forwardedAllowIps | quote }}

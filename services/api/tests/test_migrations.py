@@ -402,3 +402,390 @@ def test_user_preferences_migration_is_expand_only_with_user_scoped_forced_rls()
     assert "server_default=sa.true()" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
+
+
+def test_task_archive_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0026_task_archive.py").read_text(encoding="utf-8")
+    assert 'revision = "0026_task_archive"' in revision_text
+    assert len("0026_task_archive") <= 32
+    assert 'down_revision = "0025_user_preferences"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0026_task_archive.py"]
+    assert not [path for path in others if 'down_revision = "0025_user_preferences"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Two nullable columns the previous release never writes, and a concurrent index.
+    assert upgrade.count("op.add_column(") == 2
+    assert upgrade.count("nullable=true") == 2
+    assert "create index concurrently if not exists ix_agent_runs_task_created" in upgrade
+    assert "autocommit_block" in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+
+
+def test_push_devices_migration_is_expand_only_with_user_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0027_push_devices.py").read_text(encoding="utf-8")
+    assert 'revision = "0027_push_devices"' in revision_text
+    assert len("0027_push_devices") <= 32
+    assert 'down_revision = "0026_task_archive"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0027_push_devices.py"]
+    assert not [path for path in others if 'down_revision = "0026_task_archive"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "op.create_table(" in upgrade and "workspaces.tenant_id" in upgrade
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    for setting in ("anum.tenant_id", "anum.workspace_id", "anum.user_id"):
+        assert f"current_setting('{setting}', true)" in revision_text
+    # Tokens are stored encrypted; only a digest and a four-character hint are in clear.
+    assert "token_ciphertext" in upgrade and "token_sha256" in upgrade and "token_hint" in upgrade
+    assert '"token",' not in upgrade
+    # The new preference column has a default, so the previous release can still insert.
+    assert "add_column(" in upgrade and "server_default=sa.true()" in upgrade
+    # The discovery grant is column-limited and only for the narrow maintenance role.
+    assert "grant select (id, tenant_id, workspace_id, status) on developer_requests to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+
+
+def test_workspace_admin_migration_is_expand_only_and_concurrent() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0028_workspace_admin.py").read_text(encoding="utf-8")
+    assert 'revision = "0028_workspace_admin"' in revision_text
+    assert len("0028_workspace_admin") <= 32
+    assert 'down_revision = "0027_push_devices"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0028_workspace_admin.py"]
+    assert not [path for path in others if 'down_revision = "0027_push_devices"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Two nullable columns the previous release never writes.
+    assert upgrade.count("op.add_column(") == 2 and upgrade.count("nullable=true") == 2
+    # The directory role reads one more column, read-only; nothing else is granted.
+    assert upgrade.count("grant ") == 1
+    assert "grant select (archived_at) on workspaces to anum_membership_reader" in upgrade
+    assert "autocommit_block" in upgrade and upgrade.count("create index concurrently if not exists") == 2
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_file_management_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0029_file_management.py").read_text(encoding="utf-8")
+    assert 'revision = "0029_file_management"' in revision_text
+    assert len("0029_file_management") <= 32
+    assert 'down_revision = "0028_workspace_admin"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0029_file_management.py"]
+    assert not [path for path in others if 'down_revision = "0028_workspace_admin"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Two nullable columns the previous release ignores, and indexes built without a write lock.
+    assert upgrade.count("op.add_column(") == 2
+    assert upgrade.count("nullable=true") == 2
+    assert upgrade.count("create index concurrently if not exists") == 2
+    assert "autocommit_block" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
+
+
+def test_automation_policy_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0031_automation_policy.py").read_text(encoding="utf-8")
+    assert 'revision = "0031_automation_policy"' in revision_text
+    assert len("0031_automation_policy") <= 32
+    assert 'down_revision = "0030_integration_health"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0031_automation_policy.py"]
+    assert not [path for path in others if 'down_revision = "0030_integration_health"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # New columns are nullable or carry a server default, so the previous release keeps inserting.
+    assert upgrade.count("op.add_column(") == 4
+    assert "server_default=\"allow\"" in upgrade
+    assert "create index concurrently if not exists ix_automation_runs_workflow" in upgrade and "autocommit_block" in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+
+
+def test_whatsapp_migration_is_expand_only_with_forced_rls_and_narrow_routing() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0033_whatsapp.py").read_text(encoding="utf-8")
+    assert 'revision = "0033_whatsapp"' in revision_text and len("0033_whatsapp") <= 32
+    assert 'down_revision = "0032_developer_projects"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0033_whatsapp.py"]
+    assert not [path for path in others if 'down_revision = "0032_developer_projects"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 4
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    # Webhook routing: column grants to the discovery-only role, select only, no secrets.
+    grant = upgrade.split("grant select (", 1)[1].split(")", 1)[0]
+    assert grant == "tenant_id, workspace_id, phone_number_id, verify_token_hash"
+    assert "for select to anum_maintenance" in upgrade
+    assert "ciphertext" not in grant
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_autonomy_migration_is_expand_only_with_forced_rls_on_every_table() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0034_autonomy.py").read_text(encoding="utf-8")
+    assert 'revision = "0034_autonomy"' in revision_text and len("0034_autonomy") <= 32
+    assert 'down_revision = "0033_whatsapp"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0034_autonomy.py"]
+    assert not [path for path in others if 'down_revision = "0033_whatsapp"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    for table in (
+        "autonomy_guardrails", "workspace_autonomy_settings", "autonomy_rules", "autonomy_proposals",
+        "autonomy_actions", "autonomy_recipients",
+    ):
+        assert f'"{table}"' in revision_text
+    assert '_force_rls("autonomy_guardrails", tenant_predicate)' in upgrade
+    assert "for table in workspace_tables:" in upgrade and "_force_rls(table, workspace_predicate)" in upgrade
+    assert "force row level security" in revision_text and "with check (" in revision_text
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+
+
+def test_email_inbox_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0035_email_inbox.py").read_text(encoding="utf-8")
+    assert 'revision = "0035_email_inbox"' in revision_text
+    assert len("0035_email_inbox") <= 32
+    assert 'down_revision = "0034_autonomy"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0035_email_inbox.py"]
+    assert not [path for path in others if 'down_revision = "0034_autonomy"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 4
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    # The maintenance role sees ids and scope of connected accounts, never tokens or addresses.
+    grant = next(line for line in upgrade.splitlines() if "grant select" in line)
+    assert "token" not in grant and "address" not in grant and "anum_maintenance" in grant
+    assert "for select to anum_maintenance" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_learning_migration_is_expand_only_with_user_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0036_learning.py").read_text(encoding="utf-8")
+    assert 'revision = "0036_learning"' in revision_text
+    assert len("0036_learning") <= 32
+    assert 'down_revision = "0035_email_inbox"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0036_learning.py"]
+    assert not [path for path in others if 'down_revision = "0035_email_inbox"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 6
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    for setting in ("anum.tenant_id", "anum.workspace_id", "anum.user_id"):
+        assert f"current_setting('{setting}', true)" in revision_text
+
+
+def test_library_migration_is_expand_only_with_owner_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0042_library.py").read_text(encoding="utf-8")
+    assert 'revision = "0042_library"' in revision_text
+    assert len("0042_library") <= 32
+    parent = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
+    assert parent.startswith("00") and len(parent) <= 32
+    others = [path for path in versions.glob("*.py") if path.name != "0042_library.py"]
+    assert not [path for path in others if f'down_revision = "{parent}"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 4
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    # Favorites check the user; collections, items and reports a restrictive owner policy.
+    assert "current_setting('anum.user_id', true)" in revision_text
+    assert "as restrictive" in revision_text and "owner_user_id is null" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
+
+
+def test_tyre_planning_migration_is_expand_only_with_forced_rls_and_a_discovery_only_policy() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0037_tyre_planning.py").read_text(encoding="utf-8")
+    assert 'revision = "0037_tyre_planning"' in revision_text
+    assert len("0037_tyre_planning") <= 32
+    assert 'down_revision = "0036_learning"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0037_tyre_planning.py"]
+    assert not [path for path in others if 'down_revision = "0036_learning"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    for table in ("tyre_connections", "tyre_snapshots", "tyre_alerts", "tyre_reports"):
+        assert f'"{table}"' in upgrade
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    # Key rotation may discover ids of rows holding a ciphertext, nothing else.
+    assert "grant select (tenant_id, workspace_id) on tyre_connections to anum_maintenance" in upgrade
+    assert "using (secret_ciphertext is not null)" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert "server_default=sa.true()" in upgrade  # the new notification column has a default
+
+
+def test_commands_migration_is_expand_only_with_per_user_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0044_commands.py").read_text(encoding="utf-8")
+    assert 'revision = "0044_commands"' in revision_text and len("0044_commands") <= 32
+    assert 'down_revision = "0043_meetings"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0044_commands.py"]
+    assert not [path for path in others if 'down_revision = "0043_meetings"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+def test_home_migration_is_expand_only_with_user_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0046_home.py").read_text(encoding="utf-8")
+    assert 'revision = "0046_home"' in revision_text and len("0046_home") <= 32
+    assert 'down_revision = "0050_rotation_retention"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0046_home.py"]
+    assert not [path for path in others if 'down_revision = "0050_rotation_retention"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 3
+    for table in ("home_profiles", "home_pins", "home_insight_states"):
+        assert f'"{table}"' in revision_text
+    assert '"home_commands"' not in revision_text  # quick commands live in the command module
+    assert '_force_rls("home_profiles", user_predicate)' in upgrade
+    assert "for table in workspace_tables:" in upgrade and "_force_rls(table, workspace_user_predicate)" in upgrade
+    assert "force row level security" in revision_text and "with check (" in revision_text
+    for setting in ("anum.tenant_id", "anum.workspace_id", "anum.user_id"):
+        assert f"current_setting('{setting}', true)" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
+
+
+def test_team_work_migration_is_expand_only_with_forced_rls_and_narrow_roles() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0039_team_work.py").read_text(encoding="utf-8")
+    assert 'revision = "0039_team_work"' in revision_text
+    assert len("0039_team_work") <= 32
+    assert 'down_revision = "0042_library"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0039_team_work.py"]
+    assert not [path for path in others if 'down_revision = "0042_library"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: new tables, one nullable column, roles and policies.
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert 'op.add_column("tasks", sa.column("assistant_id", sa.string(80), nullable=true))' in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "force row level security" in revision_text and "_force(table)" in upgrade and '_force("user_notifications")' in upgrade
+    for role in ("anum_platform_reader", "anum_tenant_directory"):
+        assert f'_role("{role}")' in upgrade
+        assert f"to {role}" in upgrade
+    # The narrow roles get column grants only, never content columns.
+    assert "grant select (tenant_id, status, due_at, updated_at) on {table}" not in upgrade
+    assert "title" not in upgrade.split('_role("anum_platform_reader")', 1)[1].split('_role("anum_tenant_directory")', 1)[0]
+    assert "for select to anum_maintenance" in upgrade
+    bootstrap = (Path(__file__).parents[3] / "infra" / "helm" / "bootstrap-database.sql").read_text(encoding="utf-8")
+    assert "grant anum_platform_reader to anum_app with inherit false, set true;" in bootstrap
+    assert "grant anum_tenant_directory to anum_app with inherit false, set true;" in bootstrap
+
+
+def test_reports_calendar_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0045_reports_calendar.py").read_text(encoding="utf-8")
+    assert 'revision = "0045_reports_calendar"' in revision_text and len("0045_reports_calendar") <= 32
+    assert 'down_revision = "0039_team_work"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0045_reports_calendar.py"]
+    assert not [path for path in others if 'down_revision = "0039_team_work"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 1 and '"calendar_events"' in revision_text
+    # Expand only: the two report columns have defaults, nothing is dropped or altered.
+    assert upgrade.count("op.add_column(") == 2 and upgrade.count("server_default") >= 2
+    assert '"tabs"' in upgrade and '"sections"' in upgrade
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+
+
+def test_marketing_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0040_marketing.py").read_text(encoding="utf-8")
+    assert 'revision = "0040_marketing"' in revision_text and len("0040_marketing") <= 32
+    assert 'down_revision = "0049_automation_triggers"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0040_marketing.py"]
+    assert not [path for path in others if 'down_revision = "0049_automation_triggers"' in path.read_text(encoding="utf-8")]
+    lowered = revision_text.lower()
+    upgrade = lowered.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    for table in ("marketing_accounts", "marketing_campaigns", "marketing_posts", "marketing_preferences"):
+        assert f'"{table}"' in lowered
+    assert upgrade.count("op.create_table(") == 4
+    assert "enable row level security" in lowered and "force row level security" in lowered
+    assert "with check (" in lowered
+    assert "current_setting('anum.tenant_id', true)" in lowered and "current_setting('anum.workspace_id', true)" in lowered
+    # The maintenance role discovers due posts and token rows by id and scope only, never content.
+    assert "grant select (id, tenant_id, workspace_id) on marketing_accounts to anum_maintenance" in upgrade
+    assert "grant select (id, tenant_id, workspace_id, status, scheduled_at, next_attempt_at) " in upgrade
+    assert "text" not in upgrade.split("grant select (id, tenant_id, workspace_id, status", 1)[1].split(")", 1)[0]
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "add_column" not in upgrade
+
+
+def test_chat_cards_migration_adds_one_nullable_column() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0047_chat_cards.py").read_text(encoding="utf-8")
+    assert 'revision = "0047_chat_cards"' in revision_text
+    assert len("0047_chat_cards") <= 32
+    assert 'down_revision = "0040_marketing"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0047_chat_cards.py"]
+    assert not [path for path in others if 'down_revision = "0040_marketing"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # One nullable column the previous release never reads or writes.
+    assert upgrade.count("op.add_column(") == 1 and "nullable=true" in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade and "nullable=false" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+
+
+def test_task_planning_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0048_task_planning.py").read_text(encoding="utf-8")
+    assert 'revision = "0048_task_planning"' in revision_text and len("0048_task_planning") <= 32
+    assert 'down_revision = "0047_chat_cards"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0048_task_planning.py"]
+    assert not [path for path in others if 'down_revision = "0047_chat_cards"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Nullable columns only: the previous release keeps inserting tasks without them.
+    assert upgrade.count("op.add_column(") == 2 and upgrade.count("nullable=true") == 2
+    assert "drop" not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_agent_profiles_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0041_agent_profiles.py").read_text(encoding="utf-8")
+    assert 'revision = "0041_agent_profiles"' in revision_text
+    assert len("0041_agent_profiles") <= 32
+    assert 'down_revision = "0048_task_planning"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0041_agent_profiles.py"]
+    assert not [path for path in others if 'down_revision = "0048_task_planning"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2
+    assert upgrade.count("_force_rls(") == 2
+    assert "enable row level security" in revision_text and "force row level security" in revision_text
+    assert "using (" in revision_text and "with check (" in revision_text
+    assert "current_setting('anum.user_id', true)" in revision_text
+    assert "sharing = 'workspace'" in revision_text
+    # New columns are nullable and the index is built without blocking writes.
+    assert 'op.add_column("tasks", sa.column("agent_id", sa.string(80), nullable=true))' in upgrade
+    assert 'op.add_column("conversations", sa.column("agent_id", sa.string(80), nullable=true))' in upgrade
+    assert "create index concurrently if not exists ix_tasks_scope_agent" in upgrade and "autocommit_block" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+
+
+def test_rotation_retention_migration_is_expand_only_with_narrow_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0050_rotation_retention.py").read_text(encoding="utf-8")
+    assert 'revision = "0050_rotation_retention"' in revision_text
+    assert len("0050_rotation_retention") <= 32
+    assert 'down_revision = "0041_agent_profiles"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0050_rotation_retention.py"]
+    assert not [path for path in others if 'down_revision = "0041_agent_profiles"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # One nullable column, column grants of ids, scope and age only, five select-only policies.
+    assert "nullable=true" in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    grants = [line for line in upgrade.splitlines() if "grant select" in line]
+    assert [line for line in grants if "(tenant_id, workspace_id, created_at) on whatsapp_conversations" in line]
+    assert [line for line in grants if "(id, tenant_id, workspace_id) on commerce_customers" in line]
+    assert all("anum_maintenance" in line and "ciphertext" not in line and "name" not in line for line in grants)
+    assert upgrade.count("for select to anum_maintenance") == 5
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade

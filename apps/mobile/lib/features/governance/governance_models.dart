@@ -20,7 +20,6 @@ const organizationReadOnlyNotice =
     'this workspace is not enough. Ask your organization administrator to make the '
     'change, or to have the org_admin role granted to you in your identity provider.';
 
-
 class PolicyPack {
   const PolicyPack(
       {required this.id,
