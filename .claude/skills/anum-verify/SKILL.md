@@ -10,7 +10,7 @@ Pick the rows that match the changed paths (`git diff --name-only origin/main...
 | Changed path | Commands |
 |---|---|
 | `README.md`, `docs/**` | `pnpm docs:check` |
-| `packages/contracts/**`, `apps/web/**` | `pnpm install && pnpm check && pnpm build` |
+| `packages/contracts/**`, `apps/web/**` | `pnpm install && pnpm install --frozen-lockfile && pnpm check && pnpm build` (CI installs frozen: commit the lockfile with any `package.json` change) |
 | `apps/web/**` (UI behaviour) | `pnpm test:e2e` (Playwright; Chromium is preinstalled in cloud sessions) |
 | `services/api/**` | `python -m pip install -e "services/api[test]" && python -m pytest services/api -m "not database"` |
 | `services/api/migrations/**`, `services/api/anum_api/db/**` | Start Postgres (`docker compose -f infra/docker/compose.yaml up -d postgres`), then in `services/api`: `python -m alembic upgrade head`, then `ANUM_TEST_DATABASE_URL=postgresql+psycopg://anum:anum@localhost:5432/anum python -m pytest services/api -m database` |

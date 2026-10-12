@@ -54,6 +54,8 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('invitation=')) return 'members';
   if (id.startsWith('meetings?')) return 'meetings';
   if (id === 'privacy' || id === 'language' || id === 'appearance' || id === 'notifications') return 'settings';
+  // Connection setup lives at the top of Integrations (docs/integrations-setup.md).
+  if (id === 'connections') return 'integrations';
   // A report or collection opened by link (docs/reports.md, docs/knowledge-base.md).
   if (id.startsWith('reports/')) return 'reports';
   if (id.startsWith('knowledge/')) return 'knowledge';
