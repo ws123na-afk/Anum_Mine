@@ -36,7 +36,7 @@
 .voiceOrbBlob.b3 { animation: voiceDrift 13s ease-in-out -6s infinite; background: radial-gradient(circle at 50% 70%, var(--d-rose), transparent 58%); }
 .orb3d { pointer-events: none; position: absolute; }
 /* The 3D scene draws its own rings and halo; the CSS ones stay for the reduced-motion fallback. */
-.voiceOrb:has(.orb3d) .voiceOrbHalo, .voiceOrb:has(.orb3d) .voiceOrbGlow { display: none; }
+.voiceOrb:has(.orb3d[data-ready]) .voiceOrbHalo, .voiceOrb:has(.orb3d[data-ready]) .voiceOrbGlow { display: none; }
 .orb3d canvas { display: block; height: 100% !important; width: 100% !important; }
 .voiceOrbIcon { color: #fff; display: grid; inset: 0; opacity: 0; place-items: center; position: absolute; transition: opacity 160ms var(--d-ease); }
 .voiceOrbIcon svg { filter: drop-shadow(0 1px 8px rgba(11, 16, 32, .6)); }

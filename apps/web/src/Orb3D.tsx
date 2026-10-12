@@ -335,6 +335,9 @@ export function Orb3D({ state, alert = false, level, size, fallback }: Orb3DProp
   if (mode === 'fallback') return <>{fallback}</>;
   const canvasSize = Math.round(size * ORB_CANVAS_SCALE);
   const offset = (size - canvasSize) / 2;
-  return <div ref={host} className="orb3d" data-orb-state={state} data-orb-alert={alert ? 'true' : undefined}
-    style={{ width: canvasSize, height: canvasSize, left: offset, top: offset }} aria-hidden="true" />;
+  // While the lazy renderer chunk loads, the fallback keeps the control visible; the CSS
+  // halo and glow are hidden only once the canvas is ready (`data-ready`, voice.css).
+  return <>{mode === 'loading' && fallback}<div ref={host} className="orb3d" data-orb-state={state} data-orb-alert={alert ? 'true' : undefined}
+    data-ready={mode === '3d' ? 'true' : undefined}
+    style={{ width: canvasSize, height: canvasSize, left: offset, top: offset }} aria-hidden="true" /></>;
 }
