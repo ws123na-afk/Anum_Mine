@@ -633,3 +633,27 @@ def test_the_durable_path_re_evaluates_and_records_like_inline() -> None:
     asyncio.run(runtime.finish_execution(task, run2, context, call))
     (action,) = autonomy_memory_store.list_actions(context, ActionFilter(), limit=5)
     assert action.tool == "email.archive" and action.undo_token and action.run_id == run2.id
+
+
+def test_every_state_changing_autonomy_route_is_audited() -> None:
+    from audit_probe import AuditProbe
+
+    probe = AuditProbe(client, "autonomy")
+    base = "/api/v1/autonomy"
+    probe.call("PUT", f"{base}/settings", OWNER, json={"approved_templates": ["order_status"]})
+    probe.call("PUT", f"{base}/guardrails", ORG_ADMIN, json={"blocked_recipients": ["+966500000099"]})
+    rule = probe.call("POST", f"{base}/rules", OWNER, json={"tool": "email.archive", "level": "ask_always"}).json()
+    probe.call("DELETE", f"{base}/rules/{rule['id']}", OWNER)
+
+    for template in ("shipping", "promo"):
+        for _ in range(3):
+            _approve(_run(ToolCall(name="whatsapp.send_template", arguments={"to": "+966500000001", "template": template})))
+    proposals = {item["template"]: item for item in client.get(f"{base}/proposals", headers=OWNER).json()}
+    probe.call("POST", f"{base}/proposals/{proposals['shipping']['id']}/accept", OWNER)
+    probe.call("POST", f"{base}/proposals/{proposals['promo']['id']}/decline", OWNER)
+
+    item = _archived()
+    probe.secrets.append(item["undo_token"])
+    probe.call("POST", f"{base}/actions/{item['id']}/undo", OWNER, json={"undo_token": item["undo_token"]})
+    probe.call("POST", f"{base}/actions/{item['id']}/tighten", MEMBER)
+    probe.assert_covered()

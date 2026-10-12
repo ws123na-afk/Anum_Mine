@@ -23,6 +23,9 @@ from anum_api.retrieval import IndexStatus, RetrievalSource, SourceType, memory_
 from anum_api.schemas import TenantContext, new_id, utc_now
 from anum_api.settings import settings
 from anum_api.voice import voice_store
+from anum_api.autonomy import autonomy_memory_store
+from anum_api.email_inbox import email_backend
+from anum_api.whatsapp_store import whatsapp_store
 
 client = TestClient(app)
 
@@ -53,6 +56,9 @@ def setup_function() -> None:
     push_device_store.clear()
     file_store.clear()
     learning_data.clear()
+    email_backend.clear()
+    whatsapp_store.clear()
+    autonomy_memory_store.clear()
 
 
 def _context(hdrs: dict[str, str]) -> TenantContext:
@@ -167,6 +173,9 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "favorites": 0,
         "private_collections": 0,
         "private_reports": 0,
+        "email_mailboxes": 0,
+        "email_messages": 0,
+        "email_drafts": 0,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -344,6 +353,9 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "favorites": 0,
         "private_collections": 0,
         "private_reports": 0,
+        "email_mailboxes": 0,
+        "email_messages": 0,
+        "email_drafts": 0,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]
@@ -405,6 +417,7 @@ def test_build_export_is_valid_json_with_every_section() -> None:
         "identity", "conversations", "memories", "voice_sessions", "tasks_created",
         "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "learning", "commands", "library", "files_uploaded",
         "meetings_imported", "meeting_connections",
+        "email", "whatsapp_messages_sent", "autonomy_actions_requested",
     }
     assert parsed["notification_preferences"] is None
     assert parsed["user_preferences"] is None
@@ -417,3 +430,129 @@ def test_the_export_file_name_is_readable_by_the_web_client() -> None:
     response = client.get("/api/v1/privacy/export", headers={**ME, "origin": "http://localhost:5173"})
     assert response.status_code == 200
     assert "content-disposition" in response.headers["access-control-expose-headers"].lower()
+
+
+# -- email, WhatsApp and autonomy (docs/privacy.md#what-is-included) -----------------------
+
+
+def _seed_modules(hdrs: dict[str, str], label: str) -> None:
+    """Mailboxes (one private, one shared), drafts, synced metadata, a WhatsApp send, an autonomous action."""
+    from anum_api.autonomy import AutonomousAction
+    from anum_api.email_inbox import EmailAccount, EmailDraft, EmailMessage
+    from anum_api.secret_box import secret_cipher
+    from anum_api.whatsapp_store import Message
+
+    context, now = _context(hdrs), utc_now()
+    scope = {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id}
+    user = context.user_id
+    with email_backend.lock:
+        for suffix, visibility, provider in (("private", "private", "gmail"), ("shared", "workspace", "outlook"), ("other", "private", "zoho")):
+            account_id = f"mbox_{label}_{suffix}"
+            email_backend.accounts[account_id] = EmailAccount(
+                id=account_id, **scope, provider=provider, address=f"{label}.{suffix}@example.com",
+                connected_by=user, visibility=visibility, access_token_enc="ciphertext-placeholder",
+                refresh_token_enc=secret_cipher().encrypt("example-refresh") if suffix != "other" else None,
+                sync_cursor="cursor-placeholder",
+                created_at=now, updated_at=now,
+            )
+        email_backend.messages[f"msg_{label}"] = EmailMessage(
+            id=f"msg_{label}", **scope, account_id=f"mbox_{label}_private", provider_message_id="p1", thread_id="t1",
+            subject=f"{label} private subject", received_at=now, created_at=now, updated_at=now,
+        )
+        email_backend.messages[f"msg_{label}_shared"] = EmailMessage(
+            id=f"msg_{label}_shared", **scope, account_id=f"mbox_{label}_shared", provider_message_id="p2", thread_id="t2",
+            subject=f"{label} shared subject", received_at=now, created_at=now, updated_at=now,
+        )
+        for draft_id, account, status in (
+            ("unsent", "shared", "draft"),
+            ("sent", "shared", "sent"),
+            ("waiting", "shared", "pending_approval"),
+            ("private", "private", "sent"),
+        ):
+            email_backend.drafts[f"draft_{label}_{draft_id}"] = EmailDraft(
+                id=f"draft_{label}_{draft_id}", **scope, account_id=f"mbox_{label}_{account}", body=f"{label} {draft_id} body",
+                status=status, created_by=user, created_at=now, updated_at=now,
+            )
+    with whatsapp_store._lock:
+        whatsapp_store._messages[f"wam_{label}"] = Message(
+            id=f"wam_{label}", **scope, conversation_id="wcv_x", direction="outbound", kind="text",
+            body=f"{label} whatsapp reply", status="sent", sent_by=user, timestamp=now, created_at=now, updated_at=now,
+        )
+        whatsapp_store._messages[f"wam_{label}_in"] = Message(
+            id=f"wam_{label}_in", **scope, conversation_id="wcv_x", direction="inbound", kind="text",
+            body="customer text", status="received", timestamp=now, created_at=now, updated_at=now,
+        )
+    with autonomy_memory_store._lock:
+        autonomy_memory_store.actions[f"act_{label}"] = AutonomousAction(
+            id=f"act_{label}", **scope, task_id="task_x", run_id="run_x", tool="email.send", category="email",
+            action_kind="send", level="act_and_notify", pattern_key="email.send:x", summary=f"{label} sent a reply",
+            requested_by=user, undo_token="undo-token-placeholder", undo_arguments={"draft_id": "x"}, created_at=now,
+        )
+
+
+class _FakeProvider:
+    def __init__(self, provider: str) -> None:
+        self.provider = provider
+
+    async def revoke(self, token: str) -> bool:
+        return self.provider == "gmail"
+
+
+def test_email_whatsapp_and_autonomy_are_counted_exported_and_deleted(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import email_inbox
+
+    revoked: list[str] = []
+
+    def fake_client(provider: str) -> _FakeProvider:
+        revoked.append(str(provider))
+        return _FakeProvider(str(provider))
+
+    monkeypatch.setattr(email_inbox, "provider_client", fake_client)
+    _seed_modules(ME, "mine")
+    _seed_modules(COLLEAGUE, "colleague")
+    _seed_modules(OTHER_TENANT, "foreign")
+
+    summary = client.get("/api/v1/privacy", headers=ME).json()
+    assert {key: summary["private"][key] for key in ("email_mailboxes", "email_messages", "email_drafts")} == {
+        "email_mailboxes": 2, "email_messages": 1, "email_drafts": 2,
+    }
+    assert {key: summary["shared"][key] for key in (
+        "email_mailboxes_connected", "email_drafts_sent", "whatsapp_messages_sent", "autonomy_actions_requested"
+    )} == {"email_mailboxes_connected": 1, "email_drafts_sent": 2, "whatsapp_messages_sent": 1, "autonomy_actions_requested": 1}
+
+    response = client.get("/api/v1/privacy/export", headers=ME)
+    export = json.loads(response.content)
+    assert len(export["email"]["mailboxes_connected"]) == 3
+    assert not {"access_token_enc", "refresh_token_enc", "sync_cursor"} & set(export["email"]["mailboxes_connected"][0])
+    assert sorted(d["id"] for d in export["email"]["drafts_written"]) == [
+        "draft_mine_private", "draft_mine_sent", "draft_mine_unsent", "draft_mine_waiting",
+    ]
+    assert [m["subject"] for m in export["email"]["private_mailbox_messages"]] == ["mine private subject"]
+    assert [m["body"] for m in export["whatsapp_messages_sent"]] == ["mine whatsapp reply"]
+    (action,) = export["autonomy_actions_requested"]
+    assert action["summary"] == "mine sent a reply" and "undo_token" not in action and "undo_arguments" not in action
+    text = response.content.decode()
+    assert "example-refresh" not in text and "cursor-placeholder" not in text
+    assert "ciphertext-placeholder" not in text and "undo-token-placeholder" not in text and "customer text" not in text
+    assert "colleague" not in text and "foreign" not in text
+
+    deleted = client.post("/api/v1/privacy/delete", headers=ME, json={"confirm": "DELETE MY DATA"}).json()
+    assert (deleted["deleted"]["email_mailboxes"], deleted["deleted"]["email_messages"], deleted["deleted"]["email_drafts"]) == (2, 1, 2)
+    assert deleted["kept"]["email_drafts_sent"] == 2 and deleted["kept"]["whatsapp_messages_sent"] == 1
+    # Gmail revoked; the Zoho mailbox had no refresh token, so the caller is told what to do.
+    assert revoked == ["gmail"]
+    (note,) = deleted["notes"]
+    assert "mine.other@example.com" in note and "Zoho" in note
+    assert sorted(email_backend.accounts) == [
+        "mbox_colleague_other", "mbox_colleague_private", "mbox_colleague_shared",
+        "mbox_foreign_other", "mbox_foreign_private", "mbox_foreign_shared", "mbox_mine_shared",
+    ]
+    assert "msg_mine" not in email_backend.messages and "msg_mine_shared" in email_backend.messages
+    assert {d for d in email_backend.drafts if d.startswith("draft_mine")} == {"draft_mine_sent", "draft_mine_waiting"}
+    assert "wam_mine" in whatsapp_store._messages and "act_mine" in autonomy_memory_store.actions
+    after = client.get("/api/v1/privacy", headers=ME).json()
+    assert set(after["private"].values()) == {0}
+    assert client.get("/api/v1/privacy", headers=COLLEAGUE).json()["private"]["email_mailboxes"] == 2
+    (record,) = [r for r in store.audit_records if r.action == "privacy.delete"]
+    assert record.metadata["mailboxes_revoked_at_provider"] == 1
+    assert "mine" not in json.dumps(dict(record.metadata), default=str)

@@ -452,3 +452,32 @@ def test_api_task_create_step_creates_a_task_in_the_workspace(tmp_path: Path, mo
     assert finished["steps"][0]["output"]["result"]
     events = client.get("/api/v1/events", headers=scope).json()
     assert {"task.created", "automation_run.completed"} <= {event["type"] for event in events}
+
+
+def test_every_state_changing_automation_route_is_audited(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from audit_probe import AuditProbe
+
+    from anum_api.store import store
+
+    store.audit_records.clear()
+    probe = AuditProbe(_client(tmp_path, monkeypatch), "automation")
+    owner, base = headers(), "/api/v1/automation"
+    workflow = probe.call("POST", f"{base}/workflows", owner, json=body("Nightly", "notify", "pause")).json()
+    probe.call("PUT", f"{base}/workflows/{workflow['id']}", owner, json=body("Nightly v2", "notify", "pause"))
+    probe.call("POST", f"{base}/workflows/{workflow['id']}/disable", owner)
+    probe.call("POST", f"{base}/workflows/{workflow['id']}/enable", owner)
+    schedule = probe.call(
+        "POST", f"{base}/schedules", owner, json={"workflow_id": workflow["id"], "name": "Every morning", "cron": "0 8 * * *"}
+    ).json()
+    probe.call("PUT", f"{base}/schedules/{schedule['id']}", owner, json={"cron": "0 9 * * *"})
+    probe.call("POST", f"{base}/schedules/{schedule['id']}/disable", owner)
+    probe.call("DELETE", f"{base}/schedules/{schedule['id']}", owner)
+    paused = probe.call("POST", f"{base}/workflows/{workflow['id']}/runs", owner).json()
+    assert paused["status"] == "paused"
+    probe.call("POST", f"{base}/runs/{paused['id']}/resume", owner)
+    second = probe.call("POST", f"{base}/workflows/{workflow['id']}/runs", owner).json()
+    probe.call("POST", f"{base}/runs/{second['id']}/cancel", owner)
+    retried = probe.call("POST", f"{base}/runs/{second['id']}/retry", owner).json()
+    probe.call("POST", f"{base}/runs/{retried['id']}/cancel", owner)
+    probe.call("DELETE", f"{base}/workflows/{workflow['id']}", owner)
+    probe.assert_covered()

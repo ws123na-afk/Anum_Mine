@@ -211,6 +211,9 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "favorites": 0,
         "private_collections": 0,
         "private_reports": 0,
+        "email_mailboxes": 0,
+        "email_messages": 0,
+        "email_drafts": 0,
     }
     assert summary["shared"]["tasks_created"] == 1
 
@@ -336,3 +339,110 @@ def test_export_audit_is_written_in_the_users_workspace(client: TestClient, app_
     assert [(r.tenant_id, r.workspace_id, r.actor, r.outcome) for r in rows] == [(TENANT_A, WORKSPACE_A, "user_me", "success")]
     assert rows[0].metadata["sections"]["conversations"] == 1
     assert "mine" not in json.dumps(rows[0].metadata)
+
+
+# -- email, WhatsApp and autonomy rows (migrations 0033 to 0035) ----------------------------
+
+
+def _seed_modules(factory: sessionmaker[Session], hdrs: dict[str, str], label: str) -> None:
+    from anum_api.autonomy import AutonomousAction
+    from anum_api.db.autonomy_repository import SqlAlchemyAutonomyStore
+    from anum_api.db.email_repository import SqlAlchemyEmailStore
+    from anum_api.db.session import set_tenant_context
+    from anum_api.db.whatsapp_repository import SqlAlchemyWhatsAppStore
+    from anum_api.email_inbox import EmailAccount, EmailDraft, EmailMessage
+    from anum_api.secret_box import SecretCipher
+    from anum_api.whatsapp_store import Conversation, Message
+
+    context, now = _context(hdrs), utc_now()
+    scope = {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id}
+    user = context.user_id
+    with factory() as session:
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=user)
+        email = SqlAlchemyEmailStore(session, context)
+        for suffix, visibility in (("private", "private"), ("shared", "workspace")):
+            email.add_account(
+                EmailAccount(
+                    id=f"mbox_{label}_{suffix}", **scope, provider="zoho", address=f"{label}.{suffix}@example.com",
+                    connected_by=user, visibility=visibility, created_at=now, updated_at=now,
+                )
+            )
+        email.upsert_messages([
+            EmailMessage(
+                id=f"msg_{label}_{suffix}", **scope, account_id=f"mbox_{label}_{suffix}", provider_message_id=f"p_{suffix}",
+                thread_id="t1", subject=f"{label} {suffix} subject", received_at=now, created_at=now, updated_at=now,
+            )
+            for suffix in ("private", "shared")
+        ])
+        for draft_id, account, status in (("unsent", "shared", "draft"), ("sent", "shared", "sent"), ("private", "private", "draft")):
+            email.add_draft(
+                EmailDraft(
+                    id=f"draft_{label}_{draft_id}", **scope, account_id=f"mbox_{label}_{account}", body=f"{label} body",
+                    status=status, created_by=user, created_at=now, updated_at=now,
+                )
+            )
+        whatsapp = SqlAlchemyWhatsAppStore(session, context, SecretCipher.from_settings())
+        contact = whatsapp.upsert_contact(f"9665{len(label)}{label[:3].encode().hex()}", "Customer", now, f"wac_{label}")
+        whatsapp.add_conversation(
+            Conversation(
+                id=f"wcv_{label}", **scope, contact_id=contact.id, wa_id=contact.wa_id, last_message_at=now,
+                created_at=now, updated_at=now,
+            )
+        )
+        whatsapp.add_message(
+            Message(
+                id=f"wam_{label}", **scope, conversation_id=f"wcv_{label}", wamid=f"wamid.{label}", direction="outbound",
+                kind="text", body=f"{label} whatsapp reply", status="sent", sent_by=user, timestamp=now,
+                created_at=now, updated_at=now,
+            )
+        )
+        SqlAlchemyAutonomyStore(session).add_action(
+            AutonomousAction(
+                id=f"act_{label}", **scope, task_id="task_x", run_id="run_x", tool="email.send", category="email",
+                action_kind="send", level="act_and_notify", pattern_key="email.send:x", summary=f"{label} sent a reply",
+                requested_by=user, undo_token="undo-token-placeholder", created_at=now,
+            )
+        )
+        session.commit()
+
+
+def _module_rows(engine: Engine) -> dict[str, list[str]]:
+    with engine.connect() as connection:
+        return {
+            table: sorted(connection.execute(text(f"select id from {table}")).scalars())  # nosec B608 - fixed names
+            for table in ("email_accounts", "email_messages", "email_drafts", "whatsapp_messages", "autonomy_actions")
+        }
+
+
+def test_email_whatsapp_and_autonomy_under_rls(
+    client: TestClient, app_factory: sessionmaker[Session], database_engine: Engine
+) -> None:
+    _seed_modules(app_factory, ME, "mine")
+    _seed_modules(app_factory, COLLEAGUE, "colleague")
+    _seed_modules(app_factory, OTHER_TENANT, "foreign")
+
+    summary = client.get("/api/v1/privacy", headers=ME).json()
+    assert (summary["private"]["email_mailboxes"], summary["private"]["email_messages"], summary["private"]["email_drafts"]) == (1, 1, 2)
+    assert (
+        summary["shared"]["email_mailboxes_connected"], summary["shared"]["email_drafts_sent"],
+        summary["shared"]["whatsapp_messages_sent"], summary["shared"]["autonomy_actions_requested"],
+    ) == (1, 1, 1, 1)
+
+    export = client.get("/api/v1/privacy/export", headers=ME)
+    body = json.loads(export.content)
+    assert [m["subject"] for m in body["email"]["private_mailbox_messages"]] == ["mine private subject"]
+    assert [m["body"] for m in body["whatsapp_messages_sent"]] == ["mine whatsapp reply"]
+    assert "undo_token" not in body["autonomy_actions_requested"][0]
+    assert "colleague" not in export.text and "foreign" not in export.text and "undo-token-placeholder" not in export.text
+
+    response = client.post("/api/v1/privacy/delete", headers=ME, json={"confirm": "DELETE MY DATA"})
+    assert response.status_code == 200, response.text
+    assert response.json()["deleted"]["email_drafts"] == 2
+    rows = _module_rows(database_engine)
+    assert rows["email_accounts"] == [
+        "mbox_colleague_private", "mbox_colleague_shared", "mbox_foreign_private", "mbox_foreign_shared", "mbox_mine_shared",
+    ]
+    assert "msg_mine_private" not in rows["email_messages"] and "msg_mine_shared" in rows["email_messages"]
+    assert [d for d in rows["email_drafts"] if d.startswith("draft_mine")] == ["draft_mine_sent"]
+    assert "wam_mine" in rows["whatsapp_messages"] and "act_mine" in rows["autonomy_actions"]
+    assert len([d for d in rows["email_drafts"] if d.startswith("draft_colleague")]) == 3

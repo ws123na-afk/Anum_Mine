@@ -945,3 +945,38 @@ def test_summary_tabs_filter_urgent_other_and_replied() -> None:
     assert ids(replied="true") == [replied_id]
     assert replied_id not in ids(replied="false")
     assert client.get("/api/v1/email/messages", headers=VIEWER, params={"urgent": "true"}).status_code == 403
+
+
+
+
+def test_every_state_changing_email_route_is_audited_without_tokens_or_text(fake: FakeMail) -> None:
+    from audit_probe import AuditProbe
+
+    probe = AuditProbe(client, "email", secrets=["gmail-access-1", "gmail-refresh-1", "example-code"])
+    started = probe.call("POST", "/api/v1/email/oauth/gmail/start", OWNER, json={"visibility": "workspace"})
+    query = parse_qs(urlsplit(started.json()["authorization_url"]).query)
+    back = client.get("/api/v1/email/oauth/callback", params={"state": query["state"][0], "code": "example-code"}, follow_redirects=False)
+    nonce = parse_qs(urlsplit(back.headers["location"]).query)["email_connect"][0]
+    account = probe.call("POST", "/api/v1/email/oauth/complete", OWNER, json={"connection": nonce}).json()
+    account_id = account["id"]
+    probe.call("POST", f"/api/v1/email/accounts/{account_id}/sync", MEMBER)
+    first = next(m for m in messages()["items"] if m["subject"] == "Question about tyres")
+    probe.call("POST", f"/api/v1/email/messages/{first['id']}/read", MEMBER, json={"read": True})
+    probe.call("POST", f"/api/v1/email/messages/{first['id']}/analyze", MEMBER)
+    instructions, body = "Mention the private delivery slot", "Hello Sara, the private reply text."
+    draft = probe.call("POST", f"/api/v1/email/messages/{first['id']}/drafts", MEMBER, sent=[instructions], json={"instructions": instructions}).json()["draft"]
+    probe.call("PATCH", f"/api/v1/email/drafts/{draft['id']}", MEMBER, sent=[body, "team@shop.example"], json={"body": body, "cc": ["team@shop.example"]})
+    probe.call("POST", f"/api/v1/email/drafts/{draft['id']}/send-approval", MEMBER)
+    probe.call("DELETE", f"/api/v1/email/drafts/{draft['id']}", MEMBER)
+    probe.call("POST", f"/api/v1/email/messages/{first['id']}/archive", OWNER)
+    probe.call("DELETE", f"/api/v1/email/accounts/{account_id}", OWNER)
+    probe.assert_covered()
+
+
+def test_message_bodies_are_never_stored() -> None:
+    """Retention (docs/privacy.md): bodies are fetched from the provider on demand, never kept."""
+    from anum_api.db.email_repository import EmailMessageRecord
+    from anum_api.email_inbox import EmailMessage
+
+    stored = set(EmailMessage.model_fields) | {column.name for column in EmailMessageRecord.__table__.columns}
+    assert not {"body", "body_text", "body_html", "html", "content", "raw"} & stored

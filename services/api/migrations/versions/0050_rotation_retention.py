@@ -33,14 +33,14 @@ Grant ``anum_maintenance`` to the API login ``WITH INHERIT FALSE, SET TRUE`` (as
 Expand only: one nullable column, two column grants and five policies; the previous
 release ignores all of them.
 
-Chained after ``0047_chat_cards`` (renumbered from a parallel branch, CLAUDE.md).
+Chained after ``0041_agent_profiles`` (renumbered from a parallel branch, CLAUDE.md).
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0050_rotation_retention"
-down_revision = "0047_chat_cards"
+down_revision = "0041_agent_profiles"
 branch_labels = None
 depends_on = None
 

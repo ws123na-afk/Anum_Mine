@@ -362,7 +362,11 @@ async def set_learning(
 
 
 @router.post("/feedback", response_model=FeedbackResult)
-async def record_feedback(payload: FeedbackCreate, context: TenantContext = Depends(tenant_context)) -> FeedbackResult:
+async def record_feedback(
+    payload: FeedbackCreate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> FeedbackResult:
     """Thumbs up or down on an answer or draft, or a draft and what the user sent instead.
 
     A new rating of the same subject replaces the previous one. Nothing is stored while
@@ -397,6 +401,8 @@ async def record_feedback(payload: FeedbackCreate, context: TenantContext = Depe
         store.add_signal(signal)
         if signal.kind in DRAFT_KINDS:
             rederive(store)
+    # Ids and kinds only: the texts stay in the caller's private learning data.
+    _audit(repository, context, "learning.feedback_recorded", signal.id, {"kind": signal.kind.value, "surface": signal.surface.value})
     return FeedbackResult(recorded=True, state=state, signal=_signal_view(signal, preview=True))
 
 
@@ -457,7 +463,11 @@ async def get_signal(signal_id: str, context: TenantContext = Depends(tenant_con
 
 
 @router.delete("/signals/{signal_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_signal(signal_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+async def delete_signal(
+    signal_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Response:
     """Forget one signal; deleting a draft re-derives the style without it."""
     _member(context)
     with open_learning_store(context) as store:
@@ -466,6 +476,7 @@ async def delete_signal(signal_id: str, context: TenantContext = Depends(tenant_
             raise _not_found("Signal")
         if signal.kind in DRAFT_KINDS:
             rederive(store)
+    _audit(repository, context, "learning.signal_deleted", signal_id, {"kind": signal.kind.value})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -480,7 +491,11 @@ async def get_profile(context: TenantContext = Depends(tenant_context)) -> Profi
 
 
 @router.put("/profile", response_model=ProfileView)
-async def set_profile(payload: StyleOverrides, context: TenantContext = Depends(tenant_context)) -> ProfileView:
+async def set_profile(
+    payload: StyleOverrides,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> ProfileView:
     """Replace the caller's overrides; a field left out (or null) keeps what was learned."""
     _member(context)
     with open_learning_store(context) as store:
@@ -488,7 +503,9 @@ async def set_profile(payload: StyleOverrides, context: TenantContext = Depends(
         profile.overrides = payload
         profile.updated_at = utc_now()
         store.save_profile(profile)
-        return _profile_view(profile)
+    # Which fields the caller set, never their values.
+    _audit(repository, context, "learning.profile_updated", context.user_id, {"fields": sorted(payload.model_dump(exclude_none=True))})
+    return _profile_view(profile)
 
 
 @router.post("/profile/reset", response_model=ResetResult)
@@ -527,19 +544,28 @@ async def list_preferences(
 
 
 @router.post("/preferences", response_model=LearnedPreference, status_code=status.HTTP_201_CREATED)
-async def create_preference(payload: PreferenceWrite, context: TenantContext = Depends(tenant_context)) -> LearnedPreference:
+async def create_preference(
+    payload: PreferenceWrite,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> LearnedPreference:
     _member(context)
     now = utc_now()
     preference = LearnedPreference(id=new_id("pref"), scope=payload.scope, text=payload.text, created_at=now, updated_at=now)
     with open_learning_store(context) as store:
         if store.count_preferences() >= 200:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You have 200 preferences. Delete some first.")
-        return store.save_preference(preference)
+        saved = store.save_preference(preference)
+    _audit(repository, context, "learning.preference_created", saved.id, {"scope": str(saved.scope).split(":", 1)[0]})
+    return saved
 
 
 @router.put("/preferences/{preference_id}", response_model=LearnedPreference)
 async def update_preference(
-    preference_id: str, payload: PreferenceWrite, context: TenantContext = Depends(tenant_context)
+    preference_id: str,
+    payload: PreferenceWrite,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
 ) -> LearnedPreference:
     _member(context)
     with open_learning_store(context) as store:
@@ -547,15 +573,22 @@ async def update_preference(
         if preference is None:
             raise _not_found("Preference")
         preference.scope, preference.text, preference.updated_at = payload.scope, payload.text, utc_now()
-        return store.save_preference(preference)
+        saved = store.save_preference(preference)
+    _audit(repository, context, "learning.preference_updated", saved.id, {"scope": str(saved.scope).split(":", 1)[0]})
+    return saved
 
 
 @router.delete("/preferences/{preference_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_preference(preference_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+async def delete_preference(
+    preference_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Response:
     _member(context)
     with open_learning_store(context) as store:
         if not store.delete_preference(preference_id):
             raise _not_found("Preference")
+    _audit(repository, context, "learning.preference_deleted", preference_id, {})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -650,6 +683,7 @@ async def detect_my_routines(
             store.save_routine(routine)
             detected += existing is None
         items = store.list_routines()
+    _audit(repository, context, "learning.routines_detected", context.user_id, {"detected": int(detected), "candidates": len(candidates)})
     return RoutineList(items=items, detected=detected, state=LearningState.ON)
 
 
@@ -753,12 +787,17 @@ async def dismiss_routine(
 
 
 @router.delete("/routines/{routine_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_routine(routine_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+async def delete_routine(
+    routine_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Response:
     """Forget a routine; it may be proposed again if the pattern continues."""
     _member(context)
     with open_learning_store(context) as store:
         if not store.delete_routine(routine_id):
             raise _not_found("Routine")
+    _audit(repository, context, "learning.routine_deleted", routine_id, {})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -871,7 +910,9 @@ async def refresh_note(
     _member(context)
     with open_learning_store(context) as store:
         _require_on(context, store)
-    return _generate_note(context, repository, utc_now())
+    note = _generate_note(context, repository, utc_now())
+    _audit(repository, context, "learning.note_refreshed", context.user_id, {})
+    return note
 
 
 def _suggestion_or_404(store: LearningStore, suggestion_id: str) -> Suggestion:
@@ -942,11 +983,16 @@ async def apply_suggestion(
 
 
 @router.post("/suggestions/{suggestion_id}/dismiss", response_model=SuggestionView)
-async def dismiss_suggestion(suggestion_id: str, context: TenantContext = Depends(tenant_context)) -> SuggestionView:
+async def dismiss_suggestion(
+    suggestion_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> SuggestionView:
     _member(context)
     with open_learning_store(context) as store:
         suggestion = _suggestion_or_404(store, suggestion_id)
         now = utc_now()
         suggestion.status, suggestion.decided_at, suggestion.updated_at = SuggestionStatus.DISMISSED, now, now
         store.save_suggestion(suggestion)
+    _audit(repository, context, "learning.suggestion_dismissed", suggestion.id, {})
     return _suggestion_view(suggestion, context)

@@ -83,8 +83,9 @@ from .automation_triggers import (
 )
 from .hardening import InMemoryTokenBucket, client_key
 from .authorization import Permission
-from .dependencies import require_permission, tenant_context
+from .dependencies import repository_context, require_permission, tenant_context
 from .events import CanonicalEventName, create_event
+from .repository import AnumRepository
 from .schemas import ApprovalStatus, DomainEvent, Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import ScopeNotProvisionedError
 from .settings import settings
@@ -2645,12 +2646,25 @@ def delete_schedule(schedule_id: str, context: TenantContext = Depends(tenant_co
 
 
 @router.post("/workflows/{workflow_id}/runs", response_model=WorkflowRun, status_code=status.HTTP_201_CREATED)
-def start_run(workflow_id: str, context: TenantContext = Depends(tenant_context), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=200)) -> WorkflowRun:
+def start_run(
+    workflow_id: str,
+    context: TenantContext = Depends(tenant_context),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=200),
+    repository: AnumRepository = Depends(repository_context),
+) -> WorkflowRun:
     _require(context, Permission.AUTOMATION_MANAGE)
     with _handled():
         run = current_engine().start(context, workflow_id, idempotency_key)
     dispatch_step_actions([run])
+    _audit_run(repository, context, "automation.run.started", run)
     return run
+
+
+def _audit_run(repository: AnumRepository, context: TenantContext, action: str, run: WorkflowRun, **extra: Any) -> None:
+    """A person started, cancelled, resumed or retried a run (scheduled fires are the scheduler's)."""
+    repository.record_audit(
+        audit(context, action, run.id, {"workflow_id": run.workflow_id, "status": run.status.value, **extra})
+    )
 
 
 @router.get("/runs", response_model=list[WorkflowRun])
@@ -2680,21 +2694,38 @@ def get_run(run_id: str, context: TenantContext = Depends(tenant_context)) -> Wo
 
 
 @router.post("/runs/{run_id}/cancel", response_model=WorkflowRun)
-def cancel_run(run_id: str, context: TenantContext = Depends(tenant_context)) -> WorkflowRun:
+def cancel_run(
+    run_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> WorkflowRun:
     _require(context, Permission.AUTOMATION_MANAGE)
     with _handled():
-        return current_engine().cancel(context, run_id)
+        run = current_engine().cancel(context, run_id)
+    _audit_run(repository, context, "automation.run.cancelled", run)
+    return run
 
 
 @router.post("/runs/{run_id}/resume", response_model=WorkflowRun)
-def resume_run(run_id: str, context: TenantContext = Depends(tenant_context)) -> WorkflowRun:
+def resume_run(
+    run_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> WorkflowRun:
     _require(context, Permission.AUTOMATION_MANAGE)
     with _handled():
-        return current_engine().resume(context, run_id)
+        run = current_engine().resume(context, run_id)
+    _audit_run(repository, context, "automation.run.resumed", run)
+    return run
 
 
 @router.post("/runs/{run_id}/retry", response_model=WorkflowRun, status_code=status.HTTP_201_CREATED)
-def retry_run(run_id: str, context: TenantContext = Depends(tenant_context), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=200)) -> WorkflowRun:
+def retry_run(
+    run_id: str,
+    context: TenantContext = Depends(tenant_context),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=200),
+    repository: AnumRepository = Depends(repository_context),
+) -> WorkflowRun:
     _require(context, Permission.AUTOMATION_MANAGE)
     with _handled():
         selected = current_engine()
@@ -2711,4 +2742,5 @@ def retry_run(run_id: str, context: TenantContext = Depends(tenant_context), ide
         new_signal(SignalKind.RETRY, Surface.AUTOMATION, subject_id=prior.id, metadata={"workflow_id": prior.workflow_id}),
     )
     dispatch_step_actions([retried])
+    _audit_run(repository, context, "automation.run.retried", retried, retry_of=prior.id)
     return retried

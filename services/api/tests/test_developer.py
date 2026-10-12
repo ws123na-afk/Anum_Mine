@@ -1223,3 +1223,30 @@ def test_projects_migration_chains_after_automation_policy_with_forced_rls_and_a
     assert "token" not in source.split("def _carry_over_repository", 1)[1].split("def downgrade", 1)[0].lower().replace(
         "token_source", ""
     ).replace("'environment'", "")
+
+
+def test_every_state_changing_developer_route_is_audited_without_tokens(github: FakeGitHub) -> None:
+    from audit_probe import AuditProbe
+
+    probe = AuditProbe(client, "developer", secrets=[PAT, OTHER_PAT])
+    owner, repo = REPO.split("/")
+    created = probe.call(
+        "POST", "/api/v1/developer/projects", OWNER,
+        json={"name": "ANUM", "github_owner": owner, "github_repo": repo, "token": PAT},
+    ).json()
+    probe.call("PATCH", f"/api/v1/developer/projects/{created['id']}", OWNER, json={"description": "The ANUM app", "token": PAT})
+    probe.call("POST", f"/api/v1/developer/projects/{created['id']}/test", OWNER)
+    del github.files[(WORKFLOW_PATH, "main")]
+    probe.call("POST", f"/api/v1/developer/projects/{created['id']}/install-workflow", OWNER)
+    github.files[(WORKFLOW_PATH, "main")] = workflow_template()
+    text = "Add a dark/light toggle to settings"
+    request = probe.call("POST", "/api/v1/developer/requests", OWNER, sent=[text], json={"text": text}).json()
+    github.start_run(request["id"], status="completed", conclusion="success")
+    github.open_pull(request["id"])
+    github.set_ci("a" * 40, "success", "skipped")
+    probe.call("POST", f"/api/v1/developer/requests/{request['id']}/merge-approval", OWNER)
+    second = _create("Fix the typo on the about page").json()
+    probe.call("POST", f"/api/v1/developer/requests/{second['id']}/cancel", OWNER)
+    spare = add_project("TyrePulse", OTHER_REPO, OTHER_PAT).json()
+    probe.call("DELETE", f"/api/v1/developer/projects/{spare['id']}", OWNER)
+    probe.assert_covered()

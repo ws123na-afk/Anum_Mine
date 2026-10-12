@@ -794,3 +794,21 @@ def test_history_retention_is_a_workspace_choice_with_a_deployment_default(monke
     assert connect(message_retention_days=-1).status_code == 422
     audit = [record for record in store.audit_records if record.action == "whatsapp.account.saved"][-1]
     assert audit.metadata["message_retention_days"] == 0
+
+
+def test_every_state_changing_whatsapp_route_is_audited_without_secrets(meta: FakeMeta) -> None:
+    from audit_probe import AuditProbe
+
+    probe = AuditProbe(client, "whatsapp", secrets=[TOKEN, APP_SECRET, VERIFY])
+    probe.call("PUT", f"{BASE}/account", OWNER, json={
+        "phone_number_id": PHONE_ID, "business_account_id": WABA_ID, "access_token": TOKEN,
+        "app_secret": APP_SECRET, "verify_token": VERIFY, "owner_test_number": "+966 500 000 999",
+    })
+    probe.call("POST", f"{BASE}/account/check", OWNER)
+    probe.call("POST", f"{BASE}/account/test", OWNER)
+    deliver(inbound())
+    conversation = only_conversation()
+    probe.call("POST", f"{BASE}/conversations/{conversation['id']}/draft", MEMBER, sent=["Mention the warranty"], json={"instructions": "Mention the warranty"})
+    probe.call("POST", f"{BASE}/conversations/{conversation['id']}/send", MEMBER, sent=["Yes, 4 in stock."], json={"text": "Yes, 4 in stock."})
+    probe.call("DELETE", f"{BASE}/account", OWNER)
+    probe.assert_covered()

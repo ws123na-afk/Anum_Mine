@@ -156,6 +156,17 @@ _PATTERNS: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str]]] = [
         ),
     ),
     (
+        # privacy.revoke_mailboxes: a mailbox whose access ANUM could not withdraw.
+        re.compile(
+            r"^ANUM deleted (?P<address>\S+) and its tokens, but could not withdraw its access at (?P<name>.+?)\. "
+            r"Remove ANUM in your (?P=name) account's security settings \(third-party apps\)\.$"
+        ),
+        lambda m: (
+            f"حذف ANUM صندوق البريد {m['address']} ورموزه، لكنه لم يتمكن من سحب صلاحيته لدى {m['name']}. "
+            f"أزل ANUM من إعدادات الأمان في حساب {m['name']} (تطبيقات الجهات الخارجية)."
+        ),
+    ),
+    (
         # model_budget.budget_exceeded_message, for refusals that only carry the sentence.
         re.compile(
             r"^This (?P<owner>organization|workspace) has used its monthly model budget \((?P<measure>estimated cost|tokens)\)\. "
@@ -201,7 +212,8 @@ PRIVACY_NOTES_AR: dict[str, str] = {
         "مساحة العمل أو من مسؤول المؤسسة."
     ),
     "shared_note": (
-        "المهام والتشغيلات والموافقات والذكريات المشتركة والملفات تخص مساحة العمل، لذا تبقى. اطلب من مالك "
-        "مساحة العمل إزالتها."
+        "المهام والتشغيلات والموافقات والذكريات المشتركة والملفات وصناديق بريد مساحة العمل التي ربطتها "
+        "والرسائل التي أرسلتها أو طلبت الموافقة على إرسالها ورسائل واتساب التي أرسلتها والإجراءات التي نفّذها "
+        "ANUM لك تخص مساحة العمل، لذا تبقى. اطلب من مالك مساحة العمل إزالتها."
     ),
 }

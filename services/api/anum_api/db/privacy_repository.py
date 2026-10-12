@@ -18,7 +18,18 @@ from anum_api.files import FileRecord
 from anum_api.memory import MemoryNote
 from anum_api.onboarding import NotificationPreferences
 from anum_api.commands import privacy_counts as command_privacy_counts
-from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by, learning_counts
+from anum_api.autonomy import AutonomousAction
+from anum_api.email_inbox import EmailAccount, EmailDraft, EmailMessage
+from anum_api.privacy import (
+    UNSENT_DRAFT_STATUSES,
+    PrivateCounts,
+    SharedCounts,
+    _decided_by,
+    email_counts,
+    learning_counts,
+    module_counts,
+)
+from anum_api.whatsapp_store import Message as WhatsAppMessage
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
 from anum_api.push import PushDevice
 from anum_api.library_privacy import LibraryPrivacy, sql_library
@@ -28,13 +39,19 @@ from anum_api.meetings import Meeting
 from anum_api.meetings import TranscriptSegment as MeetingTranscriptSegment
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
 
+from .autonomy_repository import SqlAlchemyAutonomyStore
 from .conversation_repository import _conversation, _turn
 from .command_repository import SqlAlchemyCommandStore
+from .email_repository import EmailAccountRecord, EmailDraftRecord, EmailMessageRecord, EmailOAuthRequestRecord
+from .email_repository import _account as _email_account
+from .email_repository import _draft as _email_draft
+from .email_repository import _message as _email_message
 from .learning_repository import SqlAlchemyLearningStore
 from .meetings_repository import SqlAlchemyConnectionStore, SqlAlchemyMeetingStore, _meeting, _segment as _meeting_segment
 from .memory_repository import SqlAlchemyMemoryRepository
 from .models import (
     AgentRunRecord,
+    AutonomousActionRecord,
     ApprovalApproverRow,
     ApprovalRecord,
     ConversationRecord,
@@ -53,6 +70,8 @@ from .models import (
 )
 from .repository import SqlAlchemyRepository
 from .voice_repository import _segment, _session
+from .whatsapp_repository import WhatsAppMessageRecord
+from .whatsapp_repository import _message as _whatsapp_message
 from .workspace_settings_repository import SqlAlchemyNotificationPreferenceStore, _file
 
 
@@ -213,6 +232,84 @@ class SqlAlchemyPrivacyStore:
         """Favorites, private collections and private reports, in this same transaction."""
         return sql_library(self.session, self.context)
 
+    # -- email, WhatsApp, autonomy (migrations 0033 to 0035) ----------------------------
+
+    def _mailbox_filter(self):  # type: ignore[no-untyped-def]
+        return (*self._in_workspace(EmailAccountRecord), EmailAccountRecord.connected_by == self.context.user_id)
+
+    def _private_mailbox_ids(self):  # type: ignore[no-untyped-def]
+        return (
+            select(EmailAccountRecord.id)
+            .where(*self._mailbox_filter(), EmailAccountRecord.visibility == "private")
+            .scalar_subquery()
+        )
+
+    def email_accounts_connected(self) -> list[EmailAccount]:
+        rows = self.session.scalars(
+            select(EmailAccountRecord)
+            .where(*self._mailbox_filter())
+            .order_by(EmailAccountRecord.created_at, EmailAccountRecord.id)
+        ).all()
+        return [_email_account(row) for row in rows]
+
+    def _draft_filter(self):  # type: ignore[no-untyped-def]
+        return (*self._in_workspace(EmailDraftRecord), EmailDraftRecord.created_by == self.context.user_id)
+
+    def email_drafts_written(self) -> list[EmailDraft]:
+        rows = self.session.scalars(
+            select(EmailDraftRecord).where(*self._draft_filter()).order_by(EmailDraftRecord.created_at, EmailDraftRecord.id)
+        ).all()
+        return [_email_draft(row) for row in rows]
+
+    def _private_message_filter(self):  # type: ignore[no-untyped-def]
+        return (*self._in_workspace(EmailMessageRecord), EmailMessageRecord.account_id.in_(self._private_mailbox_ids()))
+
+    def email_private_messages(self) -> list[EmailMessage]:
+        rows = self.session.scalars(
+            select(EmailMessageRecord)
+            .where(*self._private_message_filter())
+            .order_by(EmailMessageRecord.received_at, EmailMessageRecord.id)
+        ).all()
+        return [_email_message(row) for row in rows]
+
+    def _whatsapp_filter(self):  # type: ignore[no-untyped-def]
+        return (
+            *self._in_workspace(WhatsAppMessageRecord),
+            WhatsAppMessageRecord.direction == "outbound",
+            WhatsAppMessageRecord.sent_by == self.context.user_id,
+        )
+
+    def whatsapp_messages_sent(self) -> list[WhatsAppMessage]:
+        rows = self.session.scalars(
+            select(WhatsAppMessageRecord)
+            .where(*self._whatsapp_filter())
+            .order_by(WhatsAppMessageRecord.timestamp, WhatsAppMessageRecord.id)
+        ).all()
+        return [_whatsapp_message(row) for row in rows]
+
+    def _autonomy_filter(self):  # type: ignore[no-untyped-def]
+        return (*self._in_workspace(AutonomousActionRecord), AutonomousActionRecord.requested_by == self.context.user_id)
+
+    def autonomy_actions_requested(self) -> list[AutonomousAction]:
+        rows = self.session.scalars(
+            select(AutonomousActionRecord)
+            .where(*self._autonomy_filter())
+            .order_by(AutonomousActionRecord.created_at, AutonomousActionRecord.id)
+        ).all()
+        return [SqlAlchemyAutonomyStore._action(row) for row in rows]
+
+    def _module_counts(self) -> tuple[dict[str, int], dict[str, int]]:
+        email = email_counts(
+            self.email_accounts_connected(),
+            self.email_drafts_written(),
+            self._count(EmailMessageRecord, *self._private_message_filter()),
+        )
+        return module_counts(
+            email,
+            self._count(WhatsAppMessageRecord, *self._whatsapp_filter()),
+            self._count(AutonomousActionRecord, *self._autonomy_filter()),
+        )
+
     def _file_filter(self):  # type: ignore[no-untyped-def]
         return (*self._in_workspace(WorkspaceFileRecord), WorkspaceFileRecord.created_by == self.context.user_id)
 
@@ -288,6 +385,7 @@ class SqlAlchemyPrivacyStore:
         }
 
     def counts(self) -> tuple[PrivateCounts, SharedCounts]:
+        module_private, module_shared = self._module_counts()
         private = PrivateCounts(
             conversations=self._count(ConversationRecord, *self._mine(ConversationRecord)),
             conversation_turns=self._count(ConversationTurnRecord, *self._mine(ConversationTurnRecord)),
@@ -305,12 +403,14 @@ class SqlAlchemyPrivacyStore:
             meeting_connections=self._count(MeetingConnectorAccountRecord, *self._mine(MeetingConnectorAccountRecord)),
             **command_privacy_counts(self.commands()),
             **self.library().counts(),
+            **module_private,
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
             approvals_decided=self._count(ApprovalRecord, *self._approval_filter()),
             shared_memories_created=self._count(MemoryRecord, *self._in_workspace(MemoryRecord), *self._shared_memory_filter()),
             files_uploaded=self._count(WorkspaceFileRecord, *self._file_filter()),
+            **module_shared,
         )
         return private, shared
 
@@ -345,6 +445,21 @@ class SqlAlchemyPrivacyStore:
         self.commands().delete_all()
         # Before the private memories go: a private collection's notes are among them.
         self.library().delete_all()
+        # The caller's unsent drafts anywhere, then their private mailboxes (synced message
+        # metadata and every draft in them cascade), then their pending connections.
+        self.session.execute(
+            delete(EmailDraftRecord).where(
+                *self._draft_filter(), EmailDraftRecord.status.in_(sorted(UNSENT_DRAFT_STATUSES))
+            )
+        )
+        self.session.execute(
+            delete(EmailAccountRecord).where(*self._mailbox_filter(), EmailAccountRecord.visibility == "private")
+        )
+        self.session.execute(
+            delete(EmailOAuthRequestRecord).where(
+                *self._in_workspace(EmailOAuthRequestRecord), EmailOAuthRequestRecord.user_id == self.context.user_id
+            )
+        )
         self.session.flush()
         return deleted
 

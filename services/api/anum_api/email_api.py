@@ -681,15 +681,25 @@ async def list_accounts(context: TenantContext = Depends(tenant_context)) -> lis
 
 
 @router.post("/accounts/{account_id}/sync", response_model=EmailAccountView)
-async def sync(account_id: str, context: TenantContext = Depends(tenant_context)) -> EmailAccountView:
+async def sync(
+    account_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> EmailAccountView:
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _get_account(context, account_id)
     try:
         account = await sync_account(account_id, context, force=True)
     except EmailError as exc:
+        _audit(repository, context, "email.account.synced", account_id, "failure", {"status": exc.status})
         raise _http(exc) from None
     with open_email_store(context) as store:
         counts = store.counts([account.id]).get(account.id, (0, 0))
+    _audit(
+        repository, context, "email.account.synced", account.id,
+        "success" if account.last_sync_status != "error" else "failure",
+        {"provider": account.provider.value, "status": account.status.value},
+    )
     return account_view(account, counts, context, has_permission(context, Permission.EMAIL_MANAGE))
 
 
@@ -892,7 +902,11 @@ async def archive(
 
 
 @router.post("/messages/{message_id}/analyze", response_model=AnalyzeResult)
-async def analyze(message_id: str, context: TenantContext = Depends(tenant_context)) -> AnalyzeResult:
+async def analyze(
+    message_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> AnalyzeResult:
     """AI triage: category, priority, summary and a suggested reply (one budgeted model call)."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     try:
@@ -900,6 +914,15 @@ async def analyze(message_id: str, context: TenantContext = Depends(tenant_conte
         account, _ = load_message(context, message_id)
     except EmailError as exc:
         raise _http(exc) from None
+    # The labels and the model; never the summary or the suggested reply.
+    _audit(
+        repository, context, "email.message.analyzed", message_id,
+        metadata={
+            "category": message.category.value if message.category else None,
+            "priority": message.priority.value if message.priority else None,
+            "model": f"{result.model_provider}/{result.model_name}",
+        },
+    )
     return AnalyzeResult(
         message=_message_view(message, account),
         suggested_reply=result.reply,
@@ -978,6 +1001,11 @@ async def update_draft(
     draft.provider_draft_id, _warning = await save_provider_draft(context, account, draft, original)
     with open_email_store(context) as store:
         store.save_draft(draft)
+    # Which fields changed; never the recipients, subject or text.
+    _audit(
+        repository, context, "email.draft.updated", draft.id,
+        metadata={"fields": sorted(payload.model_dump(exclude_none=True)), "account_id": account.id},
+    )
     return _draft_view(draft, repository, context)
 
 

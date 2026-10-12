@@ -572,3 +572,36 @@ def test_notes_are_not_written_while_learning_is_off(client: TestClient) -> None
     notes = client.get("/api/v1/learning/notes", headers=headers()).json()
     assert notes == {"items": [], "total": 0, "state": "off_by_user"}
     assert client.post("/api/v1/learning/notes/refresh", headers=headers()).status_code == 409
+
+
+def test_every_state_changing_learning_route_is_audited_without_content(client: TestClient) -> None:
+    from audit_probe import AuditProbe, audit_text
+
+    owner = headers("user_owner", "owner")
+    probe = AuditProbe(client, "learning")
+    base = "/api/v1/learning"
+    probe.call("PUT", f"{base}/settings", owner, json={"enabled": True})
+    draft, sent = "Hello, the private original draft", "Hi, the private final text as sent"
+    feedback = probe.call("POST", f"{base}/feedback", owner, sent=[draft, sent], json={"surface": "email", "original": draft, "final": sent})
+    probe.call("PUT", f"{base}/profile", owner, sent=["Best wishes from the shop"], json={"sign_off": "Best wishes from the shop"})
+    probe.call("DELETE", f"{base}/signals/{feedback.json()['signal']['id']}", owner)
+    probe.call("POST", f"{base}/profile/reset", owner, json={"confirm": True})
+    preference = probe.call("POST", f"{base}/preferences", owner, sent=["Always quote prices in SAR"], json={"text": "Always quote prices in SAR", "scope": "contact:buyer@example.com"}).json()
+    probe.call("PUT", f"{base}/preferences/{preference['id']}", owner, sent=["Quote prices in AED"], json={"text": "Quote prices in AED"})
+    probe.call("DELETE", f"{base}/preferences/{preference['id']}", owner)
+    assert "buyer@example.com" not in audit_text(store.audit_records)
+
+    _sunday_history("user_owner")
+    (routine,) = probe.call("POST", f"{base}/routines/detect", owner, json={"timezone": "Asia/Riyadh"}).json()["items"]
+    probe.call("POST", f"{base}/routines/{routine['id']}/accept", owner)
+    probe.call("POST", f"{base}/routines/{routine['id']}/confirm", owner)
+    probe.call("DELETE", f"{base}/routines/{routine['id']}", owner)
+    _sunday_history("user_owner")
+    (again,) = probe.call("POST", f"{base}/routines/detect", owner, json={"timezone": "Asia/Riyadh"}).json()["items"]
+    probe.call("POST", f"{base}/routines/{again['id']}/dismiss", owner)
+
+    _rejections(owner)
+    suggestions = {item["rule"]: item for item in probe.call("POST", f"{base}/notes/refresh", owner).json()["suggestions"]}
+    probe.call("POST", f"{base}/suggestions/{suggestions['approval_rejections']['id']}/apply", owner)
+    probe.call("POST", f"{base}/suggestions/{suggestions['tool_failures']['id']}/dismiss", owner)
+    probe.assert_covered()

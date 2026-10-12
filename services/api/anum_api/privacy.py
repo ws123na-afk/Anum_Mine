@@ -49,6 +49,8 @@ from pydantic import BaseModel, Field
 
 from .audit import AuditRecord
 from .authorization import Permission
+from .autonomy import AutonomousAction
+from .email_inbox import EmailAccount, EmailDraft, EmailMessage
 from .conversations import Conversation, ConversationTurn
 from .dependencies import require_permission, tenant_context
 from .files import FileRecord
@@ -56,7 +58,7 @@ from .commands import CommandStore
 from .commands import privacy_counts as command_privacy_counts
 from .commands import privacy_export as command_privacy_export
 from .learning_store import LearningStore
-from .localization import PRIVACY_NOTES_AR, Language, request_language
+from .localization import PRIVACY_NOTES_AR, Language, localize_message, request_language
 from .memory import MemoryNote
 from .onboarding import NotificationPreferences
 from .push import PushDevice
@@ -69,6 +71,7 @@ from .meeting_connectors import StoredConnection
 from .meetings import Meeting
 from .meetings import TranscriptSegment as MeetingTranscriptSegment
 from .voice import TRANSCRIPT_RETENTION_DAYS, TranscriptRetention, TranscriptSegment, VoiceSession
+from .whatsapp_store import Message as WhatsAppMessage
 
 logger = logging.getLogger("anum.privacy")
 
@@ -79,9 +82,17 @@ ACCOUNT_NOTE = (
     "ANUM. To close it, ask your workspace owner or organization administrator."
 )
 SHARED_NOTE = (
-    "Tasks, runs, approvals, shared memories and files belong to the workspace, so they "
-    "are kept. Ask a workspace owner to remove them."
+    "Tasks, runs, approvals, shared memories, files, workspace mailboxes you connected, "
+    "emails you sent or sent for approval, WhatsApp messages you sent and actions ANUM took "
+    "for you belong to the workspace, so they are kept. Ask a workspace owner to remove them."
 )
+# Drafts that never left ANUM: "Delete my data" removes them. Sent ones (or ones waiting for
+# approval) are part of the workspace's correspondence and are kept.
+UNSENT_DRAFT_STATUSES = frozenset({"draft", "failed", "discarded"})
+# Never exported: credentials and the provider's sync state.
+EMAIL_ACCOUNT_PRIVATE_FIELDS = {"access_token_enc", "refresh_token_enc", "sync_cursor", "sync_lease_until", "access_expires_at"}
+# The undo token is a capability; undo arguments belong to the tool call, not the user.
+AUTONOMY_ACTION_PRIVATE_FIELDS = {"undo_token", "undo_arguments"}
 
 
 # --------------------------------------------------------------------------- models
@@ -118,6 +129,12 @@ class PrivateCounts(BaseModel):
     favorites: int = 0
     private_collections: int = 0
     private_reports: int = 0
+    # Email (migration 0035, docs/email.md): private mailboxes the caller connected, with the
+    # message metadata synced from them, and the caller's drafts that never left ANUM (plus
+    # every draft in those private mailboxes). Message bodies are never stored.
+    email_mailboxes: int = 0
+    email_messages: int = 0
+    email_drafts: int = 0
 
     @property
     def total(self) -> int:
@@ -131,6 +148,48 @@ class SharedCounts(BaseModel):
     approvals_decided: int = 0
     shared_memories_created: int = 0
     files_uploaded: int = 0
+    # Workspace mailboxes the caller connected, and their emails sent or waiting for approval.
+    email_mailboxes_connected: int = 0
+    email_drafts_sent: int = 0
+    # WhatsApp messages the caller sent or asked to send (docs/whatsapp.md).
+    whatsapp_messages_sent: int = 0
+    # Actions ANUM took on its own for the caller's requests (docs/autonomy.md).
+    autonomy_actions_requested: int = 0
+
+
+class EmailCounts(BaseModel):
+    """What the caller's email data splits into: deleted (private) and kept (shared)."""
+
+    mailboxes: int = 0
+    messages: int = 0
+    drafts: int = 0
+    mailboxes_connected: int = 0
+    drafts_sent: int = 0
+
+
+def email_counts(accounts: list[Any], drafts: list[Any], private_messages: int) -> EmailCounts:
+    """Split the caller's mailboxes (``connected_by``) and drafts (``created_by``)."""
+    private_ids = {account.id for account in accounts if str(account.visibility) == "private"}
+    deleted = [d for d in drafts if d.account_id in private_ids or str(d.status) in UNSENT_DRAFT_STATUSES]
+    return EmailCounts(
+        mailboxes=len(private_ids),
+        messages=private_messages,
+        drafts=len(deleted),
+        mailboxes_connected=len(accounts) - len(private_ids),
+        drafts_sent=len(drafts) - len(deleted),
+    )
+
+
+def module_counts(email: EmailCounts, whatsapp_sent: int, autonomy_requested: int) -> tuple[dict[str, int], dict[str, int]]:
+    return (
+        {"email_mailboxes": email.mailboxes, "email_messages": email.messages, "email_drafts": email.drafts},
+        {
+            "email_mailboxes_connected": email.mailboxes_connected,
+            "email_drafts_sent": email.drafts_sent,
+            "whatsapp_messages_sent": whatsapp_sent,
+            "autonomy_actions_requested": autonomy_requested,
+        },
+    )
 
 
 class RetentionInfo(BaseModel):
@@ -183,6 +242,8 @@ class DeleteResult(BaseModel):
     kept: SharedCounts
     account_note: str = ACCOUNT_NOTE
     shared_note: str = SHARED_NOTE
+    # What still needs the caller, e.g. a mailbox provider ANUM could not revoke access at.
+    notes: list[str] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- stores
@@ -208,6 +269,12 @@ class PrivacyStore(Protocol):
     def meeting_connections(self) -> list[StoredConnection]: ...
     def commands(self) -> CommandStore: ...
     def library(self) -> LibraryPrivacy: ...
+    # Email, WhatsApp and autonomy rows the caller connected, wrote, sent or requested.
+    def email_accounts_connected(self) -> list[EmailAccount]: ...
+    def email_drafts_written(self) -> list[EmailDraft]: ...
+    def email_private_messages(self) -> list[EmailMessage]: ...
+    def whatsapp_messages_sent(self) -> list[WhatsAppMessage]: ...
+    def autonomy_actions_requested(self) -> list[AutonomousAction]: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
     def record_audit(self, record: AuditRecord) -> None: ...
@@ -359,6 +426,87 @@ class InMemoryPrivacyStore:
     def library(self) -> LibraryPrivacy:
         return memory_library(self.context)
 
+    def email_accounts_connected(self) -> list[EmailAccount]:
+        from .email_inbox import email_backend
+
+        with email_backend.lock:
+            found = [
+                item.model_copy(deep=True)
+                for item in email_backend.accounts.values()
+                if self._scoped(item.tenant_id, item.workspace_id) and item.connected_by == self.context.user_id
+            ]
+        return sorted(found, key=lambda item: (item.created_at, item.id))
+
+    def email_drafts_written(self) -> list[EmailDraft]:
+        from .email_inbox import email_backend
+
+        with email_backend.lock:
+            found = [
+                item.model_copy(deep=True)
+                for item in email_backend.drafts.values()
+                if self._scoped(item.tenant_id, item.workspace_id) and item.created_by == self.context.user_id
+            ]
+        return sorted(found, key=lambda item: (item.created_at, item.id))
+
+    def _private_mailbox_ids(self) -> set[str]:
+        return {item.id for item in self.email_accounts_connected() if str(item.visibility) == "private"}
+
+    def email_private_messages(self) -> list[EmailMessage]:
+        from .email_inbox import email_backend
+
+        ids = self._private_mailbox_ids()
+        with email_backend.lock:
+            found = [item.model_copy(deep=True) for item in email_backend.messages.values() if item.account_id in ids]
+        return sorted(found, key=lambda item: (item.received_at, item.id))
+
+    def whatsapp_messages_sent(self) -> list[WhatsAppMessage]:
+        from .whatsapp_store import whatsapp_store
+
+        with whatsapp_store._lock:
+            found = [
+                item.model_copy(deep=True)
+                for item in whatsapp_store._messages.values()
+                if self._scoped(item.tenant_id, item.workspace_id)
+                and item.direction == "outbound"
+                and item.sent_by == self.context.user_id
+            ]
+        return sorted(found, key=lambda item: (item.timestamp, item.id))
+
+    def autonomy_actions_requested(self) -> list[AutonomousAction]:
+        from .autonomy import autonomy_memory_store
+
+        with autonomy_memory_store._lock:
+            found = [
+                item.model_copy(deep=True)
+                for item in autonomy_memory_store.actions.values()
+                if self._scoped(item.tenant_id, item.workspace_id) and item.requested_by == self.context.user_id
+            ]
+        return sorted(found, key=lambda item: (item.created_at, item.id))
+
+    def _module_counts(self) -> tuple[dict[str, int], dict[str, int]]:
+        email = email_counts(
+            self.email_accounts_connected(), self.email_drafts_written(), len(self.email_private_messages())
+        )
+        return module_counts(email, len(self.whatsapp_messages_sent()), len(self.autonomy_actions_requested()))
+
+    def _delete_email(self) -> None:
+        from .email_inbox import email_backend
+
+        private = self._private_mailbox_ids()
+        with email_backend.lock:
+            for key, draft in list(email_backend.drafts.items()):
+                mine = self._scoped(draft.tenant_id, draft.workspace_id) and draft.created_by == self.context.user_id
+                if draft.account_id in private or (mine and str(draft.status) in UNSENT_DRAFT_STATUSES):
+                    email_backend.drafts.pop(key, None)
+            for key, message in list(email_backend.messages.items()):
+                if message.account_id in private:
+                    email_backend.messages.pop(key, None)
+            for account_id in private:
+                email_backend.accounts.pop(account_id, None)
+            for key, pending in list(email_backend.pending.items()):
+                if self._scoped(pending.tenant_id, pending.workspace_id) and pending.user_id == self.context.user_id:
+                    email_backend.pending.pop(key, None)
+
     def _private_sources(self) -> list[Any]:
         from .retrieval import memory_retrieval_store
 
@@ -374,6 +522,7 @@ class InMemoryPrivacyStore:
         meetings = self.meetings_created()
         from .voice import voice_store
 
+        module_private, module_shared = self._module_counts()
         private = PrivateCounts(
             conversations=len(conversations),
             conversation_turns=sum(len(turns) for _, turns in conversations),
@@ -392,15 +541,17 @@ class InMemoryPrivacyStore:
             meeting_connections=len(self.meeting_connections()),
             **command_privacy_counts(self.commands()),
             **self.library().counts(),
+            **module_private,
         )
-        return private, self._shared_counts()
+        return private, self._shared_counts(module_shared)
 
-    def _shared_counts(self) -> SharedCounts:
+    def _shared_counts(self, module_shared: dict[str, int]) -> SharedCounts:
         return SharedCounts(
             tasks_created=len(self.tasks_created()),
             approvals_decided=len(self.approvals_decided()),
             shared_memories_created=len(self.shared_memories_created()),
             files_uploaded=len(self.files_uploaded()),
+            **module_shared,
         )
 
     def delete_private(self) -> PrivateCounts:
@@ -448,6 +599,7 @@ class InMemoryPrivacyStore:
             connection_store.delete(self.context, connection.provider)
         self.commands().delete_all()
         self.library().delete_all()
+        self._delete_email()
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -600,6 +752,23 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("commands", command_privacy_export(store.commands()))
     # Favorites, private knowledge base collections (with their items) and private reports.
     yield ("library", store.library().export())
+    yield (
+        "email",
+        {
+            # Never a token or the provider's sync state.
+            "mailboxes_connected": [
+                _dump(account, exclude=EMAIL_ACCOUNT_PRIVATE_FIELDS) for account in store.email_accounts_connected()
+            ],
+            "drafts_written": [_dump(draft) for draft in store.email_drafts_written()],
+            # Metadata synced from your private mailboxes (bodies are never stored by ANUM).
+            "private_mailbox_messages": [_dump(message) for message in store.email_private_messages()],
+        },
+    )
+    yield ("whatsapp_messages_sent", [_dump(message) for message in store.whatsapp_messages_sent()])
+    yield (
+        "autonomy_actions_requested",
+        [_dump(action, exclude=AUTONOMY_ACTION_PRIVATE_FIELDS) for action in store.autonomy_actions_requested()],
+    )
     yield (
         "files_uploaded",
         [
@@ -811,10 +980,18 @@ async def delete_my_data(
             detail=f"Type {DELETE_CONFIRMATION} exactly to confirm. Nothing was deleted.",
         )
     with open_privacy_store(context) as store:
+        private_mailboxes = [item for item in store.email_accounts_connected() if str(item.visibility) == "private"]
+    # Withdraw ANUM's access at the provider first (as disconnecting a mailbox does), outside
+    # the database transaction; a failure never stops the deletion.
+    notes, revoked = await revoke_mailboxes(private_mailboxes)
+    with open_privacy_store(context) as store:
         recording_keys = [record.storage_key for record in store.meeting_recordings()]
         deleted = store.delete_private()
         _, kept = store.counts()
-        _audit(store, context, "privacy.delete", "success", {"deleted": deleted.model_dump(), "kept": kept.model_dump()})
+        _audit(
+            store, context, "privacy.delete", "success",
+            {"deleted": deleted.model_dump(), "kept": kept.model_dump(), "mailboxes_revoked_at_provider": revoked},
+        )
     # Recording bytes go only after their rows are gone (as a file delete does).
     from .files import file_store
 
@@ -823,4 +1000,38 @@ async def delete_my_data(
             file_store.storage.delete(key)
         except Exception as exc:  # the metadata is gone, so the bytes are unreachable
             logger.warning("privacy_recording_delete_failed error_class=%s", type(exc).__name__)
-    return DeleteResult(deleted=deleted, kept=kept, **_notes(language))
+    return DeleteResult(
+        deleted=deleted, kept=kept, notes=[localize_message(note, language) for note in notes], **_notes(language)
+    )
+
+
+async def revoke_mailboxes(accounts: list[EmailAccount]) -> tuple[list[str], int]:
+    """Revoke each private mailbox's grant at its provider; notes for what the caller must do."""
+    import httpx
+
+    from .email_inbox import PROVIDER_NAMES, provider_client
+    from .email_providers import MailProviderError
+    from .secret_box import SecretDecryptionError, secret_cipher
+
+    notes: list[str] = []
+    revoked = 0
+    for account in accounts:
+        name = PROVIDER_NAMES.get(account.provider, str(account.provider))
+        done = False
+        try:
+            if account.refresh_token_enc:
+                done = await provider_client(account.provider).revoke(secret_cipher().decrypt(account.refresh_token_enc))
+        except (MailProviderError, SecretDecryptionError, RuntimeError, httpx.HTTPError) as exc:
+            logger.warning(
+                "privacy_mailbox_revoke_failed error_class=%s",
+                type(exc).__name__,
+                extra={"anum_privacy": {"event": "mailbox_revoke_failed", "error_class": type(exc).__name__}},
+            )
+        if done:
+            revoked += 1
+        else:
+            notes.append(
+                f"ANUM deleted {account.address} and its tokens, but could not withdraw its access at {name}. "
+                f"Remove ANUM in your {name} account's security settings (third-party apps)."
+            )
+    return notes, revoked

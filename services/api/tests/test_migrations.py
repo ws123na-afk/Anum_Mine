@@ -755,3 +755,22 @@ def test_agent_profiles_migration_is_expand_only_with_forced_rls() -> None:
     assert "create index concurrently if not exists ix_tasks_scope_agent" in upgrade and "autocommit_block" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "alter_column" not in upgrade
+
+
+def test_rotation_retention_migration_is_expand_only_with_narrow_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0050_rotation_retention.py").read_text(encoding="utf-8")
+    assert 'revision = "0050_rotation_retention"' in revision_text
+    assert len("0050_rotation_retention") <= 32
+    assert 'down_revision = "0041_agent_profiles"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0050_rotation_retention.py"]
+    assert not [path for path in others if 'down_revision = "0041_agent_profiles"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # One nullable column, column grants of ids, scope and age only, five select-only policies.
+    assert "nullable=true" in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    grants = [line for line in upgrade.splitlines() if "grant select" in line]
+    assert [line for line in grants if "(tenant_id, workspace_id, created_at) on whatsapp_conversations" in line]
+    assert [line for line in grants if "(id, tenant_id, workspace_id) on commerce_customers" in line]
+    assert all("anum_maintenance" in line and "ciphertext" not in line and "name" not in line for line in grants)
+    assert upgrade.count("for select to anum_maintenance") == 5
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade

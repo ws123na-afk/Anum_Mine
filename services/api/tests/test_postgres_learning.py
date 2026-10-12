@@ -185,7 +185,8 @@ def test_routines_are_mined_from_my_own_tasks_and_accepted_into_a_paused_postgre
     with database_engine.connect() as connection:
         assert connection.execute(text("select enabled from automation_schedules where id = :id"), {"id": accepted.json()["schedule_id"]}).scalar_one() is True
         audit = connection.execute(text("select action from audit_records where action like 'learning.%' order by created_at")).scalars().all()
-    assert audit == ["learning.routine_accepted", "learning.routine_confirmed"]
+    # Detecting is audited too (ids and counts only; docs/learning.md).
+    assert audit == ["learning.routines_detected", "learning.routine_accepted", "learning.routine_confirmed"]
     # The colleague's identical habit is theirs: they get their own proposal, I see only mine.
     learning_data.clear()
     assert len(client.get("/api/v1/learning/routines", headers=ME).json()["items"]) == 1

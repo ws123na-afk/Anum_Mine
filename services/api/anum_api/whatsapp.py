@@ -1283,12 +1283,19 @@ async def put_account(
 
 
 @router.post("/account/check", response_model=AccountView)
-async def check_account(context: TenantContext = Depends(tenant_context)) -> AccountView:
+async def check_account(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> AccountView:
     """Health: ask Meta for the phone number's profile with the saved token."""
     require_permission(context, Permission.WHATSAPP_MANAGE)
     with open_whatsapp_store(context) as store:
         account = _require_account(store, include_secrets=True)
     saved = _save_checked(context, await _check(account, utc_now()))
+    _audit(
+        repository, context, "whatsapp.account.checked", f"whatsapp:{saved.phone_number_id}",
+        "success" if saved.status == AccountStatus.CONNECTED else "failure", {"status": str(saved.status)},
+    )
     return _account_view(saved, context)
 
 
@@ -1461,6 +1468,7 @@ async def draft_reply(
     conversation_id: str,
     payload: DraftRequest | None = None,
     context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
 ) -> Suggestion:
     """A suggested reply (and the triage) for the conversation. Nothing is sent."""
     require_permission(context, Permission.WHATSAPP_REPLY)
@@ -1475,6 +1483,11 @@ async def draft_reply(
         current = _conversation_or_404(store, conversation_id)
         _apply_suggestion(current, suggestion, utc_now())
         store.save_conversation(current)
+    # Which conversation and how the suggestion was made; never its text or the instructions.
+    _audit(
+        repository, context, "whatsapp.draft.suggested", conversation_id,
+        metadata={"category": str(suggestion.category), "source": suggestion.source, "instructions": instructions is not None},
+    )
     return suggestion
 
 
