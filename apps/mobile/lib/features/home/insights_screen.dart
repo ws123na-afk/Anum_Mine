@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
+import '../../src/widgets/brand.dart';
 import '../../src/widgets/depth.dart';
 import 'home_controller.dart';
 import 'home_models.dart';
@@ -34,7 +35,11 @@ class _ProactiveInsightsScreenState extends State<ProactiveInsightsScreen> {
   void initState() {
     super.initState();
     c.addListener(_onChange);
-    c.loadInsights();
+    // After the first frame: loading notifies Home's listeners, which may be
+    // building at this moment.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) c.loadInsights();
+    });
   }
 
   @override
@@ -238,9 +243,10 @@ class _InsightCard extends StatelessWidget {
                   OutlinedButton(
                       onPressed: busy ? null : onLater,
                       child: Text(t.t('homeLater'))),
-                  HomeGradientButton(
+                  AnumGradientButton(
                     label: verbLabel(t, insight.action.verb),
                     onPressed: busy ? null : onAct,
+                    expand: false,
                   ),
                 ],
         ),

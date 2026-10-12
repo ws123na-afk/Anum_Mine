@@ -285,7 +285,8 @@ Future<Calls> pumpHome(WidgetTester tester, HomeController controller,
     {Size size = const Size(390, 844),
     double textScale = 1,
     Locale locale = const Locale('en'),
-    Set<String>? features}) async {
+    Set<String>? features,
+    Widget? header}) async {
   final calls = Calls();
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -299,6 +300,7 @@ Future<Calls> pumpHome(WidgetTester tester, HomeController controller,
       onOpen: calls.opened.add,
       onSwitchWorkspace: calls.workspaces.add,
       availableFeatures: features,
+      header: header,
       onOpenLink: (uri) async {
         calls.links.add(uri);
         return true;
@@ -586,6 +588,28 @@ void main() {
       expect(find.text('Add command'), findsNothing);
       expect(find.bySemanticsLabel('Calendar'), findsNothing);
       expect(find.bySemanticsLabel('AI Chat'), findsOneWidget);
+    });
+
+    testWidgets(
+        'the shell header replaces the greeting; insights stay '
+        'reachable', (tester) async {
+      await pumpHome(tester, HomeController(FakeHomeRepository()),
+          header: const Text('Shell header'));
+      expect(find.text('Shell header'), findsOneWidget);
+      expect(find.text('Good morning'), findsNothing);
+      await _tapVisible(tester, find.text('Proactive insights: 2'));
+      expect(find.text('ANUM noticed a few things'), findsOneWidget);
+    });
+
+    testWidgets('a commerce tile appears only when the shell can open it',
+        (tester) async {
+      final calls = await pumpHome(tester, HomeController(FakeHomeRepository()),
+          features: {'tasks', 'commerce'});
+      await _tapVisible(tester, find.bySemanticsLabel('Commerce'));
+      expect(calls.opened.last, const HomeTarget('commerce'));
+      await pumpHome(tester, HomeController(FakeHomeRepository()),
+          features: {'tasks'});
+      expect(find.bySemanticsLabel('Commerce'), findsNothing);
     });
 
     testWidgets('the name can be added from Home', (tester) async {

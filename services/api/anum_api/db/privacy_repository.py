@@ -31,6 +31,7 @@ from anum_api.privacy import (
     other_module_counts,
 )
 from anum_api.whatsapp_store import Message as WhatsAppMessage
+from anum_api.home import home_counts
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
 from anum_api.push import PushDevice
 from anum_api.library_privacy import LibraryPrivacy, sql_library
@@ -50,6 +51,7 @@ from .email_repository import EmailAccountRecord, EmailDraftRecord, EmailMessage
 from .email_repository import _account as _email_account
 from .email_repository import _draft as _email_draft
 from .email_repository import _message as _email_message
+from .home_repository import SqlAlchemyHomeStore
 from .learning_repository import SqlAlchemyLearningStore
 from .meetings_repository import SqlAlchemyConnectionStore, SqlAlchemyMeetingStore, _meeting, _segment as _meeting_segment
 from .memory_repository import SqlAlchemyMemoryRepository
@@ -225,6 +227,10 @@ class SqlAlchemyPrivacyStore:
         from anum_api.db.push_repository import SqlAlchemyPushDeviceStore
 
         return [device.view() for device in SqlAlchemyPushDeviceStore(self.session).list(self.context)]
+    def home(self) -> SqlAlchemyHomeStore:
+        """The caller's Home rows, in this same transaction and RLS context."""
+        return SqlAlchemyHomeStore(self.session)
+
     def learning(self) -> SqlAlchemyLearningStore:
         """The caller's learning rows, in this same transaction and RLS context."""
         return SqlAlchemyLearningStore(self.session, self.context)
@@ -439,6 +445,7 @@ class SqlAlchemyPrivacyStore:
             **command_privacy_counts(self.commands()),
             **self.library().counts(),
             **module_private,
+            home_items=home_counts(self.home(), self.context),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -496,6 +503,7 @@ class SqlAlchemyPrivacyStore:
             )
         )
         self.delete_team_private()
+        self.home().delete_all(self.context)
         self.session.flush()
         return deleted
 

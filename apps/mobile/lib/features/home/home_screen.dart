@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
+import '../../src/widgets/brand.dart';
 import '../../src/widgets/depth.dart';
 import 'home_controller.dart';
 import 'home_models.dart';
@@ -26,6 +27,8 @@ class HomeScreen extends StatefulWidget {
     required this.onOpen,
     required this.onSwitchWorkspace,
     this.availableFeatures,
+    this.header,
+    this.sections = const [],
     this.onOpenLink = _launch,
     this.clock = DateTime.now,
     super.key,
@@ -50,6 +53,15 @@ class HomeScreen extends StatefulWidget {
   /// Feature keys the shell can open; tiles and pins for others are hidden,
   /// so nothing on Home is a dead button. Null: every feature.
   final Set<String>? availableFeatures;
+
+  /// The shell's greeting header (avatar, name, date, bell). When given it
+  /// replaces Home's own greeting, and the insights entry moves under it.
+  /// `SizedBox.shrink()` when the shell shows its header above the page.
+  final Widget? header;
+
+  /// The shell's own Home cards (favorites, tyre planning), shown after
+  /// Today's Focus.
+  final List<Widget> sections;
 
   /// Opens a pinned web app (url_launcher; tests pass a fake).
   final Future<bool> Function(Uri uri) onOpenLink;
@@ -111,11 +123,18 @@ class _HomeScreenState extends State<HomeScreen> {
     widget.onCommand(text);
   }
 
+  /// Opens a target; ANUM Proactive and ANUM Command are Home's own.
+  void _open(HomeTarget target) => switch (target.feature) {
+        'insights' => _openInsights(),
+        'command' => widget.onCommand(null),
+        _ => widget.onOpen(target),
+      };
+
   void _openInsights() {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ProactiveInsightsScreen(
         controller: c,
-        onOpen: widget.onOpen,
+        onOpen: _open,
         onCommand: widget.onCommand,
       ),
     ));
@@ -141,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case PinKind.workspace:
         widget.onSwitchWorkspace(pin.target);
       case PinKind.feature:
-        widget.onOpen(HomeTarget(pin.target));
+        _open(HomeTarget(pin.target));
     }
   }
 
@@ -163,11 +182,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= AnumBreakpoints.expanded;
-      final greeting = _Greeting(
-        controller: c,
-        now: widget.clock(),
-        onInsights: _openInsights,
-      );
+      final header = widget.header;
+      final Widget greeting = header == null
+          ? _Greeting(
+              controller: c,
+              now: widget.clock(),
+              onInsights: _openInsights,
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                header,
+                _InsightsEntry(controller: c, onOpen: _openInsights),
+              ],
+            );
       final left = <Widget>[
         _AskSection(
           ask: _ask,
@@ -181,14 +209,15 @@ class _HomeScreenState extends State<HomeScreen> {
       final right = <Widget>[
         _FocusSection(
           controller: c,
-          onOpen: widget.onOpen,
+          onOpen: _open,
           onCommand: () => widget.onCommand(null),
           canOpenTasks: _can('tasks'),
           now: widget.clock(),
         ),
+        ...widget.sections,
         _ActivitySection(
           controller: c,
-          onOpen: widget.onOpen,
+          onOpen: _open,
           onCommand: () => widget.onCommand(null),
           canOpenTasks: _can('tasks'),
           now: widget.clock(),
@@ -246,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
             highlighted: f.key == 'command',
             onTap: () => f.key == 'command'
                 ? widget.onCommand(null)
-                : widget.onOpen(HomeTarget(f.key)),
+                : _open(HomeTarget(f.key)),
           ),
     ];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -314,12 +343,7 @@ class _Greeting extends StatelessWidget {
         IconButton(
           tooltip: t.t('homeEditName'),
           onPressed: () => showNameDialog(context, controller),
-          icon: CircleAvatar(
-            radius: 18,
-            backgroundColor: p.violet.withValues(alpha: 0.3),
-            child: Text(name.characters.first.toUpperCase(),
-                style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
-          ),
+          icon: AnumAvatar(name: name, size: 36),
         ),
       IconButton(
         tooltip: open == 0
@@ -333,6 +357,34 @@ class _Greeting extends StatelessWidget {
         ),
       ),
     ]);
+  }
+}
+
+/// Under the shell's header: how many things ANUM noticed, opening ANUM
+/// Proactive (the greeting row carries this button when Home draws its own).
+class _InsightsEntry extends StatelessWidget {
+  const _InsightsEntry({required this.controller, required this.onOpen});
+  final HomeController controller;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AnumLocalizations.maybeOf(context);
+    final open = controller.openInsights;
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: TextButton.icon(
+        onPressed: onOpen,
+        icon: Badge(
+          isLabelVisible: open > 0,
+          label: Text('$open'),
+          child: const Icon(Icons.auto_awesome_outlined),
+        ),
+        label: Text(open == 0
+            ? t.t('homeInsightsButton')
+            : t.f('homeInsightsCount', {'n': open})),
+      ),
+    );
   }
 }
 
@@ -405,7 +457,7 @@ class _AskSection extends StatelessWidget {
                 height: 52,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: [p.sky, p.violet]),
+                  gradient: p.accentGradient,
                   boxShadow: [
                     BoxShadow(
                         color: p.violet.withValues(alpha: 0.45), blurRadius: 16)
@@ -531,15 +583,7 @@ class _AgentReady extends StatelessWidget {
       accent: p.violet,
       semanticLabel: '${t.t('homeAgentReady')}. ${t.t('homeAgentReadyText')}',
       child: Row(children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(colors: [p.sky, p.violet]),
-          ),
-          child: const Icon(Icons.graphic_eq, color: Colors.white),
-        ),
+        const ExcludeSemantics(child: AnumOrb(size: 52)),
         const SizedBox(width: AnumSpacing.sm),
         Expanded(
           child:

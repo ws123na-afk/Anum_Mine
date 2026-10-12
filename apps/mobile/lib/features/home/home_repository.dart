@@ -101,28 +101,32 @@ class ApiHomeRepository implements HomeRepository {
   Future<CommandList> commands() async => CommandList.fromJson(
       JsonReader(await api.request('GET', '$_base/commands')));
 
+  // The user's own quick commands live in the command module
+  // (docs/command.md); Home lists them with the built-in ones.
+  static const _quick = '/api/v1/quick-commands';
+
   @override
   Future<QuickCommand> addCommand(
           {required CommandMode mode,
           required String label,
           required String prompt}) async =>
-      QuickCommand.fromJson(JsonReader(await api.request(
-          'POST', '$_base/commands',
-          body: {'mode': mode.name, 'label': label, 'prompt': prompt})));
+      QuickCommand.fromQuickCommandsApi(JsonReader(await api.request(
+          'POST', _quick,
+          body: {'category': mode.name, 'title': label, 'text': prompt})));
 
   @override
   Future<QuickCommand> updateCommand(String id,
           {CommandMode? mode, String? label, String? prompt}) async =>
-      QuickCommand.fromJson(JsonReader(
-          await api.request('PATCH', '$_base/commands/${_id(id)}', body: {
-        if (mode != null) 'mode': mode.name,
-        if (label != null) 'label': label,
-        if (prompt != null) 'prompt': prompt,
+      QuickCommand.fromQuickCommandsApi(
+          JsonReader(await api.request('PUT', '$_quick/${_id(id)}', body: {
+        if (mode != null) 'category': mode.name,
+        if (label != null) 'title': label,
+        if (prompt != null) 'text': prompt,
       })));
 
   @override
   Future<void> removeCommand(String id) async {
-    await api.request('DELETE', '$_base/commands/${_id(id)}');
+    await api.request('DELETE', '$_quick/${_id(id)}');
   }
 
   @override
@@ -144,4 +148,60 @@ class ApiHomeRepository implements HomeRepository {
   Future<void> restore(String key) async {
     await api.request('DELETE', '$_base/insights/${_id(key)}/state');
   }
+}
+
+/// Home without an API client (a workspace repository that is not the API's,
+/// in tests): every call says Home is unavailable, so the screen shows its
+/// error state instead of invented data.
+class UnavailableHomeRepository implements HomeRepository {
+  const UnavailableHomeRepository();
+
+  static Never _unavailable() =>
+      throw const ApiException(503, 'Home is not available in this build.');
+
+  @override
+  Future<HomeSummary> summary() async => _unavailable();
+  @override
+  Future<String?> setDisplayName(String? name) async => _unavailable();
+  @override
+  Future<List<HomePin>> pins() async => _unavailable();
+  @override
+  Future<HomePin> addPin(
+          {required PinKind kind,
+          required String label,
+          required String target,
+          String? icon}) async =>
+      _unavailable();
+  @override
+  Future<HomePin> updatePin(String id, {String? label, String? target}) async =>
+      _unavailable();
+  @override
+  Future<void> removePin(String id) async => _unavailable();
+  @override
+  Future<List<HomePin>> reorderPins(List<String> ids) async => _unavailable();
+  @override
+  Future<List<PinnableWorkspace>> workspaces() async => _unavailable();
+  @override
+  Future<CommandList> commands() async => _unavailable();
+  @override
+  Future<QuickCommand> addCommand(
+          {required CommandMode mode,
+          required String label,
+          required String prompt}) async =>
+      _unavailable();
+  @override
+  Future<QuickCommand> updateCommand(String id,
+          {CommandMode? mode, String? label, String? prompt}) async =>
+      _unavailable();
+  @override
+  Future<void> removeCommand(String id) async => _unavailable();
+  @override
+  Future<InsightList> insights({bool includeHidden = false}) async =>
+      _unavailable();
+  @override
+  Future<Insight> dismiss(String key) async => _unavailable();
+  @override
+  Future<Insight> snooze(String key, {int hours = 24}) async => _unavailable();
+  @override
+  Future<void> restore(String key) async => _unavailable();
 }

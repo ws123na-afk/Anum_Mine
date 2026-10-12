@@ -1,6 +1,6 @@
-"""Home in PostgreSQL (migration 0036_home, docs/home.md).
+"""Home in PostgreSQL (migration 0046_home, docs/home.md).
 
-The API runs as the non-owner ``anum_test_app`` role. Pins, quick commands and insight
+The API runs as the non-owner ``anum_test_app`` role. Pins and insight
 states are private to one user in one workspace, the greeting name to one user in one
 tenant: the forced RLS policies check ``anum.user_id`` as well as the scope. "Restart"
 clears the in-memory store, so everything is read back from PostgreSQL.
@@ -25,7 +25,7 @@ from anum_api.settings import settings
 
 pytestmark = pytest.mark.database
 
-TABLES = ("home_profiles", "home_pins", "home_commands", "home_insight_states")
+TABLES = ("home_profiles", "home_pins", "home_insight_states")
 
 
 def headers(user_id: str = "user_test", tenant_id: str = TENANT_A, workspace_id: str = WORKSPACE_A) -> dict[str, str]:
@@ -61,13 +61,11 @@ def _visible(app_session: Callable[..., Iterator[Session]], table: str, user_id:
         return int(session.execute(text(f"select count(*) from {table}")).scalar_one())  # nosec B608
 
 
-def test_pins_commands_states_and_name_persist_per_user(client: TestClient, app_factory: sessionmaker[Session]) -> None:
+def test_pins_states_and_name_persist_per_user(client: TestClient, app_factory: sessionmaker[Session]) -> None:
     pin = client.post("/api/v1/home/pins", headers=headers(), json={"kind": "link", "label": "TyrePulse", "target": "https://tyrepulse.example"})
     assert pin.status_code == 201, pin.text
     second = client.post("/api/v1/home/pins", headers=headers(), json={"kind": "feature", "label": "Reports", "target": "reports"})
     assert second.status_code == 201, second.text
-    command = client.post("/api/v1/home/commands", headers=headers(), json={"label": "Stock", "prompt": "Check tyre stock"})
-    assert command.status_code == 201, command.text
     assert client.put("/api/v1/home/profile", headers=headers(), json={"display_name": "Shahzeb"}).status_code == 200
 
     # A failed task gives an insight to dismiss.
@@ -89,8 +87,6 @@ def test_pins_commands_states_and_name_persist_per_user(client: TestClient, app_
     assert ids == [pin.json()["id"], second.json()["id"]]
     reordered = client.put("/api/v1/home/pins/order", headers=headers(), json={"ids": list(reversed(ids))})
     assert [p["id"] for p in reordered.json()] == list(reversed(ids))
-    own = [c for c in client.get("/api/v1/home/commands", headers=headers()).json()["items"] if not c["built_in"]]
-    assert [c["label"] for c in own] == ["Stock"]
     summary = client.get("/api/v1/home/summary", headers=headers())
     assert summary.status_code == 200, summary.text
     assert summary.json()["profile"]["display_name"] == "Shahzeb"
@@ -112,9 +108,8 @@ def test_rows_are_private_to_their_user_under_rls(
     client: TestClient, app_session: Callable[..., Iterator[Session]], database_engine: Engine
 ) -> None:
     client.post("/api/v1/home/pins", headers=headers(), json={"kind": "feature", "label": "Tasks", "target": "tasks"})
-    client.post("/api/v1/home/commands", headers=headers(), json={"label": "Stock", "prompt": "Check tyre stock"})
     client.put("/api/v1/home/profile", headers=headers(), json={"display_name": "Shahzeb"})
-    for table in ("home_pins", "home_commands", "home_profiles"):
+    for table in ("home_pins", "home_profiles"):
         assert _visible(app_session, table, "user_test") == 1, table
         assert _visible(app_session, table, "user_other") == 0, table
         assert _visible(app_session, table, None) == 0, table
@@ -137,7 +132,7 @@ def test_rows_are_private_to_their_user_under_rls(
     with app_session(tenant_context(), commit=True) as session:
         session.execute(text("select set_config('anum.user_id', 'user_other', true)"))
         assert session.execute(text("update home_pins set label = 'stolen'")).rowcount == 0
-        assert session.execute(text("delete from home_commands")).rowcount == 0
+        assert session.execute(text("delete from home_profiles")).rowcount == 0
 
     with database_engine.connect() as connection:
         rows = connection.execute(
@@ -155,3 +150,19 @@ def test_saving_needs_an_onboarded_workspace(client: TestClient) -> None:
         json={"kind": "feature", "label": "Tasks", "target": "tasks"},
     )
     assert response.status_code in {403, 409}
+
+
+def test_delete_my_data_removes_home_rows_of_the_caller_only(client: TestClient) -> None:
+    client.post("/api/v1/home/pins", headers=headers(), json={"kind": "feature", "label": "Tasks", "target": "tasks"})
+    client.put("/api/v1/home/profile", headers=headers(), json={"display_name": "Shahzeb"})
+    client.post("/api/v1/home/pins", headers=headers("user_other"), json={"kind": "feature", "label": "Tasks", "target": "tasks"})
+    exported = client.get("/api/v1/privacy/export", headers=headers())
+    assert exported.status_code == 200, exported.text
+    assert [pin["label"] for pin in exported.json()["home"]["pins"]] == ["Tasks"]
+    deleted = client.post("/api/v1/privacy/delete", headers=headers(), json={"confirm": "DELETE MY DATA"})
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted"]["home_items"] == 2
+    home_store.clear()
+    assert client.get("/api/v1/home/pins", headers=headers()).json() == []
+    assert client.get("/api/v1/home/summary", headers=headers()).json()["profile"]["display_name"] is None
+    assert len(client.get("/api/v1/home/pins", headers=headers("user_other")).json()) == 1

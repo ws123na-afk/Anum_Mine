@@ -17,10 +17,11 @@ Both lists are open registries: another module adds a focus or insight source wi
 registers its findings this way). A source declares the permission its data needs and is
 skipped for callers without it.
 
-Pinned apps and quick commands belong to the caller only: there is no user id in any path
+Pinned apps, insight states and the greeting name belong to the caller only: there is no user id in any path
 or body, every store call is keyed by the caller's tenant, workspace and user, and with
-PostgreSQL the rows are under forced RLS on ``anum.user_id`` (migration ``0036_home``).
-Every change is audited (``home.*`` actions).
+PostgreSQL the rows are under forced RLS on ``anum.user_id`` (migration ``0046_home``).
+Every change is audited (``home.*`` actions). The caller's own quick commands live in the
+command module (``/api/v1/quick-commands``); ``GET /commands`` adds them after the built-in ones.
 """
 
 from __future__ import annotations
@@ -52,19 +53,18 @@ logger = logging.getLogger("anum.home")
 router = APIRouter(prefix="/api/v1/home", tags=["home"])
 
 MAX_PINS = 24
-MAX_COMMANDS = 30
 MAX_INSIGHT_STATES = 500
 MAX_FOCUS_PER_SOURCE = 5
 MAX_INSIGHTS_PER_SOURCE = 5
 MAX_ACTIVITY = 10
 
-COMMAND_DENIED = "Viewers cannot run commands, so they cannot save quick commands. Ask a workspace owner for the member role."
 
 # What a pin or an action may open in the apps. Clients map each key to a screen.
 FEATURES = frozenset(
     {
         "command", "chat", "agents", "voice", "automations", "tasks", "calendar", "reports", "documents",
         "integrations", "knowledge", "approvals", "email", "whatsapp", "autonomy", "settings", "insights",
+        "commerce", "team", "favorites", "tyres", "marketing",
     }
 )
 _ICON = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
@@ -207,36 +207,6 @@ class PinOrder(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ids: list[str] = Field(min_length=1, max_length=MAX_PINS)
-
-
-class CommandCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mode: CommandMode = CommandMode.CUSTOM
-    label: str = Field(min_length=1, max_length=60)
-    prompt: str = Field(min_length=1, max_length=1000)
-
-    @field_validator("label", "prompt")
-    @classmethod
-    def _text(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("must not be blank")
-        return value.strip()
-
-
-class CommandUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    mode: CommandMode | None = None
-    label: str | None = Field(default=None, min_length=1, max_length=60)
-    prompt: str | None = Field(default=None, min_length=1, max_length=1000)
-
-    @field_validator("label", "prompt")
-    @classmethod
-    def _text(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("must not be blank")
-        return value.strip() if value is not None else None
 
 
 class ProfileUpdate(BaseModel):
@@ -477,12 +447,10 @@ class HomeStore(Protocol):
     def list_pins(self, context: TenantContext) -> list[Pin]: ...
     def save_pin(self, context: TenantContext, pin: Pin) -> Pin: ...
     def delete_pin(self, context: TenantContext, pin_id: str) -> bool: ...
-    def list_commands(self, context: TenantContext) -> list[QuickCommand]: ...
-    def save_command(self, context: TenantContext, command: QuickCommand) -> QuickCommand: ...
-    def delete_command(self, context: TenantContext, command_id: str) -> bool: ...
     def list_insight_states(self, context: TenantContext) -> dict[str, InsightStateRecord]: ...
     def save_insight_state(self, context: TenantContext, record: InsightStateRecord) -> InsightStateRecord: ...
     def delete_insight_state(self, context: TenantContext, key: str) -> bool: ...
+    def delete_all(self, context: TenantContext) -> None: ...
 
 
 def _ordered(items: list[Any]) -> list[Any]:
@@ -495,7 +463,6 @@ class InMemoryHomeStore:
     def __init__(self) -> None:
         self._profiles: dict[tuple[str, str], HomeProfile] = {}
         self._pins: dict[tuple[str, str, str], dict[str, Pin]] = {}
-        self._commands: dict[tuple[str, str, str], dict[str, QuickCommand]] = {}
         self._states: dict[tuple[str, str, str], dict[str, InsightStateRecord]] = {}
         self._lock = RLock()
 
@@ -525,19 +492,6 @@ class InMemoryHomeStore:
         with self._lock:
             return self._pins.get(self._user(context), {}).pop(pin_id, None) is not None
 
-    def list_commands(self, context: TenantContext) -> list[QuickCommand]:
-        with self._lock:
-            return _ordered(list(self._commands.get(self._user(context), {}).values()))
-
-    def save_command(self, context: TenantContext, command: QuickCommand) -> QuickCommand:
-        with self._lock:
-            self._commands.setdefault(self._user(context), {})[command.id] = command
-        return command
-
-    def delete_command(self, context: TenantContext, command_id: str) -> bool:
-        with self._lock:
-            return self._commands.get(self._user(context), {}).pop(command_id, None) is not None
-
     def list_insight_states(self, context: TenantContext) -> dict[str, InsightStateRecord]:
         with self._lock:
             return dict(self._states.get(self._user(context), {}))
@@ -555,11 +509,17 @@ class InMemoryHomeStore:
         with self._lock:
             return self._states.get(self._user(context), {}).pop(key, None) is not None
 
+    def delete_all(self, context: TenantContext) -> None:
+        """Every Home row of this user here, and their tenant-wide name ("Delete my data")."""
+        with self._lock:
+            self._profiles.pop((context.tenant_id, context.user_id), None)
+            self._pins.pop(self._user(context), None)
+            self._states.pop(self._user(context), None)
+
     def clear(self) -> None:
         with self._lock:
             self._profiles.clear()
             self._pins.clear()
-            self._commands.clear()
             self._states.clear()
 
 
@@ -577,6 +537,21 @@ def open_home_store(context: TenantContext) -> Iterator[HomeStore]:
 
     with open_scoped_store(context, home_store, sql_store, user_scoped=True) as store:
         yield store
+
+
+def home_counts(store: HomeStore, context: TenantContext) -> int:
+    """Rows "Delete my data" removes: pins, insight states and the greeting name."""
+    return len(store.list_pins(context)) + len(store.list_insight_states(context)) + int(store.get_profile(context) is not None)
+
+
+def home_export(store: HomeStore, context: TenantContext) -> dict[str, Any]:
+    """The caller's Home data for "Download my data"."""
+    profile = store.get_profile(context)
+    return {
+        "profile": profile.model_dump(mode="json") if profile is not None else None,
+        "pins": [pin.model_dump(mode="json") for pin in store.list_pins(context)],
+        "insight_states": [state.model_dump(mode="json") for state in store.list_insight_states(context).values()],
+    }
 
 
 # -- helpers ----------------------------------------------------------------------------------------
@@ -823,75 +798,33 @@ async def reorder_pins(
 # -- routes: quick commands ----------------------------------------------------------------------------------
 
 
-@router.get("/commands", response_model=CommandList)
-async def list_commands(context: TenantContext = Depends(tenant_context)) -> CommandList:
-    """Built-in commands for the modules the caller can use, then the caller's own."""
-    require_permission(context, Permission.TASK_READ)
-    with open_home_store(context) as store:
-        own = store.list_commands(context)
-    return CommandList(items=[*built_in_commands(context), *own], can_edit=has_permission(context, Permission.TASK_CREATE))
-
-
-def _require_command_editor(context: TenantContext) -> None:
-    if not has_permission(context, Permission.TASK_CREATE):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=COMMAND_DENIED)
-
-
-@router.post("/commands", response_model=QuickCommand, status_code=status.HTTP_201_CREATED)
-async def add_command(
-    payload: CommandCreate,
-    context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
-) -> QuickCommand:
-    _require_command_editor(context)
-    now = utc_now()
-    with open_home_store(context) as store:
-        own = store.list_commands(context)
-        if len(own) >= MAX_COMMANDS:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=f"Home holds up to {MAX_COMMANDS} quick commands. Remove one first."
-            )
-        command = store.save_command(
-            context,
-            QuickCommand(
-                id=new_id("cmd"), mode=payload.mode, label=payload.label, prompt=payload.prompt,
-                position=(max((c.position for c in own), default=-1) + 1), created_at=now, updated_at=now,
-            ),
+def own_quick_commands(repository: AnumRepository, context: TenantContext) -> list[QuickCommand]:
+    """The caller's own quick commands, from the command module (``/api/v1/quick-commands``),
+    which is their only store. Empty while that module is not installed."""
+    try:
+        from .commands import command_store  # type: ignore[attr-defined]
+    except ImportError:
+        return []
+    items = command_store(repository, context).list_quick()
+    return [
+        QuickCommand(
+            id=item.id, mode=CommandMode(item.category.value), label=item.title, prompt=item.text,
+            position=item.position, created_at=item.created_at, updated_at=item.updated_at,
         )
-    _audit(repository, context, "home.command_added", command.id, {"mode": command.mode.value})
-    return command
+        for item in sorted(items, key=lambda item: (item.position, item.created_at))
+    ]
 
 
-@router.patch("/commands/{command_id}", response_model=QuickCommand)
-async def update_command(
-    command_id: str,
-    payload: CommandUpdate,
+@router.get("/commands", response_model=CommandList)
+async def list_commands(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
-) -> QuickCommand:
-    _require_command_editor(context)
-    with open_home_store(context) as store:
-        command = next((c for c in store.list_commands(context) if c.id == command_id), None)
-        if command is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quick command not found")
-        changes = {k: v for k, v in payload.model_dump().items() if v is not None}
-        saved = store.save_command(context, command.model_copy(update={**changes, "updated_at": utc_now()}))
-    _audit(repository, context, "home.command_updated", saved.id, {"fields": sorted(changes)})
-    return saved
-
-
-@router.delete("/commands/{command_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-async def delete_command(
-    command_id: str,
-    context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
-) -> Response:
-    _require_command_editor(context)
-    with open_home_store(context) as store:
-        if not store.delete_command(context, command_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quick command not found")
-    _audit(repository, context, "home.command_removed", command_id, {})
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+) -> CommandList:
+    """Built-in commands for the modules the caller can use, then the caller's own (created,
+    changed and deleted through ``/api/v1/quick-commands``)."""
+    require_permission(context, Permission.TASK_READ)
+    own = own_quick_commands(repository, context) if has_permission(context, Permission.TASK_CREATE) else []
+    return CommandList(items=[*built_in_commands(context), *own], can_edit=has_permission(context, Permission.TASK_CREATE))
 
 
 # -- routes: insights ----------------------------------------------------------------------------------------

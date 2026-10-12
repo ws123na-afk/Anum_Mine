@@ -1,9 +1,8 @@
-"""Home: pinned apps, quick commands, insight dismissals and the greeting name (docs/home.md).
+"""Home: pinned apps, insight dismissals and the greeting name (docs/home.md).
 
 * ``home_profiles``: the name Home greets a user by, one row per tenant and user.
 * ``home_pins``: a user's pinned apps in one workspace (another workspace, an https link
   to one of the owner's apps, or an ANUM feature), in the user's order.
-* ``home_commands``: a user's own quick commands (Work, Personal or Custom).
 * ``home_insight_states``: which proactive insights a user dismissed or snoozed, keyed by
   the insight's stable key (``<source>:<id>``).
 
@@ -11,16 +10,19 @@ Every row is private to its user: the forced RLS policies check ``anum.user_id``
 as ``anum.tenant_id`` (and ``anum.workspace_id`` for the workspace tables). No other role
 is granted anything: nothing reads Home data across users or tenants.
 
-Expand only: four new tables; the previous release ignores them.
+Expand only: three new tables; the previous release ignores them.
 
-Chained after ``0035_email_inbox``.
+A user's own quick commands are not here: they live in the command module's
+``quick_commands`` (docs/command.md); Home reads them from there.
+
+Chained after ``0050_rotation_retention`` (re-chained at landing).
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0036_home"
-down_revision = "0035_email_inbox"
+revision = "0046_home"
+down_revision = "0050_rotation_retention"
 branch_labels = None
 depends_on = None
 
@@ -33,7 +35,7 @@ WORKSPACE_USER_PREDICATE = (
     "          and workspace_id = nullif(current_setting('anum.workspace_id', true), '')\n"
     "          and user_id = nullif(current_setting('anum.user_id', true), '')"
 )
-WORKSPACE_TABLES = ("home_pins", "home_commands", "home_insight_states")
+WORKSPACE_TABLES = ("home_pins", "home_insight_states")
 
 
 def _scope_columns() -> list[sa.Column]:
@@ -92,20 +94,6 @@ def upgrade() -> None:
     )
     op.create_index("ix_home_pins_user", "home_pins", ["tenant_id", "workspace_id", "user_id", "position"])
     op.create_table(
-        "home_commands",
-        sa.Column("id", sa.String(80), primary_key=True),
-        *_scope_columns(),
-        sa.Column("mode", sa.String(20), nullable=False),
-        sa.Column("label", sa.String(60), nullable=False),
-        sa.Column("prompt", sa.Text(), nullable=False),
-        sa.Column("position", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        _workspace_fk("home_commands"),
-        sa.CheckConstraint("mode in ('work', 'personal', 'custom')", name="ck_home_commands_mode"),
-    )
-    op.create_index("ix_home_commands_user", "home_commands", ["tenant_id", "workspace_id", "user_id", "position"])
-    op.create_table(
         "home_insight_states",
         *_scope_columns(),
         sa.Column("insight_key", sa.String(200), nullable=False),
@@ -122,5 +110,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    for table in ("home_insight_states", "home_commands", "home_pins", "home_profiles"):
+    for table in ("home_insight_states", "home_pins", "home_profiles"):
         op.drop_table(table)

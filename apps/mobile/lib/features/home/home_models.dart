@@ -237,6 +237,15 @@ class QuickCommand {
         builtIn: r.optBool('built_in') ?? false,
       );
 
+  /// One of the user's own, as `/api/v1/quick-commands` (the command
+  /// module, their only store) returns it.
+  factory QuickCommand.fromQuickCommandsApi(JsonReader r) => QuickCommand(
+        id: r.string('id'),
+        mode: commandModeOf(r.optString('category')),
+        label: r.string('title'),
+        prompt: r.string('text'),
+      );
+
   final String id;
   final CommandMode mode;
   final String label, prompt;

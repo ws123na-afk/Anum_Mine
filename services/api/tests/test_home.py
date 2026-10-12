@@ -5,6 +5,8 @@ In-memory backend; PostgreSQL and RLS are in ``test_postgres_home.py``.
 
 from __future__ import annotations
 
+import sys
+import types
 from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
@@ -282,31 +284,67 @@ def test_pins_are_private_to_each_user(client: TestClient) -> None:
 # --------------------------------------------------------------------------- quick commands
 
 
-def test_quick_commands_built_in_plus_own_and_viewers_cannot_edit(client: TestClient) -> None:
+def test_quick_commands_built_in_plus_the_command_modules_own(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     listed = client.get("/api/v1/home/commands", headers=MEMBER).json()
     keys = {item["key"] for item in listed["items"] if item["built_in"]}
     assert {"check_email", "summarize_day", "plan_day"} <= keys and listed["can_edit"] is True
     assert {item["mode"] for item in listed["items"]} == {"work", "personal"}
+    # Home keeps no quick-command store of its own: the routes are gone.
+    assert client.post("/api/v1/home/commands", headers=MEMBER, json={"label": "x", "prompt": "y"}).status_code == 405
 
-    created = client.post(
-        "/api/v1/home/commands", headers=MEMBER, json={"mode": "custom", "label": "Tyre stock", "prompt": "Check tyre stock on Noon"}
-    )
-    assert created.status_code == 201
-    command_id = created.json()["id"]
-    updated = client.patch(f"/api/v1/home/commands/{command_id}", headers=MEMBER, json={"mode": "work"})
-    assert updated.json()["mode"] == "work" and updated.json()["label"] == "Tyre stock"
-    own = [i for i in client.get("/api/v1/home/commands", headers=MEMBER).json()["items"] if not i["built_in"]]
-    assert [i["id"] for i in own] == [command_id]
-    assert client.get("/api/v1/home/commands", headers=OWNER).json()["items"][-1]["built_in"] is True  # not shared
-    assert client.delete(f"/api/v1/home/commands/{command_id}", headers=MEMBER).status_code == 204
-    assert client.delete("/api/v1/home/commands/builtin:check_email", headers=MEMBER).status_code == 404
+    # The caller's own come from the command module (/api/v1/quick-commands).
+    now = utc_now()
+    seen: list[TenantContext] = []
+
+    class Quick:
+        def __init__(self, id: str, title: str, text: str, category: str, position: int) -> None:
+            self.id, self.title, self.text, self.position = id, title, text, position
+            self.category = types.SimpleNamespace(value=category)
+            self.created_at = self.updated_at = now
+
+    class Store:
+        def list_quick(self) -> list[Quick]:
+            return [Quick("qc_2", "Noon stock", "Check tyre stock on Noon", "custom", 1),
+                    Quick("qc_1", "PMV report", "Prepare the PMV tyre report", "work", 0)]
+
+    def command_store(repository, context):  # type: ignore[no-untyped-def]
+        seen.append(context)
+        return Store()
+
+    monkeypatch.setitem(sys.modules, "anum_api.commands", types.SimpleNamespace(command_store=command_store))
+    own = [item for item in client.get("/api/v1/home/commands", headers=MEMBER).json()["items"] if not item["built_in"]]
+    assert [(i["id"], i["mode"], i["label"], i["prompt"]) for i in own] == [
+        ("qc_1", "work", "PMV report", "Prepare the PMV tyre report"),
+        ("qc_2", "custom", "Noon stock", "Check tyre stock on Noon"),
+    ]
+    assert seen[-1].user_id == "member_home"
 
     viewer = client.get("/api/v1/home/commands", headers=VIEWER).json()
     assert viewer == {"items": [], "can_edit": False}
-    denied = client.post("/api/v1/home/commands", headers=VIEWER, json={"label": "x", "prompt": "y"})
-    assert denied.status_code == 403 and "Viewers" in denied.json()["error"]["message"]
-    assert client.post("/api/v1/home/commands", headers=MEMBER, json={"label": " ", "prompt": "y"}).status_code == 422
-    assert _audits("home.command_added") and _audits("home.command_updated") and _audits("home.command_removed")
+
+
+def test_privacy_export_and_delete_cover_home(client: TestClient) -> None:
+    client.post("/api/v1/home/pins", headers=OWNER, json={"kind": "feature", "label": "Tasks", "target": "tasks"})
+    client.put("/api/v1/home/profile", headers=OWNER, json={"display_name": "Shahzeb"})
+    _task("task_failed", TaskStatus.FAILED)
+    assert client.post("/api/v1/home/insights/tasks:failed:task_failed/dismiss", headers=OWNER).status_code == 200
+    other = client.post("/api/v1/home/pins", headers=MEMBER, json={"kind": "feature", "label": "Tasks", "target": "tasks"})
+    assert other.status_code == 201
+
+    exported = client.get("/api/v1/privacy/export", headers=OWNER)
+    assert exported.status_code == 200, exported.text
+    home_section = exported.json()["home"]
+    assert home_section["profile"]["display_name"] == "Shahzeb"
+    assert [pin["label"] for pin in home_section["pins"]] == ["Tasks"]
+    assert [state["key"] for state in home_section["insight_states"]] == ["tasks:failed:task_failed"]
+
+    deleted = client.post("/api/v1/privacy/delete", headers=OWNER, json={"confirm": "DELETE MY DATA"})
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted"]["home_items"] == 3
+    assert client.get("/api/v1/home/pins", headers=OWNER).json() == []
+    assert home_store.list_insight_states(ctx()) == {}
+    assert client.get("/api/v1/home/summary", headers=OWNER).json()["profile"]["display_name"] is None
+    assert len(client.get("/api/v1/home/pins", headers=MEMBER).json()) == 1  # someone else's stay
 
 
 # --------------------------------------------------------------------------- insights
@@ -412,3 +450,23 @@ def test_registered_insight_sources_are_validated_and_permission_checked(client:
 def test_every_home_route_needs_an_identity(client: TestClient) -> None:
     for method, path in (("GET", "/api/v1/home/summary"), ("GET", "/api/v1/home/pins"), ("GET", "/api/v1/home/insights")):
         assert client.request(method, path).status_code in (401, 403)
+
+
+def test_own_quick_commands_come_from_the_command_module(client: TestClient) -> None:
+    from anum_api.commands import memory_command_store
+
+    memory_command_store.clear()
+    try:
+        created = client.post(
+            "/api/v1/quick-commands", headers=MEMBER,
+            json={"title": "PMV report", "text": "Prepare the PMV tyre report", "category": "work"},
+        )
+        assert created.status_code == 201, created.text
+        own = [i for i in client.get("/api/v1/home/commands", headers=MEMBER).json()["items"] if not i["built_in"]]
+        assert [(i["id"], i["mode"], i["label"], i["prompt"]) for i in own] == [
+            (created.json()["id"], "work", "PMV report", "Prepare the PMV tyre report")
+        ]
+        # Another user sees only the built-in ones.
+        assert all(i["built_in"] for i in client.get("/api/v1/home/commands", headers=OWNER).json()["items"])
+    finally:
+        memory_command_store.clear()

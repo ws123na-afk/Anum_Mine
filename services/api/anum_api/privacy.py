@@ -57,6 +57,7 @@ from .files import FileRecord
 from .commands import CommandStore
 from .commands import privacy_counts as command_privacy_counts
 from .commands import privacy_export as command_privacy_export
+from .home import HomeStore, home_counts, home_export
 from .learning_store import LearningStore
 from .localization import PRIVACY_NOTES_AR, Language, localize_message, request_language
 from .memory import MemoryNote
@@ -139,6 +140,9 @@ class PrivateCounts(BaseModel):
     # notifications and their member profile (name, email, title, capacity) here.
     team_notifications: int = 0
     team_profile: int = 0
+    # Home (migration 0046_home, docs/home.md): pinned apps, dismissed or snoozed insights,
+    # and the greeting name (tenant-wide).
+    home_items: int = 0
 
     @property
     def total(self) -> int:
@@ -421,6 +425,7 @@ class PrivacyStore(Protocol):
     def tyre(self) -> Any: ...
     def commerce(self) -> Any: ...
     def delete_team_private(self) -> None: ...
+    def home(self) -> HomeStore: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
     def record_audit(self, record: AuditRecord) -> None: ...
@@ -680,6 +685,11 @@ class InMemoryPrivacyStore:
                 if self._scoped(pending.tenant_id, pending.workspace_id) and pending.user_id == self.context.user_id:
                     email_backend.pending.pop(key, None)
 
+    def home(self) -> HomeStore:
+        from .home import home_store
+
+        return home_store
+
     def _private_sources(self) -> list[Any]:
         from .retrieval import memory_retrieval_store
 
@@ -715,6 +725,7 @@ class InMemoryPrivacyStore:
             **command_privacy_counts(self.commands()),
             **self.library().counts(),
             **module_private,
+            home_items=home_counts(self.home(), self.context),
         )
         return private, self._shared_counts(module_shared)
 
@@ -774,6 +785,7 @@ class InMemoryPrivacyStore:
         self.library().delete_all()
         self._delete_email()
         self.delete_team_private()
+        self.home().delete_all(self.context)
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -926,6 +938,7 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("commands", command_privacy_export(store.commands()))
     # Favorites, private knowledge base collections (with their items) and private reports.
     yield ("library", store.library().export())
+    yield ("home", home_export(store.home(), context))
     yield (
         "email",
         {

@@ -37,6 +37,8 @@ const homeShortcuts = <HomeFeature>[
       AnumTone.info),
   HomeFeature('knowledge', 'homeTileKnowledge', Icons.menu_book_outlined,
       AnumTone.accent),
+  HomeFeature(
+      'commerce', 'homeTileCommerce', Icons.storefront_outlined, AnumTone.ok),
   HomeFeature('more', 'homeTileMore', Icons.more_horiz, AnumTone.neutral),
 ];
 
@@ -50,6 +52,14 @@ const homeExtraFeatures = <HomeFeature>[
   HomeFeature('autonomy', 'homeFeatureAutonomy', Icons.tune, AnumTone.accent),
   HomeFeature('settings', 'homeFeatureSettings', Icons.settings_outlined,
       AnumTone.neutral),
+  HomeFeature(
+      'team', 'homeFeatureTeam', Icons.groups_2_outlined, AnumTone.info),
+  HomeFeature(
+      'favorites', 'homeFeatureFavorites', Icons.star_outline, AnumTone.warn),
+  HomeFeature(
+      'tyres', 'homeFeatureTyres', Icons.tire_repair_outlined, AnumTone.ok),
+  HomeFeature('marketing', 'homeFeatureMarketing', Icons.campaign_outlined,
+      AnumTone.accent),
   HomeFeature('insights', 'homeProactive', Icons.auto_awesome_outlined,
       AnumTone.accent),
 ];
@@ -187,38 +197,6 @@ String agoLabel(AnumLocalizations t, DateTime at, DateTime now) {
 }
 
 // -- widgets ---------------------------------------------------------------------
-
-/// The blue-to-violet primary button of the mockups.
-class HomeGradientButton extends StatelessWidget {
-  const HomeGradientButton(
-      {required this.label, required this.onPressed, this.icon, super.key});
-  final String label;
-  final VoidCallback? onPressed;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final enabled = onPressed != null;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        gradient: LinearGradient(
-            colors: enabled ? [p.sky, p.violet] : [p.surface3, p.surface3]),
-      ),
-      child: FilledButton.icon(
-        style: FilledButton.styleFrom(
-            backgroundColor: Colors.transparent,
-            disabledBackgroundColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            foregroundColor: const Color(0xFF0B1020)),
-        onPressed: onPressed,
-        icon: icon == null ? const SizedBox.shrink() : Icon(icon, size: 18),
-        label: Text(label),
-      ),
-    );
-  }
-}
 
 /// A gradient icon square in one of the palette tones.
 class HomeIconSquare extends StatelessWidget {

@@ -27,16 +27,25 @@ import '../whatsapp/whatsapp_screen.dart';
 import '../email/email_controller.dart';
 import '../email/inbox_screen.dart';
 import '../commerce/commerce_controller.dart';
+import '../../data/api_client.dart';
 import '../commerce/commerce_screen.dart';
 import '../library/library_models.dart' show Favorite;
 import '../library/library_repository.dart';
 import '../library/library_screens.dart';
 import '../marketing/marketing_controller.dart';
 import '../marketing/marketing_screen.dart';
+import '../admin/owned_controller.dart';
+import '../autonomy/autonomy_controller.dart';
+import '../autonomy/autonomy_screens.dart';
+import '../home/home_controller.dart';
+import '../home/home_models.dart';
+import '../home/home_repository.dart';
+import '../home/home_screen.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/theme/theme_controller.dart';
 import '../../src/widgets/brand.dart';
+import '../../src/widgets/depth.dart';
 import '../../src/widgets/greeting_header.dart';
 import '../../src/widgets/navigation.dart';
 import '../automations/automation_repository.dart';
@@ -45,7 +54,6 @@ import 'api_workspace_repository.dart';
 import 'approvals_screen.dart';
 import 'automations_screen.dart';
 import 'destinations.dart';
-import 'home_screen.dart';
 import 'resources_screen.dart';
 import 'tasks_screen.dart';
 
@@ -70,10 +78,12 @@ class WorkspaceHome extends StatefulWidget {
       this.whatsappController,
       this.emailController,
       this.commerceController,
+      this.homeController,
       this.onOpenCommand,
       this.agentsController,
       this.agentChat,
       this.agentCall,
+      this.onCommandRequest,
       this.workspaceName,
       this.library,
       this.initialIndex = WorkspaceDestination.home});
@@ -110,6 +120,15 @@ class WorkspaceHome extends StatefulWidget {
   /// Commerce (docs/commerce.md), opened from Home.
   final CommerceController? commerceController;
 
+  /// Home (docs/home.md). Built from the workspace repository's API client
+  /// when not given.
+  final HomeController? homeController;
+
+  /// Opens ANUM Command with a typed request or a quick command (null: the
+  /// empty command screen). Without it a request goes to the Assistant chat
+  /// and an empty one opens the orb's surface.
+  final ValueChanged<String?>? onCommandRequest;
+
   /// The orb: opens ANUM Command. Without it the orb opens the voice
   /// assistant, the command surface the app has today.
   final VoidCallback? onOpenCommand;
@@ -132,6 +151,8 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   late final AutomationsController _automations =
       widget.automationsController ?? _ownAutomations();
   bool _ownsAutomations = false;
+  late final HomeController _home = widget.homeController ?? _ownHome();
+  bool _ownsHome = false;
   late final ThemeController _theme =
       widget.themeController ?? ThemeController(store: MemoryThemeStore());
   final _scaffold = GlobalKey<ScaffoldState>();
@@ -154,6 +175,13 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
           ? IntegrationsController(ApiIntegrationsRepository(
               (widget.controller.repository as ApiWorkspaceRepository).api))
           : null;
+  HomeController _ownHome() {
+    _ownsHome = true;
+    final repository = widget.controller.repository;
+    return HomeController(repository is ApiWorkspaceRepository
+        ? ApiHomeRepository(repository.api)
+        : const UnavailableHomeRepository());
+  }
 
   late final RestorableInt _index;
   int get index => _index.value;
@@ -223,6 +251,23 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       _push(MarketingScreen(controller: widget.marketingController!));
   void _openGovernance(GovernanceSection section) => _push(GovernanceScreen(
       controller: widget.governanceController, initialSection: section));
+
+  /// Integrations (docs/mobile.md#anum-360-lists): its own screen on the
+  /// integrations API, Resources > Services without it.
+  void _openIntegrations() {
+    final integrations = _integrations;
+    if (integrations == null) {
+      _openResources(ResourcesTab.services,
+          AnumLocalizations.of(context).t('shellIntegrations'));
+      return;
+    }
+    _push(Scaffold(
+        appBar: AppBar(),
+        body: IntegrationsScreen(
+            controller: integrations,
+            onOpenInbox: widget.emailController == null ? null : _openInbox)));
+  }
+
   void _openResources(int tab, String title) => _push(Scaffold(
       appBar: AppBar(title: Text(title)),
       body: ResourcesScreen(controller: widget.controller, initialTab: tab)));
@@ -269,6 +314,135 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       open();
     } else {
       _select(WorkspaceDestination.voice);
+    }
+  }
+
+  void _commandRequest(String? text) {
+    final request = widget.onCommandRequest;
+    if (request != null) {
+      request(text);
+    } else if (text == null || text.trim().isEmpty) {
+      _openCommand();
+    } else {
+      _select(WorkspaceDestination.assistant);
+      widget.chatController.send(text);
+    }
+  }
+
+  /// What Home may open from this shell; tiles and pins for anything else
+  /// are hidden.
+  Set<String> get _homeFeatures => {
+        'command',
+        'chat',
+        'agents',
+        'voice',
+        'automations',
+        'tasks',
+        'documents',
+        'integrations',
+        'knowledge',
+        'approvals',
+        'settings',
+        'insights',
+        'more',
+        'calendar',
+        'tyres',
+        if (widget.library != null) ...{'reports', 'favorites'},
+        if (widget.settingsController.team != null) 'team',
+        if (widget.emailController != null) 'email',
+        if (widget.whatsappController != null) 'whatsapp',
+        if (widget.settingsController.autonomy != null) 'autonomy',
+        if (widget.commerceController != null) 'commerce',
+        if (widget.marketingController != null) 'marketing',
+      };
+
+  void _openTarget(HomeTarget target) {
+    final l = context.anum;
+    switch (target.feature) {
+      case 'chat':
+        _select(WorkspaceDestination.assistant);
+      case 'voice':
+        _select(WorkspaceDestination.voice);
+      case 'automations':
+        _select(WorkspaceDestination.automations);
+      case 'approvals':
+        _select(WorkspaceDestination.approvals);
+      case 'knowledge' when widget.library != null:
+        _openKnowledge();
+      case 'knowledge':
+        _select(WorkspaceDestination.resources);
+      case 'reports' when widget.library != null:
+        if (target.id case final id?) {
+          _openReport(id);
+        } else {
+          _openReports();
+        }
+      case 'favorites' when widget.library != null:
+        _openFavorites();
+      case 'calendar':
+        _openResources(ResourcesTab.meetings, l.t('homeTileCalendar'));
+      case 'tyres':
+        Navigator.of(context).pushNamed('/tyres');
+      case 'team' when widget.settingsController.team != null:
+        _push(TeamHubScreen(repository: widget.settingsController.team!));
+      case 'tasks':
+        final id = target.id;
+        final task = id == null
+            ? null
+            : widget.controller.tasks.where((t) => t.id == id).firstOrNull;
+        if (task != null) {
+          openTaskDetail(context, widget.controller, task);
+        } else {
+          _select(WorkspaceDestination.tasks);
+        }
+      case 'agents' when widget.agentsController != null:
+        _openAgents();
+      case 'agents':
+        _openResources(ResourcesTab.skills, l.t('shellAgents'));
+      case 'integrations':
+        _openIntegrations();
+      case 'documents':
+        _openResources(ResourcesTab.files, l.t('homeTileDocuments'));
+      case 'settings':
+        _openProfile();
+      case 'email' when widget.emailController != null:
+        _openInbox();
+      case 'whatsapp' when widget.whatsappController != null:
+        _openWhatsApp();
+      case 'autonomy' when widget.settingsController.autonomy != null:
+        final repository = widget.settingsController.autonomy!;
+        _push(OwnedController<ActivityController>(
+            create: () => ActivityController(repository),
+            builder: (_, c) => ActivityScreen(controller: c)));
+      case 'commerce' when widget.commerceController != null:
+        _push(CommerceScreen(controller: widget.commerceController!));
+      case 'marketing' when widget.marketingController != null:
+        _openMarketing();
+      case 'more':
+        _scaffold.currentState?.openDrawer();
+      default:
+        _openCommand();
+    }
+  }
+
+  /// A pinned workspace: the API confirms the membership, then the shell
+  /// reloads in it (as Settings > Switch workspace does).
+  Future<void> _switchWorkspace(String workspaceId) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final l = context.anum;
+    try {
+      await widget.settingsController.repository.switchWorkspace(workspaceId);
+      await Future.wait([
+        widget.settingsController.load(),
+        widget.controller.load(),
+        _home.load(),
+      ]);
+    } on Object catch (error) {
+      messenger?.showSnackBar(SnackBar(
+          content: Text(l.f('homeSwitchFailed', {
+        'name': workspaceId,
+        'message': error is ApiException ? error.readable : '$error'
+      }))));
     }
   }
 
@@ -324,29 +498,31 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 dictation: widget.voiceController.speech,
               ),
               HomeScreen(
-                controller: widget.controller,
-                library: widget.library,
-                onOpenFavorite: _openFavorite,
-                workspaceName: widget.workspaceName,
-                onNavigate: _select,
-                onOpenTask: (task) =>
-                    openTaskDetail(context, widget.controller, task),
+                controller: _home,
+                sections: [
+                  // Favorites and recent reports (docs/library.md).
+                  if (widget.library case final repository?)
+                    LibrarySection(
+                        repository: repository, onOpenOther: _openFavorite),
+                  // Tyre planning (docs/tyre-planning.md): its own screen.
+                  AnumSurface(
+                    onTap: () => Navigator.of(context).pushNamed('/tyres'),
+                    semanticLabel: context.anum.t('tyreOpen'),
+                    child: AnumRow(
+                      icon: Icons.tire_repair_outlined,
+                      title: context.anum.t('tyreOpen'),
+                      subtitle: context.anum.t('tyreOpenHint'),
+                      trailing: const Icon(Icons.chevron_right),
+                    ),
+                  ),
+                ],
                 // On wide screens the header sits above every page instead.
-                header: expanded ? null : _header(),
-                onOpenCommerce: widget.commerceController == null
-                    ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => CommerceScreen(
-                            controller: widget.commerceController!))),
-                onOpenAgents: widget.agentsController == null
-                    ? null
-                    : () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                            builder: (_) => AgentsScreen(
-                                controller: widget.agentsController!,
-                                chatBuilder: widget.agentChat,
-                                callOpener: widget.agentCall))),
+                header: expanded ? const SizedBox.shrink() : _header(),
+                onCommand: _commandRequest,
+                onVoice: _openCommand,
+                onOpen: _openTarget,
+                onSwitchWorkspace: _switchWorkspace,
+                availableFeatures: _homeFeatures,
               ),
               TasksScreen(controller: widget.controller),
               VoiceScreen(
@@ -599,19 +775,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 onTap: () => go(() => _push(TeamHubScreen(repository: team)))),
           destination('shellAutomations', Icons.account_tree_outlined,
               WorkspaceDestination.automations),
-          page(
-              'shellIntegrations',
-              Icons.hub_outlined,
-              () => _integrations == null
-                  ? _openResources(
-                      ResourcesTab.services, l.t('shellIntegrations'))
-                  : _push(Scaffold(
-                      appBar: AppBar(),
-                      body: IntegrationsScreen(
-                          controller: _integrations,
-                          onOpenInbox: widget.emailController == null
-                              ? null
-                              : _openInbox)))),
+          page('shellIntegrations', Icons.hub_outlined, _openIntegrations),
           if (widget.library != null) ...[
             page('shellKnowledge', Icons.menu_book_outlined, _openKnowledge),
             page('libFavorites', Icons.star_outline, _openFavorites),
@@ -674,6 +838,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     _index.dispose();
     if (_ownsAutomations) _automations.dispose();
     _integrations?.dispose();
+    if (_ownsHome) _home.dispose();
     if (widget.themeController == null) _theme.dispose();
     super.dispose();
   }
