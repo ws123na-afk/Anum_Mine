@@ -65,7 +65,7 @@ case "$ACTION" in
   reset-user|grant-org-admin) [ "${#ARGS[@]}" -eq 2 ] || usage; TARGET_USERNAME="${ARGS[1]}" ;;
   remove-provider) [ "${#ARGS[@]}" -eq 2 ] || usage; PROVIDER="${ARGS[1]}" ;;
   assign-tenant)
-    [ "${#ARGS[@]}" -ge 3 ] && [ "${#ARGS[@]}" -le 4 ] || usage
+    if ! { [ "${#ARGS[@]}" -ge 3 ] && [ "${#ARGS[@]}" -le 4 ]; }; then usage; fi
     TARGET_USERNAME="${ARGS[1]}"; TARGET_TENANT="${ARGS[2]}"; TARGET_WORKSPACE="${ARGS[3]:-}" ;;
   *) usage ;;
 esac
@@ -83,7 +83,7 @@ case "$ACTION" in
     read -r -p "Google client ID (ends in .apps.googleusercontent.com): " google_client_id
     read -r -s -p "Google client secret: " google_secret
     echo
-    [ -n "$google_client_id" ] && [ -n "$google_secret" ] || die "both the client ID and the secret are needed"
+    if ! { [ -n "$google_client_id" ] && [ -n "$google_secret" ]; }; then die "both the client ID and the secret are needed"; fi
     ;;
   apple)
     [ -t 0 ] || die "run this in an SSH session: it asks for the Apple identifiers and key file"
