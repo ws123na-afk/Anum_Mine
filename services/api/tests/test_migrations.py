@@ -660,3 +660,23 @@ def test_team_work_migration_is_expand_only_with_forced_rls_and_narrow_roles() -
     bootstrap = (Path(__file__).parents[3] / "infra" / "helm" / "bootstrap-database.sql").read_text(encoding="utf-8")
     assert "grant anum_platform_reader to anum_app with inherit false, set true;" in bootstrap
     assert "grant anum_tenant_directory to anum_app with inherit false, set true;" in bootstrap
+
+
+def test_reports_calendar_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0045_reports_calendar.py").read_text(encoding="utf-8")
+    assert 'revision = "0045_reports_calendar"' in revision_text and len("0045_reports_calendar") <= 32
+    assert 'down_revision = "0039_team_work"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0045_reports_calendar.py"]
+    assert not [path for path in others if 'down_revision = "0039_team_work"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 1 and '"calendar_events"' in revision_text
+    # Expand only: the two report columns have defaults, nothing is dropped or altered.
+    assert upgrade.count("op.add_column(") == 2 and upgrade.count("server_default") >= 2
+    assert '"tabs"' in upgrade and '"sections"' in upgrade
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "using (" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text
+    assert "current_setting('anum.workspace_id', true)" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
+    assert "drop " not in upgrade and "alter_column" not in upgrade

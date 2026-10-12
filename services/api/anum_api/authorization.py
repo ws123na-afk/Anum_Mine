@@ -100,6 +100,12 @@ class Permission(StrEnum):
     # Platform operator (docs/customer-organisations.md): onboards customer organisations
     # and reads their counts and health. Granted only by the platform_operator realm role.
     PLATFORM_OPERATE = "platform:operate"
+    # Calendar (docs/calendar.md): the workspace's events and their attendees. Viewers
+    # read the calendar; members and owners add events and change their own; owners
+    # manage everyone's.
+    CALENDAR_READ = "calendar:read"
+    CALENDAR_WRITE = "calendar:write"
+    CALENDAR_MANAGE = "calendar:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -153,6 +159,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.TYRE_READ,
         Permission.MEETING_READ,
         Permission.WORK_READ,
+        Permission.CALENDAR_READ,
     }
 )
 
@@ -184,6 +191,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.TYRE_OPERATE,
             Permission.MEETING_CREATE,
             Permission.WORK_MANAGE,
+            Permission.CALENDAR_WRITE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

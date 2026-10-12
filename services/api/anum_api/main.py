@@ -121,6 +121,7 @@ from .email_api import router as email_router
 from .commerce.api import router as commerce_router
 from .commerce.scheduler import build_commerce_scheduler
 from .commerce.tools import register_commerce_tools
+from .calendar_api import router as calendar_router
 from .user_preferences import router as user_preferences_router
 from .push import push_dispatcher, router as push_router
 from .developer_watch import build_developer_watcher
@@ -284,6 +285,7 @@ app.include_router(model_budget_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(email_router)
+app.include_router(calendar_router)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 app.include_router(commerce_router)

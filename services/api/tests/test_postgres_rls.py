@@ -77,6 +77,8 @@ TENANT_TABLES = {
     "user_notifications",
     "tenant_branding",
     "platform_organizations",
+    "reports",
+    "calendar_events",
     "audit_records",
     "workspace_invitations",
     "workspace_memberships",

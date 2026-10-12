@@ -372,6 +372,18 @@ class SqlAlchemyEmailStore:
             statement = statement.where(m.priority == filters.priority.value)
         if filters.unread is not None:
             statement = statement.where(m.is_read.is_(not filters.unread))
+        if filters.urgent is True:
+            statement = statement.where(m.priority == "high")
+        elif filters.urgent is False:
+            statement = statement.where(or_(m.priority.is_(None), m.priority != "high"))
+        if filters.replied is not None:
+            d = EmailDraftRecord
+            sent = (
+                select(d.id)
+                .where(*self._scope(d), d.message_id == m.id, d.status == DraftStatus.SENT.value)
+                .exists()
+            )
+            statement = statement.where(sent if filters.replied else ~sent)
         if filters.query:
             pattern = _like(filters.query)
             statement = statement.where(

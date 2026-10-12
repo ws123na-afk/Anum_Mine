@@ -332,6 +332,8 @@ def _report(record: ReportRecord) -> Report:
         ),
         created_at=record.created_at,
         updated_at=record.updated_at,
+        tabs=list(record.tabs or []),
+        sections=list(record.sections or []),
     )
 
 
@@ -375,6 +377,8 @@ class SqlAlchemyReportStore:
                 source_automation_run_id=report.source.automation_run_id,
                 created_at=report.created_at,
                 updated_at=report.updated_at,
+                tabs=list(report.tabs),
+                sections=[section.model_dump(mode="json") for section in report.sections],
             )
         )
         self.session.flush()

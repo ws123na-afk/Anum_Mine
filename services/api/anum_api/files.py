@@ -602,6 +602,54 @@ async def upload_file(
     return _views(context, [record])[0]
 
 
+async def save_generated_file(context: TenantContext, name: str, content: bytes) -> FileView:
+    """Store a file the API generated for the caller (a report export, docs/reports.md).
+
+    The same rules as an upload apply: an allowed type for the name, the workspace quota,
+    tenant-scoped object keys and metadata under RLS, and retrieval indexing for text.
+    The caller checks ``FILE_UPLOAD`` first.
+    """
+    name = _valid_name(name)
+    try:
+        allowed = file_policy.resolve_content_type(name, None)
+    except file_policy.UnsupportedFileType as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+    quota = settings.files_workspace_quota_bytes
+    with open_file_metadata_store(context) as store:
+        current = store.usage(context)
+    if current.used_bytes + len(content) > quota:
+        raise _quota_error(current, len(content))
+    digest = hashlib.sha256(content).hexdigest()
+    file_id = new_id("file")
+    key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
+    record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+                        name=name, content_type=allowed.content_type, size_bytes=len(content), sha256=digest,
+                        storage_key=key, created_by=context.user_id, created_at=utc_now())
+    file_store.storage.put(key, content, allowed.content_type)
+    try:
+        with open_file_metadata_store(context) as store:
+            store.add(record, quota)
+    except StorageQuotaExceeded as exc:
+        file_store.storage.delete(key)
+        raise _quota_error(exc.usage, len(content)) from exc
+    except BaseException:
+        file_store.storage.delete(key)
+        raise
+    from .retrieval_api import index_uploaded_file
+
+    await index_uploaded_file(context, record, content)
+    return _views(context, [record])[0]
+
+
+def file_link(context: TenantContext, record: FileRecord) -> FileLink:
+    """A short-lived download link for ``record`` (the same link ``POST /{id}/links`` mints)."""
+    expires_at = utc_now().replace(microsecond=0) + timedelta(seconds=settings.files_link_ttl_seconds)
+    token = file_policy.sign_link(file_policy.LinkClaims(
+        tenant_id=context.tenant_id, workspace_id=context.workspace_id, user_id=context.user_id,
+        file_id=record.id, sha256=record.sha256, inline=False, expires_at=expires_at))
+    return FileLink(url=f"{router.prefix}/links/{token}", expires_at=expires_at)
+
+
 @router.get("", response_model=list[FileView])
 def list_files(
     limit: int = Query(default=50, ge=1, le=200),

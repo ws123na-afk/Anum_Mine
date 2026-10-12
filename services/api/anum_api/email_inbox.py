@@ -379,6 +379,10 @@ class MessageFilters(BaseModel):
     unread: bool | None = None
     archived: bool = False
     query: str | None = None
+    # The email summary's tabs (docs/email.md): "Urgent" is priority high, "Other" is
+    # urgent=False (anything not high, untriaged included); "Replied" has a sent reply.
+    urgent: bool | None = None
+    replied: bool | None = None
 
 
 # -- storage ------------------------------------------------------------------------------
@@ -425,6 +429,8 @@ def matches(message: EmailMessage, filters: MessageFilters) -> bool:
     if filters.category and message.category != filters.category:
         return False
     if filters.priority and message.priority != filters.priority:
+        return False
+    if filters.urgent is not None and (message.priority == Priority.HIGH) != filters.urgent:
         return False
     if filters.unread is not None and message.is_read == filters.unread:
         return False
@@ -565,6 +571,9 @@ class MemoryEmailScope:
         allowed = set(account_ids)
         with self.b.lock:
             items = [m for m in self.b.messages.values() if self._mine(m) and m.account_id in allowed and matches(m, filters)]
+            if filters.replied is not None:
+                replied = {d.message_id for d in self.b.drafts.values() if self._mine(d) and d.status == DraftStatus.SENT}
+                items = [m for m in items if (m.id in replied) == filters.replied]
         if before is not None:
             items = [m for m in items if _sort_key(m) < _sort_key(before)]
         items.sort(key=_sort_key, reverse=True)

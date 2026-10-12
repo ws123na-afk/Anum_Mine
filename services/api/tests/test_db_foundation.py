@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from anum_api.db import calendar_repository as _calendar_tables  # noqa: F401 - registers calendar_events
 from anum_api.db import email_repository as _email_tables  # noqa: F401 - registers the email tables
 from anum_api.db.models import Base
 
@@ -55,6 +56,7 @@ def test_tenant_scoped_tables_include_tenant_id() -> None:
         "user_notifications",
         "tenant_branding",
         "platform_organizations",
+        "calendar_events",
         "audit_records",
         "workspace_invitations",
         "workspaces",

@@ -914,3 +914,34 @@ def test_graph_paging_keeps_only_the_token_of_an_inbox_delta_link() -> None:
         "10",
     ):
         assert _graph_delta_query(hostile) in (None, "$skiptoken=a"), hostile
+def test_summary_tabs_filter_urgent_other_and_replied() -> None:
+    """The email summary's All / Urgent / Replied / Other tabs (docs/email.md)."""
+    from anum_api.email_inbox import DraftStatus, EmailDraft
+
+    connect()
+    items = client.get("/api/v1/email/messages", headers=OWNER).json()["items"]
+    assert len(items) >= 3
+    urgent_id, replied_id = items[0]["id"], items[1]["id"]
+    with email_backend.lock:
+        for message in email_backend.messages.values():
+            message.priority = Priority.HIGH if message.id == urgent_id else Priority.NORMAL
+        now = utc_now()
+        email_backend.drafts["draft_sent_example"] = EmailDraft(
+            id="draft_sent_example", tenant_id=TENANT, workspace_id=WORKSPACE, account_id=items[1]["account_id"],
+            message_id=replied_id, status=DraftStatus.SENT, created_by="owner_mail", created_at=now, updated_at=now,
+        )
+        email_backend.drafts["draft_open_example"] = EmailDraft(
+            id="draft_open_example", tenant_id=TENANT, workspace_id=WORKSPACE, account_id=items[2]["account_id"],
+            message_id=items[2]["id"], status=DraftStatus.DRAFT, created_by="owner_mail", created_at=now, updated_at=now,
+        )
+
+    def ids(**params: str) -> list[str]:
+        response = client.get("/api/v1/email/messages", headers=MEMBER, params=params)
+        assert response.status_code == 200, response.text
+        return [item["id"] for item in response.json()["items"]]
+
+    assert ids(urgent="true") == [urgent_id]
+    assert urgent_id not in ids(urgent="false") and len(ids(urgent="false")) == len(items) - 1
+    assert ids(replied="true") == [replied_id]
+    assert replied_id not in ids(replied="false")
+    assert client.get("/api/v1/email/messages", headers=VIEWER, params={"urgent": "true"}).status_code == 403

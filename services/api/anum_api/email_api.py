@@ -732,6 +732,8 @@ async def list_messages(
     priority: Priority | None = None,
     unread: bool | None = None,
     archived: bool = False,
+    urgent: bool | None = Query(default=None, description="true: priority high; false: anything else"),
+    replied: bool | None = Query(default=None, description="true: a reply from ANUM was sent"),
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=25, ge=1, le=MAX_LISTED),
     before: str | None = Query(default=None, max_length=80),
@@ -741,7 +743,7 @@ async def list_messages(
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     filters = MessageFilters(
         account_id=account_id, category=category, priority=priority, unread=unread, archived=archived,
-        query=" ".join((q or "").split()) or None,
+        urgent=urgent, replied=replied, query=" ".join((q or "").split()) or None,
     )
     with open_email_store(context) as store:
         accounts = {a.id: a for a in visible_accounts(store, context)}

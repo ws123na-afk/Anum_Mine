@@ -1406,6 +1406,9 @@ class ReportRecord(Base, WorkspaceScopedMixin):
     source_automation_run_id: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Typed sections and their tabs (migration 0045_reports_calendar, docs/reports.md).
+    tabs: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    sections: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
 
     __table_args__ = (_workspace_fk("reports"),)
 # Team work and organisation tables are Core tables on the same metadata (migration
