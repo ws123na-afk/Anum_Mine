@@ -121,7 +121,7 @@ test('create account needs the privacy policy accepted, then opens the sign-up p
   await page.getByRole('checkbox', { name: /I have read and accept the privacy policy/ }).check();
   await expect(email).toBeEnabled();
   await email.click();
-  await expect(page.getByRole('heading', { name: 'Assistant', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ANUM Command Center', level: 1 })).toBeVisible();
   await expect(page).toHaveURL(`${appOrigin}/`);
   expect(state.authorize[0].get('prompt')).toBe('create');
   expect(state.authorize[0].get('kc_idp_hint')).toBeNull();
@@ -143,7 +143,7 @@ test('a new account without a tenant waits on the pending screen until it is ass
   // An administrator assigns the tenant; the next token carries it.
   state.claims = assigned;
   await page.getByRole('button', { name: 'Check again' }).click();
-  await expect(page.getByRole('heading', { name: 'Assistant', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ANUM Command Center', level: 1 })).toBeVisible();
 });
 
 test('the pending screen signs out', async ({ page }) => {
