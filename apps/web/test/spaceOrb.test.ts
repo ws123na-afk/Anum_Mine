@@ -226,6 +226,31 @@ describe('space scene renderer', () => {
     scene.destroy();
   });
 
+  test('the full scene draws the orb under its anchor and keeps the sprites above the panel', () => {
+    for (const [width, height, talk] of [[1190, 830, { left: 400, top: 100, width: 400, height: 400 }], [390, 610, { left: 85, top: 90, width: 220, height: 220 }]] as const) {
+      const canvas = new Canvas();
+      canvas.clientWidth = width; canvas.clientHeight = height;
+      const anchor = { getBoundingClientRect: () => talk };
+      const panel = { getBoundingClientRect: () => ({ left: 0, top: height * 0.6, width, height: height * 0.4 }) };
+      const scene = createSpaceScene(canvas as unknown as HTMLCanvasElement, {
+        atlasUrl: 'a.webp', variant: 'full', orbAnchor: anchor as unknown as HTMLElement, floorAnchor: panel as unknown as HTMLElement,
+      })!;
+      run(10);
+      const snap = scene.snapshot();
+      const [cx, cy, r] = snap.orb;
+      assert.ok(Math.abs(cx - (talk.left + talk.width / 2)) < 13 && Math.abs(cy - (talk.top + talk.height / 2)) < 11, `orb at ${cx}, ${cy}`);
+      assert.equal(r, talk.width / 2);
+      assert.equal(snap.floor, height * 0.6);
+      assert.ok(snap.earth[1] < snap.floor && snap.astronaut[1] < snap.floor, 'sprites above the panel');
+      for (const [x] of [snap.earth, snap.astronaut]) assert.ok(x > 0 && x < width, 'sprites on the stage');
+      if (width < 600) {
+        // Phones: Earth sits off the orb's lower right instead of behind it.
+        assert.ok(Math.hypot(snap.earth[0] - cx, snap.earth[1] - cy) > r + Math.min(width * 0.24, 165) * 0.45, 'Earth clear of the orb');
+      }
+      scene.destroy();
+    }
+  });
+
   test('pointer movement tilts the orb', () => {
     const canvas = new Canvas();
     const scene = createSpaceScene(canvas as unknown as HTMLCanvasElement, { atlasUrl: 'a.webp', variant: 'compact' })!;

@@ -1,9 +1,6 @@
-/* Voice assistant: one central orb, a greeting by name, a live caption, the conversation underneath
-   and a dock that stays in reach. Uses the shared tokens from styles.css. */
-.voiceConsole {
-  --v-orb-gap: clamp(12px, 2.4vh, 24px);
-  display: grid; gap: clamp(16px, 3vh, 28px); margin: 0 auto; max-width: 760px; position: relative;
-}
+/* Voice assistant (docs/voice.md#the-space-orb): the page is the space scene, edge to edge under
+   the app header, with the orb large in the middle and glass panels over it. Uses the shared tokens
+   from styles.css, pinned to their dark values inside the scene (space is dark in both themes). */
 .voiceTopline { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .voiceConsoleMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .voiceBadge, .voicePill {
@@ -42,14 +39,14 @@
 .voiceOrbIcon svg { filter: drop-shadow(0 1px 8px rgba(11, 16, 32, .6)); }
 /* The icon shows on hover, focus and while listening; idle, the orb itself is the invitation. */
 .voiceOrb:hover .voiceOrbIcon, .voiceOrb:focus-visible .voiceOrbIcon,
-.voiceConsole[data-state="listening"] .voiceOrbIcon { opacity: .95; }
+.voiceSpace[data-state="listening"] .voiceOrbIcon { opacity: .95; }
 @media (hover: none) { .voiceOrbIcon { opacity: .9; } }
-.voiceConsole[data-state="listening"] .voiceOrbGlow { opacity: 1; }
-.voiceConsole[data-state="listening"] .voiceOrbHalo { animation: voiceRing 1.8s ease-out infinite; border-color: rgb(var(--c-sky) / .55); }
-.voiceConsole[data-state="listening"] .voiceOrbBlob { animation-duration: 2.4s, 2.8s, 3.2s; }
-.voiceConsole[data-state="thinking"] .voiceOrbHalo { animation: voiceSpin 1.4s linear infinite; border-color: transparent; border-top-color: var(--d-violet); }
-.voiceConsole[data-state="thinking"] .voiceOrbBlob { animation-duration: 1.6s; filter: blur(4px) saturate(.8); }
-.voiceConsole[data-state="speaking"] .voiceOrbGlow { animation: voiceBreathe 1.6s ease-in-out infinite; opacity: .9; }
+.voiceSpace[data-state="listening"] .voiceOrbGlow { opacity: 1; }
+.voiceSpace[data-state="listening"] .voiceOrbHalo { animation: voiceRing 1.8s ease-out infinite; border-color: rgb(var(--c-sky) / .55); }
+.voiceSpace[data-state="listening"] .voiceOrbBlob { animation-duration: 2.4s, 2.8s, 3.2s; }
+.voiceSpace[data-state="thinking"] .voiceOrbHalo { animation: voiceSpin 1.4s linear infinite; border-color: transparent; border-top-color: var(--d-violet); }
+.voiceSpace[data-state="thinking"] .voiceOrbBlob { animation-duration: 1.6s; filter: blur(4px) saturate(.8); }
+.voiceSpace[data-state="speaking"] .voiceOrbGlow { animation: voiceBreathe 1.6s ease-in-out infinite; opacity: .9; }
 @keyframes voiceDrift { 0%, 100% { transform: translate(0, 0) scale(1); } 33% { transform: translate(6px, -8px) scale(1.04); } 66% { transform: translate(-7px, 5px) scale(.97); } }
 @keyframes voiceRing { from { opacity: 1; transform: scale(.96); } to { opacity: 0; transform: scale(1.18); } }
 @keyframes voiceSpin { to { transform: rotate(360deg); } }
@@ -70,7 +67,6 @@
 
 /* Conversation */
 .voiceLog { display: flex; flex-direction: column; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
-.voiceLogEnd { height: 1px; }
 .voiceEmpty { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 14px; gap: var(--d-s2); justify-content: center; }
 .voiceEmptyLead { color: var(--d-faint); flex-basis: 100%; text-align: center; }
 .voiceEmpty > span:not(.voiceEmptyLead) { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; padding: 6px 14px; }
@@ -97,7 +93,7 @@
 .voiceDock:focus-within { border-color: var(--d-sky); outline: 2px solid var(--d-sky); outline-offset: 2px; }
 .voiceDockMic, .voiceAsk { align-items: center; border-radius: 50%; display: inline-grid; flex: none; height: 44px; place-items: center; width: 44px; }
 .voiceDockMic { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
-.voiceConsole[data-state="listening"] .voiceDockMic { background: rgb(var(--c-sky) / .18); border-color: var(--d-sky); }
+.voiceSpace[data-state="listening"] .voiceDockMic { background: rgb(var(--c-sky) / .18); border-color: var(--d-sky); }
 .voiceAsk { background: var(--d-text); border: 0; color: var(--d-bg); }
 .voiceAsk:disabled { opacity: .3; }
 .voiceDraft { min-width: 0; }
@@ -112,34 +108,6 @@
 .voiceSettings .muted { margin: var(--d-s3) 0 0; }
 .voiceSettings button.secondary { border-radius: 999px; margin-top: var(--d-s3); min-height: 44px; padding: 8px 16px; }
 
-/* The orb full screen (OrbFullscreen.tsx): the space stage takes the free height, the text sits
-   under it at its own height (long answers scroll inside), nothing leaves the viewport. */
-.orbFullscreen {
-  background: var(--d-bg); display: grid; gap: var(--d-s3); grid-template-rows: minmax(0, 1fr) auto; height: 100dvh; inset: 0;
-  overflow: hidden; padding: var(--d-s4); position: fixed; z-index: 60;
-}
-.orbFullscreenClose {
-  align-items: center; background: rgba(12, 26, 41, .82); border: 1px solid #284b60; border-radius: 999px; color: #e8faff; display: inline-flex;
-  height: 48px; inset-inline-end: calc(var(--d-s4) + 10px); justify-content: center; position: fixed; top: calc(var(--d-s4) + 10px); width: 48px; z-index: 3;
-}
-.orbFullscreenClose:hover { background: #183247; }
-.orbFullscreenClose:focus-visible { outline: 2px solid #90e9ff; outline-offset: 3px; }
-.orbFullscreenClose svg { height: 22px; width: 22px; }
-.orbFullscreen > .spaceOrb.full { min-height: 0; }
-.orbFullscreenText { display: grid; gap: var(--d-s1); justify-items: center; margin-inline: auto; max-height: 34dvh; max-width: min(760px, 100%); min-height: 0; overflow-y: auto; text-align: center; }
-.orbFullscreenText p { margin: 0; }
-.orbFullscreenState { color: var(--d-sky); font-size: 18px; font-weight: 650; }
-.orbFullscreenHeard { color: var(--d-muted); font-size: 16px; overflow-wrap: anywhere; }
-.orbFullscreenAnswer { color: var(--d-text); font-size: 19px; font-weight: 550; line-height: 1.45; overflow-wrap: anywhere; }
-.orbFullscreenHint { color: var(--d-faint); font-size: 13px; }
-@media (max-width: 480px) {
-  .orbFullscreen { gap: var(--d-s2); padding: var(--d-s2); }
-  .orbFullscreenClose { inset-inline-end: calc(var(--d-s2) + 8px); top: calc(var(--d-s2) + 8px); }
-  .orbFullscreenAnswer { font-size: 16px; }
-  .orbFullscreenHint { display: none; }
-}
-@media (max-height: 560px) { .orbFullscreenHint, .orbFullscreenHeard { display: none; } .orbFullscreenText { max-height: 28dvh; } }
-
 @media (prefers-reduced-motion: reduce) {
   .voiceOrb, .voiceOrbBlob, .voiceOrbGlow, .voiceOrbHalo { animation: none !important; transition: none !important; }
 }
@@ -147,4 +115,103 @@
 @media (max-width: 760px) {
   .voiceTurn { max-width: 94%; }
   .voiceDock { bottom: var(--d-s3); }
+}
+
+/* ---------- The Voice page: a full-bleed space scene ---------- */
+/* The shell gives the page the whole viewport height and the page never scrolls; long answers scroll
+   inside the panel. */
+.shell:has(> .workspace.view-voice) { height: 100vh; height: 100dvh; }
+.workspace.view-voice { display: flex; flex-direction: column; height: 100%; max-width: none; min-height: 0; overflow: hidden; padding: 0; }
+.workspace.view-voice > .topbar { flex: none; margin: 0; padding: var(--d-s3) var(--d-s6); }
+.workspace.view-voice > :not(.topbar):not(.voiceSpace) { flex: none; margin: 0 var(--d-s6) var(--d-s3); }
+.voiceSpace {
+  /* The dark theme's tokens: text and controls stay readable (AA) on the dark scene in both themes. */
+  --c-hi: 255 255 255; --c-sky: 125 211 252; --c-violet: 167 139 250; --c-warn: 252 211 141; --c-stop: 253 164 175; --c-ok: 134 239 172;
+  --d-bg: #070b1a; --d-surface-1: #0e1530; --d-surface-2: rgba(20, 29, 59, .86); --d-surface-3: #1b2649;
+  --d-glass: rgba(9, 15, 34, .82); --d-glass-1: rgb(255 255 255 / .06); --d-glass-2: rgb(255 255 255 / .09); --d-glass-3: rgb(255 255 255 / .13);
+  --d-line: rgba(148, 163, 255, .16); --d-line-strong: rgba(170, 182, 255, .28); --d-edge: rgba(255, 255, 255, .10);
+  --d-text: #eef1f8; --d-muted: #b3bbd0; --d-faint: #98a1b8;
+  --d-sky: #7dd3fc; --d-violet: #a78bfa; --d-rose: #f9a8d4; --d-ok: #86efac; --d-warn: #fcd38d; --d-stop: #fda4af;
+  --d-field: rgba(2, 6, 23, .5); --d-well: rgba(2, 6, 23, .55); --d-chip: rgba(17, 26, 61, .85); --d-chrome: rgba(12, 19, 48, .8);
+  --d-elev-2: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 18px 48px rgba(0, 0, 0, .5);
+  --v-glass: rgba(6, 11, 26, .72); --v-glass-line: rgba(134, 186, 255, .2);
+  color: var(--d-text); color-scheme: dark; flex: 1 1 auto; min-height: 0; position: relative;
+}
+.voiceSpace h2, .voiceSpace strong { color: var(--d-text); }
+.voiceSpaceStage.spaceOrb.full { border: 0; border-radius: 0; border-top: 1px solid var(--d-line); inset: 0; position: absolute; }
+/* Over the scene: the bar on top, the orb in the free middle, the panel at the bottom. Only the
+   controls take the pointer; elsewhere the cursor and touch reach the scene (tilt). */
+.voiceSpaceLayout {
+  display: grid; gap: var(--d-s3); grid-template-rows: auto minmax(0, 1fr) auto; inset: 0; padding: var(--d-s4) var(--d-s6) var(--d-s5);
+  pointer-events: none; position: absolute;
+}
+.voiceSpaceLayout > :is(.voiceSpaceBar, .voiceSpacePanel) { pointer-events: auto; }
+.voiceSpaceBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.voiceSpace :is(.voiceBadge, .voicePill, .voiceIconButton, .spaceControls button) {
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); background: var(--v-glass); border-color: var(--v-glass-line); color: var(--d-text);
+}
+.voiceSpace .voicePill:hover, .voiceSpace .voiceIconButton:hover { background: rgba(24, 40, 70, .85); }
+.voiceSpace .voicePill.on { background: rgba(60, 46, 120, .78); border-color: rgb(167 139 250 / .6); }
+.voiceSpace .spaceControls { gap: var(--d-s2); }
+.voiceSpaceCentre { align-items: center; display: flex; justify-content: center; min-height: 0; }
+/* The orb: half the scene's shorter side (220px at least, 560px at most), never taller than its row. */
+.voiceSpaceTalk.voiceOrb {
+  aspect-ratio: 1; height: min(100%, clamp(220px, 50cqmin, 560px)); margin: 0; max-width: 100%; pointer-events: auto; width: auto;
+}
+.voiceSpaceTalk .voiceOrbIcon { font-size: 0; }
+.voiceSpace .spaceOrb ~ * .voiceSpaceFallback, .voiceSpace .spaceOrb .voiceSpaceFallback { display: none; }
+.voiceSpaceFallback { display: contents; }
+.voiceSpace[data-state="listening"] .voiceSpaceTalk .voiceOrbIcon { opacity: .95; }
+.voiceSpacePanel {
+  backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); background: var(--v-glass);
+  border: 1px solid var(--v-glass-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2); display: grid; gap: var(--d-s3);
+  grid-template-rows: auto minmax(0, 1fr) auto; justify-self: center; max-height: min(44cqh, 480px); min-height: 0; overflow: hidden;
+  padding: var(--d-s4) var(--d-s5); width: min(100%, 820px);
+}
+.voiceSpaceScroll { display: grid; gap: var(--d-s3); min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.voiceSpaceScroll:empty { display: none; }
+.voiceSpaceStatus { display: grid; gap: var(--d-s1); justify-items: center; text-align: center; }
+.voiceSpaceStatus .voiceStateLabel { margin: 0; }
+.voiceSpace .voiceGreeting { font-size: clamp(20px, 2.4vw, 26px); }
+.voiceSpace .voiceCaption { margin: 0; min-height: 0; }
+.voiceSpace .voiceCaption:empty { display: none; }
+.voiceSpace .voiceStageActions { margin: 0; }
+.voiceSpace .voiceAllowMic { background: #eef1f8; color: #070b1a; }
+.voiceSpace .voiceTurn.assistant { background: rgba(20, 29, 59, .8); }
+/* The dock stays at the bottom of the panel while the conversation scrolls above it. */
+.voiceSpace .voiceDock { background: rgba(9, 15, 34, .94); box-shadow: none; position: static; }
+.voiceSpaceBar .voiceConsoleMeta { justify-content: flex-end; }
+/* Voice settings: a gear in the bar that opens a glass card under it (Escape closes it). */
+.voiceSpaceSettings { border: 0; padding: 0; position: relative; }
+.voiceSpace .voiceSpaceSettings > summary { color: var(--d-text); display: inline-grid; gap: 0; list-style: none; padding: 0; }
+.voiceSpaceSettings > summary::-webkit-details-marker { display: none; }
+.voiceSpaceSettings[open] > summary { border-color: var(--d-sky); }
+.voiceSpaceSettingsCard {
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); background: rgba(6, 11, 26, .92); border: 1px solid var(--v-glass-line);
+  border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2); color: var(--d-muted); inset-inline-end: 0; max-height: 62cqh; overflow-y: auto;
+  padding: var(--d-s2) var(--d-s4) var(--d-s4); position: absolute; text-align: start; top: calc(100% + var(--d-s2)); width: min(440px, calc(100vw - 24px)); z-index: 3;
+}
+@media (max-width: 1100px) {
+  .workspace.view-voice > .topbar { padding: var(--d-s3) var(--d-s5); }
+  .voiceSpaceLayout { padding: var(--d-s3) var(--d-s5) var(--d-s4); }
+}
+/* Phones: the sidebar is a top bar, so the shell stacks it over the page and the page takes the rest. */
+@media (max-width: 760px) {
+  .shell:has(> .workspace.view-voice) { grid-template-rows: auto minmax(0, 1fr); }
+  .workspace.view-voice > .topbar { padding: var(--d-s2) var(--d-s4); }
+  .workspace.view-voice > :not(.topbar):not(.voiceSpace) { margin: 0 var(--d-s4) var(--d-s2); }
+  .voiceSpaceLayout { gap: var(--d-s2); padding: var(--d-s2) var(--d-s3) var(--d-s3); }
+  .voiceSpacePanel { gap: var(--d-s2); max-height: min(42cqh, 420px); padding: var(--d-s3); }
+  .voiceSpace .voiceGreeting { font-size: 18px; }
+  /* Icon-only Pause, Shooting star and wake switch; their names stay for screen readers. */
+  .voiceSpace .spaceControls button span, .voiceSpace .voicePillText, .voiceSpace .voiceBadgeText { border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  .voiceSpace .spaceControls button, .voiceSpace .voicePill { justify-content: center; min-width: 44px; padding: 8px 12px; }
+}
+/* Short scenes (small phones, landscape): the panel gives the orb more room. */
+@media (max-height: 700px) {
+  .voiceSpacePanel { max-height: 36cqh; }
+  .voiceSpace .voiceGreeting, .voiceSpace .voiceEmpty { display: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .voiceSpacePanel, .voiceSpace :is(.voiceBadge, .voicePill, .voiceIconButton, .spaceControls button) { backdrop-filter: none; background: #0b1226; }
 }

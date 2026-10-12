@@ -1,8 +1,8 @@
 // The voice assistant's space orb (docs/voice.md#the-space-orb). A React wrapper around
 // lib/spaceScene.ts: the renderer is created in an effect and destroyed on unmount, so each mounted
-// orb has exactly one animation loop. `compact` is the round orb on the Voice and Call pages;
-// `full` is the cinematic scene in the full-screen view, with Pause and Shooting star.
-import { useEffect, useRef, useState } from 'react';
+// orb has exactly one animation loop. `full` is the cinematic scene that fills the Voice page, with
+// Pause and Shooting star; `compact` is the round orb on the Call page.
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Pause, Play, Sparkles } from 'lucide-react';
 import atlasUrl from './assets/space-assets.webp';
 import { createSpaceScene, type SpaceScene, type SpaceVariant } from './lib/spaceScene';
@@ -18,13 +18,19 @@ interface SpaceOrbProps {
   /** Measured audio level 0..1, read every frame (microphone while listening, reply output while speaking). */
   getLevel?: () => number;
   /** Shown when 2D canvas is unavailable. */
-  fallback?: React.ReactNode;
-  /** Full screen only: the Pause and Shooting star controls. */
-  controls?: boolean;
-  children?: React.ReactNode;
+  fallback?: ReactNode;
+  /** Full scene: the talk button the orb is drawn under, and the panel the sprites stay above. */
+  orbAnchor?: RefObject<HTMLElement | null>;
+  floorAnchor?: RefObject<HTMLElement | null>;
+  className?: string;
+  /**
+   * What is laid over the scene. As a function it receives the Pause and Shooting star controls
+   * (full scene only) to place where the layout wants them.
+   */
+  children?: ReactNode | ((controls: ReactNode) => ReactNode);
 }
 
-export function SpaceOrb({ mode, variant, getLevel, fallback, controls = false, children }: SpaceOrbProps) {
+export function SpaceOrb({ mode, variant, getLevel, fallback, orbAnchor, floorAnchor, className, children }: SpaceOrbProps) {
   const stage = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const scene = useRef<SpaceScene | null>(null);
@@ -40,12 +46,13 @@ export function SpaceOrb({ mode, variant, getLevel, fallback, controls = false, 
     const created = createSpaceScene(canvas.current, {
       atlasUrl, variant, pointerTarget: stage.current ?? undefined,
       getLevel: () => level.current?.() ?? 0,
+      orbAnchor: orbAnchor?.current, floorAnchor: floorAnchor?.current,
       onStatus: (status) => setTextureError(status === 'texture-error'),
     });
     if (!created) { setUnavailable(true); return; }
     scene.current = created;
     created.setMode(mode);
-    // Tests and the full-screen controls reach the live renderer through the canvas.
+    // Tests reach the live renderer through the canvas.
     (canvas.current as HTMLCanvasElement & { anumSpace?: SpaceScene }).anumSpace = created;
     const element = canvas.current;
     return () => {
@@ -58,21 +65,20 @@ export function SpaceOrb({ mode, variant, getLevel, fallback, controls = false, 
 
   useEffect(() => { scene.current?.setMode(mode); }, [mode]);
 
-  if (unavailable) return <>{fallback}</>;
-  return <div ref={stage} className={`spaceOrb ${variant}`} data-space-mode={mode} data-space-paused={paused ? 'true' : undefined}>
+  const controls = variant === 'full' ? <div className="spaceControls">
+    {textureError && <p className="spaceNote" role="alert">{t('voice.space.textureError')}</p>}
+    <button type="button" aria-pressed={paused} onClick={() => { const next = !paused; setPaused(next); scene.current?.setPaused(next); }}>
+      {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}<span>{paused ? t('voice.space.resume') : t('voice.space.pause')}</span>
+    </button>
+    <button type="button" disabled={paused || reduced} title={paused || reduced ? t('voice.space.meteorPaused') : undefined}
+      onClick={() => scene.current?.shootingStar()}>
+      <Sparkles aria-hidden="true" /><span>{t('voice.space.meteor')}</span>
+    </button>
+  </div> : null;
+
+  if (unavailable) return <>{fallback}{typeof children === 'function' ? children(null) : children}</>;
+  return <div ref={stage} className={`spaceOrb ${variant}${className ? ` ${className}` : ''}`} data-space-mode={mode} data-space-paused={paused ? 'true' : undefined}>
     <canvas ref={canvas} className="spaceCanvas" aria-hidden="true" />
-    {children}
-    {variant === 'full' && (controls || textureError) && <div className="spaceBar">
-      {textureError && <p className="spaceNote" role="alert">{t('voice.space.textureError')}</p>}
-      {controls && <div className="spaceControls">
-        <button type="button" aria-pressed={paused} onClick={() => { const next = !paused; setPaused(next); scene.current?.setPaused(next); }}>
-          {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}{paused ? t('voice.space.resume') : t('voice.space.pause')}
-        </button>
-        <button type="button" disabled={paused || reduced} title={paused || reduced ? t('voice.space.meteorPaused') : undefined}
-          onClick={() => scene.current?.shootingStar()}>
-          <Sparkles aria-hidden="true" />{t('voice.space.meteor')}
-        </button>
-      </div>}
-    </div>}
+    {typeof children === 'function' ? children(controls) : children}
   </div>;
 }

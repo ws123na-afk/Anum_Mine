@@ -315,7 +315,9 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
   }
 
   const phase = snapshot?.phase ?? 'connecting';
-  const orbSize = camera ? 120 : Math.round(Math.max(150, Math.min(220, window.innerHeight * 0.26)));
+  // A large orb (docs/voice.md#the-space-orb): about 45% of the shorter side of the window, 220px at
+  // least, at most 38% of the height so the controls stay in view; smaller beside the camera preview.
+  const orbSize = camera ? 160 : Math.round(Math.min(400, window.innerHeight * 0.38, Math.max(220, Math.min(window.innerWidth, window.innerHeight) * 0.45)));
   const pending = snapshot?.pendingApprovals ?? 0;
   const spaceMode = callSpaceMode(phase, pending > 0);
   return <section className={`callScreen ${chatOpen ? 'withChat' : ''}`} aria-label={t('call.screen', { name })} data-phase={phase}>

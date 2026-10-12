@@ -26,6 +26,13 @@ export interface SpaceSceneOptions {
   /** `prefers-reduced-motion`, injectable for tests. */
   reducedMotion?: { matches: boolean } | null;
   onStatus?: (status: 'ready' | 'texture-error') => void;
+  /**
+   * Full scene only: the element the orb is drawn under (the talk button). Its centre and width set
+   * the orb's centre and diameter, so CSS lays the orb out; without it the reference geometry is used.
+   */
+  orbAnchor?: HTMLElement | null;
+  /** Full scene only: an element over the lower part of the stage; the sprites stay above its top. */
+  floorAnchor?: HTMLElement | null;
 }
 
 export interface SpaceSnapshot {
@@ -42,6 +49,10 @@ export interface SpaceSnapshot {
   texturesReady: boolean;
   /** The opaque bounds of the astronaut, Earth and satellite in the atlas, once it has loaded. */
   crops: Crop[];
+  /** The orb's centre and radius on the canvas, in CSS pixels. */
+  orb: [number, number, number];
+  /** How far down the sprites may go (the floor anchor's top, or the canvas height). */
+  floor: number;
 }
 
 export interface SpaceScene {
@@ -63,7 +74,7 @@ export function createSpaceScene(canvas: HTMLCanvasElement, options: SpaceSceneO
   const reduced = options.reducedMotion ?? (typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false });
   let mode: SpaceMode = 'standby';
   let w = 1, h = 1, t = 0, last: number | null = null, raf = 0, paused = false, disposed = false, frames = 0, meteorsShown = 0;
-  let tx = 0, ty = 0, rx = 0, ry = 0, level = 0, drawn = '';
+  let tx = 0, ty = 0, rx = 0, ry = 0, level = 0, drawn = '', ticks = 0;
   let seed = 9641;
   const random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
   const stars = Array.from({ length: full ? 340 : 120 }, () => ({ x: random(), y: random(), z: random(), p: random() * 6.283 }));
@@ -99,22 +110,41 @@ export function createSpaceScene(canvas: HTMLCanvasElement, options: SpaceSceneO
     atlas.src = options.atlasUrl;
   }
 
-  function resize() {
-    w = Math.max(1, canvas.clientWidth); h = Math.max(1, canvas.clientHeight);
-    const d = spaceDpr(window.devicePixelRatio);
-    canvas.width = Math.round(w * d); canvas.height = Math.round(h * d);
-    ctx!.setTransform(d, 0, 0, d, 0, 0);
-    points = spherePoints(particleBudget(w, h));
+  // Where the orb sits (from the anchor) and how far down the sprites may go (the floor anchor's top).
+  let anchor: [number, number, number] | null = null, floor = 1;
+  function measure() {
+    floor = h;
+    if (!full) return;
+    const box = canvas.getBoundingClientRect();
+    const orbBox = options.orbAnchor?.getBoundingClientRect();
+    anchor = orbBox && orbBox.width > 0 ? [orbBox.left - box.left + orbBox.width / 2, orbBox.top - box.top + orbBox.height / 2, Math.min(orbBox.width, orbBox.height) / 2] : null;
+    const floorBox = options.floorAnchor?.getBoundingClientRect();
+    if (floorBox && floorBox.height > 0) floor = Math.max(h * 0.4, Math.min(h, floorBox.top - box.top));
   }
-  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null;
+  function resize() {
+    const nextW = Math.max(1, canvas.clientWidth), nextH = Math.max(1, canvas.clientHeight);
+    if (nextW !== w || nextH !== h || canvas.width === 0) {
+      w = nextW; h = nextH;
+      const d = spaceDpr(window.devicePixelRatio);
+      canvas.width = Math.round(w * d); canvas.height = Math.round(h * d);
+      ctx!.setTransform(d, 0, 0, d, 0, 0);
+      points = spherePoints(particleBudget(anchor ? anchor[2] * 2.4 : w, anchor ? anchor[2] * 2.4 : h));
+    }
+    measure();
+  }
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => resize()) : null;
   observer?.observe(canvas);
+  if (full && options.orbAnchor) observer?.observe(options.orbAnchor);
+  if (full && options.floorAnchor) observer?.observe(options.floorAnchor);
   resize();
 
   const rgba = (a: number) => `rgba(${SPACE_COLORS[mode].join(',')},${a})`;
   // Orb geometry: centre and radius; the full scene leaves room for the sprites around it.
-  const orbCentre = (): [number, number, number] => full
-    ? [w * 0.51 + rx * 12, h * 0.45 + ry * 10, Math.min(w * 0.2, h * 0.205)]
-    : [w * 0.5 + rx * 6, h * 0.5 + ry * 6, Math.min(w, h) * 0.3];
+  const orbCentre = (): [number, number, number] => anchor
+    ? [anchor[0] + rx * 12, anchor[1] + ry * 10, anchor[2]]
+    : full
+      ? [w * 0.51 + rx * 12, h * 0.45 + ry * 10, Math.min(w * 0.2, h * 0.205)]
+      : [w * 0.5 + rx * 6, h * 0.5 + ry * 6, Math.min(w, h) * 0.3];
 
   function sprite(index: number, x: number, y: number, width: number, angle = 0, alpha = 1) {
     const c = crops[index];
@@ -196,19 +226,34 @@ export function createSpaceScene(canvas: HTMLCanvasElement, options: SpaceSceneO
 
   function spaceObjects() {
     const c = ctx!;
-    const earthX = w * 0.79 - rx * 11, earthY = h * 0.77 + Math.sin(t * 0.12) * 7 - ry * 8, earthSize = Math.min(w * 0.27, 165), a = t * 0.34;
+    // Positions follow the reference on wide stages; on phones Earth moves to the lower corner and
+    // the astronaut up, so both stay clear of the orb. `floor` keeps them above the text panel.
+    const narrow = w < 600, H = floor;
+    const earthSize = Math.min(w * (narrow ? 0.24 : 0.27), 165, H * 0.3), a = t * 0.34;
+    const astroSize = Math.min(w * 0.19, 116, H * 0.22);
+    // Narrow stages: the astronaut sits off the orb's upper left and Earth off its lower right.
+    const [ox, oy, or] = anchor ?? [w * 0.5, H * 0.45, Math.min(w, H) * 0.25];
+    const beside = (angle: number, size: number, top: number): [number, number] => [
+      Math.max(size * 0.5, Math.min(w - size * 0.5, ox + Math.cos(angle) * (or + size * 0.6))),
+      Math.max(top, Math.min(H - size * 0.55, oy + Math.sin(angle) * (or + size * 0.6))),
+    ];
+    const earthHome = narrow ? beside(0.7, earthSize, earthSize * 0.5) : [w * 0.79, H * 0.77];
+    const astroHome = narrow ? beside(3.93, astroSize, astroSize * 0.75) : [w * 0.13, H * 0.48];
+    const earthX = earthHome[0] - rx * 11;
+    const earthY = earthHome[1] + Math.sin(t * 0.12) * 7 - ry * 8;
     const satX = earthX + Math.cos(a) * earthSize * 0.73, satY = earthY + Math.sin(a) * earthSize * 0.3, front = satelliteInFront(a);
     c.save(); c.strokeStyle = '#86baff22'; c.lineWidth = 0.7; c.beginPath(); c.ellipse(earthX, earthY, earthSize * 0.73, earthSize * 0.3, 0, 0, 6.283); c.stroke(); c.restore();
     if (!front) sprite(2, satX, satY, Math.min(w * 0.13, 72), Math.sin(a) * 0.25, 0.65);
     const earthAngle = Math.sin(t * 0.065) * 0.045;
     sprite(1, earthX, earthY, earthSize, earthAngle);
     if (front) sprite(2, satX, satY, Math.min(w * 0.16, 92), Math.sin(a) * 0.25);
-    const astroX = w * 0.13 + Math.sin(t * 0.3) * Math.min(w * 0.025, 15) - rx * 18, astroY = h * 0.48 + Math.sin(t * 0.42) * 15 - ry * 12;
+    const astroX = astroHome[0] + Math.sin(t * 0.3) * Math.min(w * 0.025, 15) - rx * 18;
+    const astroY = astroHome[1] + Math.sin(t * 0.42) * 15 - ry * 12;
     const astroAngle = Math.sin(t * 0.21) * 0.13 - 0.12;
-    sprite(0, astroX, astroY, Math.min(w * 0.19, 116), astroAngle);
-    const sat2X = ((w * 0.8 + t * 13) % (w + 120)) - 60, sat2Y = h * 0.16 + Math.sin(t * 0.23) * 13 - ry * 6;
+    sprite(0, astroX, astroY, astroSize, astroAngle);
+    const sat2X = ((w * 0.8 + t * 13) % (w + 120)) - 60, sat2Y = H * 0.16 + Math.sin(t * 0.23) * 13 - ry * 6;
     sprite(2, sat2X, sat2Y, Math.min(w * 0.16, 90), -0.2 + Math.sin(t * 0.12) * 0.15, 0.9);
-    const shipX = ((t * 26 + w * 0.4) % (w + 100)) - 50, shipY = h * 0.89 + Math.sin(t * 0.17) * 9;
+    const shipX = ((t * 26 + w * 0.4) % (w + 100)) - 50, shipY = H * 0.89 + Math.sin(t * 0.17) * 9;
     c.save();
     const exhaust = c.createLinearGradient(shipX - 35, shipY, shipX, shipY);
     exhaust.addColorStop(0, '#86dfff00'); exhaust.addColorStop(1, '#86dfff80');
@@ -300,9 +345,11 @@ export function createSpaceScene(canvas: HTMLCanvasElement, options: SpaceSceneO
     const ease = reduced.matches ? 1 : 0.08;
     rx += (tx - rx) * ease; ry += (ty - ry) * ease;
     level = spaceLevel(mode, options.getLevel?.());
+    // The anchors can move without resizing (the panel under them grows): re-read them now and then.
+    if ((options.orbAnchor || options.floorAnchor) && ticks++ % 10 === 0) measure();
     if (moving && t >= nextMeteor) { spawnMeteor(); nextMeteor = t + nextMeteorDelay(random()); }
     // A still scene (paused, reduced motion) is drawn again only when something visible changed.
-    const still = `${w}x${h}|${mode}|${level.toFixed(3)}|${rx.toFixed(4)},${ry.toFixed(4)}|${crops.length}|${meteors.length}|${echoes.length}|${t}`;
+    const still = `${w}x${h}|${anchor?.map(Math.round).join()}|${Math.round(floor)}|${mode}|${level.toFixed(3)}|${rx.toFixed(4)},${ry.toFixed(4)}|${crops.length}|${meteors.length}|${echoes.length}|${t}`;
     if (!moving && still === drawn) return;
     drawn = still;
     const c = ctx!;
@@ -351,7 +398,7 @@ export function createSpaceScene(canvas: HTMLCanvasElement, options: SpaceSceneO
     },
     snapshot() {
       return {
-        t, mode, paused, frames, meteorsShown, tilt: [rx, ry], texturesReady: crops.length === 3, crops: crops.map((c) => ({ ...c })), ...positions,
+        t, mode, paused, frames, meteorsShown, tilt: [rx, ry], texturesReady: crops.length === 3, crops: crops.map((c) => ({ ...c })), orb: orbCentre(), floor, ...positions,
         astronaut: [...positions.astronaut] as [number, number, number], earth: [...positions.earth] as [number, number, number],
         satellite: [...positions.satellite] as [number, number, boolean], satellite2: [...positions.satellite2] as [number, number],
       };

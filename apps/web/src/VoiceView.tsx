@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, Check, Cpu, Globe2, Keyboard, Maximize2, Mic, Radio, Settings2, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowUp, Check, Cpu, Globe2, Keyboard, Mic, Radio, Settings2, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
 import {
   appendTranscript,
   baseRecognitionMode,
@@ -28,7 +28,6 @@ import {
   type VoiceSession,
   type WakeListener,
 } from './lib/voice';
-import { OrbFullscreen } from './OrbFullscreen';
 import { SpaceOrb } from './SpaceOrb';
 import { voiceSpaceMode } from './lib/spaceMode';
 import { budgetMessage, isBudgetExceeded } from './lib/errors';
@@ -89,10 +88,10 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
   const [muted, setMuted] = useState(false);
   const [notice, setNotice] = useState('');
   const [pendingApprovals, setPendingApprovals] = useState(0);
-  // The orb full screen (docs/voice.md#the-space-orb): opened by the orb or the Full screen button.
-  const [fullscreen, setFullscreen] = useState(false);
-  // Sized by width and height so the greeting and dock stay above the fold on short laptop screens.
-  const [orbSize] = useState(() => Math.round(Math.max(180, Math.min(window.innerWidth < 480 ? 208 : window.innerWidth < 860 ? 248 : 296, window.innerHeight * 0.3))));
+  // The page is the space scene (docs/voice.md#the-space-orb): the orb is drawn under the talk
+  // button and the sprites stay above the text panel.
+  const talkRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   // Hands-free listening never asks for the microphone by itself: it starts on its own only when
   // permission was already granted, otherwise after the user taps "Start listening".
   const [armed, setArmed] = useState(false);
@@ -107,7 +106,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
   // The microphone's analyser while listening; the orb reads it once per frame (no loop of its own).
   const meter = useRef<{ stream: MediaStream; context: AudioContext; analyser: AnalyserNode; data: Uint8Array<ArrayBuffer> } | null>(null);
   const meterGeneration = useRef(0);
-  const logEnd = useRef<HTMLLIElement | null>(null);
+  const scroller = useRef<HTMLDivElement | null>(null);
   const askRef = useRef<(text?: string) => Promise<void>>(async () => undefined);
   // The streamed reply in flight; aborting it stops the model and the spoken queue.
   const replyAbort = useRef<AbortController | null>(null);
@@ -139,7 +138,8 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
 
   useEffect(() => { probedLocale.current = null; setMode(baseRecognitionMode()); store('anum.voice.locale', locale); }, [locale]);
   useEffect(() => { void listSystemVoices().then(setVoices); }, []);
-  useEffect(() => { if (turns.length) logEnd.current?.scrollIntoView({ block: 'nearest' }); }, [turns]);
+  // New turns scroll the panel's own list, never the page.
+  useEffect(() => { const box = scroller.current; if (turns.length && box) box.scrollTop = box.scrollHeight; }, [turns]);
   useEffect(() => () => { replyAbort.current?.abort(); stopMeter(); stopSpeaking(); controller.current?.cancel(); wake.current?.stop(); }, []);
 
   async function ensureMode(): Promise<RecognitionMode> {
@@ -401,11 +401,6 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
   }
 
   // The page orb opens the full screen and starts talking there; inside it the orb only talks.
-  function onStageOrbClick() {
-    setFullscreen(true);
-    onOrbClick();
-  }
-
   function onOrbClick() {
     if (state === 'listening') stopListening();
     else if (state === 'speaking') { replyAbort.current?.abort(); stopSpeaking(); setState('idle'); wake.current?.resume(); }
@@ -419,41 +414,73 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
   const modeInfo = modeLabel(mode);
   const caption = notice || (state === 'listening' ? (draft || t('voice.goAhead')) : state === 'idle' && !needsTap ? idleHint : '');
 
-  return <section className="voiceConsole" data-state={state} aria-label={t('voice.label', { name }, { isolate: false })}>
-    <header className="voiceTopline">
-      <span className="voiceBadge" title={modeInfo.hint}>{modeInfo.icon}{modeInfo.text}</span>
+  const blobs = <><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>;
+
+  return <section className="voiceSpace" data-state={state} aria-labelledby="view-title">
+    <h1 id="view-title" className="visuallyHidden">{t('voice.label', { name }, { isolate: false })}</h1>
+    <SpaceOrb variant="full" className="voiceSpaceStage" mode={spaceMode} getLevel={orbLevel} orbAnchor={talkRef} floorAnchor={panelRef} fallback={null}>{(controls) => <div className="voiceSpaceLayout">
+    <header className="voiceSpaceBar">
+      <span className="voiceBadge" title={modeInfo.hint}>{modeInfo.icon}<span className="voiceBadgeText">{modeInfo.text}</span></span>
       <div className="voiceConsoleMeta">
-        <button type="button" className="voiceIconButton" onClick={() => setFullscreen(true)} aria-label={t('voice.fullscreen.open')} title={t('voice.fullscreen.open')}>
-          <Maximize2 size={18} aria-hidden="true" />
-        </button>
         <button type="button" className={wakeOn ? 'voicePill on' : 'voicePill'} onClick={() => void toggleWake()} aria-pressed={wakeOn} title={t('voice.wakeTitle', { name }, { isolate: false })}>
-          <Radio size={16} aria-hidden="true" />{wakeOn ? t('voice.wakeOn', { name }) : t('voice.wakeOff', { name })}
+          <Radio size={16} aria-hidden="true" /><span className="voicePillText">{wakeOn ? t('voice.wakeOn', { name }) : t('voice.wakeOff', { name })}</span>
         </button>
         <button type="button" className="voiceIconButton" onClick={() => { setMuted(!muted); if (!muted) stopSpeaking(); }} aria-pressed={muted} aria-label={muted ? t('voice.unmute') : t('voice.mute')} title={muted ? t('voice.mutedTitle') : t('voice.unmutedTitle')}>
           {muted ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
         </button>
+        {controls}
+        <details className="voiceSettings voiceSpaceSettings" onKeyDown={(event) => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+          <summary className="voiceIconButton" aria-label={t('voice.settings')} title={t('voice.settings')}><Settings2 size={18} aria-hidden="true" /></summary>
+          <div className="voiceSpaceSettingsCard">
+            <div className="voiceSettingsGrid">
+              <label className="field"><span>{t('voice.assistantName')}</span>
+                <input dir="auto" value={nameDraft} maxLength={40} onChange={(event) => setNameDraft(event.target.value)} onBlur={saveName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveName(); } }} />
+              </label>
+              <label className="field"><span>{t('voice.language')}</span><select value={locale} onChange={(event) => setLocale(event.target.value)} disabled={state !== 'idle'}>
+                <option value="en-US">English (US)</option><option value="en-GB">English (UK)</option><option value="ar-SA">العربية (السعودية)</option><option value="ar-AE">العربية (الإمارات)</option>
+                {!['en-US', 'en-GB', 'ar-SA', 'ar-AE'].includes(locale) && <option value={locale}>{locale}</option>}
+              </select></label>
+              <label className="field"><span>{t('voice.replyVoice')}</span><select value={voice} onChange={(event) => { setVoice(event.target.value); store('anum.voice.reply', event.target.value); }}>
+                <option value="natural">{t('voice.reply.natural')}</option>
+                <option value="">{t('voice.reply.device')}</option>
+                {hasVoiceServer() && <option value="server">{t('voice.reply.server')}</option>}
+                {rankedVoices.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+              </select></label>
+              <label className="field"><span>{t('voice.retention')}</span><select value={retention} onChange={(event) => setRetention(event.target.value as TranscriptRetention)} disabled={Boolean(session)}>
+                {(['session', '30_days', 'permanent'] as const).map((choice) => <option key={choice} value={choice}>{t(`voice.retention.${choice}`)}</option>)}
+              </select></label>
+            </div>
+            {voice === 'natural' && !naturalVoiceSupports(locale) && <p className="muted">{t('voice.naturalEnglishOnly')}</p>}
+            <p className="muted">{t('voice.neverByVoice', { name })}</p>
+            {session && <button type="button" className="secondary" onClick={() => void endSession()}>{t('voice.clear')}</button>}
+          </div>
+        </details>
       </div>
     </header>
 
-    <div className="voiceStage">
+    <div className="voiceSpaceCentre">
+      {/* The orb is the talk button: the scene draws the orb under it, at its size. */}
       <button
+        ref={talkRef}
         type="button"
-        className="voiceOrb voiceTalk"
-        style={{ width: orbSize, height: orbSize }}
-        onClick={onStageOrbClick}
+        className="voiceOrb voiceTalk voiceSpaceTalk"
+        onClick={onOrbClick}
         disabled={state === 'thinking'}
         aria-label={state === 'listening' ? t('voice.stopListening') : state === 'speaking' ? t('voice.stopSpeaking') : t('voice.tapToTalk')}
       >
-        <span className="voiceOrbHalo" aria-hidden="true" />
-        <span className="voiceOrbGlow" aria-hidden="true" />
-        {/* One live space scene at a time: the page orb rests while the full screen is open. */}
-        {fullscreen ? <><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>
-          : <SpaceOrb variant="compact" mode={spaceMode} getLevel={orbLevel} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />}
-        <span className="voiceOrbIcon" aria-hidden="true">{state === 'listening' ? <Square size={26} /> : state === 'speaking' ? <VolumeX size={28} /> : <Mic size={30} />}</span>
+        <span className="voiceSpaceFallback" aria-hidden="true">{blobs}</span>
+        <span className="voiceOrbIcon" aria-hidden="true">{state === 'listening' ? <Square size={30} /> : state === 'speaking' ? <VolumeX size={32} /> : <Mic size={34} />}</span>
       </button>
-      <h2 className="voiceGreeting" dir="auto">{greeting(name, locale, hour)}</h2>
-      <p className="voiceStateLabel" role="status" aria-live="polite">{stateText[state]}</p>
-      <p className={state === 'listening' && draft ? 'voiceCaption live' : 'voiceCaption'} dir="auto">{caption}</p>
+    </div>
+
+    <div className="voiceSpacePanel" ref={panelRef}>
+      <div className="voiceSpaceStatus">
+        <p className="voiceStateLabel" role="status" aria-live="polite">{stateText[state]}</p>
+        {turns.length === 0 && state === 'idle' && <h2 className="voiceGreeting" dir="auto">{greeting(name, locale, hour)}</h2>}
+        <p className={state === 'listening' && draft ? 'voiceCaption live' : 'voiceCaption'} dir="auto">{caption}</p>
+      </div>
+      {/* Status above, the dock below; the approvals notice, the conversation and the settings scroll between them. */}
+      <div className="voiceSpaceScroll" ref={scroller}>
       <div className="voiceStageActions">
         {needsTap && !micBlocked && <button type="button" className="voiceAllowMic" onClick={() => setArmed(true)}><Radio size={16} aria-hidden="true" />{t('voice.startListening', { name })}</button>}
         {micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setMicBlocked(false); setNotice(''); setArmed(true); setWakeOn(false); window.setTimeout(() => setWakeOn(true), 0); }}>{t('voice.allowMic')}</button>}
@@ -461,16 +488,8 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
           {t('voice.approvalsWaiting', { count: pendingApprovals })}
         </button>}
       </div>
-    </div>
 
-    {developer.panel}
-    {fullscreen && <OrbFullscreen name={name} mode={spaceMode} getLevel={orbLevel} stateLabel={stateText[state]}
-      heard={state === 'listening' ? (draft || t('voice.goAhead')) : [...turns].reverse().find((turn) => turn.speaker === 'you' && turn.text)?.text ?? ''}
-      answer={state === 'listening' ? '' : [...turns].reverse().find((turn) => turn.speaker === 'assistant' && turn.text)?.text ?? notice}
-      talkLabel={state === 'listening' ? t('voice.stopListening') : state === 'speaking' ? t('voice.stopSpeaking') : t('voice.tapToTalk')}
-      talkDisabled={state === 'thinking'} onTalk={onOrbClick} onClose={() => { if (state === 'listening') stopListening(); setFullscreen(false); }}
-      fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />}
-
+      {developer.panel}
     <ol className="voiceLog" aria-label={t('voice.conversation')}>
       {turns.length === 0 && <li className="voiceEmpty">
         <span className="voiceEmptyLead">{t('voice.trySaying')}</span>
@@ -490,9 +509,9 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
           <button type="button" className="secondary" onClick={onOpenApprovals}><ShieldAlert size={16} aria-hidden="true" />{t('voice.openApprovals')}</button>
         </div>}
       </li>)}
-      <li ref={logEnd} aria-hidden="true" className="voiceLogEnd" />
     </ol>
 
+      </div>
     <footer className="voiceDock">
       <button type="button" className="voiceDockMic voiceTalk" onClick={onOrbClick} disabled={state === 'thinking'} aria-label={state === 'listening' ? t('voice.stopListening') : t('voice.pushToTalk')} title={t('voice.pushToTalkTitle')}>
         {state === 'listening' ? <Square size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
@@ -503,30 +522,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
       </label>
       <button type="button" className="voiceAsk" onClick={() => void ask()} disabled={!draft.trim() || state === 'thinking' || state === 'listening'} aria-label={t('voice.send')} title={t('voice.send')}><ArrowUp size={18} aria-hidden="true" /></button>
     </footer>
-
-    <details className="voiceSettings">
-      <summary><Settings2 size={16} aria-hidden="true" />{t('voice.settings')}</summary>
-      <div className="voiceSettingsGrid">
-        <label className="field"><span>{t('voice.assistantName')}</span>
-          <input dir="auto" value={nameDraft} maxLength={40} onChange={(event) => setNameDraft(event.target.value)} onBlur={saveName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveName(); } }} />
-        </label>
-        <label className="field"><span>{t('voice.language')}</span><select value={locale} onChange={(event) => setLocale(event.target.value)} disabled={state !== 'idle'}>
-          <option value="en-US">English (US)</option><option value="en-GB">English (UK)</option><option value="ar-SA">العربية (السعودية)</option><option value="ar-AE">العربية (الإمارات)</option>
-          {!['en-US', 'en-GB', 'ar-SA', 'ar-AE'].includes(locale) && <option value={locale}>{locale}</option>}
-        </select></label>
-        <label className="field"><span>{t('voice.replyVoice')}</span><select value={voice} onChange={(event) => { setVoice(event.target.value); store('anum.voice.reply', event.target.value); }}>
-          <option value="natural">{t('voice.reply.natural')}</option>
-          <option value="">{t('voice.reply.device')}</option>
-          {hasVoiceServer() && <option value="server">{t('voice.reply.server')}</option>}
-          {rankedVoices.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-        </select></label>
-        <label className="field"><span>{t('voice.retention')}</span><select value={retention} onChange={(event) => setRetention(event.target.value as TranscriptRetention)} disabled={Boolean(session)}>
-          {(['session', '30_days', 'permanent'] as const).map((choice) => <option key={choice} value={choice}>{t(`voice.retention.${choice}`)}</option>)}
-        </select></label>
-      </div>
-      {voice === 'natural' && !naturalVoiceSupports(locale) && <p className="muted">{t('voice.naturalEnglishOnly')}</p>}
-      <p className="muted">{t('voice.neverByVoice', { name })}</p>
-      {session && <button type="button" className="secondary" onClick={() => void endSession()}>{t('voice.clear')}</button>}
-    </details>
+    </div>
+    </div>}</SpaceOrb>
   </section>;
 }

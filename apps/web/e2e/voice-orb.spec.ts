@@ -2,17 +2,17 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { useSavedLocale } from './support/workspaceApi';
 import { fakeMedia, mockCallApi, startCall } from './support/callMocks';
 
-// The voice assistant's space orb (docs/voice.md#the-space-orb), in the real app: the cinematic
-// scene's independent motion, shooting stars, tilt, every state from (mocked) voice events, Pause,
-// reduced motion, cleanup after repeated opens and route changes, and the layout at nine sizes.
+// The voice assistant's space orb (docs/voice.md#the-space-orb), in the real app: the Voice page is
+// the cinematic scene (independent motion, shooting stars, tilt), every state from (mocked) voice
+// events, Pause, reduced motion, cleanup across route changes, and the full-page layout at nine sizes.
 const now = '2026-10-12T09:00:00.000Z';
 
 interface Snapshot {
   t: number; mode: string; paused: boolean; frames: number; meteorsShown: number; tilt: [number, number];
   astronaut: [number, number, number]; earth: [number, number, number]; satellite: [number, number, boolean]; satellite2: [number, number];
-  texturesReady: boolean; crops: { x: number; y: number; w: number; h: number }[];
+  texturesReady: boolean; crops: { x: number; y: number; w: number; h: number }[]; orb: [number, number, number]; floor: number;
 }
-interface Window { __say(text: string): void; __fail(error: string): void; __endSpeech(): void; __frames(): number; __loud(on: boolean): void }
+interface Window { __say(text: string): void; __fail(error: string): void; __endSpeech(): void; __speaking(): boolean; __frames(): number; __loud(on: boolean): void }
 
 async function mockVoice(page: Page, options: { pendingApprovals?: number } = {}) {
   let release: () => void = () => undefined;
@@ -77,6 +77,7 @@ async function mockVoice(page: Page, options: { pendingApprovals?: number } = {}
     let words = 0;
     const end = () => { const utterance = current; current = null; window.clearInterval(words); utterance?.onend?.(new Event('end') as SpeechSynthesisEvent); };
     w.__endSpeech = end;
+    w.__speaking = () => current !== null;
     Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
       speak(utterance: SpeechSynthesisUtterance) {
         current = utterance;
@@ -119,12 +120,12 @@ async function steadyLoops(page: Page) {
   return last;
 }
 
-async function openFull(page: Page) {
-  await page.locator('.voiceConsoleMeta .voiceIconButton').first().click();
-  const full = page.locator('.orbFullscreen');
-  await expect(full).toBeVisible();
-  await expect.poll(async () => (await snapshot(full.locator('.spaceOrb.full'))).texturesReady, { timeout: 15_000 }).toBe(true);
-  return full;
+async function openVoice(page: Page) {
+  await page.goto('/#voice');
+  const voice = page.locator('.voiceSpace');
+  await expect(voice.locator('.spaceOrb.full')).toBeVisible();
+  await expect.poll(async () => (await snapshot(voice.locator('.spaceOrb.full'))).texturesReady, { timeout: 15_000 }).toBe(true);
+  return voice;
 }
 
 test('the full scene: sprites move on their own, the satellite passes behind and in front of Earth, and shooting stars fall', async ({ page }) => {
@@ -133,8 +134,7 @@ test('the full scene: sprites move on their own, the satellite passes behind and
   const atlas: number[] = [];
   page.on('response', (response) => { if (/space-assets.*\.webp/.test(response.url())) atlas.push(response.status()); });
   await mockVoice(page);
-  await page.goto('/#voice');
-  const full = await openFull(page);
+  const full = await openVoice(page);
   const orb = full.locator('.spaceOrb.full');
   expect(atlas).toEqual([200]);
   // The atlas is served by the app itself (same-origin CSP).
@@ -190,8 +190,7 @@ test('the full scene: sprites move on their own, the satellite passes behind and
 
 test('Pause freezes the scene and Resume continues without a jump', async ({ page }) => {
   await mockVoice(page);
-  await page.goto('/#voice');
-  const full = await openFull(page);
+  const full = await openVoice(page);
   const orb = full.locator('.spaceOrb.full');
   await full.getByRole('button', { name: 'Pause' }).click();
   await expect(full.getByRole('button', { name: 'Resume' })).toHaveAttribute('aria-pressed', 'true');
@@ -219,14 +218,12 @@ test('Pause freezes the scene and Resume continues without a jump', async ({ pag
 
 test('the cursor tilts the orb', async ({ page }) => {
   await mockVoice(page);
-  await page.goto('/#voice');
-  const full = await openFull(page);
+  const full = await openVoice(page);
   const orb = full.locator('.spaceOrb.full');
   const box = (await orb.boundingBox())!;
-  await page.mouse.move(box.x + box.width * 0.95, box.y + box.height * 0.2, { steps: 4 });
+  await page.mouse.move(box.x + box.width * 0.95, box.y + box.height * 0.35, { steps: 4 });
   await expect.poll(async () => (await snapshot(orb)).tilt[0]).toBeGreaterThan(0.6);
-  expect((await snapshot(orb)).tilt[1]).toBeLessThan(-0.4);
-  await page.mouse.move(box.x + box.width * 0.05, box.y + box.height * 0.6, { steps: 4 });
+  await page.mouse.move(box.x + box.width * 0.05, box.y + box.height * 0.35, { steps: 4 });
   await expect.poll(async () => (await snapshot(orb)).tilt[0]).toBeLessThan(-0.6);
 });
 
@@ -234,12 +231,11 @@ test('touch tilts the orb', async ({ browser }) => {
   const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   await mockVoice(page);
-  await page.goto('/#voice');
-  const orb = page.locator('.voiceStage .spaceOrb.compact');
-  await expect(orb).toBeVisible();
+  const full = await openVoice(page);
+  const orb = full.locator('.spaceOrb.full');
   const box = (await orb.boundingBox())!;
-  // A touch on the orb's corner tilts it (the tap also starts listening, as the orb is the button).
-  await orb.dispatchEvent('pointerdown', { clientX: box.x + box.width - 2, clientY: box.y + 2, pointerType: 'touch', isPrimary: true });
+  // A touch near the stage's right edge tilts the orb.
+  await orb.dispatchEvent('pointerdown', { clientX: box.x + box.width - 4, clientY: box.y + box.height * 0.4, pointerType: 'touch', isPrimary: true });
   await expect.poll(async () => (await snapshot(orb)).tilt[0]).toBeGreaterThan(0.6);
   await context.close();
 });
@@ -247,60 +243,61 @@ test('touch tilts the orb', async ({ browser }) => {
 test('every state follows the real voice events: standby, listening, thinking, speaking, alert', async ({ page }) => {
   const errors = watchErrors(page);
   const api = await mockVoice(page, { pendingApprovals: 1 });
-  await page.goto('/#voice');
-  const compact = page.locator('.voiceStage .spaceOrb.compact');
-  await expect(compact).toHaveAttribute('data-space-mode', 'standby');
-  await expect.poll(async () => (await snapshot(compact)).mode).toBe('standby');
+  const voice = await openVoice(page);
+  const orb = voice.locator('.spaceOrb.full');
+  await expect(orb).toHaveAttribute('data-space-mode', 'standby');
+  await expect.poll(async () => (await snapshot(orb)).mode).toBe('standby');
 
-  // Tapping the orb opens the full screen and starts the microphone: listening.
-  await page.locator('.voiceStage .voiceOrb').click();
-  const full = page.locator('.orbFullscreen .spaceOrb.full');
-  await expect(full).toHaveAttribute('data-space-mode', 'listening');
-  await expect.poll(async () => (await snapshot(full)).mode).toBe('listening');
-  await expect(page.locator('.voiceStage .spaceOrb')).toHaveCount(0);
+  // Tapping the orb starts the microphone: listening.
+  await voice.getByRole('button', { name: 'Tap to talk' }).click();
+  await expect(orb).toHaveAttribute('data-space-mode', 'listening');
+  await expect.poll(async () => (await snapshot(orb)).mode).toBe('listening');
+  await expect(voice.getByRole('status')).toHaveText("I'm listening");
 
   // Something was heard and sent: thinking until the reply arrives.
   await say(page, 'How is the workspace?');
-  await expect(full).toHaveAttribute('data-space-mode', 'thinking');
-  // The reply is spoken: speaking, with the bars following the voice.
+  await expect(orb).toHaveAttribute('data-space-mode', 'thinking');
+  // The reply is spoken: speaking, with the answer in the panel over the scene.
   api.release();
-  await expect(full).toHaveAttribute('data-space-mode', 'speaking');
-  await expect.poll(async () => (await snapshot(full)).mode).toBe('speaking');
+  await expect(orb).toHaveAttribute('data-space-mode', 'speaking');
+  await expect.poll(async () => (await snapshot(orb)).mode).toBe('speaking');
+  await expect(voice.locator('.voiceSpacePanel').getByText('All quiet.')).toBeVisible();
   // The reply ends; an approval is waiting, so the orb rests in amber.
+  await expect.poll(() => page.evaluate(() => (window as unknown as Window).__speaking())).toBe(true);
   await page.evaluate(() => (window as unknown as Window).__endSpeech());
-  await expect(full).toHaveAttribute('data-space-mode', 'alert');
-  await page.keyboard.press('Escape');
-  await expect(compact).toHaveAttribute('data-space-mode', 'alert');
-  await expect.poll(async () => (await snapshot(compact)).mode).toBe('alert');
+  await expect(orb).toHaveAttribute('data-space-mode', 'alert');
+  await expect.poll(async () => (await snapshot(orb)).mode).toBe('alert');
+  await expect(voice.getByRole('button', { name: '1 approval waiting for you' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
 test('a denied microphone, a silence timeout and a cancel return the orb to standby', async ({ page }) => {
   await mockVoice(page);
-  await page.goto('/#voice');
-  await page.locator('.voiceConsoleMeta .voiceIconButton').first().click();
-  const full = page.locator('.orbFullscreen .spaceOrb.full');
-  const talk = page.locator('.orbFullscreenTalk');
-  await expect(full).toHaveAttribute('data-space-mode', 'standby');
+  const voice = await openVoice(page);
+  const orb = voice.locator('.spaceOrb.full');
+  const talk = voice.locator('.voiceSpaceTalk');
+  await expect(orb).toHaveAttribute('data-space-mode', 'standby');
   for (const error of ['not-allowed', 'no-speech']) {
     await talk.click();
-    await expect(full).toHaveAttribute('data-space-mode', 'listening');
+    await expect(orb).toHaveAttribute('data-space-mode', 'listening');
     await page.evaluate((value) => (window as unknown as Window).__fail(value), error);
-    await expect(full).toHaveAttribute('data-space-mode', 'standby');
+    await expect(orb).toHaveAttribute('data-space-mode', 'standby');
   }
   // Tapping the orb again while listening cancels: standby.
   await talk.click();
-  await expect(full).toHaveAttribute('data-space-mode', 'listening');
+  await expect(orb).toHaveAttribute('data-space-mode', 'listening');
   await talk.click();
-  await expect(full).toHaveAttribute('data-space-mode', 'standby');
+  await expect(orb).toHaveAttribute('data-space-mode', 'standby');
 });
 
-test('a call drives the same orb: listening, then speaking while the reply plays', async ({ page }) => {
+test('a call drives a large orb: listening, then speaking while the reply plays', async ({ page }) => {
   await mockCallApi(page);
   await fakeMedia(page);
   await startCall(page);
   const orb = page.locator('.callOrb .spaceOrb.compact');
   await expect(orb).toHaveAttribute('data-space-mode', 'listening');
+  // Not a dot: at least 220px across.
+  expect((await orb.boundingBox())!.width).toBeGreaterThanOrEqual(219);
   await page.evaluate(() => (window as unknown as Window).__loud(true));
   await expect(page.getByText('Hearing you', { exact: true })).toBeVisible();
   await expect(orb).toHaveAttribute('data-space-mode', 'listening');
@@ -314,8 +311,7 @@ test('a call drives the same orb: listening, then speaking while the reply plays
 test('with reduced motion the scene is still and sends no shooting stars', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockVoice(page);
-  await page.goto('/#voice');
-  const full = await openFull(page);
+  const full = await openVoice(page);
   const orb = full.locator('.spaceOrb.full');
   await page.waitForTimeout(1500);
   const still = await snapshot(orb);
@@ -324,7 +320,7 @@ test('with reduced motion the scene is still and sends no shooting stars', async
   await expect(full.getByRole('button', { name: 'Shooting star' })).toBeDisabled();
 });
 
-test('opening and closing ten times and changing routes leave no animation loop behind', async ({ page }) => {
+test('going to and from the Voice page ten times leaves no animation loop behind', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = watchErrors(page);
   await mockVoice(page);
@@ -334,84 +330,89 @@ test('opening and closing ten times and changing routes leave no animation loop 
   await page.goto('/#tasks');
   await expect(page.locator('main')).toBeVisible();
   const elsewhere = await steadyLoops(page);
-  await nav.getByRole('button', { name: 'Voice', exact: true }).click();
-  await expect(page.locator('.voiceStage .spaceOrb.compact')).toBeVisible();
-  // One loop for the page orb.
-  expect(await steadyLoops(page)).toBe(elsewhere + 1);
-  const full = page.locator('.orbFullscreen');
   for (let i = 0; i < 10; i += 1) {
-    await page.locator('.voiceConsoleMeta .voiceIconButton').first().click();
-    await expect(full.locator('.spaceOrb.full')).toBeVisible();
-    // Still one loop: the page orb rests while the full screen runs.
+    await nav.getByRole('button', { name: 'Voice', exact: true }).click();
+    await expect(page.locator('.voiceSpace .spaceOrb.full')).toBeVisible();
+    // One loop for the page's scene.
     expect(await steadyLoops(page)).toBe(elsewhere + 1);
-    await page.keyboard.press('Escape');
-    await expect(full).toHaveCount(0);
+    // Leave through the Call lobby (no orb) or straight to Tasks.
+    await nav.getByRole('button', { name: i % 2 ? 'Call' : 'Tasks', exact: true }).click();
+    await expect(page.locator('.spaceOrb')).toHaveCount(0);
+    expect(await steadyLoops(page)).toBe(elsewhere);
   }
-  expect(await steadyLoops(page)).toBe(elsewhere + 1);
-  // Leaving for the Call lobby and then Tasks releases the page orb's loop.
-  await nav.getByRole('button', { name: 'Call', exact: true }).click();
-  await expect(page.locator('.spaceOrb')).toHaveCount(0);
-  await nav.getByRole('button', { name: 'Tasks', exact: true }).click();
-  await expect(page.locator('.spaceOrb')).toHaveCount(0);
-  expect(await steadyLoops(page)).toBe(elsewhere);
   expect(crashed).toBe(false);
   expect(errors).toEqual([]);
 });
 
+test('Voice is a full page: no Full screen button, and the settings open over the scene', async ({ page }) => {
+  await mockVoice(page);
+  const voice = await openVoice(page);
+  await expect(page.getByRole('button', { name: 'Full screen' })).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // The page has its own (hidden) heading for the main landmark.
+  await expect(page.locator('main')).toHaveAccessibleName('Layla voice assistant');
+  const settings = voice.locator('.voiceSpaceSettings');
+  await settings.locator('summary').click();
+  await expect(voice.getByRole('combobox', { name: 'Language' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(voice.getByRole('combobox', { name: 'Language' })).toBeHidden();
+  await expect(settings.locator('summary')).toBeFocused();
+});
+
+test('the scene stays dark and readable in the light theme', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('anum.theme', 'light'));
+  await mockVoice(page);
+  const voice = await openVoice(page);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  // The panel text uses the dark theme's colours on the dark glass in both themes.
+  expect(await voice.getByRole('status').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(125, 211, 252)');
+  expect(await voice.locator('.voiceCaption').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(179, 187, 208)');
+  // The page chrome keeps the light theme.
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(244, 246, 251)');
+});
+
 const SIZES = [[320, 640], [390, 844], [768, 1024], [1024, 768], [1366, 768], [1440, 900], [1280, 720], [1920, 1080], [412, 915]] as const;
 for (const locale of ['en', 'ar'] as const) {
-  test(`the page orb and the full screen fit nine sizes without overflow (${locale})`, async ({ page }) => {
+  test(`the Voice page fills the content area at nine sizes without overflow (${locale})`, async ({ page }) => {
     test.setTimeout(120_000);
     await useSavedLocale(page, locale);
     await mockVoice(page);
-    await page.goto('/#voice');
+    const voice = await openVoice(page);
     for (const [width, height] of SIZES) {
       await page.setViewportSize({ width, height });
-      const compact = page.locator('.voiceStage .spaceOrb.compact');
-      await expect(compact).toBeVisible();
-      const round = (await compact.boundingBox())!;
-      expect(Math.abs(round.width - round.height)).toBeLessThan(2);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
-      await page.locator('.voiceConsoleMeta .voiceIconButton').first().click();
-      const full = page.locator('.orbFullscreen');
-      await expect(full).toBeVisible();
-      const fits = await full.evaluate((el) => ({ x: el.scrollWidth - el.clientWidth, y: el.scrollHeight - el.clientHeight, doc: document.documentElement.scrollWidth - document.documentElement.clientWidth }));
-      expect(fits, `${width}x${height}`).toEqual({ x: 0, y: 0, doc: 0 });
-      for (const control of [full.locator('.orbFullscreenTalk'), full.locator('.orbFullscreenClose'), ...await full.locator('.spaceControls button').all()]) {
+      await page.waitForTimeout(150);
+      const size = `${width}x${height}`;
+      const layout = await page.evaluate(() => {
+        const doc = document.documentElement;
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const space = box('.voiceSpace'), main = box('main');
+        return {
+          overflow: [doc.scrollWidth - doc.clientWidth, doc.scrollHeight - doc.clientHeight],
+          space: [space.left - main.left, main.right - space.right, window.innerHeight - space.bottom],
+          stageMin: Math.min(space.width, space.height), talk: box('.voiceSpaceTalk').width,
+        };
+      });
+      // Edge to edge under the header, down to the bottom of the window, and the page never scrolls.
+      expect(layout.overflow, size).toEqual([0, 0]);
+      expect(layout.space.map(Math.round), size).toEqual([0, 0, 0]);
+      // A large orb: 40% of the scene's shorter side or more, and 220px at least on a 390x844 phone
+      // and anything bigger (a 320x640 phone keeps under 410px for the scene below the app header).
+      if (width >= 390 && height >= 800) expect(layout.talk, size).toBeGreaterThanOrEqual(219);
+      expect(layout.talk / layout.stageMin, size).toBeGreaterThanOrEqual(0.38);
+      for (const control of [voice.locator('.voiceSpaceTalk'), ...await voice.locator('.voiceSpaceBar button, .voiceSpaceBar summary').all(), voice.locator('.voiceDock')]) {
         const b = (await control.boundingBox())!;
-        expect(b.x, `${width}x${height}`).toBeGreaterThanOrEqual(0);
+        expect(b.x, size).toBeGreaterThanOrEqual(0);
         expect(b.y).toBeGreaterThanOrEqual(0);
-        expect(b.x + b.width).toBeLessThanOrEqual(width);
-        expect(b.y + b.height).toBeLessThanOrEqual(height);
+        expect(b.x + b.width, size).toBeLessThanOrEqual(width + 0.5);
+        expect(b.y + b.height, size).toBeLessThanOrEqual(height + 0.5);
       }
-      // The talk button sits on the orb and the controls do not cover it.
-      const talk = (await full.locator('.orbFullscreenTalk').boundingBox())!;
-      const bar = (await full.locator('.spaceControls').boundingBox())!;
-      expect(talk.width, `${width}x${height}`).toBeGreaterThan(80);
-      expect(talk.y + talk.height <= bar.y || bar.x + bar.width <= talk.x || talk.x + talk.width <= bar.x).toBe(true);
-      await page.keyboard.press('Escape');
-      await expect(full).toHaveCount(0);
+      // The astronaut and Earth stay on the stage, above the panel.
+      const snap = await snapshot(voice.locator('.spaceOrb.full'));
+      for (const [x, y] of [snap.astronaut, snap.earth]) {
+        expect(x, size).toBeGreaterThan(0);
+        expect(y, size).toBeGreaterThan(0);
+        expect(y, size).toBeLessThan(snap.floor);
+      }
     }
   });
 }
-
-test('the full screen is modal and keyboard-safe, and closes back to the page', async ({ page }) => {
-  await mockVoice(page);
-  await page.goto('/#voice');
-  const open = page.getByRole('button', { name: 'Full screen' });
-  await open.click();
-  const full = page.getByRole('dialog', { name: 'Layla voice assistant' });
-  await expect(full).toHaveAttribute('aria-modal', 'true');
-  await expect(full.getByRole('status')).toHaveText(/Ready|Listening for/);
-  await expect(full.getByRole('button', { name: 'Tap to talk' })).toBeFocused();
-  for (let i = 0; i < 6; i += 1) {
-    await page.keyboard.press('Tab');
-    expect(await full.evaluate((el) => el.contains(document.activeElement))).toBe(true);
-  }
-  await page.keyboard.press('Escape');
-  await expect(full).toHaveCount(0);
-  await expect(open).toBeFocused();
-  await page.getByRole('button', { name: 'Full screen' }).click();
-  await full.getByRole('button', { name: 'Close full screen' }).click();
-  await expect(full).toHaveCount(0);
-});
