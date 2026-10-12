@@ -32,7 +32,7 @@
 .agentGrid > li { display: grid; min-width: 0; }
 .agentsView .agentCard { align-items: start; grid-template-columns: 44px minmax(0, 1fr); padding: var(--d-s4); position: relative; }
 .agentsView .agentCard:hover { border-color: var(--d-line-strong); }
-.agentsView .agentCard:focus-within { border-color: rgba(125, 211, 252, .5); }
+.agentsView .agentCard:focus-within { border-color: rgb(var(--c-sky) / .5); }
 .agentCard.isPaused .agentAvatar { filter: grayscale(.7); }
 .agentMain { min-width: 0; }
 .agentMain p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -54,7 +54,7 @@
 }
 .wizardSteps button span { align-items: center; background: var(--d-glass-2); border-radius: 999px; display: inline-flex; height: 22px; justify-content: center; width: 22px; }
 .wizardSteps button span svg { height: 14px; width: 14px; }
-.wizardSteps li[aria-current="step"] button { background: var(--d-glass-3); border-color: rgba(167, 139, 250, .45); color: var(--d-text); }
+.wizardSteps li[aria-current="step"] button { background: var(--d-glass-3); border-color: rgb(var(--c-violet) / .45); color: var(--d-text); }
 .wizardSteps li.done button { color: var(--d-text); }
 .wizardSteps button:disabled { opacity: .6; }
 .wizardBody { margin-top: var(--d-s4); max-width: 880px; }
@@ -80,7 +80,7 @@
 .choiceList { display: grid; gap: var(--d-s2); }
 .choiceList.compact { max-height: 320px; overflow: auto; }
 .choice { align-items: start; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); cursor: pointer; display: grid; gap: var(--d-s3); grid-template-columns: 20px minmax(0, 1fr); padding: var(--d-s3); }
-.choice:has(input:checked) { border-color: rgba(167, 139, 250, .45); }
+.choice:has(input:checked) { border-color: rgb(var(--c-violet) / .45); }
 .choice input { accent-color: var(--d-primary); height: 18px; margin: 2px 0 0; min-height: 0; padding: 0; width: 18px; }
 .choice span { display: grid; gap: 2px; min-width: 0; }
 .choice small { color: var(--d-muted); font-size: 13px; overflow-wrap: anywhere; }
@@ -102,9 +102,9 @@
 .agentHeroText { min-width: 0; }
 .agentHeroText h2 { font-size: 22px; overflow-wrap: anywhere; }
 .agentActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
-.agentActions > button:not(.secondary) { background: var(--d-primary); border: 1px solid transparent; color: #fff; }
-.agentActions > button:not(.secondary):hover:not(:disabled) { background: var(--d-primary-hover); }
-.agentActions button[aria-pressed="true"].secondary { border-color: rgba(167, 139, 250, .55); }
+.agentActions > button:not(.secondary) { background: var(--d-primary-grad); border: 1px solid transparent; color: #fff; }
+.agentActions > button:not(.secondary):hover:not(:disabled) { background: var(--d-primary-grad-hover); }
+.agentActions button[aria-pressed="true"].secondary { border-color: rgb(var(--c-violet) / .55); }
 .moreMenu { position: relative; }
 .moreMenuList { display: grid; inset-inline-end: 0; min-width: 200px; padding: var(--d-s1); position: absolute; top: calc(100% + 4px); z-index: 20; }
 .moreMenuList button { align-items: center; background: none; border: 0; border-radius: 8px; color: var(--d-text); display: flex; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s3); text-align: start; }
@@ -117,7 +117,7 @@
 .agentPanel > h3 + * { margin-top: var(--d-s2); }
 .agentInstructions { color: var(--d-text); font-size: 14px; margin-top: var(--d-s2); overflow-wrap: anywhere; white-space: pre-wrap; }
 .agentRunResult { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin-top: var(--d-s4); padding: var(--d-s3) var(--d-s4); }
-.agentRunResult.isFailed { border-color: rgba(253, 164, 175, .32); }
+.agentRunResult.isFailed { border-color: rgb(var(--c-stop) / .32); }
 .agentAnswer { overflow-wrap: anywhere; white-space: pre-wrap; }
 .agentTaskList, .agentCapList, .agentMemoryList { display: grid; gap: var(--d-s2); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
 .agentTaskList li { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto auto; padding-top: var(--d-s2); }

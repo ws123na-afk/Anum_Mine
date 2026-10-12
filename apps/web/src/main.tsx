@@ -20,6 +20,8 @@ import type { ChatTarget } from './ChatCardView';
 import { ModelGatewaySettings } from './ModelSettings';
 import { ChatMemorySetting } from './ChatMemorySetting';
 import { LanguageSettings } from './LanguageSettings';
+import { AppearanceSettings } from './AppearanceSettings';
+import { initTheme } from './lib/theme';
 import { NotificationSettings } from './NotificationSettings';
 import { formatDateTime, initLocale, t, type MessageKey } from './lib/i18n';
 import { statusLabel } from './lib/labels';
@@ -37,7 +39,7 @@ import { noticeFromEvent, type ActionNotice } from './lib/autonomy';
 
 // The shell's views, sidebar groups and hash routing live in lib/shell.ts; the chrome in Shell.tsx.
 const err=(e:unknown)=>e instanceof Error?e.message:t('common.operationFailed');
-type SettingsTarget='settings'|'language'|'notifications'|'privacy';
+type SettingsTarget='settings'|'language'|'appearance'|'notifications'|'privacy';
 
 // Keyed by workspace in AuthGate: switching workspace remounts the app, so no state from the
 // previous workspace survives and every request after the switch names the new one.
@@ -114,13 +116,13 @@ function App({onSwitchWorkspace,onSwitchOrganisation}:{onSwitchWorkspace:(worksp
  {paletteOpen&&<CommandPalette views={views} recentTasks={tasks} onClose={()=>setPaletteOpen(false)} onPick={pick}/>}</div>
 }
 
-// Settings has four sections; #notifications deep-links to Notifications and phone push (docs/notifications.md),
-// #privacy to Privacy (the in-app data download and deletion path) and #language to the interface language
-// (docs/web-localization.md).
-type SettingsTab='workspace'|'notifications'|'language'|'privacy';
-const settingsTabs:SettingsTab[]=['workspace','notifications','language','privacy'];
+// Settings has five sections; #notifications deep-links to Notifications and phone push (docs/notifications.md),
+// #privacy to Privacy (the in-app data download and deletion path), #language to the interface language
+// (docs/web-localization.md) and #appearance to the theme (docs/design/anum360.md#theme).
+type SettingsTab='workspace'|'notifications'|'language'|'appearance'|'privacy';
+const settingsTabs:SettingsTab[]=['workspace','notifications','language','appearance','privacy'];
 const settingsTabFromHash=():SettingsTab=>{const hash=location.hash.slice(1);return settingsTabs.includes(hash as SettingsTab)&&hash!=='workspace'?hash as SettingsTab:'workspace'};
-function SettingsPage({onOpenChatMemories,onSwitchWorkspace,onArchivedChange}:{onOpenChatMemories:()=>void;onSwitchWorkspace:(workspaceId:string)=>Promise<void>;onArchivedChange:(archived:boolean)=>void}){const [tab,setTab]=useState<SettingsTab>(settingsTabFromHash),[focusChatMemory,setFocusChatMemory]=useState(false);const pick=(next:SettingsTab)=>{setTab(next);setFocusChatMemory(false);history.replaceState(null,'',next==='workspace'?'#settings':`#${next}`)};return <><nav className="settingsTabs" aria-label={t('settings.sections')}>{settingsTabs.map(id=><button key={id} type="button" aria-current={tab===id?'page':undefined} onClick={()=>pick(id)}>{t(`settings.tab.${id}`)}</button>)}</nav>{tab==='workspace'?<><WorkspaceAdmin onSwitchWorkspace={onSwitchWorkspace} onArchivedChange={onArchivedChange}/><WorkspaceSettings onOpenChatMemories={onOpenChatMemories} focusChatMemory={focusChatMemory}/></>:tab==='notifications'?<div className="settingsStack"><NotificationSettings/></div>:tab==='language'?<LanguageSettings/>:<PrivacyView onOpenChatMemory={()=>{pick('workspace');setFocusChatMemory(true)}}/>}</>}
+function SettingsPage({onOpenChatMemories,onSwitchWorkspace,onArchivedChange}:{onOpenChatMemories:()=>void;onSwitchWorkspace:(workspaceId:string)=>Promise<void>;onArchivedChange:(archived:boolean)=>void}){const [tab,setTab]=useState<SettingsTab>(settingsTabFromHash),[focusChatMemory,setFocusChatMemory]=useState(false);const pick=(next:SettingsTab)=>{setTab(next);setFocusChatMemory(false);history.replaceState(null,'',next==='workspace'?'#settings':`#${next}`)};return <><nav className="settingsTabs" aria-label={t('settings.sections')}>{settingsTabs.map(id=><button key={id} type="button" aria-current={tab===id?'page':undefined} onClick={()=>pick(id)}>{t(`settings.tab.${id}`)}</button>)}</nav>{tab==='workspace'?<><WorkspaceAdmin onSwitchWorkspace={onSwitchWorkspace} onArchivedChange={onArchivedChange}/><WorkspaceSettings onOpenChatMemories={onOpenChatMemories} focusChatMemory={focusChatMemory}/></>:tab==='notifications'?<div className="settingsStack"><NotificationSettings/></div>:tab==='language'?<LanguageSettings/>:tab==='appearance'?<AppearanceSettings/>:<PrivacyView onOpenChatMemory={()=>{pick('workspace');setFocusChatMemory(true)}}/>}</>}
 function WorkspaceSettings({onOpenChatMemories,focusChatMemory=false}:{onOpenChatMemories:()=>void;focusChatMemory?:boolean}){const [onboard,setOnboard]=useState<api.OnboardingStatus|null>(null),[org,setOrg]=useState('ANUM'),[workspace,setWorkspace]=useState('Foundation'),[state,setState]=useState<string>(()=>t('settings.onboarding.loading'));const load=useCallback(()=>api.getOnboarding().then(o=>{setOnboard(o);setState('')}).catch(e=>setState(err(e))),[]);useEffect(()=>{void load()},[load]);return <div className="settingsStack"><section className="surface settingsForm"><div className="sectionHeader"><div><p className="eyebrow">{t('settings.onboarding.eyebrow')}</p><h2>{t('settings.onboarding.title')}</h2></div>{onboard&&<span className={`statusBadge ${onboard.complete?'success':'warning'}`}>{onboard.complete?t('settings.onboarding.complete'):t('settings.onboarding.required')}</span>}</div><div className="formGrid"><label className="field"><span>{t('settings.onboarding.orgName')}</span><input value={org} onChange={e=>setOrg(e.target.value)}/></label><label className="field"><span>{t('settings.onboarding.workspaceName')}</span><input value={workspace} onChange={e=>setWorkspace(e.target.value)}/></label></div><div className="actions"><button disabled={!onboard||onboard.complete} onClick={()=>void api.completeOnboarding(org,workspace).then(load).catch(e=>setState(err(e)))}>{onboard?.complete?t('settings.onboarding.done'):t('settings.onboarding.submit')}</button></div></section><BrandingSettings/><ModelGatewaySettings onboarded={onboard?onboard.complete:null}/><ChatMemorySetting reviewLabel={t('settings.chatMemoryReview')} onReview={onOpenChatMemories} focusOnLoad={focusChatMemory}/>{state&&<Notice>{state}</Notice>}</div>}
 
 // The Knowledge Base entry's two tabs (docs/knowledge-base.md): memories ANUM keeps, and collections of files and notes to search and ask.
@@ -156,6 +158,8 @@ const storage=(()=>{try{return window.localStorage}catch{return null}})();
 const emailReturn=readConnectReturn(window.location.href);
 if(emailReturn){try{sessionStorage.setItem(CONNECT_STORAGE_KEY,JSON.stringify({connection:emailReturn.connection,error:emailReturn.error}))}catch{/* the Inbox then shows nothing to finish */}history.replaceState(null,'',emailReturn.cleanUrl)}
 initLocale({storage,languages:navigator.languages?.length?navigator.languages:[navigator.language],root:document.documentElement});
+// The theme (docs/design/anum360.md#theme): index.html already applied the saved choice before the first paint.
+initTheme({storage,root:document.documentElement,media:window.matchMedia?.('(prefers-color-scheme: light)')??null});
 // Re-renders the whole tree when the language changes, so every string and layout direction follows.
 function Root(){useLocale();return <AuthGate/>}
 createRoot(document.getElementById('root')!).render(<Root/>);

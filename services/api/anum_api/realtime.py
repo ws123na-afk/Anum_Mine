@@ -170,9 +170,11 @@ async def live_event_source(
     seen = _RecentIds()
     repository_cursor = last_event_id
 
-    def catch_up() -> list[DomainEvent]:
+    async def catch_up() -> list[DomainEvent]:
         nonlocal repository_cursor
-        events = list_events()
+        # A blocking database read: never on the event loop, where a slow query or a
+        # wait for a pooled connection would stall every request of the API.
+        events = await asyncio.to_thread(list_events)
         if repository_cursor:
             index = next(
                 (i for i, event in enumerate(events) if event.id == repository_cursor), None
@@ -187,7 +189,7 @@ async def live_event_source(
         return fresh
 
     async with hub.listen(context) as listener:
-        for event in catch_up():
+        for event in await catch_up():
             yield format_sse(event)
         if not follow:
             return
@@ -197,7 +199,7 @@ async def live_event_source(
             if listener.lagged or not hub.live:
                 listener.lagged = False
                 listener.drain()
-                caught_up = catch_up()
+                caught_up = await catch_up()
                 for event in caught_up:
                     yield format_sse(event)
                 if caught_up:

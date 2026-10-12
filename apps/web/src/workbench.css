@@ -16,7 +16,7 @@
 .autoPager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; margin-top: var(--d-s4); }
 .autoPager button { min-height: 40px; padding: 0 var(--d-s3); border-radius: var(--d-r-control); }
 .autoInlineButton {
-  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex;
+  align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex;
   font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 10px var(--d-s4);
 }
 .autoInlineButton.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
@@ -30,7 +30,7 @@
 .autoFacts dd { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); font-weight: 500; }
 .autoSubhead { font-size: 15px; margin: var(--d-s5) 0 0; }
 .autoHeaderActions { margin-top: 0; }
-.autoConfirm { background: rgba(253, 164, 175, .07); border: 1px solid rgba(253, 164, 175, .28); border-radius: var(--d-r-control); margin-top: var(--d-s4); padding: var(--d-s3) var(--d-s4); }
+.autoConfirm { background: rgb(var(--c-stop) / .07); border: 1px solid rgb(var(--c-stop) / .28); border-radius: var(--d-r-control); margin-top: var(--d-s4); padding: var(--d-s3) var(--d-s4); }
 .autoConfirm p { margin: 0; }
 .autoConfirm .actions { margin-top: var(--d-s3); }
 

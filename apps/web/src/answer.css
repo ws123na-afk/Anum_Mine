@@ -7,5 +7,5 @@
 .answerBody h3 { font-size: 16px; }
 .answerBody h4 { font-size: 14px; }
 .answerBody code { background: var(--d-glass-2); border-radius: 4px; font-size: 12.5px; padding: 1px 4px; }
-.answerBody pre { background: rgba(2, 6, 23, .55); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); overflow-x: auto; padding: 12px; }
+.answerBody pre { background: var(--d-well); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); overflow-x: auto; padding: 12px; }
 .answerBody pre code { background: none; color: inherit; padding: 0; }

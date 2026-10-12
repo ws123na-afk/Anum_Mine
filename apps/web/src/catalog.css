@@ -3,14 +3,14 @@
 
 /* Buttons inside cards, rows and empty states share the primary look of .actions buttons. */
 :is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .emptyState, .enterpriseCatalog .sectionHeader, .marketActions, .catalogMore) button:not(.iconButton) {
-  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control);
+  align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control);
   color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center;
   min-height: 44px; padding: var(--d-s2) var(--d-s4); white-space: nowrap;
 }
 :is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .emptyState, .enterpriseCatalog .sectionHeader, .marketActions, .catalogMore) button.secondary {
   background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text);
 }
-:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .marketActions) button.danger { background: #be123c; }
+:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .marketActions) button.danger { background: var(--d-danger); }
 :is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .marketActions) button svg { height: 16px; width: 16px; }
 
 .catalogSummary { color: var(--d-muted); font-size: 13px; margin: var(--d-s4) 0 var(--d-s3); }
@@ -28,7 +28,7 @@
 .catalogRow .marketActions button.iconButton { background: var(--d-glass-1); border: 1px solid var(--d-line); box-shadow: none; color: var(--d-text); height: 44px; padding: 0; width: 44px; }
 .catalogRow .marketActions button.iconButton:hover { background: var(--d-glass-2); }
 .integrationFix, .integrationCredentialLine { align-items: flex-start; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s2); overflow-wrap: anywhere; }
-.integrationFix { background: rgba(252, 211, 141, .07); border: 1px solid rgba(252, 211, 141, .2); border-radius: var(--d-r-control); color: var(--d-text); padding: var(--d-s2) var(--d-s3); }
+.integrationFix { background: rgb(var(--c-warn) / .07); border: 1px solid rgb(var(--c-warn) / .2); border-radius: var(--d-r-control); color: var(--d-text); padding: var(--d-s2) var(--d-s3); }
 .integrationFix svg, .integrationCredentialLine svg { color: var(--d-warn); flex: none; height: 16px; margin-top: 2px; width: 16px; }
 .integrationCredentialLine svg { color: var(--d-violet); }
 .integration small.integrationLastError { color: var(--d-warn); overflow-wrap: anywhere; }

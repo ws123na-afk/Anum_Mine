@@ -460,6 +460,7 @@ Before building, `update.sh` runs `configure_env.py --check`: duplicate or inval
 - An external uptime check on `https://<API>/health` and `https://<WEB>/healthz` with alerts, from Uptime Kuma on a machine of yours ([Uptime Kuma off the VM](monitoring-oracle.md#uptime-kuma-off-the-vm)) or any free uptime-monitoring service; this is the only alert you get when the whole VM is down.
 - Oracle Console → the instance → **Metrics** (CPU, memory, network); **Monitoring → Alarms** can e-mail you on high CPU or a stopped instance.
 - Certificates renew automatically; Let's Encrypt e-mails `ACME_EMAIL` if renewal keeps failing (usually DNS or the security list).
+- The web app stops responding and `https://<API>/health` times out: count the API's database connections with `docker compose exec postgres psql -U postgres -d anum -c "select state, count(*) from pg_stat_activity where usename = 'anum_app' group by 1"` and look for `QueuePool limit` in `docker compose logs --tail 200 api`. Fifteen connections `idle in transaction` is the pool used up; open event streams used to hold one connection each until October 2026 ([Realtime](realtime.md#implementation)). `docker compose restart api` frees them at once.
 
 ## Changing an Address Later
 

@@ -11,11 +11,31 @@
         "source": "github",
         "repo": "anthropics/claude-plugins-official"
       }
+    },
+    "knowledge-work-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/knowledge-work-plugins"
+      }
     }
   },
   "enabledPlugins": {
     "superpowers@superpowers-marketplace": true,
     "frontend-design@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true
+    "code-review@claude-plugins-official": true,
+    "design@knowledge-work-plugins": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/install-agent-skills.sh >/dev/null 2>&1 || true",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
   }
 }

@@ -8,7 +8,7 @@
 .cmPanel .emptyState { padding-block: var(--d-s4); }
 .cmDenied, .cmWelcome, .cmPending { align-items: flex-start; grid-template-columns: 28px minmax(0, 1fr); }
 .cmDenied > svg, .cmWelcome > svg, .cmPending > svg { color: var(--d-violet); height: 24px; width: 24px; }
-.cmPending { border-color: rgba(167, 139, 250, .45); }
+.cmPending { border-color: rgb(var(--c-violet) / .45); }
 .cmPending .actions { margin-top: var(--d-s3); }
 .cmLoadError { align-items: center; flex-wrap: wrap; }
 .cmLoadError > span { flex: 1 1 240px; min-width: 0; }
@@ -33,7 +33,7 @@
 .cmMetrics { margin-bottom: 0; }
 .cmMetrics .metric { padding: var(--d-s4); }
 .cmMetrics .metric > strong { font-size: 26px; overflow-wrap: anywhere; }
-.cmMetricDanger { border-color: rgba(253, 164, 175, .35); }
+.cmMetricDanger { border-color: rgb(var(--c-stop) / .35); }
 
 .cmGrid { display: grid; gap: var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
 .cmEmpty { align-items: center; display: flex; gap: var(--d-s2); }
@@ -76,8 +76,8 @@
 .cmDetail { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-top: var(--d-s4); }
 .cmDetail h4 { font-size: 14px; margin: 0; }
 
-.cmPrimary { align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4); }
-.cmPrimary:hover { background: var(--d-primary-hover); }
+.cmPrimary { align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4); }
+.cmPrimary:hover { background: var(--d-primary-grad-hover); }
 
 .cmProduct { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
 .cmProduct:first-child { border-top: 0; padding-top: 0; }
@@ -97,7 +97,7 @@
 .cmChangeForm label { color: var(--d-muted); font-size: 13px; font-weight: 600; }
 .cmChangeForm input { flex: 0 1 160px; min-width: 0; }
 .cmChangeForm button { border-radius: var(--d-r-control); min-height: 44px; padding: 0 var(--d-s3); }
-.cmChangeForm button:not(.secondary) { background: var(--d-primary); border: 1px solid transparent; color: #fff; font-weight: 650; }
+.cmChangeForm button:not(.secondary) { background: var(--d-primary-grad); border: 1px solid transparent; color: #fff; font-weight: 650; }
 .cmChangeForm small { flex-basis: 100%; }
 .cmFieldError { color: var(--d-stop); font-size: 13px; margin: 0; }
 
@@ -130,8 +130,8 @@
 .cmConnectorHead strong { align-items: center; display: flex; overflow-wrap: anywhere; }
 .cmConnectorHead small { color: var(--d-faint); display: block; font-size: 12px; overflow-wrap: anywhere; }
 .actions.cmConnectorActions { margin-top: 0; }
-.cmProblem { background: rgba(253, 164, 175, .08); border: 1px solid rgba(253, 164, 175, .28); border-radius: var(--d-r-control); color: #fee2e6; font-size: 13px; margin: 0; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
-.cmSecret code { background: rgba(2, 6, 23, .45); border-radius: 6px; padding: 2px 6px; }
+.cmProblem { background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .28); border-radius: var(--d-r-control); color: var(--d-error-text); font-size: 13px; margin: 0; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
+.cmSecret code { background: var(--d-field); border-radius: 6px; padding: 2px 6px; }
 .cmPagerText { font-size: 13px; }
 .cmPager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; }
 .cmPager button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); min-height: 40px; padding: 0 var(--d-s3); }

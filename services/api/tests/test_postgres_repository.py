@@ -248,6 +248,33 @@ def test_events_are_deterministically_ordered_and_workspace_scoped(
         assert repository.list_events(tenant_context(TENANT_A, WORKSPACE_A2)) == []
 
 
+def test_events_after_a_cursor_follow_list_order_and_unknown_cursors_read_all(
+    seed_scopes: None,
+    repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],
+) -> None:
+    # The event stream's poll (dependencies.list_events_for_stream with `after`).
+    context = tenant_context()
+    events = [make_event(f"event_{index:02d}") for index in range(4)]
+    for index, event in enumerate(events):
+        # Two events share a timestamp so the id breaks the tie, as in list_events.
+        event.created_at = events[0].created_at + timedelta(seconds=min(index, 2))
+    hidden = make_event("event_hidden", TENANT_A, WORKSPACE_A2)
+    with repository_factory(context, commit=True) as repository:
+        for event in reversed(events):
+            repository.record_event(event)
+    with repository_factory(tenant_context(TENANT_A, WORKSPACE_A2), commit=True) as repository:
+        repository.record_event(hidden)
+
+    with repository_factory(context) as repository:
+        ordered = [event.id for event in repository.list_events(context)]
+        assert ordered == [event.id for event in events]
+        for index, event_id in enumerate(ordered):
+            assert [e.id for e in repository.list_events_after(context, event_id)] == ordered[index + 1 :]
+        # A missing cursor, or one from another workspace, replays the whole list.
+        assert [e.id for e in repository.list_events_after(context, "event_missing")] == ordered
+        assert [e.id for e in repository.list_events_after(context, hidden.id)] == ordered
+
+
 def test_list_tasks_is_keyset_paged_newest_first(
     seed_scopes: None,
     repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],

@@ -294,7 +294,8 @@ async def look_and_answer(
     session_id: str,
     payload: LookCreate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    # Released before the body streams (see stream_events in main.py).
+    repository: AnumRepository = Depends(repository_context, scope="function"),
     gateway: ModelGateway = Depends(voice_model_gateway),
 ) -> StreamingResponse:
     """Answer a spoken question about one camera frame, streamed like ``/ask/stream``.

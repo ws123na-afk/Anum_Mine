@@ -18,7 +18,7 @@
 .learningContactRow { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; }
 .learningInlineButton { align-items: center; display: inline-flex; gap: var(--d-s2); justify-self: start; min-height: 44px; padding: 0 var(--d-s4); border-radius: var(--d-r-control); }
 textarea.learningShortText { min-height: 72px; }
-.learningConfirm { border: 1px solid rgba(253, 164, 175, .32); border-radius: var(--d-r-control); margin-top: var(--d-s4); padding: var(--d-s3) var(--d-s4); }
+.learningConfirm { border: 1px solid rgb(var(--c-stop) / .32); border-radius: var(--d-r-control); margin-top: var(--d-s4); padding: var(--d-s3) var(--d-s4); }
 .learningConfirm .actions { margin-top: var(--d-s3); }
 .learningSearch { display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) auto; margin-top: var(--d-s4); }
 .learningSearch:has(select) { grid-template-columns: minmax(120px, 200px) minmax(0, 1fr) auto; }
@@ -59,7 +59,7 @@ textarea.learningShortText { min-height: 72px; }
 
 /* Assistant answer feedback (ChatView.tsx). */
 .chatFeedback { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1); margin-top: var(--d-s2); }
-.chatFeedback .iconButton[aria-pressed="true"] { background: var(--d-glass-3); border-color: rgba(167, 139, 250, .5); color: var(--d-text); }
+.chatFeedback .iconButton[aria-pressed="true"] { background: var(--d-glass-3); border-color: rgb(var(--c-violet) / .5); color: var(--d-text); }
 .chatFeedback .chatTeach { align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-muted); display: inline-flex; font-size: 13px; gap: var(--d-s1); min-height: 44px; padding: 0 var(--d-s2); }
 .chatFeedback .chatTeach:hover { background: var(--d-glass-2); color: var(--d-text); }
 .chatFeedbackForm { display: grid; gap: var(--d-s2); margin-top: var(--d-s2); }

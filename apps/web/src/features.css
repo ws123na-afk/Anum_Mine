@@ -1,19 +1,19 @@
-/* Memory, Skills and Agents views. Uses the shared tokens from styles.css with fallbacks. */
-.featureSearch { display: grid; gap: 10px; padding: 16px; margin-bottom: 16px; }
-.featureSearch .actions { display: flex; gap: 8px; }
-.featureMeta { margin: 0; font-size: 0.82rem; color: var(--muted, #6b7280); }
+/* Memory, Skills and Agents views. Colours, spacing and radii come from the tokens in styles.css. */
+.featureSearch { display: grid; gap: var(--d-s3); padding: var(--d-s4); margin-bottom: var(--d-s4); }
+.featureSearch .actions { display: flex; gap: var(--d-s2); }
+.featureMeta { margin: 0; font-size: 0.82rem; color: var(--d-muted); }
 
-.featureChip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; text-transform: capitalize; background: rgba(107, 114, 128, 0.14); color: var(--muted, #6b7280); width: fit-content; }
+.featureChip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; text-transform: capitalize; background: var(--d-glass-2); color: var(--d-muted); width: fit-content; }
 .featureChip svg { width: 14px; height: 14px; }
-.featureChip.indexed { background: rgba(22, 163, 74, 0.14); color: var(--d-ok); }
-.featureChip.failed { background: rgba(220, 38, 38, 0.14); color: var(--d-stop); }
-.featureChip.pending, .featureChip.skipped { background: rgba(217, 119, 6, 0.14); color: var(--d-warn); }
+.featureChip.indexed { background: rgb(var(--c-ok) / .14); color: var(--d-ok); }
+.featureChip.failed { background: rgb(var(--c-stop) / .14); color: var(--d-stop); }
+.featureChip.pending, .featureChip.skipped { background: rgb(var(--c-warn) / .14); color: var(--d-warn); }
 
 .featureConfirm { display: inline-flex; gap: 6px; }
 .featureSkillActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
 
-.featureBackdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, 0.5); }
-.featureDialog { width: min(480px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 20px; display: grid; gap: 12px; }
+.featureBackdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: var(--d-s4); background: var(--d-scrim); }
+.featureDialog { width: min(480px, 100%); max-height: calc(100dvh - 32px); overflow: auto; padding: var(--d-s5); display: grid; gap: var(--d-s3); }
 .featureDialog header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .featureDialog h3, .featureDialog h4, .featureDialog p { margin: 0; }
 .featureDialog .actions { display: flex; justify-content: flex-end; gap: 8px; }

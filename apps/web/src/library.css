@@ -22,7 +22,7 @@
 }
 .libChip svg { height: 15px; width: 15px; }
 .libChip:hover { border-color: var(--d-line-strong); color: var(--d-text); }
-.libChip.active, .libChip[aria-selected="true"] { background: rgba(167, 139, 250, .16); border-color: rgba(167, 139, 250, .5); color: var(--d-text); }
+.libChip.active, .libChip[aria-selected="true"] { background: rgb(var(--c-violet) / .16); border-color: rgb(var(--c-violet) / .5); color: var(--d-text); }
 .libraryList { display: grid; list-style: none; margin: 0; padding: 0; }
 .libraryRow { align-items: center; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; min-width: 0; padding: var(--d-s3) 0; }
 .libraryRow:first-child { border-top: 0; }
@@ -35,7 +35,7 @@
 .libraryPrivate svg, .reportMeta svg, .kbCollectionHead svg { height: 14px; width: 14px; vertical-align: -2px; }
 .libraryMore { justify-content: center; }
 .starButton svg { height: 18px; width: 18px; }
-.starButton.starred { border-color: rgba(252, 211, 141, .5); color: var(--d-warn); }
+.starButton.starred { border-color: rgb(var(--c-warn) / .5); color: var(--d-warn); }
 .starButton.starred svg { fill: currentColor; }
 .favoritesStrip { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: center; margin-top: var(--d-s3); }
 .favoritesStripLabel { align-items: center; color: var(--d-muted); display: inline-flex; font-size: 13px; font-weight: 650; gap: var(--d-s1); }
@@ -49,8 +49,8 @@
 .reportMetrics dd { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
 .reportMetrics strong { font-size: 18px; overflow-wrap: anywhere; }
 .reportChange { border-radius: 999px; font-size: 12px; font-weight: 700; padding: 0 var(--d-s2); }
-.reportChange.up { background: rgba(252, 211, 141, .14); color: var(--d-warn); }
-.reportChange.down { background: rgba(134, 239, 172, .12); color: var(--d-ok); }
+.reportChange.up { background: rgb(var(--c-warn) / .14); color: var(--d-warn); }
+.reportChange.down { background: rgb(var(--c-ok) / .12); color: var(--d-ok); }
 .reportChange.flat { background: var(--d-glass-2); color: var(--d-muted); }
 .reportRow .reportMetrics { margin-top: var(--d-s1); }
 .reportGenerate .libraryFilters { grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); }
@@ -68,7 +68,7 @@
 .reportManage { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-top: var(--d-s4); }
 .reportRename { display: grid; gap: var(--d-s2); }
 .reportRename .field { margin-top: 0; }
-.reportCard { background: var(--d-glass-1); border: 1px solid rgba(167, 139, 250, .35); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); margin-top: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
+.reportCard { background: var(--d-glass-1); border: 1px solid rgb(var(--c-violet) / .35); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); margin-top: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
 .reportCard header { align-items: center; display: flex; gap: var(--d-s3); }
 .reportCard header svg { color: var(--d-violet); flex: none; height: 20px; width: 20px; }
 .reportCard header small { color: var(--d-muted); font-size: 12.5px; }
@@ -86,7 +86,7 @@
 .kbCollectionButton small { align-items: center; color: var(--d-muted); display: flex; font-size: 12.5px; gap: var(--d-s1); }
 .kbCollectionButton small svg { height: 13px; width: 13px; }
 .kbCollectionButton:hover { background: var(--d-glass-1); }
-.kbCollectionButton.active { background: rgba(167, 139, 250, .14); border-color: rgba(167, 139, 250, .4); }
+.kbCollectionButton.active { background: rgb(var(--c-violet) / .14); border-color: rgb(var(--c-violet) / .4); }
 .kbCreate, .kbEdit, .kbAddForm { display: grid; gap: var(--d-s3); }
 .kbCreate { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
 .kbCreate h4 { font-size: 14px; }
