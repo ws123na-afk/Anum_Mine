@@ -4,29 +4,37 @@
 import { t, type MessageKey } from './i18n.ts';
 
 export type View =
-  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'integrations' | 'tyre' | 'commerce' | 'files' | 'memory' | 'skills'
-  | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
+  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'integrations' | 'tyre' | 'commerce' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
+  | 'favorites' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'developer';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
 /**
  * The sidebar: the mockup's entries first (Home, ANUM Command, AI Chat, Agents, Voice, Automations,
- * Tasks, Integrations, Documents, Knowledge Base, ANUM Store), then everything else under More and
- * Admin so every view stays one click away. Calendar and Reports from the mockup have no API yet
- * and are not listed.
+ * Tasks, Integrations, Documents, Knowledge Base, Reports, ANUM Store), then everything else under
+ * More and Admin so every view stays one click away. Calendar from the mockup has no API yet and is
+ * not listed.
+ *
+ * The Knowledge Base entry has two tabs: Memories (`#memory`) and Collections (`#knowledge`,
+ * docs/knowledge-base.md). `knowledge` is a tab of `memory` (TABS_OF), not a sidebar entry.
  *
  * Adding a view: add its id to `View`, put it in one group below, give it an icon in Shell.tsx's
  * ICONS (a Record<View>, so a missing icon is a type error), a `nav.<id>` label in both catalogs,
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'integrations', 'tyre', 'commerce', 'files', 'memory', 'skills'] },
-  { group: 'more', views: ['inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'integrations', 'tyre', 'commerce', 'files', 'memory', 'reports', 'skills'] },
+  { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'developer'] },
 ];
 
-export const VIEWS: readonly View[] = NAV.flatMap((group) => group.views);
+/** Views reached as a tab of a sidebar entry: they open by link and light up their parent entry. */
+export const TABS_OF: Readonly<Partial<Record<View, View>>> = { knowledge: 'memory' };
+/** The sidebar entry a view belongs to (itself, or the entry it is a tab of). */
+export const navParent = (view: View): View => TABS_OF[view] ?? view;
+/** Every view a link can open, sidebar entries first. */
+export const VIEWS: readonly View[] = [...NAV.flatMap((group) => group.views), ...(Object.keys(TABS_OF) as View[])];
 /** Views only an owner sees in the navigation (the view itself explains it if opened by link). */
 export const OWNER_ONLY: ReadonlySet<View> = new Set(['developer']);
 /** Views that draw their own page header (the Command Center). */
@@ -44,12 +52,15 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('invitation=')) return 'members';
   if (id.startsWith('meetings?')) return 'meetings';
   if (id === 'privacy' || id === 'language' || id === 'notifications') return 'settings';
+  // A report or collection opened by link (docs/reports.md, docs/knowledge-base.md).
+  if (id.startsWith('reports/')) return 'reports';
+  if (id.startsWith('knowledge/')) return 'knowledge';
   return isView(id) ? id : 'home';
 }
 
 /** The views a person can open, in sidebar order. */
 export function visibleViews(owner: boolean | null): View[] {
-  return VIEWS.filter((view) => !OWNER_ONLY.has(view) || owner === true);
+  return VIEWS.filter((view) => !(view in TABS_OF) && (!OWNER_ONLY.has(view) || owner === true));
 }
 
 // ---------------------------------------------------------------- command palette

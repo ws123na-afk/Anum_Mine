@@ -10,6 +10,8 @@ import '../developer/developer_assist_panel.dart';
 import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
 import 'chat_controller.dart';
 import 'chat_models.dart';
+import '../library/library_models.dart' show visibleReply;
+import '../library/library_screens.dart' show ReportAnswerCard;
 
 /// The Assistant destination: the conversation list and the streamed chat
 /// (docs/conversations.md). Wide layouts show both side by side; on phones
@@ -23,10 +25,14 @@ class AssistantScreen extends StatefulWidget {
     this.developer,
     this.onOpenDeveloper,
     this.openLink = openInBrowser,
+    this.onOpenReport,
     super.key,
   });
 
   final ChatController controller;
+
+  /// "View Full Report" on a structured answer's card (docs/reports.md).
+  final ValueChanged<String>? onOpenReport;
 
   /// "build ..." / "developer, ..." go to developer mode after a
   /// confirmation instead of the model (docs/developer-mode.md).
@@ -456,6 +462,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 padding: const EdgeInsets.only(bottom: AnumSpacing.sm),
                 child: _TurnView(
                   turn: turns[i],
+                  onOpenReport: widget.onOpenReport,
                   onRetry: retry && i == turns.length - 1
                       ? () => unawaited(controller.retry())
                       : null,
@@ -613,7 +620,8 @@ class _EmptyChat extends StatelessWidget {
 }
 
 class _TurnView extends StatelessWidget {
-  const _TurnView({required this.turn, this.onRetry});
+  const _TurnView({required this.turn, this.onRetry, this.onOpenReport});
+  final ValueChanged<String>? onOpenReport;
   final UiTurn turn;
   final VoidCallback? onRetry;
 
@@ -677,9 +685,9 @@ class _TurnView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (turn.content.isNotEmpty)
+                    if (visibleReply(turn.content).isNotEmpty)
                       Text.rich(
-                          TextSpan(text: turn.content, children: [
+                          TextSpan(text: visibleReply(turn.content), children: [
                             if (streaming)
                               WidgetSpan(
                                 alignment: PlaceholderAlignment.middle,
@@ -707,6 +715,8 @@ class _TurnView extends StatelessWidget {
                           ]),
                         ),
                       ),
+                    if (turn.report case final card?)
+                      ReportAnswerCard(card: card, onOpen: onOpenReport),
                     if (turn.status == ChatTurnStatus.cancelled) ...[
                       if (turn.content.isNotEmpty)
                         const SizedBox(height: AnumSpacing.xxs),

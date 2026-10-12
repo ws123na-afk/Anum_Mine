@@ -4,6 +4,9 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../commerce/commerce_strings.dart';
+import '../library/library_models.dart' show Favorite;
+import '../library/library_repository.dart';
+import '../library/library_screens.dart' show LibrarySection;
 import 'destinations.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
@@ -20,6 +23,8 @@ class HomeScreen extends StatelessWidget {
     this.assistantName = 'Anum',
     this.onOpenCommerce,
     this.header,
+    this.library,
+    this.onOpenFavorite,
     super.key,
   });
 
@@ -29,6 +34,10 @@ class HomeScreen extends StatelessWidget {
   /// Replaces the page's own greeting (the shell's header with avatar and
   /// notification bell on phones).
   final Widget? header;
+
+  /// Quick access to favorites, the knowledge base and reports.
+  final LibraryRepository? library;
+  final ValueChanged<Favorite>? onOpenFavorite;
 
   final WorkspaceController controller;
 
@@ -124,6 +133,9 @@ class HomeScreen extends StatelessWidget {
             onTap: () => onNavigate(WorkspaceDestination.tasks),
           ),
         ]),
+        if (library case final repository?)
+          LibrarySection(
+              repository: repository, onOpenOther: onOpenFavorite ?? (_) {}),
         if (pending.isNotEmpty)
           AnumSurface(
             accent: p.warn,

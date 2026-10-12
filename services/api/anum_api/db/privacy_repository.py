@@ -21,6 +21,7 @@ from anum_api.commands import privacy_counts as command_privacy_counts
 from anum_api.privacy import PrivateCounts, SharedCounts, _decided_by, learning_counts
 from anum_api.schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership
 from anum_api.push import PushDevice
+from anum_api.library_privacy import LibraryPrivacy, sql_library
 from anum_api.user_preferences import UserPreferences
 from anum_api.meeting_connectors import StoredConnection
 from anum_api.meetings import Meeting
@@ -208,6 +209,9 @@ class SqlAlchemyPrivacyStore:
     def commands(self) -> SqlAlchemyCommandStore:
         """The caller's commands and quick commands, in this same transaction."""
         return SqlAlchemyCommandStore(self.session, self.context)
+    def library(self) -> LibraryPrivacy:
+        """Favorites, private collections and private reports, in this same transaction."""
+        return sql_library(self.session, self.context)
 
     def _file_filter(self):  # type: ignore[no-untyped-def]
         return (*self._in_workspace(WorkspaceFileRecord), WorkspaceFileRecord.created_by == self.context.user_id)
@@ -300,6 +304,7 @@ class SqlAlchemyPrivacyStore:
             meeting_recordings=self._count(WorkspaceFileRecord, *self._recording_filter()),
             meeting_connections=self._count(MeetingConnectorAccountRecord, *self._mine(MeetingConnectorAccountRecord)),
             **command_privacy_counts(self.commands()),
+            **self.library().counts(),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -338,6 +343,8 @@ class SqlAlchemyPrivacyStore:
         self.session.execute(delete(MeetingRecord).where(*self._meeting_filter()))
         self.session.execute(delete(MeetingConnectorAccountRecord).where(*self._mine(MeetingConnectorAccountRecord)))
         self.commands().delete_all()
+        # Before the private memories go: a private collection's notes are among them.
+        self.library().delete_all()
         self.session.flush()
         return deleted
 

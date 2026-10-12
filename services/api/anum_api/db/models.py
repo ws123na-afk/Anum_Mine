@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     Double,
     ForeignKeyConstraint,
@@ -1316,3 +1317,92 @@ class MeetingConnectorAccountRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("meeting_connector_accounts"),)
+
+
+# Favorites, knowledge base and reports (migration 0042_library). Favorites are private to
+# one user (RLS checks anum.user_id); collections, their items and reports are shared with
+# the workspace when owner_user_id is null and private to that user otherwise (a
+# restrictive owner policy, like memories).
+
+
+class FavoriteRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "favorites"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    item_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    item_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("favorites"),
+        UniqueConstraint("tenant_id", "workspace_id", "user_id", "item_type", "item_id", name="uq_favorites_item"),
+    )
+
+
+class KnowledgeCollectionRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "kb_collections"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    owner_user_id: Mapped[str | None] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("kb_collections"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_kb_collections_scope_id"),
+    )
+
+
+class KnowledgeItemRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "kb_items"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    collection_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    owner_user_id: Mapped[str | None] = mapped_column(String(160))
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "collection_id"],
+            ["kb_collections.tenant_id", "kb_collections.workspace_id", "kb_collections.id"],
+            name="fk_kb_items_collection",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint("tenant_id", "workspace_id", "collection_id", "kind", "source_id", name="uq_kb_items_source"),
+    )
+
+
+class ReportRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "reports"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    report_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    period_start: Mapped[date | None] = mapped_column(Date)
+    period_end: Mapped[date | None] = mapped_column(Date)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    metrics: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    highlights: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    body_markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    owner_user_id: Mapped[str | None] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_by_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_conversation_id: Mapped[str | None] = mapped_column(String(80))
+    source_turn_id: Mapped[str | None] = mapped_column(String(80))
+    source_automation_run_id: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("reports"),)

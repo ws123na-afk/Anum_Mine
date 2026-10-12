@@ -20,6 +20,9 @@ import '../email/email_controller.dart';
 import '../email/inbox_screen.dart';
 import '../commerce/commerce_controller.dart';
 import '../commerce/commerce_screen.dart';
+import '../library/library_models.dart' show Favorite;
+import '../library/library_repository.dart';
+import '../library/library_screens.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/theme/theme_controller.dart';
@@ -58,6 +61,7 @@ class WorkspaceHome extends StatefulWidget {
       this.commerceController,
       this.onOpenCommand,
       this.workspaceName,
+      this.library,
       this.initialIndex = WorkspaceDestination.home});
   final WorkspaceController controller;
   final ChatController chatController;
@@ -93,6 +97,10 @@ class WorkspaceHome extends StatefulWidget {
   /// assistant, the command surface the app has today.
   final VoidCallback? onOpenCommand;
   final String? workspaceName;
+
+  /// Favorites, knowledge base and reports (docs/knowledge-base.md): the
+  /// menu entries, the Home quick access and the chat's "View Full Report".
+  final LibraryRepository? library;
   final int initialIndex;
   @override
   State<WorkspaceHome> createState() => _WorkspaceHomeState();
@@ -194,6 +202,35 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       onAskAnum: () => _select(WorkspaceDestination.assistant)));
   void _openSettings() =>
       _push(SettingsScreen(controller: widget.settingsController));
+  void _openReport(String id) =>
+      _push(ReportDetailScreen(repository: widget.library!, id: id));
+  void _openFavorites() => _push(
+      FavoritesScreen(repository: widget.library!, onOpenOther: _openFavorite));
+  void _openReports() => _push(ReportsScreen(repository: widget.library!));
+  // Knowledge Base: collections first; memories and files stay one tap away.
+  void _openKnowledge() => _push(KnowledgeScreen(
+      repository: widget.library!,
+      onOpenMemories: () {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        _select(WorkspaceDestination.resources);
+      }));
+
+  /// A starred item that lives in another destination.
+  void _openFavorite(Favorite favorite) {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    switch (favorite.itemType) {
+      case 'conversation':
+        _select(WorkspaceDestination.assistant);
+        widget.chatController.open(favorite.itemId);
+      case 'task':
+        _select(WorkspaceDestination.tasks);
+      case 'automation':
+        _select(WorkspaceDestination.automations);
+      default:
+        _select(WorkspaceDestination.resources);
+    }
+  }
+
   void _openCommand() {
     final open = widget.onOpenCommand;
     if (open != null) {
@@ -234,9 +271,12 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 onOpenSettings: _openSettings,
                 developer: widget.chatDeveloper,
                 onOpenDeveloper: openDeveloper,
+                onOpenReport: widget.library == null ? null : _openReport,
               ),
               HomeScreen(
                 controller: widget.controller,
+                library: widget.library,
+                onOpenFavorite: _openFavorite,
                 workspaceName: widget.workspaceName,
                 onNavigate: _select,
                 onOpenTask: (task) =>
@@ -488,8 +528,13 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               Icons.hub_outlined,
               () => _openResources(
                   ResourcesTab.services, l.t('shellIntegrations'))),
-          destination('shellKnowledge', Icons.menu_book_outlined,
-              WorkspaceDestination.resources),
+          if (widget.library != null) ...[
+            page('shellKnowledge', Icons.menu_book_outlined, _openKnowledge),
+            page('libFavorites', Icons.star_outline, _openFavorites),
+            page('libReports', Icons.insert_chart_outlined, _openReports),
+          ] else
+            destination('shellKnowledge', Icons.menu_book_outlined,
+                WorkspaceDestination.resources),
           destination(
               'shellCalls', Icons.call_outlined, WorkspaceDestination.voice),
           page('settings', Icons.settings_outlined, _openProfile),

@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import {
   Activity, Bell, BookOpen, GraduationCap, Phone, ShoppingCart, Bot, Building2, ChevronDown, CircleAlert, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
-  MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall } from 'lucide-react';
+  MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
@@ -25,7 +25,7 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 const ICONS: Record<View, ReactNode> = {
   home: <House />, command: <Sparkles />, assistant: <MessageSquare />, agents: <Bot />, voice: <Mic />, call: <Phone />, tyre: <Disc3 />, meetings: <PhoneCall />, commerce: <ShoppingCart />, learning: <GraduationCap />, automation: <Workflow />, tasks: <ListTodo />,
-  integrations: <Plug />, files: <FileText />, memory: <BookOpen />, skills: <Store />, inbox: <Mail />, whatsapp: <MessageCircle />,
+  integrations: <Plug />, files: <FileText />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />,
   enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, policy: <Scale />, developer: <Hammer />,
 };

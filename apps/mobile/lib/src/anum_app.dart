@@ -43,6 +43,7 @@ import '../features/settings/settings_controller.dart';
 import '../features/admin/admin_repository.dart';
 import '../features/learning/learning_repository.dart';
 import '../features/privacy/privacy_repository.dart';
+import '../features/library/library_repository.dart';
 import '../features/push/firebase_push_messaging.dart';
 import '../features/push/push_controller.dart';
 import '../features/push/push_models.dart';
@@ -114,6 +115,7 @@ class _AnumAppState extends State<AnumApp> {
   late final DeveloperController developer;
   late final DeveloperAssist chatDeveloper;
   late final DeveloperAssist voiceDeveloper;
+  late final LibraryRepository library;
   late final PushController push;
   late final CommerceController commerce;
   late final TyreController tyre;
@@ -228,6 +230,7 @@ class _AnumAppState extends State<AnumApp> {
             sessions: sessions,
             upload: fileTransfer.upload))
       ..onSettled = _commandSettled;
+    library = ApiLibraryRepository(api, saver: const FilePickerExportSaver());
     locale = LocaleController()..restore();
     theme = ThemeController()..restore();
     intro = IntroController()..restore();
@@ -424,6 +427,7 @@ class _AnumAppState extends State<AnumApp> {
                       commerceController: commerce,
                       workspaceName: auth.workspaceName,
                       onOpenCommand: _openCommand,
+                      library: library,
                     )
                   : AuthFlow(controller: auth, intro: intro),
             ),
@@ -540,6 +544,7 @@ class _AnumAppState extends State<AnumApp> {
         commerceController: commerce,
         workspaceName: auth.workspaceName,
         onOpenCommand: _openCommand,
+        library: library,
         initialIndex: index,
       );
 }

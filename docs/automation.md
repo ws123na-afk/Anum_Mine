@@ -140,6 +140,7 @@ Deployment: the API login must be a member of `anum_maintenance` (`grant anum_ma
 ### From learned routines
 
 [What ANUM learned](learning.md#routines) proposes routines mined from a user's own tasks. Accepting one creates a workflow (one `task.create` step per activity, with its prompt) and a **disabled** schedule through this engine, as the user (`automation:manage`); confirming enables the schedule. Steps of any action other than `pause` and `fail` are recorded as accepted; running `task.create` steps as agent tasks is not built yet.
+A step with `action: "report.generate"` and `input: {"type": "task_summary" | "automation_summary", "period_days": 1-366}` stores a shared report each time the workflow runs; a bad input fails the step ([Reports](reports.md)).
 
 ## Not done yet
 

@@ -50,6 +50,10 @@ export interface PrivacyPrivateCounts {
   meeting_transcript_segments?: number;
   meeting_recordings?: number;
   meeting_connections?: number;
+  /** Favorites, and knowledge base collections and reports private to you (docs/knowledge-base.md). Absent from older servers. */
+  favorites?: number;
+  private_collections?: number;
+  private_reports?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */

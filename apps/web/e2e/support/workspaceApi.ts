@@ -156,6 +156,22 @@ const signal = { id: 'signal_1', kind: 'draft_edited', surface: 'email', subject
 
 const commerceFixture = commerceState('owner');
 
+// Favorites, knowledge base and reports (docs/knowledge-base.md, docs/reports.md).
+const libraryReport = {
+  id: 'report_tyre', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', type: 'tyre', title: 'Tyre cost, September',
+  period_start: '2026-09-01', period_end: '2026-09-30', summary: 'Costs rose on puncture repairs.',
+  metrics: [{ label: 'Total cost', value: '12,400', unit: 'SAR', change_percent: 8.5 }, { label: 'Tyres fitted', value: '86', unit: null, change_percent: -3 }],
+  highlights: ['Puncture repairs doubled'], data: { columns: ['reason', 'cost'], rows: [['Puncture', 4200], ['Wear', 8200]] },
+  body_markdown: '# Tyre cost', visibility: 'workspace', owner_user_id: null, created_by: 'user_local', created_by_kind: 'agent',
+  source: { conversation_id: 'conv_1', turn_id: 't2', automation_run_id: null }, created_at: now, updated_at: now, can_manage: true,
+};
+const libraryCollection = { id: 'kbc_specs', name: 'Tyre specifications', description: 'Load and speed ratings', visibility: 'workspace', created_by: 'user_local', created_at: now, updated_at: now, item_count: 2, can_manage: true };
+const libraryItems = [
+  { id: 'kbi_doc', collection_id: 'kbc_specs', kind: 'file', source_id: 'file_notes', title: 'ratings.md', tags: ['specs', 'load'], created_by: 'user_local', created_at: now, updated_at: now, index: { state: 'indexed', error: null, chunk_count: 2 }, content_type: 'text/markdown', size_bytes: 2048, available: true },
+  { id: 'kbi_note', collection_id: 'kbc_specs', kind: 'note', source_id: 'memory_kb', title: 'Winter policy', tags: ['policy'], created_by: 'user_local', created_at: now, updated_at: now, index: { state: 'pending', error: null, chunk_count: 0 }, content_type: 'text/markdown', size_bytes: null, available: true },
+];
+const { id: _reportId, tenant_id: _t, workspace_id: _w, highlights: _h, data: _d, body_markdown: _b, owner_user_id: _o, updated_at: _u, can_manage: _c, ...reportSummary } = libraryReport;
+
 export async function mockWorkspaceApi(page: Page): Promise<void> {
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -250,6 +266,12 @@ export async function mockWorkspaceApi(page: Page): Promise<void> {
     if (path === '/api/v1/learning/routines') return json({ items: [routine], detected: 0, state: 'on' });
     if (path === '/api/v1/learning/notes') return json({ items: [note], total: 1, state: 'on' });
     if (path === '/api/v1/learning/signals') return json({ items: [signal], total: 1, limit: 10, offset: 0 });
+    if (path === '/api/v1/favorites' && method === 'GET') return json({ items: [{ id: 'fav_1', item_type: 'report', item_id: 'report_tyre', label: 'Tyre cost, September', created_at: now }], total: 1, limit: 30, offset: 0 });
+    if (path === '/api/v1/knowledge/collections' && method === 'GET') return json([libraryCollection]);
+    if (path === '/api/v1/knowledge/collections/kbc_specs/items') return json({ items: libraryItems, total: 2, limit: 50, offset: 0, tags: ['load', 'policy', 'specs'] });
+    if (path === '/api/v1/reports' && method === 'GET') return json({ items: [{ id: 'report_tyre', ...reportSummary, row_count: 2 }], total: 1, limit: 20, offset: 0, types: [{ type: 'tyre', count: 1 }] });
+    if (path === '/api/v1/reports/generators') return json([{ type: 'task_summary', title: 'Task summary', description: '' }, { type: 'automation_summary', title: 'Automation summary', description: '' }]);
+    if (path === '/api/v1/reports/report_tyre') return json(libraryReport);
     return route.abort();
   });
 }

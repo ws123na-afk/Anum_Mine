@@ -29,6 +29,9 @@ class RetentionPolicy(BaseModel):
 
 # Memories remembered from a user's conversations (anum_api/conversation_memory.py).
 CONVERSATION_SOURCE_TYPE = "conversation"
+# Notes written in a knowledge base collection (anum_api/knowledge_base.py): no task; shared
+# with the workspace in a shared collection, private to the owner in a private one.
+KNOWLEDGE_BASE_SOURCE_TYPE = "knowledge_base"
 
 
 class MemoryNote(BaseModel):

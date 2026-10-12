@@ -36,6 +36,7 @@ export const STEP_ACTIONS = [
   { value: 'notify', get label() { return t('auto.action.notify'); }, get help() { return t('auto.action.notifyHelp'); } },
   { value: 'pause', get label() { return t('auto.action.pause'); }, get help() { return t('auto.action.pauseHelp'); } },
   { value: 'fail', get label() { return t('auto.action.fail'); }, get help() { return t('auto.action.failHelp'); } },
+  { value: 'report.generate', get label() { return t('auto.action.reportGenerate'); }, get help() { return t('auto.action.reportGenerateHelp'); } },
 ] as const;
 export type StepAction = typeof STEP_ACTIONS[number]['value'];
 export const TITLE_MAX = 160, PROMPT_MAX = 8000, MESSAGE_MAX = 500, NAME_MAX = 160, DESCRIPTION_MAX = 1000, STEPS_MAX = 100;

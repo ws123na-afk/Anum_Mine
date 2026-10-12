@@ -21,6 +21,9 @@ const _privateLabels = <String, String>{
   'push_devices': 'Phones registered for push',
   'learning_signals': 'Feedback ANUM learned from',
   'learned_items': 'Learned style, preferences, routines and notes',
+  'favorites': 'Your favorites',
+  'private_collections': 'Private knowledge collections',
+  'private_reports': 'Private reports',
 };
 
 const _sharedLabels = <String, String>{

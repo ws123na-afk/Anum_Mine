@@ -13,7 +13,8 @@ approvals are never bypassed. Anything that changes state goes through tasks.
 
 - ``turn``: ``{"user_turn": ConversationTurn}`` once the question is stored;
 - ``delta``: ``{"text": "..."}`` for each piece of the reply as the model produces it;
-- ``done``: ``{"assistant_turn": ConversationTurn}`` when the reply is complete;
+- ``done``: ``{"assistant_turn": ConversationTurn, "report": ReportCard | null}`` when the
+  reply is complete (``report`` when the answer was a structured analysis, docs/reports.md);
 - ``error``: ``{"code", "message", "assistant_turn"}`` when the model failed.
 
 The stream body never reads through the request's repository session (it is closed
@@ -56,6 +57,7 @@ from .learning_store import learned_instructions, new_signal, record_server_sign
 from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import with_untrusted_rules
+from .reports import REPORT_BLOCK_INSTRUCTIONS, ReportCard, cards_for_conversation, save_chat_report, split_report_block
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
@@ -76,7 +78,7 @@ SYSTEM_PROMPT = (
     "unless the user asks for depth, and use Markdown lists or code blocks only when they help. "
     "You have no tools in this chat: you cannot approve, delete, pay, send messages or change "
     "permissions. When the user wants something done, suggest creating a task, which runs "
-    "under the workspace's approvals."
+    "under the workspace's approvals.\n\n" + REPORT_BLOCK_INSTRUCTIONS
 )
 
 
@@ -123,6 +125,8 @@ class ConversationTurn(BaseModel):
 
 class ConversationDetail(Conversation):
     turns: list[ConversationTurn]
+    # Report cards for the Assistant's structured answers (docs/reports.md#chat-answer-cards).
+    reports: list[ReportCard] = Field(default_factory=list)
 
 
 class ConversationStoreProtocol(Protocol):
@@ -335,12 +339,29 @@ async def stream_reply(
             extra={"anum_conversation": {"event": "reply_failed", "error_class": type(exc).__name__}},
         )
         error = ("model_unavailable", "The model did not answer. Try again in a moment.")
-    assistant_turn = _store_reply(context, conversation, "".join(parts), outcome)
+    text = "".join(parts)
+    block = None
+    if outcome == TurnStatus.COMPLETE:
+        # A structured answer ends with an ``anum-report`` block: it becomes a stored
+        # report and a card, and is left out of the stored turn (docs/reports.md).
+        text, block = split_report_block(text)
+    assistant_turn = _store_reply(context, conversation, text, outcome)
     if outcome == TurnStatus.COMPLETE and assistant_turn is not None and completed is not None:
         completed.text = assistant_turn.content
         completed.complete = True
     if outcome == TurnStatus.COMPLETE:
-        yield sse("done", {"assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None})
+        report = (
+            save_chat_report(context, block, conversation_id=conversation.id, turn_id=assistant_turn.id)
+            if block is not None and assistant_turn is not None
+            else None
+        )
+        yield sse(
+            "done",
+            {
+                "assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None,
+                "report": report.model_dump(mode="json") if report else None,
+            },
+        )
     else:
         code, message = error or ("model_unavailable", "The model did not answer.")
         yield sse(
@@ -408,7 +429,10 @@ async def get_conversation(
     require_permission(context, Permission.TASK_READ)
     with open_conversation_store(context) as store:
         conversation = _conversation_or_404(store, conversation_id, context)
-        return ConversationDetail(**conversation.model_dump(), turns=store.turns(conversation))
+        turns = store.turns(conversation)
+    return ConversationDetail(
+        **conversation.model_dump(), turns=turns, reports=cards_for_conversation(context, conversation.id)
+    )
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

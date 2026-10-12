@@ -46,6 +46,7 @@ Format `anum.privacy-export/v1`, sections in this order:
 | `notification_preferences` | The caller's notification preferences in this workspace, or `null`. |
 | `learning` | What ANUM learned from the caller in this workspace ([What ANUM learned](learning.md)): the style profile, every feedback signal with its full texts, learned preferences, routines, improvement notes and suggestions. |
 | `commands` | The caller's ANUM Command history (each request with its confirmed steps, the task id of each step and its attachments) and saved quick commands ([ANUM Command](command.md)). |
+| `library` | The caller's favorites, private knowledge collections (each with its items) and private reports ([Knowledge base](knowledge-base.md), [Reports](reports.md)). Shared collections and reports belong to the workspace and are left out. |
 | `user_preferences` | The caller's own preferences (`GET /api/v1/me/preferences`, such as "Remember things from my chats"), or `null` when never saved. One row per user and tenant, so it applies in every workspace of the organization. |
 | `push_devices` | The phones the caller registered for push in this workspace: platform, label, the token's last four characters and dates. Never the push token ([Notifications](notifications.md#devices)). |
 | `files_uploaded` | Metadata of files the caller uploaded (name, type, size, SHA-256, time) with a `download_path` (`/api/v1/files/{id}/content`). |
@@ -71,6 +72,7 @@ Removed, in one transaction:
 - the caller's ANUM Command history and quick commands in this workspace: every row of `commands` and `quick_commands` (migration `0044_commands`; counted as `commands` and `quick_commands`). The tasks a command created are workspace records and stay;
 - what ANUM learned from the caller in this workspace: every row of `learning_signals`, `learning_profiles`, `learning_preferences`, `learning_routines`, `learning_notes` and `learning_suggestions` (migration `0036_learning`; counted as `learning_signals` and `learned_items`). Automations created from an accepted routine are workspace records and stay;
 - the meetings the caller imported, with their transcript lines and recording files (rows in the transaction, bytes after it commits), and the caller's Zoom and Teams connections (migration `0043_meetings`, [Calls & Meetings](meetings.md#privacy)); meetings other members imported are kept;
+- the caller's favorites, private knowledge collections (with their items) and private reports (migration `0042_library`; counted as `favorites`, `private_collections` and `private_reports`). Notes in a private collection are private memories and go with them; shared collections and reports stay;
 - the caller's `user_preferences` row (migration `0025_user_preferences`). It is per user and tenant, not per workspace, so deleting from any workspace resets it everywhere in that organization; the defaults apply again ("Remember things from my chats" back on).
 
 Kept, and counted in the response and on the page:

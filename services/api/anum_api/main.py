@@ -132,6 +132,9 @@ from . import delivery
 from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
 from .commands import router as commands_router
+from .favorites import router as favorites_router
+from .knowledge_base import router as knowledge_router
+from .reports import router as reports_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .automation import build_automation_scheduler, router as automation_router
@@ -282,6 +285,9 @@ app.include_router(meetings_router)
 # ANUM Command (docs/command.md): plan preview, command records, quick commands.
 app.include_router(commands_router)
 app.include_router(sign_in_options_router)
+app.include_router(favorites_router)
+app.include_router(knowledge_router)
+app.include_router(reports_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

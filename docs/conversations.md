@@ -56,7 +56,7 @@ before anything is stored: when it is used up the ask answers `402`
 | --- | --- |
 | `turn` | `{"user_turn": turn, "memories_used": [memory id, ...]}` once the question is stored; the ids of the memories recalled into this question (empty when none) |
 | `delta` | `{"text": "..."}` for each piece of the reply as the model produces it |
-| `done` | `{"assistant_turn": turn}` when the reply is complete and stored |
+| `done` | `{"assistant_turn": turn, "report": card or null}` when the reply is complete and stored; `report` when the answer was a structured analysis ([Reports](reports.md#chat-answer-cards)) |
 | `error` | `{"code", "message", "assistant_turn"}`: `model_unavailable` (generic message; only the error class is logged) or `model_budget_exceeded` |
 
 The body never reads through the request's repository session, which is closed once
@@ -75,6 +75,8 @@ Usage up to that point is still metered (estimated when the provider reported no
 whole stream ends after `ANUM_MODEL_STREAM_TIMEOUT_SECONDS` (default 120). Nothing is
 retried once text has been shown, so a slow model can no longer hang the UI for three
 minutes of hidden retries.
+
+A structured answer ends with an `anum-report` block that the server removes from the stored turn and stores as a private report; `GET /api/v1/conversations/{id}` returns those cards in `reports` ([Reports](reports.md#chat-answer-cards)).
 
 ## Long-term memory
 

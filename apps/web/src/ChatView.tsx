@@ -12,6 +12,10 @@ import { ApiError, budgetMessage, describeError, isBudgetExceeded, isPermissionD
 import { parseAnswer } from './lib/tasks';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { useDeveloperAssist } from './DeveloperAssist';
+import { FavoritesStrip, StarButton, useStars } from './Favorites';
+import { ReportAnswerCard } from './ReportAnswerCard';
+import { visibleReply } from './lib/library';
+import type { Favorite } from '@anum/contracts';
 import './chat.css';
 
 const SUGGESTIONS: MessageKey[] = ['chat.suggestion.1', 'chat.suggestion.2', 'chat.suggestion.3'];
@@ -27,7 +31,14 @@ function explain(error: unknown, action: MessageKey): string {
  * Replies render through the safe answer renderer (text nodes only); Stop aborts the request,
  * which stops the model on the server.
  */
-export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId = null }: { onOpenBudgets: () => void; onOpenDeveloper?: () => void; initialConversationId?: string | null }) {
+export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId = null, onOpenReport, onOpenFavorite, onOpenFavorites }: {
+  onOpenBudgets: () => void; onOpenDeveloper?: () => void; initialConversationId?: string | null;
+  /** "View Full Report" on a structured answer (docs/reports.md). */
+  onOpenReport?: (reportId: string) => void;
+  /** Quick access to starred items on the empty Assistant home (docs/knowledge-base.md#favorites). */
+  onOpenFavorite?: (favorite: Favorite) => void; onOpenFavorites?: () => void;
+}) {
+  const stars = useStars('conversation');
   // "build ..." / "developer, ..." goes to developer mode after a confirmation (docs/developer-mode.md).
   const developer = useDeveloperAssist({ source: 'text', onOpenDeveloper });
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -58,7 +69,8 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
     if (!id) { setTurns([]); return; }
     setOpening(true);
     try {
-      const stored = fromStored((await getConversation(id)).turns);
+      const detail = await getConversation(id);
+      const stored = fromStored(detail.turns, detail.reports);
       setTurns(stored);
       const answers = stored.filter((turn) => turn.role === 'assistant' && turn.status === 'complete').map((turn) => turn.id);
       setRatings({});
@@ -205,19 +217,21 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
       </li>)}</ul>}
     </aside>
     <section className="surface chatPanel" aria-label={t('chat.panel')}>
-      <header className="chatHeader"><Sparkles aria-hidden="true" /><h2 dir="auto">{active ? conversationTitle(active) : t('chat.newConversation')}</h2>{streaming && <span className="statusBadge warning">{t('chat.answering')}</span>}</header>
+      <header className="chatHeader"><Sparkles aria-hidden="true" /><h2 dir="auto">{active ? conversationTitle(active) : t('chat.newConversation')}</h2>{streaming && <span className="statusBadge warning">{t('chat.answering')}</span>}{active && <StarButton starred={stars.ids.has(active.id)} label={conversationTitle(active)} onToggle={() => void stars.toggle(active.id)} />}</header>
       <div className="chatLog" ref={log} onScroll={onScroll} role="log" aria-live="polite" aria-busy={streaming || opening} tabIndex={0} aria-label={t('chat.messages')}>
         {(opening || (listState === 'loading' && turns.length === 0)) && <p className="chatLoading" role="status">{t('chat.loadingMessages')}</p>}
         {showEmpty && <div className="chatEmpty">
           <p>{t('chat.intro')}</p>
+          {onOpenFavorite && onOpenFavorites && <FavoritesStrip onOpen={onOpenFavorite} onOpenAll={onOpenFavorites} />}
           <div className="chatSuggestions">{SUGGESTIONS.map((key) => <button type="button" className="secondary" key={key} onClick={() => void ask({ content: t(key) })} disabled={streaming}>{t(key)}</button>)}</div>
         </div>}
         {turns.map((turn) => <article key={turn.id} className={`chatTurn ${turn.role} ${turn.status}`} aria-label={turn.role === 'user' ? t('chat.you') : t('chat.assistant')}>
           {turn.role === 'user'
             ? <><p className="chatQuestion" dir="auto">{turn.content}</p>{turn.status === 'failed' && <p className="chatMeta chatError">{t('chat.notSent')}</p>}</>
             : <>
-              {turn.content ? <Answer blocks={parseAnswer(turn.content)} /> : turn.status === 'streaming' ? <p className="chatThinking" role="status" aria-label={t('chat.thinking')}><span /><span /><span /></p> : null}
+              {visibleReply(turn.content) ? <Answer blocks={parseAnswer(visibleReply(turn.content))} /> : turn.status === 'streaming' ? <p className="chatThinking" role="status" aria-label={t('chat.thinking')}><span /><span /><span /></p> : null}
               {turn.status === 'streaming' && turn.content && <span className="chatCaret" aria-hidden="true" />}
+              {turn.report && <ReportAnswerCard card={turn.report} onOpen={onOpenReport} />}
               {turn.status === 'cancelled' && <p className="chatMeta">{turn.content ? t('chat.stopped') : t('chat.stoppedEarly')}</p>}
               {turn.status === 'failed' && <p className="chatMeta chatError" dir="auto">{turn.error ?? t('chat.noAnswer')}</p>}
               {turn.status === 'complete' && turn.content && !turn.id.startsWith('pending') && !turn.id.startsWith('local-') && !streaming && <AnswerFeedback turnId={turn.id} content={turn.content} rating={ratings[turn.id] ?? null} onRated={(rating) => setRatings((current) => ({ ...current, [turn.id]: rating }))} />}
@@ -227,6 +241,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, initialConversationId
       {!atBottom && <button type="button" className="secondary chatJump" onClick={jumpToLatest}><ArrowDown aria-hidden="true" />{t('chat.jump')}</button>}
       {developer.panel}
       {budget && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{budget}</span><button type="button" className="secondary" onClick={onOpenBudgets}>{t('chat.openBudgets')}</button></p>}
+      {stars.error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{stars.error}</span></p>}
       {notice && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{notice}</span></p>}
       <form className="chatComposer" onSubmit={submit}>
         <textarea ref={input} value={draft} rows={1} placeholder={t('chat.placeholder')} aria-label={t('chat.inputLabel')} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} maxLength={8000} />

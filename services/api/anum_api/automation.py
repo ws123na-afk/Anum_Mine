@@ -52,6 +52,8 @@ from .settings import settings
 logger = logging.getLogger(__name__)
 
 SCHEDULER_ACTOR = "system:automation-scheduler"
+# The step that stores a generated report (anum_api/reports.py, docs/reports.md).
+REPORT_STEP_ACTION = "report.generate"
 
 
 class WorkflowStatus(StrEnum):
@@ -97,6 +99,7 @@ STEP_ACTIONS: dict[str, str] = {
     "fail": "Stop the run as failed (input: message)",
     # Tyre planning (docs/tyre-planning.md#reports): runs after the run is committed.
     "tyre.report": "Sync the tyre data and generate a tyre report (input: kind, optional delivery)",
+    REPORT_STEP_ACTION: "Store a shared report (input: type task_summary, automation_summary, commerce_summary or tyre_summary; period_days 1-366)",
 }
 TASK_TITLE_MAX = 160
 TASK_PROMPT_MAX = 8000
@@ -147,6 +150,14 @@ def check_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
                 raise ValueError(f"{label}: the task title is longer than {TASK_TITLE_MAX} characters.")
             if len(prompt) > TASK_PROMPT_MAX:
                 raise ValueError(f"{label}: the task prompt is longer than {TASK_PROMPT_MAX} characters.")
+        if step.action == REPORT_STEP_ACTION:
+            kind, days = step.input.get("type", "task_summary"), step.input.get("period_days", 7)
+            if kind not in {"task_summary", "automation_summary", "commerce_summary", "tyre_summary"}:
+                raise ValueError(
+                    f'{label}: the report type must be "task_summary", "automation_summary", "commerce_summary" or "tyre_summary".'
+                )
+            if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 366:
+                raise ValueError(f"{label}: period_days must be a whole number from 1 to 366.")
         if step.action in {"notify", "fail"}:
             message = step.input.get("message")
             if message is not None and not isinstance(message, str):
@@ -583,6 +594,18 @@ def _perform(state: RunStepState, run: WorkflowRun, context: TenantContext, effe
             ).event
         )
         return {"notified": recipients, "message": message[:MESSAGE_MAX]}
+    if state.action == REPORT_STEP_ACTION:
+        # A report of the workspace's data, shared with the workspace (docs/reports.md).
+        from .reports import generate_for_automation
+
+        try:
+            return generate_for_automation(
+                scheduler_context(run.tenant_id, run.workspace_id, run.created_by), state.input, run.id
+            )
+        except ValueError as exc:
+            raise StepFailed(str(exc)) from exc
+        except Exception as exc:
+            raise StepFailed("The report could not be generated. Retry the run.") from exc
     # Older free-form actions are recorded as accepted; they have no executor.
     return {"accepted": True, "action": state.action}
 

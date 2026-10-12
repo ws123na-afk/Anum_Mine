@@ -5,6 +5,7 @@ library;
 
 import '../../data/api_models.dart';
 import '../../data/sse.dart';
+import '../library/library_models.dart' show ReportCard;
 
 enum ChatRole { user, assistant }
 
@@ -79,15 +80,22 @@ class ChatTurn {
 /// `GET /api/v1/conversations/{id}`: the conversation and its turns, oldest
 /// first.
 class ConversationDetail {
-  const ConversationDetail({required this.conversation, required this.turns});
+  const ConversationDetail(
+      {required this.conversation,
+      required this.turns,
+      this.reports = const []});
 
   factory ConversationDetail.fromReader(JsonReader r) => ConversationDetail(
         conversation: Conversation.fromReader(r),
         turns: r.optObjects('turns', ChatTurn.fromReader),
+        reports: r.optObjects('reports', ReportCard.fromReader),
       );
 
   final Conversation conversation;
   final List<ChatTurn> turns;
+
+  /// Cards for the Assistant's structured answers (docs/reports.md).
+  final List<ReportCard> reports;
 }
 
 /// A turn as the chat shows it.
@@ -99,6 +107,7 @@ class UiTurn {
     required this.status,
     this.error,
     this.errorCode,
+    this.report,
   });
 
   final String id;
@@ -111,6 +120,9 @@ class UiTurn {
 
   /// The stream's error code, e.g. `model_budget_exceeded`.
   final String? errorCode;
+
+  /// A structured answer's report card ("View Full Report").
+  final ReportCard? report;
 
   UiTurn copyWith({
     String? id,
@@ -126,6 +138,7 @@ class UiTurn {
         status: status ?? this.status,
         error: error ?? this.error,
         errorCode: errorCode ?? this.errorCode,
+        report: report,
       );
 
   @override
@@ -137,11 +150,21 @@ const pendingAssistantTurn = 'pending-assistant';
 int _localTurns = 0;
 String _localId() => 'local-${++_localTurns}';
 
-UiTurn _fromTurn(ChatTurn turn) => UiTurn(
-    id: turn.id, role: turn.role, content: turn.content, status: turn.status);
+UiTurn _fromTurn(ChatTurn turn, [ReportCard? report]) => UiTurn(
+    id: turn.id,
+    role: turn.role,
+    content: turn.content,
+    status: turn.status,
+    report: report);
 
-List<UiTurn> turnsFromStored(List<ChatTurn> turns) =>
-    [for (final turn in turns) _fromTurn(turn)];
+List<UiTurn> turnsFromStored(List<ChatTurn> turns,
+    [List<ReportCard> reports = const []]) {
+  final cards = {
+    for (final card in reports)
+      if (card.turnId != null) card.turnId!: card
+  };
+  return [for (final turn in turns) _fromTurn(turn, cards[turn.id])];
+}
 
 /// Shows the question at once and an empty reply that fills as it streams.
 /// A retry ([question] null) reuses the stored question.
@@ -185,11 +208,12 @@ List<UiTurn> applyAskEvent(List<UiTurn> turns, SseEvent event) {
       ];
     case 'done':
       final reply = ChatTurn.tryParse(data['assistant_turn']);
+      final report = ReportCard.tryParse(data['report']);
       return [
         for (final turn in turns)
           turn.id == pendingAssistantTurn
               ? reply != null
-                  ? _fromTurn(reply)
+                  ? _fromTurn(reply, report)
                   : turn.copyWith(
                       id: _localId(), status: ChatTurnStatus.complete)
               : turn

@@ -2,6 +2,7 @@
 // an incremental server-sent-events parser, the chat transcript reducer, sentence
 // splitting for speaking a reply while it streams, and the auto-scroll rule.
 // No browser or Vite APIs, so `pnpm test:unit` exercises them directly.
+import type { ReportCard } from '@anum/contracts';
 import { t as msg } from './i18n.ts';
 
 export type TurnStatus = 'complete' | 'cancelled' | 'failed';
@@ -24,6 +25,8 @@ export interface Conversation {
 
 export interface ConversationDetail extends Conversation {
   turns: ChatTurn[];
+  /** Cards for the Assistant's structured answers, by assistant turn (docs/reports.md). */
+  reports?: ReportCard[];
 }
 
 export interface SseEvent {
@@ -80,14 +83,24 @@ export interface UiTurn {
   status: TurnStatus | 'sending' | 'streaming';
   error?: string;
   errorCode?: string;
+  /** A structured answer's report card ("View Full Report"). */
+  report?: ReportCard;
 }
 
 export const PENDING_USER = 'pending-user';
 export const PENDING_ASSISTANT = 'pending-assistant';
 let localTurns = 0;
 
-export function fromStored(turns: ChatTurn[]): UiTurn[] {
-  return turns.map((t) => ({ id: t.id, role: t.role, content: t.content, status: t.status }));
+export function fromStored(turns: ChatTurn[], reports: ReportCard[] = []): UiTurn[] {
+  const cards = new Map(reports.filter((r) => r.turn_id).map((r) => [r.turn_id as string, r]));
+  return turns.map((t) => {
+    const report = cards.get(t.id);
+    return report ? { id: t.id, role: t.role, content: t.content, status: t.status, report } : { id: t.id, role: t.role, content: t.content, status: t.status };
+  });
+}
+
+function asCard(value: unknown): ReportCard | undefined {
+  return value && typeof value === 'object' && typeof (value as ReportCard).report_id === 'string' && Array.isArray((value as ReportCard).metrics) ? value as ReportCard : undefined;
 }
 
 /** Show the question at once and an empty reply that fills as it streams. A retry reuses the stored question. */
@@ -116,8 +129,9 @@ export function applyAskEvent(turns: UiTurn[], event: SseEvent): UiTurn[] {
   }
   if (event.event === 'done') {
     const reply = asTurn(data.assistant_turn);
+    const report = asCard(data.report);
     return turns.map((t) => t.id === PENDING_ASSISTANT
-      ? reply ? { id: reply.id, role: 'assistant', content: reply.content, status: reply.status } : { ...t, id: `local-${++localTurns}`, status: 'complete' }
+      ? reply ? { id: reply.id, role: 'assistant', content: reply.content, status: reply.status, ...(report ? { report } : {}) } : { ...t, id: `local-${++localTurns}`, status: 'complete' }
       : t);
   }
   if (event.event === 'error') {

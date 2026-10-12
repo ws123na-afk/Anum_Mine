@@ -62,6 +62,7 @@ from .push import PushDevice
 from .request_context import current_correlation_id
 from .schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership, new_id, utc_now
 from .settings import settings
+from .library_privacy import LibraryPrivacy, memory_library
 from .user_preferences import ConversationMemoryState, UserPreferences, conversation_memory_state
 from .meeting_connectors import StoredConnection
 from .meetings import Meeting
@@ -112,6 +113,10 @@ class PrivateCounts(BaseModel):
     # docs/command.md); the tasks a command created stay with the workspace.
     commands: int = 0
     quick_commands: int = 0
+    # Favorites, and collections and reports private to the caller (migration 0042_library).
+    favorites: int = 0
+    private_collections: int = 0
+    private_reports: int = 0
 
     @property
     def total(self) -> int:
@@ -201,6 +206,7 @@ class PrivacyStore(Protocol):
     def meeting_recordings(self) -> list[FileRecord]: ...
     def meeting_connections(self) -> list[StoredConnection]: ...
     def commands(self) -> CommandStore: ...
+    def library(self) -> LibraryPrivacy: ...
     def counts(self) -> tuple[PrivateCounts, SharedCounts]: ...
     def delete_private(self) -> PrivateCounts: ...
     def record_audit(self, record: AuditRecord) -> None: ...
@@ -345,6 +351,9 @@ class InMemoryPrivacyStore:
 
         return memory_command_store.bind(self.context)
 
+    def library(self) -> LibraryPrivacy:
+        return memory_library(self.context)
+
     def _private_sources(self) -> list[Any]:
         from .retrieval import memory_retrieval_store
 
@@ -377,6 +386,7 @@ class InMemoryPrivacyStore:
             meeting_recordings=len(self.meeting_recordings()),
             meeting_connections=len(self.meeting_connections()),
             **command_privacy_counts(self.commands()),
+            **self.library().counts(),
         )
         return private, self._shared_counts()
 
@@ -432,6 +442,7 @@ class InMemoryPrivacyStore:
         for connection in self.meeting_connections():
             connection_store.delete(self.context, connection.provider)
         self.commands().delete_all()
+        self.library().delete_all()
         return deleted
 
     def record_audit(self, record: AuditRecord) -> None:
@@ -582,6 +593,8 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("push_devices", [_dump(device) for device in store.push_devices()])
     yield ("learning", learning_export(store.learning()))
     yield ("commands", command_privacy_export(store.commands()))
+    # Favorites, private knowledge base collections (with their items) and private reports.
+    yield ("library", store.library().export())
     yield (
         "files_uploaded",
         [

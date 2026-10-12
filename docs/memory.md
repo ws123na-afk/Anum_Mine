@@ -121,6 +121,9 @@ Each user can turn conversation memory off for themselves: **Remember things fro
 ## Learned style and preferences
 
 What ANUM learns from a user's ratings, edited drafts, approval decisions and retries (a style profile, learned preferences, routines and weekly improvement notes) is a separate, per-user store with its own switch, described in [What ANUM learned](learning.md). It reaches prompts as one labelled block (style and instructions, never facts), after the Assistant's system prompt and before recalled memories, and in the planning prompt of drafting tasks.
+## Knowledge base notes
+
+A note written in a [knowledge base](knowledge-base.md) collection is a memory with `source_type = knowledge_base` and no task: shared with the workspace in a shared collection, private to its owner (`owner_user_id`) in a private one. It is indexed like any memory and deleted with its collection. This is the only kind of shared memory without a task.
 
 ## Governance
 

@@ -94,6 +94,8 @@ x-user-roles: owner,member
 - [Tyre planning](docs/tyre-planning.md)
 - [Memory](docs/memory.md)
 - [What ANUM learned: feedback, style, routines and improvement notes](docs/learning.md)
+- [Knowledge base and favorites](docs/knowledge-base.md)
+- [Reports](docs/reports.md)
 - [Privacy: download and delete my data](docs/privacy.md)
 - [Privacy policy template](docs/privacy-policy.md)
 - [Store data safety and app privacy answers](docs/store-data-safety.md)

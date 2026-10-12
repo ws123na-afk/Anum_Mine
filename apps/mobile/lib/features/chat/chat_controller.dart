@@ -163,7 +163,7 @@ class ChatController extends ChangeNotifier {
     try {
       final detail = await repository.get(id);
       if (_disposed || token != _openToken) return;
-      turns = turnsFromStored(detail.turns);
+      turns = turnsFromStored(detail.turns, detail.reports);
     } on Object catch (error) {
       if (_disposed || token != _openToken) return;
       turns = const [];

@@ -575,6 +575,23 @@ def test_learning_migration_is_expand_only_with_user_scoped_forced_rls() -> None
     assert "using (" in upgrade and "with check (" in upgrade
     for setting in ("anum.tenant_id", "anum.workspace_id", "anum.user_id"):
         assert f"current_setting('{setting}', true)" in revision_text
+
+
+def test_library_migration_is_expand_only_with_owner_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0042_library.py").read_text(encoding="utf-8")
+    assert 'revision = "0042_library"' in revision_text
+    assert len("0042_library") <= 32
+    parent = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
+    assert parent.startswith("00") and len(parent) <= 32
+    others = [path for path in versions.glob("*.py") if path.name != "0042_library.py"]
+    assert not [path for path in others if f'down_revision = "{parent}"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 4
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    # Favorites check the user; collections, items and reports a restrictive owner policy.
+    assert "current_setting('anum.user_id', true)" in revision_text
+    assert "as restrictive" in revision_text and "owner_user_id is null" in revision_text
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade
     assert "drop " not in upgrade and "add_column" not in upgrade and "alter_column" not in upgrade
 
