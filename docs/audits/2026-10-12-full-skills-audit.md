@@ -15,8 +15,10 @@ Scope:
 |---|---|---|---|
 | Critical | 0 | 0 | 0 |
 | High | 0 | 0 | 0 |
-| Medium | 6 | 5 | 1 |
-| Low | 14 | 6 | 8 |
+| Medium | 6 | 6 | 0 |
+| Low | 14 | 9 | 5 |
+
+The owner decided the four open questions on 12 October 2026 and they are implemented in this branch ([Decided by owner 12 Oct](#decided-by-owner-12-oct)).
 
 No critical or high finding. The API already had the controls the skills look for: RS256-only OIDC validation with audience, issuer, leeway and required claims; forced row-level security with an explicit tenant context; constant-time webhook signature checks; SSRF-guarded outbound calls without redirects; bounded responses and timeouts; bandit and pip-audit clean.
 
@@ -39,7 +41,7 @@ The Marketing screen launched a post's `external_url` and the connect URL from t
 **M5. Floating `latest` versions in the web app (OWASP A03, supply chain).** Fixed.
 `apps/web/package.json` declared `react`, `react-dom`, `vite`, `@vitejs/plugin-react`, `lucide-react`, `@types/react` and `@types/react-dom` as `latest`, and CI installs with `--frozen-lockfile=false`, so an install could pull a new major or a compromised release. They are pinned to the versions already in the lockfile (no resolution change; `pnpm install --frozen-lockfile` passes). Dependabot keeps proposing updates.
 
-**M6. CI installs without a frozen lockfile.** Open, owner decision (see [Decisions](#decisions-for-the-owner)).
+**M6. CI installs without a frozen lockfile.** Fixed (decided by owner 12 Oct): every workflow installs with `pnpm install --frozen-lockfile`.
 
 ### Low
 
@@ -59,11 +61,11 @@ The Marketing screen launched a post's `external_url` and the connect URL from t
 
 **L8. Initial web JavaScript.** Open, for the web branches. The entry loads `index` (155 kB gzip) and `i18n` (180 kB gzip) because both the English and Arabic catalogs are imported eagerly. Loading only the active locale's catalog would save about 90 kB gzip for every visitor; it changes `lib/i18n.ts`, which every view uses, so it should be done together with the branches that are editing views.
 
-**L9. No screenshot or app-switcher protection (Flutter, MASVS-PLATFORM-3).** Open, owner decision (O2).
+**L9. No screenshot or app-switcher protection (Flutter, MASVS-PLATFORM-3).** Fixed (decided by owner 12 Oct, O2).
 
-**L10. Dart code is not obfuscated in release builds (MASVS-RESILIENCE).** Open, owner decision (O3).
+**L10. Dart code is not obfuscated in release builds (MASVS-RESILIENCE).** Fixed (decided by owner 12 Oct, O3).
 
-**L11. Flutter fonts are named but not bundled.** Open, owner decision (O1).
+**L11. Flutter fonts are named but not bundled.** Fixed (decided by owner 12 Oct, O1).
 
 **L12. Flutter plugin majors held back.** Open. `flutter_secure_storage` 11, `file_picker` 13 (11 carries an Android path-traversal fix) and `url_launcher_android` 6.3.30+ need AGP 9 built-in Kotlin, which waits on `flutter_tts` ([Flutter mobile](../mobile.md#dependencies)). Before each bump, read the plugin's `android/build.gradle`.
 
@@ -71,13 +73,18 @@ The Marketing screen launched a post's `external_url` and the connect URL from t
 
 **L14. No certificate pinning.** Accepted. Pinning breaks on Let's Encrypt key rotation and the threat model does not call for it; TLS is enforced (release builds refuse plain HTTP; Android release manifest turns cleartext off; iOS has no ATS exceptions).
 
-## Decisions for the Owner
+## Decided by Owner 12 Oct
 
-- **O1. Fonts in the Flutter app.** The theme names Inter with Noto Sans Arabic and Noto Naskh Arabic fallbacks, but `pubspec.yaml` bundles no fonts, so phones show the system font (Roboto, SF Pro, the platform Arabic font). Either bundle Inter and Noto Sans Arabic (SIL Open Font License, roughly 0.5 to 1 MB) so the app matches the web, or remove the names. No change made.
-- **O2. Screenshots and the app switcher.** The app shows mail, memories and approvals but does not hide them from screenshots, screen recording or the recent-apps preview. Options: `FLAG_SECURE` on Android plus a privacy cover on iOS (blocks all screenshots, including ones users want), or a cover only in the app switcher. No change made.
-- **O3. Dart obfuscation.** Release builds do not use `--obfuscate --split-debug-info`. Turning it on makes reverse engineering harder but needs the symbol files kept per build to read crash stack traces. No change made.
-- **M6. Frozen lockfile in CI.** Every workflow installs with `pnpm install --frozen-lockfile=false`, so CI can resolve versions the lockfile does not record. Switching to `--frozen-lockfile` makes every branch that changes `package.json` commit its lockfile update; agree it with the branches currently working on the web before changing it.
-- **L7. Web token storage** (above): keep `sessionStorage` with the strict CSP, or plan a backend-for-frontend.
+The owner chose screen privacy and left fonts, obfuscation and the lockfile to us ("you know better"). All four are implemented in this branch:
+
+- **O1. Fonts: bundled.** The phone app ships Inter (Latin) and Noto Sans Arabic as static instances at weights 400 to 800 (about 1.3 MB; Flutter picks a file per weight, a single variable file would synthesise bold), with the OFL texts as assets registered on the licence page. The web serves the same two faces from `public/fonts` as variable woff2 (Inter Latin 76 KB, preloaded; Noto Sans Arabic 180 KB, Arabic `unicode-range`, loaded only when Arabic shows) with `font-display: swap`, same origin, and the system fonts still in the stack. [Flutter mobile](../mobile.md#fonts), [Web localization](../web-localization.md#fonts).
+- **O2. Screen privacy: screenshots blocked where possible.** Android sets `FLAG_SECURE` on the main window (screenshots, recordings and the recent-apps card are blank). iOS cannot block screenshots; the app covers its windows in the app switcher and while the screen is recorded, mirrored or shared. The secure-text-field layer trick that blanks iOS screenshots was judged too fragile (private `UITextField` layout, touch and accessibility risk) and not used. The web and desktop apps cannot block screenshots. [Flutter mobile](../mobile.md#screen-privacy), [Security](../security.md#screenshots-and-screen-recording).
+- **O3. Obfuscation: on.** Android and iOS store builds use `--obfuscate --split-debug-info=build/symbols`; the release workflow uploads the symbols per build number (90 days) and CI's release app bundle uses the same flags. [Crash symbols](../mobile.md#crash-symbols) says how to symbolicate.
+- **M6. Frozen lockfile: on.** Every CI install is `pnpm install --frozen-lockfile`; the lockfile matched every `package.json` after merging `main` ([Development standards](../development-standards.md)).
+
+Still open:
+
+- **L7. Web token storage:** keep `sessionStorage` with the strict CSP, or plan a backend-for-frontend.
 
 ## Web UI Findings for the UI Branches
 
@@ -122,14 +129,16 @@ Run locally on this branch:
 | Check | Result |
 |---|---|
 | `python -m pytest services/api -m "not database"` | 1900 passed, 14 skipped (integration markers that need Valkey, S3, Temporal or NATS; the CI "API integration" job runs them) |
-| `python -m pytest services/api -m database` (PostgreSQL 16 with pgvector on 127.0.0.1, password auth, run from the repository root) | The first run hit a full sandbox disk (`DiskFull`, an environment fault). The rerun on a fresh database had 263 of about 330 tests passed and none failed when this report was written; it was still running because the machine was heavily loaded. The pull request records the final count; CI's PostgreSQL job is the authoritative run |
+| `python -m pytest services/api -m database` (PostgreSQL 16 with pgvector on 127.0.0.1, password auth, run from the repository root) | The first run hit a full sandbox disk (`DiskFull`, an environment fault). The rerun on a fresh database: 329 passed, 1 skipped, 0 failed |
 | `bandit -r services/api/anum_api services/api/migrations` | No issues |
 | `pip-audit --strict services/api` | No known vulnerabilities |
 | `ruff check --select E4,E7,E9,F services/api/anum_api` | Clean except `E741`/`E702` style in two modules |
 | `flutter analyze --fatal-infos --fatal-warnings`, `dart format --set-exit-if-changed` | Clean |
-| `flutter test` | All passed (901 before the new tests, plus the new storage, transport, theme and link tests) |
+| `flutter test` | 909 passed after the owner decisions (901 before the audit, plus the storage, transport, theme, link, font and screen-privacy tests) |
 | `pnpm check` (docs, contracts, web typecheck and unit tests) and `pnpm build` | Pass |
 | `pnpm install --frozen-lockfile` | Pass |
 | Playwright `accessibility.spec.ts` and `localization.spec.ts` | Pass (see above) |
 | `actionlint` | Clean except one SC2129 style note |
 | Desktop `cargo clippy`, OSV-Scanner, gitleaks, Trivy | Left to CI: not installed in this sandbox and the disk was nearly full |
+| Android and iOS builds (`FLAG_SECURE`, `PrivacyCover`, obfuscated release bundle and iOS archive) | Left to CI: no Android SDK or macOS in this sandbox. CI must prove the "Flutter" job's obfuscated release app bundle and the "Flutter iOS compile check"; the first "Release clients" run must show the symbol artifacts and a device must pass the screen-privacy checks |
+| Web fonts in a browser | Chromium on `vite preview`: both faces load (200, `document.fonts` loaded), no CSP or console errors; overflow sweep of 23 views x 5 sizes x 2 languages with the new fonts: no horizontal overflow |
