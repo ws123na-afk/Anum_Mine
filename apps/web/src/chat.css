@@ -6,7 +6,21 @@
 .chatList { display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s4); position: sticky; top: var(--d-s5); }
 .chatListHeader { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; }
 .chatListHeader h2 { font-size: 15px; }
-.chatList ul { display: grid; gap: var(--d-s1); list-style: none; margin: 0; max-height: calc(100dvh - 280px); overflow-y: auto; padding: 0; }
+.chatList ul { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.chatListScroll { display: grid; gap: var(--d-s2); max-height: calc(100dvh - 330px); min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.chatListGroup { color: var(--d-faint); font-size: 12px; font-weight: 650; margin: 0; padding: 0 var(--d-s3); }
+.chatMore { justify-self: stretch; }
+.chatSearch { align-items: center; display: flex; position: relative; }
+.chatSearch > svg { color: var(--d-faint); height: 16px; inset-inline-start: var(--d-s3); pointer-events: none; position: absolute; width: 16px; }
+.chatSearch input { min-height: 40px; padding-inline: calc(var(--d-s3) + 24px) 40px; width: 100%; }
+.chatSearchClear {
+  align-items: center; background: transparent; border: 0; border-radius: var(--d-r-control); color: var(--d-muted); display: inline-flex; height: 36px;
+  inset-inline-end: 2px; justify-content: center; position: absolute; width: 36px;
+}
+.chatSearchClear:hover { background: var(--d-glass-2); color: var(--d-text); }
+.chatSearchClear svg { height: 16px; width: 16px; }
+.chatPinMark { color: var(--d-violet); flex: none; height: 13px; margin-inline-end: var(--d-s1); vertical-align: -1px; width: 13px; }
+.chatRowMenu { flex: none; }
 .chatList li { align-items: center; border-radius: var(--d-r-control); display: flex; gap: var(--d-s1); min-width: 0; }
 .chatList li.active { background: var(--d-glass-2); box-shadow: inset 3px 0 0 var(--d-violet); }
 .chatListItem {
@@ -19,7 +33,7 @@
 .chatListItem time { color: var(--d-faint); font-size: 12px; }
 .chatListState { color: var(--d-muted); display: grid; font-size: 13px; gap: var(--d-s2); }
 .chatListState button { justify-self: start; }
-.chatDelete { flex: none; }
+.chatList li .msgMenuWrap { flex: none; }
 
 .chatLayout button.secondary, .chatSend, .chatStop {
   align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2);
@@ -35,9 +49,9 @@
 .chatHeader > svg { color: var(--d-violet); flex: none; height: 18px; width: 18px; }
 .chatHeader h2 { flex: 1; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 340px: the page header, the chat header and the composer, so the composer stays in view. */
+/* 360px: the page header, the chat header and the composer, so the composer stays in view. */
 .chatLog {
-  align-content: start; display: grid; gap: var(--d-s4); max-height: max(240px, calc(100dvh - 340px)); overflow-y: auto;
+  align-content: start; display: grid; gap: var(--d-s4); max-height: max(240px, calc(100dvh - 360px)); overflow-y: auto;
   overscroll-behavior: contain; padding: var(--d-s4);
 }
 .chatEmpty { color: var(--d-muted); display: grid; gap: var(--d-s3); }
@@ -69,15 +83,27 @@
 .chatPanel .notice { align-items: center; flex-wrap: wrap; margin: 0 var(--d-s4) var(--d-s3); }
 .chatPanel .notice button { margin-inline-start: auto; }
 
-.chatComposer { align-items: end; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
-.chatComposer textarea { field-sizing: content; max-height: 160px; min-height: 44px; resize: none; }
+.chatComposer { align-items: start; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
+.chatInput { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.chatComposer textarea, .chatEdit textarea { field-sizing: content; max-height: 160px; min-height: 44px; resize: none; width: 100%; }
+.chatHint { color: var(--d-faint); display: flex; flex-wrap: wrap; font-size: 12px; gap: var(--d-s1) var(--d-s3); justify-content: space-between; margin: 0; min-height: 16px; }
+.chatHint.over { color: var(--d-stop); }
+@media (pointer: coarse) { .chatKeys { display: none; } }
+
+/* Edit and resend: the question becomes its own small composer in place. */
+.chatTurn.user.editing { justify-self: stretch; max-width: min(78ch, 100%); }
+.chatEdit { display: grid; gap: var(--d-s2); }
+.chatEditActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.chatTurn.user > .msgActions { justify-content: flex-end; margin-inline-end: calc(var(--d-s1) * -1); margin-inline-start: 0; }
+.chatRenameLabel { color: var(--d-muted); display: block; font-size: 13px; margin-bottom: var(--d-s1); }
+.dialogBody input#chat-rename { width: 100%; }
 .chatActions { display: flex; flex: none; gap: var(--d-s2); }
 
 @media (max-width: 900px) {
   .chatLayout { grid-template-columns: minmax(0, 1fr); }
   .chatList { position: static; }
-  .chatList ul { max-height: 152px; }
-  .chatLog { max-height: max(260px, calc(100dvh - 590px)); }
+  .chatListScroll { max-height: 200px; }
+  .chatLog { max-height: max(260px, calc(100dvh - 660px)); }
 }
 @media (max-width: 480px) {
   .chatComposer { flex-wrap: wrap; }

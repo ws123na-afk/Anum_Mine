@@ -31,6 +31,7 @@ import { Orb3D } from './Orb3D';
 import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import './voice.css';
 import { takeSentences } from './lib/chat';
+import { CopyAction } from './MessageActions';
 import { useDeveloperAssist } from './DeveloperAssist';
 import { getLocale, t, translate, type MessageKey } from './lib/i18n';
 
@@ -447,6 +448,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
       {turns.filter((turn) => turn.text).map((turn) => <li key={turn.id} className={`voiceTurn ${turn.speaker}`}>
         {turn.speaker === 'assistant' && <span className="voiceSpeaker" dir="auto">{name}</span>}
         <p dir="auto">{turn.text}</p>
+        {turn.speaker === 'assistant' && turn.result && <CopyAction text={turn.text} label={t('message.copyAnswer')} />}
         {turn.result && turn.result.risk_tier !== 'read' && <span className={`voiceTier ${turn.result.risk_tier}`}>{t(`voice.tier.${turn.result.risk_tier}`)}</span>}
         {turn.result?.risk_tier === 'confirm' && turn.result.proposed_task && !turn.resolved && <div className="voiceConfirm">
           <button type="button" onClick={() => void confirmTask(turn)}><Check size={16} aria-hidden="true" />{t('voice.createTask')}</button>

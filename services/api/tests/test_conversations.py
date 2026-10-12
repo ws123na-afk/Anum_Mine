@@ -125,12 +125,9 @@ def test_a_failed_reply_is_reported_and_can_be_retried_without_a_duplicate_quest
     assert retried[0][1]["user_turn"]["id"] == user_turn_id
     assert retried[-1][0] == "done"
     turns = client.get(f"/api/v1/conversations/{conversation_id}", headers=H).json()["turns"]
-    assert [(t["role"], t["status"]) for t in turns] == [
-        ("user", "complete"),
-        ("assistant", "failed"),
-        ("assistant", "complete"),
-    ]
-    assert turns[1]["content"] == "Half an"
+    # Retry replaces the failed reply instead of leaving it above the new one.
+    assert [(t["role"], t["status"]) for t in turns] == [("user", "complete"), ("assistant", "complete")]
+    assert turns[1]["content"] != "Half an"
 
 
 def test_only_the_latest_question_can_be_retried() -> None:

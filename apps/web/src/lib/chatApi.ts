@@ -1,4 +1,5 @@
 // Conversations API (docs/conversations.md) and the streamed POST shared with voice.
+import type { ConversationAskBody, ConversationListQuery, ConversationTurnFeedbackResult, ConversationUpdate, ConversationRating } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, authHeaders } from './api';
 import { createSseParser, type ChatCardApproval, type ChatTurn, type Conversation, type ConversationDetail, type SseEvent } from './chat';
 import { apiErrorFromResponse } from './errors';
@@ -33,9 +34,36 @@ export async function postSse(path: string, body: unknown, signal: AbortSignal, 
   }
 }
 
-/** The Assistant's threads, or with `agentId` the threads with that agent (docs/agents.md). */
-export function listConversations(agentId?: string): Promise<Conversation[]> {
-  return apiRequest(agentId ? `/api/v1/conversations?agent_id=${encodeURIComponent(agentId)}` : '/api/v1/conversations', { method: 'GET' });
+/** Unpinned conversations per page of the list (pinned ones all come on the first page). */
+export const CONVERSATION_PAGE = 30;
+
+/**
+ * The Assistant's threads, or with `agent_id` the threads with that agent (docs/agents.md):
+ * pinned first, then by latest activity; `q` searches titles and messages; the cursor pages.
+ */
+export function listConversations(query: ConversationListQuery = {}): Promise<Conversation[]> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== '') params.set(key, String(value));
+  const search = params.toString();
+  return apiRequest(`/api/v1/conversations${search ? `?${search}` : ''}`, { method: 'GET' });
+}
+
+/** Rename and/or pin (docs/conversations.md#conversation-list). */
+export function updateConversation(id: string, body: ConversationUpdate): Promise<Conversation> {
+  return apiRequest(`/api/v1/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+/** Delete one message: a question goes with its answers, an answer alone. */
+export async function deleteTurn(conversationId: string, turnId: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}`, { method: 'DELETE', headers: await authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+}
+
+/** Thumbs on an answer, stored on the turn; `null` clears it. */
+export function rateTurn(conversationId: string, turnId: string, rating: ConversationRating | null, reason?: string): Promise<ConversationTurnFeedbackResult> {
+  return apiRequest(`/api/v1/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/feedback`, {
+    method: 'PUT', body: JSON.stringify(reason ? { rating, reason } : { rating }),
+  });
 }
 
 export function createConversation(agentId?: string): Promise<Conversation> {
@@ -51,7 +79,7 @@ export async function deleteConversation(id: string): Promise<void> {
   if (!response.ok) throw await apiErrorFromResponse(response);
 }
 
-export type AskBody = { content: string } | { retry_turn_id: string };
+export type AskBody = ConversationAskBody;
 
 export function askInConversation(id: string, body: AskBody, signal: AbortSignal, onEvent: (event: SseEvent) => void): Promise<void> {
   return postSse(`/api/v1/conversations/${encodeURIComponent(id)}/ask`, body, signal, onEvent);

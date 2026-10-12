@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { CopyAction } from './MessageActions';
 import { CheckCircle2, CircleDot, Copy, Link2, ListChecks, Lock, Mail, Pencil, PhoneCall, RefreshCw, Search, Send, Sparkles, Trash2, Unlink, Upload, X } from 'lucide-react';
 import * as api from './lib/api';
 import { ApiError, describeError, isPermissionDenied } from './lib/errors';
@@ -339,7 +340,7 @@ function MeetingDetail({ meetingId, setup, agents, onClose, onChanged, onDeleted
       {!canEdit && setup && <p className="muted meetingsNote"><Lock aria-hidden="true" />{t('meetings.editDenied')}</p>}
 
       {meeting.summary && <section className="meetingSection" aria-labelledby="meeting-summary">
-        <div className="meetingSectionHead"><h3 id="meeting-summary">{t('meetings.summary')}</h3>{meeting.provenance && <span className="aiLabel" title={t('meetings.ai.detail', { provider: meeting.provenance.provider })}><Sparkles aria-hidden="true" />{t('meetings.ai.label', { model: meeting.provenance.model })}</span>}</div>
+        <div className="meetingSectionHead"><h3 id="meeting-summary">{t('meetings.summary')}</h3>{meeting.provenance && <span className="aiLabel" title={t('meetings.ai.detail', { provider: meeting.provenance.provider })}><Sparkles aria-hidden="true" />{t('meetings.ai.label', { model: meeting.provenance.model })}</span>}<CopyAction text={meeting.summary} label={t('meetings.copySummary')} showLabel /></div>
         <p dir={dir} className="meetingSummary">{meeting.summary}</p>
         {meeting.provenance?.truncated && <p className="muted">{t('meetings.ai.truncated')}</p>}
         <p className="muted">{t('meetings.ai.check')}</p>
