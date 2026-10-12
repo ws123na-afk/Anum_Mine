@@ -28,7 +28,7 @@
 .mkOver { color: var(--d-stop); font-size: 13px; font-weight: 600; }
 .mkIssues { color: var(--d-stop); display: grid; font-size: 13px; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s5); }
 .mkIssues li.warning { color: var(--d-warn); }
-.mkError { background: rgba(253, 164, 175, .08); border: 1px solid rgba(253, 164, 175, .25); border-radius: var(--d-r-control); display: grid; font-size: 14px; gap: var(--d-s1); padding: var(--d-s3); }
+.mkError { background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .25); border-radius: var(--d-r-control); display: grid; font-size: 14px; gap: var(--d-s1); padding: var(--d-s3); }
 .mkError span { color: var(--d-muted); }
 .mkPostActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .mkPostActions .iconButton { margin-inline-start: auto; }
@@ -38,14 +38,14 @@
 .mkScheduleForm .field { margin: 0; max-inline-size: 280px; }
 
 .mkPlatform { border-radius: 999px; display: inline-block; font-size: 12px; font-weight: 700; padding: 2px var(--d-s2); }
-.mkPlatform.facebook { background: rgba(96, 165, 250, .16); color: #93c5fd; }
-.mkPlatform.instagram { background: rgba(249, 168, 212, .16); color: var(--d-rose); }
-.mkPlatform.linkedin { background: rgba(125, 211, 252, .16); color: var(--d-sky); }
+.mkPlatform.facebook { background: rgb(var(--c-sky) / .16); color: var(--d-sky); }
+.mkPlatform.instagram { background: rgb(var(--c-rose) / .16); color: var(--d-rose); }
+.mkPlatform.linkedin { background: rgb(var(--c-sky) / .16); color: var(--d-sky); }
 .mkPlatform.x { background: var(--d-glass-3); color: var(--d-text); }
-.mkPlatform.tiktok { background: rgba(167, 139, 250, .18); color: var(--d-violet); }
-.mkPlatform.youtube { background: rgba(253, 164, 175, .16); color: var(--d-stop); }
+.mkPlatform.tiktok { background: rgb(var(--c-violet) / .18); color: var(--d-violet); }
+.mkPlatform.youtube { background: rgb(var(--c-stop) / .16); color: var(--d-stop); }
 
-.mkApproval { background: rgba(252, 211, 141, .06); border: 1px solid rgba(252, 211, 141, .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3); }
+.mkApproval { background: rgb(var(--c-warn) / .06); border: 1px solid rgb(var(--c-warn) / .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3); }
 .mkApprovalTitle { align-items: center; color: var(--d-warn); display: flex; font-weight: 600; gap: var(--d-s2); margin: 0; }
 .mkApprovalTitle svg, .mkHash svg { height: 16px; width: 16px; }
 .mkArgs { display: grid; gap: var(--d-s1); margin: 0; }
@@ -104,7 +104,7 @@
 .mkWeekday { color: var(--d-muted); font-size: 12px; font-weight: 600; padding: var(--d-s1) var(--d-s2); text-align: center; }
 .mkDay { background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: 8px; display: grid; align-content: start; gap: var(--d-s1); min-block-size: 96px; min-width: 0; padding: var(--d-s1); }
 .mkDay.outside { opacity: .55; }
-.mkDay.today { border-color: rgba(167, 139, 250, .55); }
+.mkDay.today { border-color: rgb(var(--c-violet) / .55); }
 .mkDay.target { border-style: dashed; }
 .mkDayHead { align-items: center; display: flex; font-size: 13px; justify-content: space-between; }
 .mkAdd { background: transparent; border: 0; border-radius: 6px; color: var(--d-muted); cursor: pointer; display: inline-flex; min-block-size: 28px; min-inline-size: 28px; align-items: center; justify-content: center; padding: 0; }
@@ -113,9 +113,9 @@
 .mkChipRow { align-items: center; display: flex; gap: 2px; min-width: 0; }
 .mkChip { background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 6px; color: var(--d-text); cursor: pointer; flex: 1 1 auto; font-size: 12px; min-block-size: 28px; min-width: 0; overflow: hidden; padding: 2px var(--d-s1); text-align: start; text-overflow: ellipsis; white-space: nowrap; }
 .mkChip[draggable="true"] { cursor: grab; }
-.mkChip.published, .mkChip.sent_to_inbox { border-color: rgba(134, 239, 172, .35); }
-.mkChip.failed { border-color: rgba(253, 164, 175, .45); }
-.mkChip.pending_approval { border-color: rgba(252, 211, 141, .45); }
+.mkChip.published, .mkChip.sent_to_inbox { border-color: rgb(var(--c-ok) / .35); }
+.mkChip.failed { border-color: rgb(var(--c-stop) / .45); }
+.mkChip.pending_approval { border-color: rgb(var(--c-warn) / .45); }
 .mkChipTime { color: var(--d-muted); font-variant-numeric: tabular-nums; }
 .mkMoveButton { background: transparent; border: 0; color: var(--d-muted); cursor: pointer; font-size: 13px; min-block-size: 28px; min-inline-size: 24px; padding: 0; }
 .mkAgenda { display: none; gap: var(--d-s2); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }

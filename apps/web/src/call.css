@@ -18,7 +18,7 @@
 
 .callScreen {
   background:
-    radial-gradient(520px 320px at 50% 18%, rgba(167, 139, 250, .14), transparent 70%),
+    radial-gradient(520px 320px at 50% 18%, rgb(var(--c-violet) / .14), transparent 70%),
     linear-gradient(180deg, var(--d-surface-1), var(--d-bg));
   border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2);
   display: grid; gap: var(--d-s4); margin: 0 auto; max-width: 760px; padding: var(--d-s4) var(--d-s5) var(--d-s5); position: relative;
@@ -33,7 +33,7 @@
   align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted);
   display: inline-flex; font-size: 13px; font-weight: 600; gap: 6px; min-height: 32px; padding: 4px 12px;
 }
-.callLiveBadge { background: rgba(253, 164, 175, .12); border-color: rgba(253, 164, 175, .5); color: var(--d-text); }
+.callLiveBadge { background: rgb(var(--c-stop) / .12); border-color: rgb(var(--c-stop) / .5); color: var(--d-text); }
 .callLiveDot { animation: callPulse 1.4s ease-in-out infinite; background: var(--d-stop); border-radius: 50%; height: 8px; width: 8px; }
 @keyframes callPulse { 50% { opacity: .35; } }
 
@@ -44,7 +44,7 @@
 .callCaption { color: var(--d-muted); font-size: 16px; max-width: 56ch; min-height: 1.5em; overflow-wrap: anywhere; }
 .callCaption.live { color: var(--d-text); }
 .callProblem {
-  align-items: center; background: rgba(253, 164, 175, .08); border: 1px solid rgba(253, 164, 175, .4); border-radius: var(--d-r-control);
+  align-items: center; background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .4); border-radius: var(--d-r-control);
   display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: center; max-width: 60ch; padding: var(--d-s3) var(--d-s4); text-align: start;
 }
 .callProblem > svg { color: var(--d-stop); flex: none; height: 18px; width: 18px; }
@@ -85,7 +85,7 @@
   align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-text);
   display: inline-grid; flex: none; height: 44px; padding: 0; place-items: center; width: 44px;
 }
-.callIconButton.primary { background: var(--d-primary); border-color: transparent; color: #fff; }
+.callIconButton.primary { background: var(--d-primary-grad); border-color: transparent; color: #fff; }
 .callIconButton:disabled { opacity: .5; }
 .callIconButton svg { height: 18px; width: 18px; }
 .callMore { margin: 0 auto; max-width: 560px; width: 100%; }
@@ -110,7 +110,7 @@
   align-items: center; background: #c92a3a; border: 0; border-radius: 999px; color: #fff; display: inline-flex; font-weight: 700;
   gap: var(--d-s2); justify-content: center; min-height: 52px; min-width: min(240px, 100%); padding: 0 var(--d-s5);
 }
-.callEndButton:hover { background: #b02232; }
+.callEndButton:hover { background: var(--d-danger-hover); }
 
 @media (max-width: 1023px) {
   .withChat .callBody { grid-template-columns: minmax(0, 1fr); }

@@ -26,7 +26,7 @@
 .filePreviewHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .filePreviewHead .actions { margin-top: 0; }
 .filePreviewHead button { min-height: 36px; padding-block: var(--d-s1); }
-.filePreviewText, .filePreviewDoc pre { background: rgba(2, 6, 23, .45); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-family: var(--d-mono); font-size: 13px; margin: 0; max-height: min(60vh, 560px); overflow: auto; padding: var(--d-s3) var(--d-s4); white-space: pre-wrap; overflow-wrap: anywhere; }
+.filePreviewText, .filePreviewDoc pre { background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-family: var(--d-mono); font-size: 13px; margin: 0; max-height: min(60vh, 560px); overflow: auto; padding: var(--d-s3) var(--d-s4); white-space: pre-wrap; overflow-wrap: anywhere; }
 .filePreviewDoc { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); max-height: min(60vh, 560px); overflow: auto; overflow-wrap: anywhere; padding: var(--d-s4); }
 .filePreviewDoc :is(h4, h5, h6) { font-size: 15px; margin: 0; }
 .filePreviewDoc :is(p, ul, ol, blockquote) { margin: 0; }
@@ -36,7 +36,7 @@
 .filePreviewDoc a { color: var(--d-sky); }
 .filePreviewDoc hr { border: 0; border-top: 1px solid var(--d-line); margin: 0; width: 100%; }
 .filePreviewText:focus-visible, .filePreviewDoc:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
-.filePreviewImage { background: repeating-conic-gradient(rgba(255, 255, 255, .06) 0% 25%, transparent 0% 50%) 50% / 16px 16px; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: block; height: auto; max-height: min(60vh, 560px); max-width: 100%; object-fit: contain; }
+.filePreviewImage { background: repeating-conic-gradient(rgb(var(--c-hi) / .06) 0% 25%, transparent 0% 50%) 50% / 16px 16px; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: block; height: auto; max-height: min(60vh, 560px); max-width: 100%; object-fit: contain; }
 .pdfPreview { display: grid; gap: var(--d-s2); justify-items: center; min-width: 0; }
 .pdfPreview canvas { background: #fff; border-radius: var(--d-s1); max-width: 100%; }
 .pdfPager { align-items: center; display: flex; gap: var(--d-s3); }

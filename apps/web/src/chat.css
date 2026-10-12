@@ -25,10 +25,10 @@
   align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2);
   justify-content: center; min-height: 44px; padding: var(--d-s2) var(--d-s4);
 }
-.chatSend { background: var(--d-primary); border: 1px solid transparent; color: #fff; }
-.chatSend:hover:not(:disabled) { background: var(--d-primary-hover); }
-.chatStop { background: #be123c; border: 1px solid transparent; color: #fff; }
-.chatStop:hover { background: #d61f4d; }
+.chatSend { background: var(--d-primary-grad); border: 1px solid transparent; color: #fff; }
+.chatSend:hover:not(:disabled) { background: var(--d-primary-grad-hover); }
+.chatStop { background: var(--d-danger); border: 1px solid transparent; color: #fff; }
+.chatStop:hover { background: var(--d-danger-hover); }
 
 .chatPanel { display: grid; min-width: 0; position: relative; }
 .chatHeader { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; gap: var(--d-s3); min-width: 0; padding: var(--d-s3) var(--d-s4); }
@@ -52,7 +52,7 @@
   background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control) var(--d-r-control) var(--d-s1) var(--d-r-control);
   overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); white-space: pre-wrap;
 }
-.chatTurn.user.failed .chatQuestion { border-color: rgba(253, 164, 175, .45); }
+.chatTurn.user.failed .chatQuestion { border-color: rgb(var(--c-stop) / .45); }
 .chatTurn.assistant .answerBody { margin-top: 0; }
 .chatMeta { color: var(--d-faint); font-size: 13px; margin-top: var(--d-s2); }
 .chatError { color: var(--d-stop); }
@@ -91,8 +91,8 @@
   background: var(--d-glass-1); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3);
   margin-top: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4);
 }
-.chatCard.approval { border-color: rgba(252, 211, 141, .35); box-shadow: inset 3px 0 0 var(--d-warn); }
-.chatCard.failed, .chatCard.denied { border-color: rgba(253, 164, 175, .35); }
+.chatCard.approval { border-color: rgb(var(--c-warn) / .35); box-shadow: inset 3px 0 0 var(--d-warn); }
+.chatCard.failed, .chatCard.denied { border-color: rgb(var(--c-stop) / .35); }
 .chatCardHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
 .chatCardHead > svg { color: var(--d-violet); flex: none; height: 18px; width: 18px; }
 .chatCardHead h3 { flex: 1 1 auto; font-size: 14px; margin: 0; min-width: 0; }
@@ -118,10 +118,10 @@ button.chatCardItem:hover, a.chatCardItem:hover { background: var(--d-glass-2); 
 .chatCardNote > svg { flex: none; height: 14px; width: 14px; }
 .chatCardActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .chatCardApprove {
-  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex;
+  align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex;
   font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: var(--d-s2) var(--d-s4);
 }
-.chatCardApprove:hover:not(:disabled) { background: var(--d-primary-hover); }
+.chatCardApprove:hover:not(:disabled) { background: var(--d-primary-grad-hover); }
 .chatCardApprove svg, .chatCardActions button svg { height: 16px; width: 16px; }
 .chatCardFacts, .chatCardArgs dl { display: grid; gap: var(--d-s2); margin: 0; }
 .chatCardFacts div, .chatCardArgs dl div { display: grid; gap: var(--d-s2); grid-template-columns: minmax(96px, 140px) minmax(0, 1fr); }

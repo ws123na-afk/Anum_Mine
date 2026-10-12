@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEven
 import {
   Activity, Bell, BookOpen, GraduationCap, Phone, ShoppingCart, Bot, Building2, ChevronDown, CircleAlert, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
   MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
-  ClipboardCheck, Building, BriefcaseBusiness, Megaphone } from 'lucide-react';
+  ClipboardCheck, Building, BriefcaseBusiness, Megaphone, SunMoon } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
@@ -249,14 +249,14 @@ export function NotificationsMenu({ approvals, alerts, notices, team, onOpenAppr
 }
 
 export function UserMenu({ name, userId, role, signOut, onGo }: {
-  name: string | null; userId: string | null; role: string | null; signOut: (() => void) | null; onGo: (target: 'settings' | 'language' | 'notifications' | 'privacy') => void;
+  name: string | null; userId: string | null; role: string | null; signOut: (() => void) | null; onGo: (target: 'settings' | 'language' | 'appearance' | 'notifications' | 'privacy') => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = usePopover(open, setOpen);
   const panelId = useId();
   const shown = name ?? userId ?? t('user.unknown');
   const roleText = role ? t(`workspaceAdmin.role.${role}` as MessageKey) : null;
-  const pick = (target: 'settings' | 'language' | 'notifications' | 'privacy') => { setOpen(false); onGo(target); };
+  const pick = (target: 'settings' | 'language' | 'appearance' | 'notifications' | 'privacy') => { setOpen(false); onGo(target); };
   return <div className="popoverRoot" ref={root}>
     <button type="button" className="userButton" aria-expanded={open} aria-controls={panelId} aria-label={t('user.menu', { name: shown })} onClick={() => setOpen(!open)}>
       <span className="avatar" aria-hidden="true">{initials(shown)}</span>
@@ -269,6 +269,7 @@ export function UserMenu({ name, userId, role, signOut, onGo }: {
         <li><button type="button" onClick={() => pick('settings')}><Settings aria-hidden="true" /><span><strong>{t('nav.settings')}</strong></span></button></li>
         <li><button type="button" onClick={() => pick('notifications')}><Bell aria-hidden="true" /><span><strong>{t('settings.tab.notifications')}</strong></span></button></li>
         <li><button type="button" onClick={() => pick('language')}><MessageSquare aria-hidden="true" /><span><strong>{t('settings.tab.language')}</strong></span></button></li>
+        <li><button type="button" onClick={() => pick('appearance')}><SunMoon aria-hidden="true" /><span><strong>{t('settings.tab.appearance')}</strong></span></button></li>
         <li><button type="button" onClick={() => pick('privacy')}><ShieldCheck aria-hidden="true" /><span><strong>{t('settings.tab.privacy')}</strong></span></button></li>
         {signOut && <li><button type="button" onClick={() => { setOpen(false); signOut(); }}><LogOut aria-hidden="true" /><span><strong>{t('shell.signOut')}</strong></span></button></li>}
       </ul>

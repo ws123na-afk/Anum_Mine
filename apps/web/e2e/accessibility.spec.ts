@@ -51,6 +51,20 @@ async function seriousViolations(page: Page): Promise<string[]> {
     .map((violation) => `${violation.id} (${violation.impact}): ${violation.help}\n  ${violation.nodes.slice(0, 5).map((node) => node.target.join(' ')).join('\n  ')}`);
 }
 
+// The light theme (Settings > Appearance, docs/design/anum360.md#theme) gets the same gate in English.
+test.describe('light theme', () => {
+  for (const view of views) {
+    test(`#${view.hash} has no serious or critical axe violations`, async ({ page }) => {
+      await mockWorkspaceApi(page);
+      await page.addInitScript(() => { try { localStorage.setItem('anum.theme', 'light'); } catch { /* storage blocked */ } });
+      await page.goto(`/#${view.hash}`);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+      await view.ready(page);
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+  }
+});
+
 for (const locale of ['en', 'ar'] as const) {
   test.describe(`${locale} interface`, () => {
     for (const view of views) {

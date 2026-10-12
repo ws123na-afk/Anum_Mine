@@ -24,7 +24,7 @@
 .meetingSnippet { -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--d-muted); display: -webkit-box; margin-top: var(--d-s1); overflow: hidden; }
 .meetingsPager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s4); }
 .meetingsPager button { border-radius: var(--d-r-control); min-height: 40px; min-width: 40px; padding: var(--d-s1) var(--d-s3); }
-.meetingsPager button:not(.secondary) { background: var(--d-primary); border: 1px solid transparent; color: #fff; }
+.meetingsPager button:not(.secondary) { background: var(--d-primary-grad); border: 1px solid transparent; color: #fff; }
 .meetingsPager .muted { margin-inline-start: var(--d-s2); }
 
 .meetingDetail { margin: var(--d-s4) 0; min-width: 0; padding: var(--d-s5); }
@@ -43,7 +43,7 @@
 .meetingSection .actions { margin-top: var(--d-s2); }
 .meetingSectionHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .meetingSummary { line-height: 1.65; white-space: pre-line; }
-.aiLabel { align-items: center; background: rgba(167, 139, 250, .12); border: 1px solid rgba(167, 139, 250, .35); border-radius: 999px; color: #ddd6fe; display: inline-flex; font-size: 12px; font-weight: 650; gap: var(--d-s1); padding: 2px var(--d-s2); }
+.aiLabel { align-items: center; background: rgb(var(--c-violet) / .12); border: 1px solid rgb(var(--c-violet) / .35); border-radius: 999px; color: var(--d-violet-text); display: inline-flex; font-size: 12px; font-weight: 650; gap: var(--d-s1); padding: 2px var(--d-s2); }
 .aiLabel svg { height: 14px; width: 14px; }
 .meetingEdit { margin-top: var(--d-s4); }
 .meetingEdit .actions { margin-top: var(--d-s3); }
@@ -73,11 +73,11 @@
 .transcriptLines li:nth-child(odd) { background: var(--d-glass-1); }
 .transcriptTime { color: var(--d-faint); font-family: var(--d-mono); font-size: 12px; padding-top: 2px; text-align: end; }
 .transcriptLines strong { color: var(--d-sky); display: block; font-size: 13px; }
-.transcriptLines mark { background: rgba(252, 211, 141, .3); border-radius: 3px; color: inherit; }
+.transcriptLines mark { background: rgb(var(--c-warn) / .3); border-radius: 3px; color: inherit; }
 
 .meetingImport { display: grid; gap: var(--d-s4); }
 .meetingImport .settingsTabs { margin-bottom: 0; }
-.meetingImport .settingsTabs button[aria-selected="true"] { background: var(--d-glass-3); border-color: rgba(167, 139, 250, .45); color: var(--d-text); }
+.meetingImport .settingsTabs button[aria-selected="true"] { background: var(--d-glass-3); border-color: rgb(var(--c-violet) / .45); color: var(--d-text); }
 .meetingImportPanel { display: grid; gap: var(--d-s4); min-width: 0; }
 .meetingImportPanel .formGrid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .meetingSetupNote { border: 1px dashed var(--d-line-strong); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s4); }
