@@ -23,7 +23,7 @@ from sqlalchemy.orm import sessionmaker
 from anum_api.commerce import http as commerce_http
 from anum_api.commerce.clients import amazon as amazon_client
 from anum_api.commerce.clients import own_store as own_store_client
-from anum_api.commerce.scheduler import run_once
+from anum_api.commerce.scheduler import _DUE, run_once
 from anum_api.commerce.store import commerce_store
 from anum_api.db import session as db_session
 from anum_api.main import app
@@ -187,7 +187,7 @@ def test_price_change_after_approval_on_postgres(channels: FakeChannels) -> None
     assert next(i for i in refreshed if i["marketplace_id"] == SA)["price"] == 439.0
 
 
-def test_maintenance_role_sees_only_due_connector_ids(channels: FakeChannels, database_engine: Engine) -> None:
+def test_maintenance_role_schedules_only_due_connectors_and_sees_ids_only(channels: FakeChannels, database_engine: Engine) -> None:
     due = connect(AMAZON)
     later = connect({**AMAZON, "name": "later"}, scope=headers(workspace_id=WORKSPACE_A2))
     with database_engine.begin() as connection:
@@ -195,13 +195,17 @@ def test_maintenance_role_sees_only_due_connector_ids(channels: FakeChannels, da
     with database_engine.connect() as connection:
         with connection.begin():
             connection.execute(text("set local role anum_maintenance"))
-            visible = set(connection.execute(text("select id from commerce_connectors")).scalars())
-        assert visible == {due["id"]}
+            scheduled = {row[2] for row in connection.execute(_DUE, {"limit": 10})}
+            # Key rotation (0050_rotation_retention) may find the ids of every connector
+            # that holds a ciphertext; the scheduler's own query still picks only due ones.
+            rotation = set(connection.execute(text("select id from commerce_connectors")).scalars())
+        assert scheduled == {due["id"]}
+        assert rotation == {due["id"], later["id"]}
         for statement in (
             "select credentials_ciphertext from commerce_connectors",
             "select settings from commerce_connectors",
             "select id from commerce_orders",
-            "select id from commerce_customers",
+            "select name_ciphertext from commerce_customers",
             "update commerce_connectors set next_sync_at = now()",
         ):
             with pytest.raises(DBAPIError, match="permission denied"):
