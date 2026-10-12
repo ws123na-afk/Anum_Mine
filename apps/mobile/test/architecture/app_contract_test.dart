@@ -135,7 +135,8 @@ void main() {
         File('lib/features/auth/welcome_screens.dart').readAsStringSync();
     expect(view, isNot(contains('obscureText')));
     expect(view, contains('OidcIdentityProvider.google'));
-    expect(view, contains('OidcIdentityProvider.apple'));
+    // Google and Apple buttons show when the server says each provider is set up.
+    expect(view, contains("Key('auth-apple')"));
     final appauth = File('lib/src/infrastructure/appauth_authenticator.dart')
         .readAsStringSync();
     expect(appauth,
