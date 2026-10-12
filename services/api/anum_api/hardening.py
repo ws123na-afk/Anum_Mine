@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 import anyio.to_thread
 
 from .errors import ErrorCode
+from .localization import localize_message, scope_language
 from .request_context import CORRELATION_ID_HEADER, is_valid_correlation_id, new_correlation_id
 from .telemetry import telemetry
 
@@ -74,11 +75,12 @@ async def _send_error(
     """Send the standard ANUM error envelope without going through FastAPI."""
     incoming = _header(scope, CORRELATION_ID_HEADER.lower().encode("latin-1"))
     correlation_id = incoming if incoming and is_valid_correlation_id(incoming) else new_correlation_id()
+    language = scope_language(scope.get("headers") or [])
     body = json.dumps(
         {
             "error": {
                 "code": code,
-                "message": message,
+                "message": localize_message(message, language),
                 "correlation_id": correlation_id,
                 "details": [],
             }
@@ -88,6 +90,8 @@ async def _send_error(
         (b"content-type", b"application/json"),
         (b"content-length", str(len(body)).encode("latin-1")),
         (CORRELATION_ID_HEADER.lower().encode("latin-1"), correlation_id.encode("latin-1")),
+        (b"content-language", language.encode("latin-1")),
+        (b"vary", b"Accept-Language"),
     ]
     headers.extend((name.lower().encode("latin-1"), value.encode("latin-1")) for name, value in extra_headers)
     await send({"type": "http.response.start", "status": status_code, "headers": headers})

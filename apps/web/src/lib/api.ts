@@ -3,7 +3,7 @@ import { parseSignInOptions } from './signIn';
 import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
 import { apiErrorFrom, apiErrorFromResponse } from './errors';
-import { t } from './i18n';
+import { getLocale, t } from './i18n';
 import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, SortValue } from './files';
 import { filesListPath } from './files';
 import type { ApiCurrentMembership } from './policy';
@@ -533,15 +533,17 @@ function writeWorkspaceMemoryFor(tenantId: string, memory: workspaces.WorkspaceM
  */
 export async function authHeaders(): Promise<Record<string, string>> {
   const workspaceId = currentScope().workspaceId;
+  // The API writes its refusals and the Privacy notes in the page language (docs/web-localization.md).
+  const language = { 'accept-language': getLocale() };
   if (oidcEnabled) {
     const token = await accessToken();
     const tenantId = currentTenantId();
     // Another organisation than the token's home tenant is named explicitly; the API accepts it
     // only when the token lists it in tenant_ids.
-    return { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(tenantId && tenantId !== homeTenantId() ? { 'x-tenant-id': tenantId } : {}), 'x-workspace-id': workspaceId };
+    return { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(tenantId && tenantId !== homeTenantId() ? { 'x-tenant-id': tenantId } : {}), 'x-workspace-id': workspaceId, ...language };
   }
   const token = sessionStorage.getItem('anum_access_token');
-  return { 'x-tenant-id': currentTenantId(), 'x-workspace-id': workspaceId, 'x-user-id': defaultTenantContext.userId, 'x-user-roles': defaultTenantContext.roles.join(','), ...(token ? { authorization: `Bearer ${token}` } : {}) };
+  return { 'x-tenant-id': currentTenantId(), 'x-workspace-id': workspaceId, 'x-user-id': defaultTenantContext.userId, 'x-user-roles': defaultTenantContext.roles.join(','), ...(token ? { authorization: `Bearer ${token}` } : {}), ...language };
 }
 
 /** The caller's membership in the current workspace, for showing their role (read-only). */

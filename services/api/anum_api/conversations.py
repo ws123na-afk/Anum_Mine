@@ -52,6 +52,7 @@ from .conversation_memory import (
     remember_after_reply,
 )
 from .dependencies import has_permission, require_permission, tenant_context
+from .localization import Language, localize_message, request_language
 from .learning import SignalKind, Surface
 from .learning_store import learned_instructions, new_signal, record_server_signal
 from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
@@ -324,6 +325,7 @@ async def stream_reply(
     gateway: ModelGateway,
     completed: CompletedReply | None = None,
     memories_used: Sequence[str] = (),
+    language: Language = "en",
 ) -> AsyncIterator[str]:
     """The ``ask`` response body. Writes go through fresh units of work only.
 
@@ -346,7 +348,8 @@ async def stream_reply(
         _store_reply(context, conversation, "".join(parts), outcome)
         raise
     except ModelBudgetExceededError as exc:
-        error = ("model_budget_exceeded", budget_exceeded_message(exc.scope, exc.kind, exc.resets_on))
+        # Accept-Language of the request (docs/web-localization.md): the code stays the same.
+        error = ("model_budget_exceeded", localize_message(budget_exceeded_message(exc.scope, exc.kind, exc.resets_on), language))
     except Exception as exc:  # reported to the client; only the class name is logged
         logger.warning(
             "conversation_reply_failed error_class=%s",
@@ -467,6 +470,7 @@ async def ask_in_conversation(
     payload: ConversationAsk,
     context: TenantContext = Depends(tenant_context),
     gateway: ModelGateway = Depends(voice_model_gateway),
+    language: Language = Depends(request_language),
 ) -> StreamingResponse:
     """Ask with the conversation's recent turns as context; the reply streams as SSE."""
     require_permission(context, Permission.TASK_CREATE)
@@ -542,6 +546,7 @@ async def ask_in_conversation(
             gateway=gateway,
             completed=completed,
             memories_used=recall.memory_ids,
+            language=language,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,

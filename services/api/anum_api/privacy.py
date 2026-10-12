@@ -56,6 +56,7 @@ from .commands import CommandStore
 from .commands import privacy_counts as command_privacy_counts
 from .commands import privacy_export as command_privacy_export
 from .learning_store import LearningStore
+from .localization import PRIVACY_NOTES_AR, Language, request_language
 from .memory import MemoryNote
 from .onboarding import NotificationPreferences
 from .push import PushDevice
@@ -711,8 +712,25 @@ def _workspace_provider(context: TenantContext) -> str | None:
     return config.provider if config is not None else None
 
 
+def _retention(language: Language) -> RetentionInfo:
+    info = RetentionInfo(conversation_days=settings.conversation_retention_days)
+    if language == "ar":
+        # The notes follow Accept-Language (docs/web-localization.md); the numbers and codes do not.
+        info = info.model_copy(update={key: PRIVACY_NOTES_AR[key] for key in ("private_memories", "task_memories", "audit_records")})
+    return info
+
+
+def _notes(language: Language) -> dict[str, str]:
+    if language == "ar":
+        return {"account_note": PRIVACY_NOTES_AR["account_note"], "shared_note": PRIVACY_NOTES_AR["shared_note"]}
+    return {"account_note": ACCOUNT_NOTE, "shared_note": SHARED_NOTE}
+
+
 @router.get("", response_model=PrivacySummary)
-async def privacy_summary(context: TenantContext = Depends(tenant_context)) -> PrivacySummary:
+async def privacy_summary(
+    context: TenantContext = Depends(tenant_context),
+    language: Language = Depends(request_language),
+) -> PrivacySummary:
     _require_member(context)
     with open_privacy_store(context) as store:
         membership = store.membership()
@@ -727,7 +745,7 @@ async def privacy_summary(context: TenantContext = Depends(tenant_context)) -> P
         role=membership.role if membership is not None else (context.roles[0] if context.roles else None),
         private=private,
         shared=shared,
-        retention=RetentionInfo(conversation_days=settings.conversation_retention_days),
+        retention=_retention(language),
         model_provider=ModelProviderInfo(
             deployment=settings.model_provider,
             workspace=_workspace_provider(context),
@@ -736,6 +754,7 @@ async def privacy_summary(context: TenantContext = Depends(tenant_context)) -> P
         ),
         privacy_policy_url=settings.privacy_policy_url.strip() or None,
         export_max_bytes=settings.privacy_export_max_bytes,
+        **_notes(language),
     )
 
 
@@ -776,7 +795,11 @@ async def export_my_data(context: TenantContext = Depends(tenant_context)) -> Re
 
 
 @router.post("/delete", response_model=DeleteResult)
-async def delete_my_data(payload: DeleteMyData, context: TenantContext = Depends(tenant_context)) -> DeleteResult:
+async def delete_my_data(
+    payload: DeleteMyData,
+    context: TenantContext = Depends(tenant_context),
+    language: Language = Depends(request_language),
+) -> DeleteResult:
     _require_member(context)
     if payload.confirm.strip() != DELETE_CONFIRMATION:
         raise HTTPException(
@@ -796,4 +819,4 @@ async def delete_my_data(payload: DeleteMyData, context: TenantContext = Depends
             file_store.storage.delete(key)
         except Exception as exc:  # the metadata is gone, so the bytes are unreachable
             logger.warning("privacy_recording_delete_failed error_class=%s", type(exc).__name__)
-    return DeleteResult(deleted=deleted, kept=kept)
+    return DeleteResult(deleted=deleted, kept=kept, **_notes(language))

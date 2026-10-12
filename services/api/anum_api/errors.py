@@ -10,6 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from .localization import localize_message, request_language
 from .request_context import CORRELATION_ID_HEADER, get_correlation_id
 
 
@@ -98,10 +99,14 @@ def _error_response(
     correlation_id = get_correlation_id(request)
     response_headers = dict(headers or {})
     response_headers[CORRELATION_ID_HEADER] = correlation_id
+    # The sentence follows Accept-Language (docs/web-localization.md); the code never changes.
+    language = request_language(request)
+    response_headers["Content-Language"] = language
+    response_headers["Vary"] = "Accept-Language"
     envelope = ErrorEnvelope(
         error=ErrorBody(
             code=code,
-            message=message,
+            message=localize_message(message, language),
             correlation_id=correlation_id,
             details=details or [],
         )
