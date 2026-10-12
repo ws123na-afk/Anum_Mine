@@ -630,6 +630,20 @@ def test_commands_migration_is_expand_only_with_per_user_forced_rls() -> None:
     assert upgrade.count("op.create_table(") == 2
     assert "enable row level security" in upgrade and "force row level security" in upgrade
     assert "using (" in upgrade and "with check (" in upgrade
+def test_home_migration_is_expand_only_with_user_scoped_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0036_home.py").read_text(encoding="utf-8")
+    assert 'revision = "0036_home"' in revision_text and len("0036_home") <= 32
+    assert 'down_revision = "0035_email_inbox"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0036_home.py"]
+    assert not [path for path in others if 'down_revision = "0035_email_inbox"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 4
+    for table in ("home_profiles", "home_pins", "home_commands", "home_insight_states"):
+        assert f'"{table}"' in revision_text
+    assert '_force_rls("home_profiles", user_predicate)' in upgrade
+    assert "for table in workspace_tables:" in upgrade and "_force_rls(table, workspace_user_predicate)" in upgrade
+    assert "force row level security" in revision_text and "with check (" in revision_text
     for setting in ("anum.tenant_id", "anum.workspace_id", "anum.user_id"):
         assert f"current_setting('{setting}', true)" in revision_text
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "grant " not in upgrade

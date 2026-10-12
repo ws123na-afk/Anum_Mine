@@ -127,6 +127,7 @@ from .commerce.tools import register_commerce_tools
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .user_preferences import router as user_preferences_router
+from .home import router as home_router
 from .push import push_dispatcher, router as push_router
 from .developer_watch import build_developer_watcher
 from .autonomy_api import router as autonomy_router
@@ -319,6 +320,7 @@ app.include_router(notifications_router)
 app.include_router(assistants_router)
 app.include_router(organisations_router)
 app.include_router(agents_router)
+app.include_router(home_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -356,6 +358,8 @@ chat_tools.configure(
         ),
     )
 )
+# Home's insights read the last recorded integration checks (docs/home.md).
+app.state.integration_registry = integration_registry
 
 
 @asynccontextmanager

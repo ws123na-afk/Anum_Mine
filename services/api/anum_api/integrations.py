@@ -319,6 +319,15 @@ class IntegrationRegistry:
             raise IntegrationNotFoundError(integration_id)
         return definition
 
+    def recorded_checks(self, context: TenantContext) -> list[tuple[IntegrationDefinition, IntegrationCheck]]:
+        """The last recorded check of each integration in the workspace, without probing.
+
+        Home's insights (docs/home.md) read this: it is cheap and never contacts a host.
+        """
+        with self._open_store(context) as store:
+            checks = store.list_checks(context)
+        return [(item, checks[item.id]) for item in self._definitions.values() if item.id in checks]
+
     async def health(self, context: TenantContext | None = None) -> list[IntegrationHealth]:
         """Probe every integration; with a context, apply and record the workspace's state."""
         if context is None:
