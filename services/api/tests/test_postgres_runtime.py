@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 import pytest
 from fastapi import Depends
@@ -9,7 +10,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
 from anum_api.db.repository import SqlAlchemyRepository
-from anum_api.dependencies import repository_context, tenant_context as request_tenant_context
+from anum_api.dependencies import repository_context, tenant_context as request_tenant_context, units_of_work
 from anum_api.main import app
 from anum_api.repository import AnumRepository
 from anum_api.schemas import ApprovalStatus, TaskStatus, TenantContext
@@ -57,11 +58,15 @@ def postgres_client(database_engine: Engine, seed_scopes: None) -> Iterator[Test
             connection.close()
 
     app.dependency_overrides[repository_context] = override_repository
+    # Inline task runs open a short unit of work per step (anum_api/inline_runs.py): the
+    # same session setup, one per step.
+    app.dependency_overrides[units_of_work] = lambda: contextmanager(override_repository)
     try:
         with TestClient(app) as client:
             yield client
     finally:
         app.dependency_overrides.pop(repository_context, None)
+        app.dependency_overrides.pop(units_of_work, None)
 
 
 def shown_hash(client: TestClient, approval_id: str) -> dict[str, str]:

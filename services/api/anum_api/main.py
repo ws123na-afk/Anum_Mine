@@ -2,8 +2,9 @@ import asyncio
 from dataclasses import replace
 import json
 from datetime import datetime, timezone
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,9 @@ from .dependencies import (
     provisioning_tenant_context,
     require_permission,
     tenant_context,
+    UnitsOfWork,
+    units_of_work,
+    _membership_unit_of_work as _membership_units,
 )
 from .approval_integrity import as_viewed
 from .audit import AuditRecord
@@ -154,6 +158,7 @@ from .team_work import build_team_reminder_scheduler, router as team_router
 from .automation_dispatch import automation_dispatcher
 from .files import router as files_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
+from .inline_runs import RunClaimLost, claim_expired, run_inline
 from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
@@ -966,77 +971,158 @@ async def export_task(
     )
 
 
+async def _run_inline_task(
+    context: TenantContext,
+    task_id: str,
+    check: Callable[[AnumRepository, Task | None], AgentRunProfile | None],
+    *,
+    on_start: Callable[[AnumRepository, Task, str | None], None] | None = None,
+    unit_of_work: Callable[[TenantContext], Any] | None = None,
+) -> RunTaskResponse:
+    """``ANUM_RUNTIME_BACKEND=inline``: run the task in short units of work, each in a
+    worker thread, with no transaction or row lock held while the model or the tool
+    works (``inline_runs.py``, docs/realtime.md#event-loop)."""
+    resources: dict[str, object] = {}
+
+    def checked(repository: AnumRepository, task: Task | None) -> AgentRunProfile | None:
+        agent = check(repository, task)
+        # The workspace's model and retriever (blocking reads), after the checks.
+        resources["gateway"] = budgeted_model_gateway(context, model_gateway)
+        resources["retriever"] = retriever_for(context, model_gateway)
+        return agent
+
+    def runtime_for(repository: AnumRepository) -> AgentRuntime:
+        return AgentRuntime(
+            resources["gateway"],  # type: ignore[arg-type]
+            repository,
+            tools=tool_registry,
+            retriever=resources["retriever"],  # type: ignore[arg-type]
+        )
+
+    try:
+        result = await run_inline(
+            context,
+            task_id,
+            unit_of_work=unit_of_work or _membership_units,
+            runtime_factory=runtime_for,
+            claim=checked,
+            on_start=on_start,
+            present=lambda approval, repository: _approval_with_progress(approval, context, repository),
+        )
+    except RunClaimLost as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+    return RunTaskResponse(task=result.task, run=result.run, approval=result.approval)
+
+
+def _claim_may_be_taken_over(task: Task, repository: AnumRepository, context: TenantContext) -> bool:
+    """A ``running`` task left by a process that stopped mid-run (inline_runs.claim_expired)."""
+    return claim_expired(task, repository.find_run_for_task(task.id, context), settings.inline_run_lease_seconds)
+
+
 @app.post("/api/v1/tasks/{task_id}/retry", response_model=RunTaskResponse)
 async def retry_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> RunTaskResponse:
     """Start a new run of a failed or cancelled task; earlier runs stay in its history."""
     require_permission(context, Permission.TASK_RUN)
-    check_model_budget(context)
     async with _task_lock(context, task_id):
-        task = _get_task_for_context(task_id, context, repository, for_update=True)
-        if task.archived_at is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before retrying it")
-        if task.status not in RETRYABLE_STATUSES:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Only a failed or cancelled task can be retried"
-            )
-        # A retry as an agent uses the agent as it is now (docs/agents.md).
-        agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
-        previous = repository.find_run_for_task(task.id, context)
-        _record_task_event(
-            repository,
-            context,
-            task,
-            CanonicalEventName.TASK_RETRIED,
-            {"previous_run_id": previous.id} if previous is not None else {},
-        )
-        runtime = AgentRuntime(
-            budgeted_model_gateway(context, model_gateway),
-            repository,
-            tools=tool_registry,
-            retriever=retriever_for(context, model_gateway),
-        )
         if run_dispatcher is not None:
-            return await _queue_durable_run(task, context, repository, runtime, retry=True, agent=agent)
-        run, approval = await runtime.run_task(task, context, agent=agent)
-        repository.save_task(task)
-        repository.save_run(run)
-        return RunTaskResponse(task=task, run=run, approval=_approval_with_progress(approval, context, repository))
+            # The run itself goes to the durable worker; this only queues it.
+            with units(context) as repository:
+                check_model_budget(context)
+                task = _get_task_for_context(task_id, context, repository, for_update=True)
+                _check_retryable(task, context, repository)
+                agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+                previous = repository.find_run_for_task(task.id, context)
+                _record_task_event(
+                    repository,
+                    context,
+                    task,
+                    CanonicalEventName.TASK_RETRIED,
+                    {"previous_run_id": previous.id} if previous is not None else {},
+                )
+                runtime = AgentRuntime(
+                    budgeted_model_gateway(context, model_gateway),
+                    repository,
+                    tools=tool_registry,
+                    retriever=retriever_for(context, model_gateway),
+                )
+                return await _queue_durable_run(task, context, repository, runtime, retry=True, agent=agent)
+
+        def check(repository: AnumRepository, task: Task | None) -> AgentRunProfile | None:
+            # Refused before the task changes state when the monthly model budget is used up.
+            check_model_budget(context)
+            if task is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+            _check_retryable(task, context, repository)
+            # A retry as an agent uses the agent as it is now (docs/agents.md).
+            return AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+
+        def retried(repository: AnumRepository, task: Task, previous_run_id: str | None) -> None:
+            _record_task_event(
+                repository,
+                context,
+                task,
+                CanonicalEventName.TASK_RETRIED,
+                {"previous_run_id": previous_run_id} if previous_run_id is not None else {},
+            )
+
+        return await _run_inline_task(context, task_id, check, on_start=retried, unit_of_work=units)
+
+
+def _check_retryable(task: Task, context: TenantContext, repository: AnumRepository) -> None:
+    if task.archived_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before retrying it")
+    if task.status not in RETRYABLE_STATUSES and not _claim_may_be_taken_over(task, repository, context):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Only a failed or cancelled task can be retried"
+        )
 
 
 @app.post("/api/v1/tasks/{task_id}/run", response_model=RunTaskResponse)
 async def run_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> RunTaskResponse:
     require_permission(context, Permission.TASK_RUN)
-    # Refuse before the task changes state when the monthly model budget is used up.
-    check_model_budget(context)
     async with _task_lock(context, task_id):
-        task = _get_task_for_context(task_id, context, repository, for_update=True)
-        if task.archived_at is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before running it")
-        if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
-        # A task as an agent runs with a snapshot of the agent as it is now (docs/agents.md).
-        agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
-
-        runtime = AgentRuntime(
-            budgeted_model_gateway(context, model_gateway),
-            repository,
-            tools=tool_registry,
-            retriever=retriever_for(context, model_gateway),
-        )
         if run_dispatcher is not None:
-            return await _queue_durable_run(task, context, repository, runtime, agent=agent)
-        run, approval = await runtime.run_task(task, context, agent=agent)
-        repository.save_task(task)
-        repository.save_run(run)
-        return RunTaskResponse(task=task, run=run, approval=_approval_with_progress(approval, context, repository))
+            # The run itself goes to the durable worker; this only queues it.
+            with units(context) as repository:
+                check_model_budget(context)
+                task = _get_task_for_context(task_id, context, repository, for_update=True)
+                _check_runnable(task, context, repository)
+                agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+                runtime = AgentRuntime(
+                    budgeted_model_gateway(context, model_gateway),
+                    repository,
+                    tools=tool_registry,
+                    retriever=retriever_for(context, model_gateway),
+                )
+                return await _queue_durable_run(task, context, repository, runtime, agent=agent)
+
+        def check(repository: AnumRepository, task: Task | None) -> AgentRunProfile | None:
+            # Refused before the task changes state when the monthly model budget is used up.
+            check_model_budget(context)
+            if task is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+            _check_runnable(task, context, repository)
+            # A task as an agent runs with a snapshot of the agent as it is now (docs/agents.md).
+            return AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+
+        return await _run_inline_task(context, task_id, check, unit_of_work=units)
+
+
+def _check_runnable(task: Task, context: TenantContext, repository: AnumRepository) -> None:
+    if task.archived_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Restore the task before running it")
+    if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED} and not _claim_may_be_taken_over(
+        task, repository, context
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
 
 
 def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-untyped-def]
@@ -1097,29 +1183,41 @@ async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
     from .durable_runs import tenant_unit_of_work
 
     try:
-        check_model_budget(context)
+        await asyncio.to_thread(check_model_budget, context)
     except ModelBudgetExceededError as exc:
         raise StepFailed(str(exc), retryable=True) from None
+
+    class _AlreadyStarted(Exception):
+        pass
+
+    def check(unit: AnumRepository, task: Task | None) -> AgentRunProfile | None:
+        if task is None:
+            raise StepFailed(f"The agent task {task_id} no longer exists in this workspace.")
+        if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED} or unit.find_run_for_task(task.id, context):
+            raise _AlreadyStarted  # a repeated hand-off
+        return None
+
     try:
         async with _task_lock(context, task_id):
-            with tenant_unit_of_work(context) as unit:
-                task = unit.get_task(task_id, context)
-                if task is None:
-                    raise StepFailed(f"The agent task {task_id} no longer exists in this workspace.")
-                if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED} or unit.find_run_for_task(task.id, context):
-                    return  # already started (a repeated hand-off)
-                runtime = AgentRuntime(
-                    budgeted_model_gateway(context, model_gateway),
-                    unit,
-                    tools=tool_registry,
-                    retriever=retriever_for(context, model_gateway),
-                )
-                if run_dispatcher is not None:
-                    await _queue_durable_run(task, context, unit, runtime)
+            if run_dispatcher is not None:
+                with tenant_unit_of_work(context) as unit:
+                    task = unit.get_task(task_id, context)
+                    try:
+                        check(unit, task)
+                    except _AlreadyStarted:
+                        return
+                    runtime = AgentRuntime(
+                        budgeted_model_gateway(context, model_gateway),
+                        unit,
+                        tools=tool_registry,
+                        retriever=retriever_for(context, model_gateway),
+                    )
+                    await _queue_durable_run(task, context, unit, runtime)  # type: ignore[arg-type]
                     return
-                run, _approval = await runtime.run_task(task, context)
-                unit.save_task(task)
-                unit.save_run(run)
+            try:
+                await _run_inline_task(context, task_id, check, unit_of_work=tenant_unit_of_work)
+            except _AlreadyStarted:
+                return
     except HTTPException as exc:
         raise StepFailed(str(exc.detail), retryable=exc.status_code in {409, 503}) from None
 

@@ -25,13 +25,27 @@ Agent state should be durable enough to resume after worker restarts. Temporal s
 
 A task can have several runs: `POST /api/v1/tasks/{id}/retry` starts a new run of a failed or cancelled task and keeps the earlier runs, steps and approvals in its history, and `resume` continues a run stranded at `tool_ready`. The latest run is the newest by `(created_at, id)`; an approval decision resumes the approval's own run ([Tasks](tasks.md#retry)).
 
+## Inline runs
+
+With `ANUM_RUNTIME_BACKEND=inline` (the Oracle VM) the run, retry, automation and chat tool-card paths go through `services/api/anum_api/inline_runs.py`. No database transaction or row lock is open while the model or the tool works, and every database step is a short unit of work in a worker thread, off the event loop:
+
+1. **Claim**: lock the task, check it may run (budget, state, agent), set it `running`, commit.
+2. **Plan**: retrieval, the agent's memories, the learned style and the model call, with no transaction open (`AgentRuntime.plan_with_model`).
+3. **Apply**: lock the task again and check the claim still holds: still `running`, not archived, and no other run started since the claim. Then record the plan and apply tool policy (`AgentRuntime.apply_plan`): approvals, their payload hash and governance work exactly as before. When policy allows the call, commit the run as `executing`.
+4. **Execute**: the tool runs with no transaction open.
+5. **Settle**: lock again, check the run is still the committed `executing` checkpoint (same version), then complete or fail it. The tool's audit record is committed either way.
+
+A cancel during the run is answered at once. The run stops at its next step with 409 and never overwrites the cancel; if the cancel came while the tool ran, the response says the action may already have taken effect. A failure before step 3 gives the task its earlier status back. A tool error after step 3 fails the run. A claim left by a process that stopped mid-run can be taken over by Run or Retry after `ANUM_INLINE_RUN_LEASE_SECONDS` (900); Cancel clears it at once. The API process also holds the task's run lock (`_task_lock`) for the whole run, as before.
+
+Before October 2026 an inline run held its request transaction and the task's `SELECT ... FOR UPDATE` lock across the model call. A Cancel, Archive or rename of that task then waited for the lock on the event loop, the run could never resume to release it, and the whole API stopped answering. With no lock timeout this lasted indefinitely; it was reproduced with the run's transaction idle and the cancel waiting for more than nine minutes. `services/api/tests/test_postgres_loop_responsiveness.py` covers a run with six open event streams, and a cancel during a run ([Realtime](realtime.md#event-loop)).
+
 ## Durable Execution
 
 `ANUM_RUNTIME_BACKEND` picks where a run executes:
 
 | Value | Behaviour |
 |---|---|
-| `inline` (default) | `POST /api/v1/tasks/{id}/run` plans and executes inside the request, as before. |
+| `inline` (default) | `POST /api/v1/tasks/{id}/run` plans and executes inside the request, in short units of work ([Inline runs](#inline-runs)). |
 | `temporal` | The request saves the task as `queued` with a run at the `planning` checkpoint (its first step, `queued`, records the Temporal workflow id) and starts `AgentRunWorkflow`. A worker (`python -m anum_api.worker`) executes it. The response returns the queued run; progress arrives through events. |
 
 The workflow (`anum_api/temporal_workflow.py`) does no I/O. It repeatedly calls one activity, `anum.advance_run` (`anum_api/durable_runs.py`), which opens a tenant-scoped unit of work (RLS tenant and workspace set, events published only after commit), loads the run's persisted checkpoint and moves it one step:

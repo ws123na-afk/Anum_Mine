@@ -23,6 +23,7 @@ The run records which chunks were used (ids, source, score; never the text) on a
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import math
@@ -39,8 +40,8 @@ from pydantic import BaseModel, Field
 from .authorization import ROLE_PERMISSIONS, Permission, Role
 from .model_gateway import (
     LOCAL_EMBEDDING_MODEL,
-    EmbeddingResponse,
     MAX_EMBEDDING_BATCH,
+    EmbeddingResponse,
     local_embedding_response,
 )
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
@@ -748,8 +749,8 @@ class Retriever:
             return RetrievalResult(RetrievalStatus.SKIPPED, "retrieval is turned off", model)
         if not may_read_memory(context):
             return RetrievalResult(RetrievalStatus.SKIPPED, "the caller may not read workspace memory", model)
-        with self.store_factory(context) as store:
-            has_indexed = store.has_indexed(context, model)
+        # Database reads in a worker thread, never on the event loop (docs/realtime.md#event-loop).
+        has_indexed = await asyncio.to_thread(self._has_indexed, context, model)
         if not has_indexed:
             # Nothing to find: do not spend an embedding call (or budget) on the query.
             return RetrievalResult(RetrievalStatus.NO_RESULTS, None, model)
@@ -769,13 +770,22 @@ class Retriever:
         vector = response.vectors[0]
         if not any(component != 0.0 for component in vector):
             return RetrievalResult(RetrievalStatus.NO_RESULTS, None, model)
-        with self.store_factory(context) as store:
-            # Restricted to chosen sources: search wider, then keep only theirs.
-            limit = self.top_k if sources is None else max(self.top_k * 10, 100)
-            found = store.search(context, vector, model, limit, self.clock(), source_type=source_type)
+        # Restricted to chosen sources: search wider, then keep only theirs.
+        limit = self.top_k if sources is None else max(self.top_k * 10, 100)
+        found = await asyncio.to_thread(self._search, context, vector, model, limit, source_type)
         if sources is not None:
             found = [chunk for chunk in found if (str(chunk.source_type), chunk.source_id) in sources][: self.top_k]
         return self._assemble(context, found, model)
+
+    def _has_indexed(self, context: TenantContext, model: str) -> bool:
+        with self.store_factory(context) as store:
+            return bool(store.has_indexed(context, model))
+
+    def _search(
+        self, context: TenantContext, vector: list[float], model: str, limit: int, source_type: SourceType | None
+    ) -> list[RetrievedChunk]:
+        with self.store_factory(context) as store:
+            return list(store.search(context, vector, model, limit, self.clock(), source_type=source_type))
 
     def _assemble(self, context: TenantContext, found: list[RetrievedChunk], model: str) -> RetrievalResult:
         result = RetrievalResult(RetrievalStatus.NO_RESULTS, None, model, max_chars=self.max_chars)
