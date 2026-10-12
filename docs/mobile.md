@@ -275,6 +275,18 @@ Rolling back a store release:
 
 The pipeline has not run yet: it needs the keys and secrets above, and no signed build or macOS job can be run from a Linux development container. `services/api/tests/test_mobile_release.py` checks that the deployed realm's `anum-flutter` client registers exactly `com.anum.app:/oauth2redirect` (no wildcards) as its redirect and post-logout redirect, that the app's defaults, the Android `appAuthRedirectScheme` and applicationId, and the iOS URL scheme and bundle identifier agree with it, and that the workflow uploads `com.anum.app` and keeps the desktop jobs gated.
 
+### Crash Symbols
+
+Store builds compile obfuscated Dart (`--obfuscate --split-debug-info=build/symbols`, owner decision of 12 October 2026, [Full skills audit](audits/2026-10-12-full-skills-audit.md)): class and function names in the binary are replaced, which makes the app harder to reverse engineer, and a Dart stack trace from a release build shows obfuscated names and addresses. CI's release app bundle uses the same flags, so a pull request proves an obfuscated build compiles.
+
+The release workflow uploads each build's symbol files as an artifact named `anum-android-symbols-<build number>` or `anum-ios-symbols-<build number>` (for example `app.android-arm64.symbols`, `app.ios-arm64.symbols`), kept for 90 days. Keep the symbols of every build that reaches testers or a store longer than that: download the artifact from the run and store it with the release evidence. To read a crash:
+
+1. Find the build number of the crashing app (Play Console or App Store Connect shows it with the crash; it is also the version code / `CFBundleVersion`).
+2. Download that build's symbols artifact from the "Release clients" run and unzip it, for example to `symbols/`.
+3. Save the stack trace to `trace.txt` and run, from `apps/mobile`: `flutter symbolize -i trace.txt -d symbols/app.android-arm64.symbols` (use the file for the device's architecture; `app.ios-arm64.symbols` for iPhones).
+
+Native (Java, Kotlin, Swift) frames are not affected by Dart obfuscation; Play Console and Xcode Organizer symbolicate those as before.
+
 ### Owner Checklist (Windows)
 
 The owner already has the Google Play developer account and the Apple Developer account. Everything below runs in a browser and Windows PowerShell. No Mac is needed: the iOS job runs on GitHub's macOS runner and signs with Apple's cloud-managed certificate through the App Store Connect API key. The examples use `https://app.example.com` (web), `https://api.example.com` (API) and `https://auth.example.com` (Keycloak, issuer `https://auth.example.com/realms/anum`); use the real hostnames. The deployed realm already contains the `anum-flutter` client with the app's exact redirect, so Keycloak needs no change for the apps.

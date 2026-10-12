@@ -577,9 +577,11 @@ jobs:
           path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
       # No keystore in CI: the bundle is debug-signed (with a Gradle warning) and never uploaded to Play.
+      # Obfuscated like the store build (release-clients.yml), so a pull request proves it compiles.
       - name: Build release app bundle
         run: >-
           flutter build appbundle --release
+          --obfuscate --split-debug-info=build/symbols
           --dart-define=ANUM_API_URL=https://api.anum.invalid/
           --dart-define=ANUM_OIDC_ISSUER=https://id.anum.invalid/realms/anum
 
