@@ -556,3 +556,47 @@ def test_maintenance_role_sees_commerce_ids_but_no_ciphertext(commerce_with_old_
                 with connection.begin():
                     connection.execute(text("set local role anum_maintenance"))
                     connection.execute(text(statement))
+
+
+# -- automation webhook trigger secrets (0049_automation_triggers, 0050) --------------------
+
+
+def test_webhook_trigger_secrets_are_re_encrypted_enabled_or_not(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+    app_factory: sessionmaker[Session],
+    database_engine: Engine,
+) -> None:
+    from anum_api.rotate_secrets import rotate_automation_trigger_secrets
+
+    old = SecretCipher([OLD_KEY])
+    for tenant_id, workspace_id, label, enabled in ((TENANT_A, WORKSPACE_A, "a", False), (TENANT_B, WORKSPACE_B, "b", True)):
+        with app_session(tenant_context(tenant_id, workspace_id), commit=True) as session:
+            session.execute(
+                text(
+                    "insert into automation_workflows (id, tenant_id, workspace_id, name, steps, status, version, created_by) "
+                    "values (:id, :tenant, :workspace, 'Hook', '[]', 'active', 1, 'owner')"
+                ),
+                {"id": f"wf_{label}", "tenant": tenant_id, "workspace": workspace_id},
+            )
+            session.execute(
+                text(
+                    "insert into automation_triggers (id, tenant_id, workspace_id, workflow_id, name, kind, enabled, "
+                    "secret_ciphertext, created_by, created_at, updated_at) values "
+                    "(:id, :tenant, :workspace, :workflow, 'Store hook', 'webhook', :enabled, :secret, 'owner', now(), now())"
+                ),
+                {"id": f"trig_{label}", "tenant": tenant_id, "workspace": workspace_id, "workflow": f"wf_{label}",
+                 "enabled": enabled, "secret": old.encrypt(f"example-hook-secret-{label}")},
+            )
+    cipher = SecretCipher([NEW_KEY, OLD_KEY])
+    assert rotate_automation_trigger_secrets(cipher, session_factory=app_factory, dry_run=True).rotated == 2
+    report = rotate_automation_trigger_secrets(cipher, session_factory=app_factory)
+    assert (report.scanned, report.rotated, report.failed) == (2, 2, 0)
+    with database_engine.connect() as connection:
+        stored = connection.execute(text("select secret_ciphertext from automation_triggers order by id")).scalars().all()
+    with database_engine.connect() as connection:
+        with connection.begin():
+            connection.execute(text("set local role anum_maintenance"))
+            assert connection.execute(text("select id from automation_triggers order by 1")).scalars().all() == ["trig_a", "trig_b"]
+    assert [SecretCipher([NEW_KEY]).decrypt(value) for value in stored] == ["example-hook-secret-a", "example-hook-secret-b"]
+    assert rotate_automation_trigger_secrets(cipher, session_factory=app_factory).already_current == 2

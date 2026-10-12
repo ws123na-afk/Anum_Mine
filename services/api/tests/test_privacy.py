@@ -422,7 +422,7 @@ def test_build_export_is_valid_json_with_every_section() -> None:
         "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "learning", "commands", "library", "files_uploaded",
         "meetings_imported", "meeting_connections",
         "email", "whatsapp_messages_sent", "autonomy_actions_requested",
-        "team_work", "tyre_planning", "commerce_connectors_created",
+        "team_work", "tyre_planning", "commerce_connectors_created", "workspace_records_created",
     }
     assert parsed["notification_preferences"] is None
     assert parsed["user_preferences"] is None
@@ -646,3 +646,44 @@ def test_team_work_tyre_and_commerce_are_counted_exported_and_private_parts_dele
     assert after["shared"]["work_items_assigned"] == 1
     # Another tenant keeps everything.
     assert client.get("/api/v1/privacy", headers=OTHER_TENANT).json()["private"]["team_profile"] == 1
+
+
+def test_marketing_calendar_and_trigger_records_are_counted_and_exported_without_secrets(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from anum_api import automation as automation_module
+    from anum_api.automation import LocalAutomationEngine
+    from anum_api.calendar_api import calendar_backend
+    from anum_api.marketing.models import Campaign, SocialAccount
+    from anum_api.marketing.store import marketing_store
+
+    monkeypatch.setattr(automation_module, "engine", LocalAutomationEngine(str(tmp_path / "automation.db")))
+    calendar_backend.clear()
+    owner = headers("user_me", roles="owner")
+    context, now = _context(owner), utc_now()
+    scope = {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id}
+    marketing_store.add_account(
+        SocialAccount(
+            id="soc_mine", **scope, platform="facebook", provider="meta", external_id="page1", display_name="Shop page",
+            access_token_ciphertext="ciphertext-placeholder", connected_by="user_me", created_at=now, updated_at=now,
+        )
+    )
+    marketing_store.add_campaign(Campaign(id="camp_mine", **scope, name="Summer tyres", created_by="user_me", created_at=now, updated_at=now))
+    assert client.post(
+        "/api/v1/calendar/events", headers=owner,
+        json={"title": "Supplier call", "starts_at": "2026-11-01T09:00:00Z", "ends_at": "2026-11-01T09:30:00Z"},
+    ).status_code == 201
+    workflow = client.post("/api/v1/automation/workflows", headers=owner, json={"name": "Hook", "steps": [{"id": "s0", "name": "S0", "action": "notify", "input": {}}]}).json()
+    trigger = client.post("/api/v1/automation/triggers", headers=owner, json={"workflow_id": workflow["id"], "name": "Store hook", "kind": "webhook"})
+    assert trigger.status_code == 201, trigger.text
+
+    shared = client.get("/api/v1/privacy", headers=owner).json()["shared"]
+    assert {key: shared[key] for key in (
+        "marketing_accounts_connected", "marketing_campaigns_created", "calendar_events_created", "automation_triggers_created"
+    )} == {"marketing_accounts_connected": 1, "marketing_campaigns_created": 1, "calendar_events_created": 1, "automation_triggers_created": 1}
+    response = client.get("/api/v1/privacy/export", headers=owner)
+    created = json.loads(response.content)["workspace_records_created"]
+    assert [item["title"] for item in created["calendar_events_created"]] == ["Supplier call"]
+    assert "access_token_ciphertext" not in created["marketing_accounts_connected"][0]
+    assert "secret_ciphertext" not in created["automation_triggers_created"][0]
+    assert "ciphertext-placeholder" not in response.text and trigger.json()["secret"] not in response.text

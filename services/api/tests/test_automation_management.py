@@ -479,5 +479,28 @@ def test_every_state_changing_automation_route_is_audited(tmp_path: Path, monkey
     probe.call("POST", f"{base}/runs/{second['id']}/cancel", owner)
     retried = probe.call("POST", f"{base}/runs/{second['id']}/retry", owner).json()
     probe.call("POST", f"{base}/runs/{retried['id']}/cancel", owner)
+
+    # Triggers (docs/automation.md#triggers): the webhook secret never reaches the audit log.
+    created = probe.call("POST", f"{base}/triggers", owner, json={"workflow_id": workflow["id"], "name": "Shop hook", "kind": "webhook"}).json()
+    probe.secrets.append(created["secret"])
+    trigger_id = created["trigger"]["id"]
+    probe.call("PUT", f"{base}/triggers/{trigger_id}", owner, json={"name": "Store hook"})
+    probe.secrets.append(probe.call("POST", f"{base}/triggers/{trigger_id}/rotate-secret", owner).json()["secret"])
+    probe.call("POST", f"{base}/triggers/{trigger_id}/disable", owner)
+    probe.call("DELETE", f"{base}/triggers/{trigger_id}", owner)
+
+    # An owner takes over a member's schedule and trigger.
+    member = headers("member_m", "member")
+    theirs = probe.client.post(f"{base}/workflows", headers=member, json=body("Theirs", "notify")).json()
+    their_schedule = probe.client.post(
+        f"{base}/schedules", headers=member, json={"workflow_id": theirs["id"], "name": "Daily", "cron": "0 8 * * *"}
+    ).json()
+    probe.call("POST", f"{base}/schedules/{their_schedule['id']}/take-over", owner)
+    their_trigger = probe.client.post(
+        f"{base}/triggers", headers=member, json={"workflow_id": theirs["id"], "name": "Their hook", "kind": "webhook"}
+    ).json()
+    probe.secrets.append(their_trigger["secret"])
+    probe.call("POST", f"{base}/triggers/{their_trigger['trigger']['id']}/take-over", owner)
+
     probe.call("DELETE", f"{base}/workflows/{workflow['id']}", owner)
     probe.assert_covered()

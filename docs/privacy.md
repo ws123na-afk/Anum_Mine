@@ -60,6 +60,7 @@ Format `anum.privacy-export/v1`, sections in this order:
 | `team_work` | The caller's team member profile, their in-app notifications, the work items they created or that are assigned to them, and the comments they wrote on those items ([Team work](team-work.md)). |
 | `tyre_planning` | The tyre data connection the caller set up (without its secret) and the metadata of the tyre reports they created; report contents are workspace planning data and are left out ([Tyre planning](tyre-planning.md)). |
 | `commerce_connectors_created` | The sales channels the caller connected (channel, name, marketplaces, health); never the channel credentials or sync cursors ([Commerce](commerce.md)). |
+| `workspace_records_created` | The social accounts the caller connected (never their tokens) and the marketing campaigns they created ([Marketing](marketing.md)), the calendar events they created, and the automation triggers they added (never a webhook secret, [Automation](automation.md#triggers)). |
 | `not_included` | Plain sentences listing what is not in the file (below). |
 
 **Files are linked, not embedded.** File bytes can be up to 25 MiB each and are workspace records; embedding them would make the export unbounded. The signed-in user downloads each file from its `download_path` (the Files page does the same).
@@ -92,7 +93,7 @@ Kept, and counted in the response and on the page:
 - workspace mailboxes the caller connected (`email_mailboxes_connected`) and the caller's emails sent or waiting for approval from them (`email_drafts_sent`): they are the workspace's correspondence. An owner disconnects a mailbox under Inbox;
 - WhatsApp messages the caller sent (`whatsapp_messages_sent`): they are part of the customer's conversation with the business, and follow the workspace's [WhatsApp retention](whatsapp.md#retention);
 - actions ANUM took for the caller (`autonomy_actions_requested`): the workspace's activity record ([Autonomy](autonomy.md));
-- work items the caller created or that are assigned to them (`work_items_created`, `work_items_assigned`), the tyre connection and reports they created (`tyre_connections_created`, `tyre_reports_created`) and the sales channels they connected (`commerce_connectors_created`): workspace records other members rely on;
+- work items the caller created or that are assigned to them (`work_items_created`, `work_items_assigned`), the tyre connection and reports they created (`tyre_connections_created`, `tyre_reports_created`) the sales channels they connected (`commerce_connectors_created`), the social accounts and campaigns (`marketing_accounts_connected`, `marketing_campaigns_created`), calendar events (`calendar_events_created`) and automation triggers (`automation_triggers_created`) they created: workspace records other members rely on;
 - audit records: they are the workspace's security record and hold ids and counts, not content;
 - the Keycloak account: ANUM does not delete identity accounts. The page says to ask the workspace owner or organization administrator, who removes the user in Keycloak and deactivates the membership.
 

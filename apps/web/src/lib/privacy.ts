@@ -25,6 +25,7 @@ const SHARED_KEYS: (keyof SharedCounts)[] = [
   'tasks_created', 'approvals_decided', 'shared_memories_created', 'files_uploaded',
   'email_mailboxes_connected', 'email_drafts_sent', 'whatsapp_messages_sent', 'autonomy_actions_requested',
   'work_items_created', 'work_items_assigned', 'tyre_connections_created', 'tyre_reports_created', 'commerce_connectors_created',
+  'marketing_accounts_connected', 'marketing_campaigns_created', 'calendar_events_created', 'automation_triggers_created',
 ];
 
 const rowLabel = (key: string) => t(`privacy.row.${key}` as MessageKey);

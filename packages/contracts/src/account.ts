@@ -87,6 +87,12 @@ export interface PrivacySharedCounts {
   tyre_reports_created?: number;
   /** Sales channels the caller connected (docs/commerce.md). Absent from older servers. */
   commerce_connectors_created?: number;
+  /** Social accounts the caller connected and marketing campaigns they created (docs/marketing.md). Absent from older servers. */
+  marketing_accounts_connected?: number;
+  marketing_campaigns_created?: number;
+  /** Calendar events they created and automation triggers they added. Absent from older servers. */
+  calendar_events_created?: number;
+  automation_triggers_created?: number;
 }
 
 export interface PrivacyRetention {

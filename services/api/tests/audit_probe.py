@@ -36,6 +36,10 @@ MODULE_PREFIXES = {
 EXEMPT: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/automation/schedules/preview"): "Computes the next fire times of a cron expression; stores nothing.",
     ("POST", "/api/v1/developer/resolve"): "Matches a spoken request to a project name; stores nothing.",
+    ("POST", "/api/v1/automation/hooks/{tenant_id}/{workspace_id}/{trigger_id}"): (
+        "An outside system's HMAC-signed delivery, not a person's action; the run it starts is in the run "
+        "history with the trigger and delivery id, and every change to the trigger itself is audited."
+    ),
     ("POST", "/api/v1/whatsapp/webhook"): (
         "Meta's signed delivery of customer messages, not a person's action; deliveries are counted in "
         "metrics and every reply a person or ANUM sends is audited on /send."

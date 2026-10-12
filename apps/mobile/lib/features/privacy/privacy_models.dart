@@ -45,6 +45,10 @@ const _sharedLabels = <String, String>{
   'tyre_connections_created': 'Tyre data connection you set up',
   'tyre_reports_created': 'Tyre reports you created',
   'commerce_connectors_created': 'Sales channels you connected',
+  'marketing_accounts_connected': 'Social accounts you connected',
+  'marketing_campaigns_created': 'Marketing campaigns you created',
+  'calendar_events_created': 'Calendar events you created',
+  'automation_triggers_created': 'Automation triggers you added',
 };
 
 List<PrivacyCount> _counts(JsonReader json, Map<String, String> labels) => [

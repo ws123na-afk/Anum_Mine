@@ -167,6 +167,13 @@ class SharedCounts(BaseModel):
     tyre_reports_created: int = 0
     # Commerce (docs/commerce.md): sales-channel connectors they connected.
     commerce_connectors_created: int = 0
+    # Marketing (docs/marketing.md): social accounts they connected, campaigns they created.
+    marketing_accounts_connected: int = 0
+    marketing_campaigns_created: int = 0
+    # Calendar events they created (docs/reports-calendar.md) and automation triggers
+    # they added (docs/automation.md#triggers).
+    calendar_events_created: int = 0
+    automation_triggers_created: int = 0
 
 
 class EmailCounts(BaseModel):
@@ -274,9 +281,45 @@ def commerce_connectors_created(store: "PrivacyStore", context: TenantContext) -
     return [item for item in store.commerce().list_connectors(context) if item.created_by == context.user_id]
 
 
+def workspace_records_created(context: TenantContext) -> dict[str, list[Any]]:
+    """Marketing, calendar and automation trigger records the caller created (each module's own
+    unit of work in the caller's tenant and workspace; workspace records, kept by a deletion)."""
+    from datetime import timezone
+
+    from .automation import current_engine
+    from .calendar_api import open_calendar_store
+    from .marketing.store import open_marketing_store
+
+    user = context.user_id
+    with open_marketing_store(context) as marketing:
+        accounts = [item for item in marketing.list_accounts(context) if item.connected_by == user]
+        campaigns = [
+            item
+            for item in marketing.list_campaigns(context, status=None, text=None, limit=10_000, before=None)
+            if item.created_by == user
+        ]
+    with open_calendar_store(context) as calendar:
+        events = [
+            item
+            for item in calendar.between(
+                datetime(1970, 1, 1, tzinfo=timezone.utc), datetime(2200, 1, 1, tzinfo=timezone.utc),
+                include_cancelled=True, limit=10_000,
+            )
+            if item.created_by == user
+        ]
+    triggers = [item for item in current_engine().list_triggers(context) if item.created_by == user]
+    return {
+        "marketing_accounts_connected": accounts,
+        "marketing_campaigns_created": campaigns,
+        "calendar_events_created": events,
+        "automation_triggers_created": triggers,
+    }
+
+
 def other_module_counts(store: "PrivacyStore", context: TenantContext) -> tuple[dict[str, int], dict[str, int]]:
     team = team_data(store, context)
     tyre = tyre_data(store, context)
+    created = workspace_records_created(context)
     return (
         {"team_notifications": len(team["notifications"]), "team_profile": int(team["profile"] is not None)},
         {
@@ -285,6 +328,7 @@ def other_module_counts(store: "PrivacyStore", context: TenantContext) -> tuple[
             "tyre_connections_created": int(tyre["connection"] is not None),
             "tyre_reports_created": len(tyre["reports"]),
             "commerce_connectors_created": len(commerce_connectors_created(store, context)),
+            **{name: len(items) for name, items in created.items()},
         },
     )
 
@@ -922,6 +966,16 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield (
         "commerce_connectors_created",
         [_dump(item, exclude={"cursors"}) for item in commerce_connectors_created(store, context)],
+    )
+    created = workspace_records_created(context)
+    # Never a token or a webhook secret.
+    excluded = {
+        "marketing_accounts_connected": {"access_token_ciphertext", "refresh_token_ciphertext"},
+        "automation_triggers_created": {"secret_ciphertext"},
+    }
+    yield (
+        "workspace_records_created",
+        {name: [_dump(item, exclude=excluded.get(name)) for item in items] for name, items in created.items()},
     )
     yield (
         "files_uploaded",
