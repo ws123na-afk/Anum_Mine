@@ -10,6 +10,7 @@ import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { voiceEn } from './en.voice.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
+import { orgChartEn } from './orgChart.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 
@@ -19,6 +20,7 @@ export const en = {
   ...teamEn,
   ...marketingEn,
   ...agentSkillsEn,
+  ...orgChartEn,
   ...chatEn,
   ...setupEn,
   // ---- Common ----

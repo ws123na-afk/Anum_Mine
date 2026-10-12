@@ -10,6 +10,7 @@ import type { Task } from '@anum/contracts';
 import { AgentSkillsPanel } from './AgentSkillsPanel';
 import { ChatView } from './ChatView';
 import { ConfirmDialog } from './Dialog';
+import { OrgChartView, type OrgGo } from './OrgChartView';
 import * as api from './lib/api';
 import {
   agentsApi, ALWAYS_ON_TOOL, CATEGORIES, COLORS, DESCRIPTION_MAX, DETAIL_TABS, draftBody, draftChanges, draftFromAgent,
@@ -56,11 +57,21 @@ function useRole(): 'owner' | 'member' | 'viewer' | null {
 }
 
 type Mode = { kind: 'list' } | { kind: 'detail'; id: string } | { kind: 'wizard'; agent: AgentProfile | null };
+type ListTab = 'agents' | 'org';
+const TAB_KEY = 'anum.agents.tab';
 
-export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenBudgets, onOpenFiles }: {
+function readTab(): ListTab {
+  try { return localStorage.getItem(TAB_KEY) === 'org' ? 'org' : 'agents'; } catch { return 'agents'; }
+}
+
+export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenBudgets, onOpenFiles, onGo }: {
   onOpenSkills?: () => void; onOpenTasks?: () => void; onOpenApprovals?: () => void; onOpenBudgets?: () => void; onOpenFiles?: () => void;
+  /** Opens Integrations, Assistants, Team or Automation from the org chart (without it, the URL hash does). */
+  onGo?: (view: OrgGo) => void;
 }) {
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
+  const [tab, setTabState] = useState<ListTab>(readTab);
+  const setTab = (next: ListTab) => { setTabState(next); try { localStorage.setItem(TAB_KEY, next); } catch { /* storage blocked */ } };
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -77,7 +88,12 @@ export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenB
   };
   return <div className="agentsView" ref={top} tabIndex={-1}>
     {flash && <Notice>{flash}</Notice>}
-    {mode.kind === 'list' && <AgentList catalog={catalog} catalogError={catalogError} role={role} onRetryCatalog={() => void loadCatalog()}
+    {mode.kind === 'list' && <nav className="settingsTabs agentTabs agentViewTabs" aria-label={t('org.tabs')}>
+      {(['agents', 'org'] as const).map((value) => <button key={value} type="button" aria-current={tab === value ? 'page' : undefined} onClick={() => setTab(value)}>{t(`org.tab.${value}`)}</button>)}
+    </nav>}
+    {mode.kind === 'list' && tab === 'org' && <OrgChartView role={role} onOpenAgent={(id) => go({ kind: 'detail', id })} onEditAgent={(agent) => go({ kind: 'wizard', agent })}
+      onCreate={() => go({ kind: 'wizard', agent: null })} onOpenApprovals={onOpenApprovals} onOpenTasks={onOpenTasks} onOpenBudgets={onOpenBudgets} onGo={onGo} />}
+    {mode.kind === 'list' && tab === 'agents' && <AgentList catalog={catalog} catalogError={catalogError} role={role} onRetryCatalog={() => void loadCatalog()}
       onOpen={(id) => go({ kind: 'detail', id })} onCreate={() => go({ kind: 'wizard', agent: null })} onOpenSkills={onOpenSkills} />}
     {mode.kind === 'wizard' && <AgentWizard catalog={catalog} catalogError={catalogError} onRetryCatalog={() => void loadCatalog()} agent={mode.agent}
       onCancel={() => go(mode.agent ? { kind: 'detail', id: mode.agent.id } : { kind: 'list' })}
