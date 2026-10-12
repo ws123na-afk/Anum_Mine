@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import time
 import zipfile
 from collections.abc import Iterator
 
@@ -27,6 +28,8 @@ from anum_api.meeting_transcripts import (
     clock_to_ms,
     detect_language,
     parse_transcript,
+    strip_tags,
+    voice_speaker,
 )
 from anum_api.settings import Settings
 
@@ -317,3 +320,34 @@ def test_answer_parsing_tolerates_fences_and_bounds_values() -> None:
 def test_unusable_answers_are_rejected(raw: str) -> None:
     with pytest.raises(AnalysisParseError):
         parse_answer(raw)
+
+
+def test_tag_scanning_handles_voice_classes_and_unclosed_tags() -> None:
+    assert voice_speaker("<v Jane Doe>hello</v>") == "Jane Doe"
+    assert voice_speaker("<v.loud.blue Omar>hi") == "Omar"
+    assert voice_speaker("<V Sara>hi") == "Sara"
+    assert voice_speaker("<vx>no</vx> <v.c>none") is None
+    assert voice_speaker("plain text") is None
+    assert strip_tags("a<b>c</b>d") == "acd"
+    assert strip_tags("2 < 3 and more") == "2 < 3 and more"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<" + "</" * 50_000,
+        "<v." * 33_000,
+        "<v" + " " * 100_000,
+        "<v " * 33_000,
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n" + "<v." * 33_000 + "\n",
+    ],
+    ids=["close-tags", "voice-classes", "voice-spaces", "voice-repeats", "vtt-cue"],
+)
+def test_tag_scanning_is_linear_on_adversarial_input(text: str) -> None:
+    # CodeQL py/polynomial-redos: 100 KB of hostile markup must not backtrack.
+    start = time.perf_counter()
+    strip_tags(text)
+    voice_speaker(text)
+    if text.startswith("WEBVTT"):
+        parse_transcript("hostile.vtt", text.encode(), max_bytes=1_000_000)
+    assert time.perf_counter() - start < 1.0

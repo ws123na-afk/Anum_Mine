@@ -27,6 +27,7 @@ refresh re-encrypts them with the current key. Disconnecting deletes them.
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -35,7 +36,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from enum import StrEnum
 from threading import RLock
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import httpx
 from pydantic import BaseModel, Field
@@ -58,6 +59,13 @@ ZOOM_TOKEN_URL = "https://zoom.us/oauth/token"  # nosec B105 - an endpoint URL, 
 ZOOM_API = "https://api.zoom.us/v2"
 MICROSOFT_LOGIN = "https://login.microsoftonline.com"
 GRAPH_API = "https://graph.microsoft.com/v1.0"
+# Ids that reach a request path: Zoom meeting UUIDs are base64 (``+``, ``/``, ``=``), Graph
+# meeting and transcript ids are base64url-like, Graph user ids are GUIDs. Anything else
+# is refused before a URL is built, and every id is percent-encoded into it.
+_EXTERNAL_ID = re.compile(r"[A-Za-z0-9+/=_-]{1,256}")
+_GRAPH_USER_ID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
+# Hosts a Zoom transcript download (and its one redirect) may come from.
+_ZOOM_DOWNLOAD_DOMAINS = ("zoom.us", "zoomgov.com")
 TEAMS_SCOPES = ("offline_access", "User.Read", "OnlineMeetings.Read", "OnlineMeetingTranscript.Read.All")
 
 
@@ -440,6 +448,44 @@ def _parse_time(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def _checked_id(value: str, pattern: re.Pattern[str], what: str) -> str:
+    if not pattern.fullmatch(value):
+        raise ConnectorError(f"This {what} reference is not valid.", status_code=422)
+    return value
+
+
+def _graph_user(connection: StoredConnection) -> str:
+    user_id = connection.external_user_id
+    if not user_id or not _GRAPH_USER_ID.fullmatch(user_id):
+        raise ConnectorError("The Microsoft connection is missing its user id. Connect again.", reconnect=True, status_code=409)
+    return user_id
+
+
+def _zoom_download_url(value: object) -> str | None:
+    """A Zoom download URL rebuilt from its parts when its host is Zoom's; else None."""
+    if not isinstance(value, str):
+        return None
+    parts = urlsplit(value)
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or parts.username or parts.password or parts.port not in (None, 443):
+        return None
+    if not any(host == domain or host.endswith("." + domain) for domain in _ZOOM_DOWNLOAD_DOMAINS):
+        return None
+    return urlunsplit(("https", host, parts.path, parts.query, ""))
+
+
+def _graph_next_params(next_link: object) -> dict[str, str] | None:
+    """The OData paging parameters of a Graph ``@odata.nextLink`` (the URL itself is not
+    followed: the next page is requested from the same constant path)."""
+    if not isinstance(next_link, str):
+        return None
+    parts = urlsplit(next_link)
+    if parts.scheme != "https" or parts.hostname != "graph.microsoft.com":
+        return None
+    params = {key: value for key, value in parse_qsl(parts.query) if key.startswith("$")}
+    return params or None
+
+
 def _zoom_uuid(uuid: str) -> str:
     # Zoom: a UUID that starts with "/" or contains "//" must be double URL-encoded.
     encoded = quote(uuid, safe="")
@@ -473,26 +519,24 @@ async def list_meetings(
                 )
             )
     else:
-        user_id = connection.external_user_id
-        if not user_id:
-            raise ConnectorError("The Microsoft connection is missing its user id. Connect again.", reconnect=True, status_code=409)
+        user_id = _graph_user(connection)
         function = (
             f"getAllTranscripts(meetingOrganizerUserId='{user_id}',"
             f"startDateTime={start.strftime('%Y-%m-%dT%H:%M:%SZ')},endDateTime={today.strftime('%Y-%m-%dT%H:%M:%SZ')})"
         )
-        url: str | None = f"{GRAPH_API}/users/{quote(user_id, safe='')}/onlineMeetings/{function}"
+        url = f"{GRAPH_API}/users/{quote(user_id, safe='')}/onlineMeetings/{function}"
         items: list[dict[str, Any]] = []
+        page_params: dict[str, str] | None = {}
         pages = 0
-        while url and pages < 3 and len(items) < MAX_LISTED:
-            body = _json(await _request(provider, "GET", url, headers=headers), provider)
+        while page_params is not None and pages < 3 and len(items) < MAX_LISTED:
+            body = _json(await _request(provider, "GET", url, params=page_params, headers=headers), provider)
             items.extend(item for item in body.get("value") or [] if isinstance(item, dict))
-            next_link = body.get("@odata.nextLink")
-            url = next_link if isinstance(next_link, str) and next_link.startswith(GRAPH_API) else None
+            page_params = _graph_next_params(body.get("@odata.nextLink"))
             pages += 1
         titles: dict[str, tuple[str, datetime | None, datetime | None]] = {}
         for item in sorted(items, key=lambda value: str(value.get("createdDateTime") or ""), reverse=True)[:MAX_LISTED]:
             meeting_id, transcript_id = str(item.get("meetingId") or ""), str(item.get("id") or "")
-            if not meeting_id or not transcript_id:
+            if not _EXTERNAL_ID.fullmatch(meeting_id) or not _EXTERNAL_ID.fullmatch(transcript_id):
                 continue
             if meeting_id not in titles and len(titles) < TEAMS_TITLE_LOOKUPS:
                 try:
@@ -537,7 +581,8 @@ async def _download_text(provider: ConnectorProvider, url: str, headers: dict[st
             async with client.stream("GET", url, headers=headers, params=params) as response:
                 if response.status_code in {301, 302, 303, 307, 308}:
                     location = response.headers.get("location", "")
-                    if not location.startswith("https://"):
+                    location = _zoom_download_url(location) or ""
+                    if not location:
                         raise ConnectorError(f"{_provider_name(provider)} redirected the download unexpectedly.")
                     # Zoom serves the file from its CDN: follow one HTTPS redirect without the token.
                     async with client.stream("GET", location) as redirected:
@@ -570,14 +615,20 @@ async def fetch_transcript(
     headers = {"Authorization": f"Bearer {access_token}"}
     if provider == ConnectorProvider.ZOOM:
         meeting = _json(
-            await _request(provider, "GET", f"{ZOOM_API}/meetings/{_zoom_uuid(external_id)}/recordings", headers=headers), provider
+            await _request(
+                provider,
+                "GET",
+                f"{ZOOM_API}/meetings/{_zoom_uuid(_checked_id(external_id, _EXTERNAL_ID, 'Zoom meeting'))}/recordings",
+                headers=headers,
+            ),
+            provider,
         )
         transcript = next(
             (item for item in meeting.get("recording_files") or [] if str(item.get("file_type", "")).upper() == "TRANSCRIPT"),
             None,
         )
-        url = transcript.get("download_url") if transcript else None
-        if not isinstance(url, str) or not url.startswith("https://"):
+        url = _zoom_download_url(transcript.get("download_url")) if transcript else None
+        if url is None:
             raise ConnectorError("Zoom has no transcript for this meeting. Turn on audio transcripts in Zoom's recording settings.", status_code=404)
         vtt = await _download_text(provider, url, headers, {}, max_bytes)
         duration = meeting.get("duration")
@@ -587,10 +638,10 @@ async def fetch_transcript(
             duration_seconds=int(duration) * 60 if isinstance(duration, int) else None,
             vtt=vtt,
         )
-    user_id = connection.external_user_id
-    if not user_id or "::" not in external_id:
+    if "::" not in external_id:
         raise ConnectorError("This Teams transcript reference is not valid.", status_code=422)
-    meeting_id, transcript_id = external_id.split("::", 1)
+    user_id = _graph_user(connection)
+    meeting_id, transcript_id = (_checked_id(part, _EXTERNAL_ID, "Teams transcript") for part in external_id.split("::", 1))
     base = f"{GRAPH_API}/users/{quote(user_id, safe='')}/onlineMeetings/{quote(meeting_id, safe='')}"
     title, started, ended = "", None, None
     try:

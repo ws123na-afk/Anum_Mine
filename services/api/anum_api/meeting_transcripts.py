@@ -48,8 +48,6 @@ _CUE_TIME = re.compile(
     r"^\s*(?P<start>(?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*(?P<end>(?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})",
     re.MULTILINE,
 )
-_VOICE_TAG = re.compile(r"<v(?:\.[^\s>]*)?\s+([^>]+)>", re.IGNORECASE)
-_TAG = re.compile(r"</?[^>]+>")
 # "[00:01:02] Jane: text", "00:01:02 Jane: text", "(1:02) Jane: text"
 _LINE_TIME = re.compile(r"^\s*[\[(]?(?P<time>(?:\d{1,2}:)?\d{1,2}:\d{2})(?:[.,]\d{1,3})?[\])]?\s*[-–]?\s*")
 _SPEAKER_PREFIX = re.compile(r"^(?P<speaker>[^:\n]{1,80}?)\s*[:：]\s+(?P<text>\S.*)$")
@@ -82,8 +80,62 @@ def detect_language(text: str) -> str:
     return "ar" if arabic > latin else "en"
 
 
+def strip_tags(text: str) -> str:
+    """Drop ``<...>`` markup (VTT voice, class and timestamp tags) by one linear scan.
+
+    A ``<`` with no ``>`` after it is kept as text, as is everything after it: no regex,
+    so hostile input such as ``<`` followed by many ``</`` costs one pass.
+    """
+    out: list[str] = []
+    position = 0
+    while True:
+        start = text.find("<", position)
+        if start == -1:
+            out.append(text[position:])
+            break
+        end = text.find(">", start + 1)
+        if end == -1:
+            out.append(text[position:])
+            break
+        out.append(text[position:start])
+        position = end + 1
+    return "".join(out)
+
+
+def voice_speaker(text: str) -> str | None:
+    """The speaker of the first WebVTT voice tag (``<v Jane>``, ``<v.loud Jane>``), or None.
+
+    Linear: each ``<v`` candidate is checked against the next ``>`` (found once and
+    reused while it is still ahead), never by a backtracking pattern.
+    """
+    lower = text.lower()
+    position = 0
+    closing = -1
+    while True:
+        start = lower.find("<v", position)
+        if start == -1:
+            return None
+        if closing <= start:
+            closing = text.find(">", start + 2)
+            if closing == -1:
+                return None
+        position = start + 2
+        inner = text[start + 2 : closing]
+        if not inner or not (inner[0] == "." or inner[0].isspace()):
+            continue
+        if inner[0] == ".":
+            # Classes run up to the first whitespace: "<v.loud.blue Jane>".
+            cut = next((index for index, char in enumerate(inner) if char.isspace()), -1)
+            if cut == -1:
+                continue
+            inner = inner[cut:]
+        name = inner.strip()
+        if name:
+            return name
+
+
 def _clean(text: str) -> str:
-    return re.sub(r"\s+", " ", html.unescape(_TAG.sub("", text))).strip()
+    return " ".join(html.unescape(strip_tags(text)).split())
 
 
 def _speaker(value: str | None) -> str | None:
@@ -131,8 +183,7 @@ def parse_cues(text: str) -> list[ParsedSegment]:
             continue
         start, end = clock_to_ms(match.group("start")), clock_to_ms(match.group("end"))
         raw = " ".join(lines[timing_index + 1 :])
-        voice = _VOICE_TAG.search(raw)
-        speaker = voice.group(1) if voice else None
+        speaker = voice_speaker(raw)
         body = _clean(raw)
         if speaker is None:
             speaker, body = _split_speaker(body)

@@ -624,6 +624,23 @@ def test_a_revoked_connection_asks_to_reconnect(client: TestClient, zoom: dict[s
     assert refused.status_code == 409 and "Connect again" in refused.json()["error"]["message"]
 
 
+def test_connector_ids_and_download_hosts_are_checked(client: TestClient, gateway: FakeGateway, zoom: dict[str, Any]) -> None:
+    # CodeQL py/partial-ssrf: user ids never shape the request path, foreign hosts are never fetched.
+    assert _connect(client).status_code == 200
+    for bad in ("../x?y", "a b", "x" * 300):
+        refused = client.post("/api/v1/meetings/connectors/zoom/import", headers=headers(), json={"external_id": bad})
+        assert refused.status_code == 422, refused.text
+    assert meeting_connectors._zoom_download_url("https://evil.example/rec") is None
+    assert meeting_connectors._zoom_download_url("https://zoom.us.evil.example/rec") is None
+    assert meeting_connectors._zoom_download_url("http://zoom.us/rec") is None
+    assert meeting_connectors._zoom_download_url("https://user:pw@zoom.us/rec") is None
+    assert meeting_connectors._zoom_download_url("https://us02web.zoom.us/rec/download/t1?a=1") == "https://us02web.zoom.us/rec/download/t1?a=1"
+    assert meeting_connectors._graph_next_params("https://evil.example/v1.0/x?$skiptoken=a") is None
+    assert meeting_connectors._graph_next_params("https://graph.microsoft.com/v1.0/x?$skiptoken=a&b=c") == {"$skiptoken": "a"}
+    hostile = [request for request in zoom["requests"] if request.url.host not in ("zoom.us", "api.zoom.us")]
+    assert hostile == []
+
+
 @pytest.fixture
 def teams(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[httpx.Request]]:
     monkeypatch.setattr(settings, "microsoft_client_id", "ms-client")
@@ -639,15 +656,15 @@ def teams(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[httpx.Request]]:
             assert form["client_id"] == ["ms-client"] and "OnlineMeetingTranscript.Read.All" in form["scope"][0]
             return httpx.Response(200, json={"access_token": "ms-access", "refresh_token": "ms-refresh", "expires_in": 3600})
         if url.startswith("https://graph.microsoft.com/v1.0/me?"):
-            return httpx.Response(200, json={"id": "ms-user", "mail": "owner@example.com"})
+            return httpx.Response(200, json={"id": "00000000-0000-4000-8000-000000000001", "mail": "owner@example.com"})
         if "getAllTranscripts" in url:
-            assert "meetingOrganizerUserId='ms-user'" in request.url.path or "ms-user" in url
+            assert "meetingOrganizerUserId='00000000-0000-4000-8000-000000000001'" in request.url.path or "00000000-0000-4000-8000-000000000001" in url
             return httpx.Response(200, json={"value": [
                 {"id": "tr1", "meetingId": "m1", "createdDateTime": "2026-10-10T10:30:00Z"},
             ]})
-        if url.startswith("https://graph.microsoft.com/v1.0/users/ms-user/onlineMeetings/m1?"):
+        if url.startswith("https://graph.microsoft.com/v1.0/users/00000000-0000-4000-8000-000000000001/onlineMeetings/m1?"):
             return httpx.Response(200, json={"subject": "Noon UAE review", "startDateTime": "2026-10-10T10:00:00Z", "endDateTime": "2026-10-10T10:45:00Z"})
-        if url.startswith("https://graph.microsoft.com/v1.0/users/ms-user/onlineMeetings/m1/transcripts/tr1/content"):
+        if url.startswith("https://graph.microsoft.com/v1.0/users/00000000-0000-4000-8000-000000000001/onlineMeetings/m1/transcripts/tr1/content"):
             assert request.url.params["$format"] == "text/vtt"
             return httpx.Response(200, text=VTT)
         return httpx.Response(404, json={})
