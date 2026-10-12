@@ -62,7 +62,8 @@ test('edit a task, archive it and restore it from the archived list', async ({ p
   expect(seen.updates).toEqual([{ title: 'Weekly plan', prompt: 'Plan the week with owners' }]);
 
   await toolbar(page).getByRole('button', { name: 'Archive' }).click();
-  await expect(page.getByText(/Task archived/)).toBeVisible();
+  // The detail badge also reads "Task archived" while the task is still open: check the notice.
+  await expect(page.getByRole('status').filter({ hasText: /Task archived\./ })).toBeVisible();
   await expect(history(page).getByRole('button', { name: /Weekly plan/ })).toHaveCount(0);
   await history(page).getByLabel(/Show archived/).check();
   await expect(page.getByRole('region', { name: 'Archived tasks' })).toBeVisible();
