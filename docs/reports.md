@@ -173,6 +173,8 @@ Two more routes:
 
 Both are audited (`report.saved_to_files`, `report.asked`).
 
+Tyre reports: every new report from the tyre module (`POST /api/v1/tyre/reports` or a schedule) is also handed to this module through `create_report` (`anum_api.tyre.service.share_report`): type `tyre`, its numbers as metrics and as a metrics section (tiles in the app), its first table as the data snapshot and its notes as highlights. The tyre report keeps its own record, exports and deliveries in `tyre_reports`; a failure in the hand-off is logged and never fails the tyre report.
+
 In the Flutter app the report screen (`ReportDetailScreen`, also at the route `/reports/<id>`; the list at `/reports`) shows the sections with `ReportSectionsView` (`lib/features/reports/`): tab chips, metric tiles (two per row on phones, four from 760 px), bar and donut charts drawn with `CustomPainter` (no chart package was added; `fl_chart` is not a dependency), the ranked list, **Save to Files and copy a link**, and the "Ask ANUM to analyze further" bar, which opens the new task. Chart colours (`ReportChartColors`) are the fixed categorical order of the dataviz reference palette, checked with its validator against the app's dark (`#111829`) and light surfaces: lightness band, chroma, colour-blind and normal-vision separation pass in both; three light-mode slots are below 3:1 contrast, so every chart prints its values as text.
 
 ## Not in this change

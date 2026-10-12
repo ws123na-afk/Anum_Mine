@@ -319,3 +319,30 @@ def test_agent_tools_answer_tasks_chat_and_voice() -> None:
                           json={"text": "Give me a tyre fleet summary", "is_final": True, "client_sequence": 0}).json()
     spoken = client.post(f"/api/v1/voice/sessions/{session_id}/ask", headers=OWNER, json={"transcript_segment_id": segment["id"]}).json()
     assert "24 tyres fitted" in spoken["reply"]
+
+
+def test_new_tyre_reports_reach_the_shared_reports() -> None:
+    """A generated tyre report is copied to the shared reports (docs/reports.md) with its
+    numbers as metrics and tiles and its first table as the data snapshot."""
+    from anum_api.reports import report_store
+
+    report_store.clear()
+    connect_and_sync()
+    created = client.post(f"{API}/reports", headers=MEMBER, json={"kind": "fleet_health"})
+    assert created.status_code == 201
+    shared = client.get("/api/v1/reports", headers=VIEWER, params={"type": "tyre"}).json()["items"]
+    assert [item["title"] for item in shared] == ["Fleet tyre health"]
+    assert shared[0]["created_by_kind"] == "user" and shared[0]["section_count"] == 1
+    full = client.get(f"/api/v1/reports/{shared[0]['id']}", headers=VIEWER).json()
+    assert {"label": "Tyres fitted", "value": "24", "unit": None, "change_percent": None} in full["metrics"]
+    tiles = full["sections"][0]["items"]
+    assert {"label": "Tyres fitted", "value": 24.0} == {k: tiles[1][k] for k in ("label", "value")}
+    assert full["data"]["columns"][0] == "Tyre"
+    # A failure in the shared module never fails the tyre report.
+    original = service.shared_report_payload
+    service.shared_report_payload = lambda report: (_ for _ in ()).throw(ValueError("broken"))  # type: ignore[assignment]
+    try:
+        assert client.post(f"{API}/reports", headers=MEMBER, json={"kind": "scrap_reasons"}).status_code == 201
+    finally:
+        service.shared_report_payload = original  # type: ignore[assignment]
+    report_store.clear()

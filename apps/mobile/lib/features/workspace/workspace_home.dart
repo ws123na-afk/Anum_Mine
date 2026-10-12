@@ -545,6 +545,9 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 WorkspaceDestination.resources),
           destination(
               'shellCalls', Icons.call_outlined, WorkspaceDestination.voice),
+          // Calendar & next actions (docs/calendar.md), a named route.
+          page('calendar', Icons.calendar_month_outlined,
+              () => Navigator.of(context).pushNamed('/calendar')),
           page('settings', Icons.settings_outlined, _openProfile),
         ]),
         AnumMenuSection(title: l.t('shellMore'), entries: [
@@ -553,8 +556,11 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               badge: widget.controller.pendingApprovals.length),
           destination('assistant', Icons.chat_bubble_outline,
               WorkspaceDestination.assistant),
-          if (widget.emailController != null)
+          if (widget.emailController != null) ...[
             page('inbox', Icons.mail_outline, _openInbox),
+            page('emailSummary', Icons.mark_email_unread_outlined,
+                () => Navigator.of(context).pushNamed('/email/summary')),
+          ],
           if (widget.whatsappController != null)
             page('whatsapp', Icons.forum_outlined, _openWhatsApp),
           if (_showDeveloper)

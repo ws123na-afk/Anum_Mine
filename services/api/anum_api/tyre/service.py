@@ -7,6 +7,7 @@ reports run as the schedule's creator after their membership is re-checked).
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ from . import sources as source_module
 from .analytics import evaluate_alerts, forecast_tyres
 from .mapping import SourceTable, apply_mapping, mapped_columns, suggest_mapping
 from .model import Entity, EntityStats, SourceKind, SyncStats, TyreDataset, TyreMapping
-from .reports import TITLES, build_report
+from .reports import TITLES, build_report, summary_text
 from .sources import TyreSourceError
 from .store import (
     ConnectionStatus,
@@ -32,6 +33,8 @@ from .store import (
     open_tyre_store,
     reconcile_alerts,
 )
+
+logger = logging.getLogger("anum.tyre")
 
 
 class NotConnectedError(LookupError):
@@ -295,7 +298,62 @@ def generate_report(
     )
     with open_tyre_store(context) as store:
         store.save_report(report)
+    share_report(context, report)
     return report
+
+
+def shared_report_payload(report: TyreReport) -> Any:
+    """The tyre report as a shared report (docs/reports.md): numbers as metrics and as a
+    metrics section (tiles in the app), the first table as the data snapshot, notes as
+    highlights. The tyre report itself (exports, deliveries) stays in ``tyre_reports``."""
+    from ..reports import MetricsSection, ReportCreate, ReportMetric, ReportTable, SectionMetric
+
+    content = report.content
+    highlights = [h for h in content.get("highlights", []) if h.get("value") is not None and str(h.get("label", "")).strip()]
+    metrics = [ReportMetric(label=str(h["label"])[:80], value=h["value"]) for h in highlights[:24]]
+    numeric = [h for h in highlights if isinstance(h["value"], int | float) and not isinstance(h["value"], bool)]
+    sections = (
+        [MetricsSection(id="headline", items=[
+            SectionMetric(label=str(h["label"])[:80], value=float(h["value"]),
+                          decimals=0 if float(h["value"]).is_integer() else 2)
+            for h in numeric[:12]
+        ])]
+        if numeric else []
+    )
+    table: dict[str, Any] = {"columns": [], "rows": []}
+    for candidate in content.get("tables", []):
+        columns = [str(c)[:120] for c in candidate.get("columns", [])][:40]
+        if columns:
+            rows = [
+                [cell if cell is None or isinstance(cell, str | int | float) and not isinstance(cell, bool) else str(cell)
+                 for cell in row[: len(columns)]] + [None] * max(0, len(columns) - len(row))
+                for row in candidate.get("rows", [])[:5000]
+            ]
+            table = {"columns": columns, "rows": rows}
+            break
+    return ReportCreate(
+        type="tyre",
+        title=report.title,
+        period_start=report.period_from,
+        period_end=report.period_to,
+        summary=summary_text(content)[:4000],
+        metrics=metrics,
+        highlights=[str(note) for note in content.get("notes", [])][:20],
+        data=ReportTable.model_validate(table),
+        sections=sections,
+    )
+
+
+def share_report(context: TenantContext, report: TyreReport) -> None:
+    """Hands a new tyre report to the shared reports module, best effort: a failure there
+    is logged and never fails the tyre report."""
+    from ..reports import CreatedByKind, create_report
+
+    kind = CreatedByKind.AUTOMATION if report.source == ReportSource.SCHEDULE else CreatedByKind.USER
+    try:
+        create_report(context, shared_report_payload(report), kind=kind)
+    except Exception:  # noqa: BLE001 - the tyre report is already stored
+        logger.warning("Tyre report %s was not copied to the shared reports", report.id, exc_info=True)
 
 
 def forecasts_for(context: TenantContext) -> tuple[Loaded, list]:  # type: ignore[type-arg]
