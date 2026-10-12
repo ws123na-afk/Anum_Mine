@@ -6,6 +6,7 @@ import { matchWakeWord } from './wake';
 
 export { defaultAssistantName, greeting, matchWakeWord, sanitizeAssistantName } from './wake';
 import { postSse } from './chatApi';
+import { latestCard, type VoiceActionCard } from './voiceActions';
 import { t } from './i18n';
 
 
@@ -81,8 +82,9 @@ export async function submitVoiceCommand(
   });
 }
 
-export type VoiceIntent = 'question' | 'status' | 'marketing_summary' | 'create_task' | 'visual_only' | 'identity' | 'greeting' | 'thanks';
-export type VoiceRiskTier = 'read' | 'confirm' | 'visual_only';
+export type VoiceIntent = 'question' | 'status' | 'marketing_summary' | 'create_task' | 'visual_only' | 'identity' | 'greeting' | 'thanks' | 'email' | 'action';
+/** `action`: a request for work, done through the governed task path (docs/voice.md#actions). */
+export type VoiceRiskTier = 'read' | 'confirm' | 'visual_only' | 'action';
 
 export interface VoiceAskResult {
   intent: VoiceIntent;
@@ -91,9 +93,11 @@ export interface VoiceAskResult {
   proposed_task: string | null;
   workspace: { tasks_total: number; running: number; waiting_approval: number; pending_approvals: number };
   assistant_segment: TranscriptSegment;
+  /** What a request for work did: the task, its agent and where it stands (null for answers). */
+  action?: VoiceActionCard | null;
 }
 
-/** Ask a spoken question. Read-only on the server: it can only answer or propose. */
+/** Ask a spoken question, or ask for work: the server acts through the governed task path. */
 export async function askVoiceAssistant(sessionId: string, transcriptSegmentId: string): Promise<VoiceAskResult> {
   return voiceRequest(`/api/v1/voice/sessions/${sessionId}/ask`, {
     method: 'POST',
@@ -106,6 +110,8 @@ export interface VoiceStreamHandlers {
   onMeta?: (meta: Omit<VoiceAskResult, 'reply' | 'assistant_segment'>) => void;
   /** Each piece of the reply as it streams. */
   onText?: (text: string) => void;
+  /** What a request for work did, first when the task exists, then with its outcome. */
+  onAction?: (card: VoiceActionCard) => void;
 }
 
 /**
@@ -122,6 +128,7 @@ export async function streamVoiceAssistant(
   let reply = '';
   let segment: TranscriptSegment | null = null;
   let failure: string | null = null;
+  let action: VoiceActionCard | null = null;
   await postSse(`/api/v1/voice/sessions/${sessionId}/ask/stream`, { transcript_segment_id: transcriptSegmentId }, signal, (event) => {
     const data = (event.data ?? {}) as Record<string, unknown>;
     if (event.event === 'meta') {
@@ -130,6 +137,9 @@ export async function streamVoiceAssistant(
     } else if (event.event === 'delta' && typeof data.text === 'string') {
       reply += data.text;
       handlers.onText?.(data.text);
+    } else if (event.event === 'action') {
+      const card = latestCard(null, data.card);
+      if (card) { action = card; handlers.onAction?.(card); }
     } else if (event.event === 'done') {
       segment = (data.assistant_segment as TranscriptSegment | null) ?? null;
     } else if (event.event === 'error') {
@@ -142,6 +152,7 @@ export async function streamVoiceAssistant(
   return {
     ...(meta as Omit<VoiceAskResult, 'reply' | 'assistant_segment'>),
     reply: reply.trim(),
+    action,
     assistant_segment: segment ?? { id: `assistant-${now}`, session_id: sessionId, role: 'assistant', text: reply.trim(), is_final: true, client_sequence: 0, created_at: now },
   };
 }

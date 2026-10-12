@@ -23,7 +23,7 @@ Voice approval requires extra care. The system should confirm high-impact decisi
 - Tenant-scoped voice sessions and configurable session, 30-day, or permanent transcript retention.
 - Flutter push-to-talk with device speech recognition, English and Arabic locale selection, partial transcription, stop/cancel, and editable review.
 - Flutter Ask view: a named assistant ("Anum" by default, renamed in the app) that wakes when you say its name, with hands-free listening, a 3D orb that shows listening, thinking and speaking, spoken replies through the device voice, and a governance signal for answers that need confirmation or visual approval. Questions go to `POST /api/v1/voice/sessions/{id}/ask` and are answered by the workspace's saved model (for example Ollama).
-- Explicit command confirmation before task creation and governed execution.
+- Spoken requests for work (create, start, cancel or check a task, hand work to an agent or a teammate, run a quick command) are carried out through the same governed task path as the Command Center ([Actions](#actions)).
 - Visual approval escalation for sensitive actions; spoken approval cannot bypass policy.
 - Permission-denied recovery and a keyboard fallback.
 - Optional text-to-speech confirmation of the created task status.
@@ -78,8 +78,8 @@ The web and desktop Voice view is a spoken conversation with a named assistant, 
   - A leading "Hey <name>," is stripped before the request is understood.
 - **Endpoint:** `POST /api/v1/voice/sessions/{id}/ask` with a final user transcript segment.
   - Sessions carry `assistant_name`: letters, digits, spaces and `.'-`; at most 40 characters.
-  - The endpoint is read-only: it never creates, approves or deletes anything.
-- **Streamed endpoint (used by the web Voice view and the Flutter app):** `POST /api/v1/voice/sessions/{id}/ask/stream`, same body, same checks, intents, limit and stored reply, answered as server-sent events: `meta` (`intent`, `risk_tier`, `proposed_task`, `workspace`), `delta` (`{"text"}` pieces of the reply), then `done` (`{"assistant_segment"}`), or `error` when the model failed before saying anything.
+  - Questions are answered read-only. A request for work is carried out through the governed task path ([Actions](#actions)) and the result is returned as `action` (the action card) with `action_kind`. Nothing is ever approved, rejected or deleted by voice.
+- **Streamed endpoint (used by the web Voice view and the Flutter app):** `POST /api/v1/voice/sessions/{id}/ask/stream`, same body, same checks, intents, limit and stored reply, answered as server-sent events: `meta` (`intent`, `risk_tier`, `proposed_task`, `workspace`, `action_kind`), `delta` (`{"text"}` pieces of the reply), then `done` (`{"assistant_segment"}`), or `error` when the model failed before saying anything. A request for work also sends `action` (`{"card"}`, the `VoiceActionCard` of `packages/contracts/src/voice.ts`) once when its task exists and again with the outcome, before the spoken `delta` ([Actions](#actions)).
   - Questions stream from the model with the session's recent final turns as context (at most 8 turns and 6000 characters, each spoken turn labeled as untrusted speech) and at most 400 output tokens; fixed replies (status, small talk, refusals, task proposals) arrive as one `delta`. The reply is cut at 1200 characters, as `/ask`.
   - The body reads nothing through the request's session; the reply is stored in its own unit of work, and a reply cut short because the client stopped listening is stored as far as it got.
   - The web Voice view speaks each complete sentence as soon as it arrives, so speech starts with the first sentence instead of after the whole answer ([Conversations](conversations.md) use the same streaming gateway call).
@@ -87,12 +87,14 @@ The web and desktop Voice view is a spoken conversation with a named assistant, 
 - **Intents:**
   - **Question:** answered by the model gateway. With the default `mock` provider it reports workspace facts and suggests connecting a free local model.
   - **Status:** answered from workspace counts in plain sentences.
-  - **Create task:** proposed only. The user must tap **Create task**, which then calls the existing `/commands` endpoint.
-  - **Visual only:** approve, reject, delete, pay, credentials and similar. The assistant declines and offers **Open Approvals**.
+  - **Action** (`risk_tier: "action"`, or `read` for a task's status): a request for work, carried out through the governed task path ([Actions](#actions)).
+  - **Create task (proposal):** only where the server has no task runtime (an app that mounts the voice router alone): the user taps **Create task**, which calls `/commands`. Commerce price and stock changes are still proposed this way ([Commerce](commerce.md)).
+  - **Visual only:** approving, rejecting or denying, passwords, credentials, API keys and secrets, granting and revoking, even inside a request for work; and destructive or money words said on their own ("delete the finance workspace", "pay the supplier"). The assistant declines and offers **Open Approvals**. Inside a request for work ("ask the Finance agent to pay the supplier") those words become a task whose tool call the runtime's policy holds for an approval.
   - **Identity, greeting, thanks:** short, warm replies.
 - **Arabic:** `ar-*` sessions get Arabic replies.
 - **Rate limit:** 60 messages per session, counted in the database and shared by every API replica; then HTTP 429.
-- **Prompt injection:** spoken text is passed to the model as untrusted content. The answer is text only and has no path to tools or approvals.
+- **Prompt injection:** spoken text is passed to the model as untrusted content. The model's answer is text only and has no path to tools or approvals: actions are chosen from the user's own words by fixed rules before the model is asked anything, and run through ToolPolicy and approvals.
+- **The model never says it cannot act.** Its rules say that ANUM has already carried out any action the user asked for, that it must never say it cannot assign work, run tasks or take actions, and that it should name the words that do it ("ask the Sales agent to ...", "create a task to ...", "cancel the ... task", "run my ... quick command") when a request was not understood as one.
 
 ### The space orb
 
@@ -126,6 +128,32 @@ Firefox and the Tauri desktop webviews (WebView2, WKWebView) have no usable spee
 
 See [Voice research](voice-research.md) for the options compared, their drawbacks, and how each drawback is handled.
 
+## Actions
+
+The voice assistant does the work it is asked for, through the same governed path as the [Command Center](command.md) and [Tasks](tasks.md). It never decides an approval.
+
+| Say | What happens |
+|---|---|
+| "Ask the Sales agent to follow up with yesterday's leads", "Pass a task to the Sales agent: ...", "Assign the stock count to the Fleet agent", "Create a task for the Sales agent to ..." (Arabic: "اطلب من وكيل المبيعات أن ...", "كلف ...") | A task with the work as its prompt and `agent_id` set to that agent ([Agents](agents.md#running-tasks-as-an-agent)), started at once. Reply: "Created task "Follow up with yesterday's leads" and assigned it to Sales agent." plus the outcome. |
+| "Ask Ahmed to call the supplier by Thursday" | A teammate, a department assistant or ANUM: a task whose prompt is the sentence, which the runtime plans as `team.assign_task` ([Team work](team-work.md#assigning-in-words)). |
+| "Create a task to draft the weekly report", "New task: ..." | A task, started at once. "Remind me to ..." saves the task without starting it. |
+| "Send the quarterly report to the bank" (any request the runtime plans as an outward action, `external.action`) | A task, started at once: the tool call waits for an approval. |
+| "Start the weekly report task", "Run task weekly report" | Runs a task that has not run (`POST /tasks/{id}/run`) or starts a new run of a failed or cancelled one (`/retry`). A task already running or finished answers with its status. |
+| "Cancel the weekly report task", "Cancel my last task" | `POST /tasks/{id}/cancel`: owners only, as in Tasks; pending approvals of the task are withdrawn. |
+| "What's the status of the weekly report task?", "Is the weekly report task done?" (Arabic: "ما حالة مهمة ...") | Read-only: where it stands, the first sentence of its result, its failure reason or the approval it waits for. |
+| "Run my morning check quick command" | The caller's [quick command](command.md#quick-commands) becomes a command (`source: "voice"`, `quick_command_id` set, the use count updated) planned and created like `POST /commands`, and every step is started in parallel, as **Start execution** does. A step blocked by policy refuses the whole command with the reason. |
+
+How it works (`anum_api/voice_actions.py`):
+
+- **Understanding.** What to do, which agent, which task and which quick command are read from the user's own words by fixed, bounded rules (English and Arabic lead-ins such as ask, tell, assign, pass, create a task, cancel, start, run, status of), never from model output or anything retrieved (threat model G5). A leading "Hey", "please", "can you" and the assistant's name are ignored. An agent is matched by its name or department, with or without "agent" or "assistant" ("the Sales agent", "sales"); the longest match wins. A task is matched by title among the caller's visible tasks: an exact title wins, then a title that starts with the words, then one that contains them. "My last task" is the caller's newest task.
+- **Same path as the screens.** Tasks are created as `POST /api/v1/tasks` creates them (a `task.created` event with `source: "voice"`) and started with the body of `POST /api/v1/tasks/{id}/run` (`main.start_task_run`): the permission, the run lock, the model budget, the agent profile, ToolPolicy, governance, autonomy and the approval policy apply exactly as when a person presses Run. Cancel is the body of `POST /tasks/{id}/cancel` (`main.cancel_task_record`), retry of `/retry`, and quick commands go through `commands.create_command_record`, the body of `POST /commands`. With the durable runtime (`ANUM_RUNTIME_BACKEND=temporal`) runs are queued like any other and the reply says the task is running.
+- **Approvals.** A step whose tool call needs approval stops at `waiting_approval`; its approval is listed in Approvals, the notifications menu and the task like any other, with its payload hash. The reply says "It needs an approval first, so I've sent it to Approvals." and the card links there. Approving still needs a tap and the payload hash; "approve", "reject", passwords, credentials, secrets and permission changes are refused by voice even inside a request.
+- **Permissions and tenancy.** Every check is the route's own: creating needs `task:create`, starting `task:run`, cancelling `task:cancel` (owners). A refused action creates nothing and the card says who can do it. Agents, tasks and quick commands are read in the caller's tenant, workspace and user scope (RLS in PostgreSQL); another workspace's agent, another user's private agent or task they cannot see is "not found", and the reply lists the agents the caller can see instead of guessing. A paused agent is not given work. Viewers cannot open a voice session; a member whose role changes mid-session is checked against the role they have now.
+- **Not acting.** Several matching tasks or quick commands: the reply names them (at most three) and asks which one. No match: it says so. "Ask the HR agent to ..." without such an agent: the reply lists the agents. "Create a task" with nothing after it: "What should the task be?"
+- **Replies** are short and spoken: what was done ("Created task "X" and assigned it to Sales agent."), then the outcome ("It's done: ...", "It needs an approval first, so I've sent it to Approvals.", "It failed: ...", "It's running now; you can follow it in Tasks."). Arabic sessions get Arabic replies. The reply is stored in the transcript like any other; the card is not stored (it is in the stream and the `/ask` answer), and the task, its runs, approvals and events are the record.
+- **The action card** (web): `apps/web/src/VoiceActionCard.tsx` under the reply in the Voice view's conversation, with the kind ("Work handed over", "New task", ...), the state, the task title, the agent, the step and approval counts, the matches when the request was ambiguous, and **Open task** and **Open Approvals**. It has no approve button. Strings are in `src/lib/messages/en.voiceActions.ts` and `ar.voiceActions.ts`; the pure helpers are `src/lib/voiceActions.ts`.
+- **Tests:** `services/api/tests/test_voice_actions.py` (the rules, the prompt, agent tasks run through the runtime, another workspace's and a private agent not found, a paused agent, a refused role, the approval path and its hash, approval words refused, create, start, status and cancel by name, members refused cancel, ambiguous and missing names, quick commands as commands, Arabic, the non-streamed `/ask`, the teammate path through `team.assign_task`, and the TypeScript contract matching the card), `apps/web/test/voiceActions.test.ts` and `apps/web/e2e/voice-actions.spec.ts` (the card, its links and its fit at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844).
+
 ## Call Mode
 
 A voice (and photo or camera) call with the assistant: web **Call** in the navigation, Flutter **Call** button on the Voice tab. It is the owner mockup's screen 06: dark, the assistant's name, the status (Listening, Hearing you, Thinking, Speaking, Muted) and the call timer, the orb, the controls **Mute**, **Video**, **Speaker**, **Chat** and **More**, and a red **End call**.
@@ -141,7 +169,7 @@ A voice (and photo or camera) call with the assistant: web **Call** in the navig
   - Tapping the orb also stops the reply. **More** shows how often you cut in.
 - **Mute** turns the microphone track off (web) or stops recognition (Flutter); nothing is heard until unmuted. **Speaker** off keeps replies as text in **Chat** without speaking them.
 - **Chat** is the transcript panel: both sides of the call, typing (also the fallback when a browser has no recognition), **Create task** for a proposed task and **Open Approvals** for anything that needs a decision.
-- **Approvals never happen by voice.** A call uses the same read-only assistant: "approve", "delete", "pay" and similar are refused with a pointer to Approvals, and a task is created only by tapping **Create task**.
+- **Approvals never happen by voice.** A call uses the same assistant: "approve", "reject", credentials and similar are refused with a pointer to Approvals, and requests for work are carried out through the governed task path ([Actions](#actions)), so a risky step waits in Approvals.
 - **Leaving the page or screen hangs up**: microphone, camera and speech stop.
 
 ### Latency target
@@ -197,6 +225,8 @@ Engines are pluggable and reported honestly by `GET /api/v1/voice/capabilities`;
 
 ## Remaining Release Gates
 
+- Voice actions in the Flutter app and the web Call page: the server acts for them too and the spoken reply says what happened, but they do not draw the action card yet (the web Voice view does).
+- Voice actions do not chain: "create a task and assign it to the Sales agent, then email me the result" is one request for one task. Multi-step requests belong in the Command Center, which plans steps.
 - A `session`-retention session that is never completed or cancelled keeps its transcript until it is closed. An expiry for abandoned sessions (for example 24 hours after the last segment) needs a product decision.
 - Physical Android and iOS microphone, Bluetooth headset, interruption, and background lifecycle testing.
 - OIDC release authentication, notification deep links, and device-authenticated approval where policy requires it.

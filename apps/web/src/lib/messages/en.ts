@@ -9,6 +9,7 @@ import { marketingEn } from './marketing.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { voiceEn } from './en.voice.ts';
+import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
@@ -3756,6 +3757,7 @@ export const en = {
   ...ownerEn,
   ...governanceEn,
   ...voiceEn,
+  ...voiceActionsEn,
 } satisfies Record<string, Message>;
 
 export type MessageKey = keyof typeof en;

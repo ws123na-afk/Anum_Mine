@@ -29,6 +29,7 @@ import {
   type WakeListener,
 } from './lib/voice';
 import { SpaceOrb } from './SpaceOrb';
+import { VoiceActionCardView } from './VoiceActionCard';
 import { voiceSpaceMode } from './lib/spaceMode';
 import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import './voice.css';
@@ -70,7 +71,7 @@ function store(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* preferences are optional */ }
 }
 
-export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApprovals?: () => void; onOpenDeveloper?: () => void } = {}) {
+export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { onOpenApprovals?: () => void; onOpenDeveloper?: () => void; onOpenTask?: (taskId: string) => void } = {}) {
   const [session, setSession] = useState<VoiceSession | null>(null);
   // Without a saved speech language, an Arabic interface listens and speaks in Arabic.
   const [locale, setLocale] = useState(() => stored('anum.voice.locale', getLocale() === 'ar' ? 'ar-SA' : navigator.language || 'en-US'));
@@ -508,6 +509,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
         {turn.result?.risk_tier === 'visual_only' && onOpenApprovals && <div className="voiceConfirm">
           <button type="button" className="secondary" onClick={onOpenApprovals}><ShieldAlert size={16} aria-hidden="true" />{t('voice.openApprovals')}</button>
         </div>}
+        {turn.result?.action && <VoiceActionCardView card={turn.result.action} assistantName={name} onOpenTask={onOpenTask} onOpenApprovals={onOpenApprovals} />}
       </li>)}
     </ol>
 
