@@ -193,3 +193,95 @@ class ApiAutomationRepository implements AutomationRepository {
       AutomationRunItem.fromJson(JsonReader(
           await api.request('POST', '$_base/runs/${_id(runId)}/$action')));
 }
+
+/// Triggers and taking over (docs/automation.md#triggers). A separate
+/// interface so repositories that predate triggers keep compiling; the
+/// screens show triggers only when the repository offers them.
+abstract interface class AutomationTriggerRepository {
+  Future<List<TriggerEventInfo>> triggerEvents();
+  Future<List<AutomationTriggerItem>> triggers(String workflowId);
+  Future<({AutomationTriggerItem trigger, String? secret})> createTrigger(
+      String workflowId, Map<String, Object?> body);
+  Future<AutomationTriggerItem> updateTrigger(
+      String id, Map<String, Object?> body);
+  Future<AutomationTriggerItem> setTriggerEnabled(String id, bool enabled);
+  Future<({AutomationTriggerItem trigger, String? secret})> rotateTriggerSecret(
+      String id);
+  Future<AutomationTriggerItem> takeOverTrigger(String id);
+  Future<void> deleteTrigger(String id);
+  Future<AutomationScheduleItem> takeOverSchedule(String id);
+}
+
+class ApiAutomationTriggerRepository extends ApiAutomationRepository
+    implements AutomationTriggerRepository {
+  const ApiAutomationTriggerRepository(super.api);
+  static const _base = '/api/v1/automation';
+  static String _id(String value) => Uri.encodeComponent(value);
+
+  ({AutomationTriggerItem trigger, String? secret}) _withSecret(
+      Map<String, Object?> raw) {
+    final value = JsonReader(raw);
+    return (
+      trigger: AutomationTriggerItem.fromJson(
+          JsonReader(value.optMap('trigger') ?? const {})),
+      secret: value.optString('secret'),
+    );
+  }
+
+  @override
+  Future<List<TriggerEventInfo>> triggerEvents() async =>
+      (await _list('$_base/trigger-events'))
+          .map(TriggerEventInfo.fromJson)
+          .toList();
+
+  @override
+  Future<List<AutomationTriggerItem>> triggers(String workflowId) async =>
+      (await _list('$_base/triggers${ApiAutomationRepository._query({
+            'workflow_id': workflowId,
+            'limit': 500
+          })}'))
+          .map(AutomationTriggerItem.fromJson)
+          .toList();
+
+  @override
+  Future<({AutomationTriggerItem trigger, String? secret})> createTrigger(
+          String workflowId, Map<String, Object?> body) async =>
+      _withSecret(await api.request('POST', '$_base/triggers',
+          body: {...body, 'workflow_id': workflowId}));
+
+  @override
+  Future<AutomationTriggerItem> updateTrigger(
+          String id, Map<String, Object?> body) async =>
+      AutomationTriggerItem.fromJson(JsonReader(
+          await api.request('PUT', '$_base/triggers/${_id(id)}', body: {
+        for (final e in body.entries)
+          if (e.key != 'kind' && e.value != null) e.key: e.value
+      })));
+
+  @override
+  Future<AutomationTriggerItem> setTriggerEnabled(
+          String id, bool enabled) async =>
+      AutomationTriggerItem.fromJson(JsonReader(await api.request('POST',
+          '$_base/triggers/${_id(id)}/${enabled ? 'enable' : 'disable'}')));
+
+  @override
+  Future<({AutomationTriggerItem trigger, String? secret})> rotateTriggerSecret(
+          String id) async =>
+      _withSecret(await api.request(
+          'POST', '$_base/triggers/${_id(id)}/rotate-secret'));
+
+  @override
+  Future<AutomationTriggerItem> takeOverTrigger(String id) async =>
+      AutomationTriggerItem.fromJson(JsonReader(
+          await api.request('POST', '$_base/triggers/${_id(id)}/take-over')));
+
+  @override
+  Future<void> deleteTrigger(String id) async {
+    await api.request('DELETE', '$_base/triggers/${_id(id)}');
+  }
+
+  @override
+  Future<AutomationScheduleItem> takeOverSchedule(String id) async =>
+      AutomationScheduleItem.fromJson(JsonReader(
+          await api.request('POST', '$_base/schedules/${_id(id)}/take-over')));
+}

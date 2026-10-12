@@ -2,7 +2,9 @@
 // total in the `X-Total-Count` header.
 import { apiBaseUrl, apiRequest, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
-import type { AutomationRun, AutomationSchedule, AutomationWorkflow, Page, RunStatus, SchedulePreview, WorkflowBody } from './automation';
+import type {
+  AutomationRun, AutomationSchedule, AutomationTrigger, AutomationWorkflow, Page, RunStatus, SchedulePreview, TriggerBody, TriggerEventInfo, TriggerWithSecret, WorkflowBody,
+} from './automation';
 
 const base = '/api/v1/automation';
 const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -55,3 +57,17 @@ export const getRun = (runId: string) => apiRequest<AutomationRun>(`${base}/runs
 export const startRun = (workflowId: string, idempotencyKey: string) =>
   apiRequest<AutomationRun>(`${base}/workflows/${id(workflowId)}/runs`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } });
 export const transitionRun = (runId: string, action: 'cancel' | 'resume' | 'retry') => apiRequest<AutomationRun>(`${base}/runs/${id(runId)}/${action}`, json('POST'));
+
+export const takeOverSchedule = (scheduleId: string) => apiRequest<AutomationSchedule>(`${base}/schedules/${id(scheduleId)}/take-over`, json('POST'));
+
+export const listTriggerEvents = () => apiRequest<TriggerEventInfo[]>(`${base}/trigger-events`, json('GET'));
+export const listTriggers = (workflowId: string) => page<AutomationTrigger>(`${base}/triggers${query({ workflow_id: workflowId, limit: 500 })}`);
+export const createTrigger = (body: TriggerBody & { workflow_id: string; kind: 'event' | 'webhook' }) =>
+  apiRequest<TriggerWithSecret>(`${base}/triggers`, json('POST', body));
+export const updateTrigger = (triggerId: string, body: Partial<TriggerBody> & { enabled?: boolean }) =>
+  apiRequest<AutomationTrigger>(`${base}/triggers/${id(triggerId)}`, json('PUT', { name: body.name, event_type: body.event_type ?? undefined, conditions: body.conditions, rate_limit_per_minute: body.rate_limit_per_minute, replay_window_seconds: body.replay_window_seconds, enabled: body.enabled }));
+export const setTriggerEnabled = (triggerId: string, enabled: boolean) =>
+  apiRequest<AutomationTrigger>(`${base}/triggers/${id(triggerId)}/${enabled ? 'enable' : 'disable'}`, json('POST'));
+export const rotateTriggerSecret = (triggerId: string) => apiRequest<TriggerWithSecret>(`${base}/triggers/${id(triggerId)}/rotate-secret`, json('POST'));
+export const takeOverTrigger = (triggerId: string) => apiRequest<AutomationTrigger>(`${base}/triggers/${id(triggerId)}/take-over`, json('POST'));
+export const deleteTrigger = (triggerId: string) => remove(`${base}/triggers/${id(triggerId)}`);

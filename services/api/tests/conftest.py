@@ -86,6 +86,7 @@ TABLES_IN_DELETE_ORDER = (
     "voice_transcript_segments",
     "voice_sessions",
     "automation_runs",
+    "automation_triggers",
     "automation_schedules",
     "automation_workflows",
     "model_usage_monthly",

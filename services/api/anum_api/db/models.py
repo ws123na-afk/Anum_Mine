@@ -936,11 +936,71 @@ class AutomationRunRecord(Base, WorkspaceScopedMixin):
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Migration 0049: the trigger that started the run and what it delivered; when the
+    # engine looks at the run again; the agent task the current step waits on.
+    trigger_id: Mapped[str | None] = mapped_column(String(80))
+    trigger_type: Mapped[str | None] = mapped_column(String(160))
+    trigger_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    wake_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    waiting_task_id: Mapped[str | None] = mapped_column(String(80))
 
     __table_args__ = (
         _workspace_fk("automation_runs"),
         _workflow_fk("automation_runs"),
         Index("ix_automation_runs_workflow", "tenant_id", "workspace_id", "workflow_id", "created_at"),
+        Index("ix_automation_runs_wake", "wake_at", postgresql_where=text("wake_at is not null")),
+        Index(
+            "ix_automation_runs_waiting_task",
+            "tenant_id",
+            "workspace_id",
+            "waiting_task_id",
+            postgresql_where=text("waiting_task_id is not null"),
+        ),
+        Index("ix_automation_runs_trigger", "tenant_id", "workspace_id", "trigger_id", "created_at"),
+    )
+
+
+class AutomationTriggerRecord(Base, WorkspaceScopedMixin):
+    """An event or webhook trigger of a workflow (migration 0049)."""
+
+    __tablename__ = "automation_triggers"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(160))
+    conditions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=True, server_default=text("true"))
+    rate_limit_per_minute: Mapped[int] = mapped_column(nullable=False, default=30, server_default=text("30"))
+    replay_window_seconds: Mapped[int] = mapped_column(nullable=False, default=300, server_default=text("300"))
+    secret_ciphertext: Mapped[str | None] = mapped_column(Text)
+    secret_hint: Mapped[str | None] = mapped_column(String(8))
+    secret_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cursor_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_outcome: Mapped[str | None] = mapped_column(String(40))
+    fire_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("automation_triggers"),
+        _workflow_fk("automation_triggers"),
+        CheckConstraint("kind in ('event', 'webhook')", name="ck_automation_triggers_kind"),
+        CheckConstraint(
+            "(kind = 'event' and event_type is not null) or (kind = 'webhook' and secret_ciphertext is not null)",
+            name="ck_automation_triggers_shape",
+        ),
+        CheckConstraint("rate_limit_per_minute between 1 and 600", name="ck_automation_triggers_rate"),
+        CheckConstraint("replay_window_seconds between 30 and 3600", name="ck_automation_triggers_replay"),
+        Index("ix_automation_triggers_event", "tenant_id", "workspace_id", "event_type", "enabled"),
+        Index("ix_automation_triggers_workflow", "tenant_id", "workspace_id", "workflow_id"),
     )
 
 

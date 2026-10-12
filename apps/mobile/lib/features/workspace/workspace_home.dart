@@ -123,7 +123,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     _ownsAutomations = true;
     final repository = widget.controller.repository;
     return AutomationsController(repository is ApiWorkspaceRepository
-        ? ApiAutomationRepository(repository.api)
+        ? ApiAutomationTriggerRepository(repository.api)
         : const UnavailableAutomationRepository());
   }
 

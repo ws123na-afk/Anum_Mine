@@ -65,7 +65,7 @@ class PushDevice {
   }
 }
 
-enum PushDestinationKind { approval, task, developer, tyreAlerts }
+enum PushDestinationKind { approval, task, developer, tyreAlerts, automation }
 
 /// Where a tapped notification leads. A push carries ids only
 /// (`anum_kind`, `workspace_id`, `approval_id`, `task_id`,
@@ -100,6 +100,9 @@ class PushDestination {
       'task_completed' || 'run_failed' => PushDestinationKind.task,
       'developer_ready' || 'developer_failed' => PushDestinationKind.developer,
       'tyre_alerts' => PushDestinationKind.tyreAlerts,
+      'automation_notice' ||
+      'automation_failed' =>
+        PushDestinationKind.automation,
       _ => null,
     };
     if (kind == null || workspaceId == null) return null;
@@ -121,6 +124,7 @@ class PushDestination {
         PushDestinationKind.task => '/tasks/${Uri.encodeComponent(taskId!)}',
         PushDestinationKind.developer => '/developer',
         PushDestinationKind.tyreAlerts => '/tyres/alerts',
+        PushDestinationKind.automation => '/automations',
       };
 }
 

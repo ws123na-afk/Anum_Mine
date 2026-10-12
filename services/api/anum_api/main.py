@@ -143,6 +143,7 @@ from .assistants import router as assistants_router
 from .notifications import router as notifications_router
 from .organisations import router as organisations_router
 from .team_work import build_team_reminder_scheduler, router as team_router
+from .automation_dispatch import automation_dispatcher
 from .files import router as files_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
 from .skills_api import configure_tool_catalog, router as skills_router
@@ -168,6 +169,8 @@ async def lifespan(_: FastAPI):
     # (docs/notifications.md); the developer watcher refreshes in-progress developer
     # requests so "ready for review" reaches a closed app.
     push_dispatcher.start()
+    # Runs automation steps after their transaction commits and reacts to committed events.
+    automation_dispatcher.start()
     developer_watcher = build_developer_watcher()
     if developer_watcher is not None:
         developer_watcher.start()
@@ -201,6 +204,7 @@ async def lifespan(_: FastAPI):
             await scheduler.stop()
         if developer_watcher is not None:
             await developer_watcher.stop()
+        await automation_dispatcher.stop()
         await push_dispatcher.stop()
         await event_runtime.stop()
         shutdown_telemetry()
@@ -291,6 +295,8 @@ app.include_router(push_router)
 app.include_router(commerce_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
+# Event triggers and steps waiting on agent tasks (docs/automation.md#triggers).
+event_runtime.add_listener(automation_dispatcher.submit_events)
 app.include_router(autonomy_router)
 app.include_router(learning_router)
 app.include_router(meetings_router)
@@ -1004,6 +1010,46 @@ async def _queue_durable_run(
     repository.save_run(run)
     await _dispatch(context, task.id, run.id, replace_existing=retry)
     return RunTaskResponse(task=task, run=run, approval=None)
+
+
+async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
+    """Run an automation's agent task like ``POST /tasks/{id}/run`` (docs/automation.md).
+
+    ``context`` is the run's actor with their current role; budget, ToolPolicy and
+    approvals apply exactly as for a person pressing Run. Refusals become ``StepFailed``.
+    """
+    from .automation import StepFailed
+    from .durable_runs import tenant_unit_of_work
+
+    try:
+        check_model_budget(context)
+    except ModelBudgetExceededError as exc:
+        raise StepFailed(str(exc), retryable=True) from None
+    try:
+        async with _task_lock(context, task_id):
+            with tenant_unit_of_work(context) as unit:
+                task = unit.get_task(task_id, context)
+                if task is None:
+                    raise StepFailed(f"The agent task {task_id} no longer exists in this workspace.")
+                if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED} or unit.find_run_for_task(task.id, context):
+                    return  # already started (a repeated hand-off)
+                runtime = AgentRuntime(
+                    budgeted_model_gateway(context, model_gateway),
+                    unit,
+                    tools=tool_registry,
+                    retriever=retriever_for(context, model_gateway),
+                )
+                if run_dispatcher is not None:
+                    await _queue_durable_run(task, context, unit, runtime)
+                    return
+                run, _approval = await runtime.run_task(task, context)
+                unit.save_task(task)
+                unit.save_run(run)
+    except HTTPException as exc:
+        raise StepFailed(str(exc.detail), retryable=exc.status_code in {409, 503}) from None
+
+
+automation_dispatcher.configure(task_runner=run_task_for_automation)
 
 
 @app.post("/api/v1/tasks/{task_id}/cancel", response_model=Task)

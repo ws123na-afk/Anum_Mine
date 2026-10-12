@@ -87,6 +87,18 @@ A refresh of a developer-mode request (when someone views it, or the developer w
 
 Automation runs publish `automation_run.completed`, `automation_run.paused`, `automation_run.failed` and `automation_run.cancelled`, and a `notify` step publishes `automation.notification` ([Automation](automation.md#events-and-notifications)). They are written in the automation engine's transaction. Failure and notification payloads carry `notify_user_ids`, the users the clients alert (for failures only those whose "automation failed" notification preference is on); payloads never carry step inputs or task prompts.
 
+## Inbound Events
+
+So automations can react to the outside world ([Automation](automation.md#triggers)), three events announce new inbound data; payloads carry ids and short metadata, never message bodies or file contents:
+
+- `email.received` (subject: the message id): an incremental mailbox sync found new mail not sent by the mailbox itself; payload `account_id`, `message_id`, `from`, `subject` (at most 300 characters), `category`, `priority`, `private: false`. For a private mailbox only `account_id`, `message_id` and `private: true`. The first sync of a mailbox announces nothing.
+- `whatsapp.message_received` (subject: the message id): a customer message on the connected number; payload `conversation_id`, `message_id`, `from` (the WhatsApp number), `contact_name`, `kind`, `category`.
+- `file.uploaded` (subject: the file id): payload `file_id`, `name`, `content_type`, `size_bytes`, `uploaded_by`.
+
+They are recorded right after the item is stored, in their own unit of work (`automation_triggers.record_inbound_events`); a failure is logged and never fails the sync, webhook or upload.
+
+The automation dispatcher (`anum_api/automation_dispatch.py`) is the second in-process consumer: it starts event triggers' runs and wakes automation steps waiting on an agent task. Because in-process listeners see events only in the committing process, the automation scheduler also catches triggers up from `domain_events` ([Automation](automation.md#triggers)).
+
 ## Membership Events
 
 A tyre planning sync (or an assumptions change) that raises new critical or warning alerts records one `tyre_alerts.raised` ([Tyre planning](tyre-planning.md#alerts)). Subject: `tyre_alerts`. Payload: the `critical` and `warning` counts only; never tyre data. Phone push turns it into one "Tyre alerts" notification per workspace for members whose `tyre_alerts` preference is on.

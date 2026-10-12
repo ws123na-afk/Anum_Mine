@@ -63,7 +63,7 @@ Short instructions (at most 300 characters, 200 per user) with a scope: `all`, `
 
 Activities match on a short normalized signature of the prompt (lower case, numbers and filler words removed, first three words). New routines are `proposed`; detecting again refreshes them; one the user accepted, confirmed or dismissed is never proposed again (delete it to allow that).
 
-**Create paused automation** (`POST /routines/{id}/accept`, needs `automation:manage`: members and owners) creates a workflow through the existing automation engine, one `task.create` step per activity with its label as the title and its prompt, and a schedule with the routine's cron and timezone **disabled**. **Start the schedule** (`/confirm`) enables it. Both are audited (`learning.routine_accepted`, `learning.routine_confirmed`, `learning.routine_dismissed`). A viewer sees why the button is unavailable and who can help. The Flutter app detects in UTC (the cron hour is the same moment; it reads in UTC).
+**Create paused automation** (`POST /routines/{id}/accept`, needs `automation:manage`: members and owners) creates a workflow through the existing automation engine, one `task.create` step per activity with its label as the title and its prompt, and a schedule with the routine's cron and timezone **disabled**. **Start the schedule** (`/confirm`) enables it. From then on each fire time does the routine's real work: every `task.create` step runs its agent task as the user (their role, model budget, ToolPolicy and approvals apply; an action that needs approval waits in Approvals), one after the other, each step waiting for the previous task and retried in place when a task fails ([Automation](automation.md#execution)). The run history under Automations shows each task's result. Both are audited (`learning.routine_accepted`, `learning.routine_confirmed`, `learning.routine_dismissed`). A viewer sees why the button is unavailable and who can help. The Flutter app detects in UTC (the cron hour is the same moment; it reads in UTC).
 
 ## Weekly improvement notes
 
@@ -115,7 +115,6 @@ Tests: `services/api/tests/test_learning.py` (pure logic, API, gating, permissio
 ## Not done yet
 
 - Email and WhatsApp drafting surfaces post their draft feedback through the same endpoint once those connectors draft; on this branch only the Assistant posts it.
-- The automation engine records `task.create` steps but does not yet run them as agent tasks ([Automation](automation.md)); a confirmed routine's schedule fires runs whose steps are accepted, not executed.
 - Weekly notes are written when the user next opens the page (or refreshes); there is no push or email of the note.
 - The Flutter app shows per-contact languages but edits them only on the web, and detects routines in UTC.
 - Rules are fixed; a model-written note (budgeted, labelled) is a later option.

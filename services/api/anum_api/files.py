@@ -599,6 +599,25 @@ async def upload_file(
     from .retrieval_api import index_uploaded_file
 
     await index_uploaded_file(context, record, content)
+    # Automations can start on uploads (docs/automation.md#event-triggers); ids and metadata only.
+    from .automation_triggers import record_inbound_events
+
+    record_inbound_events(
+        context,
+        [
+            (
+                "file.uploaded",
+                record.id,
+                {
+                    "file_id": record.id,
+                    "name": record.name,
+                    "content_type": record.content_type,
+                    "size_bytes": record.size_bytes,
+                    "uploaded_by": context.user_id,
+                },
+            )
+        ],
+    )
     return _views(context, [record])[0]
 
 

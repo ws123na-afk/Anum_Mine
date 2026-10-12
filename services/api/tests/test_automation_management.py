@@ -3,6 +3,7 @@ policy, real step effects, failure notifications, paging, search and permissions
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ import anum_api.automation as automation_module
 from anum_api.audit import AuditRecord
 from anum_api.automation import (
     AutomationConflict,
+    DeferredStep,
+    TaskOutcome,
     EditDenied,
     LocalAutomationEngine,
     OverlapPolicy,
@@ -26,10 +29,11 @@ from anum_api.automation import (
     WorkflowStep,
     WorkflowUpdate,
 )
+from anum_api.automation_dispatch import automation_dispatcher
 from anum_api.dependencies import memory_repository
 from anum_api.main import app
 from anum_api.onboarding import NotificationPreferences, _notifications
-from anum_api.schemas import DomainEvent, Task, TenantContext, WorkspaceMembership, utc_now
+from anum_api.schemas import DomainEvent, Task, TaskStatus, TenantContext, WorkspaceMembership, utc_now
 from anum_api.settings import settings
 
 
@@ -42,6 +46,8 @@ class RecordingEffects:
         self.audits: list[AuditRecord] = []
         self.opted_out = opted_out or set()
         self.inactive = inactive or set()
+        self.deferred: list[DeferredStep] = []
+        self.outcomes: dict[str, dict[str, Any]] = {}
 
     def create_task(self, context: TenantContext, title: str, prompt: str) -> Task:
         now = utc_now()
@@ -61,6 +67,19 @@ class RecordingEffects:
 
     def actor_may_run(self, context: TenantContext, user_id: str) -> bool:
         return user_id not in self.inactive
+
+    def task_outcome(self, context: TenantContext, task_id: str) -> TaskOutcome | None:
+        task = next((task for task in self.tasks if task.id == task_id), None)
+        if task is None:
+            return None
+        extra = self.outcomes.get(task_id, {})
+        return TaskOutcome(status=task.status, updated_at=task.updated_at, **extra)
+
+    def events_since(self, context: TenantContext, event_type: str, after: Any, limit: int) -> list[DomainEvent]:
+        return [e for e in self.events if e.type == event_type and e.created_at >= after][:limit]
+
+    def defer(self, job: DeferredStep) -> None:
+        self.deferred.append(job)
 
     def flush(self) -> None:
         pass
@@ -122,11 +141,21 @@ def test_task_create_step_creates_a_real_task_and_links_it(engine: LocalAutomati
     created = engine.create_workflow(ctx(), flow("task.create", **{"task.create": {"title": "Weekly report", "prompt": "Summarise the week"}}))
     run = engine.start(ctx(), created.id)
 
-    assert run.status == RunStatus.COMPLETED and run.workflow_version == 1 and run.trigger == "manual"
+    # The task is created in the run's transaction and handed to the dispatcher to run.
+    assert run.status == RunStatus.RUNNING and run.workflow_version == 1 and run.trigger == "manual"
     [task] = effects.tasks
     assert (task.title, task.prompt, task.created_by) == ("Weekly report", "Summarise the week", "user_a")
     assert run.steps[0].output == {"task_id": task.id, "title": "Weekly report"}
     assert run.steps[0].input == {"title": "Weekly report", "prompt": "Summarise the week"}
+    assert run.waiting_for == "task" and run.waiting_task_id == task.id
+    [job] = effects.deferred
+    assert (job.action, job.task_id, job.actor, job.run_id) == ("task.create", task.id, "user_a", run.id)
+
+    # The agent run finishes: the step completes with the task's result.
+    task.status = TaskStatus.COMPLETED
+    effects.outcomes[task.id] = {"result": "Sales up 4%"}
+    [done] = engine.wake_for_task(ctx(), task.id)
+    assert done.status == RunStatus.COMPLETED and done.steps[0].output["result"] == "Sales up 4%"
     assert effects.types()[-1] == "automation_run.completed"
 
 
@@ -306,6 +335,7 @@ def test_workflow_summary_reports_last_and_next_runs(engine: LocalAutomationEngi
 
 def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(automation_module, "engine", LocalAutomationEngine(str(tmp_path / "api.db")))
+    automation_dispatcher.clear()
     return TestClient(app)
 
 
@@ -377,7 +407,7 @@ def test_api_validation_errors_explain_the_fix(tmp_path: Path, monkeypatch: pyte
     client = _client(tmp_path, monkeypatch)
     bad = client.post("/api/v1/automation/workflows", headers=headers(), json=body("X", "task.execute"))
     assert bad.status_code == 422
-    assert "Choose one of: task.create, notify, pause, fail" in bad.json()["error"]["details"][0]["message"]
+    assert "Choose one of: task.create, email.send, notify, pause, fail" in bad.json()["error"]["details"][0]["message"]
     wf = client.post("/api/v1/automation/workflows", headers=headers(), json=body("X", "notify")).json()
     cron_bad = client.post("/api/v1/automation/schedules", headers=headers(), json={"workflow_id": wf["id"], "name": "S", "cron": "0 25 * * *"})
     assert cron_bad.status_code == 422 and "Hour field: 25 is outside 0-23" in cron_bad.json()["error"]["details"][0]["message"]
@@ -411,7 +441,14 @@ def test_api_task_create_step_creates_a_task_in_the_workspace(tmp_path: Path, mo
     run = client.post(f"/api/v1/automation/workflows/{wf['id']}/runs", headers=scope).json()
     task_id = run["steps"][0]["output"]["task_id"]
 
+    assert run["status"] == "running" and run["waiting_for"] == "task"
+    # After the run's transaction commits, the dispatcher runs the task through the runtime.
+    asyncio.run(automation_dispatcher.run_pending())
     task = client.get(f"/api/v1/tasks/{task_id}", headers=scope)
     assert task.status_code == 200 and task.json()["title"] == "Daily digest" and task.json()["created_by"] == "owner_a"
+    assert task.json()["status"] == "completed"
+    finished = client.get(f"/api/v1/automation/runs/{run['id']}", headers=scope).json()
+    assert finished["status"] == "completed" and finished["steps"][0]["output"]["status"] == "completed"
+    assert finished["steps"][0]["output"]["result"]
     events = client.get("/api/v1/events", headers=scope).json()
     assert {"task.created", "automation_run.completed"} <= {event["type"] for event in events}

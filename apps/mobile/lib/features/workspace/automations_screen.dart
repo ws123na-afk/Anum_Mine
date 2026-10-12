@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../automations/automation_models.dart';
+import '../automations/automation_repository.dart';
+import '../automations/automation_triggers_card.dart';
 import '../automations/automations_controller.dart';
 
 AnumTone automationTone(String status) => switch (status) {
@@ -365,6 +368,13 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
               : AnumPage(onRefresh: _load, children: [
                   _summary(context, w),
                   _schedulesCard(context, w),
+                  if (c.repository
+                      case final AutomationTriggerRepository triggers)
+                    AutomationTriggersCard(
+                        controller: c,
+                        repository: triggers,
+                        workflowId: w.id,
+                        onChanged: _loadRuns),
                   _runsCard(context, w),
                   const SizedBox(height: AnumSpacing.lg),
                 ]),
@@ -512,6 +522,8 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
   Widget _scheduleRow(
       BuildContext context, AutomationWorkflow w, AutomationScheduleItem s) {
     final editable = c.canEdit(s.createdBy);
+    final takeOver = canTakeOver(c.role, c.userId, s.createdBy) &&
+        c.repository is AutomationTriggerRepository;
     final outcome = outcomeLabel(s.lastOutcome);
     final next = !s.enabled
         ? 'Off'
@@ -525,7 +537,8 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
         icon: Icons.schedule,
         tone: s.enabled ? AnumTone.ok : AnumTone.neutral,
         title: s.name,
-        subtitle: '${s.description} (${s.timezone})',
+        subtitle:
+            '${s.words(arabic: AnumLocalizations.maybeOf(context).isArabic)} (${s.timezone})',
         detail: [
           next,
           if (s.lastRunAt != null)
@@ -560,7 +573,36 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
               child:
                   Text('Delete', semanticsLabel: 'Delete schedule ${s.name}')),
         ]),
+      if (takeOver)
+        Wrap(spacing: AnumSpacing.xs, children: [
+          TextButton(
+              onPressed: busy ? null : () => _takeOver(s),
+              child: Text('Take over',
+                  semanticsLabel: 'Take over schedule ${s.name}')),
+        ]),
     ]);
+  }
+
+  Future<void> _takeOver(AutomationScheduleItem s) async {
+    final yes = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              content: Text(
+                  'Take over "${s.name}" from ${s.createdBy}? From now on it runs as you. This is recorded in the audit log.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Keep it')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Take over')),
+              ],
+            ));
+    if (yes != true || !mounted) return;
+    await _act(
+        () => (c.repository as AutomationTriggerRepository)
+            .takeOverSchedule(s.id),
+        'Schedule "${s.name}" now runs as you.');
   }
 
   Widget _runsCard(BuildContext context, AutomationWorkflow w) {
@@ -571,6 +613,7 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
         Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
           for (final entry in const {
             '': 'All',
+            'running': 'Running or waiting',
             'failed': 'Failed',
             'paused': 'Waiting',
             'completed': 'Completed',
@@ -625,7 +668,10 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
             '${r.completedSteps} of ${r.steps.length} steps${r.workflowVersion == null ? '' : ' · v${r.workflowVersion}'}',
         detail: r.createdBy,
         trailing: AnumPill(
-            label: statusLabel(r.status), tone: automationTone(r.status)),
+            label: runStatusText(r),
+            tone: r.waitingFor == null
+                ? automationTone(r.status)
+                : AnumTone.warn),
         onTap: () =>
             setState(() => open ? expanded.remove(r.id) : expanded.add(r.id)),
       ),
@@ -662,8 +708,22 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
               Text(
                   '${s.name} · ${actionLabel(s.action)} · ${statusLabel(s.status)}',
                   style: TextStyle(color: p.text, fontSize: 13.5)),
+              if (s.attempt > 0 && s.maxAttempts > 1)
+                Text('Attempt ${s.attempt} of ${s.maxAttempts}',
+                    style: TextStyle(color: p.muted, fontSize: 12.5)),
+              if (waitingLabel(s) != null)
+                Text(waitingLabel(s)!,
+                    style: TextStyle(
+                        color: p.warn,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
               if (s.error != null)
                 Text(s.error!, style: TextStyle(color: p.stop, fontSize: 13)),
+              if (s.result != null)
+                Text('Result: ${s.result}',
+                    maxLines: 6,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: p.text, fontSize: 13)),
               if (s.taskId != null)
                 TextButton.icon(
                     onPressed: () => Navigator.of(context)
@@ -813,6 +873,18 @@ class _AutomationEditorState extends State<AutomationEditorScreen> {
     );
   }
 
+  /// A labelled switch that works inside a surface without a Material.
+  Widget _toggle(String label, bool value, ValueChanged<bool> onChanged) =>
+      MergeSemantics(
+        child: Row(children: [
+          Switch(value: value, onChanged: onChanged),
+          const SizedBox(width: AnumSpacing.xs),
+          Expanded(
+              child: GestureDetector(
+                  onTap: () => onChanged(!value), child: Text(label))),
+        ]),
+      );
+
   Widget _stepCard(BuildContext context, int i) {
     final s = steps[i];
     final p = context.palette;
@@ -893,6 +965,41 @@ class _AutomationEditorState extends State<AutomationEditorScreen> {
                   errorText: errors['$i.prompt']),
               onChanged: (v) => s.prompt = v),
         ],
+        if (s.action == 'task.create')
+          _toggle('Run the task (off: only create it under Tasks)', s.runTask,
+              (v) => setState(() => s.runTask = v)),
+        if (s.action == 'email.send') ...[
+          TextFormField(
+              initialValue: s.accountId,
+              decoration: InputDecoration(
+                  labelText: 'Send from (mailbox id)',
+                  helperText: 'The connected mailbox, from Email.',
+                  errorText: errors['$i.accountId']),
+              onChanged: (v) => s.accountId = v.trim()),
+          TextFormField(
+              initialValue: s.to,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                  labelText: 'To',
+                  helperText:
+                      'Addresses separated by commas; {{trigger.from}} answers the sender.',
+                  helperMaxLines: 2,
+                  errorText: errors['$i.to']),
+              onChanged: (v) => s.to = v),
+          TextFormField(
+              initialValue: s.subject,
+              maxLength: 500,
+              decoration: const InputDecoration(labelText: 'Subject'),
+              onChanged: (v) => s.subject = v),
+          TextFormField(
+              initialValue: s.body,
+              minLines: 2,
+              maxLines: 8,
+              maxLength: 20000,
+              decoration: InputDecoration(
+                  labelText: 'Body', errorText: errors['$i.body']),
+              onChanged: (v) => s.body = v),
+        ],
         if (s.action == 'notify' || s.action == 'fail')
           TextFormField(
               initialValue: s.message,
@@ -902,6 +1009,32 @@ class _AutomationEditorState extends State<AutomationEditorScreen> {
                       s.action == 'notify' ? 'Message (optional)' : 'Message',
                   errorText: errors['$i.message']),
               onChanged: (v) => s.message = v),
+        if (s.action == 'notify')
+          _toggle('Also send a push notification to my phone', s.push,
+              (v) => setState(() => s.push = v)),
+        if (s.action == 'task.create' ||
+            s.action == 'email.send' ||
+            s.action == 'notify')
+          Wrap(spacing: AnumSpacing.sm, children: [
+            SizedBox(
+              width: 140,
+              child: TextFormField(
+                  initialValue: '${s.maxAttempts}',
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Attempts'),
+                  onChanged: (v) => s.maxAttempts = int.tryParse(v) ?? 1),
+            ),
+            SizedBox(
+              width: 220,
+              child: TextFormField(
+                  initialValue: '${s.retryDelay}',
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                      labelText: 'Seconds before a retry',
+                      errorText: errors['$i.retryDelay']),
+                  onChanged: (v) => s.retryDelay = int.tryParse(v) ?? 0),
+            ),
+          ]),
       ]),
     );
   }

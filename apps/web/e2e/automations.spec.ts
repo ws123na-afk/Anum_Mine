@@ -91,6 +91,8 @@ async function mockApi(page: Page, options: Options = {}) {
       state.schedules.push(schedule);
       return json(schedule, 201);
     }
+    if (path === '/api/v1/automation/triggers' && method === 'GET') return json([], 200, { 'X-Total-Count': '0' });
+    if (path === '/api/v1/automation/trigger-events') return json([]);
     if (path === '/api/v1/automation/runs' && method === 'GET') {
       const items = state.runs.filter((r) => r.workflow_id === url.searchParams.get('workflow_id'));
       return json(items, 200, { 'X-Total-Count': String(items.length) });

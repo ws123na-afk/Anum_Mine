@@ -37,6 +37,7 @@ TENANT_TABLES = {
     "automation_workflows",
     "automation_schedules",
     "automation_runs",
+    "automation_triggers",
     "skill_versions",
     "skill_installations",
     "policy_packs",

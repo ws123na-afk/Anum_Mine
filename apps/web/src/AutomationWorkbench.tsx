@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, CalendarClock, ChevronDown, ChevronRight, CircleDot, ExternalLink, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Square, Trash2, Workflow, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, CalendarClock, ChevronDown, ChevronRight, CircleDot, ExternalLink, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Square, Trash2, UserCheck, Workflow, X } from 'lucide-react';
+import { AutomationTriggers } from './AutomationTriggers';
+import { listEmailAccounts } from './lib/emailApi';
 import * as api from './lib/api';
 import * as automationApi from './lib/automationApi';
 import {
-  OVERLAP_POLICIES, SCHEDULE_PRESETS, STEP_ACTIONS, manageHint, actionLabel, automationError, browserTimeZone, canEdit, canManage, checkDraft,
-  createdTaskId, cronShapeError, draftFromWorkflow, editHint, emptyDraft, formatTime, intervalCron, moveStep, newStep, nextRunLabel, nextTimes, outcomeLabel,
+  OVERLAP_POLICIES, SCHEDULE_PRESETS, STEP_ACTIONS, manageHint, actionLabel, automationError, browserTimeZone, canEdit, canManage, canTakeOver, checkDraft,
+  createdTaskId, cronShapeError, cronWords, runStatusLabel, waitingLabel, draftFromWorkflow, editHint, emptyDraft, formatTime, intervalCron, moveStep, newStep, nextRunLabel, nextTimes, outcomeLabel,
   overlapLabel, pageLabel, relativeTime, removeStep, runDuration, runProgress, statusLabel, statusTone, timeZones, triggerLabel,
   type AutomationRun, type AutomationSchedule, type AutomationWorkflow, type FieldErrors, type Page, type RunStatus, type SchedulePreview,
   type StepAction, type StepDraft, type Viewer, type WorkflowDraft,
@@ -192,10 +194,11 @@ function Detail({ workflowId, viewer, editing, tick, focusRunId, onEdit, onEditD
       <h3 className="autoSubhead">{t('auto.steps')}</h3>
       <ol className="autoStepList">{workflow.steps.map((step, index) => <li key={step.id}>
         <span className="autoStepIndex" aria-hidden="true">{index + 1}</span>
-        <div><strong>{step.name}</strong><small>{actionLabel(step.action)}{step.action === 'task.create' && typeof step.input.title === 'string' ? `: ${step.input.title}` : ''}{(step.action === 'notify' || step.action === 'fail') && typeof step.input.message === 'string' ? `: ${step.input.message}` : ''}</small></div>
+        <div><strong>{step.name}</strong><small>{actionLabel(step.action)}{step.action === 'task.create' && typeof step.input.title === 'string' ? `: ${step.input.title}` : ''}{step.action === 'task.create' && step.input.run === false ? ` (${t('auto.step.createOnly')})` : ''}{step.action === 'email.send' ? `: ${Array.isArray(step.input.to) ? step.input.to.join(', ') : String(step.input.to ?? '')}` : ''}{(step.action === 'notify' || step.action === 'fail') && typeof step.input.message === 'string' ? `: ${step.input.message}` : ''}{step.max_attempts > 1 && step.action !== 'pause' && step.action !== 'fail' ? ` · ${t('auto.step.attempts', { count: step.max_attempts })}` : ''}</small></div>
       </li>)}</ol>
     </article>
     <Schedules workflow={workflow} viewer={viewer} tick={tick + localTick} onChanged={(message) => { refresh(); onChanged(message); }} />
+    <AutomationTriggers workflow={workflow} viewer={viewer} tick={tick + localTick} onChanged={(message) => { refresh(); onChanged(message); }} />
     <RunHistory workflow={workflow} viewer={viewer} tick={tick + localTick} focusRunId={focusRunId} onChanged={(message) => { refresh(); onChanged(message); }} onOpenTask={onOpenTask} />
   </>;
 }
@@ -218,7 +221,15 @@ function Composer({ viewer, existing, onCancel, onSaved }: { viewer: Viewer; exi
   const [draft, setDraft] = useState<WorkflowDraft>(() => existing ? draftFromWorkflow(existing) : emptyDraft());
   const [errors, setErrors] = useState<FieldErrors>({}), [summary, setSummary] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null), base = useId();
+  const [mailboxes, setMailboxes] = useState<{ state: 'loading' } | { state: 'ready'; value: { id: string; address: string }[] } | { state: 'error'; message: string }>({ state: 'loading' });
   useEffect(() => { heading.current?.focus(); }, []);
+  useEffect(() => {
+    if (!draft.steps.some((step) => step.action === 'email.send') || mailboxes.state === 'ready') return;
+    let live = true;
+    listEmailAccounts().then((accounts) => { if (live) setMailboxes({ state: 'ready', value: accounts.map((a) => ({ id: a.id, address: a.address })) }); })
+      .catch((error) => { if (live) setMailboxes({ state: 'error', message: automationError(error) }); });
+    return () => { live = false; };
+  }, [draft.steps, mailboxes.state]);
   const patchStep = (key: string, patch: Partial<StepDraft>) => setDraft((d) => ({ ...d, steps: d.steps.map((s) => s.key === key ? { ...s, ...patch } : s) }));
   const fieldId = (name: string) => `${base}-${name.replace(/[^A-Za-z0-9_-]/g, '-')}`;
 
@@ -244,6 +255,7 @@ function Composer({ viewer, existing, onCancel, onSaved }: { viewer: Viewer; exi
       </select>}</Field>
     <h3 className="autoSubhead">{t('auto.steps')}</h3>
     <p className="muted">{t('auto.stepsHelp')}</p>
+    <p className="muted">{t('auto.templatesHelp')}</p>
     {errors.steps && <p className="autoFieldError">{errors.steps}</p>}
     <ol className="wbSteps" aria-label={t('auto.steps')}>{draft.steps.map((step, index) => {
       const help = STEP_ACTIONS.find((a) => a.value === step.action)?.help, id = (name: string) => fieldId(`${step.key}.${name}`), e = (name: string) => errors[`${step.key}.${name}`];
@@ -265,8 +277,26 @@ function Composer({ viewer, existing, onCancel, onSaved }: { viewer: Viewer; exi
         {step.action === 'task.create' && <>
           <Field id={id('title')} label={t('auto.field.taskTitle')} error={e('title')}>{(a) => <input {...a} value={step.title} maxLength={160} onChange={(ev) => patchStep(step.key, { title: ev.target.value })} />}</Field>
           <Field id={id('prompt')} label={t('auto.field.prompt')} error={e('prompt')}>{(a) => <textarea {...a} rows={3} value={step.prompt} maxLength={8000} onChange={(ev) => patchStep(step.key, { prompt: ev.target.value })} />}</Field>
+          <label className="autoCheck"><input type="checkbox" checked={step.runTask} onChange={(ev) => patchStep(step.key, { runTask: ev.target.checked })} />{t('auto.field.runTask')}</label>
+        </>}
+        {step.action === 'email.send' && <>
+          <Field id={id('accountId')} label={t('auto.field.mailbox')} error={e('accountId') ?? (mailboxes.state === 'error' ? mailboxes.message : undefined)}
+            hint={mailboxes.state === 'ready' && mailboxes.value.length === 0 ? t('auto.field.noMailbox') : undefined}>{(a) =>
+            <select {...a} value={step.accountId} onChange={(ev) => patchStep(step.key, { accountId: ev.target.value })}>
+              <option value="">{mailboxes.state === 'loading' ? t('common.loading') : t('auto.field.chooseMailbox')}</option>
+              {step.accountId && !(mailboxes.state === 'ready' && mailboxes.value.some((m) => m.id === step.accountId)) && <option value={step.accountId}>{step.accountId}</option>}
+              {mailboxes.state === 'ready' && mailboxes.value.map((m) => <option key={m.id} value={m.id}>{m.address}</option>)}
+            </select>}</Field>
+          <Field id={id('to')} label={t('auto.field.to')} error={e('to')} hint={t('auto.field.toHint')}>{(a) => <input {...a} dir="ltr" value={step.to} maxLength={2000} onChange={(ev) => patchStep(step.key, { to: ev.target.value })} />}</Field>
+          <Field id={id('subject')} label={t('auto.field.subject')} error={e('subject')}>{(a) => <input {...a} value={step.subject} maxLength={500} onChange={(ev) => patchStep(step.key, { subject: ev.target.value })} />}</Field>
+          <Field id={id('body')} label={t('auto.field.body')} error={e('body')}>{(a) => <textarea {...a} rows={4} value={step.body} maxLength={20000} onChange={(ev) => patchStep(step.key, { body: ev.target.value })} />}</Field>
         </>}
         {(step.action === 'notify' || step.action === 'fail') && <Field id={id('message')} label={step.action === 'notify' ? t('auto.field.messageOptional') : t('auto.field.message')} error={e('message')}>{(a) => <input {...a} value={step.message} maxLength={500} onChange={(ev) => patchStep(step.key, { message: ev.target.value })} />}</Field>}
+        {step.action === 'notify' && <label className="autoCheck"><input type="checkbox" checked={step.push} onChange={(ev) => patchStep(step.key, { push: ev.target.checked })} />{t('auto.field.push')}</label>}
+        {(step.action === 'task.create' || step.action === 'email.send' || step.action === 'notify') && <div className="wbStepFields">
+          <Field id={id('maxAttempts')} label={t('auto.field.attempts')} error={e('maxAttempts')}>{(a) => <input {...a} type="number" min={1} max={10} value={step.maxAttempts} onChange={(ev) => patchStep(step.key, { maxAttempts: Number(ev.target.value) })} />}</Field>
+          <Field id={id('retryDelay')} label={t('auto.field.retryDelay')} error={e('retryDelay')}>{(a) => <input {...a} type="number" min={5} max={3600} value={step.retryDelay} onChange={(ev) => patchStep(step.key, { retryDelay: Number(ev.target.value) })} />}</Field>
+        </div>}
       </li>;
     })}</ol>
     <div className="actions">
@@ -318,7 +348,7 @@ function Schedules({ workflow, viewer, tick, onChanged }: { workflow: Automation
     </div>
     <p className="muted">{t('auto.sched.help')}</p>
     {editing !== null && <ScheduleForm key={editing === 'new' ? 'new' : editing.id} workflowId={workflow.id} existing={editing === 'new' ? undefined : editing}
-      onCancel={() => setEditing(null)} onSaved={(saved, created) => { setEditing(null); setLocalTick((t) => t + 1); onChanged(created ? t('auto.sched.added', { name: saved.name, description: saved.cron_description.toLowerCase() }) : t('auto.sched.saved', { name: saved.name })); }} />}
+      onCancel={() => setEditing(null)} onSaved={(saved, created) => { setEditing(null); setLocalTick((t) => t + 1); onChanged(created ? t('auto.sched.added', { name: saved.name, description: cronWords(saved.cron_description.toLowerCase(), saved.cron_description_ar) }) : t('auto.sched.saved', { name: saved.name })); }} />}
     {error && <Notice error>{error}</Notice>}
     {load.state === 'loading' && <p className="muted" role="status">{t('auto.sched.loading')}</p>}
     {load.state === 'error' && <><Notice error>{t('auto.sched.loadFailed', { message: load.message })}</Notice><div className="actions"><button type="button" className="secondary" onClick={() => setLocalTick((t) => t + 1)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></>}
@@ -328,7 +358,7 @@ function Schedules({ workflow, viewer, tick, onChanged }: { workflow: Automation
       return <li key={schedule.id} className="autoSchedule">
         <div className="autoScheduleText">
           <strong>{schedule.name}</strong>
-          <span>{schedule.cron_description} <span className="muted">(<bdi>{schedule.timezone}</bdi>, <code dir="ltr">{schedule.cron}</code>)</span></span>
+          <span>{cronWords(schedule.cron_description, schedule.cron_description_ar)} <span className="muted">(<bdi>{schedule.timezone}</bdi>, <code dir="ltr">{schedule.cron}</code>)</span></span>
           <small className="muted">{[
             t('auto.sched.next', { when: workflow.status === 'disabled' && schedule.enabled ? t('auto.sched.skippedPaused') : nextRunLabel(schedule.next_run_at, schedule.enabled, new Date(), schedule.timezone) }, { isolate: false }),
             ...(schedule.last_run_at ? [outcome ? t('auto.sched.lastOutcome', { when: formatTime(schedule.last_run_at, schedule.timezone), outcome }, { isolate: false }) : t('auto.sched.last', { when: formatTime(schedule.last_run_at, schedule.timezone) }, { isolate: false })] : []),
@@ -342,6 +372,7 @@ function Schedules({ workflow, viewer, tick, onChanged }: { workflow: Automation
             : <button type="button" title={t('auto.sched.turnOn')} aria-label={t('auto.sched.turnOnNamed', { name: schedule.name })} disabled={busy} onClick={() => void act(() => automationApi.setScheduleEnabled(schedule.id, true), t('auto.sched.turnedOn', { name: schedule.name }))}><Play aria-hidden="true" size={16} /></button>}
           <button type="button" title={t('auto.edit')} aria-label={t('auto.sched.editNamed', { name: schedule.name })} disabled={busy} onClick={() => setEditing(schedule)}><Pencil aria-hidden="true" size={16} /></button>
           <button type="button" title={t('auto.delete')} aria-label={t('auto.sched.deleteNamed', { name: schedule.name })} disabled={busy} onClick={() => { if (window.confirm(t('auto.sched.confirmDelete', { name: schedule.name }, { isolate: false }))) void act(() => automationApi.deleteSchedule(schedule.id), t('auto.sched.deleted', { name: schedule.name })); }}><Trash2 aria-hidden="true" size={16} /></button>
+          {canTakeOver(viewer, schedule.created_by) && <button type="button" title={t('auto.takeOver')} aria-label={t('auto.sched.takeOverNamed', { name: schedule.name })} disabled={busy} onClick={() => { if (window.confirm(t('auto.sched.confirmTakeOver', { name: schedule.name, user: schedule.created_by ?? '' }, { isolate: false }))) void act(() => automationApi.takeOverSchedule(schedule.id), t('auto.sched.takenOver', { name: schedule.name })); }}><UserCheck aria-hidden="true" size={16} /></button>}
         </div>}
       </li>;
     })}</ul>}
@@ -392,7 +423,7 @@ function ScheduleForm({ workflowId, existing, onCancel, onSaved }: { workflowId:
       {'cron' in resolved && preview.state === 'loading' && <p className="muted">{t('auto.sched.checking')}</p>}
       {'cron' in resolved && preview.state === 'error' && <p className="autoFieldError">{preview.message}</p>}
       {'cron' in resolved && preview.state === 'ready' && <>
-        <p><strong>{preview.value.description}</strong> <span className="muted">(<bdi>{preview.value.timezone}</bdi>)</span></p>
+        <p><strong>{cronWords(preview.value.description, preview.value.description_ar)}</strong> <span className="muted">(<bdi>{preview.value.timezone}</bdi>)</span></p>
         <p className="muted">{t('auto.sched.nextRuns', { times: nextTimes(preview.value.next_runs, preview.value.timezone) }, { isolate: false })}</p>
       </>}
     </div>
@@ -431,7 +462,7 @@ function RunHistory({ workflow, viewer, tick, focusRunId, onChanged, onOpenTask 
   return <section className="surface autoPanel" aria-labelledby={`runs-${workflow.id}`}>
     <div className="sectionHeader"><h2 id={`runs-${workflow.id}`}>{t('auto.runs.title')}</h2>
       <label className="autoInlineField"><span>{t('auto.runs.show')}</span><select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setOffset(0); }}>
-        <option value="">{t('auto.runs.all')}</option><option value="failed">{t('auto.runs.failed')}</option><option value="paused">{t('auto.runs.waiting')}</option><option value="completed">{t('auto.runs.completed')}</option><option value="cancelled">{t('auto.runs.cancelled')}</option>
+        <option value="">{t('auto.runs.all')}</option><option value="running">{t('auto.runs.running')}</option><option value="failed">{t('auto.runs.failed')}</option><option value="paused">{t('auto.runs.waiting')}</option><option value="completed">{t('auto.runs.completed')}</option><option value="cancelled">{t('auto.runs.cancelled')}</option>
       </select></label>
     </div>
     {error && <Notice error>{error}</Notice>}
@@ -447,7 +478,7 @@ function RunHistory({ workflow, viewer, tick, focusRunId, onChanged, onOpenTask 
               {open ? <ChevronDown aria-hidden="true" size={16} /> : <ChevronRight aria-hidden="true" className="flipRtl" size={16} />}
               <span><strong>{formatTime(run.created_at)}</strong> <span className="muted">{triggerLabel(run.trigger)}{run.created_by ? ` · ${run.created_by}` : ''}</span></span>
             </button>
-            <Badge status={run.status} />
+            <span className={`statusBadge ${statusTone(run.status)}`}>{runStatusLabel(run)}</span>
             <span className="muted autoRunMeta">{runProgress(run)}{runDuration(run) ? ` · ${runDuration(run)}` : ''}{run.workflow_version ? ` · ${t('auto.fact.versionValue', { version: run.workflow_version })}` : ''}</span>
             {manage && <div className="runActions">
               {run.status === 'paused' && <button type="button" title={t('auto.runs.resumeShort')} aria-label={t('auto.runs.resume')} disabled={busy} onClick={() => void transition(run, 'resume')}><Play aria-hidden="true" size={16} /></button>}
@@ -460,7 +491,9 @@ function RunHistory({ workflow, viewer, tick, focusRunId, onChanged, onOpenTask 
             const taskId = createdTaskId(step);
             return <li key={step.id}>
               <div className="wbStepHead"><span><strong>{step.name}</strong> <span className="muted">{actionLabel(step.action)}</span></span><Badge status={step.status} /></div>
-              {step.attempt > 0 && <span className="muted">{t('auto.runs.attempt', { n: step.attempt })}</span>}
+              {step.attempt > 0 && <span className="muted">{(step.max_attempts ?? 1) > 1 ? t('auto.runs.attemptOf', { n: step.attempt, max: step.max_attempts ?? 1 }) : t('auto.runs.attempt', { n: step.attempt })}</span>}
+              {waitingLabel(step) && <span className="autoWaiting" role="status">{waitingLabel(step)}</span>}
+              {typeof step.output.result === 'string' && step.output.result && <p className="autoResult" dir="auto">{t('auto.runs.result', { result: step.output.result })}</p>}
               {step.error && <p className="wbError" dir="auto">{step.error}</p>}
               {taskId && <button type="button" className="rowLink autoTaskLink" onClick={() => onOpenTask?.(taskId)} disabled={!onOpenTask}><ExternalLink aria-hidden="true" className="flipRtl" size={14} />{t('auto.runs.openTask', { title: String(step.output.title ?? taskId) })}</button>}
               {typeof step.output.message === 'string' && <span className="muted">{t('auto.runs.message', { message: step.output.message })}</span>}

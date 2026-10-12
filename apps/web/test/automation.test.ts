@@ -37,7 +37,11 @@ describe('step drafts', () => {
     ];
     const result = checkDraft(draftFromWorkflow({ name: 'W', description: 'd', overlap_policy: 'skip', steps }));
     assert.ok(result.ok);
-    if (result.ok) assert.deepEqual(result.body, { name: 'W', description: 'd', overlap_policy: 'skip', steps });
+    const expected = [
+      { ...steps[0], retry_delay_seconds: 60 },
+      { ...steps[1], input: { message: 'Done', channels: ['in_app'] }, retry_delay_seconds: 60 },
+    ];
+    if (result.ok) assert.deepEqual(result.body, { name: 'W', description: 'd', overlap_policy: 'skip', steps: expected });
   });
 });
 

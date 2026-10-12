@@ -53,6 +53,13 @@ void main() {
       })!;
       expect(developer.route, '/developer');
       expect(developer.requestId, 'dev_1');
+      final automation = PushDestination.fromData({
+        'anum_kind': 'automation_failed',
+        'workspace_id': 'workspace_test',
+        'automation_run_id': 'run_1',
+      })!;
+      expect(automation.kind, PushDestinationKind.automation);
+      expect(automation.route, '/automations');
       expect(PushDestination.fromData({'anum_kind': 'task_completed'}), isNull);
       expect(
           PushDestination.fromData(

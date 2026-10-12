@@ -919,6 +919,12 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
                            extra={"anum_email": {"event": "auto_route_skipped",
                                                   "account_id": account_id.replace("\r", "").replace("\n", "")}})
             arrived = []
+        # Only an incremental sync announces new mail; the first sync of a mailbox does not.
+        fresh = (
+            [m for m in incoming if store.get_by_provider_id(account_id, m.provider_message_id) is None]
+            if stored.sync_cursor
+            else []
+        )
         store.upsert_messages(incoming)
         if result.removed:
             store.apply_changes(account_id, {pid: (None, True) for pid in result.removed})
@@ -938,6 +944,33 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
         from .assistants import auto_route_inbound
 
         await asyncio.to_thread(auto_route_inbound, stored.tenant_id, stored.workspace_id, "email", arrived)
+    inbound = [m for m in fresh if m.from_address.lower() != stored.address.lower() and not m.is_archived]
+    if inbound:
+        from .automation_triggers import record_inbound_events
+
+        private = stored.visibility == Visibility.PRIVATE
+        record_inbound_events(
+            context,
+            [
+                (
+                    "email.received",
+                    m.id,
+                    # A private mailbox's sender and subject stay out of the workspace's events.
+                    {"account_id": stored.id, "message_id": m.id, "private": True}
+                    if private
+                    else {
+                        "account_id": stored.id,
+                        "message_id": m.id,
+                        "from": m.from_address,
+                        "subject": m.subject[:300],
+                        "category": m.category.value if m.category else None,
+                        "priority": m.priority.value if m.priority else None,
+                        "private": False,
+                    },
+                )
+                for m in inbound
+            ],
+        )
     return stored
 
 

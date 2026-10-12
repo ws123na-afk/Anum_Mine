@@ -13,8 +13,8 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `run_failed` | Tasks failed | `agent_run.failed` to the task's creator, `developer_request.failed` to the request's owner |
 | `commerce_alerts` | Store alerts (migration `0038_commerce`, default on; older clients that do not send it leave it on) | `commerce.alert.raised` to the workspace's owners and members ([Commerce](commerce.md#alerts)) |
 | `tyre_alerts` | Tyre alerts (migration `0037_tyre_planning`, default on) | `tyre_alerts.raised` to every active member who may read tyre planning ([Tyre planning](tyre-planning.md#alerts)) |
-| `automation_failed` | Automations failed | Nothing yet: automation runs emit no domain event; the failure shows in Automation |
-| `push_enabled` | Phone push for this workspace (migration `0027_push_devices`, default on; older clients that do not send it leave it on) | The channel switch for all of the above |
+| `automation_failed` | Automations failed | `automation_run.failed` to the people its payload names (`notify_user_ids`: the run's owner and the automation's creator, while active members with `automation:read`) |
+| `push_enabled` | Phone push for this workspace (migration `0027_push_devices`, default on; older clients that do not send it leave it on) | The channel switch for all of the above; also gates a `notify` step that asked for push (`automation.notification` with `push: true`, to the run's owner) |
 | `desktop_enabled` | Desktop notifications | Not a phone channel |
 | `email_enabled` | Email | Team work notifications are emailed when SMTP is configured ([Team work](team-work.md#notifications)); nothing else is emailed yet |
 
@@ -52,13 +52,14 @@ There is no user id in any path or body. Rows live in `push_devices` (migration 
 2. The dispatcher maps the event to a kind (table above) and, in a background task, resolves recipients as the application role inside the event's tenant and workspace (RLS applies):
    - approvals: active members whose role grants `approval:decide` (owners), only while the approval is still pending, and without the task's creator and the requester when the workspace's two-person rule covers the approval's risk;
    - task results: the task's creator, while an active member with `task:read`;
-   - developer requests: the request's creator, while an active member with `developer:manage`.
+   - developer requests: the request's creator, while an active member with `developer:manage`;
+   - automations (`automation.notification` with `push: true`, `automation_run.failed`): the users the event names, while active members with `automation:read`.
 3. For each recipient it reads their notification preferences and their phones **inside that recipient's own RLS context**, decrypts the tokens and sends one FCM message per phone (ten in flight at most). A phone shared by two members gets the message once.
 4. FCM `UNREGISTERED`, `INVALID_ARGUMENT` or `SENDER_ID_MISMATCH` removes the phone; a bare 403/404 does not (a wrong project must not wipe every phone). 429 and 5xx are retried; a 401 refreshes the OAuth token. Successful sends set `last_sent_at`.
 
 Team work adds the kind `team_work`: every in-app team notification (assignment, comment, completion, blocked, overdue reminder, ANUM follow-up) emits `notification.created` naming its one recipient, who gets a push while an active member with `work:read` and with `push_enabled` on (it has no switch of its own). Text: "Team work" / "Something in your team work needs you. Open ANUM to see it."; data: `work_item_id`. See [Team work](team-work.md#notifications).
 
-The payload never carries content: a fixed title and sentence ("Approval needed" / "An action is waiting for your decision.", "Task finished", "Task failed", "Change ready for review", "Developer request stopped", "Tyre alerts") and string ids for the deep link: `anum_kind`, `tenant_id`, `workspace_id`, and `approval_id`, `task_id`, `run_id` or `developer_request_id`. Android groups by `tag` and iOS by `apns-collapse-id` (the approval, request or task id), so a later push about the same item replaces the earlier one.
+The payload never carries content: a fixed title and sentence ("Approval needed" / "An action is waiting for your decision.", "Task finished", "Task failed", "Change ready for review", "Developer request stopped", "Tyre alerts", "Store alert", "Automation update", "Automation failed") and string ids for the deep link: `anum_kind`, `tenant_id`, `workspace_id`, and `approval_id`, `task_id`, `run_id`, `developer_request_id`, `commerce_alert_id` or `automation_run_id` and `workflow_id` (the app opens Automations). A notify step's own message never travels in the push. Android groups by `tag` and iOS by `apns-collapse-id` (the approval, request or task id), so a later push about the same item replaces the earlier one.
 
 The queue is in-process and bounded. A push is lost if the process stops before sending it (a restart, a scale-down); the item itself is unaffected and every client lists it. Two API replicas that refresh the same developer request at the same instant can each announce the change once.
 
@@ -78,7 +79,6 @@ The Flutter app ([Flutter mobile](mobile.md#phone-push)):
 
 ## Not done yet
 
-- Automation run failures send no push (automation runs have no domain event yet).
 - Email delivery and desktop notifications for these events.
 - `python -m anum_api.rotate_secrets` does not re-encrypt push tokens; phones re-encrypt their own token when the app starts. Keep a retired key in `ANUM_SECRETS_KEY` until every phone has opened the app, or accept that a phone that never does stops getting pushes until it does (its token cannot be decrypted, it is skipped and logged by device id).
 - iOS push needs the Push Notifications capability on the App ID and in Xcode; it is an owner step ([Flutter mobile](mobile.md#phone-push)), not committed, so CI's unsigned iOS build stays unchanged.

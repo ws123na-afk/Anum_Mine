@@ -550,6 +550,8 @@ class WebhookCounts(BaseModel):
     conversations: list[str] = Field(default_factory=list)
     # New inbound texts for assistant auto-routing (never logged or returned).
     arrived: list[tuple[str, str, str]] = Field(default_factory=list, exclude=True)
+    # New inbound messages, announced as ``whatsapp.message_received`` after the store commits.
+    received: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _record_message(
@@ -589,6 +591,16 @@ def _record_message(
         conversation.last_direction = message.direction
     if message.direction == Direction.INBOUND:
         counts.messages += 1
+        counts.received.append(
+            {
+                "conversation_id": conversation.id,
+                "message_id": message.id,
+                "from": wa_id,
+                "contact_name": contact.profile_name,
+                "kind": str(getattr(message.kind, "value", message.kind)),
+                "category": str(getattr(conversation.category, "value", conversation.category) or ""),
+            }
+        )
         conversation.unread_count += 1
         if conversation.last_inbound_at is None or message.timestamp > conversation.last_inbound_at:
             conversation.last_inbound_at = message.timestamp
@@ -1758,11 +1770,17 @@ async def receive_webhook(request: Request, background: BackgroundTasks) -> Resp
             background.add_task(triage_conversations, context, list(counts.conversations))
         if counts.arrived:
             background.add_task(_route_to_assistants, context, list(counts.arrived))
+        if counts.received:
+            from .automation_triggers import record_inbound_events
+
+            record_inbound_events(
+                context, [("whatsapp.message_received", item["message_id"], item) for item in counts.received]
+            )
         for name in ("messages", "duplicates", "stale", "statuses", "echoes"):
             setattr(total, name, getattr(total, name) + getattr(counts, name))
     logger.info(
         "whatsapp_webhook messages=%d duplicates=%d stale=%d statuses=%d",
         total.messages, total.duplicates, total.stale, total.statuses,
-        extra={"anum_whatsapp": {"event": "webhook", **total.model_dump(exclude={"conversations"})}},
+        extra={"anum_whatsapp": {"event": "webhook", **total.model_dump(exclude={"conversations", "received"})}},
     )
-    return JSONResponse({"status": "ok", **total.model_dump(exclude={"conversations"})})
+    return JSONResponse({"status": "ok", **total.model_dump(exclude={"conversations", "received"})})

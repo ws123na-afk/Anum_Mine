@@ -12,11 +12,21 @@ Two engines implement one contract (``AutomationEngine``):
 A run executes its steps in process. Each run keeps a snapshot of the steps (action and
 input) it started with, so editing a workflow never changes a run that is already paused.
 Step actions do real work through ``RunEffects`` inside the engine's transaction:
-``task.create`` creates an agent task, ``notify`` notifies the run's owner, ``pause`` waits
-for someone to resume the run and ``fail`` stops it with a message. Finished, paused,
-failed and cancelled runs publish ``automation_run.*`` events; a failure notifies the run's
-owner and the workflow's creator when their ``automation_failed`` notification preference
-is on.
+``task.create`` creates an agent task and hands it to the ``AutomationDispatcher``
+(``automation_dispatch.py``), which runs it through the agent runtime after the
+transaction commits; the step waits (``waiting_for``: ``task``, then ``approval`` while
+ToolPolicy holds it for a person) until the task finishes, and its result is available to
+later steps as ``{{steps.<id>.result}}``. ``email.send`` asks to send an email from a
+connected mailbox (always approved by a person first), ``notify`` notifies the run's owner
+in the app and on their phone, ``pause`` waits for someone to resume the run and ``fail``
+stops it with a message. A failed step is retried in place with exponential backoff up to
+its ``max_attempts``. Finished, paused, failed and cancelled runs publish
+``automation_run.*`` events; a failure notifies the run's owner and the workflow's creator
+when their ``automation_failed`` notification preference is on.
+
+Runs start manually, on a schedule, or from a trigger (``automation_triggers.py``): an
+event trigger when a matching domain event is committed, a webhook trigger when a signed
+request arrives.
 
 ``AutomationScheduler`` fires due schedules. With PostgreSQL it is safe on every replica:
 due schedules are claimed with ``FOR UPDATE SKIP LOCKED`` and advanced in the same
@@ -27,25 +37,55 @@ transaction that records the run, and each fire has a unique idempotency key
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from threading import RLock
 from typing import Any, Protocol
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from . import cron
 from .audit import AuditRecord
+from .automation_triggers import (
+    TRIGGER_EVENTS,
+    AutomationTrigger,
+    TriggerCreate,
+    TriggerKind,
+    TriggerOutcome,
+    DELIVERY_HEADER,
+    SIGNATURE_HEADER,
+    WEBHOOK_BODY_MAX_BYTES,
+    SignatureError,
+    TriggerEvent,
+    TriggerUpdate,
+    TriggerWithSecret,
+    WebhookAccepted,
+    bounded,
+    conditions_match,
+    delivery_id,
+    event_fire_key,
+    event_payload,
+    event_task_id,
+    new_secret,
+    secret_hint,
+    verify,
+    webhook_fire_key,
+)
+from .hardening import InMemoryTokenBucket, client_key
 from .authorization import Permission
 from .dependencies import require_permission, tenant_context
 from .events import CanonicalEventName, create_event
-from .schemas import DomainEvent, Task, TaskStatus, TenantContext, new_id, utc_now
+from .schemas import ApprovalStatus, DomainEvent, Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import ScopeNotProvisionedError
 from .settings import settings
 
@@ -93,8 +133,9 @@ class ScheduleOutcome(StrEnum):
 # actions (for example ``task.execute``); those run as recorded no-ops, but new and edited
 # workflows must use one of these.
 STEP_ACTIONS: dict[str, str] = {
-    "task.create": "Create an agent task (input: title, prompt)",
-    "notify": "Notify the run's owner in the app (input: message)",
+    "task.create": "Create an agent task and run it (input: title, prompt; run: false only creates it)",
+    "email.send": "Send an email from a connected mailbox once a person approves it (input: account_id, to, subject, body)",
+    "notify": "Notify the run's owner (input: message; channels: in_app, push)",
     "pause": "Wait until someone resumes the run",
     "fail": "Stop the run as failed (input: message)",
     # Tyre planning (docs/tyre-planning.md#reports): runs after the run is committed.
@@ -104,6 +145,18 @@ STEP_ACTIONS: dict[str, str] = {
 TASK_TITLE_MAX = 160
 TASK_PROMPT_MAX = 8000
 MESSAGE_MAX = 500
+EMAIL_SUBJECT_MAX = 500
+EMAIL_BODY_MAX = 20_000
+EMAIL_RECIPIENTS_MAX = 20
+NOTIFY_CHANNELS = ("in_app", "push")
+RESULT_MAX = 4000
+# A step waiting on a task is looked at again at least this often (the event that finishes
+# the task normally moves it at once); a task waiting for approval less often.
+RECONCILE_SECONDS = 60
+RECONCILE_APPROVAL_SECONDS = 900
+# A deferred step whose work has not started after this long is handed out again.
+STALE_DEFER_SECONDS = 120
+RETRY_DELAY_CAP_SECONDS = 6 * 3600
 
 MANAGE_DENIED = (
     "Changing or running automations needs the owner or member role in this workspace. "
@@ -117,8 +170,10 @@ class WorkflowStep(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     action: str = Field(min_length=1, max_length=120)
     input: dict[str, Any] = Field(default_factory=dict)
-    # Stored for a durable executor; the in-process executor runs each step once (retry the run).
+    # A failed step is tried again in place up to this many attempts in all, waiting
+    # retry_delay_seconds * 2^(attempt - 1) (at most six hours) between attempts.
     max_attempts: int = Field(default=3, ge=1, le=10)
+    retry_delay_seconds: int = Field(default=60, ge=5, le=3600)
 
 
 def _step_label(index: int, step: WorkflowStep) -> str:
@@ -150,6 +205,11 @@ def check_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
                 raise ValueError(f"{label}: the task title is longer than {TASK_TITLE_MAX} characters.")
             if len(prompt) > TASK_PROMPT_MAX:
                 raise ValueError(f"{label}: the task prompt is longer than {TASK_PROMPT_MAX} characters.")
+            run_flag = step.input.get("run", True)
+            if not isinstance(run_flag, bool):
+                raise ValueError(f'{label}: "run" must be true (run the task) or false (only create it).')
+        if step.action == "email.send":
+            _check_email_step(label, step)
         if step.action == REPORT_STEP_ACTION:
             kind, days = step.input.get("type", "task_summary"), step.input.get("period_days", 7)
             if kind not in {"task_summary", "automation_summary", "commerce_summary", "tyre_summary"}:
@@ -164,7 +224,38 @@ def check_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
                 raise ValueError(f"{label}: the message must be text.")
             if isinstance(message, str) and len(message) > MESSAGE_MAX:
                 raise ValueError(f"{label}: the message is longer than {MESSAGE_MAX} characters.")
+        if step.action == "notify":
+            channels = step.input.get("channels", ["in_app"])
+            if (
+                not isinstance(channels, list)
+                or not channels
+                or any(channel not in NOTIFY_CHANNELS for channel in channels)
+            ):
+                raise ValueError(f"{label}: channels must list one or more of: {', '.join(NOTIFY_CHANNELS)}.")
     return steps
+
+
+def _check_email_step(label: str, step: WorkflowStep) -> None:
+    account_id = _text_input(step, "account_id")
+    if not account_id:
+        raise ValueError(f'{label}: "Send email" needs the mailbox to send from (account_id). Connect one under Email first.')
+    to = step.input.get("to")
+    recipients = [to] if isinstance(to, str) else to
+    if (
+        not isinstance(recipients, list)
+        or not any(isinstance(item, str) and item.strip() for item in recipients)
+        or not all(isinstance(item, str) for item in recipients)
+    ):
+        raise ValueError(f'{label}: "Send email" needs at least one recipient in "to".')
+    if len(recipients) > EMAIL_RECIPIENTS_MAX:
+        raise ValueError(f"{label}: send to at most {EMAIL_RECIPIENTS_MAX} recipients.")
+    subject, body = step.input.get("subject", ""), step.input.get("body")
+    if not isinstance(subject, str) or len(subject) > EMAIL_SUBJECT_MAX:
+        raise ValueError(f"{label}: the subject must be text of at most {EMAIL_SUBJECT_MAX} characters.")
+    if not isinstance(body, str) or not body.strip():
+        raise ValueError(f'{label}: "Send email" needs a body.')
+    if len(body) > EMAIL_BODY_MAX:
+        raise ValueError(f"{label}: the body is longer than {EMAIL_BODY_MAX} characters.")
 
 
 class WorkflowFields(BaseModel):
@@ -302,6 +393,7 @@ class SchedulePreview(BaseModel):
     cron: str
     timezone: str
     description: str
+    description_ar: str
     next_runs: list[datetime]
 
 
@@ -331,6 +423,14 @@ class AutomationSchedule(BaseModel):
         except cron.CronError:
             return self.cron
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def cron_description_ar(self) -> str:
+        try:
+            return cron.describe(self.cron, "ar")
+        except cron.CronError:
+            return self.cron
+
 
 class RunStepState(BaseModel):
     id: str
@@ -342,6 +442,15 @@ class RunStepState(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
     output: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+    # Snapshot of the step's retry policy (older runs: one attempt).
+    max_attempts: int = 1
+    retry_delay_seconds: int = 60
+    # While the step is running: what it waits for. ``start`` (its work is queued),
+    # ``task`` (the agent task is running), ``approval`` (a person must approve the task's
+    # action) or ``retry`` (the last attempt failed; the next starts at next_attempt_at).
+    waiting_for: str | None = None
+    next_attempt_at: datetime | None = None
+    started_at: datetime | None = None
 
 
 class WorkflowRun(BaseModel):
@@ -363,15 +472,33 @@ class WorkflowRun(BaseModel):
     workflow_version: int | None = None
     # Filled in when listed or read, so history shows names after a workflow is renamed.
     workflow_name: str | None = None
+    # Set when a trigger started the run: the trigger, the event type (or "webhook") and
+    # what it delivered, available to steps as {{trigger.<field>}}.
+    trigger_id: str | None = None
+    trigger_type: str | None = None
+    trigger_payload: dict[str, Any] = Field(default_factory=dict)
+    # When the engine should look at the run again (a retry is due, a waiting step is
+    # re-checked); null when nothing is pending. The agent task the current step waits on.
+    wake_at: datetime | None = None
+    waiting_task_id: str | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def trigger(self) -> str:
         if self.schedule_id:
             return "schedule"
+        if self.trigger_id:
+            return "webhook" if self.trigger_type == "webhook" else "event"
         if self.retry_of:
             return "retry"
         return "manual"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def waiting_for(self) -> str | None:
+        if self.status != RunStatus.RUNNING or self.current_step >= len(self.steps):
+            return None
+        return self.steps[self.current_step].waiting_for
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -389,6 +516,7 @@ class WorkflowFilter(BaseModel):
 class RunFilter(BaseModel):
     workflow_id: str | None = None
     schedule_id: str | None = None
+    trigger_id: str | None = None
     status: RunStatus | None = None
     limit: int = 50
     offset: int = 0
@@ -430,9 +558,71 @@ class AutomationEngine(Protocol):
     def cancel(self, context: TenantContext, run_id: str) -> WorkflowRun: ...
     def resume(self, context: TenantContext, run_id: str) -> WorkflowRun: ...
     def run_due_schedules(self, *, limit: int = 100) -> list[WorkflowRun]: ...
+    def take_over_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule: ...
+    # Waiting steps and retries.
+    def advance(self, context: TenantContext, run_id: str, report: StepReport | None = None) -> WorkflowRun: ...
+    def wake_for_task(self, context: TenantContext, task_id: str) -> list[WorkflowRun]: ...
+    def run_due_wakeups(self, *, limit: int = 100) -> list[WorkflowRun]: ...
+    # Triggers.
+    def create_trigger(self, context: TenantContext, payload: TriggerCreate) -> tuple[AutomationTrigger, str | None]: ...
+    def list_triggers(self, context: TenantContext, workflow_id: str | None = None) -> list[AutomationTrigger]: ...
+    def get_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger: ...
+    def update_trigger(self, context: TenantContext, trigger_id: str, payload: TriggerUpdate) -> AutomationTrigger: ...
+    def delete_trigger(self, context: TenantContext, trigger_id: str) -> None: ...
+    def rotate_trigger_secret(self, context: TenantContext, trigger_id: str) -> tuple[AutomationTrigger, str]: ...
+    def take_over_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger: ...
+    def trigger_record(self, context: TenantContext, trigger_id: str) -> AutomationTrigger: ...
+    def fire_trigger(
+        self, context: TenantContext, trigger_id: str, *, key: str, payload: dict[str, Any], source_task_id: str | None = None
+    ) -> tuple[WorkflowRun | None, str]: ...
+    def fire_event(self, context: TenantContext, event: DomainEvent) -> list[WorkflowRun]: ...
+    def catch_up_triggers(self, *, limit: int = 100) -> list[WorkflowRun]: ...
 
 
 # Effects: what steps and state changes do outside the automation tables ----------------
+
+
+@dataclass(frozen=True)
+class DeferredStep:
+    """Step work that runs after the engine's transaction commits (``AutomationDispatcher``).
+
+    ``task.create``: run agent task ``task_id`` as ``actor``. ``email.send``: ask to send
+    ``arguments`` (account_id, to, subject, body) from a connected mailbox.
+    """
+
+    tenant_id: str
+    workspace_id: str
+    actor: str
+    run_id: str
+    workflow_id: str
+    step_id: str
+    attempt: int
+    action: str
+    task_id: str | None = None
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StepReport:
+    """What deferred step work reports back to ``AutomationEngine.advance``."""
+
+    step_id: str
+    attempt: int
+    output: dict[str, Any] = field(default_factory=dict)
+    task_id: str | None = None
+    error: str | None = None
+    retryable: bool = True
+
+
+@dataclass(frozen=True)
+class TaskOutcome:
+    status: TaskStatus
+    updated_at: datetime
+    result: str | None = None
+    run_id: str | None = None
+    approval_id: str | None = None
+    approval_status: ApprovalStatus | None = None
+    error: str | None = None
 
 
 class RunEffects(Protocol):
@@ -443,6 +633,9 @@ class RunEffects(Protocol):
     def record_audit(self, record: AuditRecord) -> None: ...
     def wants_failure_notice(self, context: TenantContext, user_id: str) -> bool: ...
     def actor_may_run(self, context: TenantContext, user_id: str) -> bool: ...
+    def task_outcome(self, context: TenantContext, task_id: str) -> TaskOutcome | None: ...
+    def events_since(self, context: TenantContext, event_type: str, after: datetime, limit: int) -> list[DomainEvent]: ...
+    def defer(self, job: DeferredStep) -> None: ...
     def flush(self) -> None: ...
 
 
@@ -458,6 +651,7 @@ class RepositoryEffects:
 
         self.repository = EventCollectingRepository(repository)
         self._preferences = preferences
+        self.deferred: list[DeferredStep] = []
 
     def create_task(self, context: TenantContext, title: str, prompt: str) -> Task:
         now = utc_now()
@@ -497,11 +691,48 @@ class RepositoryEffects:
         membership = self.repository.get_membership(context.model_copy(update={"user_id": user_id}))
         return membership is not None and membership.active and membership.role.lower() in {"owner", "member"}
 
+    def task_outcome(self, context: TenantContext, task_id: str) -> TaskOutcome | None:
+        task = self.repository.get_task(task_id, context)
+        if task is None:
+            return None
+        run = self.repository.find_run_for_task(task_id, context)
+        approval = None
+        if run is not None and run.checkpoint.approval_id:
+            approval = self.repository.get_approval(run.checkpoint.approval_id, context)
+        error = None
+        if task.status == TaskStatus.FAILED and run is not None and run.steps:
+            error = run.steps[-1].summary
+        return TaskOutcome(
+            status=task.status,
+            updated_at=task.updated_at,
+            result=run.result if run is not None else None,
+            run_id=run.id if run is not None else None,
+            approval_id=approval.id if approval is not None else None,
+            approval_status=approval.status if approval is not None else None,
+            error=error,
+        )
+
+    def events_since(self, context: TenantContext, event_type: str, after: datetime, limit: int) -> list[DomainEvent]:
+        events = [
+            event
+            for event in self.repository.list_events(context)
+            if event.type == event_type and event.workspace_id == context.workspace_id and event.created_at >= after
+        ]
+        events.sort(key=lambda event: (event.created_at, event.id))
+        return events[:limit]
+
+    def defer(self, job: DeferredStep) -> None:
+        self.deferred.append(job)
+
     def flush(self) -> None:
+        from .automation_dispatch import automation_dispatcher
         from .dependencies import event_runtime
 
         events, self.repository.recorded_events = self.repository.recorded_events, []
         event_runtime.after_commit(events)
+        jobs, self.deferred = self.deferred, []
+        if jobs:
+            automation_dispatcher.submit_deferred(jobs)
 
 
 def memory_effects() -> RepositoryEffects:
@@ -546,6 +777,8 @@ def new_run(
     idempotency_key: str | None = None,
     retry_of: str | None = None,
     schedule_id: str | None = None,
+    trigger: AutomationTrigger | None = None,
+    trigger_payload: dict[str, Any] | None = None,
 ) -> WorkflowRun:
     now = utc_now()
     return WorkflowRun(
@@ -559,9 +792,20 @@ def new_run(
         idempotency_key=idempotency_key,
         retry_of=retry_of,
         schedule_id=schedule_id,
+        trigger_id=trigger.id if trigger is not None else None,
+        trigger_type=(trigger.event_type or trigger.kind.value) if trigger is not None else None,
+        trigger_payload=dict(trigger_payload or {}),
         created_by=context.user_id,
         steps=[
-            RunStepState(id=step.id, name=step.name, action=step.action, input=dict(step.input), status=RunStatus.QUEUED)
+            RunStepState(
+                id=step.id,
+                name=step.name,
+                action=step.action,
+                input=dict(step.input),
+                status=RunStatus.QUEUED,
+                max_attempts=step.max_attempts,
+                retry_delay_seconds=step.retry_delay_seconds,
+            )
             for step in workflow.steps
         ],
         created_at=now,
@@ -570,30 +814,160 @@ def new_run(
 
 
 class StepFailed(Exception):
-    """A step could not do its work; the run fails with this message."""
+    """A step could not do its work; the run fails with this message (or retries)."""
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
-def _perform(state: RunStepState, run: WorkflowRun, context: TenantContext, effects: RunEffects) -> dict[str, Any]:
+class _Wait:
+    """Returned by ``_perform`` when the step continues after the transaction."""
+
+
+WAIT = _Wait()
+
+
+# -- templates: earlier results and the trigger's data in later steps ------------------------
+
+_TEMPLATE = re.compile(r"\{\{\s*([A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+){0,6})\s*\}\}")
+
+
+def template_scope(run: WorkflowRun) -> dict[str, Any]:
+    """What ``{{...}}`` can name: ``trigger.*``, ``steps.<id>.*`` (finished steps), ``run.*``."""
+    return {
+        "trigger": run.trigger_payload,
+        "steps": {step.id: step.output for step in run.steps if step.status == RunStatus.COMPLETED},
+        "run": {"id": run.id, "trigger": run.trigger, "started_at": run.created_at.isoformat()},
+        "workflow": {"id": run.workflow_id, "name": run.workflow_name or ""},
+    }
+
+
+def _lookup(scope: dict[str, Any], path: list[str]) -> Any:
+    current: Any = scope
+    for part in path:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list) and part.isdigit() and int(part) < len(current):
+            current = current[int(part)]
+        else:
+            return None
+    return current
+
+
+def render_text(text: str, scope: dict[str, Any], *, untrusted: bool = False) -> str:
+    """Replace ``{{path}}``; unknown paths become empty text.
+
+    With ``untrusted`` (an agent task's prompt), values that came from outside (the
+    trigger's data, earlier steps' results) are wrapped as labelled untrusted data, so a
+    received email or webhook body is never read as the owner's instructions.
+    """
+    from .prompt_provenance import label_untrusted
+
+    def value(match: re.Match[str]) -> str:
+        path = match.group(1).split(".")
+        found = _lookup(scope, path)
+        if found is None:
+            return ""
+        text_value = found if isinstance(found, str) else json.dumps(found, ensure_ascii=False, default=str)
+        text_value = text_value[:RESULT_MAX]
+        if untrusted and path[0] in {"trigger", "steps"}:
+            return label_untrusted(text_value, source=f"automation_{path[0]}", origin=".".join(path[:3]))
+        return text_value
+
+    return _TEMPLATE.sub(value, text)
+
+
+def _input_text(state: RunStepState, key: str, scope: dict[str, Any], *, untrusted: bool = False) -> str:
+    raw = state.input.get(key, "")
+    return render_text(raw, scope, untrusted=untrusted).strip() if isinstance(raw, str) else ""
+
+
+def email_arguments(state: RunStepState, run: WorkflowRun) -> dict[str, Any]:
+    """The rendered ``email.send`` input, checked again (a template may render empty)."""
+    scope = template_scope(run)
+    raw_to = state.input.get("to")
+    items = [raw_to] if isinstance(raw_to, str) else list(raw_to or [])
+    recipients: list[str] = []
+    for item in items:
+        if isinstance(item, str):
+            recipients.extend(part.strip() for part in render_text(item, scope).replace(";", ",").split(","))
+    recipients = list(dict.fromkeys(item for item in recipients if item))[:EMAIL_RECIPIENTS_MAX]
+    if not recipients:
+        raise StepFailed('The email has no recipient (the "to" field rendered empty). Edit the step and retry the run.')
+    body = _input_text(state, "body", scope)[:EMAIL_BODY_MAX]
+    if not body:
+        raise StepFailed("The email body rendered empty. Edit the step and retry the run.")
+    return {
+        "account_id": _input_text(state, "account_id", scope),
+        "to": recipients,
+        "subject": " ".join(_input_text(state, "subject", scope).split())[:EMAIL_SUBJECT_MAX],
+        "body": body,
+    }
+
+
+def _deferred(run: WorkflowRun, state: RunStepState, context: TenantContext, **values: Any) -> DeferredStep:
+    return DeferredStep(
+        tenant_id=context.tenant_id,
+        workspace_id=context.workspace_id,
+        actor=run.created_by or context.user_id,
+        run_id=run.id,
+        workflow_id=run.workflow_id,
+        step_id=state.id,
+        attempt=state.attempt,
+        action=state.action,
+        **values,
+    )
+
+
+def _perform(
+    state: RunStepState, run: WorkflowRun, context: TenantContext, effects: RunEffects, now: datetime
+) -> dict[str, Any] | _Wait:
+    scope = template_scope(run)
     if state.action == "task.create":
-        title = str(state.input.get("title", "")).strip()[:TASK_TITLE_MAX]
-        prompt = str(state.input.get("prompt", "")).strip()[:TASK_PROMPT_MAX]
+        title = " ".join(_input_text(state, "title", scope).split())[:TASK_TITLE_MAX]
+        prompt = _input_text(state, "prompt", scope, untrusted=True)[:TASK_PROMPT_MAX]
         if not title or not prompt:
             raise StepFailed("The step's input has no task title or prompt. Edit the workflow and retry the run.")
         task = effects.create_task(context, title, prompt)
-        return {"task_id": task.id, "title": task.title}
+        state.output = {"task_id": task.id, "title": task.title}
+        if state.input.get("run", True) is False:
+            return {**state.output, "run": False}
+        # The task runs after this transaction commits; the step waits for it.
+        state.waiting_for = "task"
+        run.waiting_task_id = task.id
+        run.wake_at = now + timedelta(seconds=RECONCILE_SECONDS)
+        effects.defer(_deferred(run, state, context, task_id=task.id))
+        return WAIT
+    if state.action == "email.send":
+        arguments = email_arguments(state, run)
+        state.output = {"account_id": arguments["account_id"], "to": arguments["to"], "subject": arguments["subject"]}
+        state.waiting_for = "start"
+        run.wake_at = now + timedelta(seconds=RECONCILE_SECONDS)
+        effects.defer(_deferred(run, state, context, arguments=arguments))
+        return WAIT
     if state.action == "notify":
-        message = str(state.input.get("message") or f"{run.workflow_name or 'An automation'} reached \"{state.name}\".")
+        raw = state.input.get("message")
+        message = render_text(raw, scope) if isinstance(raw, str) and raw.strip() else ""
+        message = message or f"{run.workflow_name or 'An automation'} reached \"{state.name}\"."
+        channels = [c for c in state.input.get("channels", ["in_app"]) if c in NOTIFY_CHANNELS] or ["in_app"]
         recipients = [run.created_by] if run.created_by and run.created_by != SCHEDULER_ACTOR else []
         effects.record_event(
             create_event(
                 CanonicalEventName.AUTOMATION_NOTIFICATION,
                 context,
                 run.id,
-                {**_run_payload(run), "message": message[:MESSAGE_MAX], "notify_user_ids": recipients},
+                {
+                    **_run_payload(run),
+                    "message": message[:MESSAGE_MAX],
+                    "notify_user_ids": recipients,
+                    "channels": channels,
+                    "push": "push" in channels,
+                },
                 correlation_id=run.id,
             ).event
         )
-        return {"notified": recipients, "message": message[:MESSAGE_MAX]}
+        return {"notified": recipients, "message": message[:MESSAGE_MAX], "channels": channels}
     if state.action == REPORT_STEP_ACTION:
         # A report of the workspace's data, shared with the workspace (docs/reports.md).
         from .reports import generate_for_automation
@@ -610,12 +984,36 @@ def _perform(state: RunStepState, run: WorkflowRun, context: TenantContext, effe
     return {"accepted": True, "action": state.action}
 
 
+def retry_delay(state: RunStepState) -> int:
+    """Seconds before the next attempt: the step's delay doubled per failed attempt, capped."""
+    return min(RETRY_DELAY_CAP_SECONDS, state.retry_delay_seconds * 2 ** max(0, state.attempt - 1))
+
+
+def _step_failed(state: RunStepState, run: WorkflowRun, message: str, *, retryable: bool, now: datetime) -> None:
+    state.error = message[: MESSAGE_MAX * 2]
+    run.waiting_task_id = None
+    if retryable and state.attempt < state.max_attempts:
+        # Retried in place: the run stays running and wakes when the next attempt is due.
+        state.status = RunStatus.RUNNING
+        state.waiting_for = "retry"
+        state.next_attempt_at = now + timedelta(seconds=retry_delay(state))
+        run.status = RunStatus.RUNNING
+        run.wake_at = state.next_attempt_at
+        return
+    state.status = RunStatus.FAILED
+    state.waiting_for = None
+    state.next_attempt_at = None
+    run.status = RunStatus.FAILED
+    run.wake_at = None
+
+
 def _run_payload(run: WorkflowRun) -> dict[str, Any]:
     return {
         "run_id": run.id,
         "workflow_id": run.workflow_id,
         "workflow_name": run.workflow_name,
         "schedule_id": run.schedule_id,
+        "trigger_id": run.trigger_id,
         "status": run.status.value,
         "trigger": run.trigger,
     }
@@ -652,35 +1050,143 @@ def execute_run(
     effects: RunEffects,
     *,
     workflow_creator: str | None = None,
+    now: datetime | None = None,
 ) -> WorkflowRun:
-    """Run steps from ``current_step`` until the run pauses, fails or completes."""
+    """Run steps from ``current_step`` until the run pauses, waits, fails or completes."""
+    now = now or utc_now()
     run.status = RunStatus.RUNNING
+    run.wake_at = None
     while run.current_step < len(run.steps):
         state = run.steps[run.current_step]
         state.attempt += 1
+        state.error = None
+        state.waiting_for = None
+        state.next_attempt_at = None
+        state.started_at = now
         if state.action == "pause":
             state.status = RunStatus.PAUSED
             run.status = RunStatus.PAUSED
             break
         if state.action == "fail":
             state.status = RunStatus.FAILED
-            state.error = str(state.input.get("message") or "Step failed")
+            state.error = render_text(str(state.input.get("message") or "Step failed"), template_scope(run))
             run.status = RunStatus.FAILED
             break
+        state.status = RunStatus.RUNNING
         try:
-            state.output = _perform(state, run, context, effects)
+            outcome = _perform(state, run, context, effects, now)
         except StepFailed as exc:
-            state.status = RunStatus.FAILED
-            state.error = str(exc)
-            run.status = RunStatus.FAILED
+            _step_failed(state, run, str(exc), retryable=exc.retryable, now=now)
             break
+        if isinstance(outcome, _Wait):
+            break
+        state.output = outcome
         state.status = RunStatus.COMPLETED
         run.current_step += 1
     if run.current_step == len(run.steps):
         run.status = RunStatus.COMPLETED
-    run.updated_at = utc_now()
+        run.wake_at = None
+        run.waiting_task_id = None
+    run.updated_at = now
     announce(run, context, effects, workflow_creator=workflow_creator)
     return run
+
+
+def _complete_waiting(state: RunStepState, run: WorkflowRun, outcome: TaskOutcome) -> None:
+    state.status = RunStatus.COMPLETED
+    state.waiting_for = None
+    state.output = {
+        **state.output,
+        "status": outcome.status.value,
+        "result": (outcome.result or "")[:RESULT_MAX],
+        **({"agent_run_id": outcome.run_id} if outcome.run_id else {}),
+        **({"approval_id": outcome.approval_id} if outcome.approval_id else {}),
+    }
+    run.current_step += 1
+    run.waiting_task_id = None
+
+
+def _finish(run: WorkflowRun, context: TenantContext, effects: RunEffects, workflow_creator: str | None, now: datetime) -> WorkflowRun:
+    run.updated_at = now
+    announce(run, context, effects, workflow_creator=workflow_creator)
+    return run
+
+
+def advance_state(
+    run: WorkflowRun,
+    context: TenantContext,
+    effects: RunEffects,
+    *,
+    report: StepReport | None = None,
+    workflow_creator: str | None = None,
+    now: datetime | None = None,
+) -> WorkflowRun:
+    """Move a running run whose current step waits: a due retry, a finished task, a report.
+
+    Safe to call at any time (events, the dispatcher's report, the periodic pass): a step
+    with nothing new keeps waiting and only its next check time moves.
+    """
+    now = now or utc_now()
+    if run.status != RunStatus.RUNNING or run.current_step >= len(run.steps):
+        return run
+    state = run.steps[run.current_step]
+    if state.waiting_for == "retry":
+        if state.next_attempt_at is not None and state.next_attempt_at > now:
+            run.wake_at = state.next_attempt_at
+            return run
+        return execute_run(run, context, effects, workflow_creator=workflow_creator, now=now)
+    if state.waiting_for not in {"start", "task", "approval"}:
+        return run
+    if report is not None and report.step_id == state.id and report.attempt == state.attempt:
+        if report.error:
+            _step_failed(state, run, report.error, retryable=report.retryable, now=now)
+            return _finish(run, context, effects, workflow_creator, now)
+        state.output = {**state.output, **report.output}
+        if report.task_id:
+            state.output["task_id"] = report.task_id
+            state.waiting_for = "task"
+            run.waiting_task_id = report.task_id
+    task_id = state.output.get("task_id") if state.waiting_for != "start" else None
+    stale = state.started_at is None or (now - state.started_at).total_seconds() > STALE_DEFER_SECONDS
+    if not task_id:
+        # The work was queued but never reported (the process stopped): hand it out again.
+        if stale:
+            try:
+                effects.defer(_deferred(run, state, context, arguments=email_arguments(state, run)))
+            except StepFailed as exc:
+                _step_failed(state, run, str(exc), retryable=False, now=now)
+                return _finish(run, context, effects, workflow_creator, now)
+            state.started_at = now
+        run.wake_at = now + timedelta(seconds=RECONCILE_SECONDS)
+        run.updated_at = now
+        return run
+    outcome = effects.task_outcome(context, str(task_id))
+    if outcome is None:
+        _step_failed(state, run, f"The agent task {task_id} no longer exists in this workspace.", retryable=False, now=now)
+    elif outcome.status == TaskStatus.COMPLETED:
+        _complete_waiting(state, run, outcome)
+        return execute_run(run, context, effects, workflow_creator=workflow_creator, now=now)
+    elif outcome.status in {TaskStatus.FAILED, TaskStatus.CANCELLED}:
+        if outcome.approval_status in {ApprovalStatus.REJECTED, ApprovalStatus.EXPIRED}:
+            message = f"The approval for the task's action was {outcome.approval_status.value}, so the step stopped."
+            _step_failed(state, run, message, retryable=False, now=now)
+        elif outcome.status == TaskStatus.CANCELLED:
+            _step_failed(state, run, "Someone cancelled the agent task this step started.", retryable=False, now=now)
+        else:
+            _step_failed(state, run, f"The agent task failed: {outcome.error or 'no reason given'}", retryable=True, now=now)
+    elif outcome.status == TaskStatus.WAITING_APPROVAL:
+        state.waiting_for = "approval"
+        if outcome.approval_id:
+            state.output = {**state.output, "approval_id": outcome.approval_id}
+        run.wake_at = now + timedelta(seconds=RECONCILE_APPROVAL_SECONDS)
+    else:
+        state.waiting_for = "task"
+        if outcome.status == TaskStatus.CREATED and state.action == "task.create" and stale:
+            # Queued to run but never started (the process stopped): start it again.
+            effects.defer(_deferred(run, state, context, task_id=str(task_id)))
+            state.started_at = now
+        run.wake_at = now + timedelta(seconds=RECONCILE_SECONDS)
+    return _finish(run, context, effects, workflow_creator, now)
 
 
 def fail_before_start(run: WorkflowRun, context: TenantContext, effects: RunEffects, message: str, *, workflow_creator: str | None) -> WorkflowRun:
@@ -703,6 +1209,10 @@ def cancel_state(run: WorkflowRun) -> WorkflowRun:
     for step in run.steps[run.current_step:]:
         if step.status in ACTIVE_RUN_STATUSES:
             step.status = RunStatus.CANCELLED
+            step.waiting_for = None
+            step.next_attempt_at = None
+    run.wake_at = None
+    run.waiting_task_id = None
     run.updated_at = utc_now()
     return run
 
@@ -747,7 +1257,7 @@ def scheduler_context(tenant_id: str, workspace_id: str, actor: str | None) -> T
 def owner_inactive_message(actor: str) -> str:
     return (
         f"The schedule's owner ({actor}) is no longer an active owner or member of this workspace, so it did "
-        "not run. A workspace owner can delete the schedule and create it again under an active member."
+        "not run. A workspace owner can take over the schedule (Take over) so it runs as them."
     )
 
 
@@ -761,6 +1271,136 @@ def require_editor(context: TenantContext, created_by: str | None, kind: str) ->
         raise EditDenied(
             f"Only the {kind}'s creator ({created_by}) or a workspace owner can change this {kind}."
         )
+
+
+def require_take_over(context: TenantContext, created_by: str | None, kind: str) -> None:
+    """Only owners take over a schedule or trigger (it then runs as them)."""
+    if not is_owner(context):
+        raise EditDenied(
+            f"Only a workspace owner can take over a {kind}. Ask an owner, or the {kind}'s creator, to change it."
+        )
+    if created_by == context.user_id:
+        raise AutomationConflict(f"You already own this {kind}.")
+
+
+# Triggers (engine-independent) ---------------------------------------------------------
+
+
+def new_trigger(context: TenantContext, payload: TriggerCreate) -> tuple[AutomationTrigger, str | None]:
+    """A new trigger and, for a webhook, its secret (stored encrypted, shown once)."""
+    from .secret_box import secret_cipher
+
+    now = utc_now()
+    secret = new_secret() if payload.kind == TriggerKind.WEBHOOK else None
+    trigger = AutomationTrigger(
+        id=new_id("trigger"),
+        tenant_id=context.tenant_id,
+        workspace_id=context.workspace_id,
+        created_by=context.user_id,
+        created_at=now,
+        updated_at=now,
+        cursor_at=now if payload.kind == TriggerKind.EVENT else None,
+        secret_ciphertext=secret_cipher().encrypt(secret) if secret else None,
+        secret_hint=secret_hint(secret) if secret else None,
+        secret_rotated_at=now if secret else None,
+        **payload.model_dump(),
+    )
+    return trigger, secret
+
+
+def updated_trigger(trigger: AutomationTrigger, payload: TriggerUpdate) -> AutomationTrigger:
+    updates = payload.model_dump(exclude_none=True, exclude={"conditions"})
+    if "name" in updates:
+        updates["name"] = updates["name"].strip()
+        if not updates["name"]:
+            raise ValueError("Give the trigger a name.")
+    if "event_type" in updates:
+        if trigger.kind != TriggerKind.EVENT:
+            raise ValueError("A webhook trigger has no event type.")
+        if updates["event_type"] not in TRIGGER_EVENTS:
+            raise ValueError(f"Choose the event that starts the automation: one of {', '.join(TRIGGER_EVENTS)}.")
+    now = utc_now()
+    changed = trigger.model_copy(update={**updates, "updated_at": now})
+    if payload.conditions is not None:
+        changed.conditions = list(payload.conditions)
+    if trigger.kind == TriggerKind.EVENT and (
+        (payload.enabled and not trigger.enabled) or payload.event_type not in {None, trigger.event_type}
+    ):
+        # Turned on again or pointed at another event: only events from now on start runs.
+        changed.cursor_at = now
+    return changed
+
+
+def rotated(trigger: AutomationTrigger) -> tuple[AutomationTrigger, str]:
+    from .secret_box import secret_cipher
+
+    if trigger.kind != TriggerKind.WEBHOOK:
+        raise AutomationConflict("Only webhook triggers have a secret to rotate.")
+    secret = new_secret()
+    now = utc_now()
+    return (
+        trigger.model_copy(
+            update={
+                "secret_ciphertext": secret_cipher().encrypt(secret),
+                "secret_hint": secret_hint(secret),
+                "secret_rotated_at": now,
+                "updated_at": now,
+            }
+        ),
+        secret,
+    )
+
+
+def trigger_decision(
+    trigger: AutomationTrigger,
+    workflow: WorkflowDefinition | None,
+    *,
+    archived: bool,
+    actor_ok: bool,
+    recent: int,
+    active: int,
+    looped: bool,
+) -> TriggerOutcome:
+    """Whether a delivery to ``trigger`` starts a run now, and if not, why."""
+    if not trigger.enabled:
+        return TriggerOutcome.DISABLED
+    if archived:
+        return TriggerOutcome.WORKSPACE_ARCHIVED
+    if looped:
+        return TriggerOutcome.LOOP_SKIPPED
+    if recent >= trigger.rate_limit_per_minute:
+        return TriggerOutcome.RATE_LIMITED
+    if workflow is None or workflow.status != WorkflowStatus.ACTIVE:
+        return TriggerOutcome.WORKFLOW_PAUSED
+    if not actor_ok:
+        return TriggerOutcome.OWNER_INACTIVE
+    if active and workflow.overlap_policy == OverlapPolicy.SKIP:
+        return TriggerOutcome.SKIPPED_OVERLAP
+    return TriggerOutcome.FIRED
+
+
+def run_started_task(run: WorkflowRun, task_id: str) -> bool:
+    return any(step.output.get("task_id") == task_id for step in run.steps)
+
+
+def matching_triggers(triggers: list[AutomationTrigger], event: DomainEvent) -> list[AutomationTrigger]:
+    payload = event_payload(event)
+    return [
+        trigger
+        for trigger in triggers
+        if trigger.kind == TriggerKind.EVENT
+        and trigger.enabled
+        and trigger.event_type == event.type
+        and conditions_match(trigger.conditions, payload)
+    ]
+
+
+def run_actor(run: WorkflowRun) -> TenantContext:
+    """The explicit actor a run's steps execute as: whoever started it (or its schedule's owner)."""
+    return scheduler_context(run.tenant_id, run.workspace_id, run.created_by)
+
+
+TRIGGER_RATE_WINDOW = timedelta(minutes=1)
 
 
 def matches(workflow: WorkflowDefinition, page: WorkflowFilter) -> bool:
@@ -803,13 +1443,24 @@ def register_step_handler(action: str, handler: StepHandler) -> None:
     _step_handlers[action] = handler
 
 
-def dispatch_step_actions(runs: list[WorkflowRun], engine_provider: Callable[[], AutomationEngine] | None = None) -> int:
-    """Run the registered handlers for the completed steps of ``runs``; returns how many ran."""
+def dispatch_step_actions(
+    runs: list[WorkflowRun],
+    engine_provider: Callable[[], AutomationEngine] | None = None,
+    *,
+    since: datetime | None = None,
+) -> int:
+    """Run the registered handlers for the completed steps of ``runs``; returns how many ran.
+
+    ``since``: only steps executed at or after that moment (a run woken from a waiting
+    step must not repeat a handler that ran in an earlier pass).
+    """
     handled = 0
     for run in runs:
         for step in run.steps:
             handler = _step_handlers.get(step.action)
             if handler is None or step.status != RunStatus.COMPLETED:
+                continue
+            if since is not None and (step.started_at is None or step.started_at < since):
                 continue
             try:
                 handler(run, step, dict(step.input))
@@ -825,15 +1476,18 @@ def dispatch_step_actions(runs: list[WorkflowRun], engine_provider: Callable[[],
 _SAVE = {
     "automation_workflows": "insert or replace into automation_workflows (id, tenant_id, workspace_id, body, created_at) values (?, ?, ?, ?, ?)",
     "automation_schedules": "insert or replace into automation_schedules (id, tenant_id, workspace_id, body, created_at) values (?, ?, ?, ?, ?)",
+    "automation_triggers": "insert or replace into automation_triggers (id, tenant_id, workspace_id, body, created_at) values (?, ?, ?, ?, ?)",
 }
 _LIST = {
     "automation_workflows": "select body from automation_workflows where tenant_id = ? and workspace_id = ? order by created_at desc, id desc",
     "automation_schedules": "select body from automation_schedules where tenant_id = ? and workspace_id = ? order by created_at desc, id desc",
     "automation_runs": "select body from automation_runs where tenant_id = ? and workspace_id = ? order by created_at desc, id desc",
+    "automation_triggers": "select body from automation_triggers where tenant_id = ? and workspace_id = ? order by created_at desc, id desc",
 }
 _DELETE = {
     "automation_workflows": "delete from automation_workflows where id = ? and tenant_id = ? and workspace_id = ?",
     "automation_schedules": "delete from automation_schedules where id = ? and tenant_id = ? and workspace_id = ?",
+    "automation_triggers": "delete from automation_triggers where id = ? and tenant_id = ? and workspace_id = ?",
 }
 _DELETE_RUNS_OF = "delete from automation_runs where workflow_id = ? and tenant_id = ? and workspace_id = ?"
 _DELETE_SCHEDULES_OF = (
@@ -850,6 +1504,12 @@ _INSERT_RUN_ONCE = (
 )
 _RUN_BY_KEY = "select body from automation_runs where tenant_id = ? and workspace_id = ? and idempotency_key = ?"
 _ALL_SCHEDULES = "select tenant_id, workspace_id, body from automation_schedules"
+_ALL_RUNS = "select tenant_id, workspace_id, body from automation_runs"
+_ALL_TRIGGERS = "select tenant_id, workspace_id, body from automation_triggers"
+_DELETE_TRIGGERS_OF = (
+    "delete from automation_triggers where tenant_id = ? and workspace_id = ? "
+    "and json_extract(body, '$.workflow_id') = ?"
+)
 
 
 class LocalAutomationEngine:
@@ -879,6 +1539,10 @@ class LocalAutomationEngine:
                 create table if not exists automation_runs (
                     id text primary key, tenant_id text not null, workspace_id text not null,
                     workflow_id text not null, idempotency_key text, body text not null, created_at text not null
+                );
+                create table if not exists automation_triggers (
+                    id text primary key, tenant_id text not null, workspace_id text not null,
+                    body text not null, created_at text not null
                 );
                 create unique index if not exists automation_run_idempotency
                 on automation_runs(tenant_id, workspace_id, idempotency_key)
@@ -923,8 +1587,13 @@ class LocalAutomationEngine:
         return [model.model_validate_json(row["body"]) for row in rows]
 
     @staticmethod
-    def _put(connection: sqlite3.Connection, table: str, value: WorkflowDefinition | AutomationSchedule) -> None:
-        computed = set(SUMMARY_FIELDS) if isinstance(value, WorkflowDefinition) else {"cron_description"}
+    def _put(connection: sqlite3.Connection, table: str, value: WorkflowDefinition | AutomationSchedule | AutomationTrigger) -> None:
+        if isinstance(value, WorkflowDefinition):
+            computed = set(SUMMARY_FIELDS)
+        elif isinstance(value, AutomationTrigger):
+            computed = {"webhook_path"}
+        else:
+            computed = {"cron_description", "cron_description_ar"}
         body = value.model_dump_json(exclude=computed)
         connection.execute(_SAVE[table], (value.id, value.tenant_id, value.workspace_id, body, value.created_at.isoformat()))
 
@@ -936,7 +1605,7 @@ class LocalAutomationEngine:
             run.workspace_id,
             run.workflow_id,
             run.idempotency_key,
-            run.model_dump_json(exclude={"trigger", "error", "workflow_name"}),
+            run.model_dump_json(exclude={"trigger", "error", "workflow_name", "waiting_for"}),
             run.created_at.isoformat(),
         )
 
@@ -1051,6 +1720,7 @@ class LocalAutomationEngine:
                 )
             scope = self._scope(context)
             connection.execute(_DELETE_SCHEDULES_OF, (*scope, workflow_id))
+            connection.execute(_DELETE_TRIGGERS_OF, (*scope, workflow_id))
             connection.execute(_DELETE_RUNS_OF, (workflow_id, *scope))
             connection.execute(_DELETE["automation_workflows"], (workflow_id, *scope))
             effects.record_audit(
@@ -1131,10 +1801,20 @@ class LocalAutomationEngine:
         idempotency_key: str | None,
         retry_of: str | None = None,
         schedule_id: str | None = None,
+        trigger: AutomationTrigger | None = None,
+        trigger_payload: dict[str, Any] | None = None,
     ) -> WorkflowRun | None:
         """Claim the idempotency key, apply the overlap policy and execute. None: key taken."""
         active = [r for r in self._runs(connection, context) if r.workflow_id == workflow.id and r.status in ACTIVE_RUN_STATUSES]
-        run = new_run(context, workflow, idempotency_key=idempotency_key, retry_of=retry_of, schedule_id=schedule_id)
+        run = new_run(
+            context,
+            workflow,
+            idempotency_key=idempotency_key,
+            retry_of=retry_of,
+            schedule_id=schedule_id,
+            trigger=trigger,
+            trigger_payload=trigger_payload,
+        )
         if not connection.execute(_INSERT_RUN_ONCE, self._run_values(run)).rowcount:
             return None
         if workflow.overlap_policy == OverlapPolicy.CANCEL_PREVIOUS:
@@ -1170,6 +1850,7 @@ class LocalAutomationEngine:
             for run in self.list_runs(context)
             if (page.workflow_id is None or run.workflow_id == page.workflow_id)
             and (page.schedule_id is None or run.schedule_id == page.schedule_id)
+            and (page.trigger_id is None or run.trigger_id == page.trigger_id)
             and (page.status is None or run.status == page.status)
         ]
         return runs[page.offset : page.offset + page.limit], len(runs)
@@ -1244,6 +1925,238 @@ class LocalAutomationEngine:
                 self._put(connection, "automation_schedules", schedule)
         return runs
 
+    def take_over_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule:
+        with self._tx() as (connection, effects):
+            schedule = self._schedule(connection, context, schedule_id)
+            require_take_over(context, schedule.created_by, "schedule")
+            previous = schedule.created_by
+            updated = schedule.model_copy(update={"created_by": context.user_id, "updated_at": utc_now()})
+            self._put(connection, "automation_schedules", updated)
+            effects.record_audit(
+                audit(context, "automation.schedule.taken_over", schedule_id, {"previous_owner": previous, "name": schedule.name})
+            )
+            return updated
+
+    # -- waiting steps and retries ---------------------------------------------------------
+
+    def _advance_in(
+        self, connection: sqlite3.Connection, effects: RunEffects, run: WorkflowRun, report: StepReport | None, now: datetime
+    ) -> WorkflowRun:
+        context = run_actor(run)
+        try:
+            creator = self._workflow(connection, context, run.workflow_id).created_by
+        except AutomationNotFound:
+            creator = None
+        before = run.model_dump_json()
+        advance_state(run, context, effects, report=report, workflow_creator=creator, now=now)
+        if run.model_dump_json() != before:
+            connection.execute(_SAVE_RUN, self._run_values(run))
+        return run
+
+    def advance(self, context: TenantContext, run_id: str, report: StepReport | None = None) -> WorkflowRun:
+        with self._tx() as (connection, effects):
+            run = self._run(connection, context, run_id)
+            return self._advance_in(connection, effects, run, report, utc_now())
+
+    def wake_for_task(self, context: TenantContext, task_id: str) -> list[WorkflowRun]:
+        with self._tx() as (connection, effects):
+            waiting = [
+                run for run in self._runs(connection, context) if run.status == RunStatus.RUNNING and run.waiting_task_id == task_id
+            ]
+            return [self._advance_in(connection, effects, run, None, utc_now()) for run in waiting]
+
+    def run_due_wakeups(self, *, limit: int = 100, now: datetime | None = None) -> list[WorkflowRun]:
+        now = now or utc_now()
+        with self._tx() as (connection, effects):
+            runs = [WorkflowRun.model_validate_json(row["body"]) for row in connection.execute(_ALL_RUNS).fetchall()]
+            due = sorted(
+                (run for run in runs if run.status == RunStatus.RUNNING and run.wake_at is not None and run.wake_at <= now),
+                key=lambda run: run.wake_at or now,
+            )[:limit]
+            return [self._advance_in(connection, effects, run, None, now) for run in due]
+
+    # -- triggers -------------------------------------------------------------------------
+
+    def _trigger(self, connection: sqlite3.Connection, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        trigger = next(
+            (t for t in self._rows(connection, "automation_triggers", AutomationTrigger, context) if t.id == trigger_id), None
+        )
+        if trigger is None:
+            raise AutomationNotFound("trigger", trigger_id)
+        return trigger
+
+    def create_trigger(self, context: TenantContext, payload: TriggerCreate) -> tuple[AutomationTrigger, str | None]:
+        with self._tx() as (connection, effects):
+            self._workflow(connection, context, payload.workflow_id)
+            trigger, secret = new_trigger(context, payload)
+            self._put(connection, "automation_triggers", trigger)
+            effects.record_audit(
+                audit(
+                    context,
+                    "automation.trigger.created",
+                    trigger.id,
+                    {"workflow_id": trigger.workflow_id, "kind": trigger.kind.value, "event_type": trigger.event_type},
+                )
+            )
+            return trigger.public(), secret
+
+    def list_triggers(self, context: TenantContext, workflow_id: str | None = None) -> list[AutomationTrigger]:
+        with self._read() as connection:
+            triggers = self._rows(connection, "automation_triggers", AutomationTrigger, context)
+        return [t.public() for t in triggers if workflow_id is None or t.workflow_id == workflow_id]
+
+    def get_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        with self._read() as connection:
+            return self._trigger(connection, context, trigger_id).public()
+
+    def trigger_record(self, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        with self._read() as connection:
+            return self._trigger(connection, context, trigger_id)
+
+    def update_trigger(self, context: TenantContext, trigger_id: str, payload: TriggerUpdate) -> AutomationTrigger:
+        with self._tx() as (connection, effects):
+            trigger = self._trigger(connection, context, trigger_id)
+            require_editor(context, trigger.created_by, "trigger")
+            changed = updated_trigger(trigger, payload)
+            self._put(connection, "automation_triggers", changed)
+            effects.record_audit(
+                audit(context, "automation.trigger.updated", trigger_id, payload.model_dump(mode="json", exclude_none=True))
+            )
+            return changed.public()
+
+    def delete_trigger(self, context: TenantContext, trigger_id: str) -> None:
+        with self._tx() as (connection, effects):
+            trigger = self._trigger(connection, context, trigger_id)
+            require_editor(context, trigger.created_by, "trigger")
+            connection.execute(_DELETE["automation_triggers"], (trigger_id, *self._scope(context)))
+            effects.record_audit(audit(context, "automation.trigger.deleted", trigger_id, {"name": trigger.name}))
+
+    def rotate_trigger_secret(self, context: TenantContext, trigger_id: str) -> tuple[AutomationTrigger, str]:
+        with self._tx() as (connection, effects):
+            trigger = self._trigger(connection, context, trigger_id)
+            require_editor(context, trigger.created_by, "trigger")
+            changed, secret = rotated(trigger)
+            self._put(connection, "automation_triggers", changed)
+            effects.record_audit(audit(context, "automation.trigger.secret_rotated", trigger_id, {"name": trigger.name}))
+            return changed.public(), secret
+
+    def take_over_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        with self._tx() as (connection, effects):
+            trigger = self._trigger(connection, context, trigger_id)
+            require_take_over(context, trigger.created_by, "trigger")
+            changed = trigger.model_copy(update={"created_by": context.user_id, "updated_at": utc_now()})
+            self._put(connection, "automation_triggers", changed)
+            effects.record_audit(
+                audit(context, "automation.trigger.taken_over", trigger_id, {"previous_owner": trigger.created_by, "name": trigger.name})
+            )
+            return changed.public()
+
+    def _fire_in(
+        self,
+        connection: sqlite3.Connection,
+        effects: RunEffects,
+        context: TenantContext,
+        trigger: AutomationTrigger,
+        *,
+        key: str,
+        payload: dict[str, Any],
+        source_task_id: str | None,
+        now: datetime,
+    ) -> tuple[WorkflowRun | None, str]:
+        existing = self._existing_by_key(connection, context, key)
+        if existing is not None:
+            return existing, "duplicate"
+        actor = scheduler_context(context.tenant_id, context.workspace_id, trigger.created_by)
+        try:
+            workflow: WorkflowDefinition | None = self._workflow(connection, context, trigger.workflow_id)
+        except AutomationNotFound:
+            workflow = None
+        runs = self._runs(connection, context)
+        mine = [r for r in runs if r.workflow_id == trigger.workflow_id]
+        outcome = trigger_decision(
+            trigger,
+            workflow,
+            archived=_archived(context),
+            actor_ok=effects.actor_may_run(actor, actor.user_id),
+            recent=sum(1 for r in runs if r.trigger_id == trigger.id and r.created_at >= now - TRIGGER_RATE_WINDOW),
+            active=sum(1 for r in mine if r.status in ACTIVE_RUN_STATUSES),
+            looped=bool(source_task_id) and any(run_started_task(r, source_task_id or "") for r in mine),
+        )
+        run = None
+        if outcome == TriggerOutcome.FIRED and workflow is not None:
+            run = self._launch(connection, effects, actor, workflow, idempotency_key=key, trigger=trigger, trigger_payload=payload)
+        changed = trigger.model_copy(
+            update={
+                "last_outcome": outcome.value,
+                "last_fired_at": now if run is not None else trigger.last_fired_at,
+                "fire_count": trigger.fire_count + (1 if run is not None else 0),
+            }
+        )
+        self._put(connection, "automation_triggers", changed)
+        return run, outcome.value
+
+    def fire_trigger(
+        self, context: TenantContext, trigger_id: str, *, key: str, payload: dict[str, Any], source_task_id: str | None = None
+    ) -> tuple[WorkflowRun | None, str]:
+        with self._tx() as (connection, effects):
+            trigger = self._trigger(connection, context, trigger_id)
+            return self._fire_in(
+                connection, effects, context, trigger, key=key, payload=payload, source_task_id=source_task_id, now=utc_now()
+            )
+
+    def fire_event(self, context: TenantContext, event: DomainEvent) -> list[WorkflowRun]:
+        fired: list[WorkflowRun] = []
+        with self._tx() as (connection, effects):
+            triggers = matching_triggers(self._rows(connection, "automation_triggers", AutomationTrigger, context), event)
+            for trigger in triggers:
+                run, outcome = self._fire_in(
+                    connection,
+                    effects,
+                    context,
+                    trigger,
+                    key=event_fire_key(trigger.id, event.id),
+                    payload=event_payload(event),
+                    source_task_id=event_task_id(event),
+                    now=utc_now(),
+                )
+                if run is not None and outcome != "duplicate":
+                    fired.append(run)
+        return fired
+
+    def catch_up_triggers(self, *, limit: int = 100) -> list[WorkflowRun]:
+        """Events a trigger has not seen yet (another process committed them, or this one stopped)."""
+        fired: list[WorkflowRun] = []
+        with self._tx() as (connection, effects):
+            triggers = [
+                AutomationTrigger.model_validate_json(row["body"]) for row in connection.execute(_ALL_TRIGGERS).fetchall()
+            ]
+            for trigger in triggers:
+                if trigger.kind != TriggerKind.EVENT or not trigger.enabled or not trigger.event_type:
+                    continue
+                context = scheduler_context(trigger.tenant_id, trigger.workspace_id, None)
+                cursor = trigger.cursor_at or trigger.created_at
+                events = effects.events_since(context, trigger.event_type, cursor, limit)
+                for event in events:
+                    if not matching_triggers([trigger], event):
+                        continue
+                    run, outcome = self._fire_in(
+                        connection,
+                        effects,
+                        context,
+                        trigger,
+                        key=event_fire_key(trigger.id, event.id),
+                        payload=event_payload(event),
+                        source_task_id=event_task_id(event),
+                        now=utc_now(),
+                    )
+                    trigger = self._trigger(connection, context, trigger.id)
+                    if run is not None and outcome != "duplicate":
+                        fired.append(run)
+                if events:
+                    trigger = trigger.model_copy(update={"cursor_at": events[-1].created_at})
+                    self._put(connection, "automation_triggers", trigger)
+        return fired
+
 
 # Engine selection -------------------------------------------------------------------
 
@@ -1291,10 +2204,25 @@ class AutomationScheduler:
         self._pass: asyncio.Future[Any] | None = None
 
     def run_once(self) -> list[WorkflowRun]:
-        runs = self.engine_provider().run_due_schedules(limit=self.batch_size)
+        """One pass: due schedules, due retries and waiting checks, then event catch-up."""
+        engine = self.engine_provider()
+        started_at = utc_now()
+        runs = engine.run_due_schedules(limit=self.batch_size)
         self.fired += len(runs)
+        woken: list[WorkflowRun] = []
+        for name, work in (("wakeups", engine.run_due_wakeups), ("triggers", engine.catch_up_triggers)):
+            try:
+                started = work(limit=self.batch_size)
+            except Exception:
+                logger.exception("Automation scheduler %s pass failed", name)
+                continue
+            if name == "triggers":
+                self.fired += len(started)
+                runs.extend(started)
+            else:
+                woken.extend(started)
         # After the fires are committed: feature step actions (for example tyre reports).
-        dispatch_step_actions(runs, self.engine_provider)
+        dispatch_step_actions([*runs, *woken], self.engine_provider, since=started_at)
         return runs
 
     def start(self) -> None:
@@ -1469,6 +2397,7 @@ def preview_schedule(payload: SchedulePreviewRequest, context: TenantContext = D
             cron=payload.cron,
             timezone=payload.timezone,
             description=cron.describe(payload.cron),
+            description_ar=cron.describe(payload.cron, "ar"),
             next_runs=cron.upcoming(payload.cron, payload.timezone, count=payload.count),
         )
 
@@ -1508,6 +2437,182 @@ def update_schedule(schedule_id: str, payload: ScheduleUpdate, context: TenantCo
         return current_engine().update_schedule(context, schedule_id, payload)
 
 
+@router.post("/schedules/{schedule_id}/take-over", response_model=AutomationSchedule)
+def take_over_schedule(schedule_id: str, context: TenantContext = Depends(tenant_context)) -> AutomationSchedule:
+    """An owner takes over another member's schedule: from now on it runs as the owner (audited)."""
+    _require(context, Permission.AUTOMATION_MANAGE)
+    with _handled():
+        return current_engine().take_over_schedule(context, schedule_id)
+
+
+# -- triggers ------------------------------------------------------------------------------
+
+
+@router.get("/trigger-events", response_model=list[TriggerEvent])
+def trigger_events(context: TenantContext = Depends(tenant_context)) -> list[TriggerEvent]:
+    """The events an automation can start on, with the payload fields conditions can test."""
+    _require(context, Permission.AUTOMATION_READ)
+    return list(TRIGGER_EVENTS.values())
+
+
+@router.get("/triggers", response_model=list[AutomationTrigger])
+def list_triggers(
+    response: Response,
+    workflow_id: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    context: TenantContext = Depends(tenant_context),
+) -> list[AutomationTrigger]:
+    _require(context, Permission.AUTOMATION_READ)
+    triggers = current_engine().list_triggers(context, workflow_id)
+    response.headers[TOTAL_COUNT_HEADER] = str(len(triggers))
+    return triggers[offset : offset + limit]
+
+
+@router.post("/triggers", response_model=TriggerWithSecret, status_code=status.HTTP_201_CREATED)
+def create_trigger(payload: TriggerCreate, context: TenantContext = Depends(tenant_context)) -> TriggerWithSecret:
+    """Create a trigger. A webhook's secret is in this answer only; store it in the sender now."""
+    _require(context, Permission.AUTOMATION_MANAGE)
+    with _handled():
+        trigger, secret = current_engine().create_trigger(context, payload)
+    return TriggerWithSecret(trigger=trigger, secret=secret)
+
+
+@router.get("/triggers/{trigger_id}", response_model=AutomationTrigger)
+def get_trigger(trigger_id: str, context: TenantContext = Depends(tenant_context)) -> AutomationTrigger:
+    _require(context, Permission.AUTOMATION_READ)
+    with _handled():
+        return current_engine().get_trigger(context, trigger_id)
+
+
+@router.put("/triggers/{trigger_id}", response_model=AutomationTrigger)
+def update_trigger(trigger_id: str, payload: TriggerUpdate, context: TenantContext = Depends(tenant_context)) -> AutomationTrigger:
+    _require(context, Permission.AUTOMATION_MANAGE)
+    with _handled():
+        return current_engine().update_trigger(context, trigger_id, payload)
+
+
+@router.post("/triggers/{trigger_id}/rotate-secret", response_model=TriggerWithSecret)
+def rotate_trigger_secret(trigger_id: str, context: TenantContext = Depends(tenant_context)) -> TriggerWithSecret:
+    """A new webhook secret; the old one stops working at once. Shown once."""
+    _require(context, Permission.AUTOMATION_MANAGE)
+    with _handled():
+        trigger, secret = current_engine().rotate_trigger_secret(context, trigger_id)
+    return TriggerWithSecret(trigger=trigger, secret=secret)
+
+
+@router.post("/triggers/{trigger_id}/take-over", response_model=AutomationTrigger)
+def take_over_trigger(trigger_id: str, context: TenantContext = Depends(tenant_context)) -> AutomationTrigger:
+    _require(context, Permission.AUTOMATION_MANAGE)
+    with _handled():
+        return current_engine().take_over_trigger(context, trigger_id)
+
+
+@router.post("/triggers/{trigger_id}/{action}", response_model=AutomationTrigger)
+def toggle_trigger(trigger_id: str, action: str, context: TenantContext = Depends(tenant_context)) -> AutomationTrigger:
+    _require(context, Permission.AUTOMATION_MANAGE)
+    if action not in {"enable", "disable"}:
+        raise HTTPException(status_code=404, detail="Trigger action not found; use enable, disable, rotate-secret or take-over.")
+    with _handled():
+        return current_engine().update_trigger(context, trigger_id, TriggerUpdate(enabled=action == "enable"))
+
+
+@router.delete("/triggers/{trigger_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_trigger(trigger_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    _require(context, Permission.AUTOMATION_MANAGE)
+    with _handled():
+        current_engine().delete_trigger(context, trigger_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+_webhook_failures = InMemoryTokenBucket(rate_per_second=0.2, burst=20)
+_HOOK_ID = re.compile(r"[A-Za-z0-9_\-]{1,80}")
+
+
+def _log_safe(value: str) -> str:
+    return value.replace("\r", "").replace("\n", "")[:80]
+
+
+def _hook_refusal(code: int, kind: str, message: str, request: Request, retry_after: int | None = None) -> JSONResponse:
+    headers = {"Retry-After": str(retry_after)} if retry_after else None
+    return JSONResponse(status_code=code, content={"error": {"code": kind, "message": message}}, headers=headers)
+
+
+@router.post("/hooks/{tenant_id}/{workspace_id}/{trigger_id}", response_model=WebhookAccepted, status_code=status.HTTP_202_ACCEPTED)
+async def receive_webhook(tenant_id: str, workspace_id: str, trigger_id: str, request: Request) -> Any:
+    """A signed delivery from an outside system starts the trigger's automation.
+
+    No session: the HMAC signature with the trigger's secret is the credential. Refused:
+    unsigned or wrongly signed (401), older than the replay window (401), over the
+    trigger's rate limit (429), the trigger off or its automation paused (409).
+    A delivery id already seen answers 200 with the run it started (idempotent).
+    """
+    # Path ids are plain identifiers; anything else is refused before it reaches a query or a log.
+    if not all(_HOOK_ID.fullmatch(value) for value in (tenant_id, workspace_id, trigger_id)):
+        return _hook_refusal(404, "not_found", "No webhook trigger at this address.", request)
+    failures = _webhook_failures.acquire(client_key(request.scope))
+    if not failures.allowed:
+        return _hook_refusal(429, "rate_limited", "Too many refused deliveries; retry later.", request, failures.retry_after_seconds)
+    body = await request.body()
+    if len(body) > WEBHOOK_BODY_MAX_BYTES:
+        return _hook_refusal(413, "too_large", f"Send at most {WEBHOOK_BODY_MAX_BYTES} bytes.", request)
+    context = scheduler_context(tenant_id, workspace_id, None)
+    engine = current_engine()
+    try:
+        trigger = await asyncio.to_thread(engine.trigger_record, context, trigger_id)
+    except (AutomationNotFound, ScopeNotProvisionedError, KeyError):
+        return _hook_refusal(404, "not_found", "No webhook trigger at this address.", request)
+    if trigger.kind != TriggerKind.WEBHOOK or not trigger.secret_ciphertext:
+        return _hook_refusal(404, "not_found", "No webhook trigger at this address.", request)
+    from .secret_box import SecretDecryptionError, secret_cipher
+
+    try:
+        secret = secret_cipher().decrypt(trigger.secret_ciphertext)
+        digest = verify(
+            secret, request.headers.get(SIGNATURE_HEADER), body, now=int(utc_now().timestamp()), window_seconds=trigger.replay_window_seconds
+        )
+        delivery = delivery_id(request.headers.get(DELIVERY_HEADER), digest)
+    except SecretDecryptionError:
+        logger.warning("automation_webhook_secret_unreadable trigger=%s", _log_safe(trigger_id))
+        return _hook_refusal(401, "unauthorized", "This trigger's secret cannot be read; rotate it.", request)
+    except SignatureError as exc:
+        _webhook_failures.acquire(client_key(request.scope))
+        return _hook_refusal(401, "unauthorized", str(exc), request)
+    if not trigger.enabled:
+        return _hook_refusal(409, "disabled", "This trigger is turned off. Turn it on in Automations.", request)
+    try:
+        parsed: Any = json.loads(body) if body.strip() else {}
+    except ValueError:
+        parsed = {"text": body.decode("utf-8", "replace")[:4000]}
+    payload = bounded({"body": parsed if isinstance(parsed, dict) else {"value": parsed}, "delivery_id": delivery, "received_at": utc_now().isoformat()})
+    if not conditions_match(trigger.conditions, payload["body"] if isinstance(payload.get("body"), dict) else {}):
+        return JSONResponse(status_code=200, content={"status": "ignored", "reason": "The delivery does not match the trigger's conditions."})
+    try:
+        run, outcome = await asyncio.to_thread(
+            engine.fire_trigger, context, trigger_id, key=webhook_fire_key(trigger_id, delivery), payload=payload
+        )
+    except _HANDLED as exc:
+        raise _http_error(exc) from exc
+    if run is not None:
+        duplicate = outcome == "duplicate"
+        if not duplicate:
+            await asyncio.to_thread(dispatch_step_actions, [run])
+        return JSONResponse(
+            status_code=200 if duplicate else 202,
+            content=WebhookAccepted(run_id=run.id, status=run.status.value, duplicate=duplicate).model_dump(),
+        )
+    if outcome == TriggerOutcome.RATE_LIMITED.value:
+        return _hook_refusal(429, "rate_limited", f"This trigger starts at most {trigger.rate_limit_per_minute} runs a minute.", request, 60)
+    messages = {
+        TriggerOutcome.WORKFLOW_PAUSED.value: "The automation is paused; resume it to accept deliveries.",
+        TriggerOutcome.SKIPPED_OVERLAP.value: "The automation already has an active run and its overlap policy is skip.",
+        TriggerOutcome.OWNER_INACTIVE.value: "The trigger's owner is no longer an active member; a workspace owner can take it over.",
+        TriggerOutcome.WORKSPACE_ARCHIVED.value: "The workspace is archived.",
+        TriggerOutcome.DISABLED.value: "This trigger is turned off.",
+    }
+    return _hook_refusal(409, outcome, messages.get(outcome, "The delivery did not start a run."), request)
+
+
 @router.post("/schedules/{schedule_id}/{action}", response_model=AutomationSchedule)
 def toggle_schedule(schedule_id: str, action: str, context: TenantContext = Depends(tenant_context)) -> AutomationSchedule:
     _require(context, Permission.AUTOMATION_MANAGE)
@@ -1539,6 +2644,7 @@ def list_runs(
     response: Response,
     workflow_id: str | None = Query(default=None, max_length=80),
     schedule_id: str | None = Query(default=None, max_length=80),
+    trigger_id: str | None = Query(default=None, max_length=80),
     run_status: RunStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -1546,7 +2652,7 @@ def list_runs(
 ) -> list[WorkflowRun]:
     _require(context, Permission.AUTOMATION_READ)
     items, total = current_engine().page_runs(
-        context, RunFilter(workflow_id=workflow_id, schedule_id=schedule_id, status=run_status, limit=limit, offset=offset)
+        context, RunFilter(workflow_id=workflow_id, schedule_id=schedule_id, trigger_id=trigger_id, status=run_status, limit=limit, offset=offset)
     )
     response.headers[TOTAL_COUNT_HEADER] = str(total)
     return items

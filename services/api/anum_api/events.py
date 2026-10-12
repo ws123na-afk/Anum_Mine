@@ -81,6 +81,10 @@ class CanonicalEventName(StrEnum):
     NOTIFICATION_CREATED = "notification.created"
     ASSISTANT_CHANGED = "assistant.changed"
     ASSISTANT_ROUTED = "assistant.routed"
+    # Inbound signals automations can react to (docs/automation.md#event-triggers).
+    EMAIL_RECEIVED = "email.received"
+    WHATSAPP_MESSAGE_RECEIVED = "whatsapp.message_received"
+    FILE_UPLOADED = "file.uploaded"
 
 
 class PublicationStatus(StrEnum):

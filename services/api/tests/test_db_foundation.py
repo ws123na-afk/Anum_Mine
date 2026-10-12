@@ -14,6 +14,7 @@ def test_tenant_scoped_tables_include_tenant_id() -> None:
         "automation_workflows",
         "automation_schedules",
         "automation_runs",
+        "automation_triggers",
         "skill_versions",
         "skill_installations",
         "policy_packs",

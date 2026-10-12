@@ -173,7 +173,7 @@ class _AnumAppState extends State<AnumApp> {
         workspacePreferences: SecureWorkspacePreferenceStore(),
         sessionListener: push);
     auth = AuthController(authRepository);
-    automations = AutomationsController(ApiAutomationRepository(api));
+    automations = AutomationsController(ApiAutomationTriggerRepository(api));
     final fileTransfer = HttpWorkspaceFileTransfer(
       baseUri: Uri.parse(configuredUrl),
       sessions: sessions,

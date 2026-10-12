@@ -10,10 +10,11 @@ class AutomationStepDef {
       required this.name,
       required this.action,
       this.input = const {},
-      this.maxAttempts = 3});
+      this.maxAttempts = 3,
+      this.retryDelaySeconds = 60});
   final String id, name, action;
   final Map<String, Object?> input;
-  final int maxAttempts;
+  final int maxAttempts, retryDelaySeconds;
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -21,6 +22,7 @@ class AutomationStepDef {
         'action': action,
         'input': input,
         'max_attempts': maxAttempts,
+        'retry_delay_seconds': retryDelaySeconds,
       };
 }
 
@@ -66,7 +68,8 @@ class AutomationWorkflow {
                 name: s.optString('name') ?? s.string('id'),
                 action: s.string('action'),
                 input: s.optMap('input') ?? const {},
-                maxAttempts: s.optInt('max_attempts') ?? 3)),
+                maxAttempts: s.optInt('max_attempts') ?? 3,
+                retryDelaySeconds: s.optInt('retry_delay_seconds') ?? 60)),
         updatedAt: j.optDate('updated_at') ?? DateTime.now(),
         createdBy: j.optString('created_by'),
         updatedBy: j.optString('updated_by'),
@@ -92,8 +95,14 @@ class AutomationScheduleItem {
     this.lastRunAt,
     this.lastOutcome,
     this.createdBy,
+    this.descriptionAr,
   });
   final String id, workflowId, name, cron, description, timezone;
+  final String? descriptionAr;
+
+  /// The schedule in words, in Arabic when [arabic] and the API sent it.
+  String words({bool arabic = false}) =>
+      arabic && descriptionAr != null ? descriptionAr! : description;
   final bool enabled;
   final DateTime? nextRunAt, lastRunAt;
   final String? lastOutcome, createdBy;
@@ -105,6 +114,7 @@ class AutomationScheduleItem {
         name: j.string('name'),
         cron: j.string('cron'),
         description: j.optString('cron_description') ?? j.string('cron'),
+        descriptionAr: j.optString('cron_description_ar'),
         timezone: j.optString('timezone') ?? 'UTC',
         enabled: j.optBool('enabled') ?? true,
         nextRunAt: j.optDate('next_run_at'),
@@ -121,18 +131,32 @@ class AutomationRunStep {
       required this.action,
       required this.status,
       this.attempt = 0,
+      this.maxAttempts = 1,
       this.output = const {},
-      this.error});
+      this.error,
+      this.waitingFor,
+      this.nextAttemptAt});
   final String id, name, action, status;
-  final int attempt;
+  final int attempt, maxAttempts;
   final Map<String, Object?> output;
   final String? error;
 
-  /// The task a "Create agent task" step created, for a link to it.
+  /// While running: `start`, `task`, `approval` or `retry` (docs/automation.md).
+  final String? waitingFor;
+  final DateTime? nextAttemptAt;
+
+  /// The task a "Create agent task" or "Send email" step started, for a link.
   String? get taskId {
     final id = output['task_id'];
-    return action == 'task.create' && id is String ? id : null;
+    return (action == 'task.create' || action == 'email.send') && id is String
+        ? id
+        : null;
   }
+
+  String? get result =>
+      output['result'] is String && (output['result'] as String).isNotEmpty
+          ? output['result'] as String
+          : null;
 }
 
 class AutomationRunItem {
@@ -149,8 +173,10 @@ class AutomationRunItem {
     this.createdBy,
     this.error,
     this.retryOf,
+    this.waitingFor,
   });
   final String id, workflowId, status, trigger;
+  final String? waitingFor;
   final List<AutomationRunStep> steps;
   final DateTime createdAt, updatedAt;
   final String? workflowName, createdBy, error, retryOf;
@@ -173,8 +199,11 @@ class AutomationRunItem {
                 action: s.optString('action') ?? '',
                 status: s.optString('status') ?? 'queued',
                 attempt: s.optInt('attempt') ?? 0,
+                maxAttempts: s.optInt('max_attempts') ?? 1,
                 output: s.optMap('output') ?? const {},
-                error: s.optString('error'))),
+                error: s.optString('error'),
+                waitingFor: s.optString('waiting_for'),
+                nextAttemptAt: s.optDate('next_attempt_at'))),
         createdAt: j.optDate('created_at') ?? DateTime.now(),
         updatedAt: j.optDate('updated_at') ?? DateTime.now(),
         workflowName: j.optString('workflow_name'),
@@ -182,6 +211,7 @@ class AutomationRunItem {
         createdBy: j.optString('created_by'),
         error: j.optString('error'),
         retryOf: j.optString('retry_of'),
+        waitingFor: j.optString('waiting_for'),
       );
 }
 
@@ -206,13 +236,16 @@ class AutomationPage<T> {
 /// The actions the engine executes (anum_api/automation.py STEP_ACTIONS).
 const stepActions = <String, String>{
   'task.create': 'Create agent task',
+  'email.send': 'Send email',
   'notify': 'Notify me',
   'pause': 'Wait for approval',
   'fail': 'Stop as failed',
 };
 const stepActionHelp = <String, String>{
   'task.create':
-      'Creates a task in this workspace with this title and prompt, ready to run under Tasks.',
+      'Creates a task with this title and prompt and runs it: budget, policy and approvals apply, and the step waits until it finishes.',
+  'email.send':
+      'Sends an email from a connected mailbox after a person approves the exact text.',
   'notify': 'Notifies whoever started the run.',
   'pause': 'Pauses the run until someone resumes it.',
   'fail': 'Ends the run as failed with this message.',
@@ -240,19 +273,36 @@ class StepDraft {
       this.prompt = '',
       this.message = '',
       this.maxAttempts = 3,
+      this.retryDelay = 60,
+      this.runTask = true,
+      this.accountId = '',
+      this.to = '',
+      this.subject = '',
+      this.body = '',
+      this.push = false,
       Map<String, Object?>? extra})
       : extra = extra ?? {};
   String id, name, action, title, prompt, message;
-  int maxAttempts;
+  int maxAttempts, retryDelay;
+  bool runTask, push;
+  String accountId, to, subject, body;
   final Map<String, Object?> extra;
 
   factory StepDraft.fromStep(AutomationStepDef step) {
     final extra = Map<String, Object?>.of(step.input)
       ..remove('title')
       ..remove('prompt')
-      ..remove('message');
+      ..remove('message')
+      ..remove('run')
+      ..remove('account_id')
+      ..remove('to')
+      ..remove('subject')
+      ..remove('body')
+      ..remove('channels');
     String text(String key) =>
         step.input[key] is String ? step.input[key] as String : '';
+    final to = step.input['to'];
+    final channels = step.input['channels'];
     return StepDraft(
         id: step.id,
         name: step.name,
@@ -261,6 +311,13 @@ class StepDraft {
         prompt: text('prompt'),
         message: text('message'),
         maxAttempts: step.maxAttempts,
+        retryDelay: step.retryDelaySeconds,
+        runTask: step.input['run'] != false,
+        accountId: text('account_id'),
+        to: to is List ? to.whereType<String>().join(', ') : text('to'),
+        subject: text('subject'),
+        body: text('body'),
+        push: channels is List && channels.contains('push'),
         extra: extra);
   }
 
@@ -268,9 +325,22 @@ class StepDraft {
         'task.create' => {
             ...extra,
             'title': title.trim(),
-            'prompt': prompt.trim()
+            'prompt': prompt.trim(),
+            if (!runTask) 'run': false,
           },
-        'notify' || 'fail' => message.trim().isEmpty
+        'email.send' => {
+            ...extra,
+            'account_id': accountId,
+            'to': splitRecipients(to),
+            'subject': subject.trim(),
+            'body': body.trim(),
+          },
+        'notify' => {
+            ...extra,
+            if (message.trim().isNotEmpty) 'message': message.trim(),
+            'channels': push ? ['in_app', 'push'] : ['in_app'],
+          },
+        'fail' => message.trim().isEmpty
             ? {...extra}
             : {...extra, 'message': message.trim()},
         _ => {...extra},
@@ -335,6 +405,24 @@ WorkflowDraftCheck checkWorkflowDraft(
         errors['$i.prompt'] = '$at: use at most 8000 characters.';
       }
     }
+    if (s.action == 'email.send') {
+      if (s.accountId.isEmpty) {
+        errors['$i.accountId'] = '$at: choose the mailbox to send from.';
+      }
+      final recipients = splitRecipients(s.to);
+      if (recipients.isEmpty) {
+        errors['$i.to'] = '$at: add at least one recipient.';
+      } else if (recipients.length > 20) {
+        errors['$i.to'] = '$at: send to at most 20 recipients.';
+      }
+      if (s.body.trim().isEmpty) {
+        errors['$i.body'] = '$at: write the email body.';
+      }
+    }
+    if (s.retryDelay < 5 || s.retryDelay > 3600) {
+      errors['$i.retryDelay'] =
+          '$at: the wait between attempts must be 5 to 3600 seconds.';
+    }
     if ((s.action == 'notify' || s.action == 'fail') &&
         s.message.trim().length > 500) {
       errors['$i.message'] = '$at: use at most 500 characters.';
@@ -352,7 +440,8 @@ WorkflowDraftCheck checkWorkflowDraft(
                 name: s.name.trim(),
                 action: s.action,
                 input: s.input(),
-                maxAttempts: s.maxAttempts.clamp(1, 10))
+                maxAttempts: s.maxAttempts.clamp(1, 10),
+                retryDelaySeconds: s.retryDelay)
             .toJson(),
     ],
   });
@@ -403,6 +492,8 @@ String statusLabel(String status) => switch (status) {
 String triggerLabel(String trigger) => switch (trigger) {
       'schedule' => 'Scheduled',
       'retry' => 'Retry',
+      'event' => 'Started by an event',
+      'webhook' => 'Started by a webhook',
       _ => 'Started manually',
     };
 
@@ -440,3 +531,212 @@ bool canEditAutomation(String? role, String? userId, String? createdBy) =>
 const manageHint =
     'You can view automations. Creating, running or changing them needs the '
     'owner or member role; ask a workspace owner.';
+
+// ---------------------------------------------------------- Real work, waits
+
+/// "a@x.com, b@y.com" (commas, semicolons or new lines) to a list.
+List<String> splitRecipients(String value) => value
+    .split(RegExp(r'[,;\n]'))
+    .map((item) => item.trim())
+    .where((item) => item.isNotEmpty)
+    .toSet()
+    .toList();
+
+/// What a running step waits for, in words (null when it is not waiting).
+String? waitingLabel(AutomationRunStep step, {DateTime? now}) {
+  if (step.status != 'running' || step.waitingFor == null) return null;
+  return switch (step.waitingFor) {
+    'start' => 'Starting...',
+    'task' => 'Waiting for the agent task to finish',
+    'approval' =>
+      'Waiting for approval: someone must approve the action under Approvals',
+    'retry' => 'Failed; attempt ${step.attempt + 1} of ${step.maxAttempts} '
+        'starts ${step.nextAttemptAt == null ? 'soon' : relativeWhen(step.nextAttemptAt!, now: now)}',
+    _ => null,
+  };
+}
+
+/// The run's status word, "Waiting for approval" etc. while a step waits.
+String runStatusText(AutomationRunItem run) =>
+    run.status == 'running' && run.waitingFor != null
+        ? switch (run.waitingFor) {
+            'approval' => 'Waiting for approval',
+            'retry' => 'Retrying',
+            'task' => 'Running a task',
+            _ => 'Starting',
+          }
+        : statusLabel(run.status);
+
+/// Owners take over another member's schedule or trigger (it runs as them).
+bool canTakeOver(String? role, String? userId, String? createdBy) =>
+    role == 'owner' && createdBy != null && createdBy != userId;
+
+// ----------------------------------------------------------------- Triggers
+
+class TriggerEventInfo {
+  const TriggerEventInfo(
+      {required this.type,
+      required this.label,
+      required this.description,
+      this.fields = const []});
+  final String type, label, description;
+  final List<String> fields;
+
+  factory TriggerEventInfo.fromJson(JsonReader j) => TriggerEventInfo(
+          type: j.string('type'),
+          label: j.optString('label') ?? j.string('type'),
+          description: j.optString('description') ?? '',
+          fields: [
+            for (final f in j.optList('fields') ?? const [])
+              if (f is String) f
+          ]);
+}
+
+class TriggerCondition {
+  TriggerCondition(
+      {this.field = '', this.operator = 'equals', this.value = ''});
+  String field, operator, value;
+
+  Map<String, Object?> toJson() => {
+        'field': field.trim(),
+        'operator': operator,
+        'value': operator == 'exists' ? null : value.trim(),
+      };
+}
+
+const conditionOperators = <String, String>{
+  'equals': 'is',
+  'not_equals': 'is not',
+  'contains': 'contains',
+  'starts_with': 'starts with',
+  'exists': 'is present',
+};
+
+class AutomationTriggerItem {
+  const AutomationTriggerItem({
+    required this.id,
+    required this.workflowId,
+    required this.name,
+    required this.kind,
+    required this.enabled,
+    this.eventType,
+    this.conditions = const [],
+    this.rateLimit = 30,
+    this.replayWindow = 300,
+    this.secretHint,
+    this.webhookPath,
+    this.lastFiredAt,
+    this.lastOutcome,
+    this.fireCount = 0,
+    this.createdBy,
+  });
+  final String id, workflowId, name, kind;
+  final bool enabled;
+  final String? eventType, secretHint, webhookPath, lastOutcome, createdBy;
+  final List<Map<String, Object?>> conditions;
+  final int rateLimit, replayWindow, fireCount;
+  final DateTime? lastFiredAt;
+
+  bool get webhook => kind == 'webhook';
+
+  factory AutomationTriggerItem.fromJson(JsonReader j) => AutomationTriggerItem(
+        id: j.string('id'),
+        workflowId: j.string('workflow_id'),
+        name: j.string('name'),
+        kind: j.optString('kind') ?? 'event',
+        enabled: j.optBool('enabled') ?? true,
+        eventType: j.optString('event_type'),
+        conditions: j.optObjects(
+            'conditions',
+            (c) => <String, Object?>{
+                  'field': c.optString('field') ?? '',
+                  'operator': c.optString('operator') ?? 'equals',
+                  'value': c.optString('value'),
+                }),
+        rateLimit: j.optInt('rate_limit_per_minute') ?? 30,
+        replayWindow: j.optInt('replay_window_seconds') ?? 300,
+        secretHint: j.optString('secret_hint'),
+        webhookPath: j.optString('webhook_path'),
+        lastFiredAt: j.optDate('last_fired_at'),
+        lastOutcome: j.optString('last_outcome'),
+        fireCount: j.optInt('fire_count') ?? 0,
+        createdBy: j.optString('created_by'),
+      );
+}
+
+String conditionText(Map<String, Object?> c) {
+  final op = conditionOperators[c['operator']] ?? '${c['operator']}';
+  return c['operator'] == 'exists'
+      ? '${c['field']} is present'
+      : '${c['field']} $op "${c['value'] ?? ''}"';
+}
+
+String? triggerOutcomeLabel(String? outcome) => switch (outcome) {
+      null => null,
+      'fired' => 'started a run',
+      'rate_limited' => 'refused, over the rate limit',
+      'workflow_paused' => 'skipped, automation paused',
+      'skipped_overlap' => 'skipped, a run was still active',
+      'owner_inactive' =>
+        'skipped, the owner is no longer a member (take it over)',
+      'workspace_archived' => 'skipped, workspace archived',
+      'loop_skipped' => 'skipped, the event came from this automation',
+      'disabled' => 'refused, trigger off',
+      _ => outcome.replaceAll('_', ' '),
+    };
+
+class TriggerDraftCheck {
+  const TriggerDraftCheck(this.errors, this.body);
+  final Map<String, String> errors;
+  final Map<String, Object?>? body;
+  bool get ok => body != null;
+}
+
+final _fieldPath = RegExp(r'^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+){0,5}$');
+
+/// The API's trigger rules. Error keys: `name`, `event`, `rate`, `replay`,
+/// `<condition index>.field|value`.
+TriggerDraftCheck checkTriggerDraft({
+  required String name,
+  required String kind,
+  required String eventType,
+  required List<String> events,
+  required List<TriggerCondition> conditions,
+  required int rateLimit,
+  required int replayWindow,
+}) {
+  final errors = <String, String>{};
+  if (name.trim().isEmpty) errors['name'] = 'Give the trigger a name.';
+  if (kind == 'event' && !events.contains(eventType)) {
+    errors['event'] = 'Choose the event that starts the automation.';
+  }
+  if (rateLimit < 1 || rateLimit > 600) {
+    errors['rate'] = 'Allow 1 to 600 runs a minute.';
+  }
+  if (kind == 'webhook' && (replayWindow < 30 || replayWindow > 3600)) {
+    errors['replay'] = 'The replay window must be 30 to 3600 seconds.';
+  }
+  for (var i = 0; i < conditions.length; i++) {
+    final c = conditions[i];
+    if (!_fieldPath.hasMatch(c.field.trim())) {
+      errors['$i.field'] =
+          'Condition ${i + 1}: name a payload field, for example from or body.status.';
+    }
+    if (c.operator != 'exists' && c.value.trim().isEmpty) {
+      errors['$i.value'] =
+          'Condition ${i + 1}: enter the value to compare with.';
+    }
+  }
+  if (conditions.length > 10) {
+    errors['conditions'] = 'Use at most 10 conditions.';
+  }
+  if (errors.isNotEmpty) return TriggerDraftCheck(errors, null);
+  return TriggerDraftCheck(const {}, {
+    'name': name.trim(),
+    'kind': kind,
+    'event_type': kind == 'event' ? eventType : null,
+    'conditions': [for (final c in conditions) c.toJson()],
+    'rate_limit_per_minute': rateLimit,
+    'replay_window_seconds': replayWindow,
+  });
+}

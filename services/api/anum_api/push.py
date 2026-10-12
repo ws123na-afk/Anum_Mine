@@ -379,6 +379,8 @@ class PushKind(StrEnum):
     TYRE_ALERTS = "tyre_alerts"
     # Team work (docs/team-work.md#notifications): assignments, comments, reminders, follow-ups.
     TEAM_WORK = "team_work"
+    AUTOMATION_NOTICE = "automation_notice"
+    AUTOMATION_FAILED = "automation_failed"
 
 
 # Which notification preference switch gates each kind.
@@ -392,6 +394,9 @@ PREFERENCE: dict[PushKind, str] = {
     PushKind.TYRE_ALERTS: "tyre_alerts",
     # No switch of its own: phone push for team work follows the push channel switch.
     PushKind.TEAM_WORK: "push_enabled",
+    # A notify step's push was asked for by the automation's owner; push_enabled still applies.
+    PushKind.AUTOMATION_NOTICE: "push_enabled",
+    PushKind.AUTOMATION_FAILED: "automation_failed",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -404,6 +409,8 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.COMMERCE_ALERT: ("Store alert", "A sales channel needs your attention: low stock, a late order, returns or a price."),
     PushKind.TYRE_ALERTS: ("Tyre alerts", "New tyre alerts need attention."),
     PushKind.TEAM_WORK: ("Team work", "Something in your team work needs you. Open ANUM to see it."),
+    PushKind.AUTOMATION_NOTICE: ("Automation update", "An automation has a message for you. Open ANUM to read it."),
+    PushKind.AUTOMATION_FAILED: ("Automation failed", "An automation could not finish."),
 }
 
 EVENT_KINDS: dict[str, PushKind] = {
@@ -415,6 +422,8 @@ EVENT_KINDS: dict[str, PushKind] = {
     "commerce.alert.raised": PushKind.COMMERCE_ALERT,
     "tyre_alerts.raised": PushKind.TYRE_ALERTS,
     "notification.created": PushKind.TEAM_WORK,
+    "automation.notification": PushKind.AUTOMATION_NOTICE,
+    "automation_run.failed": PushKind.AUTOMATION_FAILED,
 }
 
 
@@ -432,6 +441,10 @@ class PushIntent:
     work_item_id: str | None = None
     # Team work names its one recipient in the event (the in-app notification's owner).
     recipient: str | None = None
+    automation_run_id: str | None = None
+    workflow_id: str | None = None
+    # Automation pushes: the users the event names (notify_user_ids).
+    named_users: tuple[str, ...] = ()
 
     def data(self) -> dict[str, str]:
         """Deep-link ids only (FCM data values must be strings)."""
@@ -445,13 +458,15 @@ class PushIntent:
             "developer_request_id": self.request_id,
             "commerce_alert_id": self.alert_id,
             "work_item_id": self.work_item_id,
+            "automation_run_id": self.automation_run_id,
+            "workflow_id": self.workflow_id,
         }
         return {key: value for key, value in values.items() if value}
 
     def collapse_id(self) -> str:
         if self.kind == PushKind.TYRE_ALERTS:
             return f"tyre_alerts:{self.workspace_id}"
-        return self.approval_id or self.request_id or self.alert_id or self.work_item_id or self.task_id or self.event_id
+        return self.approval_id or self.request_id or self.alert_id or self.work_item_id or self.automation_run_id or self.task_id or self.event_id
 
 
 def intent_for(event: DomainEvent) -> PushIntent | None:
@@ -466,6 +481,20 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         "workspace_id": event.workspace_id,
         "event_id": event.id,
     }
+    if kind in {PushKind.AUTOMATION_NOTICE, PushKind.AUTOMATION_FAILED}:
+        if kind == PushKind.AUTOMATION_NOTICE and not event.payload.get("push"):
+            return None  # in-app only
+        users = event.payload.get("notify_user_ids")
+        named = tuple(str(user) for user in users if isinstance(user, str)) if isinstance(users, list) else ()
+        if not named:
+            return None
+        workflow = event.payload.get("workflow_id")
+        return PushIntent(
+            **common,
+            automation_run_id=event.subject,
+            workflow_id=str(workflow) if isinstance(workflow, str) else None,
+            named_users=named,
+        )
     if kind == PushKind.APPROVAL_REQUIRED:
         return PushIntent(**common, approval_id=event.subject, task_id=task_id)
     if kind == PushKind.TYRE_ALERTS:
@@ -518,6 +547,10 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
         elif intent.kind == PushKind.TEAM_WORK:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.WORK_READ):
                 recipients = [intent.recipient]
+        elif intent.kind in {PushKind.AUTOMATION_NOTICE, PushKind.AUTOMATION_FAILED}:
+            recipients = [
+                user for user in intent.named_users if _allowed(members.get(user, ""), Permission.AUTOMATION_READ)
+            ]
         elif intent.kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
             task = repository.get_task(intent.task_id or "", context)
             creator = task.created_by if task is not None else None

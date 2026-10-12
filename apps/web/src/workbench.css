@@ -85,6 +85,22 @@
 .wbStepLog { padding-block: var(--d-s2); padding-inline: var(--d-s5) 0; }
 .wbToggle { align-items: center; background: none; border: 0; color: inherit; cursor: pointer; display: inline-flex; font: inherit; gap: var(--d-s1); padding: 0; }
 .wbError { color: var(--d-stop); font-size: 14px; margin: 0; overflow-wrap: anywhere; }
+/* Steps that do real work, triggers and webhook secrets (docs/automation.md). */
+.autoCheck { align-items: center; display: flex; gap: var(--d-s2); margin-top: var(--d-s2); min-height: 44px; }
+.autoCheck input { flex: none; height: 18px; width: 18px; }
+.autoWaiting { color: var(--d-warn); display: block; font-size: 14px; font-weight: 600; }
+.autoResult { margin: var(--d-s2) 0 0; max-height: 9.5em; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
+.autoBreak { overflow-wrap: anywhere; word-break: break-all; }
+.autoSecret { border: 1px solid var(--d-line); border-inline-start: 3px solid var(--d-warn); border-radius: var(--d-r-control); margin-top: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
+.autoSecret p { margin: 0 0 var(--d-s2); overflow-wrap: anywhere; }
+.autoSecret .field { margin-top: var(--d-s2); }
+.autoCopyRow { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.autoCopyRow code { flex: 1 1 16rem; min-width: 0; }
+.autoCode { font-size: 12px; margin: var(--d-s2) 0 0; max-width: 100%; overflow-x: auto; white-space: pre; }
+.autoConditions { border: 0; margin: var(--d-s3) 0 0; min-width: 0; padding: 0; }
+.autoConditions legend { font-weight: 700; padding: 0; }
+.autoConditionRow { align-items: end; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; margin-top: var(--d-s2); }
+.autoConditionRemove { min-height: 44px; min-width: 44px; padding: 0; }
 .wbStep input, .wbStep select, .wbStep textarea, .wbScheduleForm input, .wbScheduleForm select { max-width: 100%; min-width: 0; }
 .wbStep textarea { min-height: 88px; }
 
@@ -105,4 +121,6 @@
   .autoRunMeta { grid-column: 1 / -1; padding-inline-start: 24px; }
   .autoRunRow .runActions { grid-column: 1 / -1; justify-content: flex-start; padding-inline-start: 24px; }
   .wbStepLog { padding-inline-start: var(--d-s3); }
+  .autoConditionRow { grid-template-columns: minmax(0, 1fr); }
+  .autoConditionRemove { justify-self: end; }
 }

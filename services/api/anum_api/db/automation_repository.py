@@ -37,6 +37,7 @@ from anum_api.automation import (
     AutomationConflict,
     AutomationNotFound,
     AutomationSchedule,
+    AutomationTrigger,
     OverlapPolicy,
     RepositoryEffects,
     RunFilter,
@@ -45,6 +46,12 @@ from anum_api.automation import (
     ScheduleCreate,
     ScheduleOutcome,
     ScheduleUpdate,
+    StepReport,
+    TriggerCreate,
+    TriggerKind,
+    TriggerOutcome,
+    TriggerUpdate,
+    TRIGGER_RATE_WINDOW,
     WorkflowCreate,
     WorkflowDefinition,
     WorkflowFilter,
@@ -52,30 +59,49 @@ from anum_api.automation import (
     WorkflowStatus,
     WorkflowStep,
     WorkflowUpdate,
+    advance_state,
     announce,
     audit,
     cancel_state,
     execute_run,
+    event_fire_key,
+    event_payload,
+    event_task_id,
     fail_before_start,
+    matching_triggers,
     new_run,
+    new_trigger,
     next_fire,
     overlap_check,
     owner_inactive_message,
     require_editor,
+    require_take_over,
     resume_state,
+    rotated,
+    run_actor,
+    run_started_task,
+    trigger_decision,
+    updated_trigger,
     schedule_fire_key,
     scheduler_context,
 )
 from anum_api import cron
 from anum_api.maintenance import SessionFactory, discover, scoped_unit
-from anum_api.schemas import TenantContext, new_id, utc_now
+from anum_api.automation_triggers import TriggerCondition
+from anum_api.schemas import DomainEvent, TenantContext, new_id, utc_now
 
-from .models import AutomationRunRecord, AutomationScheduleRecord, AutomationWorkflowRecord
+from .models import (
+    AutomationRunRecord,
+    AutomationScheduleRecord,
+    AutomationTriggerRecord,
+    AutomationWorkflowRecord,
+    DomainEventRecord,
+)
 from .scope import require_workspace
 
 logger = logging.getLogger(__name__)
 
-W, S, R = AutomationWorkflowRecord, AutomationScheduleRecord, AutomationRunRecord
+W, S, R, T = AutomationWorkflowRecord, AutomationScheduleRecord, AutomationRunRecord, AutomationTriggerRecord
 _ACTIVE = [status.value for status in ACTIVE_RUN_STATUSES]
 
 # Runs as anum_maintenance: its policy shows only enabled schedules whose next_run_at has
@@ -96,6 +122,23 @@ _CLAIM_SCHEDULE = text(
     where id = :id and tenant_id = :tenant_id and workspace_id = :workspace_id
       and enabled and next_run_at is not null and next_run_at <= now()
     for update skip locked
+    """
+)
+# As anum_maintenance: running runs whose wake_at passed, and enabled event triggers.
+_DUE_RUNS = text(
+    """
+    select id, tenant_id, workspace_id
+    from automation_runs
+    order by wake_at, id
+    limit :limit
+    """
+)
+_EVENT_TRIGGERS = text(
+    """
+    select id, tenant_id, workspace_id
+    from automation_triggers
+    order by id
+    limit :limit
     """
 )
 _ADVANCE_SCHEDULE = text(
@@ -162,7 +205,50 @@ def _run(record: AutomationRunRecord, workflow_name: str | None = None) -> Workf
         steps=[RunStepState.model_validate(step) for step in record.steps],
         created_at=record.created_at,
         updated_at=record.updated_at,
+        trigger_id=record.trigger_id,
+        trigger_type=record.trigger_type,
+        trigger_payload=dict(record.trigger_payload or {}),
+        wake_at=record.wake_at,
+        waiting_task_id=record.waiting_task_id,
     )
+
+
+def _trigger(record: AutomationTriggerRecord) -> AutomationTrigger:
+    return AutomationTrigger(
+        id=record.id,
+        tenant_id=record.tenant_id,
+        workspace_id=record.workspace_id,
+        workflow_id=record.workflow_id,
+        name=record.name,
+        kind=TriggerKind(record.kind),
+        event_type=record.event_type,
+        conditions=[TriggerCondition.model_validate(item) for item in record.conditions or []],
+        enabled=record.enabled,
+        rate_limit_per_minute=record.rate_limit_per_minute,
+        replay_window_seconds=record.replay_window_seconds,
+        secret_ciphertext=record.secret_ciphertext,
+        secret_hint=record.secret_hint,
+        secret_rotated_at=record.secret_rotated_at,
+        cursor_at=record.cursor_at,
+        last_fired_at=record.last_fired_at,
+        last_outcome=record.last_outcome,
+        fire_count=record.fire_count,
+        created_by=record.created_by,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+_TRIGGER_FIELDS = (
+    "name", "event_type", "enabled", "rate_limit_per_minute", "replay_window_seconds", "secret_ciphertext", "secret_hint",
+    "secret_rotated_at", "cursor_at", "last_fired_at", "last_outcome", "fire_count", "created_by", "updated_at",
+)
+
+
+def _copy_trigger(trigger: AutomationTrigger, record: AutomationTriggerRecord) -> None:
+    for name in _TRIGGER_FIELDS:
+        setattr(record, name, getattr(trigger, name))
+    record.conditions = [condition.model_dump(mode="json") for condition in trigger.conditions]
 
 
 def _run_values(run: WorkflowRun) -> dict[str, Any]:
@@ -181,6 +267,11 @@ def _run_values(run: WorkflowRun) -> dict[str, Any]:
         "created_by": run.created_by or "unknown",
         "created_at": run.created_at,
         "updated_at": run.updated_at,
+        "trigger_id": run.trigger_id,
+        "trigger_type": run.trigger_type,
+        "trigger_payload": run.trigger_payload,
+        "wake_at": run.wake_at,
+        "waiting_task_id": run.waiting_task_id,
     }
 
 
@@ -189,13 +280,37 @@ def _like(query: str) -> str:
     return f"%{escaped}%"
 
 
+class SessionEffects(RepositoryEffects):
+    """``RepositoryEffects`` over the engine's session; reads events with one indexed query."""
+
+    def __init__(self, session: Session, repository: Any, preferences: Any) -> None:
+        super().__init__(repository, preferences)
+        self._session = session
+
+    def events_since(self, context: TenantContext, event_type: str, after: datetime, limit: int) -> list[DomainEvent]:
+        from .repository import SqlAlchemyRepository
+
+        records = self._session.scalars(
+            select(DomainEventRecord)
+            .where(
+                DomainEventRecord.tenant_id == context.tenant_id,
+                DomainEventRecord.workspace_id == context.workspace_id,
+                DomainEventRecord.type == event_type,
+                DomainEventRecord.created_at >= after,
+            )
+            .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
+            .limit(limit)
+        ).all()
+        return [SqlAlchemyRepository._event_from_record(record) for record in records]
+
+
 def session_effects(session: Session, context: TenantContext) -> RepositoryEffects:
     """Effects written through the engine's own session (same transaction)."""
     from .repository import SqlAlchemyRepository
     from .workspace_settings_repository import SqlAlchemyNotificationPreferenceStore
 
     preferences = SqlAlchemyNotificationPreferenceStore(session)
-    return RepositoryEffects(SqlAlchemyRepository(session, created_by_user_id=context.user_id), preferences.get)
+    return SessionEffects(session, SqlAlchemyRepository(session, created_by_user_id=context.user_id), preferences.get)
 
 
 class PostgresAutomationEngine:
@@ -278,6 +393,8 @@ class PostgresAutomationEngine:
         record.current_step = run.current_step
         record.steps = [step.model_dump(mode="json") for step in run.steps]
         record.updated_at = run.updated_at
+        record.wake_at = run.wake_at
+        record.waiting_task_id = run.waiting_task_id
 
     def _summaries(self, session: Session, context: TenantContext, workflows: list[WorkflowDefinition]) -> list[WorkflowDefinition]:
         ids = [workflow.id for workflow in workflows]
@@ -434,6 +551,9 @@ class PostgresAutomationEngine:
             scope = and_(R.tenant_id == context.tenant_id, R.workspace_id == context.workspace_id, R.workflow_id == workflow_id)
             runs_deleted = session.execute(delete(R).where(scope)).rowcount
             session.execute(
+                delete(T).where(T.tenant_id == context.tenant_id, T.workspace_id == context.workspace_id, T.workflow_id == workflow_id)
+            )
+            session.execute(
                 delete(S).where(S.tenant_id == context.tenant_id, S.workspace_id == context.workspace_id, S.workflow_id == workflow_id)
             )
             session.execute(
@@ -523,10 +643,20 @@ class PostgresAutomationEngine:
         idempotency_key: str | None,
         retry_of: str | None = None,
         schedule_id: str | None = None,
+        trigger: AutomationTrigger | None = None,
+        trigger_payload: dict[str, Any] | None = None,
     ) -> WorkflowRun | None:
         """Claim the key, apply the overlap policy, execute. None: the key is already taken."""
         active = self._active_records(session, context, workflow.id)
-        run = new_run(context, workflow, idempotency_key=idempotency_key, retry_of=retry_of, schedule_id=schedule_id)
+        run = new_run(
+            context,
+            workflow,
+            idempotency_key=idempotency_key,
+            retry_of=retry_of,
+            schedule_id=schedule_id,
+            trigger=trigger,
+            trigger_payload=trigger_payload,
+        )
         if not self._insert_run(session, run):
             return None
         if workflow.overlap_policy == OverlapPolicy.CANCEL_PREVIOUS:
@@ -582,7 +712,11 @@ class PostgresAutomationEngine:
         with self._unit(context) as session:
             statement = self._runs_statement(context)
             counter = self._scoped(select(func.count()).select_from(R), R, context)
-            for column, value in ((R.workflow_id, page.workflow_id), (R.schedule_id, page.schedule_id)):
+            for column, value in (
+                (R.workflow_id, page.workflow_id),
+                (R.schedule_id, page.schedule_id),
+                (R.trigger_id, page.trigger_id),
+            ):
                 if value is not None:
                     statement, counter = statement.where(column == value), counter.where(column == value)
             if page.status is not None:
@@ -698,6 +832,305 @@ class PostgresAutomationEngine:
             if run is not None:
                 runs.append(run)
         return runs
+
+    def take_over_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule:
+        with self._work(context) as (session, effects):
+            record = self._schedule_record(session, context, schedule_id, lock=True)
+            require_take_over(context, record.created_by, "schedule")
+            previous = record.created_by
+            record.created_by = context.user_id
+            record.updated_at = utc_now()
+            session.flush()
+            effects.record_audit(
+                audit(context, "automation.schedule.taken_over", schedule_id, {"previous_owner": previous, "name": record.name})
+            )
+            return _schedule(record)
+
+    # -- waiting steps and retries ----------------------------------------------------
+
+    def _advance_record(
+        self, session: Session, record: AutomationRunRecord, report: StepReport | None, now: Any
+    ) -> tuple[WorkflowRun, RepositoryEffects]:
+        workflow = session.scalar(
+            select(W).where(W.tenant_id == record.tenant_id, W.workspace_id == record.workspace_id, W.id == record.workflow_id)
+        )
+        run = _run(record, workflow.name if workflow else None)
+        context = run_actor(run)
+        effects = session_effects(session, context)
+        advance_state(run, context, effects, report=report, workflow_creator=workflow.created_by if workflow else None, now=now)
+        self._save_run_state(record, run)
+        session.flush()
+        return run, effects
+
+    def advance(self, context: TenantContext, run_id: str, report: StepReport | None = None) -> WorkflowRun:
+        with self._unit(context) as session:
+            record = self._run_record(session, context, run_id, lock=True)
+            run, effects = self._advance_record(session, record, report, utc_now())
+        effects.flush()
+        return run
+
+    def wake_for_task(self, context: TenantContext, task_id: str) -> list[WorkflowRun]:
+        runs: list[WorkflowRun] = []
+        pending: list[RepositoryEffects] = []
+        with self._unit(context) as session:
+            records = session.scalars(
+                self._scoped(select(R), R, context)
+                .where(R.waiting_task_id == task_id, R.status == RunStatus.RUNNING.value)
+                .with_for_update(skip_locked=True)
+            ).all()
+            for record in records:
+                run, effects = self._advance_record(session, record, None, utc_now())
+                runs.append(run)
+                pending.append(effects)
+        for effects in pending:
+            effects.flush()
+        return runs
+
+    def run_due_wakeups(self, *, limit: int = 100) -> list[WorkflowRun]:
+        runs: list[WorkflowRun] = []
+        for row in discover(self.maintenance_session_factory, _DUE_RUNS, {"limit": limit}):
+            context = scheduler_context(row.tenant_id, row.workspace_id, None)
+            try:
+                with self._unit(context) as session:
+                    record = session.scalar(
+                        self._scoped(select(R), R, context)
+                        .where(R.id == row.id, R.status == RunStatus.RUNNING.value, R.wake_at <= func.now())
+                        .with_for_update(skip_locked=True)
+                    )
+                    if record is None:
+                        continue
+                    run, effects = self._advance_record(session, record, None, utc_now())
+                effects.flush()
+                runs.append(run)
+            except Exception:
+                logger.exception("Automation run %s could not be advanced", row.id)
+        return runs
+
+    # -- triggers ---------------------------------------------------------------------
+
+    def _trigger_record(self, session: Session, context: TenantContext, trigger_id: str, *, lock: bool = False) -> AutomationTriggerRecord:
+        statement = self._scoped(select(T), T, context).where(T.id == trigger_id)
+        record = session.scalar(statement.with_for_update() if lock else statement)
+        if record is None:
+            raise AutomationNotFound("trigger", trigger_id)
+        return record
+
+    def create_trigger(self, context: TenantContext, payload: TriggerCreate) -> tuple[AutomationTrigger, str | None]:
+        with self._work(context) as (session, effects):
+            self._workflow_record(session, context, payload.workflow_id)
+            trigger, secret = new_trigger(context, payload)
+            record = T(
+                id=trigger.id,
+                tenant_id=trigger.tenant_id,
+                workspace_id=trigger.workspace_id,
+                workflow_id=trigger.workflow_id,
+                kind=trigger.kind.value,
+                created_at=trigger.created_at,
+            )
+            _copy_trigger(trigger, record)
+            session.add(record)
+            session.flush()
+            effects.record_audit(
+                audit(
+                    context,
+                    "automation.trigger.created",
+                    trigger.id,
+                    {"workflow_id": trigger.workflow_id, "kind": trigger.kind.value, "event_type": trigger.event_type},
+                )
+            )
+            return trigger.public(), secret
+
+    def list_triggers(self, context: TenantContext, workflow_id: str | None = None) -> list[AutomationTrigger]:
+        with self._unit(context) as session:
+            statement = self._scoped(select(T), T, context)
+            if workflow_id is not None:
+                statement = statement.where(T.workflow_id == workflow_id)
+            records = session.scalars(statement.order_by(T.created_at.desc(), T.id.desc())).all()
+            return [_trigger(record).public() for record in records]
+
+    def get_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        return self.trigger_record(context, trigger_id).public()
+
+    def trigger_record(self, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        with self._unit(context) as session:
+            return _trigger(self._trigger_record(session, context, trigger_id))
+
+    def update_trigger(self, context: TenantContext, trigger_id: str, payload: TriggerUpdate) -> AutomationTrigger:
+        with self._work(context) as (session, effects):
+            record = self._trigger_record(session, context, trigger_id, lock=True)
+            require_editor(context, record.created_by, "trigger")
+            changed = updated_trigger(_trigger(record), payload)
+            _copy_trigger(changed, record)
+            session.flush()
+            effects.record_audit(
+                audit(context, "automation.trigger.updated", trigger_id, payload.model_dump(mode="json", exclude_none=True))
+            )
+            return changed.public()
+
+    def delete_trigger(self, context: TenantContext, trigger_id: str) -> None:
+        with self._work(context) as (session, effects):
+            record = self._trigger_record(session, context, trigger_id, lock=True)
+            require_editor(context, record.created_by, "trigger")
+            name = record.name
+            session.execute(
+                delete(T).where(T.tenant_id == context.tenant_id, T.workspace_id == context.workspace_id, T.id == trigger_id)
+            )
+            effects.record_audit(audit(context, "automation.trigger.deleted", trigger_id, {"name": name}))
+
+    def rotate_trigger_secret(self, context: TenantContext, trigger_id: str) -> tuple[AutomationTrigger, str]:
+        with self._work(context) as (session, effects):
+            record = self._trigger_record(session, context, trigger_id, lock=True)
+            require_editor(context, record.created_by, "trigger")
+            changed, secret = rotated(_trigger(record))
+            _copy_trigger(changed, record)
+            session.flush()
+            effects.record_audit(audit(context, "automation.trigger.secret_rotated", trigger_id, {"name": record.name}))
+            return changed.public(), secret
+
+    def take_over_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        with self._work(context) as (session, effects):
+            record = self._trigger_record(session, context, trigger_id, lock=True)
+            require_take_over(context, record.created_by, "trigger")
+            previous = record.created_by
+            record.created_by = context.user_id
+            record.updated_at = utc_now()
+            session.flush()
+            effects.record_audit(
+                audit(context, "automation.trigger.taken_over", trigger_id, {"previous_owner": previous, "name": record.name})
+            )
+            return _trigger(record).public()
+
+    def _fire_in(
+        self,
+        session: Session,
+        effects: RepositoryEffects,
+        context: TenantContext,
+        record: AutomationTriggerRecord,
+        *,
+        key: str,
+        payload: dict[str, Any],
+        source_task_id: str | None,
+    ) -> tuple[WorkflowRun | None, str]:
+        """Inside a unit that holds the trigger row's lock."""
+        existing = self._run_by_key(session, context, key)
+        if existing is not None:
+            return _run(existing), "duplicate"
+        trigger = _trigger(record)
+        actor = scheduler_context(context.tenant_id, context.workspace_id, trigger.created_by)
+        actor_effects = session_effects(session, actor)
+        workflow_record = session.scalar(
+            self._scoped(select(W), W, context).where(W.id == trigger.workflow_id).with_for_update()
+        )
+        workflow = _workflow(workflow_record) if workflow_record is not None else None
+        now = session.scalar(select(func.now()))
+        recent = session.scalar(
+            self._scoped(select(func.count()).select_from(R), R, context).where(
+                R.trigger_id == trigger.id, R.created_at >= now - TRIGGER_RATE_WINDOW
+            )
+        ) or 0
+        active = self._active_records(session, context, trigger.workflow_id) if workflow is not None else []
+        looped = False
+        if source_task_id:
+            looped = any(
+                run_started_task(_run(item), source_task_id)
+                for item in session.scalars(
+                    self._scoped(select(R), R, context).where(
+                        R.workflow_id == trigger.workflow_id,
+                        R.steps.contains([{"output": {"task_id": source_task_id}}]),
+                    )
+                ).all()
+            )
+        archived = session.execute(
+            text("select archived_at from workspaces where tenant_id = :tenant_id and id = :workspace_id"),
+            {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id},
+        ).scalar()
+        outcome = trigger_decision(
+            trigger,
+            workflow,
+            archived=archived is not None,
+            actor_ok=actor_effects.actor_may_run(actor, actor.user_id),
+            recent=int(recent),
+            active=len(active),
+            looped=looped,
+        )
+        run = None
+        if outcome == TriggerOutcome.FIRED and workflow is not None:
+            run = self._launch(session, actor_effects, actor, workflow, idempotency_key=key, trigger=trigger, trigger_payload=payload)
+            effects.deferred.extend(actor_effects.deferred)
+            effects.repository.recorded_events.extend(actor_effects.repository.recorded_events)
+            actor_effects.deferred, actor_effects.repository.recorded_events = [], []
+        record.last_outcome = outcome.value
+        if run is not None:
+            record.last_fired_at = now
+            record.fire_count = record.fire_count + 1
+        session.flush()
+        return run, outcome.value
+
+    def fire_trigger(
+        self, context: TenantContext, trigger_id: str, *, key: str, payload: dict[str, Any], source_task_id: str | None = None
+    ) -> tuple[WorkflowRun | None, str]:
+        with self._work(context) as (session, effects):
+            record = self._trigger_record(session, context, trigger_id, lock=True)
+            return self._fire_in(session, effects, context, record, key=key, payload=payload, source_task_id=source_task_id)
+
+    def fire_event(self, context: TenantContext, event: DomainEvent) -> list[WorkflowRun]:
+        fired: list[WorkflowRun] = []
+        with self._work(context) as (session, effects):
+            records = session.scalars(
+                self._scoped(select(T), T, context)
+                .where(T.kind == TriggerKind.EVENT.value, T.enabled, T.event_type == event.type)
+                .with_for_update()
+            ).all()
+            matched = {trigger.id for trigger in matching_triggers([_trigger(r) for r in records], event)}
+            for record in records:
+                if record.id not in matched:
+                    continue
+                run, outcome = self._fire_in(
+                    session,
+                    effects,
+                    context,
+                    record,
+                    key=event_fire_key(record.id, event.id),
+                    payload=event_payload(event),
+                    source_task_id=event_task_id(event),
+                )
+                if run is not None and outcome != "duplicate":
+                    fired.append(run)
+        return fired
+
+    def catch_up_triggers(self, *, limit: int = 100) -> list[WorkflowRun]:
+        fired: list[WorkflowRun] = []
+        for row in discover(self.maintenance_session_factory, _EVENT_TRIGGERS, {"limit": 1000}):
+            context = scheduler_context(row.tenant_id, row.workspace_id, None)
+            try:
+                with self._work(context) as (session, effects):
+                    record = session.scalar(
+                        self._scoped(select(T), T, context).where(T.id == row.id).with_for_update(skip_locked=True)
+                    )
+                    if record is None or not record.enabled or record.kind != TriggerKind.EVENT.value or not record.event_type:
+                        continue
+                    trigger = _trigger(record)
+                    events = effects.events_since(context, record.event_type, trigger.cursor_at or trigger.created_at, limit)
+                    for event in events:
+                        if not matching_triggers([_trigger(record)], event):
+                            continue
+                        run, outcome = self._fire_in(
+                            session,
+                            effects,
+                            context,
+                            record,
+                            key=event_fire_key(record.id, event.id),
+                            payload=event_payload(event),
+                            source_task_id=event_task_id(event),
+                        )
+                        if run is not None and outcome != "duplicate":
+                            fired.append(run)
+                    if events:
+                        record.cursor_at = events[-1].created_at
+                        session.flush()
+            except Exception:
+                logger.exception("Automation trigger %s could not catch up", row.id)
+        return fired
 
 
 __all__ = ["PostgresAutomationEngine", "SUMMARY_FIELDS", "session_effects"]
