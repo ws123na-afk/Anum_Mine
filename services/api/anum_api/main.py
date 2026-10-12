@@ -142,6 +142,7 @@ from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
 from .reports import router as reports_router
 from .agent_policy import AgentRunProfile
+from .agent_skill_loadout import agent_run_profile
 from .agent_profiles import NOT_FOUND as AGENT_NOT_FOUND, AgentStatus, configure_runtime_catalog, load_agent
 from .agent_profiles import router as agents_router
 from .phase5 import router as phase5_router
@@ -984,7 +985,7 @@ async def retry_task(
                 status_code=status.HTTP_409_CONFLICT, detail="Only a failed or cancelled task can be retried"
             )
         # A retry as an agent uses the agent as it is now (docs/agents.md).
-        agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+        agent = agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
         previous = repository.find_run_for_task(task.id, context)
         _record_task_event(
             repository,
@@ -1023,7 +1024,7 @@ async def run_task(
         if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
         # A task as an agent runs with a snapshot of the agent as it is now (docs/agents.md).
-        agent = AgentRunProfile.from_profile(_usable_agent(context, task.agent_id)) if task.agent_id else None
+        agent = agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
 
         runtime = AgentRuntime(
             budgeted_model_gateway(context, model_gateway),

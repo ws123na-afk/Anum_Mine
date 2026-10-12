@@ -10,12 +10,14 @@ import { marketingAr } from './marketing.ar.ts';
 import { ownerAr } from './ar.owner.ts';
 import { governanceAr } from './ar.governance.ts';
 import { voiceAr } from './ar.voice.ts';
+import { agentSkillsAr } from './agentSkills.ar.ts';
 
 export const ar: Record<MessageKey, Message> = {
   // ---- Commerce (commerce.ar.ts) ----
   ...commerceAr,
   ...teamAr,
   ...marketingAr,
+  ...agentSkillsAr,
   // ---- Common ----
   'common.listAnd': '{head} و{last}',
   'common.listSeparator': '، ',

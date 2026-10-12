@@ -121,16 +121,34 @@ export function groupSkills(versions: SkillVersionLike[], installs: SkillInstall
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export type SkillFilter = 'all' | 'installed' | 'available';
+export type SkillFilter = 'all' | 'installed' | 'available' | 'builtin';
 
 export function filterSkills(groups: SkillGroup[], query: string, filter: SkillFilter): SkillGroup[] {
   const q = query.trim().toLowerCase();
+  if (filter === 'builtin') return [];
   return groups.filter((g) => {
     if (filter === 'installed' && !g.install) return false;
     if (filter === 'available' && g.install) return false;
     if (!q) return true;
     return [g.skillId, g.name, g.description, ...g.latest.required_tools].some((x) => x.toLowerCase().includes(q));
   });
+}
+
+/** A skill built into the runtime (from the agent catalog): nothing to install, always available. */
+export interface BuiltinSkillLike { id: string; name: string; description: string; source: string; required_tools: string[] }
+
+/** Built-in skills for the Skills page: shown under All and Built in, matching the same search. */
+export function filterBuiltins<T extends BuiltinSkillLike>(skills: T[], query: string, filter: SkillFilter): T[] {
+  if (filter !== 'all' && filter !== 'builtin') return [];
+  const q = query.trim().toLowerCase();
+  return skills.filter((s) => s.source === 'builtin')
+    .filter((s) => !q || [s.id, s.name, s.description, ...s.required_tools].some((x) => x.toLowerCase().includes(q)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** "Loaded by A, B and 2 more": the first names and how many are left. */
+export function usageNames(names: string[], max = 2): { shown: string[]; more: number } {
+  return { shown: names.slice(0, max), more: Math.max(0, names.length - max) };
 }
 
 /** The first `pageSize * pages` items and whether more remain ("Show more" paging). */

@@ -134,6 +134,77 @@
 .dangerZone h4 { margin: 0; }
 .agentChat { min-width: 0; }
 
+/* Skills an agent loads (AgentSkillsPanel.tsx). One row per skill; the inline-start rule carries the
+   state colour, always with the state's text badge next to the name. */
+.agentSkillChips { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s3); }
+.agentSkillChips ul { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.agentSkillChips li { background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted); font-size: 12px; font-weight: 600; max-width: 22ch; overflow: hidden; padding: 2px 10px; text-overflow: ellipsis; white-space: nowrap; }
+.agentSkillWarn { align-items: center; color: var(--d-warn); display: inline-flex; font-size: 12px; font-weight: 600; gap: 4px; }
+.agentSkillWarn svg { height: 14px; width: 14px; }
+#agent-skills-h:focus { outline: none; }
+#agent-skills-h:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+.skillSummary { font-size: 13px; margin-top: 2px; }
+.skillIntro { font-size: 13.5px; margin-top: var(--d-s3); max-width: 70ch; }
+.skillPanelActions { align-items: center; display: flex; gap: var(--d-s2); }
+.skillPanelActions > button:not(.iconButton), .compactEmpty > button, .skillPickerList button {
+  align-items: center; background: var(--d-primary-grad); border: 0; border-radius: var(--d-r-control); color: #fff; display: inline-flex;
+  font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4);
+}
+.skillPanelActions > button:not(.iconButton):hover, .compactEmpty > button:hover, .skillPickerList button:hover:not(:disabled) { background: var(--d-primary-grad-hover); }
+.skillPanelActions > button:not(.iconButton):active, .skillPickerList button:active { transform: translateY(1px); }
+.skillLoadList { display: grid; gap: var(--d-s3); list-style: none; margin: var(--d-s4) 0 0; padding: 0; }
+.skillLoad {
+  background: var(--d-glass-1); border: 1px solid var(--d-line); border-inline-start: 3px solid var(--skill-tone, var(--d-line-strong));
+  border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: 40px minmax(0, 1fr); padding: var(--d-s3) var(--d-s4);
+}
+.skillLoad.is-ready { --skill-tone: rgba(134, 239, 172, .55); }
+.skillLoad.is-needs_tools, .skillLoad.is-disabled { --skill-tone: rgba(252, 211, 141, .6); }
+.skillLoad.is-blocked, .skillLoad.is-unavailable { --skill-tone: rgba(253, 164, 175, .6); }
+.skillLoadIcon {
+  align-items: center; background: linear-gradient(135deg, rgba(79, 139, 255, .22), rgba(181, 107, 255, .22)); border: 1px solid var(--d-line-strong);
+  border-radius: 10px; color: var(--d-text); display: inline-flex; height: 40px; justify-content: center; width: 40px;
+}
+.skillLoadIcon svg { height: 18px; width: 18px; }
+.skillLoadBody { display: grid; gap: 6px; min-width: 0; }
+.skillLoadHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.skillLoadHead h4 { font-size: 15px; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.skillLoadMeta { color: var(--d-faint); display: flex; flex-wrap: wrap; font-size: 12px; gap: 2px var(--d-s3); }
+.skillLoadMeta code { color: var(--d-faint); font-size: 12px; overflow-wrap: anywhere; }
+.skillLoadText { color: var(--d-muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.skillLoadHow { color: var(--d-text); font-size: 13px; }
+.skillLoadReason { color: var(--d-warn); font-size: 13px; overflow-wrap: anywhere; }
+.skillLoad.is-blocked .skillLoadReason, .skillLoad.is-unavailable .skillLoadReason { color: var(--d-stop); }
+.skillLoadReason.subtle { color: var(--d-muted); }
+.skillToolChips { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.skillToolChips li { align-items: center; border: 1px solid var(--d-line); border-radius: 8px; display: inline-flex; font-size: 12px; gap: 4px; padding: 2px 8px; }
+.skillToolChips li svg { height: 13px; width: 13px; }
+.skillToolChips li.ok svg { color: var(--d-ok); }
+.skillToolChips li.missing { border-color: rgba(252, 211, 141, .35); }
+.skillToolChips li.missing svg { color: var(--d-warn); }
+.skillToolChips code { font-size: 12px; overflow-wrap: anywhere; }
+.skillLoadFoot { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; margin-top: 2px; }
+.skillLoadActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-inline-start: auto; }
+.agentsView .skillLoadActions button.secondary { font-size: 13px; min-height: 36px; padding: 6px var(--d-s3); }
+.agentsView .skillLoadActions button.quiet { background: transparent; border-color: transparent; color: var(--d-muted); }
+.agentsView .skillLoadActions button.quiet:hover:not(:disabled) { border-color: var(--d-line); color: var(--d-text); }
+.skillLoad.isSkeleton { min-height: 96px; }
+.skeletonLine { animation: agentPulse 1.4s ease-in-out infinite; background: var(--d-glass-2); border-radius: 6px; display: block; height: 12px; width: 40%; }
+.skeletonLine.wide { height: 16px; width: 65%; }
+@keyframes agentPulse { 50% { opacity: .45; } }
+.skillSearch { margin-top: var(--d-s4); }
+.skillPicker { background: var(--d-surface-1); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); margin-top: var(--d-s4); padding: var(--d-s4); }
+.skillPicker h4 { margin: 0; }
+.skillPickerList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; max-height: 360px; overflow: auto; padding: 0; }
+.skillPickerList li { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding-top: var(--d-s2); }
+.skillPickerList li:first-child { border-top: 0; padding-top: 0; }
+.skillPickerList li > div { display: grid; gap: 2px; min-width: 0; }
+.skillPickerList small { color: var(--d-muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.skillPickerList code { font-size: 12px; }
+.skillPickerList button { min-height: 40px; }
+.compactEmpty { padding: var(--d-s5) var(--d-s4); }
+.compactEmpty h4 { color: var(--d-text); font-size: 15px; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .skeletonLine { animation: none; } }
+
 @media (max-width: 1100px) {
   .agentColumns { grid-template-columns: minmax(0, 1fr); }
   .agentHero { grid-template-columns: 56px minmax(0, 1fr); }
@@ -148,4 +219,8 @@
   .agentTaskList li { grid-template-columns: minmax(0, 1fr) auto; }
   .agentTaskList time { grid-column: 1 / -1; }
   .agentStatusFilter, .agentStatusFilter select { width: 100%; }
+  .skillLoad { grid-template-columns: minmax(0, 1fr); padding: var(--d-s3); }
+  .skillLoadIcon { display: none; }
+  .skillPickerList li { grid-template-columns: minmax(0, 1fr); }
+  .skillPickerList li button { justify-self: start; }
 }

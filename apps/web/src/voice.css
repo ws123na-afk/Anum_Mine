@@ -34,7 +34,9 @@
 .voiceOrbBlob.b1 { animation: voiceDrift 9s ease-in-out infinite; background: radial-gradient(circle at 35% 35%, var(--d-sky), transparent 62%); }
 .voiceOrbBlob.b2 { animation: voiceDrift 11s ease-in-out -3s infinite reverse; background: radial-gradient(circle at 65% 40%, var(--d-violet), transparent 60%); }
 .voiceOrbBlob.b3 { animation: voiceDrift 13s ease-in-out -6s infinite; background: radial-gradient(circle at 50% 70%, var(--d-rose), transparent 58%); }
-.orb3d { inset: 0; position: absolute; }
+.orb3d { pointer-events: none; position: absolute; }
+/* The 3D scene draws its own rings and halo; the CSS ones stay for the reduced-motion fallback. */
+.voiceOrb:has(.orb3d) .voiceOrbHalo, .voiceOrb:has(.orb3d) .voiceOrbGlow { display: none; }
 .orb3d canvas { display: block; height: 100% !important; width: 100% !important; }
 .voiceOrbIcon { color: #fff; display: grid; inset: 0; opacity: 0; place-items: center; position: absolute; transition: opacity 160ms var(--d-ease); }
 .voiceOrbIcon svg { filter: drop-shadow(0 1px 8px rgba(11, 16, 32, .6)); }
@@ -109,6 +111,32 @@
 .voiceSettingsGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 .voiceSettings .muted { margin: var(--d-s3) 0 0; }
 .voiceSettings button.secondary { border-radius: 999px; margin-top: var(--d-s3); min-height: 44px; padding: 8px 16px; }
+
+/* The orb full screen (OrbFullscreen.tsx): the page's navy with the orb's own halo, content-sized
+   text under the orb, everything inside the viewport at every size. */
+.orbFullscreen {
+  align-items: center; background: radial-gradient(900px 640px at 50% 38%, rgba(79, 70, 229, .22), transparent 70%) var(--d-bg);
+  display: grid; inset: 0; justify-items: center; overflow-y: auto; padding: var(--d-s6) var(--d-s4); position: fixed; z-index: 60;
+}
+.orbFullscreenClose {
+  align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-text); display: inline-flex;
+  height: 48px; inset-inline-end: var(--d-s4); justify-content: center; position: fixed; top: var(--d-s4); width: 48px; z-index: 1;
+}
+.orbFullscreenClose:hover { background: var(--d-glass-3); }
+.orbFullscreenClose svg { height: 22px; width: 22px; }
+.orbFullscreenStage { align-items: center; display: flex; flex-direction: column; gap: var(--d-s3); max-width: min(720px, 100%); text-align: center; }
+.orbFullscreen .voiceOrb { margin-bottom: var(--d-s5); max-width: 86vw; }
+.orbFullscreenState { color: var(--d-sky); font-size: 18px; font-weight: 650; }
+.orbFullscreenHeard { color: var(--d-muted); font-size: 16px; overflow-wrap: anywhere; }
+.orbFullscreenAnswer { color: var(--d-text); font-size: 20px; font-weight: 550; line-height: 1.45; max-height: 30vh; overflow-wrap: anywhere; overflow-y: auto; }
+.orbFullscreenHint { color: var(--d-faint); font-size: 13px; margin-top: var(--d-s2); }
+.orbFullscreen[data-state="listening"] .voiceOrbHalo { animation: voiceRing 1.8s ease-out infinite; border-color: rgba(125, 211, 252, .55); }
+.orbFullscreen[data-state="thinking"] .voiceOrbHalo { animation: voiceSpin 1.4s linear infinite; border-color: transparent; border-top-color: var(--d-violet); }
+.orbFullscreen[data-state="speaking"] .voiceOrbGlow { animation: voiceBreathe 1.6s ease-in-out infinite; opacity: .9; }
+@media (max-width: 480px) {
+  .orbFullscreen { padding: var(--d-s7) var(--d-s4) var(--d-s5); }
+  .orbFullscreenAnswer { font-size: 17px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .voiceOrb, .voiceOrbBlob, .voiceOrbGlow, .voiceOrbHalo { animation: none !important; transition: none !important; }

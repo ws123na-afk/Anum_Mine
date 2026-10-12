@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, Check, Cpu, Globe2, Keyboard, Mic, Radio, Settings2, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowUp, Check, Cpu, Globe2, Keyboard, Maximize2, Mic, Radio, Settings2, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
 import {
   appendTranscript,
   baseRecognitionMode,
@@ -28,6 +28,7 @@ import {
   type WakeListener,
 } from './lib/voice';
 import { Orb3D } from './Orb3D';
+import { OrbFullscreen } from './OrbFullscreen';
 import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import './voice.css';
 import { takeSentences } from './lib/chat';
@@ -86,6 +87,8 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
   const [notice, setNotice] = useState('');
   const [level, setLevel] = useState(0);
   const [pendingApprovals, setPendingApprovals] = useState(0);
+  // The orb full screen (docs/voice.md#the-orb): opened by the orb or the Full screen button.
+  const [fullscreen, setFullscreen] = useState(false);
   // Sized by width and height so the greeting and dock stay above the fold on short laptop screens.
   const [orbSize] = useState(() => Math.round(Math.max(180, Math.min(window.innerWidth < 480 ? 208 : window.innerWidth < 860 ? 248 : 296, window.innerHeight * 0.3))));
   // Hands-free listening never asks for the microphone by itself: it starts on its own only when
@@ -385,6 +388,12 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
     }
   }
 
+  // The page orb opens the full screen and starts talking there; inside it the orb only talks.
+  function onStageOrbClick() {
+    setFullscreen(true);
+    onOrbClick();
+  }
+
   function onOrbClick() {
     if (state === 'listening') stopListening();
     else if (state === 'speaking') { replyAbort.current?.abort(); stopSpeaking(); setState('idle'); wake.current?.resume(); }
@@ -402,6 +411,9 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
     <header className="voiceTopline">
       <span className="voiceBadge" title={modeInfo.hint}>{modeInfo.icon}{modeInfo.text}</span>
       <div className="voiceConsoleMeta">
+        <button type="button" className="voiceIconButton" onClick={() => setFullscreen(true)} aria-label={t('voice.fullscreen.open')} title={t('voice.fullscreen.open')}>
+          <Maximize2 size={18} aria-hidden="true" />
+        </button>
         <button type="button" className={wakeOn ? 'voicePill on' : 'voicePill'} onClick={() => void toggleWake()} aria-pressed={wakeOn} title={t('voice.wakeTitle', { name }, { isolate: false })}>
           <Radio size={16} aria-hidden="true" />{wakeOn ? t('voice.wakeOn', { name }) : t('voice.wakeOff', { name })}
         </button>
@@ -416,13 +428,15 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
         type="button"
         className="voiceOrb voiceTalk"
         style={{ transform: `scale(${orbScale})`, width: orbSize, height: orbSize }}
-        onClick={onOrbClick}
+        onClick={onStageOrbClick}
         disabled={state === 'thinking'}
         aria-label={state === 'listening' ? t('voice.stopListening') : state === 'speaking' ? t('voice.stopSpeaking') : t('voice.tapToTalk')}
       >
         <span className="voiceOrbHalo" aria-hidden="true" />
         <span className="voiceOrbGlow" aria-hidden="true" />
-        <Orb3D state={state} alert={pendingApprovals > 0} level={level} size={orbSize} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />
+        {/* One live WebGL scene at a time: the page orb rests while the full screen is open. */}
+        {fullscreen ? <><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>
+          : <Orb3D state={state} alert={pendingApprovals > 0} level={level} size={orbSize} fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />}
         <span className="voiceOrbIcon" aria-hidden="true">{state === 'listening' ? <Square size={26} /> : state === 'speaking' ? <VolumeX size={28} /> : <Mic size={30} />}</span>
       </button>
       <h2 className="voiceGreeting" dir="auto">{greeting(name, locale, hour)}</h2>
@@ -438,6 +452,12 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper }: { onOpenApproval
     </div>
 
     {developer.panel}
+    {fullscreen && <OrbFullscreen name={name} state={state} level={level} alert={pendingApprovals > 0} stateLabel={stateText[state]}
+      heard={state === 'listening' ? (draft || t('voice.goAhead')) : [...turns].reverse().find((turn) => turn.speaker === 'you' && turn.text)?.text ?? ''}
+      answer={state === 'listening' ? '' : [...turns].reverse().find((turn) => turn.speaker === 'assistant' && turn.text)?.text ?? notice}
+      talkLabel={state === 'listening' ? t('voice.stopListening') : state === 'speaking' ? t('voice.stopSpeaking') : t('voice.tapToTalk')}
+      talkDisabled={state === 'thinking'} onTalk={onOrbClick} onClose={() => setFullscreen(false)}
+      fallback={<><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>} />}
 
     <ol className="voiceLog" aria-label={t('voice.conversation')}>
       {turns.length === 0 && <li className="voiceEmpty">

@@ -199,6 +199,11 @@ class AgentRuntime:
                     # Whether the user's learned style shaped this draft (docs/learning.md); never its text.
                     "learned_preferences": learned is not None,
                     **({"agent_id": agent.id, "agent_version": agent.version} if agent else {}),
+                    # The installed skills the agent loaded (ids and versions, never their text).
+                    **(
+                        {"loaded_skills": [{"id": s.id, "version": s.version} for s in agent.loaded_skills]}
+                        if agent and agent.loaded_skills else {}
+                    ),
                 },
             )
         run.steps.append(model_step)

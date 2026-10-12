@@ -3,17 +3,18 @@
 // Chat, Call, Edit and More, and the Overview, Skills, Memory and Settings tabs.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import {
-  ArrowLeft, BarChart3, Bot, Briefcase, Calendar, Check, CircleDot, Ellipsis, FileText, Heart, Lock, Mail, MessageSquare,
+  AlertTriangle, ArrowLeft, BarChart3, Bot, Briefcase, Calendar, Check, CircleDot, Ellipsis, FileText, Heart, Lock, Mail, MessageSquare,
   Pause, Pencil, Phone, Play, Plus, RefreshCw, Search, ShoppingCart, Sparkles, Trash2, Truck, User, Users, Wrench,
 } from 'lucide-react';
 import type { Task } from '@anum/contracts';
+import { AgentSkillsPanel } from './AgentSkillsPanel';
 import { ChatView } from './ChatView';
 import { ConfirmDialog } from './Dialog';
 import * as api from './lib/api';
 import {
   agentsApi, ALWAYS_ON_TOOL, CATEGORIES, COLORS, DESCRIPTION_MAX, DETAIL_TABS, draftBody, draftChanges, draftFromAgent,
   draftFromTemplate, EDIT_STEPS, effectiveLevel, emptyDraft, INSTRUCTIONS_MAX, levelsFor, MEMORY_MAX, mergeById, NAME_MAX,
-  recentTasksPath, skillsMissingTools, templateKey, toggleSkill, toggleTool, TOOL_CATEGORIES, toolGroups, validateDraft,
+  recentTasksPath, skillNames, skillsMissingTools, templateKey, toggleSkill, toggleTool, TOOL_CATEGORIES, toolGroups, validateDraft,
   WIZARD_STEPS, callSummaryPrompt,
   type AgentCatalog, type AgentDraft, type AgentMemory, type AgentProfile, type AgentStatus, type AgentTemplate,
   type CategoryFilter, type DetailTab, type DraftErrors, type WizardStep,
@@ -82,7 +83,7 @@ export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenB
       onCancel={() => go(mode.agent ? { kind: 'detail', id: mode.agent.id } : { kind: 'list' })}
       onSaved={(saved, created) => go({ kind: 'detail', id: saved.id }, t(created ? 'agents.created' : 'agents.saved', { name: saved.name }))}
       onOpenSkills={onOpenSkills} onOpenFiles={onOpenFiles} />}
-    {mode.kind === 'detail' && <AgentDetail key={mode.id} id={mode.id} catalog={catalog} onBack={() => go({ kind: 'list' })}
+    {mode.kind === 'detail' && <AgentDetail key={mode.id} id={mode.id} catalog={catalog} catalogError={catalogError} onOpenSkills={onOpenSkills} onBack={() => go({ kind: 'list' })}
       onEdit={(agent) => go({ kind: 'wizard', agent })} onDeleted={(name) => go({ kind: 'list' }, t('agents.deleted', { name }))}
       onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
   </div>;
@@ -162,6 +163,7 @@ function AgentList({ catalog, catalogError, role, onOpen, onCreate, onRetryCatal
               <span>{agent.sharing === 'workspace' ? <><Users aria-hidden="true" />{t('agents.sharing.workspace')}</> : <><Lock aria-hidden="true" />{t('agents.sharing.private')}</>}</span>
               <span>{t('agents.toolCount', { count: agent.allowed_tools.length + 1 })}</span>
             </div>
+            <AgentSkillChips agent={agent} catalog={catalog} />
           </div>
         </article>
       </li>)}
@@ -177,6 +179,20 @@ function AgentList({ catalog, catalogError, role, onOpen, onCreate, onRetryCatal
           {onOpenSkills && <button type="button" className="secondary" onClick={onOpenSkills}>{t('agents.browseSkills')}</button>}
         </div>)}
   </>;
+}
+
+/** The skills an agent loads, by name, and a warning when some no longer load. */
+function AgentSkillChips({ agent, catalog }: { agent: AgentProfile; catalog: AgentCatalog | null }) {
+  if (agent.allowed_skills.length === 0) return null;
+  const { names, more } = skillNames(agent, catalog);
+  return <div className="agentSkillChips">
+    <span className="visuallyHidden">{t('agentSkills.cardCount', { count: agent.allowed_skills.length })}</span>
+    <ul aria-label={t('agentSkills.cardCount', { count: agent.allowed_skills.length })}>
+      {names.map((name) => <li key={name} dir="auto">{name}</li>)}
+      {more > 0 && <li>{t('agentSkills.cardMore', { count: more })}</li>}
+    </ul>
+    {agent.unavailable_skills.length > 0 && <span className="agentSkillWarn"><AlertTriangle aria-hidden="true" />{t('agentSkills.cardAttention', { count: agent.unavailable_skills.length })}</span>}
+  </div>;
 }
 
 // ---------------------------------------------------------------------------- wizard
@@ -380,8 +396,8 @@ function AgentWizard({ catalog, catalogError, onRetryCatalog, agent, onCancel, o
 
 type Panel = DetailTab | 'chat' | 'call';
 
-function AgentDetail({ id, catalog, onBack, onEdit, onDeleted, onOpenTasks, onOpenApprovals, onOpenBudgets }: {
-  id: string; catalog: AgentCatalog | null; onBack: () => void; onEdit: (agent: AgentProfile) => void; onDeleted: (name: string) => void;
+function AgentDetail({ id, catalog, catalogError, onOpenSkills, onBack, onEdit, onDeleted, onOpenTasks, onOpenApprovals, onOpenBudgets }: {
+  id: string; catalog: AgentCatalog | null; catalogError: string | null; onOpenSkills?: () => void; onBack: () => void; onEdit: (agent: AgentProfile) => void; onDeleted: (name: string) => void;
   onOpenTasks?: () => void; onOpenApprovals?: () => void; onOpenBudgets?: () => void;
 }) {
   const [agent, setAgent] = useState<AgentProfile | null>(null);
@@ -452,7 +468,7 @@ function AgentDetail({ id, catalog, onBack, onEdit, onDeleted, onOpenTasks, onOp
       {DETAIL_TABS.map((tab) => <button key={tab} type="button" aria-current={panel === tab ? 'page' : undefined} onClick={() => setPanel(tab)}>{t(`agents.tab.${tab}` as MessageKey)}</button>)}
     </nav>
     {panel === 'overview' && <OverviewTab agent={agent} tasksVersion={tasksVersion} onRan={() => setTasksVersion((v) => v + 1)} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
-    {panel === 'skills' && <SkillsTab agent={agent} catalog={catalog} onEdit={agent.can_edit ? () => onEdit(agent) : undefined} />}
+    {panel === 'skills' && <AgentSkillsPanel agent={agent} catalog={catalog} catalogError={catalogError} onAgentChanged={setAgent} onOpenSkills={onOpenSkills} />}
     {panel === 'memory' && <MemoryTab agent={agent} />}
     {panel === 'settings' && <SettingsTab agent={agent} catalog={catalog} busy={busy} onUpdate={(body) => void update(body)} onDelete={() => setConfirmDelete(true)} />}
     {panel === 'chat' && <section className="agentChat" aria-label={t('agents.chatWith', { name: agent.name })}><ChatView key={agent.id} agent={{ id: agent.id, name: agent.name }} onOpenBudgets={onOpenBudgets ?? (() => undefined)} /></section>}
@@ -572,30 +588,6 @@ function RecentTasks({ agent, version, onOpenTasks }: { agent: AgentProfile; ver
       <time dateTime={task.createdAt}>{formatDateTime(task.createdAt)}</time>
     </li>)}</ul>}
   </section>;
-}
-
-function SkillsTab({ agent, catalog, onEdit }: { agent: AgentProfile; catalog: AgentCatalog | null; onEdit?: () => void }) {
-  const skills = useMemo(() => new Map((catalog?.skills ?? []).map((s) => [s.id, s])), [catalog]);
-  const tools = useMemo(() => new Map((catalog?.tools ?? []).map((tool) => [tool.name, tool])), [catalog]);
-  return <div className="agentColumns">
-    <section className="surface agentPanel" aria-labelledby="agent-skills-h">
-      <div className="sectionHeader"><h3 id="agent-skills-h">{t('agents.field.skills')}</h3>{onEdit && <button type="button" className="linkButton" onClick={onEdit}>{t('agents.edit')}</button>}</div>
-      {agent.allowed_skills.length === 0 ? <p className="muted">{t('agents.noAgentSkills')}</p> : <ul className="agentCapList">{agent.allowed_skills.map((id) => {
-        const skill = skills.get(id);
-        return <li key={id}><strong dir="auto">{skill?.name ?? id}</strong><small dir="auto">{skill?.description ?? t('agents.skillUnavailable')}</small></li>;
-      })}</ul>}
-    </section>
-    <section className="surface agentPanel" aria-labelledby="agent-tools-h">
-      <h3 id="agent-tools-h">{t('agents.field.tools')}</h3>
-      <ul className="agentCapList">{[ALWAYS_ON_TOOL, ...agent.allowed_tools].map((name) => {
-        const tool = tools.get(name);
-        const category = tool?.category;
-        return <li key={name}><strong dir="ltr">{name}</strong>
-          <small>{tool ? `${t(`agents.toolCategory.${category}` as MessageKey)} · ${t(`agents.level.${name === ALWAYS_ON_TOOL ? 'auto' : agent.autonomy[category!]}` as MessageKey)}` : t('agents.toolUnavailable')}</small></li>;
-      })}</ul>
-      <p className="muted">{t('agents.toolsNote')}</p>
-    </section>
-  </div>;
 }
 
 function MemoryTab({ agent }: { agent: AgentProfile }) {

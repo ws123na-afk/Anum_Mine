@@ -60,6 +60,8 @@ Every change is audited in the same transaction: `agent.created`, `agent.updated
 | `GET /api/v1/agents/{id}` | One agent, with `can_edit`, `can_run` and the `unavailable_tools` / `unavailable_skills` it allows but this deployment or workspace no longer provides. |
 | `PATCH /api/v1/agents/{id}` | Change any field, `status`, and optionally `version`. |
 | `DELETE /api/v1/agents/{id}` | Delete the agent and its memories; its tasks and chats stay in the history. |
+| `GET /api/v1/agents/{id}/skills` | The skills the agent loads, each with its state, version, tools and how it loads ([Skills](#skills)). |
+| `GET /api/v1/agents/skills/usage` | Per skill, the agents the caller can see that load it. |
 | `GET /api/v1/agents/{id}/memories?q=&limit=&cursor=` | `{items, next_cursor, total}`. |
 | `POST /api/v1/agents/{id}/memories` | `{content, task_id?}`; a `task_id` must be one of this agent's tasks. |
 | `DELETE /api/v1/agents/{id}/memories/{memory_id}` | Delete one memory. |
@@ -67,7 +69,7 @@ Every change is audited in the same transaction: `agent.created`, `agent.updated
 | `GET /api/v1/tasks?agent_id=` | The agent's recent tasks (keyset-paged like every task list). |
 | `POST /api/v1/conversations` with `agent_id`, `GET /api/v1/conversations?agent_id=` | Chat threads with the agent. Without `agent_id` the list is the Assistant's own threads. |
 
-The wire types are in `packages/contracts/src/agents.ts`.
+The wire types are in `packages/contracts/src/agents.ts`. Tests: `services/api/tests/test_agents.py` and `test_agent_skill_loadout.py` (loadout states, runs and chats loading installed skills, visibility and tenancy of the loadout and usage).
 
 ## Running tasks as an agent
 
@@ -79,9 +81,31 @@ The wire types are in `packages/contracts/src/agents.ts`.
 
 The snapshot is what the run uses; editing the agent later does not change a run that already started. Organization governance and the workspace approval policy are read live at every decision.
 
+## Skills
+
+An agent's `allowed_skills` name built-in runtime skills and skills installed in the workspace ([Skills](skills.md)). They load in two ways:
+
+- **Built-in skills** (`anum.web-search`, `anum.email`, ...) are selected per task from the words of the user's prompt, among the agent's skills only, and only when the tools they need are allowed on the agent (threat model G5: never from retrieved text or instructions).
+- **Installed skills** load their reviewed instructions into every task and chat as the agent. When a run or a chat starts, `anum_api.agent_skill_loadout.agent_run_profile` resolves them against the workspace's skill store: the installation must be enabled, its version still published and not `blocked`, and every tool the version requires must be registered here, granted by the installation and allowed on the agent. Each one that passes is snapshotted on the run checkpoint (`AgentRunProfile.loaded_skills`: id, version, name, instructions capped at 6000 characters, 18000 in all) and placed in the persona after the owner's instructions, with the reminder that instructions never grant tools or approvals. The `model_call` step records `loaded_skills` (ids and versions, never the text). A skill turned off or uninstalled later stops loading on the next run; a run that already started keeps its snapshot. Before this, installed skills could be attached to an agent but were never loaded.
+
+A skill never widens what the agent may do: tools stay the agent's own `allowed_tools` inside the runtime's tool policy, and `granted_tools` on a loaded skill is informational.
+
+`GET /api/v1/agents/{id}/skills` is the agent's loadout as the caller sees it: per skill `source` (`builtin`, `installed`, `unknown`), `version` and `latest_version` (`upgrade_available`), `risk_level`, `activation` (`on_request` with sample `triggers`, or `always`), `loads_instructions`, each required tool (`registered`, `allowed` on the agent, `granted` by the installation), and `state` with a `reason` that says who can fix it:
+
+| State | Meaning |
+|---|---|
+| `ready` | Loads as described above. |
+| `needs_tools` | A tool is not allowed on the agent (its editor can allow it) or not granted by the installation (a workspace owner reinstalls with it). |
+| `disabled` | A workspace owner turned the installation off. |
+| `not_installed` | Published but not installed in this workspace. |
+| `blocked` | The installed version is marked blocked; the runtime never loads it. |
+| `unavailable` | A required tool is not in this deployment, the installed version is no longer published, or the id is unknown. |
+
+`GET /api/v1/agents/skills/usage` lists, per skill, the agents the caller can see that allow it (another user's private agent is never counted, as everywhere else). Both need `task:read`; changing an agent's skills stays `PATCH /api/v1/agents/{id}` with `allowed_skills` (and `allowed_tools`) and the `version` the page read, with every check above.
+
 ## Chat
 
-A conversation with an `agent_id` answers with the Assistant's system prompt followed by the agent's persona and instructions, the agent's model route, and the agent's memories as untrusted blocks, alongside the caller's own recalled memories. Chat still has no tools, and an agent thread never turns a question into a chat task card (those run without the agent's narrowing): anything that acts goes through a task as the agent. A paused agent's thread answers `409` until it is resumed.
+A conversation with an `agent_id` answers with the Assistant's system prompt followed by the agent's persona and instructions (with its ready installed skills, as for a task), the agent's model route, and the agent's memories as untrusted blocks, alongside the caller's own recalled memories. Chat still has no tools, and an agent thread never turns a question into a chat task card (those run without the agent's narrowing): anything that acts goes through a task as the agent. A paused agent's thread answers `409` until it is resumed.
 
 ## Storage and tenancy
 
@@ -95,7 +119,7 @@ No role is granted anything new and nothing reads agents across tenants. The mig
 
 ## Clients
 
-- **Web** (`apps/web/src/AgentsView.tsx`): the list with All, Work, Personal and Custom (with counts), search, status filter and paging; a create and edit wizard (start from a template or from scratch, identity, instructions and model, skills and tools, autonomy and knowledge, review and sharing); and the agent's page with Chat, Call, Edit and More (pause or resume, delete), and the Overview (give it a task, recent tasks, instructions), Skills, Memory and Settings tabs. Call opens a call-summary panel: telephony is not set up, so the agent summarizes pasted notes or transcripts as a task. English and Arabic (`agents.*` keys), right to left. Covered by `test/agents.test.ts` and `e2e/agents.spec.ts`; the accessibility and localization specs include the Agents view.
+- **Web** (`apps/web/src/AgentsView.tsx`): the list with All, Work, Personal and Custom (with counts), search, status filter and paging; a create and edit wizard (start from a template or from scratch, identity, instructions and model, skills and tools, autonomy and knowledge, review and sharing); and the agent's page with Chat, Call, Edit and More (pause or resume, delete), and the Overview (give it a task, recent tasks, instructions), Skills, Memory and Settings tabs. List cards name the skills an agent loads and warn when some no longer load. The Skills tab (`AgentSkillsPanel.tsx`) shows the loadout: each skill's state badge, source, version, risk, how it loads, its tools with what is missing, the reason and the one-step fix (allow a missing tool, open Skills for an owner's fix), a searchable picker to add skills (a built-in skill also allows the tools it needs that the editor may give) and Remove, each a `PATCH` with the version read; loading, retry, empty, read-only and search (from six skills) states. Call opens a call-summary panel: telephony is not set up, so the agent summarizes pasted notes or transcripts as a task. English and Arabic (`agents.*` keys), right to left. Covered by `test/agents.test.ts`, `test/agentSkills.test.ts` and `e2e/agents.spec.ts`; the accessibility and localization specs include the Agents view.
 - **Flutter** (`apps/mobile/lib/features/agents/`): opened from Home and from the menu drawer's Agents entry. The same list, the agent's page (Chat, Call, Edit, More; Overview, Skills, Memory, Settings) and an editor with templates. Call opens the [voice call screen](voice.md#call-mode) (the voice assistant, not yet the agent's persona); the call summary from pasted notes is under More. Selected knowledge sources are shown but picked on the web. Covered by `test/agents/agents_test.dart`, including layouts from 320 px at 200 percent text to 1440x900 and Arabic.
 
 ## Privacy

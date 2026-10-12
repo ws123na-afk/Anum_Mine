@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 const now = new Date().toISOString();
 type Json = Record<string, unknown>;
 
-interface Options { role?: 'owner' | 'member'; orgAdmin?: boolean; empty?: boolean; many?: number }
+interface Options { role?: 'owner' | 'member'; orgAdmin?: boolean; empty?: boolean; many?: number; usageFails?: boolean }
 
 const version = (skillId: string, v: string, name: string, tools: string[], risk = 'low'): Json => ({
   id: `sv_${skillId}_${v}`, skill_id: skillId, version: v, name, description: `${name} for the team`, instructions: 'Do it well.',
@@ -55,6 +55,21 @@ async function mockApi(page: Page, options: Options = {}) {
       history.unshift({ id: 'a2', action: 'skill.rolled_back', actor: 'user_local', outcome: 'success', created_at: now, metadata: { from_version: '2.0.0', to_version: '1.0.0' } });
       return json(install);
     }
+    if (path === '/api/v1/agents/catalog') {
+      return json({ tools: [], templates: [], icons: [], autonomy_floor: { read: 'auto', write: 'ask', external: 'ask' }, skills: [
+        { id: 'anum.web-search', name: 'Web search', description: 'Looks things up on the web.', source: 'builtin', required_tools: ['web_search'] },
+        { id: 'acme.release-notes', name: 'Release notes', description: 'Release notes for the team', source: 'installed', required_tools: ['anum.respond'] },
+      ] });
+    }
+    if (path === '/api/v1/agents/skills/usage') {
+      if (options.usageFails) return json({ error: { code: 'unavailable', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503);
+      return json({ items: [
+        { skill_id: 'acme.release-notes', count: 2, agents: [
+          { id: 'agent_fleet', name: 'Fleet desk', icon: 'truck', color: '#0f766e', status: 'active' },
+          { id: 'agent_ops', name: 'Ops helper', icon: 'bot', color: '#7c3aed', status: 'paused' },
+        ] },
+      ] });
+    }
     const detail = path.match(/^\/api\/v1\/skills\/([^/]+)$/);
     if (detail && method === 'GET') {
       const skillId = decodeURIComponent(detail[1]);
@@ -79,15 +94,15 @@ const skillCard = (page: Page, name: string) => page.locator('article.catalogCar
 test('search and filter the skill list', async ({ page }) => {
   await mockApi(page);
   await page.goto('/#skills');
-  await expect(page.getByText('2 of 2 skills')).toBeVisible();
+  await expect(page.getByText('3 of 3 skills')).toBeVisible();
   await page.getByLabel('Search skills').fill('crm.lookup');
-  await expect(page.getByText('1 of 2 skills')).toBeVisible();
+  await expect(page.getByText('1 of 3 skills')).toBeVisible();
   await expect(skillCard(page, 'CRM helper')).toBeVisible();
   await page.getByLabel('Search skills').fill('nothing here');
   await expect(page.getByRole('heading', { name: 'No skills match' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search' }).click();
   await page.getByRole('radio', { name: 'Installed', exact: true }).check();
-  await expect(page.getByText('1 of 2 skills')).toBeVisible();
+  await expect(page.getByText('1 of 3 skills')).toBeVisible();
   await expect(skillCard(page, 'Release notes').getByText('installed', { exact: true })).toBeVisible();
 });
 
@@ -164,4 +179,35 @@ test('a long list pages with Show more', async ({ page }) => {
   await expect(page.locator('article.catalogCard')).toHaveCount(12);
   await page.getByRole('button', { name: 'Show 10 more' }).click();
   await expect(page.locator('article.catalogCard')).toHaveCount(22);
+});
+
+test('built-in skills and the agents that load each skill; disabling warns which agents stop loading it', async ({ page }) => {
+  const calls = await mockApi(page);
+  await page.goto('/#skills');
+  await expect(skillCard(page, 'Release notes').getByText('Loaded by Fleet desk, Ops helper')).toBeVisible();
+  await expect(skillCard(page, 'CRM helper').getByText('No agent loads it yet')).toBeVisible();
+  const builtins = page.getByRole('region', { name: 'Built into ANUM' });
+  await expect(builtins.getByRole('heading', { name: /Web search/ })).toBeVisible();
+  await page.getByRole('radio', { name: 'Built in', exact: true }).check();
+  await expect(page.locator('article.catalogCard')).toHaveCount(0);
+  await expect(builtins.getByRole('heading', { name: /Web search/ })).toBeVisible();
+  await page.getByRole('radio', { name: 'All', exact: true }).check();
+
+  await skillCard(page, 'Release notes').getByRole('button', { name: 'Disable' }).click();
+  await expect(skillCard(page, 'Release notes').getByText('2 agents load this skill and will stop loading it.')).toBeVisible();
+  expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  await skillCard(page, 'Release notes').getByRole('button', { name: 'Cancel' }).click();
+
+  await skillCard(page, 'Release notes').getByRole('button', { name: 'Details' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Release notes' });
+  await expect(dialog.getByRole('heading', { name: 'Agents that load it' })).toBeVisible();
+  await expect(dialog.getByText('Ops helper')).toBeVisible();
+  await expect(dialog.getByText('paused', { exact: true })).toBeVisible();
+});
+
+test('when agent usage cannot load, the page says so and still lists skills', async ({ page }) => {
+  await mockApi(page, { usageFails: true });
+  await page.goto('/#skills');
+  await expect(page.getByRole('alert').getByText(/Could not load which agents use skills: The database is not reachable./)).toBeVisible();
+  await expect(skillCard(page, 'Release notes')).toBeVisible();
 });

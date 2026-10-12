@@ -1096,3 +1096,8 @@ async def delete_agent_memory(agent_id: str, memory_id: str, context: TenantCont
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
         _audit(store, context, "agent_memory.deleted", memory_id, {"agent_id": agent_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# The skill loadout routes (GET /{agent_id}/skills, GET /skills/usage) live in their own module
+# and register on this router; imported last so every name it needs exists.
+from . import agent_skill_loadout  # noqa: E402,F401

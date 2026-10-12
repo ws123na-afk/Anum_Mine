@@ -690,10 +690,10 @@ async def ask_in_conversation(
     if conversation.agent_id is not None:
         # A thread with an agent: its persona and instructions, its model route and its
         # own memories (labeled, untrusted). Still no tools: work goes through tasks.
-        from .agent_policy import AgentRunProfile
+        from .agent_skill_loadout import agent_run_profile
         from .agent_profiles import agent_memories_for_run
 
-        agent = AgentRunProfile.from_profile(_usable_agent(context, conversation.agent_id))
+        agent = agent_run_profile(context, _usable_agent(context, conversation.agent_id))
         persona = agent.persona()
         route = ModelRoute(agent.model_route)
         blocks = [

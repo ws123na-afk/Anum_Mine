@@ -122,9 +122,15 @@ test('tap the mic, speak, and the reply comes back without pressing send', async
   await fakeMicrophone(page);
   await page.addInitScript(() => localStorage.setItem('anum.voice.wake', 'off'));
   await page.goto('/#voice');
+  // The orb opens the full screen and starts listening there (docs/voice.md#the-orb).
   await page.getByRole('button', { name: 'Tap to talk' }).click();
+  const full = page.getByRole('dialog', { name: 'Layla voice assistant' });
+  await expect(full).toBeVisible();
   await page.evaluate(() => (window as unknown as { __say: (text: string) => void }).__say("What's your name?"));
-  await expect(page.getByText("I'm Layla, your assistant here in ANUM.")).toBeVisible();
+  await expect(full.getByText("I'm Layla, your assistant here in ANUM.")).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(full).toHaveCount(0);
+  await expect(page.locator('.voiceLog').getByText("I'm Layla, your assistant here in ANUM.")).toBeVisible();
 });
 
 test('hands-free waits for a tap until the microphone is allowed', async ({ page }) => {

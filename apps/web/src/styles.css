@@ -18,6 +18,8 @@
   --d-aurora: linear-gradient(90deg, var(--d-sky), var(--d-violet) 55%, var(--d-rose));
   /* The logo mark and the orb rim. */
   --d-mark-a: #4f8bff; --d-mark-b: #7a6bff; --d-mark-c: #b56bff;
+  /* The voice orb's rim while an approval waits (the governance signal). */
+  --d-alert-rim: #ffb547;
   /* Primary actions: white on #2f5bea is 5.5:1 and on #6d3be0 6.3:1, so the whole gradient passes AA. */
   --d-primary: #4c4ae6; --d-primary-hover: #5a58f0;
   --d-primary-grad: linear-gradient(135deg, #2f5bea, #6d3be0);

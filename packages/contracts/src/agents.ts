@@ -119,3 +119,66 @@ export interface AgentCatalog {
   /** The least restrictive level each category may run at in this workspace. */
   autonomy_floor: AgentAutonomy;
 }
+
+/** How a skill an agent allows is treated now: `ready` loads; every other state says why not. */
+export type AgentSkillStateName = 'ready' | 'needs_tools' | 'disabled' | 'not_installed' | 'blocked' | 'unavailable';
+
+export interface AgentSkillTool {
+  name: string;
+  /** The tool exists in this deployment. */
+  registered: boolean;
+  /** The agent may use it (its allowed tools, or the always-on text tool). */
+  allowed: boolean;
+  /** Granted by the workspace installation; null for built-in skills. */
+  granted: boolean | null;
+}
+
+export interface AgentSkillState {
+  id: string;
+  name: string;
+  description: string;
+  source: 'builtin' | 'installed' | 'unknown';
+  version: string | null;
+  latest_version: string | null;
+  risk_level: 'low' | 'medium' | 'high' | 'blocked' | null;
+  state: AgentSkillStateName;
+  /** Why it does not load and who can change that; null when ready. */
+  reason: string | null;
+  /** `on_request`: selected when a task's words call for it. `always`: loaded into every run and chat. */
+  activation: 'on_request' | 'always';
+  /** Words that select a built-in skill (a sample, English first). */
+  triggers: string[];
+  /** An installed skill whose instructions the agent loads. */
+  loads_instructions: boolean;
+  upgrade_available: boolean;
+  tools: AgentSkillTool[];
+}
+
+/** `GET /api/v1/agents/{id}/skills` (docs/agents.md#skills). */
+export interface AgentSkillLoadout {
+  agent_id: string;
+  agent_version: number;
+  can_edit: boolean;
+  items: AgentSkillState[];
+  ready: number;
+  attention: number;
+}
+
+export interface SkillUsageAgent {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  status: AgentStatus;
+}
+
+export interface SkillUsage {
+  skill_id: string;
+  count: number;
+  agents: SkillUsageAgent[];
+}
+
+/** `GET /api/v1/agents/skills/usage`: the agents the caller can see that load each skill. */
+export interface SkillUsagePage {
+  items: SkillUsage[];
+}
