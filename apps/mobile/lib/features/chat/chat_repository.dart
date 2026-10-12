@@ -1,6 +1,7 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/sse.dart';
+import 'chat_cards.dart';
 import 'chat_models.dart';
 
 /// The conversations API (docs/conversations.md). Listing and reading need
@@ -42,6 +43,19 @@ class ChatRepository {
       if (retryTurnId != null) 'retry_turn_id': retryTurnId,
     });
   }
+
+  /// Approves or rejects the approval a chat card shows, through the
+  /// ordinary approvals route with the payload hash the card displayed
+  /// (docs/approvals-and-risk.md). Returns `{approval, task, run}`.
+  Future<JsonMap> decide(ChatCardApproval approval, {required bool approve}) =>
+      api.request(
+          'POST',
+          '/api/v1/approvals/${Uri.encodeComponent(approval.id)}/'
+              '${approve ? 'approve' : 'reject'}',
+          body: {
+            if (approval.payloadHash != null)
+              'payload_hash': approval.payloadHash,
+          });
 
   /// The workspace the signed-in session works in, to notice a switch.
   Future<String?> workspaceId() async =>

@@ -8,6 +8,8 @@ import '../../src/widgets/depth.dart';
 import '../developer/developer_assist.dart';
 import '../developer/developer_assist_panel.dart';
 import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
+import 'chat_card_view.dart';
+import 'chat_cards.dart';
 import 'chat_controller.dart';
 import 'chat_models.dart';
 import '../library/library_models.dart' show visibleReply;
@@ -26,6 +28,7 @@ class AssistantScreen extends StatefulWidget {
     this.onOpenDeveloper,
     this.openLink = openInBrowser,
     this.onOpenReport,
+    this.onOpenTarget,
     super.key,
   });
 
@@ -33,6 +36,10 @@ class AssistantScreen extends StatefulWidget {
 
   /// "View Full Report" on a structured answer's card (docs/reports.md).
   final ValueChanged<String>? onOpenReport;
+
+  /// Opens a card's link (an email, a WhatsApp conversation, a file, the
+  /// task or Approvals) in its own screen (docs/conversations.md#tools-in-chat).
+  final ValueChanged<ChatTarget>? onOpenTarget;
 
   /// "build ..." / "developer, ..." go to developer mode after a
   /// confirmation instead of the model (docs/developer-mode.md).
@@ -466,6 +473,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   onRetry: retry && i == turns.length - 1
                       ? () => unawaited(controller.retry())
                       : null,
+                  card: turns[i].card == null
+                      ? null
+                      : ChatCardView(
+                          card: turns[i].card!,
+                          live: turns[i].status == ChatTurnStatus.streaming,
+                          deciding: controller.deciding == turns[i].id,
+                          error: controller.decisionErrorTurn == turns[i].id
+                              ? controller.decisionError
+                              : null,
+                          onDecide: ({required bool approve}) => unawaited(
+                              controller.decide(turns[i].id, approve: approve)),
+                          onOpen: widget.onOpenTarget,
+                          openLink: widget.openLink,
+                        ),
                 ),
               ),
             ),
@@ -620,10 +641,14 @@ class _EmptyChat extends StatelessWidget {
 }
 
 class _TurnView extends StatelessWidget {
-  const _TurnView({required this.turn, this.onRetry, this.onOpenReport});
+  const _TurnView(
+      {required this.turn, this.onRetry, this.onOpenReport, this.card});
   final ValueChanged<String>? onOpenReport;
   final UiTurn turn;
   final VoidCallback? onRetry;
+
+  /// The task card under the reply, when the question ran as a task.
+  final Widget? card;
 
   @override
   Widget build(BuildContext context) {
@@ -685,7 +710,7 @@ class _TurnView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (visibleReply(turn.content).isNotEmpty)
+                    if (visibleReply(turn.content).isNotEmpty && turn.showsText)
                       Text.rich(
                           TextSpan(text: visibleReply(turn.content), children: [
                             if (streaming)
@@ -703,7 +728,7 @@ class _TurnView extends StatelessWidget {
                               ),
                           ]),
                           style: body)
-                    else if (streaming)
+                    else if (streaming && turn.card == null)
                       Semantics(
                         liveRegion: true,
                         label: 'Thinking',
@@ -717,7 +742,9 @@ class _TurnView extends StatelessWidget {
                       ),
                     if (turn.report case final card?)
                       ReportAnswerCard(card: card, onOpen: onOpenReport),
-                    if (turn.status == ChatTurnStatus.cancelled) ...[
+                    if (card != null) card!,
+                    if (turn.status == ChatTurnStatus.cancelled &&
+                        turn.card == null) ...[
                       if (turn.content.isNotEmpty)
                         const SizedBox(height: AnumSpacing.xxs),
                       Text(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
+import '../chat/chat_cards.dart';
 import '../chat/chat_controller.dart';
 import '../chat/chat_screen.dart';
 import '../voice/voice_controller.dart';
@@ -263,6 +264,22 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         trailing: trailing,
       );
 
+  /// Links on Assistant cards (docs/conversations.md#tools-in-chat).
+  void _openChatTarget(ChatTarget target) => switch (target.kind) {
+        ChatTargetKind.email ||
+        ChatTargetKind.inbox =>
+          widget.emailController == null ? null : _openInbox(),
+        ChatTargetKind.whatsapp ||
+        ChatTargetKind.whatsappInbox =>
+          widget.whatsappController == null ? null : _openWhatsApp(),
+        ChatTargetKind.task => _select(WorkspaceDestination.tasks),
+        ChatTargetKind.approvals => _select(WorkspaceDestination.approvals),
+        ChatTargetKind.file ||
+        ChatTargetKind.files ||
+        ChatTargetKind.memory =>
+          _select(WorkspaceDestination.resources),
+      };
+
   Widget _buildShell(BuildContext context) => ListenableBuilder(
         listenable:
             Listenable.merge([widget.controller, widget.developerController]),
@@ -282,6 +299,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 developer: widget.chatDeveloper,
                 onOpenDeveloper: openDeveloper,
                 onOpenReport: widget.library == null ? null : _openReport,
+                onOpenTarget: _openChatTarget,
               ),
               HomeScreen(
                 controller: widget.controller,

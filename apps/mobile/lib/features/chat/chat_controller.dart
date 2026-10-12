@@ -16,6 +16,9 @@ const chatSuggestions = [
   'Explain how approvals protect this workspace',
 ];
 
+/// Shown when the caller may not decide an approval (members).
+const chatCardCannotDecide = 'cannotDecide';
+
 const chatNoPermission =
     'Your role cannot use the assistant in this workspace. Ask a workspace '
     'owner or admin to give you the member role.';
@@ -326,6 +329,44 @@ class ChatController extends ChangeNotifier {
       _notify();
     }
     return true;
+  }
+
+  /// The approval card being decided (its turn id), while the call runs.
+  String? deciding;
+
+  /// Why the last decision on [decidingError]'s turn failed.
+  String? decisionError;
+  String? decisionErrorTurn;
+
+  /// Approve or Reject on a card: the ordinary approvals route with the
+  /// card's payload hash; the card then shows what happened.
+  Future<void> decide(String turnId, {required bool approve}) async {
+    final index = turns.indexWhere((turn) => turn.id == turnId);
+    final approval = index < 0 ? null : turns[index].card?.approval;
+    if (approval == null || deciding != null) return;
+    deciding = turnId;
+    decisionError = null;
+    decisionErrorTurn = null;
+    _notify();
+    try {
+      final response = await repository.decide(approval, approve: approve);
+      if (_disposed) return;
+      turns = [
+        for (final turn in turns)
+          turn.id == turnId && turn.card != null
+              ? turn.copyWith(card: turn.card!.afterDecision(response))
+              : turn
+      ];
+    } on Object catch (error) {
+      if (_disposed) return;
+      decisionErrorTurn = turnId;
+      decisionError = error is ApiException && error.isPermissionDenied
+          ? chatCardCannotDecide
+          : explainChatError(error, 'The decision was not recorded');
+    } finally {
+      deciding = null;
+      _notify();
+    }
   }
 
   void dismissBudget() {

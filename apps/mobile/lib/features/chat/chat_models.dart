@@ -6,6 +6,7 @@ library;
 import '../../data/api_models.dart';
 import '../../data/sse.dart';
 import '../library/library_models.dart' show ReportCard;
+import 'chat_cards.dart';
 
 enum ChatRole { user, assistant }
 
@@ -52,6 +53,7 @@ class ChatTurn {
     required this.role,
     required this.content,
     required this.status,
+    this.card,
   });
 
   factory ChatTurn.fromReader(JsonReader r) => ChatTurn(
@@ -59,6 +61,7 @@ class ChatTurn {
         role: r.string('role') == 'user' ? ChatRole.user : ChatRole.assistant,
         content: r.optString('content') ?? '',
         status: _storedStatus(r.optString('status')),
+        card: ChatCard.tryParse(r.json['card']),
       );
 
   /// A turn carried by an event, or null when the event has none.
@@ -75,6 +78,9 @@ class ChatTurn {
   final ChatRole role;
   final String content;
   final ChatTurnStatus status;
+
+  /// The card of a question run as a task; null for plain conversation.
+  final ChatCard? card;
 }
 
 /// `GET /api/v1/conversations/{id}`: the conversation and its turns, oldest
@@ -108,6 +114,7 @@ class UiTurn {
     this.error,
     this.errorCode,
     this.report,
+    this.card,
   });
 
   final String id;
@@ -124,12 +131,20 @@ class UiTurn {
   /// A structured answer's report card ("View Full Report").
   final ReportCard? report;
 
+  /// The task card (docs/conversations.md#tools-in-chat), when there is one.
+  final ChatCard? card;
+
+  /// Only a results card shows the written answer above it; other cards
+  /// speak for themselves, localized.
+  bool get showsText => card == null || card!.state == ChatCardState.results;
+
   UiTurn copyWith({
     String? id,
     String? content,
     ChatTurnStatus? status,
     String? error,
     String? errorCode,
+    ChatCard? card,
   }) =>
       UiTurn(
         id: id ?? this.id,
@@ -139,6 +154,7 @@ class UiTurn {
         error: error ?? this.error,
         errorCode: errorCode ?? this.errorCode,
         report: report,
+        card: card ?? this.card,
       );
 
   @override
@@ -150,12 +166,14 @@ const pendingAssistantTurn = 'pending-assistant';
 int _localTurns = 0;
 String _localId() => 'local-${++_localTurns}';
 
-UiTurn _fromTurn(ChatTurn turn, [ReportCard? report]) => UiTurn(
-    id: turn.id,
-    role: turn.role,
-    content: turn.content,
-    status: turn.status,
-    report: report);
+UiTurn _fromTurn(ChatTurn turn, {ReportCard? report, ChatCard? fallback}) =>
+    UiTurn(
+        id: turn.id,
+        role: turn.role,
+        content: turn.content,
+        status: turn.status,
+        report: report,
+        card: turn.card ?? fallback);
 
 List<UiTurn> turnsFromStored(List<ChatTurn> turns,
     [List<ReportCard> reports = const []]) {
@@ -163,7 +181,7 @@ List<UiTurn> turnsFromStored(List<ChatTurn> turns,
     for (final card in reports)
       if (card.turnId != null) card.turnId!: card
   };
-  return [for (final turn in turns) _fromTurn(turn, cards[turn.id])];
+  return [for (final turn in turns) _fromTurn(turn, report: cards[turn.id])];
 }
 
 /// Shows the question at once and an empty reply that fills as it streams.
@@ -197,6 +215,13 @@ List<UiTurn> applyAskEvent(List<UiTurn> turns, SseEvent event) {
         for (final turn in turns)
           turn.id == pendingUserTurn ? _fromTurn(user) : turn
       ];
+    case 'tool':
+      final card = ChatCard.tryParse(data['card']);
+      if (card == null) return turns;
+      return [
+        for (final turn in turns)
+          turn.id == pendingAssistantTurn ? turn.copyWith(card: card) : turn
+      ];
     case 'delta':
       final text = data['text'];
       if (text is! String) return turns;
@@ -213,7 +238,7 @@ List<UiTurn> applyAskEvent(List<UiTurn> turns, SseEvent event) {
         for (final turn in turns)
           turn.id == pendingAssistantTurn
               ? reply != null
-                  ? _fromTurn(reply, report)
+                  ? _fromTurn(reply, report: report, fallback: turn.card)
                   : turn.copyWith(
                       id: _localId(), status: ChatTurnStatus.complete)
               : turn
@@ -233,7 +258,8 @@ List<UiTurn> applyAskEvent(List<UiTurn> turns, SseEvent event) {
                   error: message is String && message.isNotEmpty
                       ? message
                       : 'The model did not answer.',
-                  errorCode: code is String ? code : null)
+                  errorCode: code is String ? code : null,
+                  card: turn.card)
               : turn
       ];
   }
