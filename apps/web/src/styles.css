@@ -60,7 +60,7 @@
   --d-ease: cubic-bezier(.2, .8, .2, 1);
   /* Short aliases used by view stylesheets. */
   --line: var(--d-line); --muted: var(--d-muted); --text: var(--d-text); --danger: var(--d-stop);
-  --d-font: Inter, "Inter Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Arabic", sans-serif;
+  --d-font: Inter, "Noto Sans Arabic", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --d-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--d-bg); color: var(--d-text); color-scheme: dark;
   font-family: var(--d-font); font-feature-settings: "cv11", "ss01"; line-height: 1.5;

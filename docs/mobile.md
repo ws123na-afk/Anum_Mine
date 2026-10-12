@@ -186,6 +186,12 @@ The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary c
 
 Voice calls add no plugin. `camera` (its default `camera_android_camerax`) and `image_picker_android` declare only `com.android.library` and keep Kotlin sources, so like `file_picker` 11 they need AGP built-in Kotlin and would compile nothing here; live camera video and server speech (recorder and audio player) in calls wait for `android.builtInKotlin=true`. Until then **Video** picks a photo with `file_picker` (already a dependency).
 
+## Fonts
+
+Owner decision of 12 October 2026: the app bundles the theme's typefaces instead of falling back to the system font. `assets/fonts` holds Inter (cut to Latin) and Noto Sans Arabic as static instances at weights 400, 500, 600, 700 and 800 (about 110 KB and 146 KB each, about 1.3 MB in all), built with fontTools from the variable Google Fonts sources, the same sources as the web's variable files ([Web localization](web-localization.md#fonts)). Static files are used because Flutter picks a font file per `FontWeight`; with one variable file it would synthesise bold instead of using the weight axis. The app uses no weight above 800 except one `w900`, which falls back to 800.
+
+The theme's stack is `Inter` with `Noto Sans Arabic`, `Noto Naskh Arabic` and `Arial` as fallbacks, so Arabic uses the bundled face and anything missing still falls back to the system. Both fonts are under the SIL Open Font License; the licence texts ship as assets (`assets/fonts/OFL-*.txt`) and `registerFontLicenses()` (`lib/src/font_licenses.dart`, called in `main`) adds them to the licence page (Profile, About, View licenses). `test/fonts_test.dart` checks the declared files, the fallback order and the licence registration.
+
 ## Release Builds
 
 Production configuration is passed at build time; there are no flavours. Keep the values in a JSON file outside the repository (or generate it in CI) and pass it with `--dart-define-from-file`:
