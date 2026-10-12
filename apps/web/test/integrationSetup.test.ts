@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import { CATALOGS, setLocale } from '../src/lib/i18n.ts';
 import {
-  GROUP_ORDER, RUNBOOK_URL, checkSentence, docUrl, filterSetup, groupName, groupSetup, itemCost, itemName, itemText, needsAttention,
-  setupCounts, statusBadge, statusSentence, type SetupItem,
+  GROUP_ORDER, RUNBOOK_URL, checkSentence, docUrl, groupName, itemCost, itemName, itemText, statusBadge, statusSentence, type SetupItem,
 } from '../src/lib/integrationSetup.ts';
 
 const item = (over: Partial<SetupItem> = {}): SetupItem => ({
@@ -62,33 +61,5 @@ describe('connection setup wording', () => {
 
   test('each item links to its numbered section of the runbook', () => {
     assert.equal(docUrl(item()), `${RUNBOOK_URL}#5-email-gmail-outlook-and-zoho`);
-  });
-});
-
-describe('connection setup lists', () => {
-  const items = [
-    item({ id: 'model', group: 'ai', status: 'connected', connections: null }),
-    item({ id: 'email_gmail', status: 'not_configured', missing: ['ANUM_EMAIL_GOOGLE_CLIENT_ID'] }),
-    item({ id: 'email_zoho', status: 'ready' }),
-    item({ id: 'whatsapp', group: 'messaging', status: 'error', failing: 1, connections: 1 }),
-  ];
-
-  test('counts what is connected, ready and needs setup', () => {
-    assert.deepEqual(setupCounts(items), { connected: 1, ready: 1, attention: 2 });
-    assert.equal(needsAttention(items[2]), false);
-  });
-
-  test('filters, searches names and setting names, and sorts problems first', () => {
-    assert.deepEqual(filterSetup(items, 'attention', '').map((x) => x.id), ['whatsapp', 'email_gmail']);
-    assert.deepEqual(filterSetup(items, 'connected', '').map((x) => x.id), ['model']);
-    assert.deepEqual(filterSetup(items, 'all', 'zoho').map((x) => x.id), ['email_zoho']);
-    assert.deepEqual(filterSetup(items, 'all', 'google_client').map((x) => x.id), ['email_gmail']);
-    assert.deepEqual(filterSetup(items, 'all', 'nothing like this'), []);
-  });
-
-  test('groups in the fixed order with unknown groups last', () => {
-    const grouped = groupSetup([...items, item({ id: 'telegram', group: 'chat' })]);
-    assert.deepEqual(grouped.map((g) => g.group), ['ai', 'email', 'messaging', 'chat']);
-    assert.deepEqual(grouped[1].items.map((x) => x.id), ['email_gmail', 'email_zoho']);
   });
 });

@@ -2,29 +2,20 @@
    Shared tokens from styles.css only. */
 
 /* Buttons inside cards, rows and empty states share the primary look of .actions buttons. */
-:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .emptyState, .enterpriseCatalog .sectionHeader, .marketActions, .catalogMore) button:not(.iconButton) {
+:is(.featureSkillActions, .catalogVersionActions, .emptyState, .enterpriseCatalog .sectionHeader, .marketActions, .catalogMore) button:not(.iconButton) {
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control);
   color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center;
   min-height: 44px; padding: var(--d-s2) var(--d-s4); white-space: nowrap;
 }
-:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .emptyState, .enterpriseCatalog .sectionHeader, .marketActions, .catalogMore) button.secondary {
+:is(.featureSkillActions, .catalogVersionActions, .emptyState, .enterpriseCatalog .sectionHeader, .marketActions, .catalogMore) button.secondary {
   background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text);
 }
-:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .marketActions) button.danger { background: var(--d-danger); }
-:is(.featureSkillActions, .integrationOwnerRow, .catalogVersionActions, .marketActions) button svg { height: 16px; width: 16px; }
+:is(.featureSkillActions, .catalogVersionActions, .marketActions) button.danger { background: var(--d-danger); }
+:is(.featureSkillActions, .catalogVersionActions, .marketActions) button svg { height: 16px; width: 16px; }
 
 .catalogSummary { color: var(--d-muted); font-size: 13px; margin: var(--d-s4) 0 var(--d-s3); }
 
-/* Integration cards: name, endpoint and status on top; everything else spans the whole card. */
-.integration.integrationCard { align-items: start; }
-.integrationCard > .integrationBody { display: grid; gap: 2px; grid-column: 1 / -1; min-width: 0; }
-.integrationCard > .integrationBody small { margin-top: 0; overflow-wrap: anywhere; }
-.integrationCard > .integrationBody,
-.integrationCard > .integrationFix, .integrationCard > .integrationCredentialLine,
-.integrationCard > .integrationOwnerRow, .integrationCard > .integrationFlash { grid-column: 1 / -1; margin: 0; }
 .featureDialog .featureChip { text-transform: none; width: auto; }
-/* Beats the shared narrow-screen rule that moves a card's last child into column 2. */
-.integration.integrationCard > :is(.integrationBody, .integrationFix, .integrationCredentialLine, .integrationOwnerRow, .integrationFlash, .integrationConfig):not(:nth-child(2)) { grid-column: 1 / -1; justify-self: stretch; }
 .catalogRow .marketActions button.iconButton { background: var(--d-glass-1); border: 1px solid var(--d-line); box-shadow: none; color: var(--d-text); height: 44px; padding: 0; width: 44px; }
 .catalogRow .marketActions button.iconButton:hover { background: var(--d-glass-2); }
 .integrationFix, .integrationCredentialLine { align-items: flex-start; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s2); overflow-wrap: anywhere; }
@@ -32,8 +23,6 @@
 .integrationFix svg, .integrationCredentialLine svg { color: var(--d-warn); flex: none; height: 16px; margin-top: 2px; width: 16px; }
 .integrationCredentialLine svg { color: var(--d-violet); }
 .integration small.integrationLastError { color: var(--d-warn); overflow-wrap: anywhere; }
-.integrationOwnerRow { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.integrationFlash .notice { margin-top: 0; }
 .integrationConfig { display: grid; gap: var(--d-s3); }
 .integrationConfig .actions { margin-top: var(--d-s3); }
 .integrationCredential { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }

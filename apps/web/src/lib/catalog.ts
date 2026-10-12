@@ -30,21 +30,6 @@ export interface IntegrationState {
   workspace_credential?: WorkspaceCredential | null;
 }
 
-/** Counts for the summary line above the cards. */
-export function integrationCounts(items: IntegrationState[]): { connected: number; degraded: number; unused: number } {
-  return {
-    connected: items.filter((i) => i.status === 'connected').length,
-    degraded: items.filter((i) => i.status === 'degraded').length,
-    unused: items.filter((i) => i.status === 'disabled').length,
-  };
-}
-
-/** Degraded first (they need action), then connected, then the ones not used; by name inside. */
-export function sortIntegrations(items: IntegrationState[]): IntegrationState[] {
-  const rank = (s: string) => (s === 'degraded' ? 0 : s === 'connected' ? 1 : s === 'configured' ? 2 : 3);
-  return [...items].sort((a, b) => rank(a.status) - rank(b.status) || a.name.localeCompare(b.name));
-}
-
 /** Whether a workspace switch means anything: the operator configured it for this deployment. */
 export function canSwitchIntegration(item: IntegrationState): boolean {
   return item.available !== false;

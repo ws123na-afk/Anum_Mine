@@ -1,32 +1,20 @@
-/* Integrations > Connection setup (ConnectionSetup.tsx). Spacing from the shared --d-s* tokens. */
-.setupPanel { display: grid; gap: var(--d-s3); margin-bottom: var(--d-s5); min-width: 0; padding: var(--d-s5); }
-.setupPanel > .notice, .setupPanel > .catalogSummary { margin: 0; }
-.setupHeader { display: grid; gap: var(--d-s1); min-width: 0; }
-.setupHeader h2 { font-size: 20px; margin: 0; }
-.setupIntro { color: var(--d-muted); font-size: 14px; margin: 0; max-width: 72ch; }
+/* Integrations > details drawer (ConnectionSetup.tsx SetupDetails, IntegrationsView.tsx ServiceDetails).
+   Spacing from the shared --d-s* tokens; the drawer itself is dialog.css. */
+.setupDetail { display: grid; gap: var(--d-s4); min-width: 0; }
+.setupDetail p { margin: 0; overflow-wrap: anywhere; }
+.setupDetail > .notice, .setupDetail .setupFlash .notice { margin: 0; }
+.setupDetailStatus { display: grid; gap: var(--d-s2); justify-items: start; }
 .setupState { align-items: flex-start; color: var(--d-muted); display: flex; gap: var(--d-s2); margin: 0; }
 .setupState svg { color: var(--d-warn); flex: none; height: 18px; margin-top: 2px; width: 18px; }
-.setupToolbar { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s5); }
-.setupSearch { flex: 1 1 260px; margin: 0; max-width: 420px; }
-.setupSearchBox { align-items: center; display: flex; position: relative; }
-.setupSearchBox svg { color: var(--d-faint); height: 16px; inset-inline-start: var(--d-s3); pointer-events: none; position: absolute; width: 16px; }
-.setupSearchBox input { min-height: 44px; padding-inline-start: calc(var(--d-s3) * 2 + 16px); width: 100%; }
-.setupGroup { display: grid; gap: var(--d-s2); min-width: 0; }
-.setupGroup > h3 { color: var(--d-muted); font-size: 13px; font-weight: 700; letter-spacing: .02em; margin: var(--d-s2) 0 0; text-transform: uppercase; }
-.setupList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
-.setupRow {
-  align-items: start; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control);
-  display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: minmax(0, 1fr) auto; min-width: 0; padding: var(--d-s3) var(--d-s4);
-}
-.setupMain { display: grid; gap: var(--d-s1); min-width: 0; }
-.setupMain p { margin: 0; overflow-wrap: anywhere; }
-.setupTitle { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.setupTitle h4 { font-size: 15px; margin: 0; }
 .setupText { color: var(--d-muted); font-size: 14px; }
-.setupSay { font-size: 14px; }
-.setupActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.setupSay { font-size: 15px; }
+.setupActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .setupActions button, .setupGuide { align-items: center; display: inline-flex; font-size: 14px; font-weight: 600; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s3); white-space: nowrap; }
 .setupActions svg, .setupGuide svg { height: 16px; width: 16px; }
+.setupActions .setupPrimary {
+  background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow); color: #fff; cursor: pointer;
+}
+.setupActions .setupPrimary:hover { background: var(--d-primary-grad-hover); }
 .setupGuide {
   border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); font-size: 14px; font-weight: 600;
   padding: 0 var(--d-s3); text-decoration: none;
@@ -34,7 +22,6 @@
 .setupGuide:hover { border-color: var(--d-line-hover); }
 .setupGuide:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
 .setupGuide .setupExternal { color: var(--d-faint); height: 14px; width: 14px; }
-.setupDetails { display: grid; gap: var(--d-s3); grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
 .setupLabel { color: var(--d-muted); font-size: 13px; font-weight: 600; margin: 0 0 var(--d-s1); }
 .setupCodes { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
 .setupCodes code { background: var(--d-well); border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; padding: 2px var(--d-s2); }
@@ -42,15 +29,13 @@
 .setupUrl code { flex: 1 1 200px; min-width: 0; }
 .setupUrl button { align-items: center; display: inline-flex; font-size: 14px; gap: var(--d-s1); min-height: 44px; }
 .setupUrl button svg { height: 14px; width: 14px; }
-.setupFlash { grid-column: 1 / -1; }
-.setupFlash .notice { margin: 0; }
 .setupCost, .setupFoot { color: var(--d-muted); font-size: 13px; }
 .setupCost strong { color: var(--d-text); font-weight: 600; }
-.setupFoot { margin: 0; }
-.integrationsHealthTitle { font-size: 18px; margin: 0 0 var(--d-s2); }
-@media (max-width: 720px) {
-  .setupPanel { padding: var(--d-s4); }
-  .setupRow { grid-template-columns: minmax(0, 1fr); }
-  .setupActions { justify-content: flex-start; }
-  .setupSearch { max-width: none; }
-}
+.serviceFacts { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); margin: 0; }
+.serviceFacts dd { font-weight: 500; }
+.serviceDetail .integrationTool, .serviceDetail .integrationLastError { font-size: 13px; margin: 0; }
+.serviceDetail .integrationTool { color: var(--d-muted); }
+.serviceDetail .integrationTool.available { color: var(--d-text); }
+.serviceDetail .integrationLastError { color: var(--d-warn); overflow-wrap: anywhere; }
+.serviceDetail .integrationConfig { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-top: var(--d-s4); }
+.serviceDetail .integrationConfig .notice { margin: 0; }
