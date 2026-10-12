@@ -7,6 +7,9 @@ import { commerceAr } from './commerce.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
 import { teamAr } from './team.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
+import { ownerAr } from './ar.owner.ts';
+import { governanceAr } from './ar.governance.ts';
+import { voiceAr } from './ar.voice.ts';
 
 export const ar: Record<MessageKey, Message> = {
   // ---- Commerce (commerce.ar.ts) ----
@@ -3439,4 +3442,9 @@ export const ar: Record<MessageKey, Message> = {
   'privacy.row.favorites': 'المفضلة',
   'privacy.row.private_collections': 'مجموعات قاعدة المعرفة الخاصة',
   'privacy.row.private_reports': 'التقارير الخاصة',
+
+  // ---- Owner screens, Governance, Enterprise and Voice (their own files) ----
+  ...ownerAr,
+  ...governanceAr,
+  ...voiceAr,
 };

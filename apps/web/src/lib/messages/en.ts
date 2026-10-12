@@ -6,6 +6,9 @@ import { commerceEn } from './commerce.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { teamEn } from './team.en.ts';
 import { marketingEn } from './marketing.en.ts';
+import { ownerEn } from './en.owner.ts';
+import { governanceEn } from './en.governance.ts';
+import { voiceEn } from './en.voice.ts';
 
 export const en = {
   // ---- Commerce (commerce.en.ts) ----
@@ -3424,6 +3427,11 @@ export const en = {
   'privacy.row.favorites': 'Favorites',
   'privacy.row.private_collections': 'Private knowledge base collections',
   'privacy.row.private_reports': 'Private reports',
+
+  // ---- Owner screens, Governance, Enterprise and Voice (their own files) ----
+  ...ownerEn,
+  ...governanceEn,
+  ...voiceEn,
 } satisfies Record<string, Message>;
 
 export type MessageKey = keyof typeof en;

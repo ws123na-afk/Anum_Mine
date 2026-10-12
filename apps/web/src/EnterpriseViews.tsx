@@ -9,6 +9,7 @@ import {
   ROLE_TEMPLATE_PERMISSIONS, approvalRuleBody, emptyTargetDraft, enterpriseWriteAccess, organizationPolicyAccess, packState, regionSummary, roleTemplateBody, routingTargetBody, sortPacks, targetDraft,
   type ApprovalRule, type EnterpriseOperations, type GovernanceSummary, type PolicyPack, type RegionStatus, type RoleTemplate, type RoutingTarget, type TargetDraft,
 } from './lib/governance';
+import { t } from './lib/i18n';
 import './governance.css';
 
 const base = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
@@ -16,10 +17,10 @@ const base = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 type Flash = { text: string; error?: boolean } | null;
 
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
-  return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot />{children}</p>;
+  return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>;
 }
 
-const failure = (error: unknown) => isPermissionDenied(error) ? `Not allowed: ${describeError(error)}` : describeError(error);
+const failure = (error: unknown) => isPermissionDenied(error) ? t('admin.notAllowed', { message: describeError(error) }) : describeError(error);
 
 /** Runs one mutation at a time and reports its outcome in place. */
 function useAction(reload: () => Promise<void>) {
@@ -43,8 +44,8 @@ export function GovernanceView() {
   const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     try {
-      const [s, p, t, r] = await Promise.all([gov.getGovernanceSummary(), gov.getPolicyPacks(), gov.getRoleTemplates(), gov.getApprovalRules()]);
-      setSummary(s); setPacks(p); setTemplates(t); setRules(r); setLoadError(null);
+      const [s, p, roleTemplates, r] = await Promise.all([gov.getGovernanceSummary(), gov.getPolicyPacks(), gov.getRoleTemplates(), gov.getApprovalRules()]);
+      setSummary(s); setPacks(p); setTemplates(roleTemplates); setRules(r); setLoadError(null);
     } catch (error) { setLoadError(failure(error)); } finally { setLoaded(true); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -53,37 +54,37 @@ export function GovernanceView() {
   const { canManage, notice: readOnlyNotice } = organizationPolicyAccess(summary);
   const addBaseline = () => act('baseline', async () => {
     const pack = await gov.createPolicyPack({ name: 'Organization baseline', description: 'Approval-first enterprise defaults', rules: [{ action: 'integration.write', effect: 'require_approval', conditions: { risk: 'high' } }] });
-    return `Policy pack ${pack.name} v${pack.version} created.`;
+    return t('gov.packCreated', { name: pack.name, version: pack.version });
   });
   const exportAudit = () => act('audit', async () => {
     const response = await fetch(`${base}/api/v1/audit/export?format=json`, { headers: await authHeaders() });
-    if (!response.ok) throw await apiErrorFromResponse(response, 'Audit export failed');
+    if (!response.ok) throw await apiErrorFromResponse(response, t('gov.exportFailed'));
     const url = URL.createObjectURL(await response.blob());
     const link = document.createElement('a');
     link.href = url; link.download = 'audit-export.json'; link.click();
     URL.revokeObjectURL(url);
-    return 'Audit export downloaded.';
+    return t('gov.exported');
   });
   return <>
-    <section className="metrics"><Metric label="Policy packs" value={String(summary?.policy_packs ?? 0)} /><Metric label="Active policies" value={String(summary?.active_policy_packs ?? 0)} /><Metric label="Role templates" value={String(summary?.role_templates ?? 0)} /><Metric label="Approval rules" value={String(summary?.approval_rules ?? 0)} /></section>
-    <section className="moduleIntro"><div><p className="eyebrow">Organization controls</p><h2>Governance center</h2><p>Versioned policy, retention, roles, approvals, and immutable audit export.</p></div><div className="actions">{canManage && <button type="button" disabled={busy !== null} onClick={() => void addBaseline()}><ShieldCheck size={17} />Add baseline</button>}<button type="button" className="secondary" disabled={busy !== null} onClick={() => void exportAudit()}><Download size={17} />Export audit</button></div></section>
-    {!loaded && <Notice>Loading governance controls...</Notice>}
+    <section className="metrics"><Metric label={t('gov.metric.packs')} value={String(summary?.policy_packs ?? 0)} /><Metric label={t('gov.metric.active')} value={String(summary?.active_policy_packs ?? 0)} /><Metric label={t('gov.metric.templates')} value={String(summary?.role_templates ?? 0)} /><Metric label={t('gov.metric.rules')} value={String(summary?.approval_rules ?? 0)} /></section>
+    <section className="moduleIntro"><div><p className="eyebrow">{t('gov.eyebrow')}</p><h2>{t('gov.title')}</h2><p>{t('gov.intro')}</p></div><div className="actions">{canManage && <button type="button" disabled={busy !== null} onClick={() => void addBaseline()}><ShieldCheck size={17} aria-hidden="true" />{t('gov.addBaseline')}</button>}<button type="button" className="secondary" disabled={busy !== null} onClick={() => void exportAudit()}><Download size={17} aria-hidden="true" />{t('gov.exportAudit')}</button></div></section>
+    {!loaded && <Notice>{t('gov.loading')}</Notice>}
     {loadError && <Notice error>{loadError}</Notice>}
     {readOnlyNotice && <Notice>{readOnlyNotice}</Notice>}
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-    <section className="surface govSection" aria-label="Policy packs">
-      <div className="sectionHeader"><div><p className="eyebrow">Versioned policy</p><h2>Policy packs</h2></div></div>
-      {loaded && packs.length === 0 && <p className="muted">No policy packs yet.</p>}
+    <section className="surface govSection" aria-label={t('gov.packs.title')}>
+      <div className="sectionHeader"><div><p className="eyebrow">{t('gov.packs.eyebrow')}</p><h2>{t('gov.packs.title')}</h2></div></div>
+      {loaded && packs.length === 0 && <p className="muted">{t('gov.packs.empty')}</p>}
       {sortPacks(packs).map((pack) => {
         const state = packState(pack);
         return <article className="govRow" key={pack.id}>
-          <ShieldCheck />
-          <div><strong>{pack.name}</strong> <span className="govVersion">v{pack.version}</span><p>{pack.description || 'No description'} · {pack.rules.length} {pack.rules.length === 1 ? 'rule' : 'rules'}</p><div className="tagRow">{pack.rules.map((rule) => <span key={`${rule.action}-${rule.effect}`}>{rule.action}: {rule.effect}</span>)}</div></div>
+          <ShieldCheck aria-hidden="true" />
+          <div><strong dir="auto">{pack.name}</strong> <span className="govVersion" dir="ltr">v{pack.version}</span><p>{pack.description ? <bdi>{pack.description}</bdi> : t('gov.packs.noDescription')} · {t('gov.packs.rules', { count: pack.rules.length })}</p><div className="tagRow">{pack.rules.map((rule) => <span key={`${rule.action}-${rule.effect}`} dir="ltr">{rule.action}: {rule.effect}</span>)}</div></div>
           <span className={`statusBadge ${state.tone}`}>{state.label}</span>
-          {canManage && <button type="button" className="secondary" disabled={busy !== null} aria-label={`${state.action === 'activate' ? 'Activate' : 'Archive'} ${pack.name} v${pack.version}`} onClick={() => void act(pack.id, async () => {
+          {canManage && <button type="button" className="secondary" disabled={busy !== null} aria-label={t(state.action === 'activate' ? 'gov.packs.activateLabel' : 'gov.packs.archiveLabel', { name: pack.name, version: pack.version }, { isolate: false })} onClick={() => void act(pack.id, async () => {
             const next = await gov.setPolicyPackState(pack.id, state.action);
-            return `${next.name} v${next.version} ${next.active ? 'activated' : 'archived'}.`;
-          })}>{state.action === 'activate' ? <><Undo2 size={16} />Activate</> : <><Archive size={16} />Archive</>}</button>}
+            return t(next.active ? 'gov.packs.activated' : 'gov.packs.archivedDone', { name: next.name, version: next.version });
+          })}>{state.action === 'activate' ? <><Undo2 size={16} aria-hidden="true" />{t('gov.packs.activate')}</> : <><Archive size={16} aria-hidden="true" />{t('gov.packs.archive')}</>}</button>}
         </article>;
       })}
     </section>
@@ -104,17 +105,17 @@ function RoleTemplates({ templates, canManage, busy, act }: { templates: RoleTem
     const body = roleTemplateBody(name, perms);
     if (!body.ok) { setError(body.error); return; }
     setError(null);
-    if (await act('role-template', async () => `Role template ${(await gov.createRoleTemplate(body.value)).name} created.`)) { setName(''); setPerms(['task:read']); }
+    if (await act('role-template', async () => t('gov.templates.created', { name: (await gov.createRoleTemplate(body.value)).name }))) { setName(''); setPerms(['task:read']); }
   };
-  return <section className="surface govSection" aria-label="Role templates">
-    <div className="sectionHeader"><div><p className="eyebrow">Access</p><h2>Role templates</h2></div></div>
-    {templates.length === 0 && <p className="muted">No role templates yet.</p>}
-    {templates.map((t) => <div className="govItem" key={t.id}><strong>{t.name}</strong><div className="tagRow">{t.permissions.map((p) => <span key={p}>{p}</span>)}</div></div>)}
+  return <section className="surface govSection" aria-label={t('gov.templates.title')}>
+    <div className="sectionHeader"><div><p className="eyebrow">{t('gov.templates.eyebrow')}</p><h2>{t('gov.templates.title')}</h2></div></div>
+    {templates.length === 0 && <p className="muted">{t('gov.templates.empty')}</p>}
+    {templates.map((template) => <div className="govItem" key={template.id}><strong dir="auto">{template.name}</strong><div className="tagRow">{template.permissions.map((p) => <span key={p} dir="ltr">{p}</span>)}</div></div>)}
     {canManage && <form className="govForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <label className="field"><span>Template name</span><input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} /></label>
-      <fieldset className="govPermissions"><legend>Permissions</legend>{ROLE_TEMPLATE_PERMISSIONS.map((p) => <label key={p}><input type="checkbox" checked={perms.includes(p)} onChange={(e) => setPerms((old) => e.target.checked ? [...old, p] : old.filter((x) => x !== p))} />{p}</label>)}</fieldset>
+      <label className="field"><span>{t('gov.templates.name')}</span><input dir="auto" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} /></label>
+      <fieldset className="govPermissions"><legend>{t('gov.templates.permissions')}</legend>{ROLE_TEMPLATE_PERMISSIONS.map((p) => <label key={p}><input type="checkbox" checked={perms.includes(p)} onChange={(e) => setPerms((old) => e.target.checked ? [...old, p] : old.filter((x) => x !== p))} /><span dir="ltr">{p}</span></label>)}</fieldset>
       {error && <Notice error>{error}</Notice>}
-      <div className="actions"><button type="submit" disabled={busy !== null}><Plus size={16} />Add role template</button></div>
+      <div className="actions"><button type="submit" disabled={busy !== null}><Plus size={16} aria-hidden="true" />{t('gov.templates.add')}</button></div>
     </form>}
   </section>;
 }
@@ -122,21 +123,21 @@ function RoleTemplates({ templates, canManage, busy, act }: { templates: RoleTem
 function ApprovalRules({ rules, canManage, busy, act }: { rules: ApprovalRule[] } & ActProps) {
   const [draft, setDraft] = useState({ name: '', actionPattern: '', minimumApprovers: '1', requiredRoles: 'owner' });
   const [error, setError] = useState<string | null>(null);
-  const field = (key: keyof typeof draft, label: string) => <label className="field"><span>{label}</span><input value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} /></label>;
+  const field = (key: keyof typeof draft, label: string, dir: 'auto' | 'ltr' = 'ltr') => <label className="field"><span>{label}</span><input dir={dir} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} /></label>;
   const submit = async () => {
     const body = approvalRuleBody(draft);
     if (!body.ok) { setError(body.error); return; }
     setError(null);
-    if (await act('approval-rule', async () => `Approval rule ${(await gov.createApprovalRule(body.value)).name} created.`)) setDraft({ name: '', actionPattern: '', minimumApprovers: '1', requiredRoles: 'owner' });
+    if (await act('approval-rule', async () => t('gov.rules.created', { name: (await gov.createApprovalRule(body.value)).name }))) setDraft({ name: '', actionPattern: '', minimumApprovers: '1', requiredRoles: 'owner' });
   };
-  return <section className="surface govSection" aria-label="Approval rules">
-    <div className="sectionHeader"><div><p className="eyebrow">Organization approvals</p><h2>Approval rules</h2></div></div>
-    {rules.length === 0 && <p className="muted">No organization approval rules yet.</p>}
-    {rules.map((r) => <div className="govItem" key={r.id}><strong>{r.name}</strong><p>{r.action_pattern} · {r.minimum_approvers} approver{r.minimum_approvers === 1 ? '' : 's'} · {r.required_roles.join(', ')}{r.enabled ? '' : ' · disabled'}</p></div>)}
+  return <section className="surface govSection" aria-label={t('gov.rules.title')}>
+    <div className="sectionHeader"><div><p className="eyebrow">{t('gov.rules.eyebrow')}</p><h2>{t('gov.rules.title')}</h2></div></div>
+    {rules.length === 0 && <p className="muted">{t('gov.rules.empty')}</p>}
+    {rules.map((r) => <div className="govItem" key={r.id}><strong dir="auto">{r.name}</strong><p><bdi dir="ltr">{r.action_pattern}</bdi> · {t('gov.rules.approvers', { count: r.minimum_approvers })} · <bdi dir="ltr">{r.required_roles.join(', ')}</bdi>{r.enabled ? '' : ` · ${t('gov.rules.disabled')}`}</p></div>)}
     {canManage && <form className="govForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      {field('name', 'Rule name')}{field('actionPattern', 'Action pattern')}{field('minimumApprovers', 'Minimum approvers')}{field('requiredRoles', 'Required roles (comma separated)')}
+      {field('name', t('gov.rules.name'), 'auto')}{field('actionPattern', t('gov.rules.pattern'))}{field('minimumApprovers', t('gov.rules.minimum'))}{field('requiredRoles', t('gov.rules.roles'))}
       {error && <Notice error>{error}</Notice>}
-      <div className="actions"><button type="submit" disabled={busy !== null}><Plus size={16} />Add approval rule</button></div>
+      <div className="actions"><button type="submit" disabled={busy !== null}><Plus size={16} aria-hidden="true" />{t('gov.rules.add')}</button></div>
     </form>}
   </section>;
 }
@@ -159,8 +160,8 @@ export function EnterpriseView() {
       .then((s) => { setSummary(s); setCapabilityError(null); })
       .catch((error: unknown) => { setSummary(null); setCapabilityError(failure(error)); });
     try {
-      const [o, t] = await Promise.all([gov.getEnterpriseOperations(), gov.getRoutingTargets()]);
-      setOps(o); setTargets(t); setLoadError(null);
+      const [o, routing] = await Promise.all([gov.getEnterpriseOperations(), gov.getRoutingTargets()]);
+      setOps(o); setTargets(routing); setLoadError(null);
     } catch (error) { setLoadError(failure(error)); } finally { await capability; setLoaded(true); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -171,37 +172,37 @@ export function EnterpriseView() {
     if (!editing) return;
     const body = routingTargetBody(editing.draft);
     if (!body.ok) { setFormError(body.error); return; }
-    if (editing.isNew && targets.some((t) => t.id === body.value.id)) { setFormError(`A routing target named ${body.value.id} already exists; edit it instead.`); return; }
+    if (editing.isNew && targets.some((target) => target.id === body.value.id)) { setFormError(t('ent.exists', { id: body.value.id })); return; }
     setFormError(null);
-    if (await act('target', async () => `Routing target ${(await gov.saveRoutingTarget(body.value)).id} saved.`)) setEditing(null);
+    if (await act('target', async () => t('ent.saved', { id: (await gov.saveRoutingTarget(body.value)).id }))) setEditing(null);
   };
   const set = (key: keyof TargetDraft, value: string) => editing && setEditing({ ...editing, draft: { ...editing.draft, [key]: value } });
-  const input = (key: Exclude<keyof TargetDraft, 'status'>, label: string, disabled = false) => <label className="field"><span>{label}</span><input value={editing?.draft[key] ?? ''} disabled={disabled} onChange={(e) => set(key, e.target.value)} /></label>;
+  const input = (key: Exclude<keyof TargetDraft, 'status'>, label: string, disabled = false) => <label className="field"><span>{label}</span><input dir="ltr" value={editing?.draft[key] ?? ''} disabled={disabled} onChange={(e) => set(key, e.target.value)} /></label>;
   return <>
-    <section className="metrics"><Metric label="Regions" value={regions.regions} /><Metric label="Healthy targets" value={String(ops?.healthy_targets ?? 0)} /><Metric label="Installed packages" value={String(ops?.installed_packages ?? 0)} /><Metric label="Failover" value={regions.failover} detail={regions.detail} /></section>
-    <section className="moduleIntro"><div><p className="eyebrow">Scale and ecosystem</p><h2>Enterprise operations</h2><p>Marketplace distribution, regional placement and constrained routing. ANUM reports only the regions you configure.</p></div><div className="actions">{canManage && <button type="button" onClick={() => { setFormError(null); setEditing({ draft: emptyTargetDraft(), isNew: true }); }}><Plus size={17} />Add routing target</button>}<button type="button" className="secondary" onClick={() => void load()}><RefreshCw size={17} />Refresh</button></div></section>
-    {!loaded && <Notice>Loading enterprise control plane...</Notice>}
+    <section className="metrics"><Metric label={t('ent.metric.regions')} value={regions.regions} /><Metric label={t('ent.metric.healthy')} value={String(ops?.healthy_targets ?? 0)} /><Metric label={t('ent.metric.packages')} value={String(ops?.installed_packages ?? 0)} /><Metric label={t('ent.metric.failover')} value={regions.failover} detail={regions.detail} /></section>
+    <section className="moduleIntro"><div><p className="eyebrow">{t('ent.eyebrow')}</p><h2>{t('ent.title')}</h2><p>{t('ent.intro')}</p></div><div className="actions">{canManage && <button type="button" onClick={() => { setFormError(null); setEditing({ draft: emptyTargetDraft(), isNew: true }); }}><Plus size={17} aria-hidden="true" />{t('ent.addTarget')}</button>}<button type="button" className="secondary" onClick={() => void load()}><RefreshCw size={17} aria-hidden="true" />{t('ent.refresh')}</button></div></section>
+    {!loaded && <Notice>{t('ent.loading')}</Notice>}
     {loadError && <Notice error>{loadError}</Notice>}
-    {capabilityError && <Notice error>Could not check whether you may change routing targets, so they are shown read only. {capabilityError} Use Refresh to try again.</Notice>}
+    {capabilityError && <Notice error>{t('ent.capabilityError', { message: capabilityError })}</Notice>}
     {readOnlyNotice && <Notice>{readOnlyNotice}</Notice>}
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-    {editing && canManage && <form className="surface govSection govForm" aria-label="Routing target" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-      <div className="sectionHeader"><div><p className="eyebrow">Routing</p><h2>{editing.isNew ? 'New routing target' : `Edit ${editing.draft.id}`}</h2></div></div>
+    {editing && canManage && <form className="surface govSection govForm" aria-label={t('ent.form.label')} onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <div className="sectionHeader"><div><p className="eyebrow">{t('ent.form.eyebrow')}</p><h2>{editing.isNew ? t('ent.form.new') : t('ent.form.edit', { id: editing.draft.id })}</h2></div></div>
       <div className="govGrid">
-        {input('id', 'Target id', !editing.isNew)}{input('region', 'Region')}{input('provider', 'Provider')}{input('model', 'Model')}
-        <label className="field"><span>Status</span><select value={editing.draft.status} onChange={(e) => set('status', e.target.value as RegionStatus)}>{(['unverified', 'healthy', 'degraded', 'offline'] as const).map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
-        {input('modalities', 'Modalities (comma separated)')}{input('sensitivity', 'Sensitivity (comma separated)')}{input('cost', 'Cost per 1k tokens (USD)')}{input('latency', 'Latency (ms)')}
+        {input('id', t('ent.field.id'), !editing.isNew)}{input('region', t('ent.field.region'))}{input('provider', t('ent.field.provider'))}{input('model', t('ent.field.model'))}
+        <label className="field"><span>{t('ent.field.status')}</span><select value={editing.draft.status} onChange={(e) => set('status', e.target.value as RegionStatus)}>{(['unverified', 'healthy', 'degraded', 'offline'] as const).map((s) => <option key={s} value={s}>{t(`ent.status.${s}`)}</option>)}</select></label>
+        {input('modalities', t('ent.field.modalities'))}{input('sensitivity', t('ent.field.sensitivity'))}{input('cost', t('ent.field.cost'))}{input('latency', t('ent.field.latency'))}
       </div>
-      <p className="muted">The API has no delete for routing targets: set a target offline to take it out of routing.</p>
+      <p className="muted">{t('ent.noDelete')}</p>
       {formError && <Notice error>{formError}</Notice>}
-      <div className="actions"><button type="submit" disabled={busy !== null}>Save target</button><button type="button" className="secondary" onClick={() => setEditing(null)}>Cancel</button></div>
+      <div className="actions"><button type="submit" disabled={busy !== null}>{t('ent.save')}</button><button type="button" className="secondary" onClick={() => setEditing(null)}>{t('common.cancel')}</button></div>
     </form>}
-    {loaded && targets.length === 0 && <p className="muted">No routing targets are configured. This deployment runs in a single region on the workspace model configuration.</p>}
-    <div className="integrationGrid govTargets">{targets.map((target) => <article className="surface integration govTarget" key={target.id}><div className="integrationIcon"><Route /></div><div><h3>{target.id}</h3><p>{target.region} · {target.provider}/{target.model}</p><small>{target.status === 'unverified' ? 'Cost and latency not measured yet' : `$${target.cost_per_1k_tokens}/1k · ${target.latency_ms} ms`}</small></div><div className="govTargetMeta"><span className={`statusBadge ${target.status === 'healthy' ? 'success' : target.status === 'offline' ? 'neutral' : 'warning'}`}>{target.status}</span>{canManage && <button type="button" className="iconButton" aria-label={`Edit ${target.id}`} title="Edit" onClick={() => { setFormError(null); setEditing({ draft: targetDraft(target), isNew: false }); }}><Pencil aria-hidden="true" /></button>}</div></article>)}</div>
+    {loaded && targets.length === 0 && <p className="muted">{t('ent.empty')}</p>}
+    <div className="integrationGrid govTargets">{targets.map((target) => <article className="surface integration govTarget" key={target.id}><div className="integrationIcon" aria-hidden="true"><Route /></div><div><h3 dir="ltr">{target.id}</h3><p dir="ltr">{target.region} · {target.provider}/{target.model}</p><small>{target.status === 'unverified' ? t('ent.notMeasured') : t('ent.costLatency', { cost: String(target.cost_per_1k_tokens), latency: target.latency_ms })}</small></div><div className="govTargetMeta"><span className={`statusBadge ${target.status === 'healthy' ? 'success' : target.status === 'offline' ? 'neutral' : 'warning'}`}>{t(`ent.status.${target.status}`)}</span>{canManage && <button type="button" className="iconButton" aria-label={t('ent.editLabel', { id: target.id }, { isolate: false })} title={t('ent.edit')} onClick={() => { setFormError(null); setEditing({ draft: targetDraft(target), isNew: false }); }}><Pencil aria-hidden="true" /></button>}</div></article>)}</div>
     <MarketplaceCatalog owner={owner} canManage={canManage} onChanged={() => void load()} />
   </>;
 }
 
-function Metric({ label, value, detail = 'Tenant control plane' }: { label: string; value: string; detail?: string }) {
+function Metric({ label, value, detail = t('gov.metric.detail') }: { label: string; value: string; detail?: string }) {
   return <article className="metric"><div className="metricTop"><span>{label}</span></div><strong>{value}</strong><small>{detail}</small></article>;
 }
