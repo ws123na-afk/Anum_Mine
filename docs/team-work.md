@@ -42,6 +42,8 @@ The assignee is one of:
 
 The parser (`team_commands.py`) is deterministic: the person, the work and the date come from the user's own sentence, never from model output or retrieved text (threat model G5).
 
+The parser first trims a command to 2,000 characters and collapses whitespace to single spaces. Its patterns use one literal space as the separator, so no whitespace run overlaps a `.+` run and matching stays linear on hostile input. `tests/test_team_commands.py` checks this with 100 KB inputs.
+
 - `ask|tell|remind|get|have <person> to <work> [by|before|on|due|until <when>]`
 - `assign <work> to <person> [by <when>]`
 - Arabic: `اطلب من|ذكّر|كلّف <first name> [أن] <work> [قبل|بحلول|يوم <when>]`

@@ -34,20 +34,28 @@ _WEEKDAYS = {
     "الاثنين": 0, "الإثنين": 0, "الثلاثاء": 1, "الأربعاء": 2, "الاربعاء": 2, "الخميس": 3,
     "الجمعة": 4, "السبت": 5, "الأحد": 6, "الاحد": 6,
 }
-_LEAD = re.compile(r"^\s*(?:hey\s+|ok\s+)?anum\s*[,:]?\s*", re.IGNORECASE)
-_ASK = re.compile(
-    r"^(?:please\s+)?(?:ask|tell|remind|get|have)\s+(?P<person>.+?)\s+to\s+(?P<work>.+)$", re.IGNORECASE
-)
-_ASSIGN = re.compile(r"^(?:please\s+)?assign\s+(?P<work>.+)\s+to\s+(?P<person>.+)$", re.IGNORECASE)
+# Every pattern runs on normalised text (:func:`_normalise`: at most MAX_COMMAND_CHARS,
+# whitespace collapsed to single spaces), so separators are one literal space and no
+# whitespace run can overlap a ``.+`` run: matching stays linear on hostile input (ReDoS).
+MAX_COMMAND_CHARS = 2000
+_LEAD = re.compile(r"^(?:hey |ok )?anum ?[,:]? ?", re.IGNORECASE)
+_ASK = re.compile(r"^(?:please )?(?:ask|tell|remind|get|have) (?P<person>.+?) to (?P<work>.+)$", re.IGNORECASE)
+_ASSIGN = re.compile(r"^(?:please )?assign (?P<work>.+) to (?P<person>.+)$", re.IGNORECASE)
 _ARABIC = re.compile(
-    r"^(?:من\s+فضلك\s+)?(?:اطلب\s+من|اطلبي\s+من|ذكّر|ذكر|كلّف|كلف)\s+(?P<person>\S+)\s+(?:أن\s+|ان\s+|ب)?(?P<work>.+)$"
+    r"^(?:من فضلك )?(?:اطلب من|اطلبي من|ذكّر|ذكر|كلّف|كلف) (?P<person>\S+) (?:أن |ان |ب)?(?P<work>.+)$"
 )
 _DUE_SPLIT = re.compile(
-    r"\s+(?:by|before|on|due|until|no later than)\s+(?P<when>.+)$|\s+(?P<bare>(?:today|tonight|tomorrow|this week|next week|in\s+\d{1,3}\s+(?:days?|weeks?))(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)$",
+    r" (?:by|before|on|due|until|no later than) (?P<when>.+)$| (?P<bare>(?:today|tonight|tomorrow|this week|next week|in \d{1,3} (?:days?|weeks?))(?: at \d{1,2}(?::\d{2})? ?(?:am|pm)?)?)$",
     re.IGNORECASE,
 )
-_ARABIC_DUE_SPLIT = re.compile(r"\s+(?:قبل|بحلول|يوم|في|خلال)\s+(?P<when>.+)$|\s+(?P<bare>اليوم|غدا|غداً|بكرة|بكره)$")
-_TIME = re.compile(r"\s*(?:at\s+|الساعة\s+)?(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>am|pm|ص|م)?\s*$", re.IGNORECASE)
+_ARABIC_DUE_SPLIT = re.compile(r" (?:قبل|بحلول|يوم|في|خلال) (?P<when>.+)$| (?P<bare>اليوم|غدا|غداً|بكرة|بكره)$")
+_TIME_TAIL = re.compile(r" (?:at|الساعة) \d{1,2}(?::\d{2})? ?(?:am|pm|ص|م)?$", re.IGNORECASE)
+_TIME = re.compile(r" ?(?:at |الساعة )?(?P<h>\d{1,2})(?::(?P<m>\d{2}))? ?(?P<ap>am|pm|ص|م)?$", re.IGNORECASE)
+
+
+def _normalise(text: str) -> str:
+    """At most :data:`MAX_COMMAND_CHARS` characters, whitespace collapsed to single spaces."""
+    return " ".join(text[:MAX_COMMAND_CHARS].split())
 
 
 @dataclass
@@ -70,7 +78,7 @@ def _title(work: str) -> str:
 
 
 def _split_time(text: str) -> tuple[str, time | None]:
-    match = re.search(r"\s+(?:at|الساعة)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|ص|م)?\s*$", text, re.IGNORECASE)
+    match = _TIME_TAIL.search(text)
     if not match:
         return text, None
     parsed = _TIME.match(match.group(0))
@@ -90,7 +98,7 @@ def _split_time(text: str) -> tuple[str, time | None]:
 def resolve_when(text: str, now: datetime, zone: ZoneInfo) -> datetime:
     """``text`` as an aware datetime in ``zone``; raises :class:`CommandError` if unknown."""
     original = text
-    text, at = _split_time(" " + text.strip())
+    text, at = _split_time(" " + _normalise(text))
     text = " ".join(text.lower().replace("the ", "").split())
     local_now = now.astimezone(zone)
     today = local_now.date()
@@ -109,11 +117,11 @@ def resolve_when(text: str, now: datetime, zone: ZoneInfo) -> datetime:
     if text in {"next week", "الأسبوع القادم", "الاسبوع القادم"}:
         ahead = (6 - today.weekday()) % 7 or 7
         return on(today + timedelta(days=ahead))
-    match = re.fullmatch(r"in\s+(\d{1,3})\s+(day|days|week|weeks)", text)
+    match = re.fullmatch(r"in (\d{1,3}) (day|days|week|weeks)", text)
     if match:
         count = int(match.group(1)) * (7 if match.group(2).startswith("week") else 1)
         return on(today + timedelta(days=count))
-    match = re.fullmatch(r"(?:(this|next|coming)\s+)?(\S+)", text)
+    match = re.fullmatch(r"(?:(this|next|coming) )?(\S+)", text)
     if match and match.group(2) in _WEEKDAYS:
         target = _WEEKDAYS[match.group(2)]
         ahead = (target - today.weekday()) % 7
@@ -149,7 +157,7 @@ def resolve_when(text: str, now: datetime, zone: ZoneInfo) -> datetime:
 
 
 def parse_command(text: str, now: datetime, zone: ZoneInfo) -> ParsedCommand:
-    sentence = _LEAD.sub("", " ".join(text.split())).strip().rstrip(".!؟?")
+    sentence = _LEAD.sub("", _normalise(text)).strip().rstrip(".!؟?")
     arabic = False
     match = _ASK.match(sentence) or _ASSIGN.match(sentence)
     if match is None:
@@ -185,7 +193,7 @@ def parse_command(text: str, now: datetime, zone: ZoneInfo) -> ParsedCommand:
 
 def looks_like_assignment(text: str) -> bool:
     """True when ``text`` has the shape of an assignment (no lookup, no date check)."""
-    sentence = _LEAD.sub("", " ".join(text.split())).strip().rstrip(".!؟?")
+    sentence = _LEAD.sub("", _normalise(text)).strip().rstrip(".!؟?")
     return bool(_ASK.match(sentence) or _ASSIGN.match(sentence) or _ARABIC.match(sentence))
 
 
