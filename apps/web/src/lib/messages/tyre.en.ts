@@ -197,6 +197,7 @@ export const tyreEn = {
   'tyre.forecast.none': 'No tyres match these filters.',
   'tyre.forecast.dueNow': 'Due now',
   'tyre.forecast.later': 'later',
+  'tyre.forecast.window': '{from} to {to}',
   'tyre.forecast.wear': '{value} mm / 30 days',
   'tyre.forecast.wearKm': '{value} mm / 1000 km',
   'tyre.col.tyre': 'Tyre',

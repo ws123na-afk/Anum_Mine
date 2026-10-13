@@ -197,6 +197,7 @@ export const tyreAr: Record<keyof typeof tyreEn, Message> = {
   'tyre.forecast.none': 'لا إطارات تطابق هذه المرشحات.',
   'tyre.forecast.dueNow': 'مستحق الآن',
   'tyre.forecast.later': 'لاحقًا',
+  'tyre.forecast.window': 'من {from} إلى {to}',
   'tyre.forecast.wear': '{value} مم / 30 يومًا',
   'tyre.forecast.wearKm': '{value} مم / 1000 كم',
   'tyre.col.tyre': 'الإطار',
