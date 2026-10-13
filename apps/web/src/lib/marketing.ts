@@ -246,7 +246,7 @@ export function when(value: string | null): string {
 // ---- analytics ---------------------------------------------------------------------------------------------
 
 export function rate(value: number | null): string {
-  return value === null ? '–' : `${(value * 100).toFixed(1)}%`;
+  return value === null ? '-' : `${(value * 100).toFixed(1)}%`;
 }
 
 export function change(current: number | null, previous: number | null): string | null {

@@ -138,7 +138,7 @@ describe('status, permissions, errors', () => {
     assert.equal(automationError(new TypeError('Failed to fetch')), 'Could not reach the ANUM API. Check your connection and try again.');
   });
   test('pageLabel and createdTaskId', () => {
-    assert.equal(pageLabel(20, 20, 45), '21–40 of 45');
+    assert.equal(pageLabel(20, 20, 45), '21 to 40 of 45');
     assert.equal(pageLabel(0, 0, 0), 'No results');
     assert.equal(createdTaskId({ action: 'task.create', output: { task_id: 'task_1' } }), 'task_1');
     assert.equal(createdTaskId({ action: 'notify', output: { task_id: 'task_1' } }), null);

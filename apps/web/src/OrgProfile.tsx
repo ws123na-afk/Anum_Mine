@@ -189,7 +189,7 @@ function AgentOverview({ member, agent, sources, onOpenBudgets }: { member: OrgM
           <th scope="row" data-label={t('org.profile.actionKind')}>{t(`agents.toolCategory.${rule.category}` as MessageKey)}</th>
           <td data-label={t('org.profile.level')}><span className={`statusBadge ${rule.level === 'auto' ? 'success' : rule.level === 'ask' ? 'warning' : 'neutral'}`}>{t(`agents.level.${rule.level}` as MessageKey)}</span></td>
           <td data-label={t('org.profile.meaning')}>{t(`agents.levelText.${rule.level}` as MessageKey)}{rule.floored ? ` ${t('agents.floorNote')}` : ''}</td>
-          <td data-label={t('org.tools')} dir="ltr">{rule.tools.join(', ') || '—'}</td>
+          <td data-label={t('org.tools')} dir="ltr">{rule.tools.join(', ') || '-'}</td>
         </tr>)}</tbody>
       </table>
       {sources.policy
@@ -278,7 +278,7 @@ function AgentSkills({ member, agent, sources, onGo, onEditAgent }: { member: Or
             <span className={`statusBadge ${skill.state === 'ready' ? 'success' : 'warning'}`}>{t(`agentSkills.state.${skill.state}` as MessageKey)}</span></div>
           {skill.description && <p dir="auto">{skill.description}</p>}
           <p className="muted">{[skill.source === 'installed' ? t('agents.skill.installed') : t('agents.skill.builtin'), skill.version ? `v${skill.version}` : '',
-            skill.activation === 'always' ? t('org.skill.always') : t('org.skill.onRequest', { words: skill.triggers.slice(0, 4).join(t('common.listSeparator')) || '—' })].filter(Boolean).join(' · ')}</p>
+            skill.activation === 'always' ? t('org.skill.always') : t('org.skill.onRequest', { words: skill.triggers.slice(0, 4).join(t('common.listSeparator')) || '-' })].filter(Boolean).join(' · ')}</p>
           {skill.tools.length > 0 && <ol className="orgSteps" aria-label={t('org.skill.steps')}>{skill.tools.map((tool) => {
             const chip = connection(tool.name);
             return <li key={tool.name}><span dir="ltr">{tool.name}</span>
@@ -393,8 +393,8 @@ function AgentPerformance({ agent }: { agent: AgentProfile }) {
       <Stat label={t('org.perf.total')} value={stats.total} />
       <Stat label={t('org.perf.completed')} value={stats.completed} tone={stats.completed ? 'ok' : 'neutral'} />
       <Stat label={t('org.perf.failed')} value={stats.failed} tone={stats.failed ? 'stop' : 'neutral'} />
-      <Stat label={t('org.perf.success')} value={stats.successRate === null ? '—' : percent(stats.successRate)} note={stats.successRate === null ? t('org.perf.noFinished') : undefined} />
-      {avg !== undefined && <Stat label={t('org.perf.duration')} value={avg === null ? '—' : duration(avg)} note={t('org.perf.durationNote')} />}
+      <Stat label={t('org.perf.success')} value={stats.successRate === null ? '-' : percent(stats.successRate)} note={stats.successRate === null ? t('org.perf.noFinished') : undefined} />
+      {avg !== undefined && <Stat label={t('org.perf.duration')} value={avg === null ? '-' : duration(avg)} note={t('org.perf.durationNote')} />}
     </dl>
     {stats.total > 0 && <div className="orgBars" role="img" aria-label={t('org.perf.barsLabel', { completed: stats.completed, failed: stats.failed, cancelled: stats.cancelled, open: stats.open })}>
       {(['completed', 'failed', 'cancelled', 'open'] as const).map((key) => stats[key] > 0 && <span key={key} className={`orgBar bar-${key}`} style={{ flexGrow: stats[key] }} title={`${t(`org.perf.${key}` as MessageKey)}: ${stats[key]}`} />)}
@@ -483,7 +483,7 @@ function PersonTabs({ tab, member, onGo }: { tab: ProfileTab; member: OrgMember;
           <Stat label={t('team.status.in_progress')} value={row.in_progress} tone={row.in_progress ? 'sky' : 'neutral'} />
           <Stat label={t('team.status.blocked')} value={row.blocked} tone={row.blocked ? 'stop' : 'neutral'} />
           <Stat label={t('org.work.overdue')} value={row.overdue} tone={row.overdue ? 'warn' : 'neutral'} />
-          <Stat label={t('org.person.load')} value={row.load_percent === null ? '—' : percent(row.load_percent / 100)} note={t('org.person.loadNote', { hours: row.estimate_hours })} />
+          <Stat label={t('org.person.load')} value={row.load_percent === null ? '-' : percent(row.load_percent / 100)} note={t('org.person.loadNote', { hours: row.estimate_hours })} />
         </dl>;
       }}</Loaded>
     </Panel>

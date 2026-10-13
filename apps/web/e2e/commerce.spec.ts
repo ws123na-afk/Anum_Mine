@@ -51,11 +51,11 @@ test('orders page through, filter and open with buyer details for the owner', as
   await mockApi(page);
   await page.goto('/#commerce');
   await tab(page, 'Orders').click();
-  await expect(page.getByText('1–9 of 9')).toBeVisible();
+  await expect(page.getByText('1 to 9 of 9')).toBeVisible();
   await page.getByLabel('Status').selectOption('');
-  await expect(page.getByText('1–20 of 30')).toBeVisible();
+  await expect(page.getByText('1 to 20 of 30')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByText('21–30 of 30')).toBeVisible();
+  await expect(page.getByText('21 to 30 of 30')).toBeVisible();
   await page.getByRole('button', { name: 'Previous' }).click();
   await page.getByRole('button', { name: 'Open order 402-0000001-0000001' }).click();
   const detail = page.getByRole('region', { name: 'Order 402-0000001-0000001' });

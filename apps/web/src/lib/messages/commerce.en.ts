@@ -319,7 +319,7 @@ export const commerceEn = {
 
   'commerce.page.previous': 'Previous',
   'commerce.page.next': 'Next',
-  'commerce.page.window': '{first}–{last} of {total}',
+  'commerce.page.window': '{first} to {last} of {total}',
   'commerce.page.none': 'Nothing to show',
   'commerce.notify.title': 'Store alert',
   'commerce.notify.fallback': 'A sales channel needs your attention.',
