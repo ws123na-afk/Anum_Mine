@@ -51,6 +51,61 @@ server {
         try_files $uri =404;
     }
 
+    # Public legal pages (docs/legal-pages.md): static HTML from public/legal, no sign-in.
+    # Exact matches win over the SPA fallback below; add_header here replaces the
+    # server-level set, so the security headers are repeated.
+    location = /privacy {
+        add_header Cache-Control "no-cache" always;
+        add_header Content-Security-Policy $csp always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Permissions-Policy "camera=(), geolocation=(), microphone=(self)" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        default_type text/html;
+        try_files /legal/privacy.html =404;
+    }
+
+    location = /privacy/ {
+        add_header Cache-Control "no-cache" always;
+        add_header Content-Security-Policy $csp always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Permissions-Policy "camera=(), geolocation=(), microphone=(self)" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        default_type text/html;
+        try_files /legal/privacy.html =404;
+    }
+
+    location = /terms {
+        add_header Cache-Control "no-cache" always;
+        add_header Content-Security-Policy $csp always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Permissions-Policy "camera=(), geolocation=(), microphone=(self)" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        default_type text/html;
+        try_files /legal/terms.html =404;
+    }
+
+    location = /terms/ {
+        add_header Cache-Control "no-cache" always;
+        add_header Content-Security-Policy $csp always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Permissions-Policy "camera=(), geolocation=(), microphone=(self)" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        default_type text/html;
+        try_files /legal/terms.html =404;
+    }
+
     # Single-page app: unknown paths serve index.html, which must never be cached.
     location / {
         add_header Cache-Control "no-cache" always;

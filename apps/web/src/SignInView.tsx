@@ -9,6 +9,7 @@ import * as api from './lib/api';
 import type { SignInRequestOptions } from './lib/oidc';
 import { canCreateAccount, NO_SIGN_IN_OPTIONS, type PendingAccount } from './lib/signIn';
 import { describeError } from './lib/errors';
+import { desktopShell } from './lib/desktop';
 import { t } from './lib/i18n';
 
 function Brand() {
@@ -30,6 +31,16 @@ function ProviderMark({ id }: { id: SignInProvider['id'] }) {
 function ProviderButtons({ options, busy, disabled, verb, onSignIn }: { options: SignInOptions; busy: boolean; disabled?: boolean; verb: 'auth.continueWith' | 'auth.signUpWith'; onSignIn: (request: SignInRequestOptions) => void }) {
   if (!options.identity_providers.length) return null;
   return <div className="actions providerButtons">{options.identity_providers.map(provider => <button key={provider.id} type="button" className={`secondary providerButton provider-${provider.id}`} disabled={busy || disabled} onClick={() => onSignIn({ idpHint: provider.id })}><ProviderMark id={provider.id}/>{t(verb, { provider: provider.label })}</button>)}</div>;
+}
+
+/**
+ * The public Privacy Policy and Terms of Service pages the web host serves at /privacy and
+ * /terms (docs/legal-pages.md). The desktop app loads the build from disk, where those paths
+ * are not served, so it shows no links.
+ */
+function LegalLinks() {
+  if (desktopShell()) return null;
+  return <nav className="signInLegal" aria-label={t('auth.legalLinks')}><a href="/privacy">{t('auth.privacyLink')}</a><a href="/terms">{t('auth.termsLink')}</a></nav>;
 }
 
 function PrivacyConsent({ url, checked, onChange }: { url: string; checked: boolean; onChange: (value: boolean) => void }) {
@@ -71,6 +82,7 @@ export function SignInScreen({ message, onSignIn }: { message?: string; onSignIn
       <ProviderButtons options={loaded} busy={busy} disabled={!accepted} verb="auth.signUpWith" onSignIn={start}/>
       {loaded.self_sign_up && <><div className="actions"><button type="button" disabled={busy || !accepted} onClick={() => start({ create: true })} aria-describedby="sign-up-email-hint"><Mail aria-hidden="true"/>{t('auth.signUpEmail')}</button></div><p className="muted small" id="sign-up-email-hint">{t('auth.signUpEmailHint')}</p></>}
       <p className="signInSwitch">{t('auth.haveAccount')} <button type="button" className="linkButton" onClick={() => switchMode('signIn')}>{t('auth.signIn')}</button></p>
+      <LegalLinks/>
     </section></main>;
   }
 
@@ -82,6 +94,7 @@ export function SignInScreen({ message, onSignIn }: { message?: string; onSignIn
     {loaded.identity_providers.length > 0 && <p className="signInDivider" role="separator"><span>{t('auth.or')}</span></p>}
     <div className="actions"><button type="button" disabled={busy} onClick={() => start({})}><LogIn aria-hidden="true"/>{loaded.identity_providers.length ? t('auth.signInEmail') : t('auth.signIn')}</button></div>
     {creatable && <p className="signInSwitch">{t('auth.newHere')} <button type="button" className="linkButton" onClick={() => switchMode('create')}><UserPlus aria-hidden="true"/>{t('auth.createAccount')}</button></p>}
+    <LegalLinks/>
   </section></main>;
 }
 
