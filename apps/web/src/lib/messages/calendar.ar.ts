@@ -118,6 +118,7 @@ export const calendarAr: Record<keyof typeof calendarEn, Message> = {
   'calendar.form.date': 'التاريخ',
   'calendar.form.start': 'يبدأ',
   'calendar.form.end': 'ينتهي',
+  'calendar.form.endDate': 'تاريخ الانتهاء',
   'calendar.form.link': 'رابط الاجتماع',
   'calendar.form.phone': 'رقم الهاتف',
   'calendar.form.attendees': 'الأشخاص',

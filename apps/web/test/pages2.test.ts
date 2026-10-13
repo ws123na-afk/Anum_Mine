@@ -60,7 +60,7 @@ describe('calendar form', () => {
   test('attendee lines take names, emails or both, keeping known ids and replies', () => {
     const rows = parseAttendees('Sara Ali <SARA@example.com>\nOmar, omar@example.com\nkhalid@example.com\nNadia\n\n', [{ id: 'att_1', name: 'Sara Ali', email: 'sara@example.com', response: 'accepted' }]);
     assert.deepEqual(rows, [
-      { name: 'Sara Ali', email: 'sara@example.com', id: 'att_1', response: 'accepted' },
+      { name: 'Sara Ali', email: 'sara@example.com', id: 'att_1', role: null, response: 'accepted' },
       { name: 'Omar', email: 'omar@example.com' },
       { name: 'khalid', email: 'khalid@example.com' },
       { name: 'Nadia', email: null },
@@ -84,6 +84,18 @@ describe('calendar form', () => {
     assert.equal(back.startTime, '10:00');
     assert.equal(back.attendees, 'Sara <sara@example.com>');
     assert.equal(dayKey(addDays(at(2026, 10, 31), 1)), '2026-11-01');
+  });
+  test('editing a multi-day event keeps its end date and every attendee role', () => {
+    const multi = event({ starts_at: at(2026, 10, 14, 10).toISOString(), ends_at: at(2026, 10, 16, 15, 30).toISOString(),
+      attendees: [{ id: 'a', name: 'Sara', email: 'sara@example.com', role: 'chair', response: 'accepted' }] });
+    const form = formFromEvent(multi);
+    assert.equal(form.endDate, '2026-10-16');
+    assert.equal(form.endTime, '15:30');
+    assert.equal(formProblem(form), null);
+    const body = eventBody({ ...form, title: 'Renamed' }, multi.attendees);
+    assert.equal(body.ends_at, multi.ends_at);
+    assert.deepEqual(body.attendees, [{ id: 'a', name: 'Sara', email: 'sara@example.com', role: 'chair', response: 'accepted' }]);
+    assert.equal(formProblem({ ...form, endDate: '2026-10-14', endTime: '09:00' }), 'order');
   });
 });
 
