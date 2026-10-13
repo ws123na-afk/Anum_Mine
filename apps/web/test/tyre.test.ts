@@ -40,6 +40,24 @@ describe('tyre connection form', () => {
     assert.ok(firestore.ok && firestore.value.endpoint === '(default)' && firestore.value.secret);
     assert.deepEqual(connectionBody({ ...draft, schema_name: 'Bad-Name' }, saved), { ok: false, error: 'tyre.connect.badSchema' });
   });
+
+  test('TyrePulse sign-in is the default and sends the reader login as one write-only secret', () => {
+    setLocale('en');
+    const draft = connectionDraft(null);
+    assert.equal(draft.kind, 'supabase_auth');
+    const reader = { ...draft, endpoint: 'https://example.supabase.co', api_key: 'sb_publishable_example', email: 'anum-reader@example.com', password: 'example' };
+    const body = connectionBody(reader, null);
+    assert.ok(body.ok);
+    assert.deepEqual(JSON.parse(body.value.secret), { api_key: 'sb_publishable_example', email: 'anum-reader@example.com', password: 'example' });
+    assert.deepEqual(connectionBody({ ...reader, endpoint: '' }, null), { ok: false, error: 'tyre.connect.needUrl' });
+    assert.deepEqual(connectionBody({ ...reader, password: '' }, null), { ok: false, error: 'tyre.connect.needReader' });
+    assert.deepEqual(connectionBody({ ...reader, email: 'nope' }, null), { ok: false, error: 'tyre.connect.badEmail' });
+    assert.deepEqual(connectionBody({ ...reader, api_key: 'sb_secret_example' }, null), { ok: false, error: 'tyre.connect.secretKeyRefused' });
+    assert.deepEqual(connectionBody({ ...draft, endpoint: 'https://example.supabase.co' }, null), { ok: false, error: 'tyre.connect.needSecret' });
+    // A saved reader login is kept when the three fields stay empty.
+    const savedReader: ConnectionView = { ...saved, kind: 'supabase_auth' };
+    assert.deepEqual(connectionBody(connectionDraft(savedReader), savedReader), { ok: true, value: { kind: 'supabase_auth', label: 'TyrePulse', endpoint: 'https://example.supabase.co', schema_name: 'public' } });
+  });
 });
 
 describe('tyre mapping editor', () => {

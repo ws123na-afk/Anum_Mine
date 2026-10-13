@@ -10,8 +10,19 @@ and ``fetch`` (the mapped columns of one table, capped at
   host must resolve to public addresses only (or be in ``ANUM_TYRE_SOURCE_ALLOWED_HOSTS``),
   the port must be 5432 or 6543 (Supabase's pooler) and TLS is required; the connection
   is made to the address that was checked (``hostaddr``), so DNS rebinding cannot redirect it.
+* ``supabase_auth`` (recommended for TyrePulse): the project URL, its publishable key and a
+  dedicated TyrePulse user. ANUM signs in through Supabase Auth, refreshes the session and
+  reads PostgREST with the user's verified JWT, so TyrePulse's own row level security
+  (``app_current_org()`` from ``auth.uid()``) decides what is visible; the owner's SQL
+  (``infra/tyrepulse/supabase-anum-reader.sql``) pins that user to one organisation and
+  denies it every write.
 * ``supabase_rest``: the project URL and an API key, read through PostgREST
   (``/rest/v1``). Calls go through the same pinned egress guard as model endpoints.
+  A service_role / secret key is refused: it bypasses row level security.
+
+Supabase sources send only ``GET`` to tables and views under ``/rest/v1`` (never ``/rpc``)
+and, for sign-in, ``POST /auth/v1/token`` and ``GET /auth/v1/user``; any other request is
+refused before it leaves ANUM.
 * ``firestore``: a Google service account (JSON key) with the Cloud Datastore Viewer
   role; a signed JWT is exchanged for a token at Google's fixed token endpoint and
   documents are read through the Firestore REST API. Only Google's own hosts are called.
@@ -23,8 +34,10 @@ only for the call and never logged, returned or put into error messages.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -45,7 +58,7 @@ from ..model_egress import (
     resolve_pinned,
 )
 from ..settings import settings
-from .mapping import SourceColumn, SourceTable
+from .mapping import TYREPULSE_PRESET, SourceColumn, SourceTable
 from .model import SourceKind
 
 FIRESTORE_HOST = "firestore.googleapis.com"
@@ -305,7 +318,7 @@ def _postgres_problem(exc: Exception) -> str:
     return f"The database could not be read ({type(exc).__name__})."
 
 
-# --- Supabase REST (PostgREST) ------------------------------------------------------------
+# --- Supabase REST (PostgREST) and Supabase sign-in --------------------------------------
 
 
 def normalize_supabase_url(value: str) -> str:
@@ -322,6 +335,39 @@ def normalize_supabase_url(value: str) -> str:
         raise TyreSourceError("The project URL must use HTTPS.")
     base = f"{parts.scheme}://{parts.netloc}"
     return base.rstrip("/")
+
+
+# Keys that bypass row level security. ANUM never uses one as a data connection: a leak
+# would expose (and allow writing) every organisation's rows.
+_PRIVILEGED_KEY_ROLES = frozenset({"service_role", "supabase_admin", "postgres"})
+
+
+def supabase_key_role(key: str) -> str | None:
+    """The database role a Supabase API key acts as, when it can be told from the key.
+
+    New-style keys say it in their prefix (``sb_publishable_`` / ``sb_secret_``); legacy keys
+    are JWTs whose ``role`` claim says it. The claim is only read here to refuse privileged
+    keys, never trusted to grant anything, so the signature is not checked.
+    """
+    value = key.strip()
+    if value.startswith("sb_secret_"):
+        return "service_role"
+    if value.startswith("sb_publishable_"):
+        return "anon"
+    try:
+        claims = jwt.decode(value, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        return None
+    role = claims.get("role") if isinstance(claims, dict) else None
+    return str(role) if role else None
+
+
+def refuse_privileged_key(key: str) -> None:
+    if supabase_key_role(key) in _PRIVILEGED_KEY_ROLES:
+        raise TyreSourceError(
+            "This is a service_role (secret) key, which bypasses row level security. ANUM does not accept it "
+            "as a data connection: use the publishable (anon) key with a dedicated read-only TyrePulse user."
+        )
 
 
 HttpClientFactory = Callable[[], httpx.AsyncClient]
@@ -359,6 +405,36 @@ def _column_selector(column: str) -> str:
     return column if _SAFE_COLUMN.match(column) else '"' + column.replace('"', "") + '"'
 
 
+# The only requests a Supabase source may send. Data is read with GET from a table or view
+# under /rest/v1 (never /rest/v1/rpc: a function could write); the sign-in source also
+# POSTs to the Auth token endpoint and GETs the signed-in user. Anything else is refused
+# before it leaves ANUM, whatever the caller asks for.
+_REST_READ_PATH = re.compile(r"^/rest/v1/(?!rpc(?:/|$))[^/?#]*$")
+_AUTH_CALLS = frozenset({("POST", "/auth/v1/token"), ("GET", "/auth/v1/user")})
+
+
+def _assert_allowed_call(method: str, path: str) -> None:
+    if method == "GET" and _REST_READ_PATH.match(path):
+        return
+    if (method, path) in _AUTH_CALLS:
+        return
+    raise TyreSourceError("ANUM only reads tyre data: that request is not allowed.")
+
+
+# TyrePulse's tables, read first when the table list is long or the project hides it.
+_KNOWN_TABLES: tuple[str, ...] = tuple(dict.fromkeys(
+    entity.source for entity in TYREPULSE_PRESET.entities.values() if entity is not None
+))
+
+
+def _preset_columns(table: str) -> list[str]:
+    columns: dict[str, None] = {}
+    for entity in TYREPULSE_PRESET.entities.values():
+        if entity is not None and entity.source == table:
+            columns.update(dict.fromkeys(entity.fields.values()))
+    return list(columns)
+
+
 class SupabaseRestSource:
     kind = SourceKind.SUPABASE_REST
 
@@ -368,6 +444,7 @@ class SupabaseRestSource:
         self.schema = schema or "public"
         if not self.api_key:
             raise TyreSourceError("Enter the API key.")
+        refuse_privileged_key(self.api_key)
 
     def _headers(self, schema: str | None = None) -> dict[str, str]:
         headers = {
@@ -379,10 +456,16 @@ class SupabaseRestSource:
             headers["accept-profile"] = schema or self.schema
         return headers
 
-    async def _get(self, path: str, *, params: dict[str, str] | None = None, headers: dict[str, str]) -> httpx.Response:
+    async def _send(
+        self, method: str, path: str, *, params: dict[str, str] | None = None, headers: dict[str, str],
+        body: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        _assert_allowed_call(method, path)
         try:
             async with rest_client_factory() as client:
-                response = await client.get(f"{self.base}{path}", params=params, headers=headers)
+                if method == "GET":
+                    return await client.get(f"{self.base}{path}", params=params, headers=headers)
+                return await client.post(f"{self.base}{path}", params=params, headers=headers, json=body)
         except UnsafeModelEndpointError:
             raise TyreSourceError(
                 "The project URL must be a public address. An operator can allow a private host with "
@@ -392,28 +475,31 @@ class SupabaseRestSource:
             raise TyreSourceError(f"Supabase did not answer within {int(_timeout())} seconds.") from None
         except httpx.HTTPError as exc:
             raise TyreSourceError(f"Supabase could not be reached ({type(exc).__name__}).") from None
+
+    async def _data_headers(self, schema: str | None = None) -> dict[str, str]:
+        return self._headers(schema)
+
+    async def _get(self, path: str, *, params: dict[str, str] | None = None, headers: dict[str, str]) -> httpx.Response:
+        response = await self._send("GET", path, params=params, headers=headers)
         if response.status_code >= 400:
             raise TyreSourceError(_http_problem(response.status_code, "Supabase"))
         return response
 
     async def test(self) -> str:
-        await self._get("/rest/v1/", headers={**self._headers(), "accept": "application/openapi+json"})
+        await self._get("/rest/v1/", headers={**await self._data_headers(), "accept": "application/openapi+json"})
         return "Supabase accepted the key."
 
-    async def discover(self) -> list[SourceTable]:
-        response = await self._get("/rest/v1/", headers={**self._headers(), "accept": "application/openapi+json"})
+    async def _openapi_tables(self) -> list[SourceTable]:
+        headers = {**await self._data_headers(), "accept": "application/openapi+json"}
         try:
+            response = await self._get("/rest/v1/", headers=headers)
             definitions = response.json().get("definitions") or {}
-        except ValueError:
-            definitions = {}
-        if not definitions:
-            raise TyreSourceError(
-                "Supabase returned no table list for this key.",
-                hint="Use a key whose role may read the tables (see the setup steps), or connect with PostgreSQL.",
-            )
+        except (TyreSourceError, ValueError, AttributeError):
+            return []
+        names = sorted(definitions, key=lambda name: (name not in _KNOWN_TABLES, name))
         tables = []
-        for name, definition in list(definitions.items())[:MAX_TABLES]:
-            properties = (definition or {}).get("properties") or {}
+        for name in names[:MAX_TABLES]:
+            properties = (definitions.get(name) or {}).get("properties") or {}
             tables.append(
                 SourceTable(
                     name=name if self.schema == "public" else f"{self.schema}.{name}",
@@ -425,18 +511,53 @@ class SupabaseRestSource:
             )
         return tables
 
+    async def _probe_known_tables(self) -> list[SourceTable]:
+        """When the project does not publish its table list: look for TyrePulse's tables one by one."""
+        headers = await self._data_headers()
+        tables = []
+        for name in _KNOWN_TABLES:
+            path = f"/rest/v1/{quote(name, safe='')}"
+            response = await self._send("GET", path, params={"select": "*", "limit": "1"}, headers=headers)
+            if response.status_code in (400, 404):
+                continue  # no such table (PostgREST answers 404, older versions 400)
+            if response.status_code >= 400:
+                raise TyreSourceError(_http_problem(response.status_code, "Supabase"))
+            try:
+                rows = response.json()
+            except ValueError:
+                rows = []
+            columns = list(rows[0]) if isinstance(rows, list) and rows and isinstance(rows[0], dict) else []
+            if not columns:
+                # No visible row: check that the preset's columns exist, without reading any.
+                wanted = _preset_columns(name)
+                check = await self._send("GET", path, params={"select": ",".join(map(_column_selector, wanted)),
+                                                               "limit": "0"}, headers=headers)
+                columns = wanted if check.status_code < 400 else []
+            tables.append(SourceTable(name=name, columns=[SourceColumn(name=column, type="unknown") for column in columns]))
+        return tables
+
+    async def discover(self) -> list[SourceTable]:
+        tables = await self._openapi_tables() or await self._probe_known_tables()
+        if not tables:
+            raise TyreSourceError(
+                "Supabase returned no table list for this key.",
+                hint="Use a key whose role may read the tables (see the setup steps).",
+            )
+        return tables
+
     async def fetch(self, table: str, columns: list[str]) -> FetchResult:
         schema, name = _split_table(table, self.schema)
         limit = _max_rows()
         rows: list[dict[str, Any]] = []
         select = ",".join(_column_selector(column) for column in columns)
         offset = 0
+        headers = await self._data_headers(schema)
         while len(rows) <= limit:
             page = min(PAGE_SIZE, limit + 1 - len(rows))
             response = await self._get(
                 f"/rest/v1/{quote(name, safe='')}",
                 params={"select": select, "limit": str(page), "offset": str(offset)},
-                headers=self._headers(schema),
+                headers=headers,
             )
             try:
                 batch = response.json()
@@ -449,6 +570,190 @@ class SupabaseRestSource:
                 break
             offset += len(batch)
         return FetchResult(rows=rows[:limit], cut=len(rows) > limit)
+
+
+@dataclass(frozen=True)
+class ReaderLogin:
+    """The dedicated TyrePulse user ANUM signs in as, and the project's publishable key."""
+
+    api_key: str
+    email: str
+    password: str
+
+
+_EMAIL = re.compile(r"^[^@\s]{1,200}@[^@\s]{1,200}$")
+
+
+def parse_reader_login(value: str) -> ReaderLogin:
+    """``{"api_key": ..., "email": ..., "password": ...}`` as saved by the connection form."""
+    try:
+        data = json.loads(value)
+    except ValueError:
+        raise TyreSourceError("Enter the publishable key, the reader's e-mail and its password.") from None
+    if not isinstance(data, dict):
+        raise TyreSourceError("Enter the publishable key, the reader's e-mail and its password.")
+    api_key, email, password = (str(data.get(key) or "").strip() for key in ("api_key", "email", "password"))
+    if not api_key or not email or not data.get("password"):
+        raise TyreSourceError("Enter the publishable key, the reader's e-mail and its password.")
+    if not _EMAIL.match(email):
+        raise TyreSourceError("The reader's e-mail address is not valid.")
+    refuse_privileged_key(api_key)
+    return ReaderLogin(api_key=api_key, email=email, password=str(data["password"]))
+
+
+@dataclass
+class _AuthSession:
+    access_token: str
+    refresh_token: str
+    expires_at: float
+    user_id: str
+
+
+# Signed-in sessions, kept in this process only (never stored): key -> session. The key is a
+# hash of the project, key, e-mail and password, so a changed credential signs in afresh.
+_sessions: dict[str, _AuthSession] = {}
+_sessions_lock = threading.Lock()
+_REFRESH_MARGIN_SECONDS = 60
+
+
+def reset_auth_sessions() -> None:
+    with _sessions_lock:
+        _sessions.clear()
+
+
+def _auth_problem(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    code = str((body or {}).get("error_code") or (body or {}).get("error") or "") if isinstance(body, dict) else ""
+    if response.status_code == 429 or code == "over_request_rate_limit":
+        return "Supabase sign-in is rate limiting requests (HTTP 429); try again in a few minutes."
+    if code == "email_not_confirmed":
+        return "Supabase says the reader's e-mail address is not confirmed yet: confirm it in Authentication > Users."
+    if code in {"invalid_credentials", "invalid_grant"} or response.status_code in (400, 401):
+        return "Supabase refused the reader's e-mail or password."
+    if code == "user_banned" or response.status_code == 403:
+        return "Supabase refused the reader (the user is banned, or the key is not this project's)."
+    return f"Supabase sign-in answered HTTP {response.status_code}."
+
+
+class SupabaseAuthSource(SupabaseRestSource):
+    """Reads PostgREST as a dedicated TyrePulse user (docs/tyre-planning.md#connecting).
+
+    ANUM signs in through Supabase Auth with the reader's e-mail and password, refreshes the
+    session with its refresh token, and sends the user's access token with every read. The
+    database therefore applies TyrePulse's own row level security (``app_current_org()``
+    reads ``auth.uid()`` from the verified token) plus the reader pin installed by
+    ``infra/tyrepulse/supabase-anum-reader.sql``. Only GETs on tables and views are sent.
+    """
+
+    kind = SourceKind.SUPABASE_AUTH
+
+    def __init__(self, url: str, login: str, schema: str = "public") -> None:
+        self.login = parse_reader_login(login)
+        super().__init__(url, self.login.api_key, schema)
+        fingerprint = "\x00".join((self.base, self.login.api_key, self.login.email, self.login.password))
+        self._session_key = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+
+    def _auth_headers(self) -> dict[str, str]:
+        return {"apikey": self.api_key, "accept-encoding": "identity", "content-type": "application/json"}
+
+    async def _token_grant(self, grant: str, body: dict[str, str]) -> _AuthSession:
+        response = await self._send("POST", "/auth/v1/token", params={"grant_type": grant},
+                                    headers=self._auth_headers(), body=body)
+        if response.status_code >= 400:
+            raise TyreSourceError(_auth_problem(response))
+        try:
+            data = response.json()
+        except ValueError:
+            raise TyreSourceError("Supabase sign-in returned something that is not JSON.") from None
+        access, refresh = str(data.get("access_token") or ""), str(data.get("refresh_token") or "")
+        if not access:
+            raise TyreSourceError("Supabase sign-in returned no access token.")
+        user_id = await self._verified_user(access)
+        expires_in = data.get("expires_in")
+        lifetime = int(expires_in) if isinstance(expires_in, (int, float)) and expires_in > 0 else 3600
+        return _AuthSession(access_token=access, refresh_token=refresh, expires_at=time.time() + lifetime,
+                            user_id=user_id)
+
+    async def _verified_user(self, access_token: str) -> str:
+        """Supabase Auth confirms the token belongs to a signed-in, ordinary user."""
+        try:
+            claims = jwt.decode(access_token, options={"verify_signature": False})
+        except jwt.PyJWTError:
+            raise TyreSourceError("Supabase sign-in returned a token ANUM cannot read.") from None
+        if claims.get("role") != "authenticated" or claims.get("is_anonymous") is True:
+            raise TyreSourceError(
+                "The sign-in did not give an ordinary signed-in user (role authenticated), so ANUM refuses it.")
+        response = await self._send("GET", "/auth/v1/user",
+                                    headers={"apikey": self.api_key, "authorization": f"Bearer {access_token}",
+                                             "accept-encoding": "identity"})
+        if response.status_code >= 400:
+            raise TyreSourceError(_auth_problem(response))
+        try:
+            user = response.json()
+        except ValueError:
+            user = {}
+        user_id = str((user or {}).get("id") or "") if isinstance(user, dict) else ""
+        if not user_id or user_id != str(claims.get("sub") or ""):
+            raise TyreSourceError("Supabase could not confirm the reader's session.")
+        return user_id
+
+    async def _session(self, *, renew: bool = False) -> _AuthSession:
+        with _sessions_lock:
+            session = _sessions.get(self._session_key)
+        if session and not renew and session.expires_at - _REFRESH_MARGIN_SECONDS > time.time():
+            return session
+        fresh: _AuthSession | None = None
+        if session and session.refresh_token:
+            try:
+                fresh = await self._token_grant("refresh_token", {"refresh_token": session.refresh_token})
+            except TyreSourceError:
+                fresh = None  # revoked or already used: sign in again below
+        if fresh is None:
+            fresh = await self._token_grant("password", {"email": self.login.email, "password": self.login.password})
+        with _sessions_lock:
+            _sessions[self._session_key] = fresh
+        return fresh
+
+    async def _data_headers(self, schema: str | None = None) -> dict[str, str]:
+        session = await self._session()
+        return {**self._headers(schema), "authorization": f"Bearer {session.access_token}"}
+
+    async def _get(self, path: str, *, params: dict[str, str] | None = None, headers: dict[str, str]) -> httpx.Response:
+        response = await self._send("GET", path, params=params, headers=headers)
+        if response.status_code == 401:
+            # The access token expired early or was revoked: renew once and retry.
+            session = await self._session(renew=True)
+            response = await self._send("GET", path, params=params,
+                                        headers={**headers, "authorization": f"Bearer {session.access_token}"})
+        if response.status_code >= 400:
+            raise TyreSourceError(_http_problem(response.status_code, "Supabase"))
+        return response
+
+    async def test(self) -> str:
+        session = await self._session(renew=True)
+        tables = await self._probe_visible(session)
+        seen = ", ".join(f"{name} {count}" for name, count in tables) or "no TyrePulse tables found"
+        return f"Signed in as {self.login.email} (read-only). Rows visible in the first page: {seen}."
+
+    async def _probe_visible(self, session: _AuthSession) -> list[tuple[str, int]]:
+        headers = {**self._headers(), "authorization": f"Bearer {session.access_token}"}
+        found = []
+        for name in _KNOWN_TABLES:
+            response = await self._send("GET", f"/rest/v1/{quote(name, safe='')}",
+                                        params={"select": "*", "limit": "1"}, headers=headers)
+            if response.status_code in (400, 404):
+                continue
+            if response.status_code >= 400:
+                raise TyreSourceError(_http_problem(response.status_code, "Supabase"))
+            try:
+                rows = response.json()
+            except ValueError:
+                rows = []
+            found.append((name, len(rows) if isinstance(rows, list) else 0))
+        return found
 
 
 # --- Firestore ---------------------------------------------------------------------------
@@ -641,7 +946,7 @@ class FirestoreSource:
         return FetchResult(rows=rows[:limit], cut=len(rows) > limit)
 
 
-TyreSource = SupabasePostgresSource | SupabaseRestSource | FirestoreSource
+TyreSource = SupabasePostgresSource | SupabaseRestSource | SupabaseAuthSource | FirestoreSource
 
 
 def open_source(kind: SourceKind, *, endpoint: str, secret: str, schema: str = "public") -> TyreSource:
@@ -649,6 +954,8 @@ def open_source(kind: SourceKind, *, endpoint: str, secret: str, schema: str = "
         return SupabasePostgresSource(secret, schema)
     if kind == SourceKind.SUPABASE_REST:
         return SupabaseRestSource(endpoint, secret, schema)
+    if kind == SourceKind.SUPABASE_AUTH:
+        return SupabaseAuthSource(endpoint, secret, schema)
     return FirestoreSource(secret, endpoint or "(default)")
 
 

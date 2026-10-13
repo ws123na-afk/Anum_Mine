@@ -34,7 +34,7 @@ function ConnectionCard({ setup, onChange }: { setup: Setup; onChange: (setup: S
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const [editing, setEditing] = useState(!saved);
-  const ids = { label: useId(), endpoint: useId(), schema: useId(), secret: useId() };
+  const ids = { label: useId(), endpoint: useId(), schema: useId(), secret: useId(), apiKey: useId(), email: useId(), password: useId() };
   useEffect(() => { setDraft(connectionDraft(saved)); }, [saved]);
   const disabled = !setup.can_manage || busy !== null;
 
@@ -83,22 +83,28 @@ function ConnectionCard({ setup, onChange }: { setup: Setup; onChange: (setup: S
       <fieldset className="tyreKinds">
         <legend>{t('tyre.connect.kind')}</legend>
         {SOURCE_KINDS.map((kind) => <label key={kind} className={`tyreKind ${draft.kind === kind ? 'selected' : ''}`}>
-          <input type="radio" name="tyre-kind" value={kind} checked={draft.kind === kind} onChange={() => setDraft({ ...draft, kind, secret: '' })} />
+          <input type="radio" name="tyre-kind" value={kind} checked={draft.kind === kind} onChange={() => setDraft({ ...draft, kind, secret: '', api_key: '', email: '', password: '' })} />
           <span><strong>{sourceKindLabel(kind)}</strong><small>{t(`tyre.kindHelp.${kind}` as MessageKey)}</small></span>
         </label>)}
       </fieldset>
       <div className="tyreFormGrid">
         <label className="field" htmlFor={ids.label}><span>{t('tyre.connect.label')}</span><input id={ids.label} value={draft.label} maxLength={120} onChange={(e) => setDraft({ ...draft, label: e.target.value })} /></label>
-        {draft.kind === 'supabase_rest' && <label className="field" htmlFor={ids.endpoint}><span>{t('tyre.connect.projectUrl')}</span><input id={ids.endpoint} dir="ltr" inputMode="url" placeholder="https://<project-ref>.supabase.co" value={draft.endpoint} onChange={(e) => setDraft({ ...draft, endpoint: e.target.value })} /></label>}
+        {(draft.kind === 'supabase_rest' || draft.kind === 'supabase_auth') && <label className="field" htmlFor={ids.endpoint}><span>{t('tyre.connect.projectUrl')}</span><input id={ids.endpoint} dir="ltr" inputMode="url" placeholder="https://<project-ref>.supabase.co" value={draft.endpoint} onChange={(e) => setDraft({ ...draft, endpoint: e.target.value })} /></label>}
         {draft.kind === 'firestore' && <label className="field" htmlFor={ids.endpoint}><span>{t('tyre.connect.databaseId')}</span><input id={ids.endpoint} dir="ltr" placeholder="(default)" value={draft.endpoint} onChange={(e) => setDraft({ ...draft, endpoint: e.target.value })} /></label>}
         {draft.kind !== 'firestore' && <label className="field" htmlFor={ids.schema}><span>{t('tyre.connect.schema')}</span><input id={ids.schema} dir="ltr" value={draft.schema_name} onChange={(e) => setDraft({ ...draft, schema_name: e.target.value })} /></label>}
       </div>
-      <label className="field" htmlFor={ids.secret}>
-        <span>{secretLabel}</span>
-        {draft.kind === 'firestore'
-          ? <textarea id={ids.secret} dir="ltr" autoComplete="off" spellCheck={false} placeholder={saved?.credential_configured && saved.kind === 'firestore' ? t('tyre.connect.keepSecret', { hint: saved.secret_hint ?? '' }) : '{ "type": "service_account", ... }'} value={draft.secret} onChange={(e) => setDraft({ ...draft, secret: e.target.value })} />
-          : <input id={ids.secret} dir="ltr" type="password" autoComplete="new-password" spellCheck={false} placeholder={saved?.credential_configured && saved.kind === draft.kind ? t('tyre.connect.keepSecret', { hint: saved.secret_hint ?? '' }) : draft.kind === 'supabase_postgres' ? 'postgresql://anum_reader:...@db.<ref>.supabase.co:5432/postgres?sslmode=require' : ''} value={draft.secret} onChange={(e) => setDraft({ ...draft, secret: e.target.value })} />}
-      </label>
+      {draft.kind === 'supabase_auth'
+        ? <div className="tyreFormGrid">
+          <label className="field" htmlFor={ids.apiKey}><span>{t('tyre.connect.publishableKey')}</span><input id={ids.apiKey} dir="ltr" type="password" autoComplete="off" spellCheck={false} placeholder={saved?.credential_configured && saved.kind === draft.kind ? t('tyre.connect.keepSecret', { hint: saved.secret_hint ?? '' }) : "sb_publishable_..."} value={draft.api_key} onChange={(e) => setDraft({ ...draft, api_key: e.target.value })} /></label>
+          <label className="field" htmlFor={ids.email}><span>{t('tyre.connect.readerEmail')}</span><input id={ids.email} dir="ltr" type="email" autoComplete="off" spellCheck={false} placeholder="anum-reader@your-company.com" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></label>
+          <label className="field" htmlFor={ids.password}><span>{t('tyre.connect.readerPassword')}</span><input id={ids.password} dir="ltr" type="password" autoComplete="new-password" spellCheck={false} value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>
+        </div>
+        : <label className="field" htmlFor={ids.secret}>
+          <span>{secretLabel}</span>
+          {draft.kind === 'firestore'
+            ? <textarea id={ids.secret} dir="ltr" autoComplete="off" spellCheck={false} placeholder={saved?.credential_configured && saved.kind === 'firestore' ? t('tyre.connect.keepSecret', { hint: saved.secret_hint ?? '' }) : '{ "type": "service_account", ... }'} value={draft.secret} onChange={(e) => setDraft({ ...draft, secret: e.target.value })} />
+            : <input id={ids.secret} dir="ltr" type="password" autoComplete="new-password" spellCheck={false} placeholder={saved?.credential_configured && saved.kind === draft.kind ? t('tyre.connect.keepSecret', { hint: saved.secret_hint ?? '' }) : draft.kind === 'supabase_postgres' ? 'postgresql://<read-only user>:...@db.<ref>.supabase.co:5432/postgres?sslmode=require' : ''} value={draft.secret} onChange={(e) => setDraft({ ...draft, secret: e.target.value })} />}
+        </label>}
       <p className="muted tyreHelp">{t(`tyre.connect.howTo.${draft.kind}` as MessageKey)}</p>
       <div className="actions">
         <button type="submit" disabled={disabled}><Save aria-hidden="true" />{busy === 'save' ? t('tyre.common.saving') : t('tyre.connect.save')}</button>

@@ -18,6 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class SourceKind(StrEnum):
+    # A dedicated TyrePulse user signed in through Supabase Auth; reads PostgREST with its JWT.
+    SUPABASE_AUTH = "supabase_auth"
     SUPABASE_POSTGRES = "supabase_postgres"
     SUPABASE_REST = "supabase_rest"
     FIRESTORE = "firestore"

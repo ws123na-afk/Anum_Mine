@@ -70,6 +70,12 @@ export const deleteQuick = (id: string) => api.apiRequestVoid(`/api/v1/quick-com
 export const uploadAttachment = (file: File, onProgress?: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<api.FileRecord> =>
   api.uploadFile(file, onProgress, signal);
 export const fileUsage = () => api.getFileUsage();
+/** The newest documents, for Files mode and Results preview. */
+export const recentFiles = (limit: number): Promise<api.FileRecord[]> => api.getFiles({ sort: 'created_at:desc', limit });
+/** Open tasks (created, queued, running or waiting for approval), the newest first, for Current tasks. */
+export const openTasks = (limit: number): Promise<Task[]> => listTasks({ ...EMPTY_QUERY, status: 'active' }, null, limit);
+/** How many approvals wait in this workspace, for "Suggestions for you". */
+export const pendingApprovals = async (): Promise<number> => (await api.getApprovals()).filter((a) => a.status === 'pending').length;
 
 /** Unread mail across the connected mailboxes; null when the inbox is not available to this person. */
 export async function inboxSummary(): Promise<{ mailboxes: number; unread: number } | null> {
