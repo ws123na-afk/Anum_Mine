@@ -1,5 +1,5 @@
 """Approval routing rules and the contact suppression list in PostgreSQL (migration
-0053_routing_suppression), as the non-owner app role.
+0054_routing_suppression), as the non-owner app role.
 
 Rules with AED bands and approver steps round-trip through ``approval_rules`` and route a
 decision; the suppression list is tenant-scoped by RLS alone, its adds are idempotent, its

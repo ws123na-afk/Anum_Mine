@@ -1,4 +1,4 @@
-"""PostgreSQL contact suppression list (migration ``0053_routing_suppression``).
+"""PostgreSQL contact suppression list (migration ``0054_routing_suppression``).
 
 The session's RLS context names the tenant; ``contact_suppressions`` admits only that
 tenant's rows (forced RLS). Every statement also filters on the tenant explicitly. An add

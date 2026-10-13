@@ -133,7 +133,7 @@ Tests: `services/api/tests/test_tool_governance.py` (matching, policy order, pla
 
 ## Approval routing
 
-Approval routing decides **who** may approve an approval from its AED amount (owner decision, approval matrix v1). Whether a call pauses at all is still decided by the rule's tool pattern alone ([above](#organization-approval-rules-and-policy-packs)): a refund always pauses, whatever its amount. Code: `anum_api/approval_routing.py` (pure matching), enforced in `main.py` (`_decide_approval_locked`), stored on `approval_rules` (migration `0053_routing_suppression`).
+Approval routing decides **who** may approve an approval from its AED amount (owner decision, approval matrix v1). Whether a call pauses at all is still decided by the rule's tool pattern alone ([above](#organization-approval-rules-and-policy-packs)): a refund always pauses, whatever its amount. Code: `anum_api/approval_routing.py` (pure matching), enforced in `main.py` (`_decide_approval_locked`), stored on `approval_rules` (migration `0054_routing_suppression`).
 
 An organization approval rule (`POST /api/v1/organization/approval-rules`, `PUT` and `DELETE /api/v1/organization/approval-rules/{id}`, org_admin only, each change audited as `approval_rule.created|updated|deleted` with the before and after settings) may carry:
 

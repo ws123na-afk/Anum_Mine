@@ -821,11 +821,11 @@ def test_setup_plans_migration_is_expand_only_with_forced_rls() -> None:
 
 def test_routing_suppression_migration_is_expand_only_with_forced_rls() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0053_routing_suppression.py").read_text(encoding="utf-8")
-    assert 'revision = "0053_routing_suppression"' in revision_text and len("0053_routing_suppression") <= 32
-    assert 'down_revision = "0052_setup_plans"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0053_routing_suppression.py"]
-    assert not [path for path in others if 'down_revision = "0052_setup_plans"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0054_routing_suppression.py").read_text(encoding="utf-8")
+    assert 'revision = "0054_routing_suppression"' in revision_text and len("0054_routing_suppression") <= 32
+    assert 'down_revision = "0053_tyre_supabase_auth"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0054_routing_suppression.py"]
+    assert not [path for path in others if 'down_revision = "0053_tyre_supabase_auth"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     # Defaulted or nullable columns on approval_rules and one new table: the previous release keeps working.
     assert upgrade.count("op.add_column(") == 4 and upgrade.count("op.create_table(") == 1

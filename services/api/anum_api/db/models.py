@@ -606,7 +606,7 @@ class ApprovalRuleRecord(Base, TenantScopedMixin):
     required_roles: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     enabled: Mapped[bool] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Approval routing (0053_routing_suppression): the AED band and conditions, and the
+    # Approval routing (0054_routing_suppression): the AED band and conditions, and the
     # approver steps ([{"approvers": [...]}, ...]).
     conditions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     approver_steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
@@ -1633,7 +1633,7 @@ class SetupPlanCheckRecord(Base):
 
 
 class ContactSuppressionRecord(Base):
-    """One entry of a tenant's contact suppression list (migration ``0053_routing_suppression``).
+    """One entry of a tenant's contact suppression list (migration ``0054_routing_suppression``).
 
     Tenant-level: forced RLS on ``anum.tenant_id``. The contact is stored only as a keyed
     hash and a masked form (docs/privacy.md#contact-suppression).

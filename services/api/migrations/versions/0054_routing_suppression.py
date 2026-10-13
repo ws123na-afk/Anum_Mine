@@ -15,15 +15,15 @@ No role is granted anything new and nothing bypasses RLS. Expand only: new nulla
 defaulted columns and a new table the previous release never reads, so ``helm rollback``
 keeps working against this schema.
 
-Chained after ``0052_setup_plans``.
+Chained after ``0053_tyre_supabase_auth``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0053_routing_suppression"
-down_revision = "0052_setup_plans"
+revision = "0054_routing_suppression"
+down_revision = "0053_tyre_supabase_auth"
 branch_labels = None
 depends_on = None
 
