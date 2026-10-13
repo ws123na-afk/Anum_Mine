@@ -42,7 +42,7 @@ All of them show **mood**: idle, listening, thinking, speaking. None shows **wha
 - **Text:** `#EEF1F8`, muted `#A3ABC2`, faint `#737C96`.
 - **Accents:** sky `#7DD3FC`, violet `#A78BFA`, rose `#F9A8D4`. Primary buttons use a violet gradient with a soft glow.
 - **Status:** ok `#86EFAC`, waiting `#FCD38D` (orb rim `#FFB547`), stop `#FDA4AF`.
-- **Shape and motion:** radius 12–16 px on surfaces, pills for chips. Easing `cubic-bezier(.2, .8, .2, 1)`, 160–240 ms.
+- **Shape and motion:** radius 12 to 16 px on surfaces, pills for chips. Easing `cubic-bezier(.2, .8, .2, 1)`, 160 to 240 ms.
 
 A light-mode counterpart (depth from shadow instead of lightness, darker accents for 4.5:1 on white) is the next step.
 

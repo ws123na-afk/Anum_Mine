@@ -53,6 +53,7 @@ from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
 from .events import CanonicalEventName, create_event
+from .punctuation import LONG_DASHES
 from .repository import AnumRepository
 from .runtime import with_workspace_autonomy
 from .schemas import (
@@ -220,7 +221,7 @@ def split_request(text: str) -> list[str]:
             if stripped == clause:
                 break
             clause = stripped
-        clause = clause.strip(" .,;:-–—")
+        clause = clause.strip(" .,;:-" + LONG_DASHES)
         if len(clause) >= 2:
             clauses.append(clause)
     return clauses

@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from ..model_budget import ModelBudgetExceededError
 from ..model_gateway import ModelGateway, ModelRoute, route_gateway
 from ..prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
+from ..punctuation import PLAIN_PUNCTUATION_RULE
 from ..schemas import TenantContext
 from .analytics import TimeSlot, best_times
 from .clients import PLATFORM_LABEL
@@ -107,7 +108,8 @@ INSTRUCTIONS = (
     "translated word for word, right to left, no English words except brand names. Respect each platform's limits. "
     "Never invent prices, discounts, ratings or claims that are not in the brief. "
     "Answer with JSON only, no prose: {\"ideas\": [{\"title\": str, \"angle\": str, \"platform\": str, \"en\": str|null, "
-    "\"ar\": str|null, \"hashtags_en\": [str], \"hashtags_ar\": [str]}]}. Hashtags without the # sign."
+    "\"ar\": str|null, \"hashtags_en\": [str], \"hashtags_ar\": [str]}]}. Hashtags without the # sign. "
+    + PLAIN_PUNCTUATION_RULE
 )
 
 

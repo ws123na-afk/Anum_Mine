@@ -25,6 +25,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import PurePath
 
+from .punctuation import EN_DASH
+
 MAX_SPEAKER_CHARS = 120
 MAX_SEGMENT_CHARS = 4000
 MAX_SEGMENTS = 20_000
@@ -49,7 +51,7 @@ _CUE_TIME = re.compile(
     re.MULTILINE,
 )
 # "[00:01:02] Jane: text", "00:01:02 Jane: text", "(1:02) Jane: text"
-_LINE_TIME = re.compile(r"^\s*[\[(]?(?P<time>(?:\d{1,2}:)?\d{1,2}:\d{2})(?:[.,]\d{1,3})?[\])]?\s*[-–]?\s*")
+_LINE_TIME = re.compile(r"^\s*[\[(]?(?P<time>(?:\d{1,2}:)?\d{1,2}:\d{2})(?:[.,]\d{1,3})?[\])]?\s*[-" + EN_DASH + r"]?\s*")
 _SPEAKER_PREFIX = re.compile(r"^(?P<speaker>[^:\n]{1,80}?)\s*[:：]\s+(?P<text>\S.*)$")
 # Teams docx/txt block headers: "Jane Doe   0:03" or "0:03 Jane Doe" or "Jane Doe 00:01:02"
 _NAME_THEN_TIME = re.compile(r"^(?P<speaker>[^\d:][^:]{0,80}?)\s{1,}(?P<time>(?:\d{1,2}:)?\d{1,2}:\d{2})\s*$")

@@ -1,4 +1,4 @@
-# ANUM — guidance for Claude Code
+# ANUM: guidance for Claude Code
 
 ANUM is a monorepo: FastAPI API (`services/api`), React/Vite web (`apps/web`), Tauri desktop (`apps/desktop`), Kotlin Android (`apps/android`), Flutter mobile (`apps/mobile`), shared TS contracts (`packages/contracts`), local infra (`infra/docker`).
 
@@ -9,6 +9,7 @@ ANUM is a monorepo: FastAPI API (`services/api`), React/Vite web (`apps/web`), T
 - Never commit secrets. `.env.example` files hold placeholders only.
 - Never mark a check `continue-on-error`, skip, or delete a test to get CI green.
 - `docs/production-plan.md` is the ordered path to production; check it before picking up new work.
+- No em or en dashes in UI text, docs or AI replies; use a colon, comma, 'to' or a new sentence. An empty value is `-`. Guards: `services/api/tests/test_no_long_dashes.py` (web, API, Flutter, Android, desktop sources, docs) and `apps/web/test/plainPunctuation.test.ts`; model replies pass through `anum_api/punctuation.py` ([Punctuation](docs/web-localization.md#punctuation)).
 
 ## Responsive UI quality gate
 For every web or Flutter UI change, a passing build is not proof the UI is right:
@@ -38,11 +39,11 @@ The owner wants finished features, not placeholders. Before calling any page or 
 - Portfolio (`ws123na-afk/Portfolio-`, live at www.shahzebrahman.com): frontend on Vercel; the Render backend `Portfolio-` has crash-looped since its database `Portpolio` was suspended (about 4 Sep 2026) and its last good build (July) lacks a 2FA fix, so suspend that service before ever resuming the database.
 
 ## Skills in this repo
-- `anum-verify` — run the right local checks for what you changed.
-- `steward` — how to drive a red PR or `main` back to green.
-- `anum-release-gate` — the evidence a release needs before it ships.
-- `mockup-to-flutter` — turn a mockup image into an ANUM Flutter screen with our tokens, catalog, responsive rules and tests.
-- `flutter-add-widget-test`, `flutter-build-responsive-layout`, `flutter-fix-layout-issues`, `dart-run-static-analysis` — official Flutter/Dart team skills, vendored and pinned; ANUM rules win where they differ. Sources, licenses and rejected skills: `.claude/skills/SOURCES.md`.
+- `anum-verify`: run the right local checks for what you changed.
+- `steward`: how to drive a red PR or `main` back to green.
+- `anum-release-gate`: the evidence a release needs before it ships.
+- `mockup-to-flutter`: turn a mockup image into an ANUM Flutter screen with our tokens, catalog, responsive rules and tests.
+- `flutter-add-widget-test`, `flutter-build-responsive-layout`, `flutter-fix-layout-issues`, `dart-run-static-analysis`: official Flutter/Dart team skills, vendored and pinned; ANUM rules win where they differ. Sources, licenses and rejected skills: `.claude/skills/SOURCES.md`.
 
 Plugins enabled in `.claude/settings.json`: Superpowers, `frontend-design`, `code-review` and Anthropic's `design`. Prefer Superpowers' planning, TDD, systematic-debugging and verification-before-completion skills for non-trivial work.
 
@@ -80,7 +81,7 @@ Design and QA skills (owner, 12 Oct: load them, every helper too; sources and li
 - Managed PostgreSQL admins (Render, RDS) are not superusers: on PostgreSQL 16+ they must be granted membership in a role before `ALTER DATABASE ... OWNER TO` it or `ALTER DEFAULT PRIVILEGES FOR ROLE` it. `bootstrap-database.sql` does that for `anum_migrator`; test bootstrap changes as such an admin, not as `postgres`.
 - PyYAML (YAML 1.1) reads unquoted `off`/`on`/`yes`/`no` as booleans; quote such values in `render.yaml` and other YAML the tests load (`generation: "off"`).
 - A Kubernetes admission controller's pod can be Ready before its webhook serves; scripts that create policies right after installing it must wait for a server-side dry run to pass (`infra/helm/ci/kind-smoke.sh`).
-- Base images can ship unused helpers that fail image scans (`postgres` images carry `gosu`, a Go binary with stdlib CVEs); delete them in the Dockerfile. Every image a deploy workflow builds must also be Trivy-scanned in PR CI (the `images` job), or the finding first shows up as a red `deploy-staging.yml` after merge — and Render (`autoDeployTrigger: checksPass`) then skips that commit.
+- Base images can ship unused helpers that fail image scans (`postgres` images carry `gosu`, a Go binary with stdlib CVEs); delete them in the Dockerfile. Every image a deploy workflow builds must also be Trivy-scanned in PR CI (the `images` job), or the finding first shows up as a red `deploy-staging.yml` after merge, and Render (`autoDeployTrigger: checksPass`) then skips that commit.
 - `kubectl rollout status` returns while old pods are still terminating and kube-proxy may still route to them; a pod that stops listening on SIGTERM then times out requests (the kind `helm test` after `helm rollback`). Serving pods keep a short `preStop` sleep (`exec sleep`, since the chart supports Kubernetes 1.29) instead of the test waiting longer.
 - Oracle Cloud's Ubuntu images end the INPUT chain with a REJECT rule: opening a port in the VCN security list is not enough. `infra/oracle/install.sh` inserts ACCEPT rules before it in `/etc/iptables/rules.v4`; never use ufw or `netfilter-persistent save` there (the latter would persist Docker's chains).
 - The Oracle compose stack trusts forwarded headers only from Caddy's fixed address (172.30.10.10) and Caddy replaces any client `X-Forwarded-For`; keep that pairing when changing the proxy or the network.

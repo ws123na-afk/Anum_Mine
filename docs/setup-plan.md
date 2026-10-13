@@ -57,7 +57,7 @@ The ledger `setup_plan_items` keeps one row per blueprint item key: the object i
 
 ## Renames
 
-Plan version 2 (13 Oct 2026) renamed every item whose name had a long dash ("GROUP — Chief of Staff" is now "Group: Chief of Staff"; the business workspaces are "Fleet Consulting", "Tyre Pulse", "ANUM 360 Gallery", "OpsBrain" and "VoiceQuote") and rewrote the page's notes in plain words. Each renamed item lists its old names in `former_names`; `Blueprint.former_text` gives back the old wording of the text the plan stores on objects (assistant instructions and automation prompts, where only the agent names changed).
+Plan version 2 (13 Oct 2026) renamed every item whose name had a long dash (the agent whose name joined "GROUP" and "Chief of Staff" with a long dash is now "Group: Chief of Staff"; the business workspaces are "Fleet Consulting", "Tyre Pulse", "ANUM 360 Gallery", "OpsBrain" and "VoiceQuote") and rewrote the page's notes in plain words. Each renamed item lists its old names in `former_names`; `Blueprint.former_text` gives back the old wording of the text the plan stores on objects (assistant instructions and automation prompts, where only the agent names changed).
 
 Plan version 3 (13 Oct 2026) adds the approval rules with AED bands and approver steps ([Approval routing](approvals-and-risk.md#approval-routing)) and marks opt-out handling (CC04, automation #7, the memory rule) as supported by the [contact suppression list](privacy.md#contact-suppression). Applying it adds the new rules; nothing is renamed.
 
@@ -67,7 +67,7 @@ Applying again updates what an earlier apply made, matched through the ledger by
 - **Changed by hand** (the plan made it, the owner edited it since): only a field that still holds exactly the plan's old wording changes. An agent's name; an assistant's name and instructions; an automation's name, its task step (name and prompt), and its schedule and trigger names; a saved command's title. The ledger row is kept as it was, so the object still counts as the owner's and nothing else is ever overwritten. A name the owner chose stays.
 - Objects the plan only linked (`found_by_name`) are never renamed. Finding by name also accepts the former names, so an object from version 1 without a ledger row is linked, not created twice.
 - The preview shows these as **Will change**, reason code `will_rename`; automations stay turned off.
-- **Not renamed:** policy packs and approval rules (ANUM has no rename for them; a new name would publish a second pack) and workspaces the plan created (a workspace is renamed from inside it, in Settings > Workspace). They keep their old names until someone renames or replaces them; the plan finds them by key or former name, so it never makes copies.
+- **Not renamed by applying:** policy packs and approval rules (ANUM has no rename for them; a new name would publish a second pack) and workspaces the plan created (a workspace is renamed from inside it, in Settings > Workspace). Migration `0055_plain_dashes` renamed them once to the plan's current names ([Punctuation](web-localization.md#punctuation)); the plan still finds them by key or former name, so it never makes copies.
 
 ## Mapping: plan to ANUM
 

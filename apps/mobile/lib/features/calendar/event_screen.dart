@@ -265,7 +265,10 @@ class _EventScreenState extends State<EventScreen> {
                             fontSize: 16,
                             fontWeight: FontWeight.w700)),
                     Text(
-                        '${timeOf(context, event.startsAt)} – ${timeOf(context, event.endsAt)}',
+                        l.f('calendarTimeRange', {
+                          'start': timeOf(context, event.startsAt),
+                          'end': timeOf(context, event.endsAt)
+                        }),
                         style: TextStyle(color: p.muted)),
                     if (event.location != null)
                       Text(event.location!, style: TextStyle(color: p.muted)),

@@ -779,7 +779,7 @@ class _AnalyticsTabState extends State<_AnalyticsTab> {
                     value: '${summary.totals.engagement}',
                     caption: l.f('mk.rate', {
                       'rate': summary.totals.rate == null
-                          ? '–'
+                          ? '-'
                           : '${(summary.totals.rate! * 100).toStringAsFixed(1)}%'
                     }),
                     icon: Icons.favorite_outline),

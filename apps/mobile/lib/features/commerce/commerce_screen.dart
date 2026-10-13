@@ -97,7 +97,7 @@ class _CommerceScreenState extends State<CommerceScreen> {
         AnumMetric(
             label: s.t('revenue'),
             value:
-                main == null ? '—' : formatMoney(main.revenue, main.currency),
+                main == null ? '-' : formatMoney(main.revenue, main.currency),
             icon: Icons.trending_up,
             caption: d.currencies.length > 1
                 ? d.currencies

@@ -43,8 +43,10 @@ from .model_gateway import (
     _StreamState,
     estimate_cost_usd,
     local_embedding_response,
+    parse_structured,
     validate_messages,
 )
+from .punctuation import plain_dashes
 from .telemetry import model_call_span
 
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
@@ -404,7 +406,7 @@ class AnthropicGateway(OpenAICompatibleGateway):
         )
         with model_call_span(self.provider, self.model, "generate_structured"):
             response = await self._call("generate_structured", body)
-        return response_model.model_validate_json(response.text or "{}"), response
+        return parse_structured(response_model, response.text or "{}"), response
 
     async def _call(self, operation: str, body: dict[str, Any]) -> ModelResponse:
         state = _CallState()
@@ -462,7 +464,7 @@ class AnthropicGateway(OpenAICompatibleGateway):
         )
         model = payload.get("model") or self.model
         return ModelResponse(
-            text=text,
+            text=plain_dashes(text),
             usage=self._usage(payload.get("usage") or {}, model),
             metadata=ModelCallMetadata(
                 latency_ms=round((perf_counter() - started) * 1000),

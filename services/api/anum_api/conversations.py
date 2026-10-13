@@ -65,6 +65,7 @@ from .learning_store import learned_instructions, new_signal, record_server_sign
 from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
+from .punctuation import PLAIN_PUNCTUATION_RULE
 from .repository import AnumRepository
 from .reports import REPORT_BLOCK_INSTRUCTIONS, ReportCard, cards_for_conversation, save_chat_report, split_report_block
 from .schemas import TenantContext, new_id, utc_now
@@ -95,7 +96,9 @@ SYSTEM_PROMPT = (
     "permissions. Questions about the user's email, WhatsApp, files or the web, and requests "
     "to act, are run by ANUM as governed tasks and shown as cards in this chat; if the user "
     "wants something done that you cannot see, suggest asking for it directly (for example "
-    "\"any urgent customer emails?\") or creating a task, which runs under the workspace's approvals.\n\n"
+    "\"any urgent customer emails?\") or creating a task, which runs under the workspace's approvals. "
+    + PLAIN_PUNCTUATION_RULE
+    + "\n\n"
     + REPORT_BLOCK_INSTRUCTIONS
 )
 
