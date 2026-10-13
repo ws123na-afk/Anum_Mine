@@ -464,13 +464,14 @@ HANDLERS = {
 # --- arguments from the user's own words ------------------------------------------------------
 
 _VEHICLE = re.compile(
-    r"\b(?:vehicle|truck|asset|unit|trailer|tanker|bus|mixer|pump|plate|registration)\s*(?:no\.?|number|#|:)?\s*"
+    r"\b(?:vehicle|truck|asset|unit|trailer|tanker|bus|mixer|pump|plate|registration)\s*(?:(?:no\.?|number|#|:)\s*)?"
     r"([A-Za-z]*[-/]?\d[A-Za-z0-9\-/]*)", re.IGNORECASE)
 _SITE = re.compile(r"(?<!by )\b(?:site|depot|branch)\s+(?:of\s+|is\s+|:\s*)?([A-Za-z][\w\-]{1,40})", re.IGNORECASE)
 _NOT_A_SITE = {"the", "a", "an", "is", "in", "for", "and", "orders", "order", "this", "last", "next", "with", "today",
                "yesterday", "costs", "cost", "inspections", "vehicles", "checklists"}
-_WORK_ORDER = re.compile(r"\b(?:work\s*order|job\s*card)\s*(?:no\.?|number|#|:)?\s*([A-Za-z]*[-/]?\d[A-Za-z0-9\-/]*)"
+_WORK_ORDER = re.compile(r"\b(?:work\s*order|job\s*card)\s*(?:(?:no\.?|number|#|:)\s*)?([A-Za-z]*[-/]?\d[A-Za-z0-9\-/]*)"
                          r"|\b(WO[-/]?\d[A-Za-z0-9\-/]*)", re.IGNORECASE)
+MAX_QUESTION_CHARS = 1000
 _ISO = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 
 
@@ -529,6 +530,7 @@ _COST_WORDS = re.compile(r"\b(cost|costs|spend|spent|spending|expense|expenses|p
 
 def choose_fleet_call(text: str, today: date) -> ToolCall | None:
     """A fleet operations tool for the question, or None when it is about tyres themselves."""
+    text = text[:MAX_QUESTION_CHARS]  # spoken or typed questions are short; bound the regex work
     lowered = text.lower()
     number = _WORK_ORDER.search(text)
     if number:

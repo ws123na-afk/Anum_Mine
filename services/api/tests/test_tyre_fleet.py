@@ -226,3 +226,17 @@ def test_read_query_refuses_unsafe_columns() -> None:
     rows = [{"d": "2026-01-02T08:00:00+00:00"}, {"d": "2026-01-05"}, {"d": None}]
     narrowed = sources.apply_query(rows, sources.ReadQuery(filters=(("d", "gte", "2026-01-02"),), order=("d", True)))
     assert [row["d"] for row in narrowed] == ["2026-01-05", "2026-01-02T08:00:00+00:00"]
+
+
+def test_question_parsing_stays_linear_on_long_whitespace() -> None:
+    # CodeQL py/polynomial-redos: "\s*(no|#)?\s*" backtracked on long runs of spaces.
+    import time
+    from datetime import date
+
+    from anum_api.tyre.fleet_tools import choose_fleet_call
+
+    started = time.perf_counter()
+    choose_fleet_call("truck" + " " * 50_000 + "x", date(2026, 10, 13))
+    choose_fleet_call("work order" + " " * 50_000 + "x", date(2026, 10, 13))
+    assert time.perf_counter() - started < 0.5
+    assert choose_fleet_call("work order   :   99A", date(2026, 10, 13)).arguments == {"work_order": "99A"}
