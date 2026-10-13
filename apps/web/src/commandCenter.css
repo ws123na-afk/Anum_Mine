@@ -1,10 +1,13 @@
-/* ANUM Command (CommandCenter.tsx) and the panels it shares with Home (HomeView.tsx, Panels.tsx).
-   Colours, radii and spacing come from the tokens in styles.css, so both themes follow; heights follow
-   content (no full-viewport sections). The space orb is the Voice page's (voice.css), not this one. */
+/* The ANUM Command Center (CommandCenter.tsx), in the classic layout the owner chose
+   (docs/design/anum360.md#web-command-center), and the panels it shares with Home (HomeView.tsx,
+   Panels.tsx). Colours, radii and spacing come from the tokens in styles.css, so both themes follow;
+   heights follow content (no full-viewport sections). */
 .commandCenter { display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); }
 .commandCenter > * { min-width: 0; }
-.commandComposer, .commandPanel, .rowList, .activityList { grid-template-columns: minmax(0, 1fr); }
+.commandComposer, .commandPanel, .filesPick, .tracker, .rowList, .activityList { grid-template-columns: minmax(0, 1fr); }
 .commandComposer > *, .commandPanel > * { min-width: 0; }
+/* The global `button svg` size would shrink the mark inside the orb. */
+.commandOrb .orbMark { height: 64px; width: 64px; }
 
 /* ---- Shared buttons */
 .primaryButton {
@@ -16,19 +19,87 @@
 .primaryButton svg, .smallButton svg { flex: none; height: 16px; width: 16px; }
 .showMore { font-size: 13px; justify-self: center; min-height: 36px; }
 
-/* ---- Header */
+/* ---- Header: title, promise and the mode tabs */
 .commandHeader { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s4); justify-content: space-between; }
-.commandHeader > div:first-child { max-width: 64ch; min-width: 0; }
-.commandHeader h1 { font-size: 30px; font-weight: 800; }
+.commandHeader > div:first-child { flex: 1 1 420px; max-width: 72ch; min-width: 0; }
+.commandHeader h1 { font-size: 32px; font-weight: 800; }
 .commandHeader p { color: var(--d-muted); font-size: 15px; margin-top: var(--d-s1); }
-.voiceLink { min-height: 44px; }
-.voiceLink svg { height: 18px; width: 18px; }
+.modeTabs { background: var(--d-chrome); border: 1px solid var(--d-line-strong); border-radius: 16px; display: inline-flex; gap: var(--d-s1); padding: var(--d-s1); }
+.modeTabs button {
+  align-items: center; background: transparent; border: 0; border-radius: var(--d-r-control); color: var(--d-muted); display: inline-flex; font-size: 14px;
+  font-weight: 600; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4);
+}
+.modeTabs button:hover { color: var(--d-text); }
+.modeTabs button.on { background: var(--d-primary-grad); box-shadow: var(--d-glow); color: #fff; }
+.modeTabs svg { height: 18px; width: 18px; }
+
+/* ---- Stage: chips around the orb, the language pills under it */
+.commandStage > * { min-width: 0; }
+.commandStage { align-items: center; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); position: relative; }
+.commandStage::before {
+  background: var(--d-stage-glow);
+  content: ""; height: 360px; inset-inline-start: 50%; pointer-events: none; position: absolute; top: 50%; transform: translate(-50%, -50%); width: min(820px, 100%);
+}
+[dir="rtl"] .commandStage::before { transform: translate(50%, -50%); }
+.orbChips { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; position: relative; }
+.orbChips.start { justify-items: end; }
+.orbChips.end { justify-items: start; }
+.orbChips.start li:nth-child(odd) { margin-inline-end: var(--d-s6); }
+.orbChips.end li:nth-child(even) { margin-inline-start: var(--d-s6); }
+.orbChip {
+  align-items: center; background: var(--d-chip); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--d-line-strong);
+  border-radius: 16px; box-shadow: var(--d-elev-1); color: var(--d-text); display: inline-flex; font-size: 14px; font-weight: 600; gap: var(--d-s3); min-height: 48px;
+  padding-block: var(--d-s1); padding-inline: var(--d-s2) var(--d-s4); transition: border-color 160ms var(--d-ease), transform 160ms var(--d-ease);
+}
+.orbChip:hover:not(:disabled) { border-color: rgb(var(--c-violet) / .6); transform: translateY(-1px); }
+.chipIcon { align-items: center; background: linear-gradient(135deg, rgba(79, 139, 255, .28), rgba(181, 107, 255, .28)); border-radius: 10px; color: var(--d-accent-text); display: inline-flex; flex: none; height: 32px; justify-content: center; width: 32px; }
+.chipIcon svg { height: 18px; width: 18px; }
+.orbColumn { align-items: center; display: grid; gap: var(--d-s3); justify-items: center; position: relative; }
+.commandOrb {
+  align-items: center; background: radial-gradient(circle at 50% 32%, #1d2b74 0%, #0d1540 52%, #070b1c 100%); border: 0; border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(111, 141, 255, .65), 0 0 36px rgba(99, 102, 241, .55), 0 0 90px rgba(139, 92, 246, .32), inset 0 0 44px rgba(79, 70, 229, .5);
+  /* The orb is the ANUM mark's midnight object in both themes, so its text is fixed light (16:1). */
+  color: #eef1f8; display: flex; flex-direction: column; gap: var(--d-s1); height: 224px; justify-content: center; position: relative; width: 224px;
+}
+.commandOrb:disabled { cursor: default; opacity: 1; }
+.commandOrb:focus-visible { outline: 3px solid var(--d-sky); outline-offset: 6px; }
+.orbHalo {
+  background: conic-gradient(from 0deg, rgba(79, 139, 255, .0), rgba(79, 139, 255, .55), rgba(181, 107, 255, .55), rgba(79, 139, 255, .0));
+  border-radius: 50%; filter: blur(14px); inset: -14px; opacity: .55; pointer-events: none; position: absolute; z-index: -1;
+}
+.commandOrb.listening .orbHalo { animation: orbSpin 3.2s linear infinite; opacity: .9; }
+.commandOrb.working .orbHalo { animation: orbSpin 6s linear infinite; opacity: .75; }
+.orbMark { filter: drop-shadow(0 6px 18px rgba(111, 107, 255, .55)); }
+.orbWave { align-items: center; display: flex; gap: 3px; height: 36px; }
+.orbWave i { background: linear-gradient(180deg, #a5f3fc, #818cf8 55%, #c084fc); border-radius: 2px; display: block; height: 30px; transform: scaleY(.18); transform-origin: center; width: 3px; }
+.orbWave i:nth-child(4n + 1) { transform: scaleY(.32); }
+.orbWave i:nth-child(6n + 3) { transform: scaleY(.5); }
+.orbWave i:nth-child(12) { transform: scaleY(.7); }
+.commandOrb.listening .orbWave i { animation: orbWave 900ms ease-in-out infinite; animation-delay: calc(var(--i) * -73ms); }
+.commandOrb.working .orbWave i { animation: orbWave 1600ms ease-in-out infinite; animation-delay: calc(var(--i) * -110ms); }
+.orbTitle { font-size: 18px; font-weight: 700; margin-top: var(--d-s1); }
+.orbCaption { color: #c3cbe0; font-size: 13px; max-width: 176px; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes orbWave { 0%, 100% { transform: scaleY(.18); } 50% { transform: scaleY(1); } }
+
+/* ---- Files mode: pick documents to attach */
+.filesPick { display: grid; gap: var(--d-s2); padding: var(--d-s4); }
+.filesPick .small { font-size: 13px; }
+.pickList { display: grid; gap: var(--d-s1); grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); list-style: none; margin: 0; padding: 0; }
+.pickRow { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); cursor: pointer; display: grid; gap: var(--d-s2); grid-template-columns: auto 18px minmax(0, 1fr) auto; min-height: 44px; padding: var(--d-s2) var(--d-s3); }
+.pickRow:has(input:checked) { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .55); }
+.pickRow input { accent-color: var(--d-violet); height: 18px; margin: 0; min-height: 0; width: 18px; }
+.pickRow svg { color: var(--d-blue); height: 18px; width: 18px; }
+.pickRow span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pickRow small { color: var(--d-faint); font-size: 12px; }
 
 /* ---- Composer */
 .commandComposer { border-color: var(--d-line-strong); display: grid; gap: var(--d-s3); padding: var(--d-s4); }
 .composerTitle { font-size: 16px; }
 .composerRow { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: 48px minmax(0, 1fr) auto 52px; }
-.composerRow textarea { background: var(--d-field); border-radius: 14px; font-size: 16px; line-height: 1.4; max-height: 200px; min-height: 64px; padding: 12px var(--d-s4); resize: vertical; }
+.composerRow textarea { background: var(--d-field); border-radius: 14px; font-size: 16px; line-height: 1.4; max-height: 200px; min-height: 52px; padding: 13px var(--d-s4); resize: vertical; }
+.composerExample { color: var(--d-faint); font-size: 13px; padding-inline-start: 56px; }
+.quickRow { align-items: center; display: flex; gap: var(--d-s2); }
+.quickRow .quickChips { flex: 1; }
 .composerMic, .sendButton { align-items: center; border: 0; border-radius: 50%; display: inline-flex; justify-content: center; }
 .composerMic { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); color: var(--d-accent-text); height: 48px; width: 48px; }
 .composerMic.on { background: rgb(var(--c-danger) / .25); border-color: rgb(var(--c-stop) / .6); color: var(--d-error-text); }
@@ -42,7 +113,8 @@
 .toolButton { align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-muted); display: inline-flex; height: 44px; justify-content: center; width: 44px; }
 .toolButton:hover, .toolButton[aria-pressed="true"] { background: var(--d-glass-2); border-color: var(--d-line); color: var(--d-text); }
 .toolButton svg { height: 20px; width: 20px; }
-.languagePills { align-items: center; background: var(--d-chrome); border: 1px solid var(--d-line-strong); border-radius: 999px; display: inline-flex; gap: var(--d-s1); padding: var(--d-s1); }
+.languagePills { align-items: center; background: var(--d-chrome); border: 1px solid var(--d-line-strong); border-radius: 999px; display: inline-flex; gap: var(--d-s1); padding-block: var(--d-s1); padding-inline: var(--d-s3) var(--d-s1); position: relative; }
+.languagePills > svg { color: var(--d-muted); height: 18px; width: 18px; }
 .languagePills button { background: transparent; border: 0; border-radius: 999px; color: var(--d-muted); font-size: 13px; font-weight: 600; min-height: 36px; padding: 0 var(--d-s4); }
 .languagePills button.on { background: var(--d-glass-3); color: var(--d-text); }
 .attachList { display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
@@ -129,6 +201,84 @@
 .riskBadge.risk-low { background: var(--d-glass-2); border-color: var(--d-line); color: var(--d-muted); }
 .riskBadge.risk-medium { background: rgb(var(--c-warn) / .12); border-color: rgb(var(--c-warn) / .3); color: var(--d-warn); }
 
+/* ---- Capability tiles */
+.tilesRow { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); }
+.tilesArrow { display: none; }
+.tiles { display: grid; gap: var(--d-s3); grid-auto-columns: minmax(112px, 1fr); grid-auto-flow: column; list-style: none; margin: 0; overflow-x: auto; padding: 2px 2px var(--d-s1); scroll-snap-type: x proximity; scrollbar-width: thin; }
+.tiles li { scroll-snap-align: start; }
+.tile {
+  align-items: center; background: linear-gradient(180deg, var(--d-surface-2), var(--d-surface-1)); border: 1px solid var(--d-line); border-radius: 16px; color: var(--d-text);
+  display: grid; font-size: 13px; font-weight: 600; gap: var(--d-s2); justify-items: center; min-height: 92px; padding: var(--d-s3) var(--d-s2); text-align: center; width: 100%;
+}
+.tile:hover:not(:disabled) { border-color: rgb(var(--c-violet) / .55); box-shadow: var(--d-glow); }
+.tileIcon { align-items: center; border-radius: 12px; color: #fff; display: inline-flex; height: 40px; justify-content: center; width: 40px; }
+.tileIcon svg { height: 22px; width: 22px; }
+.tile-email .tileIcon { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+.tile-analysis .tileIcon { background: linear-gradient(135deg, #7c3aed, #a855f7); }
+.tile-reports .tileIcon { background: linear-gradient(135deg, #047857, #10b981); }
+.tile-voice .tileIcon { background: linear-gradient(135deg, #be123c, #f43f5e); }
+.tile-whatsapp .tileIcon { background: linear-gradient(135deg, #15803d, #22c55e); }
+.tile-tasks .tileIcon { background: linear-gradient(135deg, #1d4ed8, #0ea5e9); }
+.tile-research .tileIcon { background: linear-gradient(135deg, #4338ca, #6366f1); }
+.tile-automations .tileIcon { background: linear-gradient(135deg, #b45309, #f59e0b); }
+
+/* ---- The command ANUM is on: a step timeline */
+.trackerCommand { -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--d-muted); display: -webkit-box; font-size: 13px; overflow: hidden; overflow-wrap: anywhere; }
+.tracker { display: grid; list-style: none; margin: 0; padding: 0; }
+.phase { display: grid; gap: var(--d-s3); grid-template-columns: 24px minmax(0, 1fr); padding-bottom: var(--d-s3); position: relative; }
+.phase:last-child { padding-bottom: 0; }
+.phase:not(:last-child)::before { background: var(--d-line-strong); bottom: 0; content: ""; inset-inline-start: 11px; position: absolute; top: 26px; width: 2px; }
+.phase.done:not(:last-child)::before { background: rgb(var(--c-ok) / .55); }
+.phaseIcon svg { display: block; height: 24px; width: 24px; }
+.phase.done .phaseIcon { color: var(--d-ok); }
+.phase.active .phaseIcon { color: var(--d-blue); }
+.phase.waiting .phaseIcon { color: var(--d-warn); }
+.phase.failed .phaseIcon { color: var(--d-stop); }
+.phase.todo .phaseIcon { color: var(--d-faint); }
+.phaseText { display: grid; gap: 2px; justify-items: start; min-width: 0; }
+.phaseText > * { max-width: 100%; }
+.phaseText strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.phase.todo .phaseText strong { color: var(--d-muted); }
+.phaseText small { align-items: center; color: var(--d-faint); display: inline-flex; flex-wrap: wrap; font-size: 12px; gap: 4px; }
+.phaseText small svg { color: var(--d-accent-soft); height: 13px; width: 13px; }
+.phaseText small code { background: var(--d-glass-2); border-radius: 6px; font-size: 12px; padding: 0 5px; }
+.phase.active .phaseText small { color: var(--d-accent-soft); }
+.phase.waiting .phaseText small { color: var(--d-warn); }
+.phase.failed .phaseText small { color: var(--d-stop); }
+.phaseText .trackerResult { margin-top: var(--d-s1); width: 100%; }
+.phaseText .linkButton { font-size: 13px; min-height: 32px; }
+
+/* ---- Bottom bar: Talk, Chat, Automate, Agents */
+.actionBar { background: linear-gradient(180deg, var(--d-surface-2), var(--d-surface-1)); border: 1px solid var(--d-line); border-radius: 24px; box-shadow: var(--d-elev-1); display: grid; gap: var(--d-s2); grid-template-columns: repeat(4, minmax(0, 1fr)); padding: var(--d-s2); }
+.barItem { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 18px; color: var(--d-text); display: grid; gap: 2px; justify-items: center; min-height: 84px; padding: var(--d-s2); text-align: center; }
+.barItem svg { background: var(--d-glass-2); border-radius: 50%; box-sizing: content-box; height: 22px; padding: 9px; width: 22px; }
+.barItem strong { font-size: 15px; }
+.barItem small { color: var(--d-muted); font-size: 12px; }
+.barItem:hover { background: var(--d-glass-1); border-color: var(--d-line); }
+.barItem.primary { background: var(--d-primary-grad); box-shadow: var(--d-glow); color: #fff; }
+.barItem.primary svg { background: rgba(255, 255, 255, .18); }
+.barItem.primary small { color: var(--d-on-primary-soft); }
+
+/* ---- Rows on the Command Center sit on the panel's own surface (no white cards inside dark panels) */
+.commandCenter .listRow { background: var(--d-glass-1); border-color: var(--d-line); color: var(--d-text); }
+.commandCenter .listRow:hover:not(:disabled) { background: var(--d-glass-2); border-color: var(--d-line-strong); }
+.commandCenter .listRow:disabled { cursor: default; opacity: .7; }
+.commandCenter .rowText strong { color: var(--d-text); }
+.commandCenter .rowText small { color: var(--d-muted); }
+.commandCenter .rowIcon { background: rgb(var(--c-blue) / .16); color: var(--d-accent-text); }
+.commandCenter .rowIcon.success { background: rgb(var(--c-ok) / .14); color: var(--d-ok); }
+.commandCenter .rowIcon.warning, .commandCenter .rowIcon.bulb { background: rgb(var(--c-warn) / .14); color: var(--d-warn); }
+.commandCenter .rowIcon.dangerTone, .commandCenter .rowIcon.danger, .commandCenter .rowIcon.file { background: rgb(var(--c-stop) / .14); color: var(--d-stop); }
+.commandCenter .rowIcon.neutral { background: var(--d-glass-3); color: var(--d-muted); }
+.commandCenter .rowIcon.bulb.info { background: rgb(var(--c-violet) / .16); color: var(--d-accent-text); }
+.commandCenter .listRow .statusBadge.success { background: rgb(var(--c-ok) / .12); border-color: rgb(var(--c-ok) / .25); color: var(--d-ok); }
+.commandCenter .listRow .statusBadge.warning { background: rgb(var(--c-warn) / .12); border-color: rgb(var(--c-warn) / .25); color: var(--d-warn); }
+.commandCenter .listRow .statusBadge.dangerTone { background: rgb(var(--c-stop) / .12); border-color: rgb(var(--c-stop) / .28); color: var(--d-stop); }
+.commandCenter .listRow .statusBadge.neutral { background: var(--d-glass-2); border-color: var(--d-line); color: var(--d-muted); }
+.commandCenter .listRow .progress { background: var(--d-glass-3); }
+.rowChevron { color: var(--d-muted); height: 18px; width: 18px; }
+.splitRow { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) auto; }
+
 /* ---- The plan */
 .planRequest { color: var(--d-muted); font-size: 14px; overflow-wrap: anywhere; }
 .planSummary { color: var(--d-muted); font-size: 13px; }
@@ -166,7 +316,9 @@
 .detailFiles svg { height: 16px; width: 16px; }
 
 /* ---- Saved commands */
+.quickHeadTools { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .segmented { background: var(--d-chrome); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); display: inline-flex; flex-wrap: wrap; gap: var(--d-s1); justify-self: start; max-width: 100%; padding: var(--d-s1); }
+.quickHeadTools .segmented button { min-height: 32px; }
 .segmented button { background: transparent; border: 0; border-radius: 9px; color: var(--d-muted); font-size: 13px; font-weight: 600; min-height: 36px; padding: 0 var(--d-s3); }
 .segmented button.on { background: var(--d-glass-3); color: var(--d-text); }
 .quickForm { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
@@ -186,22 +338,52 @@
 /* ---- Responsive */
 @media (max-width: 1100px) {
   .commandGrid.split { grid-template-columns: minmax(0, 1fr); }
+  .tilesRow { grid-template-columns: 44px minmax(0, 1fr) 44px; }
+  .tilesArrow { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 50%; color: var(--d-text); display: inline-flex; height: 44px; justify-content: center; width: 44px; }
+  .tilesArrow svg { height: 20px; width: 20px; }
+}
+@media (max-width: 1180px) {
+  .commandStage { grid-template-columns: minmax(0, 1fr); }
+  .orbColumn { order: -1; }
+  .orbChips { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: center; }
+  .orbChips.start li:nth-child(odd), .orbChips.end li:nth-child(even) { margin: 0; }
+  .orbChip { min-height: 44px; }
 }
 @media (max-width: 760px) {
   .commandHeader h1 { font-size: 26px; }
+  .modeTabs { width: 100%; }
+  .modeTabs button { flex: 1; justify-content: center; padding: 0 var(--d-s2); }
+  .commandOrb { height: 196px; width: 196px; }
+  .commandStage::before { height: 300px; }
   .quickForm { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 480px) {
   .composerRow { grid-template-areas: "input input input" "mic tools send"; grid-template-columns: 48px minmax(0, 1fr) 52px; }
-  .composerRow textarea { grid-area: input; min-height: 96px; }
+  .composerRow textarea { grid-area: input; min-height: 72px; }
   .composerMic { grid-area: mic; }
   .composerTools { grid-area: tools; justify-content: flex-end; }
   .sendButton { grid-area: send; }
   .quickChip { max-width: none; }
+  .composerExample { padding-inline-start: 0; }
+  .commandOrb { height: 176px; width: 176px; }
+  .commandOrb .orbMark { height: 48px; width: 48px; }
+  .orbChip { font-size: 13px; gap: var(--d-s2); padding-inline-end: var(--d-s3); }
+  .chipIcon { height: 28px; width: 28px; }
+  .tilesRow { grid-template-columns: minmax(0, 1fr); }
+  .tilesArrow { display: none; }
+  .barItem { min-height: 68px; }
+  .barItem small { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  .barItem { position: relative; }
   .planStep { grid-template-columns: 28px minmax(0, 1fr); }
   .planTools { grid-column: 2; }
-  .voiceLink { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .skeletonRow, .spin { animation: none; }
+  .skeletonRow, .spin, .commandOrb .orbHalo, .commandOrb .orbWave i { animation: none; }
+  .orbChip { transition: none; }
 }
+
+/* ---- Command Center panels size to their content (no stretched, half-empty panels) */
+.commandCenter .commandGrid { align-items: start; }
+.trackerPanel .planActions { justify-content: flex-start; }
+.trackerPanel .nextSteps .quickChips { gap: var(--d-s1) var(--d-s2); }
+.phaseText .trackerResult { max-height: 180px; }
