@@ -590,11 +590,15 @@ class SupabaseRestSource:
         """When the project does not publish its table list: look for TyrePulse's tables one by one."""
         headers = await self._data_headers()
         tables = []
+        refused: list[str] = []
         for name in _KNOWN_TABLES:
             path = f"/rest/v1/{quote(name, safe='')}"
             response = await self._send("GET", path, params={"select": "*", "limit": "1"}, headers=headers)
             if response.status_code in (400, 404):
                 continue  # no such table (PostgREST answers 404, older versions 400)
+            if response.status_code == 403:
+                refused.append(name)  # not shared with this key (e.g. the reader's table list): skip it
+                continue
             if response.status_code >= 400:
                 raise TyreSourceError(_http_problem(response.status_code, "Supabase"))
             try:
@@ -609,6 +613,8 @@ class SupabaseRestSource:
                                                                "limit": "0"}, headers=headers)
                 columns = wanted if check.status_code < 400 else []
             tables.append(SourceTable(name=name, columns=[SourceColumn(name=column, type="unknown") for column in columns]))
+        if refused and not tables:
+            raise TyreSourceError(_http_problem(403, "Supabase"))
         return tables
 
     async def discover(self) -> list[SourceTable]:
@@ -819,10 +825,14 @@ class SupabaseAuthSource(SupabaseRestSource):
     async def _probe_visible(self, session: _AuthSession) -> list[tuple[str, int]]:
         headers = {**self._headers(), "authorization": f"Bearer {session.access_token}"}
         found = []
+        refused = 0
         for name in _KNOWN_TABLES:
             response = await self._send("GET", f"/rest/v1/{quote(name, safe='')}",
                                         params={"select": "*", "limit": "1"}, headers=headers)
             if response.status_code in (400, 404):
+                continue
+            if response.status_code == 403:
+                refused += 1  # not in the reader's table list yet (infra/tyrepulse/*-extend.sql): skip it
                 continue
             if response.status_code >= 400:
                 raise TyreSourceError(_http_problem(response.status_code, "Supabase"))
@@ -831,6 +841,8 @@ class SupabaseAuthSource(SupabaseRestSource):
             except ValueError:
                 rows = []
             found.append((name, len(rows) if isinstance(rows, list) else 0))
+        if refused and not found:
+            raise TyreSourceError(_http_problem(403, "Supabase"))
         return found
 
 
