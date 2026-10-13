@@ -109,6 +109,13 @@ class AgentPlanner:
         return choose_tool_call(prompt, skills, response.text, tools)
 
 
+def _fleet_work_words(prompt: str) -> bool:
+    import re
+
+    return bool(re.search(r"\b(work\s*orders?|job\s*cards?|workshop|maintenance)\b|أوامر العمل|أمر عمل|ورشة|صيانة",
+                          prompt, re.IGNORECASE))
+
+
 def choose_tool_call(
     prompt: str, skills: Sequence[SkillManifest], planned_text: str, available_tools: Collection[str] = ()
 ) -> ToolCall:
@@ -139,6 +146,11 @@ def choose_tool_call(
         from .email_inbox import SEARCH_TOOL, tool_arguments_from_prompt
 
         return ToolCall(name=SEARCH_TOOL, arguments=tool_arguments_from_prompt(prompt))
+    if any(skill.id == "anum.tyre-planning" for skill in skills) and _fleet_work_words(prompt):
+        # "open work orders for truck 12" is fleet maintenance, not a sales order.
+        from .tyre.tools import choose_call as choose_tyre_call
+
+        return choose_tyre_call(prompt)
     if any(skill.id == "anum.commerce" for skill in skills):
         # Parsed from the user's own prompt only (threat model G5); None falls through.
         from .commerce.tools import plan_call

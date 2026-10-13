@@ -371,11 +371,73 @@ def _tyre_items(tool: str, output: dict[str, Any]) -> tuple[list[ChatCardItem], 
                 )
             )
         return items, len(items)
-    return [], 0
+    return _fleet_items(tool, output)
+
+
+def _fleet_items(tool: str, output: dict[str, Any]) -> tuple[list[ChatCardItem], int]:
+    """Card rows for the fleet operations tools (docs/tyre-planning.md#assistant)."""
+    items: list[ChatCardItem] = []
+    rows = [row for row in output.get("items") or [] if isinstance(row, dict)]
+    if tool == "tyre_vehicles":
+        for row in rows[:50]:
+            items.append(ChatCardItem(
+                kind="tyre", id=_clip(row.get("vehicle_id"), 120), title=_clip(row.get("label"), TITLE_CHARS) or "",
+                subtitle=_clip(row.get("site"), TITLE_CHARS),
+                detail=_clip(f"{row.get('tyres_fitted', 0)} tyres · {row.get('open_work_orders', 0)} open work orders", DETAIL_CHARS),
+                at=_clip(row.get("last_inspected"), 40)))
+    elif tool == "tyre_inspections":
+        for row in rows[:50]:
+            items.append(ChatCardItem(
+                kind="tyre", id=_clip(row.get("id"), 120), title=_clip(row.get("vehicle_id"), TITLE_CHARS) or "",
+                subtitle=_clip(" · ".join(str(v) for v in (row.get("site"), row.get("status")) if v), TITLE_CHARS),
+                detail=_clip(f"{row.get('positions_read', 0)} positions read", DETAIL_CHARS),
+                at=_clip(row.get("inspected_at"), 40)))
+    elif tool == "tyre_checklists":
+        for row in rows[:50]:
+            items.append(ChatCardItem(
+                kind="tyre", id=_clip(row.get("id"), 120),
+                title=_clip(row.get("template") or row.get("title"), TITLE_CHARS) or "",
+                subtitle=_clip(" · ".join(str(v) for v in (row.get("vehicle_id"), row.get("site")) if v), TITLE_CHARS),
+                detail=_clip(f"{row['score_pct']:g}%" if isinstance(row.get("score_pct"), (int, float)) else row.get("status"), DETAIL_CHARS),
+                at=_clip(row.get("submitted_at"), 40),
+                badges=["priority_high"] if row.get("passed") is False else []))
+    elif tool == "tyre_work_orders":
+        for row in rows[:50]:
+            items.append(ChatCardItem(
+                kind="tyre", id=_clip(row.get("id"), 120), title=_clip(row.get("id"), TITLE_CHARS) or "",
+                subtitle=_clip(" · ".join(str(v) for v in (row.get("vehicle_id"), row.get("site")) if v), TITLE_CHARS),
+                detail=_clip(" · ".join(str(v) for v in (row.get("work_type"), row.get("status")) if v), DETAIL_CHARS),
+                at=_clip(row.get("opened_at"), 40)))
+    elif tool == "tyre_vehicle_detail":
+        vehicle = output.get("vehicle") if isinstance(output.get("vehicle"), dict) else {}
+        for row in [r for r in vehicle.get("tyres") or [] if isinstance(r, dict)][:50]:
+            tread = row.get("current_tread_mm")
+            items.append(ChatCardItem(
+                kind="tyre", id=_clip(row.get("tyre_id"), 120), title=_clip(row.get("serial") or row.get("tyre_id"), TITLE_CHARS) or "",
+                subtitle=_clip(" ".join(str(v) for v in (vehicle.get("label"), row.get("position")) if v), TITLE_CHARS),
+                detail=_clip(" · ".join(p for p in (row.get("size"), f"{float(tread):.1f} mm" if isinstance(tread, (int, float)) else None) if p), DETAIL_CHARS),
+                at=_clip(row.get("projected_removal"), 40)))
+        return items, len(items)
+    elif tool == "tyre_maintenance_costs":
+        currency = output.get("currency")
+        for row in [r for r in output.get("groups") or [] if isinstance(r, dict)][:50]:
+            items.append(ChatCardItem(
+                kind="tyre", title=_clip(row.get("key"), TITLE_CHARS) or "",
+                subtitle=_clip(f"{row.get('work_orders', 0)} work orders", TITLE_CHARS),
+                detail=_clip(_money(row.get("total_cost"), currency), DETAIL_CHARS)))
+        return items, len(items)
+    else:
+        return [], 0
+    return items, max(int(output.get("total") or 0), len(items))
 
 
 COMMERCE_READ_TOOLS = frozenset({"commerce.sales_summary", "commerce.list_orders", "commerce.get_order", "commerce.low_stock"})
-TYRE_READ_TOOLS = frozenset({"tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts"})
+TYRE_READ_TOOLS = frozenset({
+    "tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts",
+    # Fleet operations (docs/tyre-planning.md#assistant).
+    "tyre_vehicles", "tyre_vehicle_detail", "tyre_inspections", "tyre_checklists", "tyre_work_orders",
+    "tyre_maintenance_costs",
+})
 
 
 def items_with_total(tool: str | None, result: "ToolResult | None") -> tuple[list[ChatCardItem], int]:

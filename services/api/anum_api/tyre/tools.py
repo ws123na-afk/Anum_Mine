@@ -1,12 +1,16 @@
 """Tyre planning tools for tasks, chat and voice (docs/tyre-planning.md#assistant).
 
-Four read-only, low-risk tools answer from the workspace's synced tyre data, with the
+Read-only, low-risk tools answer from the workspace's synced tyre data, with the
 numbers in the summary so an answer can show them:
 
-* ``tyre_fleet_summary`` - fleet health: tread, pressure compliance, overdue, due, cost.
+* ``tyre_fleet_summary`` - fleet health: tread, pressure compliance, overdue, due, cost,
+  and the operations counts (vehicles inspected, checklists, open work orders).
 * ``tyres_due`` - tyres projected for removal in a month (``month``: ``YYYY-MM``).
 * ``purchase_plan`` - quantities and estimated cost by size and brand (``months`` or ``month``).
 * ``tyre_alerts`` - open alerts, most severe first.
+* the fleet operations tools in ``fleet_tools.py``: vehicles, one vehicle's tyres and
+  readings, inspections and schedules, workshop checklists, work orders and maintenance
+  costs.
 
 Tasks reach them through the ``anum.tyre-planning`` skill and the planner. Chat and
 voice ground their answers with :func:`tyre_grounding`, which picks the tool from the
@@ -27,15 +31,16 @@ from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult, to
 from ..authorization import Permission
 from ..dependencies import has_permission
 from ..schemas import RiskLevel, TenantContext, utc_now
-from . import service
+from . import fleet, fleet_tools, service
 from .analytics import fleet_summary, purchase_plan
+from .model import Entity
 from .store import open_tyre_store
 
 FLEET_SUMMARY = "tyre_fleet_summary"
 TYRES_DUE = "tyres_due"
 PURCHASE_PLAN = "purchase_plan"
 TYRE_ALERTS = "tyre_alerts"
-TOOL_NAMES = (FLEET_SUMMARY, TYRES_DUE, PURCHASE_PLAN, TYRE_ALERTS)
+TOOL_NAMES = (FLEET_SUMMARY, TYRES_DUE, PURCHASE_PLAN, TYRE_ALERTS, *fleet_tools.FLEET_TOOL_NAMES)
 SKILL_ID = "anum.tyre-planning"
 MAX_LISTED = 15
 
@@ -44,6 +49,7 @@ _DEFINITIONS = {
     TYRES_DUE: "List tyres projected for removal in a month (month: YYYY-MM); read-only.",
     PURCHASE_PLAN: "Tyre purchase plan by month, size and brand with estimated cost (months: 1-36); read-only.",
     TYRE_ALERTS: "List open tyre alerts (low tread, pressure, overdue inspections, wear, cost); read-only.",
+    **fleet_tools.DEFINITIONS,
 }
 
 _registry: ToolRegistry | None = None
@@ -85,6 +91,10 @@ async def fleet_summary_tool(call: ToolCall, context: TenantContext) -> ToolResu
     summary = fleet_summary(loaded.snapshot.dataset, loaded.connection.assumptions, today, forecasts)
     with open_tyre_store(context) as store:
         counts = store.alert_counts(context)
+    mapping = loaded.connection.mapping
+    work_orders = mapping.entities.get(Entity.WORK_ORDERS) if mapping else None
+    operations = fleet.operations_summary(loaded.snapshot.dataset, today,
+                                          work_orders.window_days if work_orders else None)
     text = (
         f"Fleet tyre health on {today.isoformat()} (data synced {loaded.snapshot.stats.synced_at:%Y-%m-%d %H:%M} UTC): "
         f"{summary.vehicles} vehicles, {summary.tyres_fitted} tyres fitted, {summary.tyres_in_stock} in stock. "
@@ -95,11 +105,18 @@ async def fleet_summary_tool(call: ToolCall, context: TenantContext) -> ToolResu
         f"{summary.overdue_inspections} tyres are overdue for inspection. "
         f"{summary.due_next_30_days} tyres are due for removal in 30 days and {summary.due_next_90_days} in 90 days. "
         f"Cost per 1000 km {_fmt(summary.cost_per_1000_km, ' ' + summary.currency, 2)}. "
-        f"Open alerts: {counts.get('critical', 0)} critical, {counts.get('warning', 0)} warnings, {counts.get('info', 0)} info."
+        f"Open alerts: {counts.get('critical', 0)} critical, {counts.get('warning', 0)} warnings, {counts.get('info', 0)} info. "
+        f"Inspections: {operations.inspections_last_30_days} in the last 30 days covering "
+        f"{operations.vehicles_inspected_last_30_days} vehicles ({operations.vehicles_inspected_last_90_days} in 90 days), "
+        f"{operations.tyre_readings} tyre readings ({operations.readings_on_tyre_records} matched to a tyre record); "
+        f"{operations.schedules_overdue} scheduled inspections overdue. "
+        f"Workshop: {operations.checklists_last_30_days} checklists in 30 days "
+        f"({operations.checklists_failed_last_30_days} failed), {operations.work_orders_open} open work orders."
     )
     return ToolResult(
         status="succeeded", summary=text,
-        output={"summary": summary.model_dump(mode="json"), "open_alerts": counts},
+        output={"summary": summary.model_dump(mode="json"), "open_alerts": counts,
+                "operations": operations.model_dump(mode="json")},
         audit_metadata={"outcome": "answered", "tyres_fitted": summary.tyres_fitted},
     )
 
@@ -246,16 +263,26 @@ async def tyre_alerts_tool(call: ToolCall, context: TenantContext) -> ToolResult
     )
 
 
+def _guarded(handler):  # type: ignore[no-untyped-def]
+    async def run(call: ToolCall, context: TenantContext) -> ToolResult:
+        if (denied := _guard(context)) is not None:
+            return denied
+        return await handler(call, context)
+
+    return run
+
+
 _HANDLERS = {
     FLEET_SUMMARY: fleet_summary_tool,
     TYRES_DUE: tyres_due_tool,
     PURCHASE_PLAN: purchase_plan_tool,
     TYRE_ALERTS: tyre_alerts_tool,
+    **{name: _guarded(handler) for name, handler in fleet_tools.HANDLERS.items()},
 }
 
 
 def register_tyre_tools(registry: ToolRegistry) -> ToolRegistry:
-    """Add the four read-only tools (the API's and the worker's registries)."""
+    """Add the read-only tyre and fleet tools (the API's and the worker's registries)."""
     global _registry
     for name, handler in _HANDLERS.items():
         if name not in registry.names:
@@ -273,7 +300,9 @@ def register_tyre_tools(registry: ToolRegistry) -> ToolRegistry:
 # --- choosing a tool from the user's words ------------------------------------------------
 
 _TYRE_WORDS = re.compile(
-    r"\b(tyres?|tires?|tread|treads|inflation|puncture|retread)\b|(إطار|إطارات|اطار|اطارات|كفر|كفرات|التآكل|المداس)",
+    r"\b(tyres?|tires?|tread|treads|inflation|puncture|retread|inspections?|inspected|check\s*lists?|"
+    r"work\s*orders?|job\s*cards?|workshop|maintenance|odometer|mileage|fleet|vehicles?|trucks?)\b"
+    r"|(إطار|إطارات|اطار|اطارات|كفر|كفرات|التآكل|المداس|فحص|الفحوصات|المركبات|مركبة|الشاحنات|ورشة|صيانة)",
     re.IGNORECASE,
 )
 
@@ -286,6 +315,9 @@ def choose_call(text: str, today: date | None = None) -> ToolCall:
     """The tool and arguments for a tyre question, from the user's own words only."""
     today = today or utc_now().date()
     lowered = text.lower()
+    operations = fleet_tools.choose_fleet_call(text, today)
+    if operations is not None:
+        return operations
     if re.search(r"\b(alerts?|warnings?|alarms?|pressure|inflat\w*|overdue)\b", lowered) or re.search(
         r"تنبيه|تنبيهات|ضغط|إنذار", text
     ):

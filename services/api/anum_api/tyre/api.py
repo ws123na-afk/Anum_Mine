@@ -31,8 +31,9 @@ from .analytics import (
     fleet_summary,
     purchase_plan,
 )
+from .fleet import OperationsSummary, operations_summary
 from .mapping import PRESETS, SourceTable, fit_to_schema
-from .model import ENTITY_FIELDS, Assumptions, FieldSpec, SourceKind, TyreMapping
+from .model import ENTITY_FIELDS, Assumptions, Entity, FieldSpec, SourceKind, TyreMapping, dataset_counts
 from .reports import summary_text, to_csv, to_pdf
 from .sources import (
     TyreSourceError,
@@ -161,11 +162,7 @@ def _setup(context: TenantContext) -> SetupView:
         sync = SyncView(
             synced_at=snapshot.stats.synced_at, synced_by=snapshot.synced_by, duration_ms=snapshot.stats.duration_ms,
             entities={key: value.model_dump() for key, value in snapshot.stats.entities.items()},
-            counts={"vehicles": len(snapshot.dataset.vehicles), "tyres": len(snapshot.dataset.tyres),
-                    "inspections": len(snapshot.dataset.inspections),
-                    "pressure_readings": len(snapshot.dataset.pressure_readings),
-                    "removals": len(snapshot.dataset.removals), "costs": len(snapshot.dataset.costs),
-                    "suppliers": len(snapshot.dataset.suppliers)},
+            counts=dataset_counts(snapshot.dataset),
         )
     mapping = connection.mapping if connection else None
     return SetupView(
@@ -429,6 +426,8 @@ def _loaded(context: TenantContext) -> tuple[service.Loaded, list[TyreForecast]]
 
 class DashboardView(BaseModel):
     summary: FleetSummary
+    # Vehicles inspected, schedules, checklists, work orders (docs/tyre-planning.md#fleet-operations-data).
+    operations: OperationsSummary
     synced_at: datetime
     alert_counts: dict[str, int]
     top_alerts: list[TyreAlert]
@@ -451,8 +450,11 @@ async def dashboard(context: TenantContext = Depends(tenant_context)) -> Dashboa
             when = max(item.projected_removal, today)
             key = f"{when.year:04d}-{when.month:02d}"
             by_month[key] = by_month.get(key, 0) + 1
+    mapping = loaded.connection.mapping
+    work_orders = mapping.entities.get(Entity.WORK_ORDERS) if mapping else None
+    operations = operations_summary(loaded.snapshot.dataset, today, work_orders.window_days if work_orders else None)
     return DashboardView(
-        summary=summary, synced_at=loaded.snapshot.stats.synced_at, alert_counts=counts, top_alerts=top,
+        summary=summary, operations=operations, synced_at=loaded.snapshot.stats.synced_at, alert_counts=counts, top_alerts=top,
         due_soon=[item for item in forecasts if item.projected_removal][:10], due_by_month=dict(sorted(by_month.items())),
     )
 

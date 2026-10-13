@@ -15,6 +15,10 @@ policies). The tests prove what the docs promise the owner:
 * TyrePulse's own users are unaffected;
 * ANUM signs in, discovers, previews and syncs through a PostgREST stand-in that runs each
   request against this database, and gets organisation A's data only;
+* the extend file (``supabase-anum-reader-extend.sql``) adds the operational tables
+  (inspections, work orders, checklists...) under the same pin: own organisation only, GET
+  only, no writes; it skips a table without ``organisation_id`` and never adds personal data
+  (``drivers``); its rollback takes them off again;
 * the rollback file removes everything, and the file can be applied again.
 """
 
@@ -32,6 +36,7 @@ from sqlalchemy import make_url
 
 from anum_api.tyre import sources
 from supabase_emulation import (
+    OPERATION_TABLES,
     ORG,
     ORG_B,
     PUBLISHABLE_KEY,
@@ -50,6 +55,8 @@ pytestmark = pytest.mark.database
 ROOT = Path(__file__).resolve().parents[3]
 READER_SQL = str(ROOT / "infra" / "tyrepulse" / "supabase-anum-reader.sql")
 ROLLBACK_SQL = str(ROOT / "infra" / "tyrepulse" / "supabase-anum-reader-rollback.sql")
+EXTEND_SQL = str(ROOT / "infra" / "tyrepulse" / "supabase-anum-reader-extend.sql")
+EXTEND_ROLLBACK_SQL = str(ROOT / "infra" / "tyrepulse" / "supabase-anum-reader-extend-rollback.sql")
 DATABASE = "anum_test_tyrepulse"
 READER = USERS["reader"]
 URL = "https://tyrepulse.example.supabase.co"
@@ -62,7 +69,7 @@ def _superuser_conninfo() -> str:
 
 
 @pytest.fixture(scope="module")
-def project() -> Iterator[tuple[SupabaseProject, str, list[str]]]:
+def project() -> Iterator[tuple[SupabaseProject, str, list[str], list[str]]]:
     superuser = _superuser_conninfo()
     with psycopg.connect(superuser, autocommit=True) as conn:
         if not conn.execute("select rolsuper from pg_roles where rolname = current_user").fetchone()[0]:  # type: ignore[index]
@@ -70,9 +77,11 @@ def project() -> Iterator[tuple[SupabaseProject, str, list[str]]]:
     built, old_state = create_project(superuser, DATABASE)
     notices = run_file(built, READER_SQL)
     run_file(built, READER_SQL)  # idempotent
+    extend_notices = run_file(built, EXTEND_SQL)
+    run_file(built, EXTEND_SQL)  # idempotent
     with built.connect() as conn:
         conn.execute("select * from anum_integration.register_reader(%s)", (READER.email,))
-    yield built, old_state, notices
+    yield built, old_state, notices, extend_notices
     with psycopg.connect(superuser, autocommit=True) as conn:
         drop_project_objects(conn, DATABASE)
 
@@ -92,7 +101,7 @@ def _rows(project: SupabaseProject, user_key: str, table: str) -> list[tuple[str
 
 
 def test_the_permanent_jwt_claims_setting_is_refused_and_the_old_login_is_removed(project) -> None:  # type: ignore[no-untyped-def]
-    built, old_state, notices = project
+    built, old_state, notices, _ = project
     # What the old instructions asked for fails exactly as on Supabase.
     assert old_state == "42501"
     assert "anum_reader: grants revoked and role dropped" in notices
@@ -111,7 +120,7 @@ def test_the_permanent_jwt_claims_setting_is_refused_and_the_old_login_is_remove
 
 
 def test_register_reader_refuses_administrators_and_other_organisations(project) -> None:  # type: ignore[no-untyped-def]
-    built, _, _ = project
+    built, _, _, _ = project
     with built.connect() as conn:
         for email, organisation, message in (
             (USERS["owner"].email, None, "administrator"),
@@ -125,7 +134,7 @@ def test_register_reader_refuses_administrators_and_other_organisations(project)
 
 
 def test_verify_reader_passes_every_check(project) -> None:  # type: ignore[no-untyped-def]
-    built, _, _ = project
+    built, _, _, _ = project
     with built.connect() as conn:
         checks = conn.execute("select check_name, status, detail from anum_integration.verify_reader(%s)",
                               (READER.email,)).fetchall()
@@ -137,8 +146,8 @@ def test_verify_reader_passes_every_check(project) -> None:  # type: ignore[no-u
 
 
 def test_the_reader_sees_only_its_organisation(project) -> None:  # type: ignore[no-untyped-def]
-    built, _, _ = project
-    for table in ("vehicle_fleet", "tyre_records", "tyre_service_events", "tpms_readings", "suppliers"):
+    built, _, _, _ = project
+    for table in ("vehicle_fleet", "tyre_records", "tyre_service_events", "tpms_readings", "suppliers", *OPERATION_TABLES):
         assert {row[0] for row in _rows(built, "reader", table)} == {ORG}
     # TyrePulse's own users keep their view: staff of A also see A's unassigned suppliers,
     # B sees only B.
@@ -159,7 +168,7 @@ def test_the_reader_sees_only_its_organisation(project) -> None:  # type: ignore
 
 
 def test_every_write_by_the_reader_is_refused(project) -> None:  # type: ignore[no-untyped-def]
-    built, _, _ = project
+    built, _, _, _ = project
     insert = "insert into public.tyre_records (id, serial_no) values ('fake-new', 'fake-sn-new')"
     update = "update public.tyre_records set brand = 'changed'"
     delete = "delete from public.tyre_records"
@@ -184,14 +193,15 @@ def test_every_write_by_the_reader_is_refused(project) -> None:  # type: ignore[
 
 
 def test_anum_signs_in_and_reads_only_organisation_a(project, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
-    built, _, _ = project
+    built, _, _, _ = project
     fake = FakePostgrest(built)
     monkeypatch.setattr(sources, "rest_client_factory", fake.client_factory())
     login = f'{{"api_key": "{PUBLISHABLE_KEY}", "email": "{READER.email}", "password": "example"}}'
     source = sources.SupabaseAuthSource(URL, login)
     assert "Signed in as anum-reader@example.com" in asyncio.run(source.test())
     tables = {table.name: table for table in asyncio.run(source.discover())}
-    assert set(tables) == {"vehicle_fleet", "tyre_records", "tyre_service_events", "tpms_readings", "suppliers"}
+    assert {"vehicle_fleet", "tyre_records", "tyre_service_events", "tpms_readings", "suppliers",
+            *OPERATION_TABLES} <= set(tables)
     fetched = asyncio.run(source.fetch("tyre_records", ["id", "organisation_id"]))
     assert len(fetched.rows) == 32 and {row["organisation_id"] for row in fetched.rows} == {ORG}
     # ANUM sent only GETs to tables, plus the sign-in; the openapi root was refused by the guard.
@@ -208,7 +218,7 @@ def test_anum_signs_in_and_reads_only_organisation_a(project, monkeypatch: pytes
 def test_anum_syncs_tyrepulse_through_the_reader(  # type: ignore[no-untyped-def]
     project, client: TestClient, monkeypatch: pytest.MonkeyPatch  # noqa: F811 - fixture
 ) -> None:
-    built, _, _ = project
+    built, _, _, _ = project
     fake = FakePostgrest(built)
     monkeypatch.setattr(sources, "rest_client_factory", fake.client_factory())
     owner = headers()
@@ -231,11 +241,52 @@ def test_anum_syncs_tyrepulse_through_the_reader(  # type: ignore[no-untyped-def
     # Organisation A only: B's copy and the unassigned rows never reach ANUM.
     assert synced.json()["setup"]["sync"]["counts"]["tyres"] == 32
     assert client.get(f"{API}/dashboard", headers=owner).json()["summary"]["tyres_fitted"] == 24
-    assert fake.sign_ins == 1  # one sign-in, reused for every read
+    counts = synced.json()["setup"]["sync"]["counts"]
+    # Readings from TyrePulse's inspections; work orders within the 90-day window; A only.
+    assert counts["inspection_visits"] == 24 and counts["inspections"] == 96 and counts["work_orders"] == 3
+    assert counts["checklists"] == 3 and counts["inspection_schedules"] == 3 and counts["sites"] == 1
+    window = [path for method, path in fake.requests if path == "/rest/v1/work_orders"]
+    assert window and fake.sign_ins == 1  # one sign-in, reused for every read
+
+
+def test_the_extend_file_adds_operational_tables_read_only_and_org_scoped(project) -> None:  # type: ignore[no-untyped-def]
+    built, _, _, notices = project
+    assert "inspections: added: own organisation only, GET only, no writes" in notices
+    assert any(n.startswith("ksa_kms: SKIPPED: no uuid organisation_id") for n in notices)
+    assert "uae_kms: SKIPPED: no such table in public" in notices
+    with built.connect() as conn:
+        listed = {row[0] for row in conn.execute("select table_name from anum_integration.reader_tables")}
+        # Personal data is never listed, even when added by hand and the file is run again.
+        conn.execute("insert into anum_integration.reader_tables values ('drivers')")
+    assert set(OPERATION_TABLES) <= listed and not {"drivers", "ksa_kms", "profiles"} & listed
+    pruned = run_file(built, EXTEND_SQL)
+    assert "drivers: removed from the reader tables (accounts, security or personal data)" in pruned
+    # Reads: organisation A only; the excluded tables show nothing and the API guard refuses them.
+    assert {row[0] for row in _rows(built, "reader", "work_orders")} == {ORG}
+    assert {row[0] for row in _rows(built, "reader", "inspections")} == {ORG}
+    assert as_user(built, READER, "GET", "/work_orders", "select count(*) from public.drivers") == ("ok", [(0,)])
+    assert as_user(built, READER, "GET", "/work_orders", "select count(*) from public.ksa_kms") == ("ok", [(0,)])
+    for path in ("/drivers", "/ksa_kms", "/profiles"):
+        assert as_user(built, READER, "GET", path, "select 1") == ("error", "PT403"), path
+    # Writes on a new table: refused by the guard and, behind it, by row level security.
+    assert as_user(built, READER, "PATCH", "/work_orders", "update public.work_orders set status = 'x'") == ("error", "PT403")
+    assert as_user(built, READER, "POST", "/inspections", "insert into public.inspections (id) values ('fake-new')",
+                   guard=False) == ("error", "42501")
+    assert as_user(built, READER, "PATCH", "/work_orders", "update public.work_orders set status = 'x'", guard=False) == ("ok", 0)
+    assert as_user(built, READER, "DELETE", "/inspections", "delete from public.inspections", guard=False) == ("ok", 0)
+    # TyrePulse's own staff are unaffected.
+    assert {row[0] for row in _rows(built, "staff", "work_orders")} == {ORG}
+    # The extend rollback takes the operational tables off again; the first file's tables stay.
+    run_file(built, EXTEND_ROLLBACK_SQL)
+    assert _rows(built, "reader", "vehicle_fleet")
+    assert as_user(built, READER, "GET", "/work_orders", "select 1") == ("error", "PT403")
+    assert as_user(built, READER, "GET", "/vehicle_fleet", "select count(*) from public.work_orders") == ("ok", [(0,)])
+    run_file(built, EXTEND_SQL)
+    assert {row[0] for row in _rows(built, "reader", "work_orders")} == {ORG}
 
 
 def test_rollback_removes_everything_and_the_file_applies_again(project) -> None:  # type: ignore[no-untyped-def]
-    built, _, _ = project
+    built, _, _, _ = project
     run_file(built, ROLLBACK_SQL)
     run_file(built, ROLLBACK_SQL)  # idempotent
     with built.connect() as conn:

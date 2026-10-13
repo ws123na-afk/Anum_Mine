@@ -3,7 +3,8 @@
 import { formatDateTime, formatNumber, t, type MessageKey } from './i18n.ts';
 
 export type SourceKind = 'supabase_auth' | 'supabase_postgres' | 'supabase_rest' | 'firestore';
-export type EntityName = 'vehicles' | 'tyres' | 'inspections' | 'pressure_readings' | 'removals' | 'costs' | 'suppliers';
+export type EntityName = 'vehicles' | 'tyres' | 'inspections' | 'pressure_readings' | 'removals' | 'costs' | 'suppliers'
+  | 'inspection_visits' | 'inspection_schedules' | 'checklists' | 'work_orders' | 'odometer_readings' | 'hour_readings' | 'sites';
 export type ConnectionStatus = 'untested' | 'ok' | 'failed';
 export type Severity = 'critical' | 'warning' | 'info';
 export type AlertKind = 'low_tread' | 'under_inflation' | 'over_inflation' | 'overdue_inspection' | 'abnormal_wear' | 'cost_anomaly';
@@ -12,18 +13,24 @@ export type ReportKind = 'fleet_health' | 'wear_rates' | 'pressure_compliance' |
 export type Confidence = 'high' | 'medium' | 'low';
 export type ForecastState = 'due' | 'projected' | 'no_wear' | 'no_data';
 
-export const ENTITIES: EntityName[] = ['tyres', 'vehicles', 'inspections', 'pressure_readings', 'removals', 'costs', 'suppliers'];
+export const ENTITIES: EntityName[] = [
+  'tyres', 'vehicles', 'inspections', 'pressure_readings', 'removals', 'costs', 'suppliers',
+  'inspection_visits', 'inspection_schedules', 'checklists', 'work_orders', 'odometer_readings', 'hour_readings', 'sites',
+];
 export const SOURCE_KINDS: SourceKind[] = ['supabase_auth', 'supabase_postgres', 'supabase_rest', 'firestore'];
 export const REPORT_KINDS: ReportKind[] = ['fleet_health', 'wear_rates', 'pressure_compliance', 'cost_per_distance', 'scrap_reasons', 'brand_performance', 'removal_forecast', 'purchase_plan'];
 export const ALERT_KINDS: AlertKind[] = ['low_tread', 'under_inflation', 'over_inflation', 'overdue_inspection', 'abnormal_wear', 'cost_anomaly'];
 export const TYRE_LINKED: EntityName[] = ['inspections', 'pressure_readings', 'removals'];
+/** Readings may also attach to a vehicle (and wheel position), as TyrePulse's inspections do. */
+export const VEHICLE_LINK_ALLOWED: EntityName[] = ['inspections', 'pressure_readings'];
 
-export interface FieldSpec { name: string; kind: 'text' | 'number' | 'date'; required: boolean; description: string }
+export interface FieldSpec { name: string; kind: 'text' | 'number' | 'date' | 'boolean'; required: boolean; description: string }
 export interface SourceColumn { name: string; type: string }
 export interface SourceTable { name: string; columns: SourceColumn[]; rows: number | null; writable: boolean }
-export interface EntityMapping { source: string; fields: Record<string, string> }
+/** `expand`: a column with one entry per tyre, read as "<column>.<key>"; `window_days`: only rows newer than that by `window_column`. */
+export interface EntityMapping { source: string; fields: Record<string, string>; expand?: string | null; window_days?: number | null; window_column?: string | null }
 export interface Units { tread: 'mm' | '32nds'; pressure: 'psi' | 'bar' | 'kpa'; distance: 'km' | 'miles'; currency: string }
-export interface TyreMapping { preset: string | null; entities: Partial<Record<EntityName, EntityMapping>>; units: Units; status_values: Record<string, string> }
+export interface TyreMapping { preset: string | null; entities: Partial<Record<EntityName, EntityMapping>>; units: Units; status_values: Record<string, string>; position_aliases?: Record<string, string> }
 export interface Assumptions {
   min_tread_mm: number; warning_band_mm: number; pressure_tolerance_pct: number; default_target_pressure_psi: number | null;
   inspection_interval_days: number; abnormal_wear_factor: number; cost_anomaly_factor: number; default_new_tread_mm: number;
@@ -59,8 +66,16 @@ export interface TyreAlert {
   message: string; value: Record<string, unknown>; status: AlertStatus; first_seen_at: string; last_seen_at: string;
   resolved_at: string | null; acknowledged_by: string | null; acknowledged_at: string | null;
 }
+export interface OperationsSummary {
+  as_of: string; vehicles: number; vehicles_inspected_last_30_days: number; vehicles_inspected_last_90_days: number;
+  inspections_last_30_days: number; inspections_total: number; last_inspection: string | null; tyre_readings: number;
+  readings_on_tyre_records: number; schedules_upcoming_14_days: number; schedules_overdue: number; checklists_last_30_days: number;
+  checklists_failed_last_30_days: number; checklists_total: number; work_orders_open: number; work_orders_opened_last_30_days: number;
+  work_orders_synced: number; work_order_cost_last_30_days: number | null; work_order_window_days: number | null;
+  odometer_readings: number; hour_readings: number; sites: number; currency: string;
+}
 export interface Dashboard {
-  summary: FleetSummary; synced_at: string; alert_counts: Partial<Record<Severity, number>>; top_alerts: TyreAlert[];
+  summary: FleetSummary; operations?: OperationsSummary; synced_at: string; alert_counts: Partial<Record<Severity, number>>; top_alerts: TyreAlert[];
   due_soon: TyreForecast[]; due_by_month: Record<string, number>;
 }
 export interface Page<T> { items: T[]; total: number; limit: number; offset: number }
@@ -209,7 +224,7 @@ export function connectionBody(draft: ConnectionDraft, saved: ConnectionView | n
 // ---- mapping editor ----
 
 export function emptyMapping(): TyreMapping {
-  return { preset: null, entities: {}, units: { tread: 'mm', pressure: 'psi', distance: 'km', currency: 'SAR' }, status_values: {} };
+  return { preset: null, entities: {}, units: { tread: 'mm', pressure: 'psi', distance: 'km', currency: 'SAR' }, status_values: {}, position_aliases: {} };
 }
 
 /** Set (or clear, with '') the table of one entity; columns that do not exist in the new table are dropped. */
@@ -240,11 +255,20 @@ export function mappingProblems(mapping: TyreMapping, fields: Record<EntityName,
     for (const spec of fields[entity] ?? []) {
       if (spec.required && !current.fields[spec.name]) problems.push({ key: 'tyre.map.problemRequired', vars: { entity: entityLabel(entity), field: spec.name } });
     }
-    if (TYRE_LINKED.includes(entity) && !current.fields.tyre_id && !current.fields.tyre_serial) {
+    if (VEHICLE_LINK_ALLOWED.includes(entity)) {
+      if (!current.fields.tyre_id && !current.fields.tyre_serial && !current.fields.vehicle_id) problems.push({ key: 'tyre.map.problemLinkVehicle', vars: { entity: entityLabel(entity) } });
+    } else if (TYRE_LINKED.includes(entity) && !current.fields.tyre_id && !current.fields.tyre_serial) {
       problems.push({ key: 'tyre.map.problemLink', vars: { entity: entityLabel(entity) } });
     }
   }
   return problems;
+}
+
+/** Whether the dashboard has any fleet operations data to show (else its empty state). */
+export function hasOperations(operations: OperationsSummary | undefined): boolean {
+  if (!operations) return false;
+  return operations.inspections_total + operations.checklists_total + operations.work_orders_synced
+    + operations.schedules_overdue + operations.schedules_upcoming_14_days + operations.odometer_readings + operations.hour_readings > 0;
 }
 
 export function mappedCount(mapping: TyreMapping | null): number {

@@ -118,7 +118,9 @@ def test_signs_in_once_verifies_and_reads_with_the_users_token(fake: FakeAuth) -
     message = asyncio.run(source.test())
     assert message.startswith(f"Signed in as {EMAIL} (read-only).") and "tyre_records 1" in message
     tables = {t.name: t for t in asyncio.run(source.discover())}  # openapi refused: probes the known tables
-    assert set(tables) == {"vehicle_fleet", "tyre_records", "tyre_service_events", "tpms_readings", "suppliers"}
+    assert {"vehicle_fleet", "tyre_records", "tyre_service_events", "tpms_readings", "suppliers", "inspections",
+            "work_orders", "checklist_submissions", "work_order_line_items", "parts_consumption"} <= set(tables)
+    assert "tyre_conditions" in {c.name for c in tables["inspections"].columns}
     assert "serial_no" in {c.name for c in tables["tyre_records"].columns}
     rows = asyncio.run(source.fetch("tyre_service_events", ["tyre_serial", "tread_depth"])).rows
     assert len(rows) == 98

@@ -206,6 +206,8 @@ function MappingCard({ setup, onChange }: { setup: Setup; onChange: (setup: Setu
 function EntityEditor({ entity, mapping, tables, fields, disabled, onChange }: { entity: EntityName; mapping: TyreMapping; tables: SourceTable[]; fields: Setup['fields'][EntityName]; disabled: boolean; onChange: (mapping: TyreMapping) => void }) {
   const current = mapping.entities[entity];
   const columns = tables.find((table) => table.name === current?.source)?.columns ?? [];
+  // Keys inside an expanded column ("tyre_conditions.pressure_psi") are not table columns: keep them choosable.
+  const entryFields = current?.expand ? [...new Set(Object.values(current.fields).filter((column) => column.startsWith(`${current.expand}.`)))] : [];
   const id = useId();
   return <details className="tyreEntity" open={entity === 'tyres' || undefined}>
     <summary><strong>{entityLabel(entity)}</strong><small>{current ? `${current.source} · ${t('tyre.map.fieldsMapped', { count: Object.keys(current.fields).length })}` : t('tyre.map.notMapped')}</small></summary>
@@ -221,9 +223,12 @@ function EntityEditor({ entity, mapping, tables, fields, disabled, onChange }: {
         <select id={`${id}-${spec.name}`} disabled={disabled} value={current.fields[spec.name] ?? ''} aria-required={spec.required || undefined} onChange={(e) => onChange(setEntityField(mapping, entity, spec.name, e.target.value))}>
           <option value="">{t('tyre.map.noColumn')}</option>
           {columns.map((column) => <option key={column.name} value={column.name}>{column.name} ({column.type})</option>)}
+          {entryFields.map((column) => <option key={column} value={column}>{t('tyre.map.entryField', { column })}</option>)}
         </select>
       </label>)}
     </div>}
+    {current?.expand && <p className="muted">{t('tyre.map.expandNote', { column: current.expand })}</p>}
+    {current?.window_days && current.window_column && <p className="muted">{t('tyre.map.windowNote', { days: current.window_days, column: current.window_column })}</p>}
   </details>;
 }
 

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { mockTyre } from './support/tyreApi';
+import { emptyOperations, mockTyre } from './support/tyreApi';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
 // Tyre planning (docs/tyre-planning.md): the owner connects TyrePulse, maps it with the preset and
@@ -52,6 +52,13 @@ test('dashboard, forecasts with search and paging, plan, alerts and reports', as
   await expect(page.getByText('Average tread')).toBeVisible();
   await expect(page.locator('.tyreMetric').filter({ hasText: 'Pressure compliance' })).toContainText('91.3%');
   await expect(page.getByRole('heading', { name: 'Due soonest' })).toBeVisible();
+  // Fleet operations from TyrePulse: inspections, schedules, checklists and work orders with real counts.
+  const operations = page.getByRole('region', { name: 'Fleet operations data' });
+  await expect(operations.locator('.tyreMetric').filter({ hasText: 'Vehicles inspected (30 days)' })).toContainText('6 in 90 days, of 6 vehicles');
+  await expect(operations.locator('.tyreMetric').filter({ hasText: 'Inspections (30 days)' })).toContainText(/1,?837 synced/);
+  await expect(operations.locator('.tyreMetric').filter({ hasText: 'Open work orders' })).toContainText('7');
+  await expect(operations.locator('.tyreMetric').filter({ hasText: 'Workshop checklists (30 days)' })).toContainText('1 failed');
+  await expect(operations).toContainText('Readings that match no tyre record stay readings of that vehicle position.');
 
   // Keyboard: arrows move between tabs.
   await page.getByRole('tab', { name: 'Dashboard' }).focus();
@@ -97,6 +104,13 @@ test('viewer reads but is told who can act; nothing synced says what is next', a
   await expect(page.getByText('The data has not been synced yet. A member or owner can sync it.')).toBeVisible();
   await page.getByRole('tab', { name: 'Reports' }).click();
   await expect(page.getByText('Members and owners can generate, send and schedule reports.').first()).toBeVisible();
+});
+
+test('no operations data synced says how to map it', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await mockTyre(page, { operations: emptyOperations });
+  await page.goto('/#tyre');
+  await expect(page.getByRole('region', { name: 'Fleet operations data' })).toContainText('No inspections, schedules, checklists or work orders were synced.');
 });
 
 test('a failing API says what failed and offers a retry', async ({ page }) => {

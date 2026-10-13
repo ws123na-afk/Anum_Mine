@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { setLocale } from '../src/lib/i18n.ts';
 import {
-  ago, connectionBody, connectionDraft, emptyMapping, forecastQuery, isRecipient, mappingProblems, monthBars, newAlerts, pageRange, parsePrices,
+  ago, connectionBody, connectionDraft, emptyMapping, forecastQuery, hasOperations, isRecipient, mappingProblems, monthBars, newAlerts, pageRange, parsePrices,
   scheduleBody, setEntityField, setEntitySource, wizardSteps,
-  type ConnectionView, type FieldSpec, type SourceTable, type TyreAlert, type TyreSetup,
+  type ConnectionView, type FieldSpec, type OperationsSummary, type SourceTable, type TyreAlert, type TyreSetup,
 } from '../src/lib/tyre.ts';
 
 const fields: TyreSetup['fields'] = {
@@ -68,7 +68,11 @@ describe('tyre mapping editor', () => {
     mapping = setEntityField(mapping, 'tyres', 'id', 'id');
     mapping = setEntityField(mapping, 'tyres', 'serial', 'serial_no');
     mapping = setEntitySource(mapping, 'inspections', 'tyre_service_events', tables);
-    assert.deepEqual(mappingProblems(mapping, fields).map((p) => p.key), ['tyre.map.problemRequired', 'tyre.map.problemLink']);
+    assert.deepEqual(mappingProblems(mapping, fields).map((p) => p.key), ['tyre.map.problemRequired', 'tyre.map.problemLinkVehicle']);
+    // Readings may attach by vehicle (and position) instead of a tyre id or serial; removals may not.
+    assert.deepEqual(mappingProblems(setEntityField(setEntityField(mapping, 'inspections', 'inspected_at', 'event_date'), 'inspections', 'vehicle_id', 'asset_no'), fields), []);
+    const removals = setEntityField(setEntitySource(mapping, 'removals', 'tyre_service_events', tables), 'removals', 'removed_at', 'event_date');
+    assert.ok(mappingProblems(removals, fields).some((p) => p.key === 'tyre.map.problemLink'));
     mapping = setEntityField(mapping, 'inspections', 'inspected_at', 'event_date');
     mapping = setEntityField(mapping, 'inspections', 'tyre_serial', 'tyre_serial');
     assert.deepEqual(mappingProblems(mapping, fields), []);
@@ -113,5 +117,20 @@ describe('tyre helpers', () => {
     setLocale('ar');
     assert.equal(ago('2026-10-01T00:00:00Z', new Date('2026-10-04T12:00:00Z')), 'منذ 3 أيام');
     setLocale('en');
+  });
+});
+
+describe('tyre fleet operations', () => {
+  test('the dashboard shows operations only when something was synced', () => {
+    const none: OperationsSummary = {
+      as_of: '2026-10-01', vehicles: 6, vehicles_inspected_last_30_days: 0, vehicles_inspected_last_90_days: 0, inspections_last_30_days: 0,
+      inspections_total: 0, last_inspection: null, tyre_readings: 0, readings_on_tyre_records: 0, schedules_upcoming_14_days: 0, schedules_overdue: 0,
+      checklists_last_30_days: 0, checklists_failed_last_30_days: 0, checklists_total: 0, work_orders_open: 0, work_orders_opened_last_30_days: 0,
+      work_orders_synced: 0, work_order_cost_last_30_days: null, work_order_window_days: 90, odometer_readings: 0, hour_readings: 0, sites: 0, currency: 'SAR',
+    };
+    assert.equal(hasOperations(undefined), false);
+    assert.equal(hasOperations(none), false);
+    assert.equal(hasOperations({ ...none, inspections_total: 1837 }), true);
+    assert.equal(hasOperations({ ...none, work_orders_synced: 3 }), true);
   });
 });

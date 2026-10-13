@@ -86,7 +86,11 @@ def test_tyrepulse_schema_gets_the_ready_made_mapping() -> None:
     assert mapping.problems() == []
     assert mapping.entities[Entity.TYRES].source == "tyre_records"
     assert mapping.entities[Entity.TYRES].fields["serial"] == "serial_no"
-    assert mapping.entities[Entity.INSPECTIONS].fields["tyre_serial"] == "tyre_serial"
+    # Readings come from TyrePulse's inspections, one row per wheel position entry.
+    assert mapping.entities[Entity.INSPECTIONS].source == "inspections"
+    assert mapping.entities[Entity.INSPECTIONS].expand == "tyre_conditions"
+    assert mapping.entities[Entity.INSPECTIONS].fields["tyre_serial"] == "tyre_conditions.serial_number"
+    assert mapping.entities[Entity.WORK_ORDERS].window_days == 90
     assert mapping.entities[Entity.PRESSURE_READINGS].fields["target_pressure"] == "target_pressure"
     # Only columns that exist are kept, and only tables that exist.
     trimmed = fit_to_schema(TYREPULSE_PRESET, [t for t in discovered() if t.name != "tpms_readings"])
@@ -94,7 +98,10 @@ def test_tyrepulse_schema_gets_the_ready_made_mapping() -> None:
     no_cost = [t if t.name != "tyre_records" else SourceTable(name=t.name, columns=[c for c in t.columns if c.name != "cost_per_tyre"]) for t in discovered()]
     assert "purchase_cost" not in fit_to_schema(TYREPULSE_PRESET, no_cost).entities[Entity.TYRES].fields
     # Each table is read once, with the union of the columns its entities use.
-    assert set(mapped_columns(mapping)["tyre_service_events"]) >= {"tread_depth", "pressure", "cost", "event_type"}
+    assert set(mapped_columns(mapping)[("tyre_service_events", None, None)]) >= {"cost", "event_type"}
+    # The expanded column is selected whole, once for both inspection entities; never a person's column.
+    inspections = mapped_columns(mapping)[("inspections", None, None)]
+    assert "tyre_conditions" in inspections and "inspection_date" in inspections and "inspector" not in inspections
 
 
 def test_apply_mapping_normalises_and_links_by_serial() -> None:
@@ -110,7 +117,11 @@ def test_apply_mapping_normalises_and_links_by_serial() -> None:
     readings = [i for i in dataset.inspections if i.tyre_id == tyre.id]
     assert len(readings) == 4 and readings[0].vehicle_id == "fake-truck-01"
     # Service events without readings are skipped as inspections and kept as costs.
-    assert stats["inspections"].issues == {"no tread or pressure reading": 6}
+    # Truck 01's rear position "R1Lo" names no tyre record: kept as a reading of that position.
+    assert stats["inspections"].issues == {"kept for the vehicle position (no tyre record matched)": 4}
+    unmatched = [i for i in dataset.inspections if i.tyre_id is None]
+    assert len(unmatched) == 4 and {(i.vehicle_id, i.position, i.pressure_psi) for i in unmatched} == {
+        ("fake-truck-01", "R1Lo", 104.0)}
     assert len(dataset.costs) == 6 and dataset.costs[0].category == "repair"
     assert stats["tyres"].kept == 32 and stats["tyres"].skipped == 0
 
@@ -142,7 +153,7 @@ def test_units_dates_and_problems() -> None:
     assert first.pressure_psi == pytest.approx(108.8) and first.odometer_km == pytest.approx(1609.3)
     assert dataset.inspections[1].inspected_at == date(2026, 1, 1)
     assert stats["tyres"].issues == {"no tyre id": 1, "duplicate tyre id": 1}
-    assert stats["inspections"].issues == {"no matching tyre": 1, "no inspection date": 1}
+    assert stats["inspections"].issues == {"no matching tyre or vehicle": 1, "no inspection date": 1}
     assert parse_number("1,234.5 km") == 1234.5 and parse_number("n/a") is None and parse_number(True) is None
     assert parse_date("2026-03-04T10:00:00Z") == date(2026, 3, 4)
     assert TyreMapping(entities={}).problems()[0].startswith("Map a table to Tyres")
