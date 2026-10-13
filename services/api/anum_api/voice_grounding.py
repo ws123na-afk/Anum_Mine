@@ -273,41 +273,91 @@ async def workspace_agents_tool(call: ToolCall, context: TenantContext) -> ToolR
     return await asyncio.to_thread(_read_agents, context)
 
 
-async def knowledge_search_tool(call: ToolCall, context: TenantContext) -> ToolResult:
-    """The knowledge base's own search (keyword plus semantic over the collections the
-    caller can see), as ``GET /api/v1/knowledge/search`` answers it."""
-    from fastapi import HTTPException
+def _knowledge_keyword(context: TenantContext, query: str) -> tuple[dict[str, Any], list[Any], dict[str, dict[str, Any]]]:
+    """The collections and items the caller can see, and the keyword hits (titles, tags,
+    note text), as ``GET /api/v1/knowledge/search`` finds them. Blocking: run in a thread."""
+    from .knowledge_base import ItemKind, _live_notes, _scope, _snippet
 
-    from .knowledge_base import SearchMode, search
+    collections, items = _scope(context, None)
+    notes = _live_notes(context, {item.source_id for item in items if item.kind == ItemKind.NOTE})
+    needle = query.casefold()
+    hits: dict[str, dict[str, Any]] = {}
+    for item in items:
+        text = notes[item.source_id].content if item.kind == ItemKind.NOTE and item.source_id in notes else ""
+        position = text.casefold().find(needle) if text else -1
+        if needle in item.title.casefold() or any(needle in tag for tag in item.tags) or position >= 0:
+            hits[item.id] = {
+                "title": _short(item.title, 100),
+                "collection": _short(collections[item.collection_id].name, 60),
+                "snippet": _snippet(text[max(0, position - 60):]) if position >= 0 else None,
+                "matched_by": ["keyword"],
+            }
+    return collections, items, hits
+
+
+async def knowledge_search_tool(call: ToolCall, context: TenantContext) -> ToolResult:
+    """The knowledge base's search (keyword plus semantic over the collections the caller
+    can see). Every store read runs in a worker thread; only the embedding is awaited here."""
+    from .knowledge_base import SEARCH_CANDIDATES, _snippet, _source_type
+    from .model_budget import ModelBudgetExceededError
+    from .retrieval import build_embedder, open_retrieval_store
+    from .retrieval_api import default_model_gateway
 
     query = call.arguments.get("query")
     if not isinstance(query, str) or not query.strip() or len(query) > 200:
         return _failed("Give the words to search for (at most 200 characters).", "invalid")
     if not has_permission(context, Permission.MEMORY_READ):
         return _failed("Your role cannot read the knowledge base in this workspace.", "denied")
-    try:
-        found = await search(q=query.strip(), collection_id=None, mode=SearchMode.HYBRID, limit=5, context=context)
-    except HTTPException:
-        return _failed("The knowledge base could not be searched with your role.", "denied")
-    hits = [
-        {
-            "title": _short(hit.item.title, 100),
-            "collection": _short(hit.collection_name, 60),
-            "snippet": hit.snippet,
-            "matched_by": hit.matched_by,
-        }
-        for hit in found.hits
-    ]
+    query = " ".join(query.split())
+    collections, items, hits = await asyncio.to_thread(_knowledge_keyword, context, query)
+    semantic = "ok"
+    if items:
+        embedder = build_embedder(context, default_model_gateway())
+
+        def indexed() -> bool:
+            with open_retrieval_store(context) as store:
+                return bool(store.has_indexed(context, embedder.model_name))
+
+        if not await asyncio.to_thread(indexed):
+            semantic = "no_index"
+        else:
+            try:
+                vector = (await embedder.embed([query])).vectors[0]
+            except ModelBudgetExceededError:
+                raise
+            except Exception as exc:  # only the class name is logged
+                logger.warning("voice_knowledge_embed_failed error_class=%s", type(exc).__name__)
+                vector = None
+                semantic = "unavailable"
+            if vector is not None:
+                def nearest() -> list[Any]:
+                    with open_retrieval_store(context) as store:
+                        return list(store.search(context, vector, embedder.model_name, SEARCH_CANDIDATES * 4, utc_now()))
+
+                by_source = {(_source_type(item.kind).value, item.source_id): item for item in items}
+                for chunk in await asyncio.to_thread(nearest):
+                    item = by_source.get((str(chunk.source_type), chunk.source_id))
+                    if (chunk.tenant_id, chunk.workspace_id) != (context.tenant_id, context.workspace_id) or chunk.score <= 0 or item is None:
+                        continue
+                    hit = hits.setdefault(item.id, {
+                        "title": _short(item.title, 100),
+                        "collection": _short(collections[item.collection_id].name, 60),
+                        "snippet": None,
+                        "matched_by": [],
+                    })
+                    if "semantic" not in hit["matched_by"]:
+                        hit["matched_by"].append("semantic")
+                    hit["snippet"] = hit["snippet"] or _snippet(chunk.content)
+    listed = list(hits.values())[:5]
     summary = (
-        f"{len(hits)} knowledge base passages match." if hits
-        else "Nothing in the knowledge base matches."
-        + (" Nothing is indexed yet." if found.semantic == "no_index" else "")
+        f"{len(listed)} knowledge base passages match." if listed
+        else "Nothing in the knowledge base matches." + (" Nothing is indexed yet." if semantic == "no_index" else "")
     )
     return ToolResult(
         status="succeeded",
         summary=summary,
-        output={"hits": hits, "semantic": found.semantic},
-        audit_metadata={"outcome": "answered", "rows": len(hits)},
+        output={"hits": listed, "semantic": semantic},
+        audit_metadata={"outcome": "answered", "rows": len(listed)},
     )
 
 
@@ -482,6 +532,14 @@ def _audit(context: TenantContext, registry: ToolRegistry, call: ToolCall, outco
         )
 
 
+def _execute_in_thread(registry: ToolRegistry, call: ToolCall, context: TenantContext) -> ToolResult:
+    """Run one tool on a loop of its own in a worker thread: handlers (and the registry's
+    suppression check) may read stores synchronously, which must never happen on the
+    request's event loop (docs/realtime.md#event-loop). A call that times out is abandoned
+    by the caller and finishes here on its own; it only reads."""
+    return asyncio.run(registry.execute(call, context))
+
+
 async def run_read_tool(
     entry: _Entry | None,
     call: ToolCall,
@@ -506,7 +564,7 @@ async def run_read_tool(
         outcome = "blocked"
     else:
         try:
-            result = await asyncio.wait_for(registry.execute(call, context), timeout)
+            result = await asyncio.wait_for(asyncio.to_thread(_execute_in_thread, registry, call, context), timeout)
         except TimeoutError:
             result = _failed("That lookup took too long; it is not in this answer.", "timeout")
         except Exception as exc:  # only the class name is logged
@@ -590,15 +648,25 @@ async def grounded_answer(
     data_blocks: Sequence[str] = (),
     preface: str = "",
     extra_rules: str = "",
+    stream: bool = True,
 ) -> AsyncIterator[str]:
     """The spoken answer, streamed: snapshot, then up to three rounds of read-only lookups
-    when the provider has tool use, else one call with the snapshot and knowledge hits."""
+    when the provider has tool use, else one call with the snapshot and knowledge hits.
+    ``stream=False`` (the non-streamed ``/ask``) makes that one call a plain completion,
+    as ``/ask`` always did; the lookup rounds always stream."""
     routed = route_gateway(gateway, ModelRoute.FAST)
     toolbox = VoiceToolbox.current()
     with_tools = tool_gateway(routed) is not None
     blocks = [*data_blocks, *await snapshot_blocks(toolbox, context, timing, question, knowledge=not with_tools)]
     timing.grounding = "tools" if with_tools else ("snapshot" if blocks else "none")
     messages = grounded_messages(question, facts, name, history, blocks, tools=with_tools, preface=preface, extra_rules=extra_rules)
+    complete = getattr(routed, "complete_chat", None)
+    if not with_tools and not stream and callable(complete):
+        response = await complete(messages, max_tokens=max_tokens)
+        timing.token()
+        if response.text:
+            yield response.text
+        return
     if not with_tools:
         async for chunk in routed.stream_chat(messages, max_tokens=max_tokens):
             timing.token()

@@ -490,6 +490,7 @@ async def ask_voice_assistant(
                 max_tokens=VOICE_MAX_TOKENS,
                 data_blocks=[grounding.block] if grounding else (),
                 preface=f"{TYRE_PREFACE} Say the key numbers aloud; keep it short." if grounding else "",
+                stream=False,
             )) as answer:
                 async for chunk in answer:
                     parts.append(chunk)
