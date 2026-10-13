@@ -72,7 +72,7 @@ void main() {
   test('mobile API configuration is build-time and secure sessions are used',
       () {
     final app = File('lib/src/anum_app.dart').readAsStringSync();
-    expect(app, contains("String.fromEnvironment(\n      'ANUM_API_URL'"));
+    expect(app, contains("String.fromEnvironment('ANUM_API_URL')"));
     expect(app, contains('SecureSessionStore()'));
     expect(app, isNot(contains('apiKey: \'sk-')));
   });
