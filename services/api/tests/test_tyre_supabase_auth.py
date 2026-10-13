@@ -55,6 +55,7 @@ class FakeAuth:
         self.refresh_ok = True
         self.expire_next_read = False
         self.openapi_status = 403
+        self.refused: set[str] = set()  # tables the reader's API guard refuses (not in reader_tables)
 
     def token(self) -> dict[str, Any]:
         now = int(time.time())
@@ -91,6 +92,8 @@ class FakeAuth:
             self.expire_next_read = False
             return httpx.Response(401, json={"message": "JWT expired"})
         table = parts.path.removeprefix("/rest/v1/")
+        if table in self.refused:
+            return httpx.Response(403, json={"code": "PT403", "message": "ANUM reader: read-only access to the allowed tables only"})
         if table not in self.rows:
             return httpx.Response(404, json={"code": "PGRST205"})
         select = query.get("select", "*")
@@ -127,6 +130,18 @@ def test_signs_in_once_verifies_and_reads_with_the_users_token(fake: FakeAuth) -
     assert fake.sign_ins == 1 and ("GET", "/auth/v1/user") in fake.calls
     data_calls = {(m, p) for m, p in fake.calls if p.startswith("/rest/v1")}
     assert {m for m, _ in data_calls} == {"GET"} and not any("/rpc" in p for _, p in data_calls)
+
+
+def test_tables_the_reader_may_not_read_yet_are_skipped_not_fatal(fake: FakeAuth) -> None:
+    # Before infra/tyrepulse/supabase-anum-reader-extend.sql runs, the guard refuses the newer tables.
+    fake.refused = {"inspections", "work_orders", "checklist_submissions", "work_order_line_items", "parts_consumption"}
+    source = sources.SupabaseAuthSource(URL, login())
+    assert "tyre_records" in asyncio.run(source.test())
+    names = {t.name for t in asyncio.run(source.discover())}
+    assert {"tyre_records", "vehicle_fleet"} <= names and not names & fake.refused
+    fake.refused = set(fake.rows)  # every table refused: that is still an error
+    with pytest.raises(sources.TyreSourceError, match="HTTP 403"):
+        asyncio.run(source.discover())
 
 
 def test_reuses_refreshes_and_signs_in_again(fake: FakeAuth) -> None:
