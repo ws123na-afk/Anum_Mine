@@ -241,7 +241,7 @@ test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ 
   await expect(page.getByRole('heading', { name: /أنا Anum/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'إرسال' })).toBeDisabled();
   // Voice settings open from the gear over the scene.
-  await page.getByTitle('إعدادات الصوت').click();
+  await page.getByTitle('إعدادات الصوت', { exact: true }).click();
   await expect(page.getByLabel('الاحتفاظ بالنصوص المفرّغة')).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
