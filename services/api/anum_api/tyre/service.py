@@ -53,6 +53,12 @@ def secret_hint(kind: SourceKind, secret: str) -> str:
         except TyreSourceError:
             return "connection string"
         return f"{target.user}@{target.host}"
+    if kind == SourceKind.SUPABASE_AUTH:
+        try:
+            login = source_module.parse_reader_login(secret)
+        except TyreSourceError:
+            return "reader sign-in"
+        return f"{login.email} · key …{login.api_key[-4:]}"
     if kind == SourceKind.FIRESTORE:
         try:
             return source_module.parse_service_account(secret).client_email

@@ -7,7 +7,10 @@ tyre questions from the same numbers in chat, voice and tasks.
 
 ANUM only ever **reads** the source. Nothing in tyre planning writes to it.
 
-- API: `services/api/anum_api/tyre/` (`/api/v1/tyre`), migration `0037_tyre_planning`.
+- API: `services/api/anum_api/tyre/` (`/api/v1/tyre`), migrations `0037_tyre_planning` and
+  `0053_tyre_supabase_auth` (the `supabase_auth` connection kind).
+- Owner SQL for TyrePulse: `infra/tyrepulse/supabase-anum-reader.sql` (undo:
+  `infra/tyrepulse/supabase-anum-reader-rollback.sql`).
 - Web: **Tyre planning** in the sidebar (`apps/web/src/TyreView.tsx`).
 - Flutter: **Home > Tyre planning** (dashboard, tyres due, alerts) in `apps/mobile/lib/features/tyre/`; connecting, mapping and reports are on the web.
 
@@ -31,36 +34,97 @@ shows only a hint (`user@host`, the service account email, or the last four char
 of a key). `python -m anum_api.rotate_secrets` re-encrypts it with the rest of the
 stored secrets.
 
-### Supabase PostgreSQL (recommended for TyrePulse)
+### TyrePulse sign-in (recommended for TyrePulse)
 
-Create a login that can only read, and paste its connection string.
+TyrePulse's row level security decides the organisation from the **signed-in user**:
+`app_current_org()` is the `profiles.org_id` of `auth.uid()`, and `auth.uid()` comes from the
+JWT that Supabase verifies. A plain database login has no JWT, so it sees nothing. The old
+advice to give a login a permanent JWT (`alter role anum_reader set request.jwt.claims = ...`)
+fails on Supabase with `42501 permission denied` (the dashboard's `postgres` user may not set
+that on a role) and would be unsafe anyway: any login can `set_config('request.jwt.claims', ...)`
+in its own session and so act as any TyrePulse user inside TyrePulse's SECURITY DEFINER
+functions. So ANUM signs in as a **dedicated TyrePulse user** through Supabase Auth and reads
+through Supabase's API with that user's token. Supabase signs the token; nobody can choose
+another user.
+
+What protects TyrePulse (nothing is disabled, nothing gets BYPASSRLS, no service_role key,
+no blanket `grant execute`):
+
+- TyrePulse's own policies still apply to the reader like to any user.
+- `infra/tyrepulse/supabase-anum-reader.sql` adds RESTRICTIVE policies that apply only to
+  registered reader users (everyone else is unaffected): no insert, update or delete on any
+  table, and reads only of the five tyre tables (`vehicle_fleet`, `tyre_records`,
+  `tyre_service_events`, `tpms_readings`, `suppliers`), only rows of the reader's own
+  organisation, even if its profile is later made an administrator.
+- A PostgREST pre-request guard refuses every reader request that is not a `GET` / `HEAD`
+  of one of those tables: no `/rpc` functions (SECURITY DEFINER functions skip RLS), no
+  GraphQL, no other tables. Supabase runs `GET` requests in a read-only transaction.
+- ANUM itself sends only `POST /auth/v1/token` (sign-in and refresh), `GET /auth/v1/user`
+  (to confirm the session belongs to an ordinary signed-in user) and `GET` on
+  `/rest/v1/<table>`; anything else is refused before it leaves ANUM. A service_role or
+  `sb_secret_` key is refused in every Supabase connection kind.
+- The password, key and session never leave the API: the login is stored encrypted with
+  `ANUM_SECRETS_KEY` (the only setting it needs, already required outside local development),
+  the session is kept in memory and refreshed, and the page shows only
+  `<e-mail> · key …<last 4>`.
+
+Owner steps (about ten minutes):
+
+1. **Run the SQL.** In the Supabase dashboard of the TyrePulse project open **SQL Editor >
+   New query**, paste the whole of `infra/tyrepulse/supabase-anum-reader.sql` and press
+   **Run**. It runs as the dashboard's `postgres` user, needs no superuser, and also removes
+   the half-made `anum_reader` login from the old instructions. Run it again whenever
+   TyrePulse adds tables (it is safe to repeat).
+2. **Create the reader user in TyrePulse.** Through TyrePulse's own user management, add a
+   user such as `anum-reader@<your company domain>` with a strong password, in the
+   organisation ANUM should read, with a read-only role (for example **Reporter**), all the
+   countries and sites ANUM should see, approved and not locked. Do not use an administrator
+   (the next step refuses one) or your own account. Confirm its e-mail if Supabase asks
+   (**Authentication > Users**).
+3. **Register it.** In the SQL Editor run (with the e-mail from step 2):
+
+   ```sql
+   select * from anum_integration.register_reader('anum-reader@your-company.com');
+   select * from anum_integration.verify_reader('anum-reader@your-company.com');
+   ```
+
+   Every row of `verify_reader` should say `pass`. It tries reads, other organisations'
+   rows, a table outside the list, insert / update / delete and API calls as the reader,
+   and rolls every attempt back.
+4. **Copy the project details.** **Project Settings > API**: the project URL
+   (`https://<project-ref>.supabase.co`) and the **publishable** key (`sb_publishable_...`,
+   or the legacy `anon` key). Never the secret / service_role key: ANUM refuses it.
+5. **Connect in ANUM.** **Tyre planning > Connection**, choose **TyrePulse sign-in
+   (Supabase)**, enter the project URL, the publishable key, the reader's e-mail and its
+   password, **Save connection**, then **Test connection**. It answers
+   `Signed in as <e-mail> (read-only). Rows visible in the first page: ...`. Then
+   **Discover tables**, **Use the TyrePulse preset** and **Sync now**.
+
+If the test fails: "refused the reader's e-mail or password" (check them, or reset the
+password in TyrePulse), "not confirmed" (confirm the user under **Authentication > Users**),
+`HTTP 403` (the user is not registered, or the guard refused the request: run
+`verify_reader`), rows `0` (the user's organisation, countries or sites in TyrePulse).
+
+The SQL file also tells you if it could not install the pre-request guard (another
+function already uses PostgREST's pre-request hook): add
+`perform anum_integration.pre_request();` at the start of that function and run
+`verify_reader` again. To undo everything run
+`infra/tyrepulse/supabase-anum-reader-rollback.sql` the same way and delete or ban the
+reader user.
+
+### Supabase PostgreSQL
+
+A read-only database login, for a Supabase or PostgreSQL database whose row level security
+does **not** depend on a signed-in user. It does not work for TyrePulse (see above); a
+TyrePulse login sees no rows.
 
 1. In the Supabase dashboard open **Project Settings > Database > Connection string**
    and note the host and port (`5432` direct, or `6543` for the pooler).
-2. In **SQL Editor** create the login (choose your own strong password):
-
-   ```sql
-   create role anum_reader with login password '<a long random password>' nobypassrls;
-   alter role anum_reader set default_transaction_read_only = on;
-   grant usage on schema public to anum_reader;
-   grant select on public.vehicle_fleet, public.tyre_records, public.tyre_service_events,
-     public.tpms_readings, public.suppliers to anum_reader;
-   ```
-
-3. TyrePulse tables are under row level security scoped to the signed-in user's
-   organisation (`app_current_org()` reads `auth.uid()`). Let the reader see what your own
-   TyrePulse user sees by giving it that user's id as its JWT subject and the right to
-   call the policy helpers:
-
-   ```sql
-   alter role anum_reader set request.jwt.claims = '{"sub": "<your TyrePulse profile id>", "role": "authenticated"}';
-   grant execute on all functions in schema public to anum_reader;
-   ```
-
-   Check it: `set role anum_reader; select count(*) from public.tyre_records; reset role;`
-   must return your rows. Zero rows means a policy still hides them.
-4. In ANUM choose **Supabase PostgreSQL**, paste
-   `postgresql://anum_reader:<password>@<host>:<port>/postgres?sslmode=require`, save,
+2. In **SQL Editor** create a login that can only read the tables ANUM needs (choose your
+   own name and a strong password; `nobypassrls`, `default_transaction_read_only = on`,
+   `grant usage on schema` and `grant select on` those tables only).
+3. In ANUM choose **Supabase PostgreSQL**, paste
+   `postgresql://<user>:<password>@<host>:<port>/postgres?sslmode=require`, save,
    then **Test connection**.
 
 ANUM opens every session with `default_transaction_read_only=on` and a statement
@@ -75,10 +139,10 @@ host with `ANUM_TYRE_SOURCE_ALLOWED_HOSTS` (same `host` / `host:port` format as
 
 Choose **Supabase REST**, enter the project URL (`https://<project-ref>.supabase.co`,
 from **Project Settings > API**) and an API key whose role can read the tables. ANUM
-sends only `GET` requests to `/rest/v1`. The `anon` key respects your RLS and usually
-sees nothing; the `service_role` key bypasses RLS and could also write if it leaked, so
-prefer the PostgreSQL read-only login above. Calls go through the same egress guard as
-model endpoints (public HTTPS only, pinned address, no redirects).
+sends only `GET` requests to tables under `/rest/v1` (never `/rpc`). The `anon` key
+respects your RLS and usually sees nothing; a service_role / `sb_secret_` key bypasses RLS,
+so ANUM refuses it. For TyrePulse use **TyrePulse sign-in** above. Calls go through the
+same egress guard as model endpoints (public HTTPS only, pinned address, no redirects).
 
 ### Firebase (Firestore)
 

@@ -16,11 +16,22 @@ test('owner connects TyrePulse, maps with the preset and syncs', async ({ page }
   // Nothing to save without a credential; the read-only connection string is write-only.
   await page.getByRole('button', { name: 'Save connection' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Enter the credential' })).toBeVisible();
-  await page.getByLabel('Read-only connection string').fill('postgresql://anum_reader:example@db.example.supabase.co:5432/postgres?sslmode=require');
+  // TyrePulse sign-in is the default: the project URL, the publishable key and the reader user.
+  await expect(page.getByRole('radio', { name: /TyrePulse sign-in/ })).toBeChecked();
+  await page.getByLabel('Supabase project URL').fill('https://example.supabase.co');
+  await page.getByLabel('Publishable (anon) key').fill('sb_secret_example');
+  await page.getByLabel('Reader e-mail').fill('anum-reader@example.com');
+  await page.getByLabel('Reader password').fill('example');
+  await page.getByRole('button', { name: 'Save connection' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'That is a secret (service_role) key' })).toBeVisible();
+  await page.getByLabel('Publishable (anon) key').fill('sb_publishable_example');
   await page.getByRole('button', { name: 'Save connection' }).click();
   await expect(page.getByText('Connection saved. Test it next.')).toBeVisible();
+  expect(state.saved?.kind).toBe('supabase_auth');
+  expect(JSON.parse(state.saved?.secret ?? '{}')).toEqual({ api_key: 'sb_publishable_example', email: 'anum-reader@example.com', password: 'example' });
+  await expect(page.getByText('anum-reader@example.com · key …mple')).toBeVisible();
   await page.getByRole('button', { name: 'Test connection' }).click();
-  await expect(page.getByText('read-only session: on')).toBeVisible();
+  await expect(page.getByText('Signed in as anum-reader@example.com (read-only).', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Discover tables' }).click();
   await expect(page.getByText('Found 3 tables.')).toBeVisible();
   await page.getByRole('button', { name: 'Use the TyrePulse preset' }).click();
