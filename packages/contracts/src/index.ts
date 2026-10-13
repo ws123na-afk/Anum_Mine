@@ -191,4 +191,5 @@ export * from './library.js';
 export * from './team.js';
 export * from './agents.js';
 export * from './conversations.js';
+export * from './setupPlans.js';
 export * from './voice.js';

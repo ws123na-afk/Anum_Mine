@@ -930,6 +930,12 @@ async def list_agents(
 
 @router.post("", response_model=AgentProfileView, status_code=status.HTTP_201_CREATED)
 async def create_agent(payload: AgentProfileCreate, context: TenantContext = Depends(tenant_context)) -> AgentProfileView:
+    return await create_agent_with_status(payload, context, AgentStatus.ACTIVE)
+
+
+async def create_agent_with_status(payload: AgentProfileCreate, context: TenantContext, initial_status: AgentStatus) -> AgentProfileView:
+    """The governed create (permission, capability checks, limit, audit) with the first status set in
+    the same write, so a caller that wants a paused agent never leaves an active one behind."""
     require_permission(context, Permission.TASK_CREATE)
     validate_capabilities(payload, context)
     now = utc_now()
@@ -939,7 +945,7 @@ async def create_agent(payload: AgentProfileCreate, context: TenantContext = Dep
         tenant_id=context.tenant_id,
         workspace_id=context.workspace_id,
         owner_user_id=context.user_id,
-        status=AgentStatus.ACTIVE,
+        status=initial_status,
         created_at=now,
         updated_at=now,
         version=1,

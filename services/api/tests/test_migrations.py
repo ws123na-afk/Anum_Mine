@@ -804,3 +804,16 @@ def test_chat_depth_migration_is_expand_only_and_grants_nothing() -> None:
     assert "feedback is null or feedback in ('up', 'down')" in upgrade
     assert "drop" not in upgrade and "alter_column" not in upgrade and "grant " not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_setup_plans_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0052_setup_plans.py").read_text(encoding="utf-8")
+    assert 'revision = "0052_setup_plans"' in revision_text and len("0052_setup_plans") <= 32
+    assert 'down_revision = "0051_chat_depth"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0052_setup_plans.py"]
+    assert not [path for path in others if 'down_revision = "0051_chat_depth"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2 and "drop" not in upgrade and "alter_column" not in upgrade
+    assert "force row level security" in upgrade and "create policy scope_isolation_setup_plan_items" in revision_text
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

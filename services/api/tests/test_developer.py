@@ -1165,7 +1165,8 @@ def test_workflow_template_is_self_contained_pinned_and_guarded() -> None:
 
 def test_the_template_ships_with_the_package() -> None:
     pyproject = (ROOT / "services" / "api" / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'anum_api = ["workflow_templates/*.yml"]' in pyproject
+    package_data = next(line for line in pyproject.splitlines() if line.startswith("anum_api = ["))
+    assert '"workflow_templates/*.yml"' in package_data
 
 
 # -- migrations -------------------------------------------------------------------------------

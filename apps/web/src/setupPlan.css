@@ -1,0 +1,119 @@
+/* Setup plan page (SetupPlanView.tsx, docs/setup-plan.md). Spacing from the shared tokens. */
+.planState { display: grid; gap: var(--d-s3); justify-items: start; }
+.planState.surface { padding: var(--d-s5); }
+.planState h3 { font-size: 16px; line-height: 1.45; margin: 0; max-width: 72ch; }
+.planPicker { display: grid; gap: var(--d-s1); margin-bottom: var(--d-s4); max-width: 420px; }
+
+.planControls { align-items: start; display: grid; gap: var(--d-s5); grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); margin-bottom: var(--d-s5); padding: var(--d-s5); }
+.planPlanName h3 { font-size: 20px; margin: 0 0 var(--d-s2); }
+.planPlanName p { margin: 0 0 var(--d-s2); max-width: 70ch; }
+.planMeta { font-variant-numeric: tabular-nums; }
+.planChoice { display: grid; gap: var(--d-s3); justify-items: start; min-width: 0; }
+.planChoice > p { margin: 0; }
+.planChoice .actions { margin: 0; }
+.planToggle { align-items: flex-start; cursor: pointer; display: flex; gap: var(--d-s2); min-height: 32px; }
+.planToggle input { accent-color: var(--d-violet); flex: none; height: 18px; margin: 2px 0 0; min-height: 0; padding: 0; width: 18px; }
+.planToggle span { display: grid; gap: 2px; }
+.planToggle small { font-size: 12px; }
+.planWarn { color: var(--d-warn); font-size: 13px; margin: var(--d-s2) 0 0; }
+
+.planAccess { margin-bottom: var(--d-s5); padding: var(--d-s4) var(--d-s5); }
+.planAccess p { color: var(--d-muted); font-size: 13px; margin: 0; }
+.planAccess p + p { margin-top: var(--d-s2); }
+
+.planResult { margin-bottom: var(--d-s5); padding: var(--d-s5); }
+.planResult h3 { margin: 0 0 var(--d-s3); }
+.planOutcomes { display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s5); list-style: none; margin: 0; padding: 0; }
+.planOutcomes li { align-items: center; display: flex; gap: var(--d-s2); }
+.planOutcomes strong { font-variant-numeric: tabular-nums; }
+.planFailures { display: grid; gap: var(--d-s2); margin: var(--d-s3) 0 0; padding-inline-start: var(--d-s5); }
+.planFailures li span { color: var(--d-muted); display: block; font-size: 13px; overflow-wrap: anywhere; }
+
+/* The rollout track: the plan's eight weeks side by side; the pilot week carries the accent. */
+.planRollout { margin-bottom: var(--d-s5); padding: var(--d-s5); }
+.planRollout .sectionHeader p { margin: var(--d-s1) 0 0; max-width: 72ch; }
+.planTrack { counter-reset: none; display: grid; gap: var(--d-s2); grid-template-columns: repeat(8, minmax(0, 1fr)); list-style: none; margin: var(--d-s4) 0 0; padding: 0; }
+.planTrack > li { border-top: 3px solid var(--d-line-strong); display: grid; align-content: start; gap: var(--d-s1); min-width: 0; padding-top: var(--d-s2); }
+.planTrack > li.pilot { border-top-color: var(--d-violet); }
+.planWeek { align-items: center; display: flex; flex-wrap: wrap; font-size: 12px; font-weight: 700; gap: var(--d-s1); }
+.planWeek em { background: var(--d-glass-2); border-radius: 999px; color: var(--d-violet-text); font-style: normal; padding: 0 6px; }
+.planWeekTitle { color: var(--d-muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.planTrack ul { display: grid; gap: 2px; list-style: none; margin: var(--d-s1) 0 0; padding: 0; }
+.planTrack ul li { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.planTrack .muted { font-size: 12px; }
+
+.planItems { margin-bottom: var(--d-s5); padding: var(--d-s5); }
+.planFilters { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s4); margin: var(--d-s3) 0 var(--d-s4); }
+.planFilters label:not(.planToggle) { display: grid; gap: var(--d-s1); font-size: 13px; min-width: 0; }
+.planSearch { flex: 1 1 260px; position: relative; }
+.planSearch svg { color: var(--d-faint); height: 16px; inset-inline-start: 12px; position: absolute; bottom: 12px; width: 16px; }
+.planSearch input { padding-inline-start: 36px; width: 100%; }
+.planFilters .planToggle { align-self: center; }
+.planGroup { border-top: 1px solid var(--d-line); }
+.planGroup > summary { align-items: center; cursor: pointer; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); min-height: 44px; padding: var(--d-s2) 0; }
+.planGroup > summary h3 { display: inline; font-size: 15px; margin: 0; }
+.planGroup > summary .muted { font-size: 13px; }
+.planGroupCounts { color: var(--d-muted); display: inline-flex; flex-wrap: wrap; font-size: 12px; gap: var(--d-s1) var(--d-s3); margin-inline-start: auto; }
+.planGroup[open] > summary { margin-bottom: var(--d-s1); }
+.planRows { list-style: none; margin: 0; padding: 0; }
+.planRow { border-top: 1px solid var(--d-line); padding: var(--d-s3) 0; }
+.planRowHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.planRowName { min-width: 0; overflow-wrap: anywhere; }
+.planTag { background: var(--d-glass-2); border-radius: 999px; color: var(--d-muted); font-size: 11px; font-weight: 700; padding: 2px 8px; }
+.planOpen { align-items: center; color: var(--d-violet-text); display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s1); margin-inline-start: auto; min-height: 32px; }
+.planOpen svg { height: 14px; width: 14px; }
+.planReason { color: var(--d-muted); font-size: 13px; margin: var(--d-s1) 0 0; max-width: 90ch; }
+.planRow details { margin-top: var(--d-s1); }
+.planRow summary { color: var(--d-text); cursor: pointer; font-size: 13px; min-height: 28px; }
+.planRow details ul { color: var(--d-muted); display: grid; font-size: 13px; gap: var(--d-s1); margin: var(--d-s1) 0 0; padding-inline-start: var(--d-s5); }
+.planRow details li { overflow-wrap: anywhere; }
+.planMore { margin-top: var(--d-s3); }
+
+.planGaps { margin-bottom: var(--d-s5); padding: var(--d-s5); }
+.planGaps .sectionHeader p { margin: var(--d-s1) 0 0; max-width: 72ch; }
+.planGapColumns { display: grid; gap: 0 var(--d-s5); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: var(--d-s3); align-items: start; }
+.planNotes { list-style: none; margin: 0; padding: 0; }
+.planNotes li { align-items: start; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: 112px minmax(0, 1fr); padding: var(--d-s3) 0; }
+.planNotes li > .statusBadge { justify-self: start; }
+.planNotes strong, .planNotes .muted { display: block; font-size: 13px; }
+.planNotes p { color: var(--d-muted); font-size: 13px; margin: var(--d-s1) 0 0; }
+
+@media (max-width: 1100px) {
+  .planTrack { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--d-s4); }
+}
+@media (max-width: 900px) {
+  .planControls, .planGapColumns { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .planTrack { grid-template-columns: 1fr; }
+  .planTrack > li { border-top: 0; border-inline-start: 3px solid var(--d-line-strong); padding: 0 0 0 var(--d-s3); padding-inline-start: var(--d-s3); }
+  .planTrack > li.pilot { border-inline-start-color: var(--d-violet); }
+  .planNotes li { grid-template-columns: 1fr; gap: var(--d-s1); }
+  .planOpen { margin-inline-start: 0; }
+}
+
+.planTabs { margin-bottom: var(--d-s4); }
+.planTabCount { color: var(--d-muted); font-variant-numeric: tabular-nums; margin-inline-start: var(--d-s2); }
+.planGate { color: var(--d-warn); font-size: 12px; font-weight: 600; margin-top: var(--d-s1); }
+.planGate.done { color: var(--d-ok); }
+.planChecksHead { align-items: center; border-inline-start: 3px solid var(--d-warn); display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr) minmax(160px, 240px); margin-bottom: var(--d-s5); padding: var(--d-s5); }
+.planChecksHead.done { border-inline-start-color: var(--d-ok); }
+.planChecksHead h3 { align-items: center; display: flex; flex-wrap: wrap; font-size: 20px; gap: var(--d-s3); margin: 0 0 var(--d-s2); }
+.planChecksHead p { margin: 0 0 var(--d-s1); max-width: 80ch; }
+.planChecksHead progress { accent-color: var(--d-ok); height: 10px; width: 100%; }
+.planItems > h2 { margin: 0 0 var(--d-s2); }
+.planCheckFacts { display: grid; gap: var(--d-s2) var(--d-s5); grid-template-columns: repeat(2, minmax(0, 1fr)); margin: var(--d-s3) 0; }
+.planCheckFacts div { min-width: 0; }
+.planCheckFacts dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.planCheckFacts dd { font-size: 13px; margin: 2px 0 0; overflow-wrap: anywhere; }
+.planCheckForm { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); justify-items: start; margin: 0; min-width: 0; padding: var(--d-s3); }
+.planCheckForm legend { color: var(--d-muted); font-size: 12px; font-weight: 700; padding: 0 4px; }
+.planCheckForm label { font-size: 13px; }
+.planCheckForm textarea, .planCheckForm input { width: 100%; }
+.planCheckForm .actions { margin: 0; }
+.planCheckForm p { margin: 0; }
+@media (max-width: 760px) {
+  .planChecksHead, .planCheckFacts { grid-template-columns: 1fr; }
+}
+.planIntro { margin: 0 0 var(--d-s4); max-width: 80ch; }
+.planFilters .planToggle.planOnly { align-self: end; min-height: 44px; align-items: center; }

@@ -133,6 +133,7 @@ from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .user_preferences import router as user_preferences_router
 from .home import router as home_router
+from .setup_plans import router as setup_plans_router
 from .push import push_dispatcher, router as push_router
 from .developer_watch import build_developer_watcher
 from .autonomy_api import router as autonomy_router
@@ -330,6 +331,7 @@ app.include_router(assistants_router)
 app.include_router(organisations_router)
 app.include_router(agents_router)
 app.include_router(home_router)
+app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
