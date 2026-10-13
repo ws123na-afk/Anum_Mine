@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  approvalRuleBody, emptyTargetDraft, enterpriseWriteAccess, integrationBadge, integrationConfigBody, integrationToolNote, organizationPolicyAccess, packState, parseList, regionSummary,
+  emptyTargetDraft, enterpriseWriteAccess, integrationBadge, integrationConfigBody, integrationToolNote, organizationPolicyAccess, packState, parseList, regionSummary,
   roleTemplateBody, routingTargetBody, sortPacks, targetDraft, tenantWriteAccess, type PolicyPack, type RoutingTarget,
 } from '../src/lib/governance.ts';
 
@@ -20,7 +20,7 @@ describe('policy packs', () => {
   });
 });
 
-describe('role templates and approval rules', () => {
+describe('role templates', () => {
   test('parseList trims, splits and de-duplicates', () => {
     assert.deepEqual(parseList(' owner, member\nowner ,, '), ['owner', 'member']);
   });
@@ -29,13 +29,6 @@ describe('role templates and approval rules', () => {
     assert.equal(roleTemplateBody('Analyst', []).ok, false);
     assert.equal(roleTemplateBody('x'.repeat(81), ['task:read']).ok, false);
     assert.deepEqual(roleTemplateBody(' Analyst ', ['task:read', 'task:read']), { ok: true, value: { name: 'Analyst', permissions: ['task:read'] } });
-  });
-  test('approval rule validates approvers and defaults roles to owner', () => {
-    assert.equal(approvalRuleBody({ name: 'r', actionPattern: 'a.*', minimumApprovers: '0', requiredRoles: '' }).ok, false);
-    assert.equal(approvalRuleBody({ name: 'r', actionPattern: 'a.*', minimumApprovers: '1.5', requiredRoles: '' }).ok, false);
-    assert.equal(approvalRuleBody({ name: 'r', actionPattern: ' ', minimumApprovers: '1', requiredRoles: '' }).ok, false);
-    assert.deepEqual(approvalRuleBody({ name: ' r ', actionPattern: 'integration.*', minimumApprovers: '2', requiredRoles: '' }),
-      { ok: true, value: { name: 'r', action_pattern: 'integration.*', minimum_approvers: 2, required_roles: ['owner'] } });
   });
 });
 

@@ -71,11 +71,11 @@ The ledger `setup_plan_items` keeps one row per blueprint item key: the object i
 | 8 department assistants | Assistant profiles, autonomy `suggest` (route and propose, no approval authority), routing keywords; no inbound channel until an owner ticks one | as-is |
 | 9 policy packs | 6 packs of `require_approval` / `allow` rules on real tool patterns (they only add approvals). MEMORY maps to memory governance, RUNTIME to the budget and fixed retry rules, ADMIN to the org_admin requirement and audit | mapped |
 | Role templates | 10 role templates with real permission names; the pilot role cards' "may approve / must escalate" (Operations and Care, Finance Reviewer, Technical Administrator = Governance Administrator) are shown with them. ANUM enforces owner, member, viewer and org_admin; templates document the intended set | partial |
-| AED approval thresholds | Approval rules for prices and stock, publishing, auto-posting and unknown external actions (owner). Amount-based routing is not possible (see below); each threshold's support is listed on the page | partial |
+| AED approval thresholds | Approval rules with AED bands and approver steps ([Approval routing](approvals-and-risk.md#approval-routing)): refunds up to AED 250 to the named Care Lead and above to owners, goodwill discounts up to AED 100 and 5%, quotes up to AED 5,000 delegated, commitments above AED 5,000 in two steps, plus prices and stock, publishing, auto-posting and unknown external actions (owner). Delegated rules start with owners only until the person is named. Only a per-task cost estimate is unsupported; each threshold's support is listed on the page | mapped |
 | Memory rules | Memory governance: 90-day expiry of remembered chat facts, provenance required. Per-category retention is not possible | partial |
 | 9 knowledge folders | Shared knowledge collections 00-08 | as-is |
 | 30 saved commands | The applier's quick commands (Work), text = the voice phrase | as-is |
-| 25 automations | 18 workflows (turned off) with a `task.create` step; schedules in Asia/Dubai (turned off) or event triggers (turned off) for WhatsApp, email, files and failed runs. #8, #9, #10, #16, #24 need a webhook trigger from the source system; #18 runs by hand. #2, #3, #19 are built in (Command plans, team reminders, Meetings); #14 is part of #13; #6 is the WhatsApp auto-send list; #4 and #7 are not supported | mapped |
+| 25 automations | 18 workflows (turned off) with a `task.create` step; schedules in Asia/Dubai (turned off) or event triggers (turned off) for WhatsApp, email, files and failed runs. #8, #9, #10, #16, #24 need a webhook trigger from the source system; #18 runs by hand. #2, #3, #19 are built in (Command plans, team reminders, Meetings); #14 is part of #13; #6 is the WhatsApp auto-send list; #7 is the built-in [contact suppression list](privacy.md#contact-suppression); #4 is not supported | mapped |
 | Budget caps | Workspace monthly cost limit = sum of the active agents' caps in USD at the AED peg (3.6725) | partial |
 | Home priorities | Home's fixed Today's Focus, approvals and activity | not configurable |
 | Integrations, people, 2FA, documents | Listed under "For you to do" | manual |
@@ -89,17 +89,16 @@ ANUM never runs these cases against live data from the page. The parts it can ch
 - CC05 / OWN02: a payment-kind refund of AED 300 always needs an approval and can never act on its own, at any autonomy level; after the whole plan no agent holds a payment, price or stock tool.
 - OWN03: a template send to 20 recipients always asks (bulk; ANUM's default threshold of 5 is stricter than the plan's 10).
 - OWN01: "Show all COD orders awaiting remittance and group them by variance" plans read-only steps that need no approval.
-- CC04: ANUM has no opt-out suppression, and the plan says so; this check cannot pass until it is built.
+- CC04: a WhatsApp STOP (or إيقاف, لا ترسلوا لي رسائل) puts the number on the [contact suppression list](privacy.md#contact-suppression), and every later send to it, by an agent, an automation or after an approval, is refused and audited; START lifts it.
 
 The COD variance bands (COD02, COD03, COD05) are in the COD Reconciliation skill and the 17:00 automation's instructions, not enforced by code, so a person checks them.
 
 ## Not supported yet
 
 - Per-agent AI budget caps (ANUM budgets per workspace and organization), budget alerts at 50, 75 and 90 percent (ANUM records 80 and 100), per-task cost estimates.
-- Approvals routed by AED amount or to non-owner roles (refunds up to AED 250 by the Care Lead, discounts up to AED 100, delegated quotes up to AED 5,000): approval rules match tools, and only owners decide.
 - Banking, bank reconciliation and any money movement; refund and discount tools; COD cash-count records.
 - Courier tracking and delivery proof.
-- A contact opt-out list (CC04, automation #7) and consent records for campaigns.
+- Consent records for campaigns (the opt-out list itself exists: [Contact suppression](privacy.md#contact-suppression)).
 - Departments as objects; automations that run as a chosen agent (a scheduled task runs as the schedule's owner, with the agent's duty in the prompt); agents placed in each business workspace by one apply (apply the plan in each workspace instead).
 - An approval-ageing reminder (#4); configurable Home priorities; per-agent loop and retry limits.
 - WhatsApp utility templates from the pilot pack: they need Meta submission and approval in the WhatsApp Business account; ANUM sends a template only after an owner ticks it on the auto-send list.

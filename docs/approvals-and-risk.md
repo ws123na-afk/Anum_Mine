@@ -131,10 +131,49 @@ When the matching enabled approval rules ask for more than two approvers (the la
 
 Tests: `services/api/tests/test_tool_governance.py` (matching, policy order, planning, execution, recovery, decision-time rules, approval chains, tenant isolation), `test_durable_runs.py` (a chain on the Temporal path signals the workflow only when complete), `test_postgres_approval_chains.py` (rows, audit and events in PostgreSQL as the app role, RLS and the scope-bound foreign key) and `test_postgres_tool_governance.py` (the same through PostgreSQL as the non-owner app role, and RLS on the rule reads). No migration was needed: the rules are read from the `approval_rules` and `policy_packs` tables of migration `0008_control_plane_stores`.
 
+## Approval routing
+
+Approval routing decides **who** may approve an approval from its AED amount (owner decision, approval matrix v1). Whether a call pauses at all is still decided by the rule's tool pattern alone ([above](#organization-approval-rules-and-policy-packs)): a refund always pauses, whatever its amount. Code: `anum_api/approval_routing.py` (pure matching), enforced in `main.py` (`_decide_approval_locked`), stored on `approval_rules` (migration `0053_routing_suppression`).
+
+An organization approval rule (`POST /api/v1/organization/approval-rules`, `PUT` and `DELETE /api/v1/organization/approval-rules/{id}`, org_admin only, each change audited as `approval_rule.created|updated|deleted` with the before and after settings) may carry:
+
+| Field | Meaning |
+|---|---|
+| `conditions.amount_above` / `conditions.amount_at_most` | An AED band (`amount_at_most` must be larger than `amount_above`). |
+| `conditions.percent_of_order_at_most` | The amount as a share of the order value (`order_total`, `order_value`, `order_amount` or `subtotal`, or `order_value_field`). |
+| `conditions.disputed` | `any` (default), `yes` or `no`, read from the `disputed` argument. |
+| `conditions.amount_field` / `order_value_field` | The argument to read (`amount` or `order.total`); otherwise the first of `amount`, `refund_amount`, `discount_amount`, `total`, `value`, `spend`, `cost`. |
+| `approver_steps` | One or two steps; each lists who may approve it: `owner`, `org_admin`, `role:owner`, `role:member` or `user:<user id>`. Step 2 is approved by a different person after step 1. |
+
+A rule without conditions and steps keeps the original behaviour (owners holding `required_roles`, `minimum_approvers` people).
+
+Matching is fail closed:
+
+- An amount that is missing, not a number or in another currency counts as above every threshold: an `amount_at_most` band (a delegation) never applies and an `amount_above` band always does. A missing or zero order value means a `percent_of_order_at_most` band does not apply.
+- **No splitting.** The amounts of the task's other pending or approved approvals that the same rule matches are added, so three refunds of AED 100 on one task route like one of AED 300.
+- When rules match the tool but none of their bands hold, the approval goes to workspace owners (`fallback`).
+- A stored condition the runtime cannot read is treated as an owner-only band.
+- Viewers never approve, even when named.
+
+Deciding:
+
+- Owners hold `approval:decide` as before. Anyone else with `approval:read` may approve an approval only when its route lists them for the **current** step, and may reject it when they are listed for any step. Everyone else gets `403` and an `approval.route_denied` audit record; the approval stays pending.
+- **Approvers never approve their own request.** Someone who decides only through a delegation (a named member, `role:member`, an org_admin who is not an owner) may never approve a task they created or a call their own run requested (`approval.self_approval_denied`). Owners follow the two-person rules ([Workspace approval policy](#workspace-approval-policy)) so a single-owner business can still approve what its own automations propose.
+- The approve still needs the displayed payload hash (`POST /approve {"payload_hash": ...}`), and the route is re-read at every approve, so a rule edited or deleted while an approval waits takes effect at its next decision.
+- Two steps collect two distinct, audited approvals ([Approval chains](#approval-chains)); `required_approvals` is the number of steps.
+
+What clients see: every approval in `GET /api/v1/approvals` (and the single and decision responses) carries `routing`: `routed`, the matching `rules`, the `steps` with who approved each, `current_step`, structured `reasons` (`amount_above`, `amount_at_most`, `amount_unknown`, `percent_at_most`, `percent_unknown`, `disputed`, `not_disputed`, `no_band`, with the amount, the summed total, the threshold and how many related approvals were added), `fallback`, `can_approve`, `can_reject`, a `refusal` code (`not_pending`, `viewer`, `already_approved`, `not_listed`, `own_request`, `no_hash`) and an English `summary`. A pending approval also lists `suppressed` recipients ([Contact suppression](privacy.md#contact-suppression)).
+
+Web: each Approvals card shows "Who can approve" with the reason ("Refunds above AED 250: AED 300 is more than AED 250"), the steps and who approved them; someone the route does not list sees the card read only with the reason, and Approve and Reject follow `can_approve` and `can_reject`. A link on the page opens the rules. On Governance, the approval rules panel (`apps/web/src/ApprovalRulesPanel.tsx`, helpers `src/lib/approvalRules.ts`, messages `src/lib/messages/routing.{en,ar}.ts`) lists each rule with its band and approvers; organization administrators add, edit, turn off and delete rules (with a confirmation), everyone else reads them. Tests: `services/api/tests/test_approval_routing.py`, `test_postgres_routing_suppression.py`, `apps/web/test/approvalRules.test.ts`, `apps/web/e2e/approval-routing.spec.ts`.
+
+The setup plan's approval rules (blueprint version 2, [Setup plan](setup-plan.md)) map the matrix onto these fields: refunds up to AED 250 to the Operations/Care Lead once named, refunds above AED 250 and disputed refunds to owners only, goodwill discounts up to AED 100 and 5% of the order to members, quotes up to AED 5,000 delegated and above to owners, commitments above AED 5,000 in two steps (Finance Reviewer, then an owner), and payments, contracts and data exports to owners at any value.
+
+Not done yet: the Flutter and Android approval screens do not show the route or the opted-out recipients yet (they offer Approve and Reject as before and show the API's `403` refusal), and there is no per-workspace override of tenant rules.
+
 ## Autonomy
 
 The workspace autonomy policy ([Autonomy](autonomy.md)) is evaluated after `ToolPolicy`. It can let a call that needed approval only because of the platform's high-risk default act on its own (act and notify, with Undo where reversible) for patterns the policy allows, and it can make an allowed call ask (a level, a rule, a protected kind, a guardrail). It never unblocks, never lowers an approval an organization approval rule or policy pack requires, and never applies while the workspace's two-person rule or medium-risk approval switch asks. `ToolPolicyDecision.lowerable` marks the decisions it may lower. Blocked recipients and the organization's spending limit block even an approved call at execution. Approvals of the same pattern feed "ask once, remember" suggestions, which an owner must accept.
 
 ## Later
 
-Add delegated approvals, ordered (sequential) approval chains and per-step approver groups, policy-driven auto-approval, approval templates, mobile push approvals, emergency revocation, and simulations that explain why a policy allowed or blocked an action.
+Add approval chains of more than two ordered steps, policy-driven auto-approval, approval templates, mobile push approvals, emergency revocation, and simulations that explain why a policy allowed or blocked an action.

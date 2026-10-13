@@ -35,3 +35,30 @@
 }
 /* Notices and the open target form carry only a top margin: keep the same gap before the cards. */
 .notice + .govTargets, .govForm + .govTargets, .muted + .govTargets { margin-top: var(--d-s4); }
+/* Approval rules with AED bands and approver steps (ApprovalRulesPanel.tsx). */
+.ruleList { display: grid; list-style: none; margin: var(--d-s2) 0 0; padding: 0; }
+.ruleRow { align-items: start; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: 22px minmax(0, 1fr) auto; padding: var(--d-s3) 0; }
+.ruleRow:first-child { border-top: 0; }
+.ruleRow > svg { color: var(--d-violet); height: 20px; margin-top: 2px; width: 20px; }
+.ruleMain { min-width: 0; }
+.ruleMain strong { overflow-wrap: anywhere; }
+.ruleMain p { color: var(--d-muted); font-size: 12.5px; margin: var(--d-s1) 0 0; overflow-wrap: anywhere; }
+.ruleMain .tagRow { margin-top: var(--d-s1); }
+.ruleActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.ruleActions button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 40px; white-space: nowrap; }
+.ruleForm { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: var(--d-s3) 0; padding: var(--d-s4); }
+.ruleForm h3 { font-size: 15px; }
+.ruleGrid { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ruleGrid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ruleGrid small, .ruleFieldset > small, .ruleAdvanced small { display: block; font-size: 12px; }
+.ruleFieldset { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: var(--d-s3); }
+.ruleFieldset legend { color: var(--d-muted); font-size: 12px; font-weight: 700; padding: 0 4px; }
+.ruleAdvanced summary { cursor: pointer; font-size: 13px; min-height: 32px; }
+.ruleApprovers { margin-top: 0; }
+.govPermissions label.rulePeople { align-items: stretch; cursor: auto; display: grid; gap: var(--d-s1); grid-column: 1 / -1; }
+.ruleCheck { min-height: 32px; }
+@media (max-width: 900px) {
+  .ruleGrid, .ruleGrid.three { grid-template-columns: 1fr; }
+  .ruleRow { grid-template-columns: 22px minmax(0, 1fr); }
+  .ruleActions { grid-column: 2; justify-content: flex-start; }
+}

@@ -119,7 +119,7 @@ test('an owner previews the pilot, confirms and sees what was created', async ({
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   await expect(page.locator('.planOutcomes')).toContainText('Created');
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'pilot', overwrite_edited: false, plan_version: 1 });
+  expect(apply?.body).toEqual({ phase: 'pilot', overwrite_edited: false, plan_version: 2 });
   // The fresh preview says there is nothing left to change.
   await expect(page.getByRole('button', { name: 'Nothing to change' })).toBeDisabled();
 });
@@ -143,7 +143,7 @@ test('the whole plan and "Replace my changes" are sent as chosen, and items can 
   await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: true, plan_version: 1 });
+  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: true, plan_version: 2 });
 });
 
 test('a late answer for an earlier choice never replaces the newest preview, and apply sends what is shown', async ({ page }) => {
@@ -160,7 +160,7 @@ test('a late answer for an earlier choice never replaces the newest preview, and
   await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: false, plan_version: 1 });
+  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: false, plan_version: 2 });
 });
 
 test('pilot checks: record a result with a note and evidence, and the Week 1 gate follows', async ({ page }) => {
@@ -187,8 +187,8 @@ test('pilot checks: record a result with a note and evidence, and the Week 1 gat
   const put = calls.find((c) => c.method === 'PUT');
   expect(put?.path).toBe('/api/v1/setup-plans/shahzeb-business-group/checks/CC05');
   expect(put?.body).toEqual({ status: 'pass', note: 'Approval waited; nothing paid', evidence: 'approval_123' });
-  // CC04 is honest about what ANUM cannot do.
-  await expect(page.locator('.planCheck').filter({ hasText: 'CC04' })).toContainText('Not supported');
+  // CC04 (opt-out) is supported now: the contact suppression list (docs/privacy.md#contact-suppression).
+  await expect(page.locator('.planCheck').filter({ hasText: 'CC04' })).not.toContainText('Not supported');
 });
 
 test('a failed item is listed with its reason', async ({ page }) => {

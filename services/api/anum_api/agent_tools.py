@@ -116,6 +116,19 @@ class ToolRegistry:
         handler = self._handlers.get(call.name)
         if handler is None:
             return ToolResult(status="blocked", summary=f"Unknown tool: {call.name}")
+        # The last check before anything leaves ANUM: a recipient on the contact
+        # suppression list is never sent to, whichever path reached the tool
+        # (docs/privacy.md#contact-suppression).
+        from .suppression import audit_refusal, refusal_reason, suppressed_for_call
+
+        hits = suppressed_for_call(context, call.name, call.arguments, self._definitions.get(call.name))
+        if hits:
+            audit_refusal(context, call.name, hits, "execute")
+            return ToolResult(
+                status="blocked",
+                summary="Not sent: " + refusal_reason(hits),
+                audit_metadata={"outcome": "suppressed", "recipients": [hit.masked for hit in hits]},
+            )
         return await handler(call, context)
 
 

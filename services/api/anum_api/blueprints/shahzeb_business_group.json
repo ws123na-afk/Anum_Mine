@@ -1,6 +1,6 @@
 {
  "id": "shahzeb-business-group",
- "version": 1,
+ "version": 2,
  "name": "Shahzeb Business Group",
  "summary": "The owner's ANUM setup plan: 12 agents, 24 skills, 8 department assistants, governance, knowledge folders, 30 saved commands and 25 automations. Pilot first: Chief of Staff, Customer Care and Finance Controller.",
  "currency": "AED",
@@ -384,6 +384,136 @@
    "required_roles": [
     "owner"
    ]
+  },
+  {
+   "key": "ar_refund_small",
+   "name": "Refunds up to AED 250: Operations/Care Lead",
+   "action_pattern": "*refund*",
+   "conditions": {
+    "amount_at_most": 250,
+    "disputed": "no"
+   },
+   "approver_steps": [
+    [
+     "owner"
+    ]
+   ],
+   "note": "Starts with owners only. Add the Operations/Care Lead by name (Governance > Approval rules) once they are a member."
+  },
+  {
+   "key": "ar_refund_large",
+   "name": "Refunds above AED 250: owner only",
+   "action_pattern": "*refund*",
+   "conditions": {
+    "amount_above": 250
+   },
+   "approver_steps": [
+    [
+     "owner"
+    ]
+   ]
+  },
+  {
+   "key": "ar_refund_disputed",
+   "name": "Disputed refunds: owner only",
+   "action_pattern": "*refund*",
+   "conditions": {
+    "disputed": "yes"
+   },
+   "approver_steps": [
+    [
+     "owner"
+    ]
+   ]
+  },
+  {
+   "key": "ar_discount_small",
+   "name": "Goodwill discounts up to AED 100 and 5%: staff",
+   "action_pattern": "*discount*",
+   "conditions": {
+    "amount_at_most": 100,
+    "percent_of_order_at_most": 5
+   },
+   "approver_steps": [
+    [
+     "owner",
+     "role:member"
+    ]
+   ]
+  },
+  {
+   "key": "ar_quote_small",
+   "name": "Standard quotes up to AED 5,000: delegated",
+   "action_pattern": "*quote*",
+   "conditions": {
+    "amount_at_most": 5000
+   },
+   "approver_steps": [
+    [
+     "owner"
+    ]
+   ],
+   "note": "Starts with owners only. Add the person you delegate quotes to by name."
+  },
+  {
+   "key": "ar_quote_large",
+   "name": "Quotes above AED 5,000: owner only",
+   "action_pattern": "*quote*",
+   "conditions": {
+    "amount_above": 5000
+   },
+   "approver_steps": [
+    [
+     "owner"
+    ]
+   ]
+  },
+  {
+   "key": "ar_commitment",
+   "name": "Commitments above AED 5,000: Finance review, then owner",
+   "action_pattern": "*.purchase_*",
+   "conditions": {
+    "amount_above": 5000
+   },
+   "approver_steps": [
+    [
+     "role:member"
+    ],
+    [
+     "owner"
+    ]
+   ],
+   "note": "Step 1 is any member until you name the Finance Reviewer; step 2 is always an owner, and the two must be different people."
+  },
+  {
+   "key": "ar_payments",
+   "name": "Payments and transfers: owner approves, a person executes",
+   "action_pattern": "*transfer*",
+   "approver_steps": [
+    [
+     "owner"
+    ]
+   ]
+  },
+  {
+   "key": "ar_contracts",
+   "name": "Contracts: owner, any value",
+   "action_pattern": "*contract*",
+   "approver_steps": [
+    [
+     "owner"
+    ]
+   ]
+  },
+  {
+   "key": "ar_exports",
+   "name": "Data exports: owner, any value",
+   "action_pattern": "*export*",
+   "approver_steps": [
+    [
+     "owner"
+    ]
+   ]
   }
  ],
  "approval_thresholds": [
@@ -403,49 +533,49 @@
    "label": "Payments, transfers, purchases",
    "plan": "Human approval for any amount; a human executes",
    "support": "supported",
-   "anum": "ANUM has no payment tool, so money never moves from ANUM."
+   "anum": "ANUM has no payment tool, so money never moves from ANUM; payment-kind tools always ask, and rule 'Payments and transfers' sends them to owners."
   },
   {
    "label": "Refund up to AED 250",
    "plan": "Operations/Care Lead",
-   "support": "unsupported",
-   "anum": "Approvals cannot route by amount or to a non-owner role; every approval goes to workspace owners."
+   "support": "supported",
+   "anum": "Rule 'Refunds up to AED 250': the refund's AED amount (with the task's other refunds added) routes it to the approvers listed. It starts with owners only; add the Operations/Care Lead by name. They can never approve their own request."
   },
   {
    "label": "Refund above AED 250 or disputed",
    "plan": "Owner",
-   "support": "partial",
-   "anum": "Owners approve every gated action, but ANUM has no refund tool yet."
+   "support": "supported",
+   "anum": "Rules 'Refunds above AED 250' and 'Disputed refunds' route to owners only. ANUM has no refund tool yet, so a person pays."
   },
   {
    "label": "Goodwill discount up to AED 100 and 5%",
    "plan": "Staff only",
-   "support": "unsupported",
-   "anum": "No discount tool exists."
+   "support": "supported",
+   "anum": "Rule 'Goodwill discounts': members or owners approve when the amount is at most AED 100 and at most 5% of the order value; anything else, or an unknown order value, goes to owners. ANUM has no discount tool yet."
   },
   {
    "label": "Standard quote up to AED 5,000",
    "plan": "Delegated",
-   "support": "unsupported",
-   "anum": "Quotes are drafts; sending one is an email that the owner approves."
+   "support": "supported",
+   "anum": "Rule 'Standard quotes up to AED 5,000' routes to the approvers you name (owners until then)."
   },
   {
    "label": "Quote above AED 5,000 or non-standard",
    "plan": "Owner",
    "support": "supported",
-   "anum": "Sending any quote email needs the owner's approval."
+   "anum": "Rule 'Quotes above AED 5,000': owners only."
   },
   {
    "label": "Financial commitment above AED 5,000",
    "plan": "Finance review, then owner",
-   "support": "partial",
-   "anum": "Two-person approval exists but cannot depend on the amount."
+   "support": "supported",
+   "anum": "Rule 'Commitments above AED 5,000': step 1 a member (name the Finance Reviewer), step 2 an owner, two different people in that order."
   },
   {
    "label": "Contract or signature",
    "plan": "Owner, any value",
    "support": "supported",
-   "anum": "No signing tool exists, so only a person signs."
+   "anum": "No signing tool exists, so only a person signs; rule 'Contracts' sends any contract action to owners."
   },
   {
    "label": "Publish or change prices",
@@ -462,14 +592,14 @@
   {
    "label": "New promotional outreach",
    "plan": "Approval plus consent",
-   "support": "partial",
-   "anum": "Free-text sends always ask; consent is checked by the Contact Eligibility skill, not enforced by ANUM."
+   "support": "supported",
+   "anum": "Free-text sends always ask, and every send checks the contact suppression list: an opted-out contact is never messaged."
   },
   {
    "label": "Personal-data export or sharing",
    "plan": "Owner",
    "support": "supported",
-   "anum": "Privacy export is per person; workspace audit export needs the owner."
+   "anum": "Privacy export is per person; workspace audit export needs the owner; rule 'Data exports' sends any export tool to owners."
   },
   {
    "label": "Delete records",
@@ -498,8 +628,8 @@
   {
    "label": "No self-approval",
    "plan": "Yes",
-   "support": "partial",
-   "anum": "Turn on the two-person rule in Approval policy (needs two owners)."
+   "support": "supported",
+   "anum": "Delegated approvers never approve their own request. For owners, turn on the two-person rule in Approval policy (needs two owners)."
   },
   {
    "label": "Bulk = more than 10 promotional recipients in 24 hours",
@@ -1951,8 +2081,8 @@
    "name": "GALLERY — Opt-out Suppression",
    "agent": "a7",
    "trigger": {
-    "type": "unsupported",
-    "reason": "ANUM has no contact opt-out list yet: a STOP or unsubscribe message is not recorded as a suppression. Keep opt-outs by hand until this is built."
+    "type": "builtin",
+    "reason": "Built in: an inbound WhatsApp STOP or unsubscribe goes onto the contact suppression list automatically (Contact opt-outs), and every send checks the list."
    },
    "week": 1
   },
@@ -2237,9 +2367,9 @@
    "expected": "Record the opt-out in the suppression mechanism and stop business-initiated messages, especially marketing. Escalate if the system cannot suppress.",
    "approval_gate": "No approval to honour an opt-out. No agent may override suppression.",
    "pass_criteria": "PASS if suppression works across automations and channels and is audited. FAIL if any scheduled message is sent after the opt-out.",
-   "support": "unsupported",
-   "anum": "ANUM has no contact opt-out list yet, so this check cannot pass: keep opt-outs by hand and escalate each one.",
-   "verified_by": "test_setup_plan_pilot_checks.py::test_cc04_opt_out_is_reported_as_not_supported"
+   "support": "supported",
+   "anum": "A WhatsApp STOP, UNSUBSCRIBE, إيقاف or لا ترسلوا لي رسائل adds the number to the contact suppression list at once; every WhatsApp, e-mail and automation send checks it and refuses with the reason, audited. START or ابدأ lifts a keyword opt-out.",
+   "verified_by": "test_setup_plan_pilot_checks.py::test_cc04_a_stop_message_suppresses_every_later_send"
   },
   {
    "id": "CC05",
@@ -2410,12 +2540,17 @@
    "verified_by": "test_setup_plan_pilot_checks.py::test_own03_a_send_to_twenty_recipients_always_asks"
   }
  ],
- "pilot_gate": "Week 1 is done when all 18 pilot checks pass on synthetic test accounts. A check ANUM cannot pass yet (CC04) is a blocker to resolve before live customer messaging.",
+ "pilot_gate": "Week 1 is done when all 18 pilot checks pass on synthetic test accounts.",
  "manual_steps": [
   {
    "key": "m_people",
    "title": "Invite people and set their roles",
    "detail": "Invite the Operations/Care Lead, Finance Reviewer, Product maintainer and Fleet specialist as members, the stakeholder as viewer, in Members. Give the trusted technical admin org_admin in Keycloak."
+  },
+  {
+   "key": "m_approvers",
+   "title": "Name the delegated approvers",
+   "detail": "In Governance > Approval rules, add the Operations/Care Lead to 'Refunds up to AED 250', the person you delegate quotes to on 'Standard quotes up to AED 5,000' and the Finance Reviewer to step 1 of 'Commitments above AED 5,000'. Until then owners approve them."
   },
   {
    "key": "m_2fa",
@@ -2470,11 +2605,6 @@
    "reason": "ANUM records crossings at 80 and 100 percent only; at 100 percent it blocks, as the plan asks."
   },
   {
-   "key": "u_amount_routing",
-   "title": "Approvals routed by AED amount or to non-owner roles",
-   "reason": "Approval rules match tools, not amounts, and only owners decide approvals."
-  },
-  {
    "key": "u_banking",
    "title": "Banking, bank reconciliation and money movement",
    "reason": "No bank connection or payment tool exists; COD reconciliation uses commerce order data only."
@@ -2483,11 +2613,6 @@
    "key": "u_courier",
    "title": "Courier tracking and delivery proof",
    "reason": "No courier integration exists; delivery status comes from the commerce connector only."
-  },
-  {
-   "key": "u_optout",
-   "title": "Contact opt-out list",
-   "reason": "Opt-outs are not recorded automatically."
   },
   {
    "key": "u_departments",

@@ -79,7 +79,7 @@ def preview(client: TestClient, phase: str = "pilot", headers: dict[str, str] = 
 
 
 def apply(client: TestClient, phase: str = "pilot", headers: dict[str, str] = ADMIN, **extra: object) -> dict:
-    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=headers, json={"phase": phase, "plan_version": 1, **extra})
+    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=headers, json={"phase": phase, "plan_version": 2, **extra})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -146,7 +146,7 @@ def test_member_and_viewer_are_refused_with_who_can(client: TestClient) -> None:
     for path in ("", f"/{PLAN}/preview"):
         response = client.get(f"/api/v1/setup-plans{path}", headers=MEMBER)
         assert response.status_code == 403 and "workspace owner or an organization administrator" in response.json()["error"]["message"]
-    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=MEMBER, json={"phase": "pilot", "plan_version": 1})
+    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=MEMBER, json={"phase": "pilot", "plan_version": 2})
     assert response.status_code == 403
     assert not agent_store.profiles
 
@@ -181,7 +181,7 @@ def test_apply_pilot_creates_everything_with_pilot_agents_active(client: TestCli
     # Governance through the governance routes.
     packs = client.get("/api/v1/policy-packs", headers=ADMIN).json()
     assert len(packs) == 6 and all(pack["active"] for pack in packs)
-    assert len(client.get("/api/v1/organization/approval-rules", headers=ADMIN).json()) == 4
+    assert len(client.get("/api/v1/organization/approval-rules", headers=ADMIN).json()) == 14
     assert len(client.get("/api/v1/role-templates", headers=ADMIN).json()) == 10
     memory = client.get("/api/v1/organization/memory-governance", headers=ADMIN).json()
     assert memory["default_retention_days"] == 90 and memory["allow_permanent_retention"] is False

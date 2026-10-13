@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
@@ -287,6 +287,63 @@ class AgentRun(BaseModel):
     updated_at: datetime
 
 
+class RouteReason(BaseModel):
+    """Why a rule did or did not choose the approvers (structured, for both languages)."""
+
+    code: Literal[
+        "amount_above",
+        "amount_at_most",
+        "amount_unknown",
+        "percent_at_most",
+        "percent_unknown",
+        "disputed",
+        "not_disputed",
+        "no_band",
+        "rule",
+    ]
+    rule: str | None = None
+    applies: bool = True
+    currency: str = "AED"
+    amount: str | None = None
+    total: str | None = None
+    threshold: str | None = None
+    related: int = 0
+    percent: str | None = None
+
+
+class ApprovalStepView(BaseModel):
+    """One step of the route as shown: who may approve it and who did."""
+
+    approvers: list[list[str]]
+    approved_by: str | None = None
+
+
+class ApprovalRouting(BaseModel):
+    """Who may approve an approval and why (``GET /approvals``, docs/approvals-and-risk.md)."""
+
+    routed: bool = False
+    rules: list[str] = Field(default_factory=list)
+    steps: list[ApprovalStepView] = Field(default_factory=list)
+    current_step: int = 0
+    reasons: list[RouteReason] = Field(default_factory=list)
+    fallback: bool = False
+    # The caller's own position: may they approve or reject now, and if not, why not.
+    can_approve: bool = False
+    can_reject: bool = False
+    refusal: Literal[
+        "not_pending", "not_listed", "own_request", "already_approved", "viewer", "no_hash"
+    ] | None = None
+    summary: str = ""
+
+
+class SuppressedRecipient(BaseModel):
+    """A recipient of the call on the contact suppression list (masked; docs/privacy.md#contact-suppression)."""
+
+    recipient: str
+    channel: str
+    purpose: str
+
+
 class Approval(BaseModel):
     """A paused high-risk tool call waiting for a person (docs/approvals-and-risk.md).
 
@@ -323,6 +380,12 @@ class Approval(BaseModel):
     # oldest first. Filled by the approval routes; not stored on the approval row.
     required_approvals: int = 1
     approvers: list["ApprovalApprover"] = Field(default_factory=list)
+    # Approval routing (docs/approvals-and-risk.md#approval-routing): who may approve this
+    # approval and why, and the caller's own position. Filled by the approval routes.
+    routing: ApprovalRouting | None = None
+    # Recipients of the call who are on the contact suppression list now: the call will
+    # be refused at execution. Filled by the approval routes.
+    suppressed: list[SuppressedRecipient] = Field(default_factory=list)
 
 
 class ApprovalApprover(BaseModel):

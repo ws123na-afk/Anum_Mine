@@ -10,6 +10,7 @@ import { marketingEn } from './marketing.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
+import { routingEn } from './routing.en.ts';
 import { voiceEn } from './en.voice.ts';
 import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
@@ -3616,6 +3617,7 @@ export const en = {
   ...ownerEn,
   ...governanceEn,
   ...setupPlanEn,
+  ...routingEn,
   ...voiceEn,
   ...voiceActionsEn,
 } satisfies Record<string, Message>;

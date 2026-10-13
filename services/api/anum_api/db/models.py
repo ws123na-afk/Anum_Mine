@@ -606,6 +606,12 @@ class ApprovalRuleRecord(Base, TenantScopedMixin):
     required_roles: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     enabled: Mapped[bool] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Approval routing (0053_routing_suppression): the AED band and conditions, and the
+    # approver steps ([{"approvers": [...]}, ...]).
+    conditions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    approver_steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
     __table_args__ = (_tenant_fk("approval_rules"),)
 
@@ -1623,4 +1629,34 @@ class SetupPlanCheckRecord(Base):
     __table_args__ = (
         _tenant_fk("setup_plan_checks"),
         CheckConstraint("status in ('pass', 'fail', 'not_run')", name="ck_setup_plan_checks_status"),
+    )
+
+
+class ContactSuppressionRecord(Base):
+    """One entry of a tenant's contact suppression list (migration ``0053_routing_suppression``).
+
+    Tenant-level: forced RLS on ``anum.tenant_id``. The contact is stored only as a keyed
+    hash and a masked form (docs/privacy.md#contact-suppression).
+    """
+
+    __tablename__ = "contact_suppressions"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    recipient_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    masked: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    reason: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _tenant_fk("contact_suppressions"),
+        UniqueConstraint("tenant_id", "recipient_hash", "channel", name="uq_contact_suppressions_contact"),
+        CheckConstraint("kind in ('phone', 'email')", name="ck_contact_suppressions_kind"),
+        CheckConstraint("channel in ('email', 'whatsapp', 'sms', 'all')", name="ck_contact_suppressions_channel"),
+        CheckConstraint("purpose in ('marketing', 'all')", name="ck_contact_suppressions_purpose"),
     )

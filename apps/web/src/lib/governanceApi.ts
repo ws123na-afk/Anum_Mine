@@ -1,7 +1,8 @@
 // Governance, enterprise routing and integration configuration over the live API.
 // docs/governance-and-scale.md, docs/tools-and-integrations.md. Every call names the current
 // tenant and workspace through the shared request's headers.
-import { apiRequest } from './api';
+import { apiRequest, apiRequestVoid } from './api';
+import type { ApprovalRuleBody } from './approvalRules';
 import type {
   ApprovalRule, EnterpriseOperations, GovernanceSummary, IntegrationConfiguration, IntegrationConfigurationView,
   PolicyPack, RoleTemplate, RoutingTarget,
@@ -17,7 +18,9 @@ export const setPolicyPackState = (id: string, action: 'activate' | 'archive') =
 export const getRoleTemplates = () => get<RoleTemplate[]>('/api/v1/role-templates');
 export const createRoleTemplate = (body: { name: string; permissions: string[] }) => send<RoleTemplate>('POST', '/api/v1/role-templates', body);
 export const getApprovalRules = () => get<ApprovalRule[]>('/api/v1/organization/approval-rules');
-export const createApprovalRule = (body: Omit<ApprovalRule, 'id' | 'enabled' | 'created_at'>) => send<ApprovalRule>('POST', '/api/v1/organization/approval-rules', body);
+export const createApprovalRule = (body: ApprovalRuleBody) => send<ApprovalRule>('POST', '/api/v1/organization/approval-rules', body);
+export const updateApprovalRule = (id: string, body: ApprovalRuleBody) => send<ApprovalRule>('PUT', `/api/v1/organization/approval-rules/${encodeURIComponent(id)}`, body);
+export const deleteApprovalRule = (id: string) => apiRequestVoid(`/api/v1/organization/approval-rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 export const getEnterpriseOperations = () => get<EnterpriseOperations>('/api/v1/enterprise/operations');
 export const getRoutingTargets = () => get<RoutingTarget[]>('/api/v1/routing/targets');

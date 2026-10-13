@@ -135,6 +135,61 @@ export interface Approval {
   requiredApprovals?: number;
   /** Who has approved so far, oldest first. */
   approvers?: ApprovalApprover[];
+  /**
+   * Who may approve this approval and why (approval routing by AED amount,
+   * docs/approvals-and-risk.md#approval-routing), and what the signed-in person may do now.
+   */
+  routing?: ApprovalRouting | null;
+  /** Recipients of the call now on the contact suppression list (masked): the send will be refused. */
+  suppressed?: SuppressedRecipient[];
+}
+
+/** An approver: `owner`, `org_admin`, `role:owner`, `role:member` or `user:<user id>`. */
+export type ApproverToken = string;
+
+/** Why a routed approval went to its approvers (structured, so both languages word it). */
+export interface ApprovalRouteReason {
+  code: 'amount_above' | 'amount_at_most' | 'amount_unknown' | 'percent_at_most' | 'percent_unknown' | 'disputed' | 'not_disputed' | 'no_band' | 'rule';
+  rule?: string | null;
+  applies: boolean;
+  currency: string;
+  amount?: string | null;
+  total?: string | null;
+  threshold?: string | null;
+  related: number;
+  percent?: string | null;
+}
+
+export interface ApprovalRouteStep {
+  /** The decider must be one of each list (one list per rule that has this step). */
+  approvers: ApproverToken[][];
+  approvedBy?: string | null;
+}
+
+export type ApprovalRoutingRefusal = 'not_pending' | 'not_listed' | 'own_request' | 'already_approved' | 'viewer' | 'no_hash';
+
+export interface ApprovalRouting {
+  /** False: no amount rule applies; workspace owners decide as before. */
+  routed: boolean;
+  rules: string[];
+  steps: ApprovalRouteStep[];
+  /** Zero-based step waiting for a decision. */
+  currentStep: number;
+  reasons: ApprovalRouteReason[];
+  /** Rules matched the tool but none of their bands applied: owners decide. */
+  fallback: boolean;
+  canApprove: boolean;
+  canReject: boolean;
+  refusal?: ApprovalRoutingRefusal | null;
+  /** One English sentence from the API (the clients word it from the fields above). */
+  summary: string;
+}
+
+export interface SuppressedRecipient {
+  /** Masked contact, for example +971•••4567. */
+  recipient: string;
+  channel: string;
+  purpose: string;
 }
 
 /** One recorded approve decision of an approval (one per distinct user). */

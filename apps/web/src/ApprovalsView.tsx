@@ -1,9 +1,10 @@
 // Approvals: the exact tool call, where it goes, why it stopped, when it lapses, and who decided
 // and why. See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
 import { useId, useState, type ReactNode } from 'react';
-import { CheckCircle2, Clock, Fingerprint, Globe, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
+import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Route, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
 import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, normalizeReason, shortHash } from './lib/approvals';
+import { mayApprove, mayReject, routingView, suppressedText } from './lib/approvalRules';
 import { formatDateTime, t } from './lib/i18n';
 import { riskLabel, statusLabel } from './lib/labels';
 import { rich } from './rich';
@@ -16,7 +17,7 @@ type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: stri
 
 const formatDate = (value: string) => formatDateTime(value);
 
-export function ApprovalsView({ items, busy, decide, metric, empty, userId }: {
+export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOpenRules }: {
   items: Approval[];
   busy: boolean;
   decide: Decide;
@@ -24,6 +25,8 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId }: {
   empty: ReactNode;
   /** The signed-in user, so a chain they already approved offers no second approval. */
   userId?: string | null;
+  /** Opens the approval rules (Governance), where AED bands and approvers are set. */
+  onOpenRules?: () => void;
 }) {
   const now = new Date();
   const status = (a: Approval) => effectiveStatus(a, now);
@@ -38,6 +41,13 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId }: {
         {metric(<CheckCircle2 />, t('approvals.metric.approved'), String(items.filter((a) => status(a) === 'approved').length), t('approvals.metric.total'))}
         {metric(<XCircle />, t('approvals.metric.rejected'), String(items.filter((a) => status(a) === 'rejected').length), t('approvals.metric.total'))}
       </section>
+      {onOpenRules && (
+        <p className="approvalRulesLink">
+          <Route aria-hidden size={14} />
+          <span>{t('routing.rulesLink.text')}</span>{' '}
+          <button type="button" className="linkButton" onClick={onOpenRules}>{t('routing.rulesLink.open')}</button>
+        </p>
+      )}
       <section className="surface approvalTable" aria-labelledby="approvals-pending-heading">
         <h2 className="visuallyHidden" id="approvals-pending-heading">{t('approvals.pendingHeading')}</h2>
         {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decide} now={now} userId={userId} />)}
@@ -56,6 +66,7 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId }: {
               </summary>
               {a.decisionReason && <p className="approvalReason"><span>{t('approvals.reason')}</span> <bdi>{a.decisionReason}</bdi></p>}
               <ProgressLine approval={a} />
+              {routingView(a) && <RoutingBlock route={routingView(a)!} />}
               <TargetLine approval={a} />
               <ArgumentList approval={a} />
               <HashLine approval={a} />
@@ -69,7 +80,12 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId }: {
 
 function PendingApproval({ approval, busy, decide, now, userId }: { approval: Approval; busy: boolean; decide: Decide; now: Date; userId?: string | null }) {
   const alreadyApproved = hasApproved(approval, userId);
-  const approvable = canApprove(approval, now) && !alreadyApproved;
+  // The API says whether this person may decide (approval routing by AED amount); a person the
+  // route does not list sees the item read-only, with the reason.
+  const approvable = canApprove(approval, now) && !alreadyApproved && mayApprove(approval);
+  const rejectable = mayReject(approval);
+  const route = routingView(approval);
+  const suppressed = suppressedText(approval);
   const progress = approvalProgress(approval);
   const expiry = expiryLabel(approval, now);
   const [reason, setReason] = useState('');
@@ -90,6 +106,9 @@ function PendingApproval({ approval, busy, decide, now, userId }: { approval: Ap
         {progress && alreadyApproved && (
           <p className="approvalProgressNote">{t('approvals.youApproved', { count: progress.required - progress.collected })}</p>
         )}
+        {route && <RoutingBlock route={route} />}
+        {route?.explanation && !alreadyApproved && <p className="approvalReadOnly" role="note"><UserX aria-hidden size={14} />{route.explanation}</p>}
+        {suppressed && <p className="approvalWarning approvalSuppressed" role="note"><BellOff aria-hidden size={14} />{suppressed}</p>}
         <TargetLine approval={approval} />
         <p className="approvalSubhead">{t('approvals.exactly')}</p>
         <ArgumentList approval={approval} />
@@ -120,9 +139,25 @@ function PendingApproval({ approval, busy, decide, now, userId }: { approval: Ap
       </div>
       <div className="approvalActions">
         <button disabled={busy || !approvable} onClick={() => act('approve')}><CheckCircle2 aria-hidden="true" />{t('approvals.approve')}</button>
-        <button className="danger" disabled={busy} onClick={() => act('reject')}><XCircle aria-hidden="true" />{t('approvals.reject')}</button>
+        <button className="danger" disabled={busy || !rejectable} onClick={() => act('reject')}><XCircle aria-hidden="true" />{t('approvals.reject')}</button>
       </div>
     </article>
+  );
+}
+
+/** Who may approve and why (approval routing by AED amount, docs/approvals-and-risk.md#approval-routing). */
+function RoutingBlock({ route }: { route: NonNullable<ReturnType<typeof routingView>> }) {
+  return (
+    <section className="approvalRouting" aria-label={t('routing.title')}>
+      <p className="approvalRoutingWho"><Route aria-hidden size={14} /><strong>{t('routing.title')}:</strong> <span>{route.who}</span>{route.step && <small> · {route.step}</small>}</p>
+      {route.why.length > 0 && <ul className="approvalRoutingWhy" aria-label={t('routing.why')}>{route.why.map((line) => <li key={line} dir="auto">{line}</li>)}</ul>}
+      {route.steps.length > 1 && <ol className="approvalRoutingSteps">
+        {route.steps.map((step) => <li key={step.label} className={step.current ? 'current' : undefined}>
+          <strong>{step.label}</strong> <span>{step.who}</span>
+          <small>{step.approvedBy ? t('routing.approvedBy', { who: step.approvedBy }) : t('routing.waiting')}</small>
+        </li>)}
+      </ol>}
+    </section>
   );
 }
 

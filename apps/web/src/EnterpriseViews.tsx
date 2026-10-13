@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Archive, CircleDot, Download, Pencil, Plus, RefreshCw, Route, ShieldCheck, Undo2 } from 'lucide-react';
 import { authHeaders } from './lib/api';
+import { ApprovalRulesPanel } from './ApprovalRulesPanel';
 import { MarketplaceCatalog } from './MarketplaceCatalog';
 import { useIsOwner } from './useIsOwner';
 import { apiErrorFromResponse, describeError, isPermissionDenied } from './lib/errors';
 import * as gov from './lib/governanceApi';
 import {
-  ROLE_TEMPLATE_PERMISSIONS, approvalRuleBody, emptyTargetDraft, enterpriseWriteAccess, organizationPolicyAccess, packState, regionSummary, roleTemplateBody, routingTargetBody, sortPacks, targetDraft,
+  ROLE_TEMPLATE_PERMISSIONS, emptyTargetDraft, enterpriseWriteAccess, organizationPolicyAccess, packState, regionSummary, roleTemplateBody, routingTargetBody, sortPacks, targetDraft,
   type ApprovalRule, type EnterpriseOperations, type GovernanceSummary, type PolicyPack, type RegionStatus, type RoleTemplate, type RoutingTarget, type TargetDraft,
 } from './lib/governance';
 import { t } from './lib/i18n';
@@ -88,10 +89,8 @@ export function GovernanceView() {
         </article>;
       })}
     </section>
-    <div className="govColumns">
-      <RoleTemplates templates={templates} canManage={canManage} busy={busy} act={act} />
-      <ApprovalRules rules={rules} canManage={canManage} busy={busy} act={act} />
-    </div>
+    <ApprovalRulesPanel rules={rules} canManage={canManage} busy={busy} act={act} />
+    <RoleTemplates templates={templates} canManage={canManage} busy={busy} act={act} />
   </>;
 }
 
@@ -116,28 +115,6 @@ function RoleTemplates({ templates, canManage, busy, act }: { templates: RoleTem
       <fieldset className="govPermissions"><legend>{t('gov.templates.permissions')}</legend>{ROLE_TEMPLATE_PERMISSIONS.map((p) => <label key={p}><input type="checkbox" checked={perms.includes(p)} onChange={(e) => setPerms((old) => e.target.checked ? [...old, p] : old.filter((x) => x !== p))} /><span dir="ltr">{p}</span></label>)}</fieldset>
       {error && <Notice error>{error}</Notice>}
       <div className="actions"><button type="submit" disabled={busy !== null}><Plus size={16} aria-hidden="true" />{t('gov.templates.add')}</button></div>
-    </form>}
-  </section>;
-}
-
-function ApprovalRules({ rules, canManage, busy, act }: { rules: ApprovalRule[] } & ActProps) {
-  const [draft, setDraft] = useState({ name: '', actionPattern: '', minimumApprovers: '1', requiredRoles: 'owner' });
-  const [error, setError] = useState<string | null>(null);
-  const field = (key: keyof typeof draft, label: string, dir: 'auto' | 'ltr' = 'ltr') => <label className="field"><span>{label}</span><input dir={dir} value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} /></label>;
-  const submit = async () => {
-    const body = approvalRuleBody(draft);
-    if (!body.ok) { setError(body.error); return; }
-    setError(null);
-    if (await act('approval-rule', async () => t('gov.rules.created', { name: (await gov.createApprovalRule(body.value)).name }))) setDraft({ name: '', actionPattern: '', minimumApprovers: '1', requiredRoles: 'owner' });
-  };
-  return <section className="surface govSection" aria-label={t('gov.rules.title')}>
-    <div className="sectionHeader"><div><p className="eyebrow">{t('gov.rules.eyebrow')}</p><h2>{t('gov.rules.title')}</h2></div></div>
-    {rules.length === 0 && <p className="muted">{t('gov.rules.empty')}</p>}
-    {rules.map((r) => <div className="govItem" key={r.id}><strong dir="auto">{r.name}</strong><p><bdi dir="ltr">{r.action_pattern}</bdi> · {t('gov.rules.approvers', { count: r.minimum_approvers })} · <bdi dir="ltr">{r.required_roles.join(', ')}</bdi>{r.enabled ? '' : ` · ${t('gov.rules.disabled')}`}</p></div>)}
-    {canManage && <form className="govForm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      {field('name', t('gov.rules.name'), 'auto')}{field('actionPattern', t('gov.rules.pattern'))}{field('minimumApprovers', t('gov.rules.minimum'))}{field('requiredRoles', t('gov.rules.roles'))}
-      {error && <Notice error>{error}</Notice>}
-      <div className="actions"><button type="submit" disabled={busy !== null}><Plus size={16} aria-hidden="true" />{t('gov.rules.add')}</button></div>
     </form>}
   </section>;
 }

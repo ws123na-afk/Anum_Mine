@@ -49,6 +49,10 @@ class GovernanceApprovalRule(BaseModel):
     action_pattern: str
     minimum_approvers: int = Field(default=1, ge=1)
     required_roles: list[str] = Field(default_factory=lambda: ["owner"])
+    # Approval routing (``approval_routing``): an AED amount band and other conditions,
+    # and the approver steps. Kept raw here; ``approval_routing`` parses them fail closed.
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    approver_steps: list[list[str]] = Field(default_factory=list)
 
 
 class GovernancePolicyRule(BaseModel):
@@ -97,6 +101,22 @@ def _rule_field(rule: object, name: str, default: Any = None) -> Any:
     return getattr(rule, name, default)
 
 
+def _plain(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        return value.model_dump(exclude_none=True)
+    return dict(value)
+
+
+def _plain_steps(value: Any) -> list[list[str]]:
+    steps: list[list[str]] = []
+    for step in value or []:
+        approvers = step.get("approvers") if isinstance(step, dict) else getattr(step, "approvers", step)
+        steps.append([str(token) for token in approvers or []])
+    return steps
+
+
 def tool_governance_from(approval_rules: Iterable[Any], policy_packs: Iterable[Any]) -> ToolGovernance:
     """Build the snapshot from stored approval rules and policy packs.
 
@@ -111,6 +131,8 @@ def tool_governance_from(approval_rules: Iterable[Any], policy_packs: Iterable[A
             action_pattern=rule.action_pattern,
             minimum_approvers=rule.minimum_approvers,
             required_roles=list(rule.required_roles),
+            conditions=_plain(getattr(rule, "conditions", None)),
+            approver_steps=_plain_steps(getattr(rule, "approver_steps", None)),
         )
         for rule in approval_rules
         if rule.enabled
