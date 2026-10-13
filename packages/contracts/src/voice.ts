@@ -74,3 +74,20 @@ export interface VoiceActionCard {
 export interface VoiceActionEvent {
   card: VoiceActionCard;
 }
+
+/**
+ * Where one spoken turn's time went on the server (docs/voice.md#latency): the `timing` event
+ * of `/ask/stream`, sent just before `done` and repeated in it, and the `timing` field of
+ * `/ask`. Milliseconds from the request to the first reply text (`first_token_ms`, null when
+ * no text came), in read-only lookups (`tool_ms`) and in all (`total_ms`); lookup rounds and
+ * calls; how the answer was grounded; and the tools it read (names only, never content).
+ */
+export interface VoiceTurnTiming {
+  first_token_ms: number | null;
+  tool_ms: number;
+  total_ms: number;
+  tool_rounds: number;
+  tool_calls: number;
+  grounding: 'tools' | 'snapshot' | 'none';
+  sources: string[];
+}

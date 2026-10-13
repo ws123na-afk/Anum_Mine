@@ -16,6 +16,7 @@ import {
   naturalVoiceSupports,
   outputAmplitude,
   playWakeChime,
+  prepareNaturalVoice,
   recognitionIdle,
   rankVoices,
   speakAndWait,
@@ -40,6 +41,8 @@ import { takeSentences } from './lib/chat';
 import { CopyAction } from './MessageActions';
 import { useDeveloperAssist } from './DeveloperAssist';
 import { getLocale, t, translate, type MessageKey } from './lib/i18n';
+import { automatedBrowser } from './lib/recognitionMode';
+import { clientTiming, formatServerTiming, formatTurnTiming, switchSpeechLanguage, type ClientTurnTiming, type TurnMarks } from './lib/voiceTiming';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -49,6 +52,8 @@ interface Turn {
   text: string;
   result?: VoiceAskResult;
   resolved?: 'created' | 'dismissed';
+  /** What the browser measured for this reply (docs/voice.md#latency). */
+  timing?: ClientTurnTiming;
 }
 
 interface PushToTalkController {
@@ -88,7 +93,8 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
   const [turns, setTurns] = useState<Turn[]>([]);
   const [mode, setMode] = useState<RecognitionMode>(baseRecognitionMode);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [voice, setVoice] = useState<ReplyVoice>(() => stored('anum.voice.reply', 'natural'));
+  // Automatic by default: the natural voice when it is ready in time, else the system voice.
+  const [voice, setVoice] = useState<ReplyVoice>(() => stored('anum.voice.reply', 'auto'));
   const [muted, setMuted] = useState(false);
   const [notice, setNotice] = useState('');
   const [pendingApprovals, setPendingApprovals] = useState(0);
@@ -106,6 +112,8 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
   const probedLocale = useRef<string | null>(null);
   const sequence = useRef(0);
   const heard = useRef('');
+  // When the recognizer last gave new words (the "heard" timing of the turn).
+  const lastWordsAt = useRef<number | undefined>(undefined);
   const followUp = useRef(false);
   // The microphone's analyser while listening; the orb reads it once per frame (no loop of its own).
   const meter = useRef<{ stream: MediaStream; context: AudioContext; analyser: AnalyserNode; data: Uint8Array<ArrayBuffer> } | null>(null);
@@ -173,6 +181,14 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
     return () => { live = false; };
   }, [locale]);
   useEffect(() => { void listSystemVoices().then(setVoices); }, []);
+  // Warm the natural voice when the page opens, so the first reply is not spoken late. Not on a
+  // data-saver connection, and not under browser automation (the tests mock speech).
+  useEffect(() => {
+    if (voice !== 'auto' && voice !== 'natural') return;
+    if (!naturalVoiceSupports(locale) || automatedBrowser()) return;
+    if ((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) return;
+    void prepareNaturalVoice();
+  }, [voice, locale]);
   // New turns scroll the panel's own list, never the page.
   useEffect(() => { const box = scroller.current; if (turns.length && box) box.scrollTop = box.scrollHeight; }, [turns]);
   useEffect(() => () => { replyAbort.current?.abort(); stopMeter(); stopSpeaking(); controller.current?.cancel(); wake.current?.stop(); }, []);
@@ -251,7 +267,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
     await recognitionIdle();
     if (turn !== listenTurn.current) return;
     const current = createPushToTalk(
-      (text) => { heard.current = text; setDraft(text); },
+      (text) => { heard.current = text; lastWordsAt.current = performance.now(); setDraft(text); },
       (message) => {
         if (turn !== listenTurn.current) return;
         listenTurn.current += 1;
@@ -291,6 +307,8 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
   async function ask(spoken?: string) {
     const text = (spoken ?? draft).trim();
     if (!text) { setState('idle'); return; }
+    const marks: TurnMarks = { sent: performance.now(), lastWords: spoken !== undefined ? lastWordsAt.current : undefined };
+    lastWordsAt.current = undefined;
     wake.current?.pause();
     setState('thinking');
     setNotice('');
@@ -310,6 +328,11 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
     replyAbort.current?.abort();
     replyAbort.current = abort;
     const pendingId = `assistant-${Date.now()}`;
+    let turnId = pendingId;
+    const stamp = () => {
+      const timing = clientTiming(marks);
+      setTurns((current) => current.map((turn) => turn.id === turnId ? { ...turn, timing } : turn));
+    };
     // Speak each sentence as soon as it is complete instead of waiting for the whole reply.
     const queue: string[] = [];
     let buffered = '';
@@ -326,6 +349,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
             locale,
             voice: effectiveVoice,
             onFallback: () => setNotice(t('voice.naturalFallback')),
+            onStart: () => { if (marks.firstSound === undefined) { marks.firstSound = performance.now(); stamp(); } },
           });
         }
         speaking = null;
@@ -345,12 +369,14 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
       const result = await streamVoiceAssistant(active.id, segment.id, abort.signal, {
         onMeta: (meta) => setPendingApprovals(meta.workspace.pending_approvals),
         onText: (piece) => {
+          if (marks.firstText === undefined) marks.firstText = performance.now();
           buffered += piece;
           setTurns((current) => current.map((turn) => turn.id === pendingId ? { ...turn, text: turn.text + piece } : turn));
           hear(false);
         },
       });
-      setTurns((current) => current.map((turn) => turn.id === pendingId ? { id: result.assistant_segment.id, speaker: 'assistant', text: result.reply, result } : turn));
+      turnId = result.assistant_segment.id;
+      setTurns((current) => current.map((turn) => turn.id === pendingId ? { id: turnId, speaker: 'assistant', text: result.reply, result, timing: clientTiming(marks) } : turn));
       hear(true);
       while (speaking) await speaking;
       if (abort.signal.aborted) return;
@@ -586,6 +612,13 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
     <header className="voiceSpaceBar">
       <span className="voiceBadge" title={modeInfo.hint}>{modeInfo.icon}<span className="voiceBadgeText">{modeInfo.text}</span></span>
       <div className="voiceConsoleMeta">
+        <div className="voiceLangSwitch" role="group" aria-label={t('voice.language')} title={t('voice.languageHint')}>
+          {(['en', 'ar'] as const).map((language) => <button key={language} type="button" lang={language}
+            aria-pressed={speech === language} disabled={state !== 'idle'}
+            onClick={() => setLocale(switchSpeechLanguage(locale, language))}>
+            {language === 'en' ? 'EN' : 'عربي'}<span className="visuallyHidden"> {t(language === 'en' ? 'voice.speechEnglish' : 'voice.speechArabic')}</span>
+          </button>)}
+        </div>
         <button type="button" className={wakeOn ? 'voicePill on' : 'voicePill'} onClick={() => void toggleWake()} aria-pressed={wakeOn} title={t('voice.wakeTitle', { name }, { isolate: false })}>
           <Radio size={16} aria-hidden="true" /><span className="voicePillText">{wakeOn ? t('voice.wakeOn', { name }) : t('voice.wakeOff', { name })}</span>
         </button>
@@ -612,6 +645,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
               {!['en-US', 'en-GB', 'ar-SA', 'ar-AE'].includes(locale) && <option value={locale}>{locale}</option>}
             </select></label>
             <label className="field"><span>{t('voice.replyVoice')}</span><select value={voice} onChange={(event) => { setVoice(event.target.value); store('anum.voice.reply', event.target.value); }}>
+              <option value="auto">{t('voice.reply.auto')}</option>
               <option value="natural">{t('voice.reply.natural')}</option>
               <option value="">{t('voice.reply.device')}</option>
               {hasVoiceServer() && <option value="server">{t('voice.reply.server')}</option>}
@@ -688,6 +722,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
         {turn.speaker === 'assistant' && <span className="voiceSpeaker" dir="auto">{name}</span>}
         <p dir="auto">{turn.text}</p>
         {turn.speaker === 'assistant' && turn.result && <CopyAction text={turn.text} label={t('message.copyAnswer')} />}
+        {turn.speaker === 'assistant' && turn.timing && <TimingLine timing={turn.timing} result={turn.result} />}
         {turn.result && turn.result.risk_tier !== 'read' && <span className={`voiceTier ${turn.result.risk_tier}`}>{t(`voice.tier.${turn.result.risk_tier}`)}</span>}
         {turn.result?.risk_tier === 'confirm' && turn.result.proposed_task && !turn.resolved && <div className="voiceConfirm">
           <button type="button" onClick={() => void confirmTask(turn)}><Check size={16} aria-hidden="true" />{t('voice.createTask')}</button>
@@ -699,6 +734,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
         </div>}
         {turn.result?.action && <VoiceActionCardView card={turn.result.action} assistantName={name} onOpenTask={onOpenTask} onOpenApprovals={onOpenApprovals} />}
       </li>)}
+      {state === 'listening' && draft && <li className="voiceTurn you interim" aria-label={t('voice.hearing')}><p dir="auto">{draft}</p></li>}
     </ol>
 
       </div>
@@ -716,4 +752,12 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
     </div>
     </div>}</SpaceOrb>
   </section>;
+}
+
+/** "heard 0.3 s, answer 1.2 s, voice 0.8 s" under a reply; the server's side in the tooltip. */
+function TimingLine({ timing, result }: { timing: ClientTurnTiming; result?: VoiceAskResult }) {
+  const text = formatTurnTiming(timing, { heard: t('voice.timing.heard'), answer: t('voice.timing.answer'), voice: t('voice.timing.voice') }, t('voice.timing.unit'), t('voice.timing.separator'));
+  if (!text) return null;
+  const server = formatServerTiming(result?.timing, { model: t('voice.timing.model'), lookups: t('voice.timing.lookups'), total: t('voice.timing.total') }, t('voice.timing.unit'));
+  return <p className="voiceTiming" title={server || undefined}>{text}{server && <span className="visuallyHidden">. {server}</span>}</p>;
 }

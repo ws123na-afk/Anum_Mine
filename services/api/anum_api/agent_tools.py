@@ -33,6 +33,10 @@ class ToolDefinition(BaseModel):
     # Set by tools that deliver to people outside ANUM ("email", "whatsapp"): the generic
     # delivery path (anum_api/delivery.py) finds them by channel.
     delivery_channel: str | None = Field(default=None, pattern=r"^[a-z_]{2,30}$")
+    # JSON Schema of the arguments, for a model that calls the tool itself (voice grounding,
+    # docs/voice.md#grounded-answers). None: an object with any properties; the description
+    # then names the arguments.
+    input_schema: dict[str, Any] | None = None
 
 
 class ToolCall(BaseModel):

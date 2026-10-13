@@ -333,7 +333,7 @@ def test_a_question_with_a_frame_is_answered_by_the_vision_model_and_the_frame_i
 
     assert response.status_code == 200
     frames = _frames(response.text)
-    assert [kind for kind, _ in frames] == ["meta", "delta", "delta", "done"]
+    assert [kind for kind, _ in frames] == ["meta", "delta", "delta", "timing", "done"]
     assert frames[0][1]["vision"] is True
     assert frames[-1][1]["assistant_segment"]["text"] == "A blue mug and a notebook."
     assert gateway.images[0].data == JPEG

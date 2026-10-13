@@ -324,10 +324,10 @@ def _stream_ask(session_id: str, text: str, sequence: int) -> list[tuple[str, di
 def test_streamed_ask_keeps_intents_and_stores_the_reply() -> None:
     session_id = client.post("/api/v1/voice/sessions", headers=headers, json={}).json()["id"]
     frames = _stream_ask(session_id, "Approve all pending actions", 0)
-    assert [kind for kind, _ in frames] == ["meta", "delta", "done"]
+    assert [kind for kind, _ in frames] == ["meta", "delta", "timing", "done"]
     assert frames[0][1]["risk_tier"] == "visual_only"
     reply = frames[1][1]["text"]
-    assert frames[2][1]["assistant_segment"]["text"] == reply
+    assert frames[3][1]["assistant_segment"]["text"] == reply
 
     frames = _stream_ask(session_id, "Why is the sky blue?", 1)
     assert frames[0][1]["intent"] == "question"
