@@ -273,3 +273,100 @@ def test_complete_configuration_builds_signed_and_uploads_when_asked(tmp_path: P
     ios = {name: PLACEHOLDER for name in IOS_SIGNING} | PRODUCTION_URLS
     code, _, outputs = _release_config("ios", tmp_path, upload=True, values=ios)
     assert (code, outputs) == (0, {"signed": "true", "upload": "true"})
+
+
+FIREBASE_CONFIG_SCRIPT = REPO_ROOT / ".github" / "scripts" / "mobile-firebase-config.sh"
+FIREBASE_SECRETS = {
+    "android": "ANUM_ANDROID_GOOGLE_SERVICES_JSON",
+    "ios": "ANUM_IOS_GOOGLE_SERVICE_INFO_PLIST",
+}
+FIREBASE_FILES = {
+    "android": Path("android") / "app" / "google-services.json",
+    "ios": Path("ios") / "Runner" / "GoogleService-Info.plist",
+}
+
+
+def _google_services(package: str) -> str:
+    # Plainly fake, low-entropy values; only the structure matters.
+    client = {"client_info": {"android_client_info": {"package_name": package}}, "api_key": [{"current_key": "example"}]}
+    return json.dumps({"project_info": {"project_id": "example"}, "client": [client]})
+
+
+def _firebase_config(platform: str, tmp_path: Path, value: str | None) -> tuple[int, str, str, Path]:
+    mobile = tmp_path / f"mobile-{platform}"
+    summary = tmp_path / f"summary-{platform}.md"
+    summary.write_text("", encoding="utf-8")
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "MOBILE_DIR": str(mobile),
+        "GITHUB_STEP_SUMMARY": str(summary),
+    }
+    if value is not None:
+        env[FIREBASE_SECRETS[platform]] = value
+    result = subprocess.run(
+        ["bash", str(FIREBASE_CONFIG_SCRIPT), platform],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode, result.stdout + result.stderr, summary.read_text(encoding="utf-8"), mobile / FIREBASE_FILES[platform]
+
+
+def test_every_mobile_build_writes_the_firebase_config_before_building() -> None:
+    workflow = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    for job, platform, first_build in (
+        ("android", "android", "Build the signed app bundle"),
+        ("android-apk", "android", "Build the release APK"),
+        ("ios", "ios", "Compile check (no code signing)"),
+    ):
+        steps = workflow["jobs"][job]["steps"]
+        names = [step.get("name") for step in steps]
+        step = steps[names.index("Write the Firebase push config")]
+        assert step["run"] == f"bash .github/scripts/mobile-firebase-config.sh {platform}", job
+        secret = FIREBASE_SECRETS[platform]
+        assert step["env"] == {secret: f"${{{{ secrets.{secret} }}}}"}, job
+        assert names.index("Write the Firebase push config") < names.index(first_build), job
+        if job == "android":
+            assert step["if"] == "steps.config.outputs.build == 'true'"
+        if job == "ios":
+            # The script paths are relative to the repository root.
+            assert step["working-directory"] == "."
+
+
+def test_missing_firebase_secret_builds_without_push_and_says_so(tmp_path: Path) -> None:
+    for platform in ("android", "ios"):
+        code, stdout, summary, target = _firebase_config(platform, tmp_path, None)
+        assert code == 0, platform
+        assert "build without phone push::" in stdout
+        assert "push config: not included" in summary
+        assert not target.exists()
+
+
+def test_firebase_config_is_written_and_reported(tmp_path: Path) -> None:
+    value = _google_services(APPLICATION_ID)
+    code, stdout, summary, target = _firebase_config("android", tmp_path, value)
+    assert code == 0, stdout
+    assert json.loads(target.read_text(encoding="utf-8")) == json.loads(value)
+    assert "Android push config: included" in summary
+    assert "example" not in stdout
+    plist = plistlib.dumps({"BUNDLE_ID": APPLICATION_ID, "PROJECT_ID": "example"}).decode()
+    code, stdout, summary, target = _firebase_config("ios", tmp_path, plist)
+    assert code == 0, stdout
+    assert plistlib.loads(target.read_bytes())["BUNDLE_ID"] == APPLICATION_ID
+    assert "iOS push config: included" in summary
+
+
+def test_unusable_android_firebase_config_fails_without_printing_it(tmp_path: Path) -> None:
+    for value, problem in (
+        ("not json at all example", "is not valid JSON"),
+        (_google_services("com.example.other"), f"has no client with package_name {APPLICATION_ID}"),
+        (json.dumps({"client": "example"}), f"has no client with package_name {APPLICATION_ID}"),
+    ):
+        code, stdout, summary, target = _firebase_config("android", tmp_path, value)
+        assert code == 1, value
+        assert "::error title=Android push config invalid::" in stdout
+        assert problem in stdout
+        assert "example" not in stdout
+        assert not target.exists()
+        assert summary == ""

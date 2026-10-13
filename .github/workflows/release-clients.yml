@@ -136,6 +136,11 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/anum-upload.jks"
           test -s "$RUNNER_TEMP/anum-upload.jks"
           echo "ANUM_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/anum-upload.jks" >> "$GITHUB_ENV"
+      - name: Write the Firebase push config
+        if: steps.config.outputs.build == 'true'
+        env:
+          ANUM_ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANUM_ANDROID_GOOGLE_SERVICES_JSON }}
+        run: bash .github/scripts/mobile-firebase-config.sh android
       - name: Build the signed app bundle
         if: steps.config.outputs.build == 'true'
         working-directory: apps/mobile
@@ -243,6 +248,10 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/anum-upload.jks"
           test -s "$RUNNER_TEMP/anum-upload.jks"
           echo "ANUM_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/anum-upload.jks" >> "$GITHUB_ENV"
+      - name: Write the Firebase push config
+        env:
+          ANUM_ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANUM_ANDROID_GOOGLE_SERVICES_JSON }}
+        run: bash .github/scripts/mobile-firebase-config.sh android
       - name: Build the release APK
         working-directory: apps/mobile
         env:
@@ -310,6 +319,12 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Write the Firebase push config
+        # The job's default working directory is apps/mobile.
+        working-directory: .
+        env:
+          ANUM_IOS_GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.ANUM_IOS_GOOGLE_SERVICE_INFO_PLIST }}
+        run: bash .github/scripts/mobile-firebase-config.sh ios
       - run: flutter pub get
       - name: Compile check (no code signing)
         if: steps.config.outputs.signed != 'true'
