@@ -266,3 +266,18 @@ def test_arabic_opt_out_phrase_is_honoured(meta: FakeMeta) -> None:  # noqa: F81
     connect()
     deliver(inbound("لا ترسلوا لي رسائل", wamid="wamid.ar"))
     assert client.get(URL, headers=OWNER).json()["total"] == 1
+
+
+def test_email_check_is_linear_on_long_dotted_input() -> None:
+    # CodeQL py/polynomial-redos: the old regex backtracked on "!@!." + "!." * n.
+    import time
+
+    from anum_api.suppression import normalize
+
+    started = time.perf_counter()
+    assert normalize("!@!." + "!." * 100_000) is None
+    assert time.perf_counter() - started < 0.5
+    assert normalize("Owner@Example.COM") == ("email", "owner@example.com")
+    assert normalize("<a@b.co>") == ("email", "a@b.co")
+    for bad in ("a@b", "@b.co", "a@b.", "a b@c.co", "a@b@c.co", "x" * 250 + "@b.co"):
+        assert normalize(bad) is None

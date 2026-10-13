@@ -65,8 +65,22 @@ class SuppressionSource(StrEnum):
 
 KEYWORD_SOURCES = frozenset({SuppressionSource.WHATSAPP_KEYWORD, SuppressionSource.EMAIL_UNSUBSCRIBE})
 MAX_LIST = 200
-EMAIL = re.compile(r"^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$")
+MAX_EMAIL_LENGTH = 254
 SYSTEM_ACTOR = "system:inbound"
+
+
+def _is_email(text: str) -> bool:
+    """local@domain.tld without spaces, angle brackets or a second @, checked in linear time.
+
+    (A regex with ``[^@]+\\.[^@]+`` backtracks polynomially on long dotted input.)
+    """
+    if len(text) > MAX_EMAIL_LENGTH or any(ch.isspace() or ch in "<>" for ch in text):
+        return False
+    local, at, domain = text.partition("@")
+    if not at or not local or "@" in domain:
+        return False
+    head, dot, tail = domain.rpartition(".")
+    return bool(dot and head and tail)
 
 
 class SuppressionEntry(BaseModel):
@@ -155,7 +169,7 @@ def normalize(value: str) -> tuple[Literal["phone", "email"], str] | None:
     text = value.strip().strip("<>").strip()
     if "@" in text:
         text = text.lower()
-        return ("email", text) if EMAIL.match(text) else None
+        return ("email", text) if _is_email(text) else None
     digits = re.sub(r"\D", "", text)
     if text.startswith("00"):
         digits = digits[2:]
