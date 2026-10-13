@@ -49,6 +49,7 @@ async function mockVoiceApi(page: Page) {
       const body = frame('meta', { intent: 'action', risk_tier: 'action', proposed_task: null, workspace, vision: false, action_kind: kind })
         + cards.map((card) => frame('action', { card })).join('')
         + frame('delta', { text: said })
+        + frame('timing', { first_token_ms: 410, tool_ms: 0, total_ms: 650, tool_rounds: 0, tool_calls: 0, grounding: 'none', sources: [] })
         + frame('done', { assistant_segment: { id: `assistant_${id}`, session_id: 'voice_actions_e2e', role: 'assistant', text: said, is_final: true, client_sequence: 0, created_at: now } });
       return route.fulfill({ contentType: 'text/event-stream', body });
     }
@@ -90,6 +91,8 @@ test('asking an agent by voice shows the task, its agent and the approval it wai
   await expect(card.getByText('Agent: Sales agent')).toBeVisible();
   await expect(card.getByText('1 approval waiting')).toBeVisible();
   await expect(page.getByText('Done through ANUM')).toBeVisible();
+  // How long the answer took is under the reply (a typed request: nothing was heard).
+  await expect(page.locator('.voiceTurn.assistant .voiceTiming')).toHaveText(/^answer \d+\.\d s/);
   // No approve button here: approvals are decided in Approvals.
   await expect(card.getByRole('button', { name: /^Approve/ })).toHaveCount(0);
 

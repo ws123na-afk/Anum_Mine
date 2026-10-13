@@ -415,6 +415,15 @@ class BudgetedModelGateway:
         variant = vision_gateway(self.inner, image)
         return None if variant is None else BudgetedModelGateway(variant, self.context, clock=self._clock)
 
+    def with_tool_round(self, tool_round: Any) -> BudgetedModelGateway | None:
+        """The inner gateway's tool round (voice grounding), still behind the budget; None
+        when the provider has no client tool use. Defined here so ``__getattr__`` never
+        hands out an unmetered inner gateway."""
+        variant = getattr(self.inner, "with_tool_round", None)
+        if not callable(variant):
+            return None
+        return BudgetedModelGateway(variant(tool_round), self.context, clock=self._clock)
+
     def __getattr__(self, name: str) -> Any:
         # provider, model, base_url ... of the wrapped gateway (voice checks `provider`).
         return getattr(self.inner, name)

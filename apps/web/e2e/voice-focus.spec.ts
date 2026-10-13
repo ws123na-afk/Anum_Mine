@@ -13,6 +13,9 @@ interface Probe {
 }
 const probe = <T>(page: Page, run: (p: Probe) => T) => page.evaluate(`(${run.toString()})(window.__probe)`) as Promise<T>;
 
+// What the server measured for the turn (the `timing` event, docs/voice.md#latency).
+const serverTiming = { first_token_ms: 640, tool_ms: 120, total_ms: 910, tool_rounds: 1, tool_calls: 1, grounding: 'tools', sources: ['workspace_tasks'] };
+
 async function mockVoice(page: Page, { wake = 'off', probeMs = 400, reply = 'All quiet.', task = null as string | null, pending = 0 } = {}) {
   await page.route('http://localhost:8000/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -21,7 +24,7 @@ async function mockVoice(page: Page, { wake = 'off', probeMs = 400, reply = 'All
     if (path.endsWith('/transcript')) return json({ id: 's', session_id: 'v', role: 'user', text: 'hi', is_final: true, client_sequence: 1, created_at: now });
     if (path.endsWith('/ask/stream')) {
       const frame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-      return route.fulfill({ contentType: 'text/event-stream', body: frame('meta', { intent: task ? 'create_task' : 'status', risk_tier: 'confirm', proposed_task: task, workspace: { tasks_total: 1, running: 0, waiting_approval: 0, pending_approvals: pending } }) + frame('delta', { text: reply }) + frame('done', { assistant_segment: { id: 'a', session_id: 'v', role: 'assistant', text: reply, is_final: true, client_sequence: 0, created_at: now }, risk_tier: 'confirm' }) });
+      return route.fulfill({ contentType: 'text/event-stream', body: frame('meta', { intent: task ? 'create_task' : 'status', risk_tier: 'confirm', proposed_task: task, workspace: { tasks_total: 1, running: 0, waiting_approval: 0, pending_approvals: pending } }) + frame('delta', { text: reply }) + frame('timing', serverTiming) + frame('done', { assistant_segment: { id: 'a', session_id: 'v', role: 'assistant', text: reply, is_final: true, client_sequence: 0, created_at: now }, risk_tier: 'confirm' }) });
     }
     if (path === '/api/v1/events/stream') return route.fulfill({ status: 204 });
     return route.abort();
@@ -45,6 +48,7 @@ async function mockVoice(page: Page, { wake = 'off', probeMs = 400, reply = 'All
         if (active) { mark('refused'); throw new DOMException('recognition has already started', 'InvalidStateError'); }
         active = this; this.live = true; all.push(this);
         mark(this.interimResults ? 'talk-start' : 'wake-start');
+        mark(`lang-${this.lang}`);
         const poll = () => {
           if (!this.live) return;
           const phrase = queue.shift();
@@ -361,4 +365,41 @@ test('with the panel hidden, what needs a decision still shows: a proposed task 
   await decision.getByRole('button', { name: 'Not now' }).click();
   await expect(decision).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+});
+
+test('a turn shows what was heard at once and how long hearing, answering and speaking took', async ({ page }) => {
+  await mockVoice(page);
+  await page.addInitScript(() => localStorage.setItem('anum.voice.chat', 'on'));
+  await page.goto('/#voice');
+  const voice = page.locator('.voiceSpace');
+  await voice.locator('.voiceSpaceTalk').click();
+  await expect(voice).toHaveAttribute('data-state', 'listening');
+  await probe(page, (p) => p.say('How is the workspace?'));
+  // The recognized words are in the conversation as soon as the turn ends, before the reply.
+  await expect(voice.locator('.voiceTurn.you')).toContainText('How is the workspace?');
+  await expect(voice).toHaveAttribute('data-state', 'speaking');
+  await expect.poll(() => probe(page, (p) => p.speaking())).toBe(true);
+  await probe(page, (p) => p.endSpeech());
+  const timing = voice.locator('.voiceTurn.assistant .voiceTiming');
+  await expect(timing).toHaveText(/^heard \d+\.\d s, answer \d+\.\d s, voice \d+\.\d s\./);
+  // The server's side is in the tooltip: the model's first words, the lookups and the total.
+  await expect(timing).toHaveAttribute('title', 'first words from the model 0.6 s, lookups 0.1 s (workspace_tasks), server total 0.9 s');
+});
+
+test('the EN / Arabic switch is in the bar and recognition listens in the chosen language', async ({ page }) => {
+  await mockVoice(page);
+  await page.goto('/#voice');
+  const voice = page.locator('.voiceSpace');
+  const english = voice.getByRole('button', { name: /^EN/ });
+  const arabic = voice.getByRole('button', { name: /Speak Arabic/ });
+  await expect(english).toHaveAttribute('aria-pressed', 'true');
+  await expect(arabic).toBeVisible();
+  await arabic.click();
+  await expect(arabic).toHaveAttribute('aria-pressed', 'true');
+  await expect(english).toHaveAttribute('aria-pressed', 'false');
+  await voice.locator('.voiceSpaceTalk').click();
+  await expect(voice).toHaveAttribute('data-state', 'listening');
+  await expect.poll(async () => (await probe(page, (p) => p.log)).some(([what]) => what === 'lang-ar-SA')).toBe(true);
+  // The choice is kept for the next visit, like Voice settings.
+  expect(await page.evaluate(() => localStorage.getItem('anum.voice.locale'))).toBe('ar-SA');
 });

@@ -17,12 +17,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager
+from contextlib import aclosing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from threading import RLock
-from typing import Protocol
+from time import perf_counter
+from typing import Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -30,14 +31,15 @@ from pydantic import BaseModel, Field
 
 from .authorization import Permission
 from .dependencies import repository_context, require_permission, tenant_context
-from .model_gateway import ModelGateway, ModelRoute, build_default_model_gateway, route_gateway
+from .model_gateway import ModelGateway, build_default_model_gateway
 from .model_budget import ModelBudgetExceededError
 from .onboarding import budgeted_model_gateway
 from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .sse import SSE_HEADERS, sse
-from .tyre.tools import tyre_grounding
+from .tyre.tools import TYRE_PREFACE, tyre_grounding
+from .voice_grounding import TurnTiming, grounded_answer
 from . import voice_actions
 from .voice_actions import ActionKind, ParsedAction, VoiceActionCard
 from .voice_assistant import (
@@ -46,7 +48,6 @@ from .voice_assistant import (
     VoiceIntent,
     VoiceRiskTier,
     WorkspaceSnapshot,
-    answer_question,
     classify,
     confirm_reply,
     is_visual_only,
@@ -136,6 +137,21 @@ class VoiceAskCreate(BaseModel):
     transcript_segment_id: str
 
 
+class VoiceTurnTiming(BaseModel):
+    """Where a turn's time went on the server (docs/voice.md#latency): milliseconds from
+    the request to the first reply text (``first_token_ms``, null for no model text), in
+    read-only lookups (``tool_ms``) and in all (``total_ms``); how many lookup rounds and
+    calls the model made, how the answer was grounded and which tools it read (names only)."""
+
+    first_token_ms: int | None = None
+    tool_ms: int = 0
+    total_ms: int = 0
+    tool_rounds: int = 0
+    tool_calls: int = 0
+    grounding: Literal["tools", "snapshot", "none"] = "none"
+    sources: list[str] = Field(default_factory=list)
+
+
 class VoiceAskResult(BaseModel):
     intent: VoiceIntent
     risk_tier: VoiceRiskTier
@@ -146,6 +162,7 @@ class VoiceAskResult(BaseModel):
     # What a request for work did (docs/voice.md#actions); null for answers.
     action_kind: ActionKind | None = None
     action: VoiceActionCard | None = None
+    timing: VoiceTurnTiming | None = None
 
 
 def transcript_expiry(retention: TranscriptRetention, created_at: datetime) -> datetime | None:
@@ -452,6 +469,7 @@ async def ask_voice_assistant(
     No database session stays open while the model answers, and every read and write
     runs in a worker thread, never on the event loop (docs/realtime.md#event-loop).
     """
+    timing = TurnTiming()
     asked = await asyncio.to_thread(prepare_ask_in_own_session, session_id, payload, context)
     reply = asked.reply
     card: VoiceActionCard | None = None
@@ -462,12 +480,23 @@ async def ask_voice_assistant(
     if grounding is not None and getattr(gateway, "provider", "") == "mock":
         # No model to phrase it: say the tool's own answer, numbers included.
         reply = grounding.result.summary[:MAX_REPLY_CHARS]
+    if reply is None and getattr(gateway, "provider", "") == "mock":
+        reply = mock_answer(asked.facts, asked.arabic)
     if reply is None:
         try:
-            reply = await answer_question(
-                gateway, asked.text, asked.facts, asked.name, asked.arabic,
+            parts: list[str] = []
+            async with aclosing(grounded_answer(
+                gateway, asked.text, asked.facts, asked.name, asked.history, context, timing,
+                max_tokens=VOICE_MAX_TOKENS,
                 data_blocks=[grounding.block] if grounding else (),
-            )
+                preface=f"{TYRE_PREFACE} Say the key numbers aloud; keep it short." if grounding else "",
+                stream=False,
+            )) as answer:
+                async for chunk in answer:
+                    parts.append(chunk)
+                    if sum(len(part) for part in parts) >= MAX_REPLY_CHARS:
+                        break
+            reply = "".join(parts).strip()[:MAX_REPLY_CHARS]
         except ModelBudgetExceededError as exc:
             # Said aloud instead of an error: the monthly model budget is used up.
             reply = exc.spoken(asked.arabic)
@@ -486,6 +515,7 @@ async def ask_voice_assistant(
         assistant_segment=assistant_segment,
         action_kind=asked.action.kind if asked.action else None,
         action=card,
+        timing=VoiceTurnTiming(**timing.log(asked.intent.value)),
     )
 
 
@@ -698,8 +728,9 @@ async def stream_voice_assistant(
     unit of work (a partial reply too, when the client stops listening). Every database
     read and write runs in a worker thread, never on the event loop.
     """
+    started = perf_counter()
     asked = await asyncio.to_thread(prepare_ask_in_own_session, session_id, payload, context)
-    events = stream_prepared_answer(asked, context, session_id, gateway)
+    events = stream_prepared_answer(asked, context, session_id, gateway, started=started)
     return StreamingResponse(
         events,
         media_type="text/event-stream",
@@ -707,7 +738,7 @@ async def stream_voice_assistant(
     )
 
 
-async def _act(asked: _PreparedAsk, context: TenantContext, session_id: str) -> AsyncIterator[str]:
+async def _act(asked: _PreparedAsk, context: TenantContext, session_id: str, timing: TurnTiming) -> AsyncIterator[str]:
     """The events of a request for work: ``meta``, ``action`` cards (the task as soon as it
     exists, then its outcome), the spoken ``delta``, then ``done``. A camera frame is never
     sent anywhere for it."""
@@ -731,6 +762,7 @@ async def _act(asked: _PreparedAsk, context: TenantContext, session_id: str) -> 
         async for step in voice_actions.perform(action, context, asked.arabic):
             yield sse("action", {"card": step.card.model_dump(mode="json")})
             if step.reply:
+                timing.token()
                 parts.append(step.reply[:MAX_REPLY_CHARS])
                 yield sse("delta", {"text": step.reply[:MAX_REPLY_CHARS]})
     except (asyncio.CancelledError, GeneratorExit):
@@ -738,7 +770,9 @@ async def _act(asked: _PreparedAsk, context: TenantContext, session_id: str) -> 
             _store_voice_reply(context, session_id, "".join(parts).strip(), sequence)
         raise
     segment = await asyncio.to_thread(_store_voice_reply, context, session_id, "".join(parts).strip(), sequence)
-    yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None})
+    measured = timing.log(asked.intent.value)
+    yield sse("timing", measured)
+    yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None, "timing": measured})
 
 
 def stream_prepared_answer(
@@ -749,19 +783,23 @@ def stream_prepared_answer(
     *,
     vision: ModelGateway | None = None,
     extra_rules: str = "",
+    started: float | None = None,
 ) -> AsyncIterator[str]:
     """The server-sent events of one spoken answer (``/ask/stream`` and the call's
     ``/look/stream``): ``meta``, ``delta`` pieces, then ``done`` or ``error``.
 
     ``vision`` is a gateway with a camera frame attached (voice_call.py). Only a
     question reaches it: a fixed reply (status, small talk, refusals, task proposals)
-    never sends the frame anywhere.
+    never sends the frame anywhere. A question without a frame is grounded in the
+    workspace's data through read-only tools (voice_grounding.py). ``timing`` (the
+    server's milliseconds, docs/voice.md#latency) is sent before ``done`` and in it.
     """
     sequence = asked.segment.client_sequence
+    timing = TurnTiming(started=started) if started is not None else TurnTiming()
 
     async def answer() -> AsyncIterator[str]:
         if asked.action is not None:
-            async for frame in _act(asked, context, session_id):
+            async for frame in _act(asked, context, session_id, timing):
                 yield frame
             return
         looking = vision is not None and asked.reply is None
@@ -787,19 +825,31 @@ def stream_prepared_answer(
             yield sse("delta", {"text": fixed})
         else:
             try:
-                messages = voice_messages(
-                    asked.text, asked.facts, asked.name, asked.history,
-                    data_blocks=[grounding.block] if grounding else (),
-                )
-                if extra_rules:
-                    messages[0] = {"role": "system", "content": f"{messages[0]['content']}\n{extra_rules}"}
-                answering = vision if looking and vision is not None else route_gateway(gateway, ModelRoute.FAST)
-                async for chunk in answering.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS):
-                    room = MAX_REPLY_CHARS - sum(len(part) for part in parts)
-                    if room <= 0:
-                        break
-                    parts.append(chunk[:room])
-                    yield sse("delta", {"text": chunk[:room]})
+                if looking and vision is not None:
+                    # A camera frame goes to the vision model in one request, without lookups.
+                    messages = voice_messages(
+                        asked.text, asked.facts, asked.name, asked.history,
+                        data_blocks=[grounding.block] if grounding else (),
+                    )
+                    if extra_rules:
+                        messages[0] = {"role": "system", "content": f"{messages[0]['content']}\n{extra_rules}"}
+                    source = vision.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS)
+                else:
+                    source = grounded_answer(
+                        gateway, asked.text, asked.facts, asked.name, asked.history, context, timing,
+                        max_tokens=VOICE_MAX_TOKENS,
+                        data_blocks=[grounding.block] if grounding else (),
+                        preface=f"{TYRE_PREFACE} Say the key numbers aloud; keep it short." if grounding else "",
+                        extra_rules=extra_rules,
+                    )
+                async with aclosing(source) as chunks:  # type: ignore[type-var]
+                    async for chunk in chunks:
+                        room = MAX_REPLY_CHARS - sum(len(part) for part in parts)
+                        if room <= 0:
+                            break
+                        timing.token()
+                        parts.append(chunk[:room])
+                        yield sse("delta", {"text": chunk[:room]})
             except (asyncio.CancelledError, GeneratorExit):
                 if parts:
                     _store_voice_reply(context, session_id, "".join(parts).strip(), sequence)
@@ -811,10 +861,13 @@ def stream_prepared_answer(
             except Exception as exc:  # only the class name is logged
                 logger.warning("voice_stream_failed error_class=%s", type(exc).__name__)
                 if not parts:
+                    timing.log(asked.intent.value)
                     yield sse("error", {"code": "model_unavailable", "message": "I could not answer. Try again in a moment."})
                     return
         segment = await asyncio.to_thread(_store_voice_reply, context, session_id, "".join(parts).strip(), sequence)
-        yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None})
+        measured = timing.log(asked.intent.value)
+        yield sse("timing", measured)
+        yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None, "timing": measured})
 
     return answer()
 

@@ -16,6 +16,20 @@
   display: inline-grid; height: 44px; place-items: center; width: 44px;
 }
 .voiceIconButton[aria-pressed="true"] { border-color: rgb(var(--c-stop) / .5); color: var(--d-stop); }
+/* The speech language switch (EN / Arabic) in the bar: what is listened for and spoken. */
+.voiceLangSwitch {
+  background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; display: inline-flex; flex: none; gap: 2px; padding: 3px;
+}
+.voiceLangSwitch button {
+  background: transparent; border: 0; border-radius: 999px; color: var(--d-muted); cursor: pointer; font-size: 13px; font-weight: 650;
+  min-height: 36px; min-width: 44px; padding: 0 var(--d-s3);
+}
+.voiceLangSwitch button[aria-pressed="true"] { background: rgb(var(--c-sky) / .22); color: var(--d-text); }
+.voiceLangSwitch button:disabled { cursor: default; opacity: .6; }
+.voiceLangSwitch button:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 1px; }
+/* Under a reply: how long hearing, answering and speaking took (docs/voice.md#latency). */
+.voiceTiming { color: var(--d-muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-top: var(--d-s1); }
+.voiceTurn.interim { border-style: dashed; opacity: .8; }
 
 /* Stage */
 .voiceStage { align-items: center; display: flex; flex-direction: column; text-align: center; }
@@ -165,7 +179,7 @@
 .voiceDecision p { color: var(--d-text); font-size: 15px; overflow-wrap: anywhere; }
 .voiceDecision .voiceConfirm { margin-top: 0; }
 .voiceSpaceBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
-.voiceSpace :is(.voiceBadge, .voicePill, .voiceIconButton, .spaceControls button) {
+.voiceSpace :is(.voiceBadge, .voicePill, .voiceIconButton, .spaceControls button, .voiceLangSwitch) {
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); background: var(--v-glass); border-color: var(--v-glass-line); color: var(--d-text);
 }
 .voiceSpace .voicePill:hover, .voiceSpace .voiceIconButton:hover { background: rgba(24, 40, 70, .85); }
