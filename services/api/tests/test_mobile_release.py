@@ -88,7 +88,9 @@ def test_android_registers_the_redirect_scheme_under_the_application_id() -> Non
 
 def test_ios_registers_the_redirect_scheme_under_the_bundle_identifier() -> None:
     plist = plistlib.loads(INFO_PLIST.read_bytes())
-    schemes = [scheme for entry in plist["CFBundleURLTypes"] for scheme in entry["CFBundleURLSchemes"]]
+    schemes = [
+        scheme for entry in plist["CFBundleURLTypes"] for scheme in entry["CFBundleURLSchemes"]
+    ]
     assert schemes == [REDIRECT.split(":", 1)[0]]
     # App Transport Security stays at its HTTPS-only default.
     assert "NSAppTransportSecurity" not in plist
@@ -150,7 +152,9 @@ def test_installable_apk_is_a_production_release_build() -> None:
     upload = next(step for step in job["steps"] if step.get("name") == "Upload the APK")
     assert upload["with"]["name"] == "anum-android-apk"
     # The decoded keystore never outlives the job.
-    cleanup = next(step for step in job["steps"] if step.get("name") == "Remove the decoded keystore")
+    cleanup = next(
+        step for step in job["steps"] if step.get("name") == "Remove the decoded keystore"
+    )
     assert cleanup["if"] == "always()"
 
 
@@ -183,7 +187,7 @@ def _release_config(
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": str(output)}
     env["UPLOAD"] = "true" if upload else "false"
     env.update(values)
-    result = subprocess.run(  # noqa: S603 - fixed script, test-controlled environment
+    result = subprocess.run(
         ["bash", str(RELEASE_CONFIG_SCRIPT), platform],
         env=env,
         capture_output=True,
@@ -191,7 +195,9 @@ def _release_config(
         check=False,
     )
     outputs = dict(
-        line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines() if "=" in line
+        line.split("=", 1)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if "=" in line
     )
     return result.returncode, result.stdout, outputs
 
@@ -205,7 +211,9 @@ def test_release_jobs_check_their_configuration_with_the_shared_script() -> None
         assert config["env"]["UPLOAD"] == "${{ needs.version.outputs.upload }}"
         # The checkout that provides the script comes first.
         assert steps.index(config) > next(
-            index for index, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")
+            index
+            for index, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("actions/checkout@")
         )
 
 
@@ -263,7 +271,10 @@ def test_a_non_https_production_url_fails(tmp_path: Path) -> None:
 def test_complete_configuration_builds_signed_and_uploads_when_asked(tmp_path: Path) -> None:
     android = {name: PLACEHOLDER for name in ANDROID_SIGNING} | PRODUCTION_URLS
     code, _, outputs = _release_config(
-        "android", tmp_path, upload=True, values=android | {"PLAY_SERVICE_ACCOUNT_JSON": PLACEHOLDER}
+        "android",
+        tmp_path,
+        upload=True,
+        values=android | {"PLAY_SERVICE_ACCOUNT_JSON": PLACEHOLDER},
     )
     assert (code, outputs) == (0, {"build": "true", "play": "true"})
     code, _, outputs = _release_config("android", tmp_path, upload=False, values=android)
