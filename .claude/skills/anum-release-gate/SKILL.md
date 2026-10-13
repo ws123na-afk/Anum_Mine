@@ -5,7 +5,7 @@ description: Checklist of evidence an ANUM release needs before it can be called
 
 # ANUM release gate
 
-Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A gate that was not run stays open and must be listed as open — never report "ready" with open gates.
+Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A gate that was not run stays open and must be listed as open, never report "ready" with open gates.
 
 ## Collect, for the exact commit being released
 1. CI run URL on that commit with every job green, and no `continue-on-error` left on test or analyze steps.
@@ -37,7 +37,7 @@ Source of truth: `docs/production-readiness.md` and `docs/production-plan.md`. A
     - database bootstrap evidence: `\du anum_*` (no superuser, no BYPASSRLS on `anum_app`/`anum_migrator`), database owned by `anum_migrator`, `anum-db` external access list empty again;
     - `anum-keycloak`: a named admin with OTP exists, `anum-bootstrap-admin` deleted, `KC_BOOTSTRAP_ADMIN_*` removed from its environment; realm `anum` has no `dev` user and `anum-web` redirect URIs are the real web origin;
     - the client-IP check from the guide (API access log shows real client IPs; a forged `X-Forwarded-For` is not taken as the client);
-    - items 9 to 11 recorded as **not available on Render** (no Helm, no signed images, no admission policy, no NetworkPolicies) with the owner's written acceptance of that risk — never as pass.
+    - items 9 to 11 recorded as **not available on Render** (no Helm, no signed images, no admission policy, no NetworkPolicies) with the owner's written acceptance of that risk, never as pass.
 
 ## Hard blockers
 - `ANUM_AUTH_MODE=headers` in any non-local environment.

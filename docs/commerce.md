@@ -94,7 +94,7 @@ Every operation has a token bucket sized from SP-API's published rate and burst 
 | Health | Meaning | Next step |
 |---|---|---|
 | Not synced yet | Saved, never synced | Sync now |
-| Connected | The last sync or test worked | — |
+| Connected | The last sync or test worked | - |
 | Rate limited | The channel asked ANUM to wait | Nothing: the next sync waits |
 | Reconnect needed | The channel refused the credentials | Replace them (Edit); syncs retry every six hours meanwhile |
 | Sync failed | Another error; the message says which | Fix what it names, then Sync now |

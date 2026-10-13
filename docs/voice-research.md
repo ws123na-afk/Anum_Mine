@@ -8,7 +8,7 @@ This is a comparison of free voice options for the ANUM voice assistant, as of O
 |---|---|---|---|---|
 | Browser Web Speech API | Free | Chrome cloud mode sends audio to Google; Edge uses Azure; **Chrome 139+ on-device mode keeps audio local** | Chrome, Edge, Safari. Firefox behind a flag. **Not in Tauri WebView2/WKWebView** | Used today. ANUM probes on-device mode first. |
 | whisper.cpp / faster-whisper | Free, MIT | Fully local | Server, desktop (Tauri plugin or sidecar), Flutter bindings | Best accuracy including Arabic. `small` int8 handles a short command in well under a second on a modern CPU. |
-| Whisper in the browser (transformers.js) | Free | Local | Modern browsers | 40–150 MB model download; slow on low-end devices. |
+| Whisper in the browser (transformers.js) | Free | Local | Modern browsers | 40 to 150 MB model download; slow on low-end devices. |
 | Moonshine | Free, MIT for English | Local | Python, JS, mobile | Very low latency. A tiny Arabic model exists, but some non-English models are non-commercial (*uncertain per file*). |
 | Vosk | Free, Apache-2.0 | Local | Everywhere | Lower accuracy; good for fixed command grammars. |
 

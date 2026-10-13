@@ -57,7 +57,7 @@ The ledger `setup_plan_items` keeps one row per blueprint item key: the object i
 
 ## Renames
 
-Plan version 2 (13 Oct 2026) renamed every item whose name had a long dash ("GROUP — Chief of Staff" is now "Group: Chief of Staff"; the business workspaces are "Fleet Consulting", "Tyre Pulse", "ANUM 360 Gallery", "OpsBrain" and "VoiceQuote") and rewrote the page's notes in plain words. Each renamed item lists its old names in `former_names`; `Blueprint.former_text` gives back the old wording of the text the plan stores on objects (assistant instructions and automation prompts, where only the agent names changed).
+Plan version 2 (13 Oct 2026) renamed every item whose name had a long dash (the agent whose name joined "GROUP" and "Chief of Staff" with a long dash is now "Group: Chief of Staff"; the business workspaces are "Fleet Consulting", "Tyre Pulse", "ANUM 360 Gallery", "OpsBrain" and "VoiceQuote") and rewrote the page's notes in plain words. Each renamed item lists its old names in `former_names`; `Blueprint.former_text` gives back the old wording of the text the plan stores on objects (assistant instructions and automation prompts, where only the agent names changed).
 
 Plan version 3 (13 Oct 2026) adds the approval rules with AED bands and approver steps ([Approval routing](approvals-and-risk.md#approval-routing)) and marks opt-out handling (CC04, automation #7, the memory rule) as supported by the [contact suppression list](privacy.md#contact-suppression). Applying it adds the new rules; nothing is renamed.
 

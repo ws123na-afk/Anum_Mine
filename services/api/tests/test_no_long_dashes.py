@@ -8,6 +8,12 @@ time by ``anum_api.punctuation`` (tests in ``test_punctuation.py``).
 Use a colon, a comma, "to" for a range or a new sentence; an empty value is "-".
 The only allowed long dashes are a blueprint item's ``former_names`` (the names an older
 plan wrote, kept so re-applying the plan finds and renames those items).
+
+Docs count too: every Markdown file under ``docs/``, the READMEs, ``CLAUDE.md`` and ANUM's
+own skills. Not scanned, on purpose: tests (fixtures that feed long dashes to the filter or
+look up former names), third-party skills vendored byte for byte under ``.claude/skills``
+(``SOURCES.md``, ``THIRD_PARTY_NOTICES.md``), lockfiles and build output. Code that has to
+recognise the characters builds them from code points (``chr(0x2014)``), as this file does.
 """
 
 from __future__ import annotations
@@ -35,6 +41,33 @@ UI_SOURCES = (
     "apps/desktop/src-tauri/src",
     "apps/desktop/src-tauri/tauri.conf.json",
 )
+
+
+# Where a person reads the docs and the repository's own guidance.
+DOC_SOURCES = (
+    "docs",
+    "README.md",
+    "CLAUDE.md",
+    "apps/web/README.md",
+    "apps/mobile/README.md",
+    "apps/desktop/README.md",
+    "apps/android/README.md",
+    "services/api/README.md",
+    ".claude/skills/SOURCES.md",
+    ".claude/skills/anum-verify",
+    ".claude/skills/anum-release-gate",
+    ".claude/skills/steward",
+    ".claude/skills/mockup-to-flutter",
+)
+
+
+def _doc_files() -> Iterator[Path]:
+    for entry in DOC_SOURCES:
+        path = REPO_ROOT / entry
+        if path.is_file():
+            yield path
+        elif path.is_dir():
+            yield from (found for found in sorted(path.rglob("*.md")) if not SKIP_DIRS.intersection(found.parts))
 
 
 def _files() -> Iterator[Path]:
@@ -76,4 +109,16 @@ def test_no_user_facing_source_contains_a_long_dash() -> None:
         for number, line in enumerate(_text(path).splitlines(), start=1):
             if any(dash in line for dash in LONG_DASHES):
                 found.append(f"{path.relative_to(REPO_ROOT)}:{number}: {line.strip()[:120]}")
+    assert found == [], 'use a colon, a comma, "to" for a range or a new sentence instead of a long dash:\n' + "\n".join(found)
+
+
+def test_no_doc_contains_a_long_dash() -> None:
+    docs = list(_doc_files())
+    assert len(docs) > 50 and REPO_ROOT / "CLAUDE.md" in docs
+    found = [
+        f"{path.relative_to(REPO_ROOT)}:{number}: {line.strip()[:120]}"
+        for path in docs
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if any(dash in line for dash in LONG_DASHES)
+    ]
     assert found == [], 'use a colon, a comma, "to" for a range or a new sentence instead of a long dash:\n' + "\n".join(found)
