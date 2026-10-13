@@ -105,8 +105,8 @@ test('an owner previews the pilot, confirms and sees what was created', async ({
   await expect(page.getByRole('heading', { name: 'Setup plan', exact: true }).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Shahzeb Business Group' })).toBeVisible();
   // The rollout and the honest gaps are shown before anything is applied.
-  await expect(page.getByRole('heading', { name: 'Rollout' })).toBeVisible();
-  await expect(page.getByText('GALLERY — Customer Care').first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Week by week' })).toBeVisible();
+  await expect(page.getByText('Gallery: Customer Care').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'What ANUM cannot do yet' })).toBeVisible();
   await expect(page.getByText('Banking, bank reconciliation and money movement')).toBeVisible();
   await expect(page.getByText('AED 340', { exact: true })).toBeVisible();
@@ -114,12 +114,12 @@ test('an owner previews the pilot, confirms and sees what was created', async ({
   await page.getByRole('button', { name: 'Apply pilot' }).click();
   const dialog = page.getByRole('alertdialog');
   await expect(dialog).toContainText('Apply the Pilot to this workspace?');
-  await expect(dialog).toContainText('Automations are created turned off');
+  await expect(dialog).toContainText('Automations are added turned off');
   await dialog.getByRole('button', { name: 'Apply now' }).click();
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   await expect(page.locator('.planOutcomes')).toContainText('Created');
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'pilot', overwrite_edited: false, plan_version: 1 });
+  expect(apply?.body).toEqual({ phase: 'pilot', overwrite_edited: false, plan_version: 3 });
   // The fresh preview says there is nothing left to change.
   await expect(page.getByRole('button', { name: 'Nothing to change' })).toBeDisabled();
 });
@@ -143,7 +143,7 @@ test('the whole plan and "Replace my changes" are sent as chosen, and items can 
   await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: true, plan_version: 1 });
+  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: true, plan_version: 3 });
 });
 
 test('a late answer for an earlier choice never replaces the newest preview, and apply sends what is shown', async ({ page }) => {
@@ -160,26 +160,26 @@ test('a late answer for an earlier choice never replaces the newest preview, and
   await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: false, plan_version: 1 });
+  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: false, plan_version: 3 });
 });
 
 test('pilot checks: record a result with a note and evidence, and the Week 1 gate follows', async ({ page }) => {
   const calls = await mockApi(page);
   await page.goto('/#setup');
-  await expect(page.getByText(/Week 1 gate: 0 of 18 passed/)).toBeVisible();
+  await expect(page.getByText(/Week 1 check: 0 of 18 passed/)).toBeVisible();
   await page.getByRole('button', { name: /Pilot checks/ }).click();
   await expect(page.getByRole('heading', { name: '0 of 18 passed' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Customer care' })).toBeVisible();
   const row = page.locator('.planCheck').filter({ hasText: 'CC05' });
   await expect(row).toContainText('Refund request AED 300');
-  await expect(row).toContainText("ANUM's test suite checks the governance part of this case.");
+  await expect(row).toContainText("ANUM's automatic tests already check the approval part of this case.");
   await expect(row.getByRole('button', { name: 'Save result' })).toBeDisabled();
   await row.getByRole('group', { name: 'Result CC05' }).getByRole('button', { name: 'Pass' }).click();
   await row.getByLabel('Note').fill('Approval waited; nothing paid');
-  await row.getByLabel(/Evidence/).fill('http://insecure.example');
-  await expect(row.getByText('Evidence links must start with https://')).toBeVisible();
+  await row.getByLabel(/Proof/).fill('http://insecure.example');
+  await expect(row.getByText('Proof links must start with https://')).toBeVisible();
   await expect(row.getByRole('button', { name: 'Save result' })).toBeDisabled();
-  await row.getByLabel(/Evidence/).fill('approval_123');
+  await row.getByLabel(/Proof/).fill('approval_123');
   await row.getByRole('button', { name: 'Save result' }).click();
   await expect(row.getByText('Saved CC05.')).toBeVisible();
   await expect(page.getByRole('heading', { name: '1 of 18 passed' })).toBeVisible();
@@ -187,8 +187,8 @@ test('pilot checks: record a result with a note and evidence, and the Week 1 gat
   const put = calls.find((c) => c.method === 'PUT');
   expect(put?.path).toBe('/api/v1/setup-plans/shahzeb-business-group/checks/CC05');
   expect(put?.body).toEqual({ status: 'pass', note: 'Approval waited; nothing paid', evidence: 'approval_123' });
-  // CC04 is honest about what ANUM cannot do.
-  await expect(page.locator('.planCheck').filter({ hasText: 'CC04' })).toContainText('Not supported');
+  // CC04 (opt-out) is supported now: the contact suppression list (docs/privacy.md#contact-suppression).
+  await expect(page.locator('.planCheck').filter({ hasText: 'CC04' })).not.toContainText('Not supported');
 });
 
 test('a failed item is listed with its reason', async ({ page }) => {
@@ -248,7 +248,7 @@ for (const size of [
     await page.setViewportSize(size);
     await mockApi(page);
     await page.goto('/#setup');
-    await expect(page.getByRole('heading', { name: 'Rollout' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Week by week' })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     const apply = (await page.getByRole('button', { name: 'Apply pilot' }).boundingBox())!;

@@ -30,7 +30,7 @@ import './commerce.css';
 type Tab = 'overview' | 'orders' | 'returns' | 'catalog' | 'alerts' | 'connections';
 const TABS: Tab[] = ['overview', 'orders', 'returns', 'catalog', 'alerts', 'connections'];
 const PAGE = 20;
-const when = (value: string | null | undefined) => (value ? formatDateTime(value) : '—');
+const when = (value: string | null | undefined) => (value ? formatDateTime(value) : '-');
 
 type Load<T> = { kind: 'loading' } | { kind: 'ready'; value: T } | { kind: 'denied' } | { kind: 'error'; message: string };
 const failed = (e: unknown): Load<never> => (isPermissionDenied(e) ? { kind: 'denied' } : { kind: 'error', message: describeError(e) });
@@ -140,8 +140,8 @@ function Overview() {
             <tbody>{d.by_channel.map((row) => <tr key={`${row.marketplace_id}-${row.currency}`}><td><ChannelDot channel={row.channel} />{row.marketplace}</td><td className="num">{formatCount(row.orders)}</td><td className="num">{formatCount(row.units)}</td><td className="num">{formatMoney(row.revenue, row.currency)}</td></tr>)}</tbody>
           </table></div>}
           <dl className="cmFacts cmMoney" aria-label={t('commerce.overview.money')}>
-            <div><dt>{t('commerce.money.fees')}</dt><dd>{Object.keys(d.fees).length ? Object.entries(d.fees).map(([code, amount]) => formatMoney(amount, code)).join(' · ') : '–'}</dd></div>
-            <div><dt>{t('commerce.money.refunds')}</dt><dd>{Object.keys(d.returns.amount).length ? Object.entries(d.returns.amount).map(([code, amount]) => formatMoney(amount, code)).join(' · ') : '–'}</dd></div>
+            <div><dt>{t('commerce.money.fees')}</dt><dd>{Object.keys(d.fees).length ? Object.entries(d.fees).map(([code, amount]) => formatMoney(amount, code)).join(' · ') : '-'}</dd></div>
+            <div><dt>{t('commerce.money.refunds')}</dt><dd>{Object.keys(d.returns.amount).length ? Object.entries(d.returns.amount).map(([code, amount]) => formatMoney(amount, code)).join(' · ') : '-'}</dd></div>
             <div><dt>{t('commerce.money.alerts')}</dt><dd>{formatCount(d.open_alerts)}</dd></div>
           </dl>
         </section>
@@ -175,8 +175,8 @@ function StockAndPrices({ dashboard: d }: { dashboard: CommerceDashboard }) {
       <tbody>{rows.map((row) => <tr key={row.listingId}>
         <td><strong>{row.sku}</strong></td>
         <td><ChannelDot channel={row.channel} />{row.marketplace}</td>
-        <td>{row.quantity === null ? <span className="muted">–</span> : <Badge tone={row.quantity <= 0 ? 'dangerTone' : 'warning'}>{row.quantity <= 0 ? t('commerce.stock.out') : t('commerce.stock.left', { count: row.quantity })}</Badge>}</td>
-        <td>{row.price ? <span className={row.price.buyBoxLost ? 'cmPriceNote' : undefined}>{row.price.buyBoxLost ? t('commerce.price.buyBoxLost', { price: formatMoney(row.price.buyBoxPrice, row.price.currency) }) : t('commerce.price.lowest', { price: formatMoney(row.price.lowest, row.price.currency) })}<small>{t('commerce.price.yours', { price: formatMoney(row.price.yours, row.price.currency) })}</small></span> : <span className="muted">–</span>}</td>
+        <td>{row.quantity === null ? <span className="muted">-</span> : <Badge tone={row.quantity <= 0 ? 'dangerTone' : 'warning'}>{row.quantity <= 0 ? t('commerce.stock.out') : t('commerce.stock.left', { count: row.quantity })}</Badge>}</td>
+        <td>{row.price ? <span className={row.price.buyBoxLost ? 'cmPriceNote' : undefined}>{row.price.buyBoxLost ? t('commerce.price.buyBoxLost', { price: formatMoney(row.price.buyBoxPrice, row.price.currency) }) : t('commerce.price.lowest', { price: formatMoney(row.price.lowest, row.price.currency) })}<small>{t('commerce.price.yours', { price: formatMoney(row.price.yours, row.price.currency) })}</small></span> : <span className="muted">-</span>}</td>
       </tr>)}</tbody>
     </table></div>}
     {rows.length >= 12 && <p className="muted">{t('pages2.commerce.stockPricesMore')}</p>}
@@ -198,9 +198,9 @@ function TodayBand() {
   const t1 = today.kind === 'ready' ? today.value : null, w = week.kind === 'ready' ? week.value : null;
   const figures: Figure[] = [
     figure('orders', t('pages2.commerce.fig.ordersToday'), state(today), () => ({ value: formatCount(t1!.orders), hint: t('commerce.metric.units', { count: t1!.units }), tone: t1!.orders ? 'accent' : '' })),
-    figure('revenue', t('pages2.commerce.fig.revenueToday'), state(today), () => ({ value: t1!.revenue.length ? formatMoney(t1!.revenue[0].amount, t1!.revenue[0].currency) : '–', hint: t1!.revenue.length > 1 ? t1!.revenue.slice(1).map((r) => formatMoney(r.amount, r.currency)).join(' · ') : t('pages2.commerce.fig.revenueHint') })),
+    figure('revenue', t('pages2.commerce.fig.revenueToday'), state(today), () => ({ value: t1!.revenue.length ? formatMoney(t1!.revenue[0].amount, t1!.revenue[0].currency) : '-', hint: t1!.revenue.length > 1 ? t1!.revenue.slice(1).map((r) => formatMoney(r.amount, r.currency)).join(' · ') : t('pages2.commerce.fig.revenueHint') })),
     figure('week', t('pages2.commerce.fig.ordersWeek'), state(week), () => ({ value: formatCount(w!.orders), hint: w!.revenue.length ? w!.revenue.map((r) => formatMoney(r.amount, r.currency)).join(' · ') : t('pages2.commerce.fig.noSales') })),
-    figure('top', t('pages2.commerce.fig.topWeek'), state(week), () => ({ value: w!.topSku ?? '–', hint: w!.topSku ? t('commerce.overview.unitsSold', { count: w!.topUnits }) : t('pages2.commerce.fig.noSales') })),
+    figure('top', t('pages2.commerce.fig.topWeek'), state(week), () => ({ value: w!.topSku ?? '-', hint: w!.topSku ? t('commerce.overview.unitsSold', { count: w!.topUnits }) : t('pages2.commerce.fig.noSales') })),
   ];
   return <PageSummary label={t('pages2.commerce.summary')} figures={figures} onRetry={load} footer={t1 ? <span dir="auto">{t1.text}</span> : undefined} />;
 }
@@ -221,7 +221,7 @@ function SalesChart({ dashboard }: { dashboard: CommerceDashboard }) {
   const shown = hover === null ? null : chart.days[hover];
   const labelEvery = Math.ceil(chart.days.length / 7);
   return <section className="surface cmPanel cmChartPanel" aria-labelledby={titleId}>
-    <div className="sectionHeader"><h2 id={titleId}>{t('commerce.chart.title', { currency: dashboard.currency ?? '—' })}</h2>
+    <div className="sectionHeader"><h2 id={titleId}>{t('commerce.chart.title', { currency: dashboard.currency ?? '-' })}</h2>
       {chart.channels.length > 0 && <ul className="cmLegend" aria-label={t('commerce.chart.legend')}>{chart.channels.map((c) => <li key={c}><ChannelDot channel={c} />{channelLabel(c)}</li>)}</ul>}
     </div>
     {chart.max === 0 ? <p className="muted cmEmpty">{t('commerce.overview.noSales')}</p> : <>
@@ -314,17 +314,17 @@ function OrderDetail({ state, canSeeBuyers, onClose }: { state: Load<CommerceOrd
       <div><dt>{t('commerce.col.status')}</dt><dd>{orderStatusLabel(o.status)}{o.late ? ` · ${t('commerce.order.late')}` : ''}</dd></div>
       <div><dt>{t('commerce.col.placed')}</dt><dd>{when(o.purchased_at)}</dd></div>
       <div><dt>{t('commerce.order.shipByLabel')}</dt><dd>{when(o.ship_by)}</dd></div>
-      <div><dt>{t('commerce.order.destination')}</dt><dd>{[o.ship_city, o.ship_country].filter(Boolean).join(', ') || '—'}</dd></div>
+      <div><dt>{t('commerce.order.destination')}</dt><dd>{[o.ship_city, o.ship_country].filter(Boolean).join(', ') || '-'}</dd></div>
       <div><dt>{t('commerce.col.total')}</dt><dd>{formatMoney(o.total_amount, o.currency)}</dd></div>
     </dl>
     <div className="cmTableWrap"><table className="cmTable"><thead><tr><th scope="col">{t('commerce.col.sku')}</th><th scope="col">{t('commerce.col.title')}</th><th scope="col" className="num">{t('commerce.col.qty')}</th><th scope="col" className="num">{t('commerce.col.total')}</th></tr></thead>
       <tbody>{o.lines.length ? o.lines.map((line, i) => <tr key={`${line.sku}-${i}`}><td>{line.sku}</td><td>{line.title}</td><td className="num">{line.quantity}</td><td className="num">{formatMoney(line.total, o.currency)}</td></tr>) : <tr><td colSpan={4} className="muted">{t('commerce.order.noLines')}</td></tr>}</tbody></table></div>
     <h4>{t('commerce.order.buyer')}</h4>
     {!o.customer ? <p className="muted">{t('commerce.order.noBuyer')}</p> : o.customer.pii_visible ? <dl className="cmFacts">
-      <div><dt>{t('commerce.order.name')}</dt><dd>{o.customer.name ?? '—'}</dd></div><div><dt>{t('commerce.order.email')}</dt><dd>{o.customer.email ?? '—'}</dd></div>
-      <div><dt>{t('commerce.order.phone')}</dt><dd>{o.customer.phone ?? '—'}</dd></div><div><dt>{t('commerce.order.address')}</dt><dd>{o.customer.address ?? '—'}</dd></div>
+      <div><dt>{t('commerce.order.name')}</dt><dd>{o.customer.name ?? '-'}</dd></div><div><dt>{t('commerce.order.email')}</dt><dd>{o.customer.email ?? '-'}</dd></div>
+      <div><dt>{t('commerce.order.phone')}</dt><dd>{o.customer.phone ?? '-'}</dd></div><div><dt>{t('commerce.order.address')}</dt><dd>{o.customer.address ?? '-'}</dd></div>
     </dl> : <p className="muted"><Lock aria-hidden="true" className="cmInlineIcon" />{canSeeBuyers ? t('commerce.order.buyerHidden') : t('commerce.order.buyerOwnersOnly')}</p>}
-    {o.returns.length > 0 && <><h4>{t('commerce.order.returns')}</h4><ul className="cmList">{o.returns.map((r) => <li key={r.id}><div><strong>{r.sku ?? '—'} × {r.quantity}</strong><small>{r.reason ?? r.status} · {when(r.returned_at)}</small></div><span>{formatMoney(r.amount, r.currency)}</span></li>)}</ul></>}
+    {o.returns.length > 0 && <><h4>{t('commerce.order.returns')}</h4><ul className="cmList">{o.returns.map((r) => <li key={r.id}><div><strong>{r.sku ?? '-'} × {r.quantity}</strong><small>{r.reason ?? r.status} · {when(r.returned_at)}</small></div><span>{formatMoney(r.amount, r.currency)}</span></li>)}</ul></>}
   </section>;
 }
 
@@ -410,7 +410,7 @@ function ListingRow({ listing, canChange, onProposed }: { listing: CommerceListi
     <div className="cmListingMain">
       <span className="cmListingWhere"><ChannelDot channel={listing.channel} />{listing.marketplace}{listing.external_id ? <small> · {listing.external_id}</small> : null}</span>
       <span className="num">{formatMoney(listing.price, listing.currency)}</span>
-      <span className="num">{listing.quantity === null ? '—' : listing.quantity <= 0 ? <Badge tone="dangerTone">{t('commerce.stock.out')}</Badge> : t('commerce.stock.left', { count: listing.quantity })}</span>
+      <span className="num">{listing.quantity === null ? '-' : listing.quantity <= 0 ? <Badge tone="dangerTone">{t('commerce.stock.out')}</Badge> : t('commerce.stock.left', { count: listing.quantity })}</span>
       {listing.buy_box_winner === false && <Badge tone="warning">{t('commerce.price.buyBoxLostShort')}</Badge>}
       {canChange && <span className="cmListingButtons">
         <button type="button" className="secondary" onClick={() => { setMode('price'); setValue(listing.price ? String(listing.price) : ''); setError(null); }}>{t('commerce.change.price')}</button>
@@ -509,11 +509,11 @@ function Returns() {
         <tbody>{state.value.items.map((row) => <tr key={row.id}>
           <td>{when(row.returned_at)}</td>
           <td><ChannelDot channel={row.channel} /><span dir="ltr">{row.order_external_id}</span><small>{channelLabel(row.channel)}</small></td>
-          <td dir="ltr">{row.sku ?? '–'}</td>
+          <td dir="ltr">{row.sku ?? '-'}</td>
           <td className="num">{formatCount(row.quantity)}</td>
           <td dir="auto">{row.reason ?? <span className="muted">{t('pages2.commerce.returns.noReason')}</span>}</td>
           <td><Badge tone={row.status === 'completed' || row.status === 'refunded' ? 'success' : row.status === 'rejected' ? 'dangerTone' : 'warning'}>{returnStatus(row.status)}</Badge></td>
-          <td className="num">{row.amount === null ? '–' : formatMoney(row.amount, row.currency)}</td>
+          <td className="num">{row.amount === null ? '-' : formatMoney(row.amount, row.currency)}</td>
         </tr>)}</tbody>
       </table></div>
       <Pager page={state.value} onPage={setOffset} label={t('pages2.commerce.returns.pages')} />

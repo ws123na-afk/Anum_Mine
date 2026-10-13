@@ -83,7 +83,7 @@ export function AssistantsView({ onOpenWork }: { onOpenWork?(itemId: string): vo
     figure('on', t('pages2.assistants.fig.on'), assistants, () => ({ value: `${totals.enabled}`, hint: t('pages2.assistants.fig.onHint', { count: totals.total }), tone: totals.enabled ? 'ok' : '' })),
     figure('queue', t('pages2.assistants.fig.queue'), both(assistants, workload), () => ({ value: String(totals.open), hint: t('pages2.assistants.fig.queueHint', { count: totals.dueWeek }), tone: totals.open ? 'accent' : '' })),
     figure('overdue', t('team.load.overdue'), both(assistants, workload), () => ({ value: String(totals.overdue), hint: totals.overdue ? t('pages2.team.fig.overdueHint') : t('pages2.team.fig.noneOverdue'), tone: totals.overdue ? 'danger' : '' })),
-    figure('done', t('pages2.assistants.fig.done'), assistants, () => ({ value: totals.done === null ? '–' : String(totals.done), hint: totals.done === null ? t('pages2.assistants.fig.doneUnknown') : t('pages2.assistants.fig.doneHint') })),
+    figure('done', t('pages2.assistants.fig.done'), assistants, () => ({ value: totals.done === null ? '-' : String(totals.done), hint: totals.done === null ? t('pages2.assistants.fig.doneUnknown') : t('pages2.assistants.fig.doneHint') })),
   ];
 
   return <div className="assistantsView">
@@ -115,9 +115,9 @@ export function AssistantsView({ onOpenWork }: { onOpenWork?(itemId: string): vo
               <small>{t(`team.dept.${a.department}` as MessageKey)} · {t(`assistants.autonomy.${a.autonomy}` as MessageKey)}</small>
             </button></th>
             <td><span className={`statusBadge ${a.enabled ? 'success' : 'neutral'}`}>{a.enabled ? t('assistants.on') : t('assistants.off')}</span></td>
-            <td className="num">{f ? f.open : '–'}</td>
-            <td className={`num ${f?.overdue ? 'overdueCell' : ''}`}>{f ? f.overdue : '–'}</td>
-            <td className="num">{f?.done ?? '–'}</td>
+            <td className="num">{f ? f.open : '-'}</td>
+            <td className={`num ${f?.overdue ? 'overdueCell' : ''}`}>{f ? f.overdue : '-'}</td>
+            <td className="num">{f?.done ?? '-'}</td>
             <td className="optional"><small className="assistantRoutes">{routes.length ? routes.join(' · ') : t('pages2.assistants.noRoutes')}</small><span className="tagRow assistantTools" aria-label={t('assistants.tools')}>{a.allowed_tools.map((x) => <span key={x}>{x}</span>)}</span></td>
             <td><div className="cellActions">
               <button type="button" className="iconButton" disabled={busy === a.id} aria-label={t('pages2.assistants.editNamed', { name: a.name })} title={t('team.edit')} onClick={() => { const { id, created_by: _b, created_at: _c, updated_at: _u, ...body } = a; setEditing({ id, body }); }}><Pencil aria-hidden="true" /></button>

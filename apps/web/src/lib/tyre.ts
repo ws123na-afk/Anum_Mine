@@ -2,7 +2,7 @@
 // No browser or Vite APIs, so `pnpm test:unit` exercises them directly.
 import { formatDateTime, formatNumber, t, type MessageKey } from './i18n.ts';
 
-export type SourceKind = 'supabase_postgres' | 'supabase_rest' | 'firestore';
+export type SourceKind = 'supabase_auth' | 'supabase_postgres' | 'supabase_rest' | 'firestore';
 export type EntityName = 'vehicles' | 'tyres' | 'inspections' | 'pressure_readings' | 'removals' | 'costs' | 'suppliers';
 export type ConnectionStatus = 'untested' | 'ok' | 'failed';
 export type Severity = 'critical' | 'warning' | 'info';
@@ -13,7 +13,7 @@ export type Confidence = 'high' | 'medium' | 'low';
 export type ForecastState = 'due' | 'projected' | 'no_wear' | 'no_data';
 
 export const ENTITIES: EntityName[] = ['tyres', 'vehicles', 'inspections', 'pressure_readings', 'removals', 'costs', 'suppliers'];
-export const SOURCE_KINDS: SourceKind[] = ['supabase_postgres', 'supabase_rest', 'firestore'];
+export const SOURCE_KINDS: SourceKind[] = ['supabase_auth', 'supabase_postgres', 'supabase_rest', 'firestore'];
 export const REPORT_KINDS: ReportKind[] = ['fleet_health', 'wear_rates', 'pressure_compliance', 'cost_per_distance', 'scrap_reasons', 'brand_performance', 'removal_forecast', 'purchase_plan'];
 export const ALERT_KINDS: AlertKind[] = ['low_tread', 'under_inflation', 'over_inflation', 'overdue_inspection', 'abnormal_wear', 'cost_anomaly'];
 export const TYRE_LINKED: EntityName[] = ['inspections', 'pressure_readings', 'removals'];
@@ -161,31 +161,48 @@ export function alertKindLabel(kind: AlertKind): string {
 
 // ---- connection form ----
 
-export interface ConnectionDraft { kind: SourceKind; label: string; endpoint: string; schema_name: string; secret: string }
+/** Connection form state. `api_key`, `email` and `password` are used only by `supabase_auth`. */
+export interface ConnectionDraft {
+  kind: SourceKind; label: string; endpoint: string; schema_name: string; secret: string;
+  api_key: string; email: string; password: string;
+}
 
 export function connectionDraft(connection: ConnectionView | null): ConnectionDraft {
   return {
-    kind: connection?.kind ?? 'supabase_postgres',
+    kind: connection?.kind ?? 'supabase_auth',
     label: connection?.label ?? 'TyrePulse',
     endpoint: connection && connection.kind !== 'supabase_postgres' ? connection.endpoint : '',
     schema_name: connection?.schema_name ?? 'public',
-    secret: '',
+    secret: '', api_key: '', email: '', password: '',
   };
+}
+
+/** The write-only secret the form would send: for the reader sign-in, its three fields as JSON. */
+function draftSecret(draft: ConnectionDraft): string {
+  if (draft.kind !== 'supabase_auth') return draft.secret.trim();
+  if (!draft.api_key.trim() && !draft.email.trim() && !draft.password) return '';
+  return JSON.stringify({ api_key: draft.api_key.trim(), email: draft.email.trim(), password: draft.password });
 }
 
 /** The body to save, or the problem to show (message key). A saved credential may be kept. */
 export function connectionBody(draft: ConnectionDraft, saved: ConnectionView | null):
   { ok: true; value: Record<string, string> } | { ok: false; error: MessageKey } {
   const keepSecret = Boolean(saved && saved.kind === draft.kind && saved.credential_configured);
-  if (!draft.secret.trim() && !keepSecret) return { ok: false, error: 'tyre.connect.needSecret' };
-  if (draft.kind === 'supabase_rest' && !/^https?:\/\/[^\s/]+/i.test(draft.endpoint.trim())) return { ok: false, error: 'tyre.connect.needUrl' };
-  if (draft.kind === 'supabase_postgres' && draft.secret.trim() && !/^postgres(ql)?:\/\//i.test(draft.secret.trim())) return { ok: false, error: 'tyre.connect.needPostgresUrl' };
-  if (draft.kind === 'firestore' && draft.secret.trim()) {
-    try { const parsed = JSON.parse(draft.secret); if (parsed?.type !== 'service_account') return { ok: false, error: 'tyre.connect.needServiceAccount' }; } catch { return { ok: false, error: 'tyre.connect.needServiceAccount' }; }
+  const secret = draftSecret(draft);
+  if (!secret && !keepSecret) return { ok: false, error: 'tyre.connect.needSecret' };
+  if ((draft.kind === 'supabase_rest' || draft.kind === 'supabase_auth') && !/^https?:\/\/[^\s/]+/i.test(draft.endpoint.trim())) return { ok: false, error: 'tyre.connect.needUrl' };
+  if (draft.kind === 'supabase_auth' && secret) {
+    if (!draft.api_key.trim() || !draft.email.trim() || !draft.password) return { ok: false, error: 'tyre.connect.needReader' };
+    if (!/^[^@\s]+@[^@\s]+$/.test(draft.email.trim())) return { ok: false, error: 'tyre.connect.badEmail' };
+    if (/^sb_secret_/i.test(draft.api_key.trim())) return { ok: false, error: 'tyre.connect.secretKeyRefused' };
+  }
+  if (draft.kind === 'supabase_postgres' && secret && !/^postgres(ql)?:\/\//i.test(secret)) return { ok: false, error: 'tyre.connect.needPostgresUrl' };
+  if (draft.kind === 'firestore' && secret) {
+    try { const parsed = JSON.parse(secret); if (parsed?.type !== 'service_account') return { ok: false, error: 'tyre.connect.needServiceAccount' }; } catch { return { ok: false, error: 'tyre.connect.needServiceAccount' }; }
   }
   if (!/^[a-z_][a-z0-9_]*$/.test(draft.schema_name)) return { ok: false, error: 'tyre.connect.badSchema' };
   const value: Record<string, string> = { kind: draft.kind, label: draft.label.trim() || 'TyrePulse', endpoint: draft.kind === 'firestore' ? (draft.endpoint.trim() || '(default)') : draft.endpoint.trim(), schema_name: draft.schema_name };
-  if (draft.secret.trim()) value.secret = draft.secret.trim();
+  if (secret) value.secret = secret;
   return { ok: true, value };
 }
 

@@ -29,6 +29,10 @@ Dates use `Intl.DateTimeFormat` with the current locale (`formatDateTime`). Arab
 
 Add the key to `en.ts` and `ar.ts` in the same change, use it through `t(...)`, and run `pnpm --filter @anum/web test:unit`. Never build a sentence by concatenating translated fragments; give the translator the whole sentence with placeholders.
 
+### Punctuation
+
+No em dashes or en dashes in anything a person reads (owner rule, 13 Oct 2026). Use a colon ("Group: Chief of Staff"), a comma, "to" for a range ("1 to 20 of 45", Arabic "1 إلى 20 من 45") or a new sentence. An empty value shows a plain hyphen (`-`). `apps/web/test/plainPunctuation.test.ts` fails if a messages file contains either dash; the setup plan's blueprint is checked by `test_the_plan_names_carry_no_long_dashes`.
+
 ## Right to left
 
 Layout uses logical CSS properties (`margin-inline-start`, `padding-inline-end`, `border-inline-end`, `inset-inline-start`, `text-align: start`), so `dir="rtl"` mirrors the shell (the sidebar moves to the right), forms, lists and cards with no per-component RTL CSS. The few direction-bearing pieces are handled explicitly in `styles.css`: icons that point (chevrons, the external-link arrow, the Command Center's send arrow and tile scroll buttons) carry `flipRtl`; the Command Center's progress bars fill from the right; the switch knob and the title rule's gradient are mirrored. Arabic headings drop the negative letter-spacing used for Latin text, because tracking breaks Arabic letter joining.

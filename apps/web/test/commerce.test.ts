@@ -13,7 +13,7 @@ describe('money and ranges', () => {
   test('money shows the currency code and two decimals, with Western digits in Arabic', () => {
     assert.equal(formatMoney(1234.5, 'SAR', 'en').replace(/\s/g, ' '), 'SAR 1,234.50');
     assert.match(formatMoney(1234.5, 'AED', 'ar'), /1,234\.50/);
-    assert.equal(formatMoney(null, 'SAR'), '—');
+    assert.equal(formatMoney(null, 'SAR'), '-');
   });
 
   test('presets are inclusive local days and every day of the range is charted', () => {
@@ -110,9 +110,9 @@ describe('changes, tones and labels', () => {
   });
 
   test('page labels', () => {
-    assert.equal(pageLabel(20, 20, 132), '21–40 of 132');
+    assert.equal(pageLabel(20, 20, 132), '21 to 40 of 132');
     assert.equal(pageLabel(0, 0, 0), 'Nothing to show');
     setLocale('ar');
-    assert.match(pageLabel(0, 5, 5), /1–5 من 5/);
+    assert.match(pageLabel(0, 5, 5), /1 إلى 5 من 5/);
   });
 });

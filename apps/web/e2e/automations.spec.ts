@@ -196,16 +196,16 @@ test('long lists page and search on the server', async ({ page }) => {
   const workflows = Array.from({ length: 25 }, (_, i) => workflow(`wf_${i}`, i === 24 ? 'Invoice sweep' : `Report ${i + 1}`));
   const state = await mockApi(page, { workflows });
   await openAutomations(page);
-  await expect(page.getByText('1–20 of 25')).toBeVisible();
+  await expect(page.getByText('1 to 20 of 25')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByText('21–25 of 25')).toBeVisible();
+  await expect(page.getByText('21 to 25 of 25')).toBeVisible();
   await page.getByLabel('Search').fill('invoice');
   await expect(page.getByRole('list', { name: 'Automations' }).getByRole('button')).toHaveCount(1);
   expect(state.queries.some((q) => q.includes('query=invoice') && q.includes('offset=0'))).toBe(true);
   await page.getByLabel('Search').fill('nothing like this');
   await expect(page.getByRole('heading', { name: 'No matches' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
-  await expect(page.getByText('1–20 of 25')).toBeVisible();
+  await expect(page.getByText('1 to 20 of 25')).toBeVisible();
 });
 
 test('a failed run addressed to me shows an alert that opens the run', async ({ page }) => {

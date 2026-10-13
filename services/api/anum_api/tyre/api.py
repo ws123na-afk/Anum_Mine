@@ -34,7 +34,14 @@ from .analytics import (
 from .mapping import PRESETS, SourceTable, fit_to_schema
 from .model import ENTITY_FIELDS, Assumptions, FieldSpec, SourceKind, TyreMapping
 from .reports import summary_text, to_csv, to_pdf
-from .sources import TyreSourceError, normalize_supabase_url, parse_postgres_url, parse_service_account
+from .sources import (
+    TyreSourceError,
+    normalize_supabase_url,
+    parse_postgres_url,
+    parse_reader_login,
+    parse_service_account,
+    refuse_privileged_key,
+)
 from .store import (
     AlertStatus,
     ConnectionStatus,
@@ -188,10 +195,11 @@ class ConnectionInput(BaseModel):
 
     kind: SourceKind
     label: str = Field(default="TyrePulse", min_length=1, max_length=120)
-    # Supabase REST: the project URL. Firestore: the database id ("(default)"). PostgreSQL: unused.
+    # Supabase sign-in and REST: the project URL. Firestore: the database id ("(default)"). PostgreSQL: unused.
     endpoint: str = Field(default="", max_length=500)
     schema_name: str = Field(default="public", min_length=1, max_length=63, pattern=r"^[a-z_][a-z0-9_]*$")
-    # The connection string, API key or service account JSON. Write-only; omit to keep the saved one.
+    # The connection string, API key, service account JSON or, for Supabase sign-in, the JSON
+    # {"api_key", "email", "password"} of the dedicated reader. Write-only; omit to keep the saved one.
     secret: str | None = Field(default=None, min_length=1, max_length=20_000)
 
 
@@ -200,6 +208,12 @@ def _validated_endpoint(payload: ConnectionInput, secret: str | None) -> str:
         if payload.kind == SourceKind.SUPABASE_POSTGRES:
             return parse_postgres_url(secret).display if secret else ""
         if payload.kind == SourceKind.SUPABASE_REST:
+            if secret:
+                refuse_privileged_key(secret)
+            return normalize_supabase_url(payload.endpoint)
+        if payload.kind == SourceKind.SUPABASE_AUTH:
+            if secret:
+                parse_reader_login(secret)
             return normalize_supabase_url(payload.endpoint)
         if secret:
             parse_service_account(secret)

@@ -33,7 +33,7 @@ forecasts[0] = forecast(1, { state: 'due', current_tread_mm: 2.8, confidence: 'h
 const alert = (id: string, kind: string, severity: string, label: string, message: string) => ({ id, key: `${kind}:${id}`, kind, severity, subject_type: 'tyre', subject_id: id, subject_label: label, message, value: {}, status: 'open', first_seen_at: now, last_seen_at: now, resolved_at: null, acknowledged_by: null, acknowledged_at: null });
 const summary = { as_of: today, currency: 'SAR', vehicles: 6, tyres_fitted: 24, tyres_in_stock: 2, tyres_removed_last_30_days: 2, tyres_with_readings: 23, average_tread_mm: 10.75, below_minimum: 1, in_warning_band: 1, pressure_checked: 23, pressure_compliant_pct: 91.3, under_inflated: 1, over_inflated: 1, overdue_inspections: 1, due_next_30_days: 2, due_next_90_days: 2, cost_per_1000_km: 33.58, cost_per_hour: null, min_tread_mm: 3 };
 
-export interface State { connected: boolean; mapped: boolean; synced: boolean; role: string; alerts: ReturnType<typeof alert>[]; reports: Record<string, unknown>[]; requests: string[] }
+export interface State { connected: boolean; saved?: Record<string, string>; mapped: boolean; synced: boolean; role: string; alerts: ReturnType<typeof alert>[]; reports: Record<string, unknown>[]; requests: string[] }
 
 export async function mockTyre(page: Page, initial: Partial<State> = {}) {
   const state: State = { connected: true, mapped: true, synced: true, role: 'owner', alerts: [
@@ -42,7 +42,9 @@ export async function mockTyre(page: Page, initial: Partial<State> = {}) {
     alert('a3', 'abnormal_wear', 'warning', 'fake-sn-0101 on fake-plate-01 at P1', 'Wearing 2.40 mm per 30 days, 2.4x the median.'),
   ], reports: [], requests: [], ...initial };
   const setup = () => ({
-    connection: state.connected ? { kind: 'supabase_postgres', label: 'TyrePulse', endpoint: 'anum_reader@db.example.supabase.co:5432/postgres', schema_name: 'public', credential_configured: true, secret_hint: 'anum_reader@db.example.supabase.co', status: 'ok', last_tested_at: now, last_error: null, updated_at: now, updated_by: 'user_local' } : null,
+    connection: state.connected ? (state.saved?.kind === 'supabase_auth'
+      ? { kind: 'supabase_auth', label: state.saved.label, endpoint: state.saved.endpoint, schema_name: 'public', credential_configured: true, secret_hint: 'anum-reader@example.com · key …mple', status: 'ok', last_tested_at: now, last_error: null, updated_at: now, updated_by: 'user_local' }
+      : { kind: 'supabase_postgres', label: 'TyrePulse', endpoint: 'reader@db.example.supabase.co:5432/postgres', schema_name: 'public', credential_configured: true, secret_hint: 'reader@db.example.supabase.co', status: 'ok', last_tested_at: now, last_error: null, updated_at: now, updated_by: 'user_local' }) : null,
     mapping: state.mapped ? preset : null, mapping_problems: [], assumptions,
     discovery: state.connected ? { tables, discovered_at: now, writable_tables: [] } : null,
     sync: state.synced ? sync : null, fields, presets: ['tyrepulse'],
@@ -56,8 +58,8 @@ export async function mockTyre(page: Page, initial: Partial<State> = {}) {
     state.requests.push(`${method} ${path}`);
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (path === '/setup') return json(setup());
-    if (path === '/connection' && method === 'PUT') { state.connected = true; return json(setup()); }
-    if (path === '/connection/test') return json({ ok: true, message: 'Connected as anum_reader (read-only session: on).', setup: setup() });
+    if (path === '/connection' && method === 'PUT') { state.connected = true; state.saved = request.postDataJSON() as Record<string, string>; return json(setup()); }
+    if (path === '/connection/test') return json({ ok: true, message: state.saved?.kind === 'supabase_auth' ? 'Signed in as anum-reader@example.com (read-only). Rows visible in the first page: tyre_records 1.' : 'Connected as reader (read-only session: on).', setup: setup() });
     if (path === '/discover') return json({ tables, discovered_at: now, suggestion: preset, writable_tables: [] });
     if (path === '/presets/tyrepulse') return json(preset);
     if (path === '/mapping/preview') return json({ problems: [], stats: sync.entities, sample: {} });

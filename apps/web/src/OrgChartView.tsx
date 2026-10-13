@@ -278,7 +278,7 @@ function OrgTree({ chart, owner, onOpen, onPeek, onGo }: {
   }, []);
   const stacks = balanceColumns(chart.departments, columns);
   const tile = (label: string, value: number | null, tone: string, action?: () => void, hint?: string) => {
-    const shown = value === null ? '—' : String(value);
+    const shown = value === null ? '-' : String(value);
     return <div className={`orgKpi tone-${tone}`}>
       <dt>{label}</dt>
       <dd>{action ? <button type="button" className="orgKpiLink" onClick={action} aria-label={`${label}: ${shown}. ${hint ?? ''}`}>{shown}</button> : shown}</dd>
@@ -470,9 +470,9 @@ function OrgTable({ chart, onSelect, onGo }: { chart: OrgChart; onSelect: (m: Or
           <td data-label={t('org.col.department')} dir="auto">{departmentLabel(m.department)}</td>
           <td data-label={t('org.col.role')} dir="auto" className="orgCellRole">{roleText(m)}</td>
           <td data-label={t('org.col.status')}><StatusPill member={m} /></td>
-          <td data-label={t('org.col.work')}>{countsText(m) || '—'}</td>
-          <td data-label={t('org.col.skills')} dir="auto">{m.skills.length ? m.skills.map((s) => s.name).join(t('common.listSeparator')) : '—'}</td>
-          <td data-label={t('org.col.tools')}>{m.tools.length ? <ul className="orgTools">{m.tools.map((chip) => <li key={chip.key}><ToolButton chip={chip} onGo={onGo} /></li>)}</ul> : '—'}</td>
+          <td data-label={t('org.col.work')}>{countsText(m) || '-'}</td>
+          <td data-label={t('org.col.skills')} dir="auto">{m.skills.length ? m.skills.map((s) => s.name).join(t('common.listSeparator')) : '-'}</td>
+          <td data-label={t('org.col.tools')}>{m.tools.length ? <ul className="orgTools">{m.tools.map((chip) => <li key={chip.key}><ToolButton chip={chip} onGo={onGo} /></li>)}</ul> : '-'}</td>
         </tr>)}</tbody>
       </table>}
   </section>;

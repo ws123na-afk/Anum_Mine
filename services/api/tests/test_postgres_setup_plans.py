@@ -22,6 +22,7 @@ from anum_api.agent_profiles import agent_store
 from anum_api.db import session as db_session
 from anum_api.main import app
 from anum_api.settings import settings
+from anum_api.setup_plans import load_blueprints
 
 pytestmark = pytest.mark.database
 
@@ -49,7 +50,7 @@ def client(database_engine: Engine, seed_scopes: None, monkeypatch: pytest.Monke
 
 
 def _apply(client: TestClient, hdrs: dict[str, str] | None = None, phase: str = "pilot") -> dict:
-    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=hdrs or headers(), json={"phase": phase, "plan_version": 1})
+    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=hdrs or headers(), json={"phase": phase, "plan_version": load_blueprints()[PLAN].version})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -81,7 +82,7 @@ def test_pilot_applies_through_postgres_and_reapplying_creates_nothing(
     total = _count(app_session, "select count(*) from setup_plan_items")
     tenant_level = _count(app_session, "select count(*) from setup_plan_items where workspace_id = ''")
     assert total >= 100
-    assert tenant_level == 21 + 24  # memory rules, 4 approval rules, 6 packs, 10 role templates + published skill versions
+    assert tenant_level == 31 + 24  # memory rules, 14 approval rules, 6 packs, 10 role templates + published skill versions
     assert _count(app_session, "select count(*) from setup_plan_items where state = 'claimed'") == 0
 
     # Another workspace of the tenant sees only the tenant-level rows; another tenant sees none.

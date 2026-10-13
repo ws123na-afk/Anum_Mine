@@ -261,7 +261,7 @@ function EventDetail({ event, now, onBack, onEdit, onChanged, onCancelled, onDel
       {problem && <PaneProblem text={t('calendar.actionFailed', { reason: problem })} />}
       <dl className="railFacts calendarFacts">
         <dt><Clock aria-hidden="true" />{t('calendar.when')}</dt>
-        <dd>{formatDateTime(event.starts_at, { dateStyle: 'full', timeStyle: 'short' })} – {timeOf(event.ends_at)} <small>({durationText(durationMinutes(event))})</small></dd>
+        <dd>{t('calendar.range.week', { from: formatDateTime(event.starts_at, { dateStyle: 'full', timeStyle: 'short' }), to: timeOf(event.ends_at) })} <small>({durationText(durationMinutes(event))})</small></dd>
         <dt>{t('calendar.kind')}</dt><dd>{t(`calendar.kind.${event.kind}` as MessageKey)}</dd>
         {event.location && <><dt><MapPin aria-hidden="true" />{t('calendar.location')}</dt><dd dir="auto">{event.location}</dd></>}
         <dt>{t('calendar.createdBy')}</dt><dd dir="auto">{event.created_by}</dd>

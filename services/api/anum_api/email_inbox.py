@@ -945,6 +945,7 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
 
         await asyncio.to_thread(auto_route_inbound, stored.tenant_id, stored.workspace_id, "email", arrived)
     inbound = [m for m in fresh if m.from_address.lower() != stored.address.lower() and not m.is_archived]
+    _record_unsubscribes(context, [m for m in fresh if m.from_address.lower() != stored.address.lower()])
     if inbound:
         from .automation_triggers import record_inbound_events
 
@@ -972,6 +973,17 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
             ],
         )
     return stored
+
+
+def _record_unsubscribes(context: TenantContext, messages: list[EmailMessage]) -> None:
+    """An e-mail whose subject is exactly "unsubscribe" (or "stop", "إلغاء الاشتراك") puts the
+    sender on the contact suppression list for marketing e-mail (docs/privacy.md#contact-suppression)."""
+    from .suppression import EMAIL_STOP_SUBJECTS, SuppressionChannel, apply_inbound_keyword, normalize_keyword
+
+    for message in messages:
+        subject = re.sub(r"^\s*((re|fwd?|aw)\s*:\s*)+", "", message.subject or "", flags=re.IGNORECASE)
+        if message.from_address and normalize_keyword(subject) in EMAIL_STOP_SUBJECTS:
+            apply_inbound_keyword(context, SuppressionChannel.EMAIL, message.from_address, "stop", f"e-mail {message.id}")
 
 
 def _arrived_for_routing(store: EmailStoreProtocol, account: EmailAccount, incoming: list[EmailMessage]) -> list[Any]:

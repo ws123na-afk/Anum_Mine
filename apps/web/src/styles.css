@@ -540,6 +540,8 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
 .signInDivider { align-items: center; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s3); }
 .signInDivider::before, .signInDivider::after { border-top: 1px solid var(--d-line); content: ""; flex: 1; }
 .signInSwitch { color: var(--d-muted); font-size: 14px; text-align: center; }
+.signInLegal { display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s1) var(--d-s3); justify-content: center; }
+.signInLegal a { color: var(--d-muted); }
 .linkButton { background: none; border: 0; box-shadow: none; color: var(--d-sky); cursor: pointer; display: inline-flex; font: inherit; font-weight: 600; gap: var(--d-s1); min-height: 0; padding: 0; text-decoration: underline; width: auto; }
 .linkButton svg { block-size: 16px; inline-size: 16px; }
 .consent { align-items: flex-start; display: flex; gap: var(--d-s2); font-size: 14px; }
@@ -566,6 +568,18 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
 .approvalHash, .approvalMeta { align-items: center; color: var(--d-faint); display: flex; flex-wrap: wrap; font-size: 12px; gap: var(--d-s1); margin-top: var(--d-s1); }
 .approvalHash code { color: var(--d-muted); overflow-wrap: anywhere; }
 .approvalWarning { color: var(--d-stop); font-size: 13px; margin-top: 6px; }
+.approvalSuppressed, .approvalReadOnly { align-items: flex-start; display: flex; gap: var(--d-s2); }
+.approvalReadOnly { color: var(--d-muted); font-size: 13px; margin-top: var(--d-s2); }
+.approvalSuppressed svg, .approvalReadOnly svg { flex: none; margin-top: 2px; }
+/* Approval routing: who may approve this item and why (docs/approvals-and-risk.md#approval-routing). */
+.approvalRulesLink { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s1); margin: 0; }
+.approvalRouting { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); margin-top: var(--d-s2); padding: var(--d-s2) var(--d-s3); }
+.approvalRoutingWho { align-items: center; display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s1); margin: 0; }
+.approvalRoutingWho small { color: var(--d-muted); }
+.approvalRoutingWhy, .approvalRoutingSteps { color: var(--d-muted); display: grid; font-size: 12.5px; gap: 2px; margin: 0; padding-inline-start: var(--d-s4); }
+.approvalRoutingWhy li, .approvalRoutingSteps li { overflow-wrap: anywhere; }
+.approvalRoutingSteps li.current { color: var(--d-text); }
+.approvalRoutingSteps small { color: var(--d-faint); margin-inline-start: var(--d-s1); }
 .approvalTarget { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s1); margin-top: 2px; }
 .approvalTarget code { color: var(--d-text); overflow-wrap: anywhere; }
 .approvalReasonField { display: grid; gap: var(--d-s1); margin-top: var(--d-s3); }

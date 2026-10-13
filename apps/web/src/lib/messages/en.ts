@@ -10,6 +10,7 @@ import { marketingEn } from './marketing.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
+import { routingEn } from './routing.en.ts';
 import { voiceEn } from './en.voice.ts';
 import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
@@ -127,6 +128,9 @@ export const en = {
   'auth.acceptPrivacy': 'I have read and accept the {link}',
   'auth.privacyPolicy': 'privacy policy',
   'auth.acceptFirst': 'Accept the privacy policy to continue.',
+  'auth.legalLinks': 'Legal',
+  'auth.privacyLink': 'Privacy Policy',
+  'auth.termsLink': 'Terms of Service',
   'auth.optionsUnavailable': 'Other sign-in options could not be loaded ({reason}). You can still sign in.',
   'auth.pendingTitle': 'Your account is waiting for access',
   'auth.pendingText': 'You are signed in, but your account does not belong to an organization yet. ANUM gives access only by invitation.',
@@ -2051,7 +2055,7 @@ export const en = {
   'auto.time.underSecond': 'under a second',
   'auto.time.seconds': { one: '{count} s', other: '{count} s' },
   'auto.page.none': 'No results',
-  'auto.page.range': '{from}–{to} of {total}',
+  'auto.page.range': '{from} to {to} of {total}',
   'auto.alert.region': 'Automation alerts',
   'auto.alert.failedTitle': '{name} failed',
   'auto.alert.anAutomation': 'An automation',
@@ -2809,7 +2813,7 @@ export const en = {
   'learning.stat.suggestions': 'Open suggestions',
   'learning.prev': 'Previous',
   'learning.next': 'Next',
-  'learning.showing': '{from}–{to} of {total}',
+  'learning.showing': '{from} to {to} of {total}',
   'learning.tone.formal': 'Formal',
   'learning.tone.neutral': 'Neutral',
   'learning.tone.casual': 'Casual',
@@ -2909,7 +2913,7 @@ export const en = {
   'learning.notes.refreshed': { zero: 'This week is up to date. No open suggestions.', one: 'This week is up to date: 1 open suggestion.', other: 'This week is up to date: {count} open suggestions.' },
   'learning.notes.empty': 'No notes yet. The first one is written the first week learning is on.',
   'learning.notes.week': 'Week {week}',
-  'learning.notes.period': '{from} – {to}',
+  'learning.notes.period': '{from} to {to}',
   'learning.notes.noSuggestions': 'No suggestions this week: nothing failed or was rejected often enough to change.',
   'learning.notes.older': 'Show older notes',
   'learning.notes.loadFailed': 'Could not load the improvement notes: {reason}.',
@@ -3620,6 +3624,7 @@ export const en = {
   ...ownerEn,
   ...governanceEn,
   ...setupPlanEn,
+  ...routingEn,
   ...voiceEn,
   ...voiceActionsEn,
 } satisfies Record<string, Message>;

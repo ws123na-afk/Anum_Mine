@@ -101,6 +101,7 @@ x-user-roles: owner,member
 - [Reports](docs/reports.md)
 - [Privacy: download and delete my data](docs/privacy.md)
 - [Privacy policy template](docs/privacy-policy.md)
+- [Public legal pages: Privacy Policy and Terms of Service](docs/legal-pages.md)
 - [Store data safety and app privacy answers](docs/store-data-safety.md)
 - [Skills](docs/skills.md)
 - [Workspace files](docs/files.md)

@@ -817,3 +817,19 @@ def test_setup_plans_migration_is_expand_only_with_forced_rls() -> None:
     assert upgrade.count("op.create_table(") == 2 and "drop" not in upgrade and "alter_column" not in upgrade
     assert "force row level security" in upgrade and "create policy scope_isolation_setup_plan_items" in revision_text
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_routing_suppression_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0054_routing_suppression.py").read_text(encoding="utf-8")
+    assert 'revision = "0054_routing_suppression"' in revision_text and len("0054_routing_suppression") <= 32
+    assert 'down_revision = "0053_tyre_supabase_auth"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0054_routing_suppression.py"]
+    assert not [path for path in others if 'down_revision = "0053_tyre_supabase_auth"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Defaulted or nullable columns on approval_rules and one new table: the previous release keeps working.
+    assert upgrade.count("op.add_column(") == 4 and upgrade.count("op.create_table(") == 1
+    assert upgrade.count("server_default") >= 2 and upgrade.count("nullable=true") == 2
+    assert "drop" not in upgrade and "alter_column" not in upgrade
+    assert "force row level security" in upgrade and "create policy tenant_isolation_contact_suppressions" in revision_text
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

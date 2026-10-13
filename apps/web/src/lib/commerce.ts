@@ -45,7 +45,7 @@ export function severityTone(severity: CommerceAlertSeverity): Tone {
 
 /** "SAR 1,234.50" in the interface language (Western digits in Arabic too). */
 export function formatMoney(amount: number | null | undefined, currency: string | null | undefined, locale = getLocale()): string {
-  if (amount === null || amount === undefined || Number.isNaN(amount)) return '—';
+  if (amount === null || amount === undefined || Number.isNaN(amount)) return '-';
   const code = currency && /^[A-Z]{3}$/.test(currency) ? currency : null;
   if (!code) return new Intl.NumberFormat(intlLocale(locale), { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
   return new Intl.NumberFormat(intlLocale(locale), { style: 'currency', currency: code, currencyDisplay: 'code', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
@@ -203,7 +203,7 @@ export function notificationFor(event: CommerceAlertEvent, prefs: AlertPreferenc
   return { title: t('commerce.notify.title'), body: title };
 }
 
-/** Page window text: "21–40 of 132". */
+/** Page window text: "21 to 40 of 132". */
 export function pageLabel(offset: number, count: number, total: number): string {
   if (!total) return t('commerce.page.none');
   return t('commerce.page.window', { first: offset + 1, last: offset + count, total });

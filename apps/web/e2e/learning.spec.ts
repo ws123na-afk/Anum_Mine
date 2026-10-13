@@ -213,11 +213,11 @@ test('feedback is paged and searchable', async ({ page }) => {
   const sent = await mockApi(page, { signals: 23 });
   await page.goto('/#learning');
   const feedback = page.getByRole('region', { name: 'Feedback ANUM learned from' });
-  await expect(feedback.getByText('1–10 of 23')).toBeVisible();
+  await expect(feedback.getByText('1 to 10 of 23')).toBeVisible();
   await feedback.getByRole('button', { name: 'Next' }).click();
-  await expect(feedback.getByText('11–20 of 23')).toBeVisible();
+  await expect(feedback.getByText('11 to 20 of 23')).toBeVisible();
   await feedback.getByLabel('Kind of feedback').selectOption('approval_rejected');
-  await expect(feedback.getByText('1–10 of 11')).toBeVisible();
+  await expect(feedback.getByText('1 to 10 of 11')).toBeVisible();
   await feedback.getByRole('searchbox', { name: 'Search feedback' }).fill('nothing-like-this');
   await feedback.getByRole('button', { name: 'Search' }).click();
   await expect(feedback.getByText('Nothing matches. Clear the search or choose All kinds.')).toBeVisible();

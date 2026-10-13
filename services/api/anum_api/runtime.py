@@ -26,6 +26,7 @@ from .autonomy import (
     store_of,
 )
 from .audit import AuditRecord
+from .suppression import audit_refusal, refusal_reason, suppressed_for_call
 from .events import CanonicalEventName, create_event
 from .prompt_provenance import Provenance, label_untrusted
 from .model_gateway import ModelGateway
@@ -43,6 +44,7 @@ from .schemas import (
     WorkspaceApprovalPolicy,
     new_id,
     utc_now,
+    RiskLevel,
 )
 
 
@@ -143,7 +145,32 @@ class AgentRuntime:
         agent = self.agent_of(run)
         if agent is not None:
             decision = apply_agent_policy(agent, call, definition, decision)
-        return decision
+        return self._with_suppression(call, definition, decision, context)
+
+    def _with_suppression(
+        self,
+        call: ToolCall,
+        definition: object,
+        decision: ToolPolicyDecision,
+        context: TenantContext,
+    ) -> ToolPolicyDecision:
+        """Block a send to a recipient on the contact suppression list (docs/privacy.md).
+
+        Checked at planning, at execution (also after an approval) and on recovery, so an
+        opt-out recorded while an approval waits still stops the send. Nothing lowers it.
+        """
+        if decision.outcome == ToolPolicyOutcome.BLOCK:
+            return decision
+        hits = suppressed_for_call(context, call.name, call.arguments, definition)
+        if not hits:
+            return decision
+        audit_refusal(context, call.name, hits, "policy")
+        return ToolPolicyDecision(
+            outcome=ToolPolicyOutcome.BLOCK,
+            reason=refusal_reason(hits),
+            risk_level=RiskLevel.BLOCKED,
+            governance_rules=[*decision.governance_rules, "contact_suppression"],
+        )
 
     def _with_autonomy(
         self,

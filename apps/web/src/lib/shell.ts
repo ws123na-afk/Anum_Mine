@@ -6,7 +6,7 @@ import { t, type MessageKey } from './i18n.ts';
 export type View =
   | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'marketing' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
-  | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'developer' | 'organisations';
+  | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'suppressions' | 'developer' | 'organisations';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
@@ -26,7 +26,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
   { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'marketing', 'files', 'memory', 'reports', 'skills'] },
   { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
-  { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'developer', 'organisations'] },
+  { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'suppressions', 'developer', 'organisations'] },
 ];
 
 /** Views reached as a tab of a sidebar entry: they open by link and light up their parent entry. */

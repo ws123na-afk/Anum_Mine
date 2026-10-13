@@ -55,6 +55,20 @@ The ledger `setup_plan_items` keeps one row per blueprint item key: the object i
 - Each item is written in its own transaction(s). A failure is reported for that item; the next apply continues. Before creating, the apply **claims** the item (`INSERT ... ON CONFLICT DO NOTHING`), so two applies at once never create it twice; a claim older than 10 minutes (an apply that stopped) is retaken. An agent is created with its status in the same write (paused outside the phase), never active and paused afterwards. If a stopped apply had already created the agent, the next apply takes it over (`resume_stopped_apply`) only when it is still untouched (made by the person who claimed it, after the claim, version 1) and gives it the requested status; an agent someone changed or made is linked and left alone.
 - PostgreSQL: forced RLS on `setup_plan_items` (`tenant_id` and `workspace_id` in the request's workspace or `''`) and on `setup_plan_checks` (`tenant_id`); no role is granted anything new.
 
+## Renames
+
+Plan version 2 (13 Oct 2026) renamed every item whose name had a long dash ("GROUP — Chief of Staff" is now "Group: Chief of Staff"; the business workspaces are "Fleet Consulting", "Tyre Pulse", "ANUM 360 Gallery", "OpsBrain" and "VoiceQuote") and rewrote the page's notes in plain words. Each renamed item lists its old names in `former_names`; `Blueprint.former_text` gives back the old wording of the text the plan stores on objects (assistant instructions and automation prompts, where only the agent names changed).
+
+Plan version 3 (13 Oct 2026) adds the approval rules with AED bands and approver steps ([Approval routing](approvals-and-risk.md#approval-routing)) and marks opt-out handling (CC04, automation #7, the memory rule) as supported by the [contact suppression list](privacy.md#contact-suppression). Applying it adds the new rules; nothing is renamed.
+
+Applying again updates what an earlier apply made, matched through the ledger by the item's key, never by name:
+
+- **Untouched** agents and assistants (version or fingerprint as the plan left them) get the plan's new values, as for any plan change. When only the name or wording changes the preview says `will_rename`.
+- **Changed by hand** (the plan made it, the owner edited it since): only a field that still holds exactly the plan's old wording changes. An agent's name; an assistant's name and instructions; an automation's name, its task step (name and prompt), and its schedule and trigger names; a saved command's title. The ledger row is kept as it was, so the object still counts as the owner's and nothing else is ever overwritten. A name the owner chose stays.
+- Objects the plan only linked (`found_by_name`) are never renamed. Finding by name also accepts the former names, so an object from version 1 without a ledger row is linked, not created twice.
+- The preview shows these as **Will change**, reason code `will_rename`; automations stay turned off.
+- **Not renamed:** policy packs and approval rules (ANUM has no rename for them; a new name would publish a second pack) and workspaces the plan created (a workspace is renamed from inside it, in Settings > Workspace). They keep their old names until someone renames or replaces them; the plan finds them by key or former name, so it never makes copies.
+
 ## Mapping: plan to ANUM
 
 | Plan item | ANUM | Support |
@@ -71,11 +85,11 @@ The ledger `setup_plan_items` keeps one row per blueprint item key: the object i
 | 8 department assistants | Assistant profiles, autonomy `suggest` (route and propose, no approval authority), routing keywords; no inbound channel until an owner ticks one | as-is |
 | 9 policy packs | 6 packs of `require_approval` / `allow` rules on real tool patterns (they only add approvals). MEMORY maps to memory governance, RUNTIME to the budget and fixed retry rules, ADMIN to the org_admin requirement and audit | mapped |
 | Role templates | 10 role templates with real permission names; the pilot role cards' "may approve / must escalate" (Operations and Care, Finance Reviewer, Technical Administrator = Governance Administrator) are shown with them. ANUM enforces owner, member, viewer and org_admin; templates document the intended set | partial |
-| AED approval thresholds | Approval rules for prices and stock, publishing, auto-posting and unknown external actions (owner). Amount-based routing is not possible (see below); each threshold's support is listed on the page | partial |
+| AED approval thresholds | Approval rules with AED bands and approver steps ([Approval routing](approvals-and-risk.md#approval-routing)): refunds up to AED 250 to the named Care Lead and above to owners, goodwill discounts up to AED 100 and 5%, quotes up to AED 5,000 delegated, commitments above AED 5,000 in two steps, plus prices and stock, publishing, auto-posting and unknown external actions (owner). Delegated rules start with owners only until the person is named. Only a per-task cost estimate is unsupported; each threshold's support is listed on the page | mapped |
 | Memory rules | Memory governance: 90-day expiry of remembered chat facts, provenance required. Per-category retention is not possible | partial |
 | 9 knowledge folders | Shared knowledge collections 00-08 | as-is |
 | 30 saved commands | The applier's quick commands (Work), text = the voice phrase | as-is |
-| 25 automations | 18 workflows (turned off) with a `task.create` step; schedules in Asia/Dubai (turned off) or event triggers (turned off) for WhatsApp, email, files and failed runs. #8, #9, #10, #16, #24 need a webhook trigger from the source system; #18 runs by hand. #2, #3, #19 are built in (Command plans, team reminders, Meetings); #14 is part of #13; #6 is the WhatsApp auto-send list; #4 and #7 are not supported | mapped |
+| 25 automations | 18 workflows (turned off) with a `task.create` step; schedules in Asia/Dubai (turned off) or event triggers (turned off) for WhatsApp, email, files and failed runs. #8, #9, #10, #16, #24 need a webhook trigger from the source system; #18 runs by hand. #2, #3, #19 are built in (Command plans, team reminders, Meetings); #14 is part of #13; #6 is the WhatsApp auto-send list; #7 is the built-in [contact suppression list](privacy.md#contact-suppression); #4 is not supported | mapped |
 | Budget caps | Workspace monthly cost limit = sum of the active agents' caps in USD at the AED peg (3.6725) | partial |
 | Home priorities | Home's fixed Today's Focus, approvals and activity | not configurable |
 | Integrations, people, 2FA, documents | Listed under "For you to do" | manual |
@@ -89,17 +103,16 @@ ANUM never runs these cases against live data from the page. The parts it can ch
 - CC05 / OWN02: a payment-kind refund of AED 300 always needs an approval and can never act on its own, at any autonomy level; after the whole plan no agent holds a payment, price or stock tool.
 - OWN03: a template send to 20 recipients always asks (bulk; ANUM's default threshold of 5 is stricter than the plan's 10).
 - OWN01: "Show all COD orders awaiting remittance and group them by variance" plans read-only steps that need no approval.
-- CC04: ANUM has no opt-out suppression, and the plan says so; this check cannot pass until it is built.
+- CC04: a WhatsApp STOP (or إيقاف, لا ترسلوا لي رسائل) puts the number on the [contact suppression list](privacy.md#contact-suppression), and every later send to it, by an agent, an automation or after an approval, is refused and audited; START lifts it.
 
 The COD variance bands (COD02, COD03, COD05) are in the COD Reconciliation skill and the 17:00 automation's instructions, not enforced by code, so a person checks them.
 
 ## Not supported yet
 
 - Per-agent AI budget caps (ANUM budgets per workspace and organization), budget alerts at 50, 75 and 90 percent (ANUM records 80 and 100), per-task cost estimates.
-- Approvals routed by AED amount or to non-owner roles (refunds up to AED 250 by the Care Lead, discounts up to AED 100, delegated quotes up to AED 5,000): approval rules match tools, and only owners decide.
 - Banking, bank reconciliation and any money movement; refund and discount tools; COD cash-count records.
 - Courier tracking and delivery proof.
-- A contact opt-out list (CC04, automation #7) and consent records for campaigns.
+- Consent records for campaigns (the opt-out list itself exists: [Contact suppression](privacy.md#contact-suppression)).
 - Departments as objects; automations that run as a chosen agent (a scheduled task runs as the schedule's owner, with the agent's duty in the prompt); agents placed in each business workspace by one apply (apply the plan in each workspace instead).
 - An approval-ageing reminder (#4); configurable Home priorities; per-agent loop and retry limits.
 - WhatsApp utility templates from the pilot pack: they need Meta submission and approval in the WhatsApp Business account; ANUM sends a template only after an owner ticks it on the auto-send list.
@@ -110,4 +123,4 @@ Invite the real people and roles (and org_admin in Keycloak), turn on two-step s
 
 ## Tests
 
-`services/api/tests/test_setup_plans.py` (blueprint validity and no secrets, read-only preview, member refused, unknown plan and stale version, pilot apply, automations turned off, re-apply without duplicates and its audit, whole plan after pilot with owner edits kept and "Replace my changes", autonomy never above the plan, owner without org_admin, found-by-name linking, tenant and workspace isolation, claims, agents created paused in one write, a stopped apply taken over with the requested status, failure and retry, removed items), `test_setup_plan_pilot_checks.py` (the checklist and the governance cases above), `test_postgres_setup_plans.py` (the pilot through PostgreSQL as the app role, RLS on both tables, claims, checks per tenant), `test_migrations.py`; web `test/setupPlan.test.ts` and `e2e/setup-plan.spec.ts` (preview, confirm, apply, whole plan, failure, member, errors, empty, stale plan, Arabic, pilot checks, and 1440x900, 1366x768, 1024x768, 768x1024, 390x844 on desktop and mobile).
+`services/api/tests/test_setup_plans.py` (blueprint validity and no secrets, read-only preview, member refused, unknown plan and stale version, pilot apply, automations turned off, re-apply without duplicates and its audit, renames from plan version 1 and a rename that keeps the owner's edits, whole plan after pilot with owner edits kept and "Replace my changes", autonomy never above the plan, owner without org_admin, found-by-name linking, tenant and workspace isolation, claims, agents created paused in one write, a stopped apply taken over with the requested status, failure and retry, removed items), `test_setup_plan_pilot_checks.py` (the checklist and the governance cases above), `test_postgres_setup_plans.py` (the pilot through PostgreSQL as the app role, RLS on both tables, claims, checks per tenant), `test_migrations.py`; web `test/setupPlan.test.ts` and `e2e/setup-plan.spec.ts` (preview, confirm, apply, whole plan, failure, member, errors, empty, stale plan, Arabic, pilot checks, and 1440x900, 1366x768, 1024x768, 768x1024, 390x844 on desktop and mobile).

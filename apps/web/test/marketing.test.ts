@@ -104,7 +104,7 @@ describe('labels and actions', () => {
 
   test('rates and changes', () => {
     assert.equal(rate(0.0812), '8.1%');
-    assert.equal(rate(null), '–');
+    assert.equal(rate(null), '-');
     assert.equal(change(0.1, 0.08), '+2.0');
     assert.equal(change(0.05, 0.08), '−3.0');
   });

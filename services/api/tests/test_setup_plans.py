@@ -64,7 +64,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
     _clear()
     test_client = TestClient(app)
     assert test_client.post("/api/v1/tenants", headers=ADMIN, json={"name": "Shahzeb Business Group"}).status_code == 201
-    assert test_client.post("/api/v1/workspaces", headers=ADMIN, json={"name": "GROUP — Operations"}).status_code == 201
+    assert test_client.post("/api/v1/workspaces", headers=ADMIN, json={"name": "Group operations"}).status_code == 201
     assert test_client.post("/api/v1/workspace-memberships/current", headers=ADMIN).status_code == 201
     _member("owner_2", "owner")
     _member("member_1", "member")
@@ -79,7 +79,7 @@ def preview(client: TestClient, phase: str = "pilot", headers: dict[str, str] = 
 
 
 def apply(client: TestClient, phase: str = "pilot", headers: dict[str, str] = ADMIN, **extra: object) -> dict:
-    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=headers, json={"phase": phase, "plan_version": 1, **extra})
+    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=headers, json={"phase": phase, "plan_version": 3, **extra})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -146,7 +146,7 @@ def test_member_and_viewer_are_refused_with_who_can(client: TestClient) -> None:
     for path in ("", f"/{PLAN}/preview"):
         response = client.get(f"/api/v1/setup-plans{path}", headers=MEMBER)
         assert response.status_code == 403 and "workspace owner or an organization administrator" in response.json()["error"]["message"]
-    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=MEMBER, json={"phase": "pilot", "plan_version": 1})
+    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=MEMBER, json={"phase": "pilot", "plan_version": 3})
     assert response.status_code == 403
     assert not agent_store.profiles
 
@@ -167,13 +167,13 @@ def test_apply_pilot_creates_everything_with_pilot_agents_active(client: TestCli
     by_name = agents(client)
     assert len(by_name) == 12
     active = {name for name, agent in by_name.items() if agent["status"] == "active"}
-    assert active == {"GROUP — Chief of Staff", "GALLERY — Customer Care", "GROUP — Finance Controller"}
-    care = by_name["GALLERY — Customer Care"]
+    assert active == {"Group: Chief of Staff", "Gallery: Customer Care", "Group: Finance Controller"}
+    care = by_name["Gallery: Customer Care"]
     # Observe: reads on their own, changes ask, nothing outside ANUM.
     assert care["autonomy"] == {"read": "auto", "write": "ask", "external": "off"}
     assert care["sharing"] == "workspace" and care["category"] == "work" and care["department"] == "Commerce & Care"
     assert "sbg.s17-verified-support-reply" in care["allowed_skills"] and "send_whatsapp" not in care["allowed_tools"]
-    chief = by_name["GROUP — Chief of Staff"]
+    chief = by_name["Group: Chief of Staff"]
     assert chief["autonomy"] == {"read": "auto", "write": "auto", "external": "ask"}
     # Skills published, installed with only their declared tools.
     installs = client.get("/api/v1/skills/installations", headers=ADMIN).json()
@@ -181,7 +181,7 @@ def test_apply_pilot_creates_everything_with_pilot_agents_active(client: TestCli
     # Governance through the governance routes.
     packs = client.get("/api/v1/policy-packs", headers=ADMIN).json()
     assert len(packs) == 6 and all(pack["active"] for pack in packs)
-    assert len(client.get("/api/v1/organization/approval-rules", headers=ADMIN).json()) == 4
+    assert len(client.get("/api/v1/organization/approval-rules", headers=ADMIN).json()) == 14
     assert len(client.get("/api/v1/role-templates", headers=ADMIN).json()) == 10
     memory = client.get("/api/v1/organization/memory-governance", headers=ADMIN).json()
     assert memory["default_retention_days"] == 90 and memory["allow_permanent_retention"] is False
@@ -209,7 +209,7 @@ def test_automations_are_created_turned_off(client: TestClient) -> None:
     assert all(s["timezone"] == "Asia/Dubai" for s in schedules)
     triggers = client.get("/api/v1/automation/triggers", headers=ADMIN).json()
     assert triggers and not any(t["enabled"] for t in triggers) and all(t["kind"] == "event" for t in triggers)
-    brief = next(s for s in schedules if s["name"] == "GROUP — Morning Brief")
+    brief = next(s for s in schedules if s["name"] == "Group: Morning Brief")
     assert brief["cron"] == "30 8 * * 1-5" and brief["next_run_at"] is None
 
 
@@ -231,17 +231,17 @@ def test_reapply_never_duplicates_and_audits_each_apply(client: TestClient) -> N
 def test_apply_all_after_pilot_activates_untouched_items_and_keeps_edits(client: TestClient) -> None:
     apply(client)
     by_name = agents(client)
-    edited = by_name["FLEET — Sales Pipeline"]
+    edited = by_name["Fleet: Sales Pipeline"]
     response = client.patch(f"/api/v1/agents/{edited['id']}", headers=ADMIN, json={"description": "My own words", "version": edited["version"]})
     assert response.status_code == 200
     result = apply(client, "all")
     assert not [i for i in result["items"] if i["outcome"] == "failed"]
     by_name = agents(client)
-    assert by_name["FLEET — Sales Pipeline"]["status"] == "paused"  # owner's edit kept
-    assert by_name["FLEET — Sales Pipeline"]["description"] == "My own words"
+    assert by_name["Fleet: Sales Pipeline"]["status"] == "paused"  # owner's edit kept
+    assert by_name["Fleet: Sales Pipeline"]["description"] == "My own words"
     kept = next(i for i in result["items"] if i["key"] == "a2")
     assert kept["action"] == "kept" and kept["reason_code"] == "edited_by_owner"
-    assert all(agent["status"] == "active" for name, agent in by_name.items() if name != "FLEET — Sales Pipeline")
+    assert all(agent["status"] == "active" for name, agent in by_name.items() if name != "Fleet: Sales Pipeline")
     assert all(a["enabled"] for a in client.get("/api/v1/assistants", headers=ADMIN).json())
     budgets = client.get("/api/v1/model-budgets", headers=ADMIN).json()
     assert budgets["workspace"]["budget"]["monthly_cost_limit_usd"] == pytest.approx(326.75)
@@ -254,7 +254,7 @@ def test_apply_all_after_pilot_activates_untouched_items_and_keeps_edits(client:
     # "Replace my changes" restores the plan's version.
     replaced = apply(client, "all", overwrite_edited=True)
     assert next(i for i in replaced["items"] if i["key"] == "a2")["outcome"] == "updated"
-    assert agents(client)["FLEET — Sales Pipeline"]["status"] == "active"
+    assert agents(client)["Fleet: Sales Pipeline"]["status"] == "active"
 
 
 def test_autonomy_is_never_above_the_plans_starting_level(client: TestClient) -> None:
@@ -280,7 +280,7 @@ def test_owner_without_org_admin_skips_governance_with_the_reason(client: TestCl
     assert all(i["action"] == "skipped" for i in publish)
     assert result["access"]["organization_admin"] is False and result["access"]["notes"]
     # Agents are still created, with built-in skills only.
-    care = agents(client)["GALLERY — Customer Care"]
+    care = agents(client)["Gallery: Customer Care"]
     assert not [s for s in care["allowed_skills"] if s.startswith("sbg.")]
     # An organization administrator applying later adds governance and skills; agents gain them.
     later = apply(client)
@@ -342,7 +342,7 @@ def test_a_fresh_claim_is_not_created_twice_and_a_stale_one_is_retaken(client: T
     assert chief["action"] == "skipped" and chief["reason_code"] == "busy"
     assert care["outcome"] == "created"
     names = agents(client)
-    assert "GROUP — Chief of Staff" not in names and "GALLERY — Customer Care" in names
+    assert "Group: Chief of Staff" not in names and "Gallery: Customer Care" in names
 
 
 def test_a_failed_item_is_reported_released_and_created_by_the_next_apply(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -391,7 +391,7 @@ def test_agents_outside_the_phase_are_created_paused_in_one_write(client: TestCl
     names = agents(client)
     assert len(names) == 12
     assert {n for n, a in names.items() if a["status"] == "active"} == {
-        "GROUP — Chief of Staff", "GALLERY — Customer Care", "GROUP — Finance Controller"}
+        "Group: Chief of Staff", "Gallery: Customer Care", "Group: Finance Controller"}
     assert sum(1 for a in names.values() if a["status"] == "paused") == 9
     # Every agent was stored once, already with its status (version 1).
     assert all(a["version"] == 1 for a in names.values())
@@ -436,21 +436,21 @@ def test_a_stopped_apply_is_taken_over_with_the_requested_status(client: TestCli
         _stop_after_create(patched, "a2", created_status="active")
         first = apply(client)
     assert next(i for i in first["items"] if i["key"] == "a2")["outcome"] == "failed"
-    assert agents(client)["FLEET — Sales Pipeline"]["status"] == "active"  # left behind by the stopped apply
+    assert agents(client)["Fleet: Sales Pipeline"]["status"] == "active"  # left behind by the stopped apply
     _age_claim("a2")
     plan = preview(client)
     item = next(i for i in plan["items"] if i["key"] == "a2")
     assert item["action"] == "present" and item["reason_code"] == "resume_stopped_apply"
     again = apply(client)
     assert next(i for i in again["items"] if i["key"] == "a2")["outcome"] == "present"
-    assert agents(client)["FLEET — Sales Pipeline"]["status"] == "paused"
+    assert agents(client)["Fleet: Sales Pipeline"]["status"] == "paused"
     row = next(r for r in memory_setup_plan_ledger.rows.values() if r.item_key == "a2")
     assert row.state == LedgerState.APPLIED and row.origin == LedgerOrigin.CREATED
     assert row.details["requested_status"] == "paused"
     # It is the plan's again: a later pilot apply leaves it paused, "all" turns it on.
     assert next(i for i in preview(client)["items"] if i["key"] == "a2")["action"] == "present"
     apply(client, "all")
-    assert agents(client)["FLEET — Sales Pipeline"]["status"] == "active"
+    assert agents(client)["Fleet: Sales Pipeline"]["status"] == "active"
     assert len(agents(client)) == 12
 
 
@@ -459,19 +459,19 @@ def test_a_stopped_apply_does_not_take_over_an_agent_the_owner_changed(client: T
         _stop_after_create(patched, "a2", created_status="active")
         apply(client)
     _age_claim("a2")
-    agent = agents(client)["FLEET — Sales Pipeline"]
+    agent = agents(client)["Fleet: Sales Pipeline"]
     edited = client.patch(f"/api/v1/agents/{agent['id']}", headers=ADMIN, json={"description": "Mine now", "version": agent["version"]})
     assert edited.status_code == 200
     result = apply(client)
     item = next(i for i in result["items"] if i["key"] == "a2")
     assert item["reason_code"] == "found_by_name" and item["outcome"] == "present"
-    after = agents(client)["FLEET — Sales Pipeline"]
+    after = agents(client)["Fleet: Sales Pipeline"]
     assert after["status"] == "active" and after["description"] == "Mine now"
 
 
 def test_a_stale_claim_never_takes_over_an_agent_someone_else_made(client: TestClient) -> None:
     apply(client)
-    agent = agents(client)["FLEET — Sales Pipeline"]
+    agent = agents(client)["Fleet: Sales Pipeline"]
     # The ledger lost the row, and an old stale claim by another person is left: the agent is linked, not changed.
     for row_key, row in list(memory_setup_plan_ledger.rows.items()):
         if row.item_key == "a2":
@@ -479,7 +479,7 @@ def test_a_stale_claim_never_takes_over_an_agent_someone_else_made(client: TestC
     _claim("a2", minutes_old=30)
     item = next(i for i in preview(client)["items"] if i["key"] == "a2")
     assert item["reason_code"] == "found_by_name"
-    assert agents(client)["FLEET — Sales Pipeline"]["version"] == agent["version"]
+    assert agents(client)["Fleet: Sales Pipeline"]["version"] == agent["version"]
 
 
 def test_a_half_built_automation_is_removed_and_created_whole_next_time(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -493,11 +493,11 @@ def test_a_half_built_automation_is_removed_and_created_whole_next_time(client: 
     brief = next(i for i in result["items"] if i["key"] == "auto01")
     assert brief["outcome"] == "failed" and "schedule store unavailable" in brief["error"]
     names = {w["name"] for w in client.get("/api/v1/automation/workflows?limit=200", headers=ADMIN).json()}
-    assert "GROUP — Morning Brief" not in names and "GALLERY — Classify New Messages" in names
+    assert "Group: Morning Brief" not in names and "Gallery: Classify New Messages" in names
     monkeypatch.setattr(automation_module, "create_schedule", real)
     assert next(i for i in apply(client)["items"] if i["key"] == "auto01")["outcome"] == "created"
     schedules = client.get("/api/v1/automation/schedules", headers=ADMIN).json()
-    assert [s["name"] for s in schedules].count("GROUP — Morning Brief") == 1
+    assert [s["name"] for s in schedules].count("Group: Morning Brief") == 1
 
 
 def test_a_cleared_budget_stays_cleared_unless_replaced(client: TestClient) -> None:
@@ -523,11 +523,103 @@ def test_reclaiming_a_removed_item_is_compare_and_set(client: TestClient) -> Non
 
 def test_an_archived_policy_pack_is_not_reported_as_in_force(client: TestClient) -> None:
     apply(client)
-    pack = next(p for p in client.get("/api/v1/policy-packs", headers=ADMIN).json() if p["name"].startswith("COMMS"))
+    pack = next(p for p in client.get("/api/v1/policy-packs", headers=ADMIN).json() if p["name"].startswith("Comms"))
     assert client.post(f"/api/v1/policy-packs/{pack['id']}/archive", headers=ADMIN).status_code == 200
     item = next(i for i in preview(client)["items"] if i["key"] == "p_comms")
     assert item["action"] == "kept" and item["reason_code"] == "removed_by_owner"
     again = apply(client, overwrite_edited=True)
     assert next(i for i in again["items"] if i["key"] == "p_comms")["outcome"] == "created"
-    active = [p for p in client.get("/api/v1/policy-packs", headers=ADMIN).json() if p["name"].startswith("COMMS") and p["active"]]
+    active = [p for p in client.get("/api/v1/policy-packs", headers=ADMIN).json() if p["name"].startswith("Comms") and p["active"]]
     assert len(active) == 1 and active[0]["version"] == 2
+
+
+# ---------------------------------------------------------------------------- renames (docs/setup-plan.md#renames)
+
+
+def _earlier_plan():  # type: ignore[no-untyped-def]
+    """The plan as version 1 wrote it: every renamed item under its former name and wording."""
+    from anum_api.setup_plans import Blueprint
+
+    current = load_blueprints()[PLAN]
+    data = current.model_dump()
+    for section, field in (("workspaces", "name"), ("policy_packs", "name"), ("approval_rules", "name"), ("agents", "name"),
+                           ("assistants", "name"), ("automations", "name"), ("saved_commands", "title")):
+        for item in data[section]:
+            if item["former_names"]:
+                item[field], item["former_names"] = item["former_names"][0], []
+    for item in data["assistants"]:
+        item["instructions"] = current.former_text(item["instructions"])
+    for item in data["automations"]:
+        item["prompt"] = current.former_text(item["prompt"]) if item["prompt"] else None
+    data["version"] = 1
+    return Blueprint.model_validate(data)
+
+
+def _apply_earlier_plan(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import setup_plans
+
+    with monkeypatch.context() as patched:
+        patched.setattr(setup_plans, "load_blueprints", lambda: {PLAN: _earlier_plan()})
+        response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=ADMIN, json={"phase": "pilot", "plan_version": 1})
+        assert response.status_code == 200, response.text
+        assert not [i for i in response.json()["items"] if i["outcome"] == "failed"]
+    assert "GROUP — Chief of Staff" in agents(client)
+
+
+def test_the_plan_names_carry_no_long_dashes() -> None:
+    blueprint = load_blueprints()[PLAN]
+    shown = blueprint.model_dump(exclude={"agents": {"__all__": {"former_names"}}, "assistants": {"__all__": {"former_names"}},
+                                          "automations": {"__all__": {"former_names"}}, "saved_commands": {"__all__": {"former_names"}},
+                                          "workspaces": {"__all__": {"former_names"}}, "policy_packs": {"__all__": {"former_names"}},
+                                          "approval_rules": {"__all__": {"former_names"}}})
+    assert "—" not in str(shown) and "–" not in str(shown)
+
+
+def test_reapplying_renames_what_the_earlier_plan_made(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _apply_earlier_plan(client, monkeypatch)
+    shown = preview(client)
+    renames = [i for i in shown["items"] if i["reason_code"] == "will_rename"]
+    assert {i["section"] for i in renames} == {"agents", "assistants", "commands", "automations"}
+    assert all(i["action"] == "update" for i in renames)
+    assert len([i for i in renames if i["section"] == "agents"]) == 12
+    assert len([i for i in renames if i["section"] == "commands"]) == 30
+    assert not [i for i in shown["items"] if i["action"] == "create"]
+
+    result = apply(client)
+    assert not [i for i in result["items"] if i["outcome"] == "failed"]
+    by_name = agents(client)
+    assert len(by_name) == 12 and not [name for name in by_name if "—" in name]
+    assert by_name["Group: Chief of Staff"]["status"] == "active" and by_name["Fleet: Sales Pipeline"]["status"] == "paused"
+    assistants = client.get("/api/v1/assistants", headers=ADMIN).json()
+    assert len(assistants) == 8 and not any("—" in a["name"] + a["instructions"] for a in assistants)
+    assert not any(a["enabled"] for a in assistants)
+    workflows = client.get("/api/v1/automation/workflows?limit=200", headers=ADMIN).json()
+    assert len(workflows) == 18 and all(w["status"] == "disabled" for w in workflows)
+    assert not any("—" in w["name"] or "—" in str(w["steps"]) for w in workflows)
+    schedules = client.get("/api/v1/automation/schedules", headers=ADMIN).json()
+    assert not any("—" in s["name"] or s["enabled"] for s in schedules)
+    triggers = client.get("/api/v1/automation/triggers", headers=ADMIN).json()
+    assert not any("—" in t["name"] or t["enabled"] for t in triggers)
+    quick = client.get("/api/v1/quick-commands", headers=ADMIN).json()
+    assert len(quick) == 30 and not any("—" in q["title"] for q in quick)
+    # Done once: nothing left to change.
+    assert not [i for i in preview(client)["items"] if i["action"] in {"create", "update"}]
+
+
+def test_a_rename_keeps_what_the_owner_changed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _apply_earlier_plan(client, monkeypatch)
+    by_name = agents(client)
+    edited, renamed = by_name["FLEET — Sales Pipeline"], by_name["TYRE — Tyre Analyst"]
+    assert client.patch(f"/api/v1/agents/{edited['id']}", headers=ADMIN, json={"description": "My own words", "version": edited["version"]}).status_code == 200
+    assert client.patch(f"/api/v1/agents/{renamed['id']}", headers=ADMIN, json={"name": "Tyre numbers", "version": renamed["version"]}).status_code == 200
+
+    shown = {i["key"]: i for i in preview(client)["items"]}
+    assert shown["a2"]["action"] == "update" and shown["a2"]["reason_code"] == "will_rename"
+    assert shown["a5"]["action"] == "kept" and shown["a5"]["reason_code"] == "edited_by_owner"
+    apply(client)
+    by_name = agents(client)
+    assert by_name["Fleet: Sales Pipeline"]["description"] == "My own words"  # only the name changed
+    assert "Tyre numbers" in by_name and "Tyre: Tyre Analyst" not in by_name
+    # Still the owner's: the next apply leaves it, and only "Replace my changes" brings the plan back.
+    again = {i["key"]: i for i in preview(client)["items"]}
+    assert again["a2"]["action"] == "kept" and again["a5"]["action"] == "kept"

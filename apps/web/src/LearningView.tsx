@@ -181,7 +181,7 @@ function StyleCard({ overview, onSaved }: { overview: LearningOverview; onSaved:
           <select aria-label={t('learning.style.language')} value={row.language} onChange={(e) => set('contacts', form.contacts.map((r, i) => i === index ? { ...r, language: e.target.value as typeof row.language } : r))}>
             {LANGUAGES.map((v) => <option key={v} value={v}>{languageLabel(v)}</option>)}
           </select>
-          <button type="button" className="iconButton" aria-label={t('learning.style.removeContact', { contact: row.contact || '—' })} onClick={() => set('contacts', form.contacts.filter((_, i) => i !== index))}><X aria-hidden="true" /></button>
+          <button type="button" className="iconButton" aria-label={t('learning.style.removeContact', { contact: row.contact || '-' })} onClick={() => set('contacts', form.contacts.filter((_, i) => i !== index))}><X aria-hidden="true" /></button>
         </div>)}
         <button type="button" className="secondary learningInlineButton" disabled={form.contacts.length >= 100} onClick={() => set('contacts', [...form.contacts, { contact: '', language: 'ar' }])}><Plus aria-hidden="true" />{t('learning.style.addContact')}</button>
       </fieldset>

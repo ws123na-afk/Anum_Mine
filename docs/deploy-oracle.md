@@ -278,7 +278,7 @@ It is never granted automatically, not even to the first owner: the role lets it
 
 Optional. People then see "Continue with Google" and "Continue with Apple" next to the email sign-in, and can create an account themselves. A new account belongs to no organization: it waits on "Your account is waiting for access" until you put it in yours and a workspace owner invites it ([Identity: Pending accounts](identity.md#pending-accounts)). The second factor still applies after Google or Apple ([Identity: Google and Apple sign-in](identity.md#google-and-apple-sign-in)). Below, `<AUTH>` is your auth host name (`ANUM_AUTH_HOST`); every redirect URI must match exactly.
 
-**Privacy policy first.** Publish the policy ([privacy policy template](privacy-policy.md)) and set `ANUM_PRIVACY_POLICY_URL=https://...` in `~/anum/infra/oracle/.env`. Without it the apps offer no "Create account".
+**Privacy policy first.** The web host already serves a public policy at `https://<WEB>/privacy` and terms at `https://<WEB>/terms` ([Public legal pages](legal-pages.md)); set `ANUM_PRIVACY_POLICY_URL=https://<WEB>/privacy` in `~/anum/infra/oracle/.env` (or the address of your own policy, written from the [privacy policy template](privacy-policy.md)). Without it the apps offer no "Create account".
 
 **Google** (Google Cloud console, console.cloud.google.com, any project of yours):
 

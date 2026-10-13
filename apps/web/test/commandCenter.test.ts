@@ -1,9 +1,14 @@
-// Unit tests for the shared command helpers (src/lib/commandCenter.ts) and the shell model
-// (src/lib/shell.ts). docs/design/anum360.md#web-command-center.
+// Unit tests for the Command Center helpers (src/lib/commandCenter.ts: orb chips, tiles, the step
+// timeline, live activity, suggestions) and the shell model (src/lib/shell.ts).
+// docs/design/anum360.md#web-command-center.
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import { setLocale } from '../src/lib/i18n.ts';
-import { initialSpeechLanguage, relativeTime, sizeLabel } from '../src/lib/commandCenter.ts';
+import type { CommandSummary } from '@anum/contracts';
+import { t } from '../src/lib/i18n.ts';
+import {
+  CAPABILITY_TILES, EXAMPLE_COMMANDS, ORB_CHIPS, buildSuggestions, initialSpeechLanguage, liveCommands, mergeHistory, relativeTime, sizeLabel, stepState, trackerTitle,
+} from '../src/lib/commandCenter.ts';
 import {
   NAV, VIEWS, badgeText, displayName, initials, isPaletteShortcut, matchScore, matchViews, moveActive, notificationCount, viewFromHash, visibleViews,
 } from '../src/lib/shell.ts';
@@ -26,6 +31,56 @@ test('relative time and sizes', () => {
   assert.equal(sizeLabel(512), '512 B');
   assert.equal(sizeLabel(2048), '2 KB');
   assert.equal(sizeLabel(2.4 * 1024 * 1024), '2.4 MB');
+});
+
+const summary = (id: string, status: CommandSummary['status'], text = id): CommandSummary => ({
+  id, text, source: 'typed', locale: 'en', status, progress: 0, stepCount: 1, completedSteps: 0, pendingApprovals: 0, agents: [], createdAt: at(0), updatedAt: at(0),
+});
+
+describe('classic Command Center layout', () => {
+  test('eight orb chips and eight tiles, each with a label in both catalogs and a real action', () => {
+    assert.equal(ORB_CHIPS.length, 8);
+    assert.equal(CAPABILITY_TILES.length, 8);
+    assert.deepEqual(ORB_CHIPS.map((c) => t(c.label)), ['Check my emails', 'Prepare a report', 'Find information', 'Create a task', 'Analyze data', 'WhatsApp messages', 'Automate work', 'Open anything']);
+    assert.deepEqual(CAPABILITY_TILES.map((c) => t(c.label)), ['Email', 'Data analysis', 'Reports', 'Voice assistant', 'WhatsApp', 'Tasks', 'Web research', 'Automations']);
+    for (const item of [...ORB_CHIPS, ...CAPABILITY_TILES]) assert.ok(['view', 'prefill', 'palette'].includes(item.action.kind));
+    setLocale('ar');
+    assert.equal(t(ORB_CHIPS[0].label), 'افحص بريدي');
+    assert.ok(EXAMPLE_COMMANDS.every((key) => t(key).length > 10));
+  });
+
+  test('a step\'s timeline state follows its task', () => {
+    assert.equal(stepState('completed'), 'done');
+    assert.equal(stepState('running'), 'active');
+    assert.equal(stepState('queued'), 'active');
+    assert.equal(stepState('waiting_approval'), 'waiting');
+    assert.equal(stepState('created'), 'todo');
+    assert.equal(stepState('cancelled'), 'failed');
+    assert.equal(stepState('missing'), 'failed');
+  });
+
+  test('the tracker heading says what ANUM is doing', () => {
+    assert.equal(t(trackerTitle(null)), 'ANUM is ready');
+    assert.equal(t(trackerTitle('waiting_approval')), 'Waiting for your approval');
+    assert.equal(t(trackerTitle('running')), 'ANUM is working...');
+    assert.equal(t(trackerTitle('completed')), 'Last command');
+  });
+
+  test('live activity keeps running and waiting commands; a quiet reload keeps older pages', () => {
+    const items = [summary('a', 'completed'), summary('b', 'running'), summary('c', 'waiting_approval'), summary('d', 'ready'), summary('e', 'failed')];
+    assert.deepEqual(liveCommands(items).map((c) => c.id), ['b', 'c', 'd']);
+    assert.deepEqual(liveCommands(items, 1).map((c) => c.id), ['b']);
+    assert.deepEqual(mergeHistory([summary('n', 'running'), summary('a', 'completed')], items).map((c) => c.id), ['n', 'a', 'b', 'c', 'd', 'e']);
+  });
+
+  test('suggestions come from the workspace, most urgent first; a failed command is planned again', () => {
+    const out = buildSuggestions({ pendingApprovals: 2, commands: [summary('x', 'failed', 'Compare suppliers')], unreadEmails: 3, mailboxes: 1, files: 0 });
+    assert.deepEqual(out.map((s) => s.id), ['approvals', 'failed:x', 'unread', 'files']);
+    assert.equal(out[0].title, '2 approvals are waiting for you');
+    assert.deepEqual(out[1].action, { kind: 'replan', text: 'Compare suppliers' });
+    assert.deepEqual(buildSuggestions({ pendingApprovals: 0, commands: [], unreadEmails: null, mailboxes: 0, files: 4 }).map((s) => s.id), ['mailbox', 'first']);
+    assert.deepEqual(buildSuggestions({ pendingApprovals: null, commands: null, unreadEmails: null, mailboxes: null, files: null }), []);
+  });
 });
 
 describe('shell model', () => {
