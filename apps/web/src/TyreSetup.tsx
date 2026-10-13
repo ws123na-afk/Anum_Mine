@@ -116,7 +116,7 @@ function ConnectionCard({ setup, onChange }: { setup: Setup; onChange: (setup: S
       <button type="button" className="secondary" disabled={disabled} onClick={() => setEditing(true)}><KeyRound aria-hidden="true" />{t('tyre.connect.edit')}</button>
       <button type="button" className="danger" disabled={disabled} onClick={() => void disconnect()}><Trash2 aria-hidden="true" />{t('tyre.connect.disconnect')}</button>
     </div>}
-    {message && <p className={`notice ${message.error ? 'errorNotice' : ''}`} role={message.error ? 'alert' : 'status'}>{message.error ? <AlertTriangle aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}{message.text}</p>}
+    {message && !(message.error && message.text === saved?.last_error) && <p className={`notice ${message.error ? 'errorNotice' : ''}`} role={message.error ? 'alert' : 'status'}>{message.error ? <AlertTriangle aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}{message.text}</p>}
   </section>;
 }
 
@@ -133,7 +133,11 @@ function MappingCard({ setup, onChange }: { setup: Setup; onChange: (setup: Setu
 
   async function act(name: string, work: () => Promise<void>) {
     setBusy(name); setMessage(null);
-    try { await work(); } catch (e) { setMessage({ text: describeError(e), error: true }); } finally { setBusy(null); }
+    try { await work(); } catch (e) {
+      setMessage({ text: describeError(e), error: true });
+      // A failed discovery or sync also updates the connection's status: show it at once, not after a reload.
+      try { onChange(await tyreApi.getSetup()); } catch { /* the error above is already shown */ }
+    } finally { setBusy(null); }
   }
   const runDiscovery = () => act('discover', async () => {
     const found = await tyreApi.discover();
@@ -199,7 +203,7 @@ function MappingCard({ setup, onChange }: { setup: Setup; onChange: (setup: Setu
       </div>}
       {preview && <PreviewTable preview={preview} />}
     </>}
-    {message && <p className={`notice ${message.error ? 'errorNotice' : ''}`} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
+    {message && !(message.error && message.text === setup.connection?.last_error) && <p className={`notice ${message.error ? 'errorNotice' : ''}`} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
   </section>;
 }
 
