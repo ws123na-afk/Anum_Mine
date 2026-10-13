@@ -22,6 +22,7 @@ from anum_api.agent_profiles import agent_store
 from anum_api.db import session as db_session
 from anum_api.main import app
 from anum_api.settings import settings
+from anum_api.setup_plans import load_blueprints
 
 pytestmark = pytest.mark.database
 
@@ -49,7 +50,7 @@ def client(database_engine: Engine, seed_scopes: None, monkeypatch: pytest.Monke
 
 
 def _apply(client: TestClient, hdrs: dict[str, str] | None = None, phase: str = "pilot") -> dict:
-    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=hdrs or headers(), json={"phase": phase, "plan_version": 2})
+    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=hdrs or headers(), json={"phase": phase, "plan_version": load_blueprints()[PLAN].version})
     assert response.status_code == 200, response.text
     return response.json()
 

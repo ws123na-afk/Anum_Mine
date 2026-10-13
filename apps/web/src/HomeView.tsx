@@ -112,15 +112,15 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
           value={loading && !tasks.length ? null : String(glance.running)} unit={t('home.glance.running')}
           detail={t('home.glance.tasksDetail', { failed: glance.failed, waiting: glance.waiting, queued: glance.queued })} onOpen={() => onGo('tasks')} />
         <Glance icon={<Inbox />} tone={email.state === 'ready' && email.value.unread ? 'info' : 'ok'} label={t('home.glance.inbox')}
-          value={email.state === 'ready' ? String(email.value.unread) : email.state === 'loading' ? null : '–'}
+          value={email.state === 'ready' ? String(email.value.unread) : email.state === 'loading' ? null : '-'}
           detail={email.state === 'ready' ? (email.value.mailboxes ? t('home.glance.inboxDetail', { count: email.value.mailboxes }) : t('home.glance.inboxNone')) : email.state === 'denied' ? t('home.glance.notForRole') : email.state === 'error' ? t('home.glance.couldNotLoad') : ''}
           onOpen={() => onGo('inbox')} />
         <Glance icon={<MessageCircle />} tone={whatsapp.state === 'ready' && whatsapp.value.chats ? 'info' : 'ok'} label={t('home.glance.whatsapp')}
-          value={whatsapp.state === 'ready' ? `${whatsapp.value.messages}${whatsapp.value.more ? '+' : ''}` : whatsapp.state === 'loading' ? null : '–'}
+          value={whatsapp.state === 'ready' ? `${whatsapp.value.messages}${whatsapp.value.more ? '+' : ''}` : whatsapp.state === 'loading' ? null : '-'}
           detail={whatsapp.state === 'ready' ? t('home.glance.whatsappDetail', { count: whatsapp.value.chats }) : whatsapp.state === 'denied' ? t('home.glance.notForRole') : whatsapp.state === 'error' ? t('home.glance.whatsappUnavailable') : ''}
           onOpen={() => onGo('whatsapp')} />
         <Glance icon={<CalendarDays />} tone="info" label={t('home.glance.meetings')}
-          value={meetings.state === 'ready' ? String(meetings.value.length) : meetings.state === 'loading' ? null : '–'}
+          value={meetings.state === 'ready' ? String(meetings.value.length) : meetings.state === 'loading' ? null : '-'}
           detail={meetings.state === 'ready' ? nextMeetingLine(meetings.value, now) : meetings.state === 'denied' ? t('home.glance.notForRole') : meetings.state === 'error' ? t('home.glance.couldNotLoad') : ''}
           onOpen={() => onGo('meetings')} />
         <Glance icon={<BellRing />} tone={alerts.length || failedRuns ? 'danger' : 'ok'} label={t('home.glance.automations')}
@@ -179,7 +179,7 @@ function Glance({ icon, tone, label, value, unit, detail, onOpen }: { icon: Reac
 function BudgetGlance({ budget, onOpen }: { budget: Load<ModelBudgetOverview>; onOpen: () => void }) {
   if (budget.state !== 'ready') {
     const detail = budget.state === 'denied' ? t('home.budget.ownersOnly') : budget.state === 'error' ? t('home.glance.couldNotLoad') : '';
-    return <Glance icon={<Wallet />} tone="ok" label={t('home.glance.budget')} value={budget.state === 'loading' ? null : '–'} detail={detail} onOpen={onOpen} />;
+    return <Glance icon={<Wallet />} tone="ok" label={t('home.glance.budget')} value={budget.state === 'loading' ? null : '-'} detail={detail} onOpen={onOpen} />;
   }
   const use = budgetUse(budget.value);
   const tone = use.exceeded || (use.percent ?? 0) >= 100 ? 'danger' : (use.percent ?? 0) >= 80 ? 'warning' : 'ok';

@@ -129,7 +129,7 @@ Both actions write an audit record in the caller's workspace with the caller as 
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ANUM_PRIVACY_POLICY_URL` | empty | Public `http(s)` URL of the deployment's privacy policy, shown on the Privacy page. Empty: the page says the organization has not published one. |
+| `ANUM_PRIVACY_POLICY_URL` | empty | Public `http(s)` URL of the deployment's privacy policy, shown on the Privacy page. Empty: the page says the organization has not published one. The web host serves one at `https://<web host>/privacy` ([Public legal pages](legal-pages.md)). |
 | `ANUM_PRIVACY_EXPORT_MAX_BYTES` | `26214400` | Largest export the API builds. |
 | `ANUM_CONVERSATION_RETENTION_DAYS` | `30` | Shown as the conversation retention ([Conversations](conversations.md#retention)). |
 

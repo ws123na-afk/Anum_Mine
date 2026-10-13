@@ -53,9 +53,9 @@ BLUEPRINT_DIR = Path(__file__).parent / "blueprints"
 T = TypeVar("T")
 
 ACCESS_REQUIRED = (
-    "Only a workspace owner or an organization administrator can preview and apply a setup plan, because it "
-    "creates agents, automations and organization policy. Ask an owner of this workspace to apply it, or to "
-    "make you an owner in Members."
+    "Only a workspace owner or an organization administrator can see and apply a setup plan, because it "
+    "adds agents, automations and rules for the whole organization. Ask an owner of this workspace to apply it, "
+    "or to make you an owner in Members."
 )
 
 
@@ -74,6 +74,9 @@ class BlueprintWeek(_Strict):
 class BlueprintNamed(_Strict):
     key: str
     name: str
+    # Names this item had in earlier versions of the plan. Applying again renames an object the
+    # plan created that still carries one of them, and finds it by it (docs/setup-plan.md#renames).
+    former_names: list[str] = Field(default_factory=list)
 
 
 class BlueprintFolder(BlueprintNamed):
@@ -139,7 +142,7 @@ class BlueprintApprovalRule(BlueprintNamed):
     def facts(self) -> list[str]:
         from .approval_routing import describe_approvers
 
-        facts = [f"Tool pattern: {self.action_pattern}"]
+        facts = [f"Applies to: {self.action_pattern}"]
         band = []
         if "amount_above" in self.conditions:
             band.append(f"above AED {self.conditions['amount_above']:,}")
@@ -155,9 +158,9 @@ class BlueprintApprovalRule(BlueprintNamed):
             facts.append("When: " + ", ".join(band))
         if self.approver_steps:
             steps = [describe_approvers(step) for step in self.approver_steps]
-            facts.append("Approved by: " + (" then ".join(steps)))
+            facts.append("Who approves: " + (" then ".join(steps)))
         else:
-            facts.append(f"Approved by: {', '.join(self.required_roles)}")
+            facts.append(f"Who approves: {', '.join(self.required_roles)}")
         if self.note:
             facts.append(self.note)
         return facts
@@ -218,6 +221,9 @@ class BlueprintAgent(_Strict):
     supervisor: str
     budget_aed: float
     week: int
+    # Names this item had in earlier versions of the plan. Applying again renames an object the
+    # plan created that still carries one of them, and finds it by it (docs/setup-plan.md#renames).
+    former_names: list[str] = Field(default_factory=list)
 
 
 class BlueprintAssistant(_Strict):
@@ -231,12 +237,18 @@ class BlueprintAssistant(_Strict):
     autonomy: Literal["observe", "suggest", "act_low_risk"]
     instructions: str
     week: int
+    # Names this item had in earlier versions of the plan. Applying again renames an object the
+    # plan created that still carries one of them, and finds it by it (docs/setup-plan.md#renames).
+    former_names: list[str] = Field(default_factory=list)
 
 
 class BlueprintCommand(_Strict):
     key: str
     title: str
     text: str
+    # Names this item had in earlier versions of the plan. Applying again renames an object the
+    # plan created that still carries one of them, and finds it by it (docs/setup-plan.md#renames).
+    former_names: list[str] = Field(default_factory=list)
 
 
 class BlueprintAutomation(_Strict):
@@ -247,6 +259,9 @@ class BlueprintAutomation(_Strict):
     trigger: dict[str, Any]
     week: int
     prompt: str | None = None
+    # Names this item had in earlier versions of the plan. Applying again renames an object the
+    # plan created that still carries one of them, and finds it by it (docs/setup-plan.md#renames).
+    former_names: list[str] = Field(default_factory=list)
 
 
 class BlueprintNote(_Strict):
@@ -287,6 +302,17 @@ class Blueprint(_Strict):
 
     def agent(self, key: str) -> BlueprintAgent:
         return next(agent for agent in self.agents if agent.key == key)
+
+    def former_text(self, text: str) -> str:
+        """``text`` as the earlier plan wrote it: renamed agents under their former names.
+
+        Only the agent names changed in the wording the plan stores on objects (assistant
+        instructions, automation prompts), so this gives back exactly what an earlier apply wrote.
+        """
+        for agent in sorted(self.agents, key=lambda a: -len(a.name)):
+            if agent.former_names:
+                text = text.replace(agent.name, agent.former_names[0])
+        return text
 
     def budget_aed(self, phase: Phase) -> float:
         return sum(a.budget_aed for a in self.agents if phase == Phase.ALL or a.key in self.pilot_agents)
@@ -433,6 +459,17 @@ class ApplyResult(PlanPreview):
 # --------------------------------------------------------------------------- helpers
 
 
+def _known_as(name: str, former_names: list[str]) -> set[str]:
+    """The names an item may carry here (now or from an earlier plan), case-folded for finding it."""
+    return {n.casefold() for n in [name, *former_names]}
+
+
+def _kept_ledger(entry: LedgerEntry, target_id: str) -> Applied:
+    """What the ledger keeps after a rename: the same row, so an owner's edit still counts as theirs."""
+    return Applied(target_id=target_id, target_version=entry.target_version, fingerprint=entry.fingerprint,
+                   details=dict(entry.details or {}), origin=entry.origin)
+
+
 def fingerprint(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
@@ -469,10 +506,15 @@ class Planned:
 
 
 NEEDS_ORG_ADMIN = (
-    "Needs the organization administrator role (org_admin): this setting binds every workspace of the "
-    "organization, so owning this workspace is not enough."
+    "Needs an organization administrator. This setting applies to every workspace in the organization, "
+    "so owning this one workspace is not enough."
 )
-NEEDS_OWNER = "Needs a workspace owner: an organization administrator who is not an owner here cannot set this."
+NEEDS_OWNER = "Needs an owner of this workspace."
+EFFECT_WORDS = {"allow": "Allowed", "require_approval": "Needs approval", "deny": "Never allowed"}
+EDITED_BY_OWNER = ("Someone changed it after the plan set it up (or the plan did not make it). The plan keeps your version. "
+                   "Turn on 'Replace my changes' to use the plan's version.")
+RENAME_ONLY = "Gets the plan's new name (it was \"{old}\"). Nothing else about it changes."
+RENAME_TEXT_ONLY = "Its instructions get the agents' new names. Nothing else about it changes."
 
 
 # --------------------------------------------------------------------------- planning
@@ -518,10 +560,10 @@ class Planner:
     def removed(self, key: str, section: Section, kind: str, name: str, link: Link | None, create: Callable[[], Applied], tenant: bool, **extra: Any) -> Planned:
         if self.overwrite:
             return Planned(self.item(key, section, kind, name, ItemAction.CREATE, "recreate",
-                                     "It was removed after the plan created it; it is created again because you chose to replace your changes.", **extra),
+                                     "Someone removed it after the plan made it. It is made again because 'Replace my changes' is on.", **extra),
                            key, tenant, create)
         return Planned(self.item(key, section, kind, name, ItemAction.KEPT, "removed_by_owner",
-                                 "Removed after the plan created it. The plan leaves it removed; choose 'Replace my changes' to create it again.", link=link, **extra),
+                                 "Someone removed it after the plan made it. The plan leaves it removed. Turn on 'Replace my changes' to make it again.", link=link, **extra),
                        key, tenant)
 
     # ---- the whole plan
@@ -552,14 +594,14 @@ class Planner:
         can_create = has_permission(self.context, Permission.WORKSPACE_CREATE) or self.org_admin
         for ws in self.bp.workspaces:
             entry = self._existing(ws.key)
-            facts = ["You become its first owner.", "This plan's agents and settings stay in the workspace you apply it from."]
+            facts = ["You become its first owner.", "The plan's agents and settings stay in the workspace you apply it from."]
             if entry is not None:
                 out.append(Planned(self.item(ws.key, Section.WORKSPACES, "workspace", ws.name, ItemAction.PRESENT, "already_applied",
                                              "Created by this plan.", facts=facts), ws.key, True))
                 continue
             if self.phase == Phase.PILOT:
                 out.append(Planned(self.item(ws.key, Section.WORKSPACES, "workspace", ws.name, ItemAction.LATER, "not_in_phase",
-                                             "Created with Apply all; the pilot runs in this workspace.", facts=facts), ws.key, True))
+                                             "Made when you apply the whole plan. The pilot runs in this workspace only.", facts=facts), ws.key, True))
                 continue
             if not can_create:
                 out.append(Planned(self.item(ws.key, Section.WORKSPACES, "workspace", ws.name, ItemAction.SKIPPED, "needs_owner",
@@ -597,7 +639,7 @@ class Planner:
         mg = self.bp.memory_governance
         desired = gov.MemoryGovernanceUpdate(default_retention_days=mg.default_retention_days, allow_permanent_retention=mg.allow_permanent_retention,
                                              require_provenance=mg.require_provenance, allowed_source_types=mg.allowed_source_types)
-        facts = [f"Remembered chat facts expire after {mg.default_retention_days} days.", "Every memory keeps where it came from (provenance)."]
+        facts = [f"Remembered chat facts expire after {mg.default_retention_days} days.", "Every memory notes where it came from."]
         current = gov.MemoryGovernanceUpdate(**memory.model_dump(include=set(gov.MemoryGovernanceUpdate.model_fields))) if memory else None
         key, name = "memory_governance", "Memory governance"
         entry = self._existing(key)
@@ -617,16 +659,16 @@ class Planner:
             out.append(Planned(self.item(key, Section.GOVERNANCE, "memory_governance", name, ItemAction.UPDATE, "will_update", "Changes the organization's memory rules to the plan's.", link=link, facts=facts), key, True, save_memory))
         else:
             out.append(Planned(self.item(key, Section.GOVERNANCE, "memory_governance", name, ItemAction.KEPT, "set_by_someone",
-                                         "Your organization already has memory rules; the plan leaves them. Choose 'Replace my changes' to use the plan's.", link=link, facts=facts), key, True))
+                                         "Your organization already has memory rules. The plan leaves them. Turn on 'Replace my changes' to use the plan's rules.", link=link, facts=facts), key, True))
 
         # Approval rules
         for rule in self.bp.approval_rules:
             facts = rule.facts()
             entry = self._existing(rule.key)
-            found = next((r for r in rules if (entry and r.id == entry.target_id) or r.name.casefold() == rule.name.casefold()), None)
+            found = next((r for r in rules if (entry and r.id == entry.target_id) or r.name.casefold() in _known_as(rule.name, rule.former_names)), None)
             out.append(self._tenant_object(rule.key, "approval_rule", rule.name, entry, found.id if found else None, facts, link,
                                            lambda rule=rule: Applied(target_id=gov.create_approval_rule(rule.create_body(), self.context).id),
-                                           "An organization approval rule: matching tool calls wait for the approvers it names."))
+                                           "An approval rule for the whole organization. When an agent tries one of these actions, it waits until the people the rule names approve it."))
 
         # Policy packs
         for pack in self.bp.policy_packs:
@@ -634,10 +676,10 @@ class Planner:
                 out.append(Planned(self.item(pack.key, Section.GOVERNANCE, "policy_pack", pack.name, ItemAction.BUILTIN, f"mapped_{pack.mapped_to}",
                                              pack.reason or "", link=link), pack.key, True))
                 continue
-            facts = [f"{r.effect.replace('_', ' ')}: {r.action}" for r in pack.rules]
+            facts = [f"{EFFECT_WORDS[r.effect]}: {r.action}" for r in pack.rules]
             entry = self._existing(pack.key)
             # Only an active pack is in force: one someone archived is not "present".
-            found = next((p for p in packs if p.active and ((entry and p.id == entry.target_id) or p.name.casefold() == pack.name.casefold())), None)
+            found = next((p for p in packs if p.active and ((entry and p.id == entry.target_id) or p.name.casefold() in _known_as(pack.name, pack.former_names))), None)
 
             def create_pack(pack: BlueprintPolicyPack = pack) -> Applied:
                 created = gov.create_policy_pack(gov.PolicyPackCreate(
@@ -647,30 +689,30 @@ class Planner:
                 return Applied(target_id=created.id, target_version=created.version)
 
             out.append(self._tenant_object(pack.key, "policy_pack", pack.name, entry, found.id if found else None, facts, link, create_pack,
-                                           "A policy pack, published active. Its rules only add approvals; they never loosen policy."))
+                                           "A set of rules, turned on for the whole organization. They only add approvals; they never allow more."))
 
         # Role templates
         for template in self.bp.role_templates:
-            facts = [f"Maps to: {template.maps_to}", f"Permissions: {', '.join(template.permissions)}",
-                     "ANUM enforces the owner, member and viewer roles and org_admin; a role template documents the intended permission set."]
+            facts = [f"Matches ANUM role: {template.maps_to}", f"What they can do: {', '.join(template.permissions)}",
+                     "ANUM itself checks only the owner, member, viewer and organization administrator roles. This template writes down what the person is meant to do."]
             facts += [f"May approve: {line}" for line in template.may_approve]
             facts += [f"Must escalate: {line}" for line in template.must_escalate]
             entry = self._existing(template.key)
-            found = next((t for t in templates if (entry and t.id == entry.target_id) or t.name.casefold() == template.name.casefold()), None)
+            found = next((t for t in templates if (entry and t.id == entry.target_id) or t.name.casefold() in _known_as(template.name, template.former_names)), None)
             out.append(self._tenant_object(template.key, "role_template", template.name, entry, found.id if found else None, facts, link,
                                            lambda template=template: Applied(target_id=gov.create_role_template(gov.RoleTemplateCreate(
                                                name=template.name, permissions=template.permissions), self.context).id),
-                                           "A role template for the organization."))
+                                           "A written role for the organization."))
         return out
 
     def _tenant_object(self, key: str, kind: str, name: str, entry: LedgerEntry | None, found_id: str | None, facts: list[str], link: Link,
                        create: Callable[[], Applied], create_reason: str) -> Planned:
         if self.busy(entry):
-            return Planned(self.item(key, Section.GOVERNANCE, kind, name, ItemAction.SKIPPED, "busy", "Another apply is creating it right now.", link=link, facts=facts), key, True)
+            return Planned(self.item(key, Section.GOVERNANCE, kind, name, ItemAction.SKIPPED, "busy", "Someone else is applying it right now.", link=link, facts=facts), key, True)
         if found_id is not None:
             if entry is None:
                 return Planned(self.item(key, Section.GOVERNANCE, kind, name, ItemAction.PRESENT, "found_by_name",
-                                         "One with this name already exists; the plan links it and does not change it.", link=link, facts=facts), key, True,
+                                         "One with this name is already here. The plan uses it and does not change it.", link=link, facts=facts), key, True,
                                lambda: Applied(target_id=found_id, origin=LedgerOrigin.LINKED))
             return Planned(self.item(key, Section.GOVERNANCE, kind, name, ItemAction.PRESENT, "already_applied", "Already applied.", link=link, facts=facts), key, True)
         if not self.org_admin:
@@ -692,7 +734,7 @@ class Planner:
             ids = {c.id for c in collections}
             facts = ["Shared with the workspace.", folder.description]
             link_id = entry.target_id if entry and entry.target_id in ids else None
-            by_name = next((c for c in collections if c.name.casefold() == folder.name.casefold() and c.owner_user_id is None), None)
+            by_name = next((c for c in collections if c.name.casefold() in _known_as(folder.name, folder.former_names) and c.owner_user_id is None), None)
 
             def create(folder: BlueprintFolder = folder) -> Applied:
                 view = _run(create_collection(CollectionCreate(name=folder.name, description=folder.description, visibility=Visibility.WORKSPACE), self.context))
@@ -701,7 +743,7 @@ class Planner:
             out.append(self._workspace_object(folder.key, Section.KNOWLEDGE, "knowledge_folder", folder.name, entry, link_id, by_name.id if by_name else None,
                                               Link(view="knowledge", id=link_id or (by_name.id if by_name else None)), facts,
                                               has_permission(self.context, Permission.MEMORY_CREATE), "You need permission to add to the knowledge base.",
-                                              create, "A shared knowledge base collection."))
+                                              create, "A shared folder in the knowledge base."))
         return out
 
     def _workspace_object(self, key: str, section: Section, kind: str, name: str, entry: LedgerEntry | None, current_id: str | None, by_name_id: str | None,
@@ -709,12 +751,12 @@ class Planner:
                           week: int | None = None, ledger_key: str | None = None) -> Planned:
         ledger_key = ledger_key or key
         if self.busy(entry):
-            return Planned(self.item(key, section, kind, name, ItemAction.SKIPPED, "busy", "Another apply is creating it right now.", facts=facts, week=week), ledger_key, False)
+            return Planned(self.item(key, section, kind, name, ItemAction.SKIPPED, "busy", "Someone else is applying it right now.", facts=facts, week=week), ledger_key, False)
         if entry is not None and current_id is not None:
             return Planned(self.item(key, section, kind, name, ItemAction.PRESENT, "already_applied", "Already applied.", link=link, facts=facts, week=week), ledger_key, False)
         if entry is None and by_name_id is not None:
             return Planned(self.item(key, section, kind, name, ItemAction.PRESENT, "found_by_name",
-                                     "One with this name already exists; the plan links it and does not change it.", link=link, facts=facts, week=week), ledger_key, False,
+                                     "One with this name is already here. The plan uses it and does not change it.", link=link, facts=facts, week=week), ledger_key, False,
                            lambda: Applied(target_id=by_name_id, origin=LedgerOrigin.LINKED))
         if not allowed:
             return Planned(self.item(key, section, kind, name, ItemAction.SKIPPED, "needs_owner", refusal, facts=facts, week=week), ledger_key, False)
@@ -734,8 +776,8 @@ class Planner:
         limits = (current.monthly_cost_limit_usd, current.monthly_token_limit) if current else (None, None)
         key, name = "budget", "Monthly AI budget for this workspace"
         facts = [f"AED {aed:,.0f} a month (USD {usd:,.2f} at {self.bp.aed_per_usd} AED per USD).",
-                 "At 100% ANUM blocks further AI calls until the next month.",
-                 "The plan's per-agent caps are added up: ANUM budgets per workspace, not per agent."]
+                 "When the budget is used up, ANUM stops AI use until next month.",
+                 "The plan's amounts for each agent are added together. ANUM sets one budget per workspace, not one per agent."]
         entry = self._existing(key)
         link = Link(view="budgets")
 
@@ -751,18 +793,18 @@ class Planner:
             action, code, reason, run = ItemAction.PRESENT, "already_set", "Already set to the plan's amount.", None
         elif limits[0] is None and entry is not None and entry.origin == LedgerOrigin.CREATED and not self.overwrite:
             action, code, reason, run = (ItemAction.KEPT, "removed_by_owner",
-                                         "The limit the plan set was removed; the plan leaves it. Choose 'Replace my changes' to set it again.", None)
+                                         "Someone removed the limit the plan set. The plan leaves it off. Turn on 'Replace my changes' to set it again.", None)
         elif limits[0] is None:
-            action, code, reason, run = ItemAction.CREATE, "will_create", "Sets this workspace's monthly AI cost limit.", save
+            action, code, reason, run = ItemAction.CREATE, "will_create", "Sets how much this workspace may spend on AI each month.", save
         elif ours and usd > limits[0]:
-            action, code, reason, run = ItemAction.UPDATE, "will_update", "Raises the limit the plan set for the pilot to the full plan's amount.", save
+            action, code, reason, run = ItemAction.UPDATE, "will_update", "Raises the pilot's limit to the whole plan's amount.", save
         elif ours:
-            action, code, reason, run = ItemAction.PRESENT, "already_set", "The plan already set a higher limit; it never lowers it.", None
+            action, code, reason, run = ItemAction.PRESENT, "already_set", "The plan already set a higher limit. It never lowers it.", None
         elif self.overwrite:
-            action, code, reason, run = ItemAction.UPDATE, "will_update", "Replaces the current limit because you chose to replace your changes.", save
+            action, code, reason, run = ItemAction.UPDATE, "will_update", "Replaces the current limit because 'Replace my changes' is on.", save
         else:
             action, code, reason, run = (ItemAction.KEPT, "set_by_someone",
-                                         f"This workspace already has a limit of USD {limits[0]:,.2f}; the plan leaves it.", None)
+                                         f"This workspace already has a limit of USD {limits[0]:,.2f}. The plan leaves it.", None)
         if run is not None and not allowed:
             action, code, reason, run = ItemAction.SKIPPED, "needs_owner", NEEDS_OWNER, None
         return [Planned(self.item(key, Section.BUDGET, "model_budget", name, action, code, reason, link=link, facts=facts), key, False, run)]
@@ -782,9 +824,9 @@ class Planner:
             used_by = ", ".join(self.bp.agent(a).name for a in skill.agents)
             tools = [t for t in skill.tools if t in tools_here]
             dropped = [t for t in skill.tools if t not in tools_here]
-            facts = [f"{skill.code}: used by {used_by}.", f"Tools: {', '.join(tools) or 'none (instructions only)'}."]
+            facts = [f"{skill.code}: used by {used_by}.", f"Tools: {', '.join(tools) or 'none, instructions only'}."]
             if dropped:
-                facts.append(f"Not in this deployment, left out: {', '.join(dropped)}.")
+                facts.append(f"Left out because this server does not have them: {', '.join(dropped)}.")
             link = Link(view="skills", id=skill.skill_id)
             pub_key = f"{skill.key}:publish"
             published = (skill.skill_id, skill.version) in versions
@@ -806,7 +848,7 @@ class Planner:
                                         "needs_org_admin", NEEDS_ORG_ADMIN + " The agents that use it get their built-in skills only.", link=link, facts=facts), pub_key, True)
             else:
                 pub = Planned(self.item(pub_key, Section.SKILLS, "skill_version", f"Publish {skill.name} {skill.version}", ItemAction.CREATE,
-                                        "will_create", "Publishes the skill's reviewed instructions for this organization.", link=link, facts=facts), pub_key, True, publish)
+                                        "will_create", "Makes the skill's checked instructions available to this organization.", link=link, facts=facts), pub_key, True, publish)
             out.append(pub)
 
             inst_key = f"{skill.key}:install"
@@ -817,7 +859,7 @@ class Planner:
                 with skills_api.open_skill_store(self.context) as store:
                     version = store.get_version(self.context, skill.skill_id, skill.version)
                 if version is None:
-                    raise HTTPException(status_code=409, detail="The skill is not published yet; an organization administrator must apply the plan first.")
+                    raise HTTPException(status_code=409, detail="The skill is not published yet. An organization administrator needs to apply the plan first.")
                 result = skills_api.install_skill(skills_api.SkillInstallCreate(skill_id=skill.skill_id, version=skill.version,
                                                                                 approved_tools=list(version.required_tools)), self.context)
                 return Applied(target_id=result.id, details={"skill_id": skill.skill_id, "version": result.version})
@@ -834,13 +876,13 @@ class Planner:
                 out.append(Planned(self.item(inst_key, Section.SKILLS, "skill_installation", name, ItemAction.SKIPPED, "needs_owner", NEEDS_OWNER, link=link, facts=facts), inst_key, False))
             elif not will_publish:
                 out.append(Planned(self.item(inst_key, Section.SKILLS, "skill_installation", name, ItemAction.SKIPPED, "missing_dependency",
-                                             "Not published yet: an organization administrator must apply the plan (or publish the skill) first.", link=link, facts=facts), inst_key, False))
+                                             "Not published yet. An organization administrator needs to apply the plan, or publish the skill, first.", link=link, facts=facts), inst_key, False))
             elif entry is not None:
                 out.append(self.removed(inst_key, Section.SKILLS, "skill_installation", name, link, install, False, facts=facts))
             else:
                 self.pending_installs.add(skill.skill_id)
                 out.append(Planned(self.item(inst_key, Section.SKILLS, "skill_installation", name, ItemAction.CREATE, "will_create",
-                                             "Installs it in this workspace, with only the tools it declares.", link=link, facts=facts), inst_key, False, install))
+                                             "Adds it to this workspace, with only the tools it lists.", link=link, facts=facts), inst_key, False, install))
         return out
 
     # ---- agents
@@ -922,8 +964,8 @@ class Planner:
             active = agent.key in self.active_agents
             facts = [
                 f"{agent.code} · {agent.department} · starts at {agent.plan_autonomy}"
-                + (" (reads on their own, changes ask, nothing sent outside ANUM)" if agent.autonomy == "observe"
-                   else " (reads and internal changes on their own, outside actions ask)"),
+                + (": reads on its own, asks before changing anything, sends nothing outside ANUM" if agent.autonomy == "observe"
+                   else ": reads and changes things inside ANUM on its own, asks before anything goes outside"),
                 f"Tools: {', '.join(fields['allowed_tools']) or 'answers in text only'}.",
                 f"Skills: {', '.join(fields['allowed_skills']) or 'none'}.",
                 f"Needs approval: {agent.approval_required}", f"KPI: {agent.kpi}", f"Budget share: AED {agent.budget_aed:,.0f} a month.",
@@ -931,10 +973,10 @@ class Planner:
             if dropped:
                 facts.append(f"Left out here: {'; '.join(dropped)}.")
             for item in agent.unmapped_tools:
-                facts.append(f"Plan tool '{item.label}' is not an agent tool: {item.reason}")
+                facts.append(f"'{item.label}' in the plan is not something an agent can use: {item.reason}")
             entry = self._existing(agent.key)
             current = by_id.get(entry.target_id) if entry and entry.target_id else None
-            by_name = next((p for p in profiles if p.name.casefold() == agent.name.casefold()), None)
+            by_name = next((p for p in profiles if p.name.casefold() in _known_as(agent.name, agent.former_names)), None)
             link = Link(view="agents", id=(current or by_name).id if (current or by_name) else None)
             requested = AgentStatus.ACTIVE if active else AgentStatus.PAUSED
             status_word = requested.value
@@ -947,7 +989,7 @@ class Planner:
                 return Applied(target_id=view.id, target_version=view.version, details={"requested_status": requested.value})
 
             if self.busy(entry):
-                out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.SKIPPED, "busy", "Another apply is creating it right now.", facts=facts, week=agent.week), agent.key, False))
+                out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.SKIPPED, "busy", "Someone else is applying it right now.", facts=facts, week=agent.week), agent.key, False))
                 continue
             raw = self.ledger.get(agent.key)
             if current is None and entry is None and by_name is not None and self._stopped_create(raw, by_name):
@@ -965,12 +1007,12 @@ class Planner:
                     return Applied(target_id=view.id, target_version=view.version, details={"requested_status": requested.value})
 
                 out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.PRESENT, "resume_stopped_apply",
-                                             f"An earlier apply created it and stopped before finishing; the plan takes it over and leaves it {status_word}.",
+                                             f"An earlier apply made it but stopped before finishing. The plan picks it up and leaves it {status_word}.",
                                              link=link, facts=facts, week=agent.week), agent.key, False, adopt))
                 continue
             if current is None and entry is None and by_name is not None:
                 out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.PRESENT, "found_by_name",
-                                             "An agent with this name already exists; the plan links it and does not change it.", link=link, facts=facts, week=agent.week),
+                                             "An agent with this name is already here. The plan uses it and does not change it.", link=link, facts=facts, week=agent.week),
                                    agent.key, False, lambda p=by_name: Applied(target_id=p.id, target_version=p.version, origin=LedgerOrigin.LINKED)))
                 continue
             if current is None:
@@ -980,7 +1022,7 @@ class Planner:
                     out.append(self.removed(agent.key, Section.AGENTS, "agent", agent.name, None, create, False, facts=facts, week=agent.week))
                 else:
                     out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.CREATE, "will_create",
-                                                 f"Created {status_word}, shared with the workspace.", facts=facts, week=agent.week), agent.key, False, create))
+                                                 f"Made {status_word} and shared with the workspace.", facts=facts, week=agent.week), agent.key, False, create))
                 continue
             # It exists and the plan made or linked it.
             untouched = entry is not None and entry.origin == LedgerOrigin.CREATED and entry.target_version == current.version
@@ -998,8 +1040,17 @@ class Planner:
                                              f"Already applied ({current.status.value}).", link=link, facts=facts, week=agent.week), agent.key, False))
                 continue
             if not (untouched or self.overwrite):
-                out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.KEPT, "edited_by_owner",
-                                             "Changed after the plan applied it (or not made by the plan); the plan leaves your version. Choose 'Replace my changes' to use the plan's.",
+                # Edited by hand: only a new plan name replaces a name the plan gave it; everything else stays.
+                plan_made = entry is not None and entry.origin == LedgerOrigin.CREATED
+                if plan_made and current.name in agent.former_names and can_edit(current, self.context):
+                    def rename(profile: Any = current, name: str = agent.name, entry: LedgerEntry = entry) -> Applied:
+                        view = _run(update_agent(profile.id, AgentProfileUpdate(name=name, version=profile.version), self.context))
+                        return _kept_ledger(entry, view.id)
+
+                    out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.UPDATE, "will_rename",
+                                                 RENAME_ONLY.format(old=current.name), link=link, facts=facts, week=agent.week), agent.key, False, rename))
+                    continue
+                out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.KEPT, "edited_by_owner", EDITED_BY_OWNER,
                                              link=link, facts=facts, week=agent.week), agent.key, False))
                 continue
             if not can_edit(current, self.context):
@@ -1016,9 +1067,9 @@ class Planner:
                 view = _run(update_agent(profile.id, AgentProfileUpdate.model_validate({**now_changes, "version": profile.version}), self.context))
                 return Applied(target_id=view.id, target_version=view.version)
 
-            what = "turns it on" if changes.keys() == {"status"} else f"updates {', '.join(sorted(changes))}"
-            out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.UPDATE, "will_update",
-                                         f"The plan {what}.", link=link, facts=facts, week=agent.week), agent.key, False, update))
+            code, reason = _agent_update_reason(changes, current.name)
+            out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.UPDATE, code,
+                                         reason, link=link, facts=facts, week=agent.week), agent.key, False, update))
         return out
 
     # ---- department assistants
@@ -1038,15 +1089,15 @@ class Planner:
         for assistant in self.bp.assistants:
             entry = self._existing(assistant.key)
             current = by_id.get(entry.target_id) if entry and entry.target_id else None
-            by_name = next((a for a in current_all if a.name.casefold() == assistant.name.casefold()), None)
+            by_name = next((a for a in current_all if a.name.casefold() in _known_as(assistant.name, assistant.former_names)), None)
             enabled = self.phase == Phase.ALL or (current.enabled if current else False)
             payload = AssistantWrite(department=assistant.department, name=assistant.name, instructions=assistant.instructions,
                                      allowed_tools=[t for t in assistant.tools if t in tools_here], routing_keywords=assistant.routing_keywords,
                                      autonomy=assistant.autonomy, enabled=enabled)
-            facts = [f"Routes and proposes work for {', '.join(self.bp.agent(k).name for k in assistant.agents)}.",
-                     "Proposes only: every action waits for a person (no approval authority).",
-                     f"Routing words: {', '.join(assistant.routing_keywords)}.",
-                     "Takes no new messages on arrival until an owner ticks a channel."]
+            facts = [f"Sorts and suggests work for {', '.join(self.bp.agent(k).name for k in assistant.agents)}.",
+                     "Only suggests. Every action waits for a person; it cannot approve anything.",
+                     f"Words it listens for: {', '.join(assistant.routing_keywords)}.",
+                     "It picks up new messages only after an owner ticks a channel for it."]
             link = Link(view="assistants", id=(current or by_name).id if (current or by_name) else None)
             state = "turned on" if enabled else "turned off"
 
@@ -1055,11 +1106,11 @@ class Planner:
                 return Applied(target_id=created.id, fingerprint=_assistant_fingerprint(created))
 
             if self.busy(entry):
-                out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.SKIPPED, "busy", "Another apply is creating it right now.", facts=facts, week=assistant.week), assistant.key, False))
+                out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.SKIPPED, "busy", "Someone else is applying it right now.", facts=facts, week=assistant.week), assistant.key, False))
                 continue
             if current is None and entry is None and by_name is not None:
                 out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.PRESENT, "found_by_name",
-                                             "An assistant with this name already exists; the plan links it and does not change it.", link=link, facts=facts, week=assistant.week),
+                                             "An assistant with this name is already here. The plan uses it and does not change it.", link=link, facts=facts, week=assistant.week),
                                    assistant.key, False, lambda a=by_name: Applied(target_id=a.id, fingerprint=_assistant_fingerprint(a), origin=LedgerOrigin.LINKED)))
                 continue
             if current is None:
@@ -1069,7 +1120,7 @@ class Planner:
                     out.append(self.removed(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, None, create, False, facts=facts, week=assistant.week))
                 else:
                     out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.CREATE, "will_create",
-                                                 f"Created {state}.", facts=facts, week=assistant.week), assistant.key, False, create))
+                                                 f"Made {state}.", facts=facts, week=assistant.week), assistant.key, False, create))
                 continue
             desired = _assistant_fingerprint(payload)
             if desired == _assistant_fingerprint(current):
@@ -1078,8 +1129,25 @@ class Planner:
                 continue
             untouched = entry is not None and entry.origin == LedgerOrigin.CREATED and entry.fingerprint == _assistant_fingerprint(current)
             if not (untouched or self.overwrite):
-                out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.KEPT, "edited_by_owner",
-                                             "Changed after the plan applied it (or not made by the plan); the plan leaves your version. Choose 'Replace my changes' to use the plan's.",
+                # Edited by hand: a name or instructions still in the plan's earlier wording get the new
+                # wording; every other field (and any text the owner wrote) stays.
+                plan_made = entry is not None and entry.origin == LedgerOrigin.CREATED
+                new_name = assistant.name if current.name in assistant.former_names else current.name
+                old_instructions = self.bp.former_text(assistant.instructions)
+                new_instructions = (assistant.instructions if old_instructions != assistant.instructions and current.instructions == old_instructions
+                                    else current.instructions)
+                if plan_made and allowed and (new_name, new_instructions) != (current.name, current.instructions):
+                    def rename(current: Any = current, name: str = new_name, instructions: str = new_instructions, entry: LedgerEntry = entry) -> Applied:
+                        kept = AssistantWrite(department=current.department, name=name, instructions=instructions, allowed_tools=list(current.allowed_tools),
+                                              routing_keywords=list(current.routing_keywords), autonomy=current.autonomy, enabled=current.enabled)
+                        updated = update_assistant(current.id, kept, self.context)
+                        return _kept_ledger(entry, updated.id)
+
+                    out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.UPDATE, "will_rename",
+                                                 RENAME_ONLY.format(old=current.name) if new_name != current.name else RENAME_TEXT_ONLY,
+                                                 link=link, facts=facts, week=assistant.week), assistant.key, False, rename))
+                    continue
+                out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.KEPT, "edited_by_owner", EDITED_BY_OWNER,
                                              link=link, facts=facts, week=assistant.week), assistant.key, False))
                 continue
             if not allowed:
@@ -1090,25 +1158,44 @@ class Planner:
                 updated = update_assistant(assistant_id, payload, self.context)
                 return Applied(target_id=updated.id, fingerprint=_assistant_fingerprint(updated))
 
-            out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.UPDATE, "will_update",
-                                         "The plan turns it on." if enabled and not current.enabled else "The plan updates it.", link=link, facts=facts, week=assistant.week),
-                               assistant.key, False, update))
+            wording_only = desired == _assistant_fingerprint(current.model_copy(update={"name": payload.name, "instructions": payload.instructions}))
+            if wording_only and current.name != payload.name:
+                code, reason = "will_rename", RENAME_ONLY.format(old=current.name)
+            elif wording_only:
+                code, reason = "will_rename", RENAME_TEXT_ONLY
+            else:
+                code, reason = "will_update", "The plan turns it on." if enabled and not current.enabled else "The plan updates it."
+            out.append(Planned(self.item(assistant.key, Section.ASSISTANTS, "assistant", assistant.name, ItemAction.UPDATE, code, reason,
+                                         link=link, facts=facts, week=assistant.week), assistant.key, False, update))
         return out
 
     # ---- saved commands (the caller's own quick commands)
 
     def commands(self) -> list[Planned]:
-        from .commands import QuickCommandCategory, QuickCommandCreate, command_store, create_quick_command
+        from .commands import QuickCommandCategory, QuickCommandCreate, QuickCommandUpdate, command_store, create_quick_command, update_quick_command
 
         with _unit_of_work(self.context, require_membership=True) as repository:
             quick = command_store(repository, self.context).list_quick()
         ids = {q.id for q in quick}
+        by_id = {q.id: q for q in quick}
         out: list[Planned] = []
         for command in self.bp.saved_commands:
             ledger_key = f"{command.key}@{self.context.user_id}"
             entry = self._existing(ledger_key)
-            by_title = next((q for q in quick if q.title.casefold() == command.title.casefold()), None)
-            facts = [f'Say or type: "{command.text}"', "Saved for you; other people save their own."]
+            mine = by_id.get(entry.target_id) if entry is not None and entry.target_id and not self.busy(entry) else None
+            if (mine is not None and entry is not None and entry.origin == LedgerOrigin.CREATED and mine.title in command.former_names
+                    and has_permission(self.context, Permission.TASK_CREATE)):
+                def rename(quick_id: str = mine.id, title: str = command.title, entry: LedgerEntry = entry) -> Applied:
+                    with _unit_of_work(self.context, require_membership=True) as repository:
+                        _run(update_quick_command(quick_id, QuickCommandUpdate(title=title), self.context, repository))
+                    return _kept_ledger(entry, quick_id)
+
+                out.append(Planned(self.item(command.key, Section.COMMANDS, "saved_command", command.title, ItemAction.UPDATE, "will_rename",
+                                             RENAME_ONLY.format(old=mine.title), link=Link(view="command"),
+                                             facts=[f'Say or type: "{command.text}"', "Saved for you. Other people save their own."]), ledger_key, False, rename))
+                continue
+            by_title = next((q for q in quick if q.title.casefold() in _known_as(command.title, command.former_names)), None)
+            facts = [f'Say or type: "{command.text}"', "Saved for you. Other people save their own."]
 
             def create(command: BlueprintCommand = command) -> Applied:
                 with _unit_of_work(self.context, require_membership=True) as repository:
@@ -1120,7 +1207,7 @@ class Planner:
                                               entry.target_id if entry and entry.target_id in ids else None, by_title.id if by_title else None,
                                               Link(view="command"), facts, has_permission(self.context, Permission.TASK_CREATE),
                                               "You need permission to create tasks to save commands.", create,
-                                              "A saved command under Work, with its voice phrase.", ledger_key=ledger_key))
+                                              "A saved command under Work that you can say or type.", ledger_key=ledger_key))
         return out
 
     # ---- automations (always created turned off)
@@ -1147,25 +1234,24 @@ class Planner:
             if kind == "schedule":
                 from .cron import describe
 
-                facts.append(f"Schedule (turned off): {describe(trigger['cron'], 'en')}, {self.bp.timezone}.")
+                facts.append(f"Runs {describe(trigger['cron'], 'en')}, {self.bp.timezone} time, once you turn it on.")
             elif kind == "event":
-                facts.append(f"Starts on (turned off): {', '.join(trigger['events'])}" +
-                             (f" when {', '.join(c['field'] + ' ' + c['operator'] + ' ' + str(c.get('value')) for c in trigger.get('conditions', []))}" if trigger.get("conditions") else "") + ".")
+                facts.append(f"Starts on {', '.join(trigger['events'])}" +
+                             (f" when {', '.join(c['field'] + ' ' + c['operator'] + ' ' + str(c.get('value')) for c in trigger.get('conditions', []))}" if trigger.get("conditions") else "") + ", once you turn it on.")
             elif kind == "webhook":
-                facts.append(f"Needs a webhook trigger from {trigger['source']}: add it in Automations > Triggers (its secret is shown once).")
+                facts.append(f"Starts when {trigger['source']} sends a message. Set that up in Automations > Triggers; its secret is shown only once.")
             elif kind == "manual":
                 facts.append(str(trigger.get("reason", "Run it by hand from Automations.")))
-            facts.append("The task runs as the person who owns the automation, with that person's role, budget and approvals.")
+            facts.append("It runs as the person who owns the automation, with that person's access, budget and approvals.")
             entry = self._existing(automation.key)
             current = by_id.get(entry.target_id) if entry and entry.target_id else None
-            by_name = next((w for w in workflows if w.name.casefold() == automation.name.casefold()), None)
+            by_name = next((w for w in workflows if w.name.casefold() in _known_as(automation.name, automation.former_names)), None)
 
             def create(automation: BlueprintAutomation = automation) -> Applied:
                 payload = auto.WorkflowCreate(
                     name=automation.name,
                     description=f"Setup plan automation #{automation.number}. Created turned off: run it by hand, check the result, then turn it on.",
-                    steps=[auto.WorkflowStep(id="task", name=automation.name, action="task.create",
-                                             input={"title": automation.name, "prompt": automation.prompt or automation.name, "run": True})],
+                    steps=[_automation_step(automation.name, automation.prompt)],
                     overlap_policy=auto.OverlapPolicy.SKIP,
                 )
                 workflow = auto.create_workflow(payload, self.context)
@@ -1180,11 +1266,50 @@ class Planner:
                 return Applied(target_id=workflow.id, target_version=workflow.version, details=details)
 
             link = Link(view="automation", id=(current or by_name).id if (current or by_name) else None)
+            if current is not None and entry is not None and entry.origin == LedgerOrigin.CREATED and allowed and not self.busy(entry):
+                renamed = self._automation_rename(automation, current, entry, facts, link)
+                if renamed is not None:
+                    out.append(renamed)
+                    continue
             out.append(self._workspace_object(automation.key, Section.AUTOMATIONS, "automation", automation.name, entry,
                                               current.id if current else None, by_name.id if by_name else None, link, facts, allowed,
                                               "You need permission to manage automations.", create,
-                                              "Created turned off with its schedule or trigger also off.", week=automation.week))
+                                              "Made turned off. Its schedule or trigger is off too.", week=automation.week))
         return out
+
+    def _automation_rename(self, automation: BlueprintAutomation, current: Any, entry: LedgerEntry, facts: list[str], link: Link) -> Planned | None:
+        """New wording for an automation the plan made: its name, its task step, its schedule and
+        trigger names, each only where it still says exactly what the earlier plan wrote."""
+        from . import automation as auto
+        from .automation_triggers import TriggerUpdate
+
+        old_name = automation.former_names[0] if automation.former_names else automation.name
+        old_prompt = self.bp.former_text(automation.prompt) if automation.prompt else None
+        old_step, new_step = _automation_step(old_name, old_prompt).model_dump(), _automation_step(automation.name, automation.prompt).model_dump()
+        name = automation.name if current.name in automation.former_names else current.name
+        steps_now = [step.model_dump() for step in current.steps]
+        new_steps = [new_step] if old_step != new_step and steps_now == [old_step] else None
+        engine = auto.current_engine()
+        schedules = [s.id for s in engine.list_schedules(self.context, workflow_id=current.id) if s.name == old_name and old_name != automation.name]
+        triggers = [(t.id, t.name.replace(old_name, automation.name, 1)) for t in engine.list_triggers(self.context, workflow_id=current.id)
+                    if old_name != automation.name and t.name.startswith(f"{old_name} (")]
+        if name == current.name and new_steps is None and not schedules and not triggers:
+            return None
+
+        def rename() -> Applied:
+            if name != current.name or new_steps is not None:
+                auto.update_workflow(current.id, auto.WorkflowUpdate(
+                    name=name, description=current.description, overlap_policy=current.overlap_policy,
+                    steps=[auto.WorkflowStep.model_validate(step) for step in new_steps] if new_steps is not None else list(current.steps)), self.context)
+            for schedule_id in schedules:
+                auto.update_schedule(schedule_id, auto.ScheduleUpdate(name=automation.name), self.context)
+            for trigger_id, trigger_name in triggers:
+                auto.update_trigger(trigger_id, TriggerUpdate(name=trigger_name), self.context)
+            return _kept_ledger(entry, current.id)
+
+        reason = RENAME_ONLY.format(old=current.name) if name != current.name else "Its task, schedule or trigger gets the agents' new names. Nothing else about it changes."
+        return Planned(self.item(automation.key, Section.AUTOMATIONS, "automation", automation.name, ItemAction.UPDATE, "will_rename", reason,
+                                 link=link, facts=facts, week=automation.week), automation.key, False, rename)
 
     def _finish_automation(self, workflow_id: str, automation: BlueprintAutomation, details: dict[str, Any]) -> None:
         """Turn the new workflow off, then add its schedule or event triggers, also off."""
@@ -1203,6 +1328,29 @@ class Planner:
                 workflow_id=workflow_id, name=f"{automation.name} ({event})", kind=TriggerKind.EVENT, event_type=event,
                 conditions=[TriggerCondition(**c) for c in trig.get("conditions", [])], enabled=False), self.context)
             details["triggers"].append(created.trigger.id)
+
+
+AGENT_FIELD_WORDS = {
+    "name": "name", "icon": "icon", "color": "colour", "category": "category", "department": "department", "description": "description",
+    "instructions": "instructions", "model_route": "AI model", "allowed_skills": "skills", "allowed_tools": "tools", "autonomy": "freedom to act",
+    "knowledge_mode": "knowledge", "sharing": "sharing", "status": "on or off",
+}
+
+
+def _agent_update_reason(changes: dict[str, Any], current_name: str) -> tuple[str, str]:
+    if changes.keys() == {"status"}:
+        return "will_update", "The plan turns it on."
+    if changes.keys() == {"name"}:
+        return "will_rename", f"Gets the plan's new name (it was \"{current_name}\"). Nothing else changes."
+    words = ", ".join(AGENT_FIELD_WORDS.get(key, key) for key in sorted(changes))
+    return "will_update", f"The plan updates its {words}."
+
+
+def _automation_step(name: str, prompt: str | None) -> Any:
+    """The one task step the plan gives an automation."""
+    from .automation import WorkflowStep
+
+    return WorkflowStep(id="task", name=name, action="task.create", input={"title": name, "prompt": prompt or name, "run": True})
 
 
 def _plain(value: Any) -> Any:
@@ -1262,10 +1410,10 @@ def _access(context: TenantContext) -> CallerAccess:
     org_admin = is_organization_admin(context)
     notes: list[str] = []
     if not org_admin:
-        notes.append("You are not an organization administrator: policy packs, approval rules, role templates, memory rules and skill publishing are skipped. "
+        notes.append("You are not an organization administrator, so organization rules, approval rules, written roles, memory rules and skill publishing are skipped. "
                      "An organization administrator can apply the plan again to add them.")
     if not owner:
-        notes.append("You are not an owner of this workspace: assistants, skill installations and the AI budget are skipped.")
+        notes.append("You are not an owner of this workspace, so assistants, skills and the AI budget are skipped.")
     return CallerAccess(owner=owner, organization_admin=org_admin, can_apply=True, notes=notes)
 
 
@@ -1316,7 +1464,7 @@ def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyReque
                         claimed = ledger.reclaim(claim, previous) if previous is not None else ledger.claim(claim)
                     if not claimed:
                         item.outcome = Outcome.BUSY
-                        item.error = "Another apply is creating it right now; apply again in a minute."
+                        item.error = "Someone else is applying it right now. Try again in a minute."
                         outcomes[item.outcome.value] = outcomes.get(item.outcome.value, 0) + 1
                         continue
                 applied = step.run()

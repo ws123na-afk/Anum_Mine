@@ -1,8 +1,8 @@
 {
  "id": "shahzeb-business-group",
- "version": 2,
+ "version": 3,
  "name": "Shahzeb Business Group",
- "summary": "The owner's ANUM setup plan: 12 agents, 24 skills, 8 department assistants, governance, knowledge folders, 30 saved commands and 25 automations. Pilot first: Chief of Staff, Customer Care and Finance Controller.",
+ "summary": "Shahzeb's plan for running the business group in ANUM: 12 agents, 24 skills, 8 department assistants, approval rules, knowledge folders, 30 saved commands and 25 automations. It starts small: the pilot turns on only Chief of Staff, Customer Care and Finance Controller.",
  "currency": "AED",
  "timezone": "Asia/Dubai",
  "business_hours": "Monday to Friday, 09:00 to 18:00",
@@ -19,57 +19,72 @@
  "weeks": [
   {
    "week": 1,
-   "title": "Foundation; Chief of Staff, Customer Care and Finance Controller in draft mode"
+   "title": "Get the basics ready. Chief of Staff, Customer Care and Finance Controller only write drafts"
   },
   {
    "week": 2,
-   "title": "Routine Customer Care replies (after testing templates)"
+   "title": "Customer Care sends routine replies, once the reply templates are tested"
   },
   {
    "week": 3,
-   "title": "Commerce Coordinator"
+   "title": "Commerce Coordinator starts"
   },
   {
    "week": 4,
-   "title": "Sales Pipeline and Proposal Consultant"
+   "title": "Sales Pipeline and Proposal Consultant start"
   },
   {
    "week": 5,
-   "title": "Fleet Planner and Tyre Analyst"
+   "title": "Fleet Planner and Tyre Analyst start"
   },
   {
    "week": 6,
-   "title": "Marketing Studio and Product Support"
+   "title": "Marketing Studio and Product Support start"
   },
   {
    "week": 7,
-   "title": "Knowledge Steward, Automation Guardian, department assistants and a restore test"
+   "title": "Knowledge Steward, Automation Guardian and the department assistants start. Test that a backup restores"
   },
   {
    "week": 8,
-   "title": "Stabilise"
+   "title": "Settle in and fix what came up"
   }
  ],
  "workspaces": [
   {
    "key": "w_fleet",
-   "name": "FLEET — Consulting"
+   "name": "Fleet Consulting",
+   "former_names": [
+    "FLEET — Consulting"
+   ]
   },
   {
    "key": "w_tyre",
-   "name": "TYRE — Tyre Pulse"
+   "name": "Tyre Pulse",
+   "former_names": [
+    "TYRE — Tyre Pulse"
+   ]
   },
   {
    "key": "w_gallery",
-   "name": "GALLERY — ANUM 360"
+   "name": "ANUM 360 Gallery",
+   "former_names": [
+    "GALLERY — ANUM 360"
+   ]
   },
   {
    "key": "w_ops",
-   "name": "OPS — OpsBrain"
+   "name": "OpsBrain",
+   "former_names": [
+    "OPS — OpsBrain"
+   ]
   },
   {
    "key": "w_voice",
-   "name": "VOICE — VoiceQuote"
+   "name": "VoiceQuote",
+   "former_names": [
+    "VOICE — VoiceQuote"
+   ]
   }
  ],
  "knowledge_folders": [
@@ -122,18 +137,21 @@
  "policy_packs": [
   {
    "key": "p_base",
-   "name": "BASE — Scope & Evidence",
+   "name": "Base: Scope & Evidence",
    "description": "Agents act inside their tenant, workspace and assigned tools, on current evidence. Unknown external actions need approval.",
    "rules": [
     {
      "action": "external.action",
      "effect": "require_approval"
     }
+   ],
+   "former_names": [
+    "BASE — Scope & Evidence"
    ]
   },
   {
    "key": "p_access",
-   "name": "ACCESS — Least Privilege",
+   "name": "Access: Least Privilege",
    "description": "Merging code and turning on automatic posting always need an owner's approval.",
    "rules": [
     {
@@ -144,11 +162,14 @@
      "action": "marketing.enable_auto_post",
      "effect": "require_approval"
     }
+   ],
+   "former_names": [
+    "ACCESS — Least Privilege"
    ]
   },
   {
    "key": "p_comms",
-   "name": "COMMS — Service & Consent",
+   "name": "Comms: Service & Consent",
    "description": "Free-text email and WhatsApp messages need approval; routine templates follow the auto-send list.",
    "rules": [
     {
@@ -159,11 +180,14 @@
      "action": "send_whatsapp",
      "effect": "require_approval"
     }
+   ],
+   "former_names": [
+    "COMMS — Service & Consent"
    ]
   },
   {
    "key": "p_finance",
-   "name": "FINANCE — Commitments & COD",
+   "name": "Finance: Commitments & COD",
    "description": "Price and stock changes need approval at any value. ANUM has no payment tool: money moves only by a person.",
    "rules": [
     {
@@ -174,11 +198,14 @@
      "action": "commerce.*.update_stock",
      "effect": "require_approval"
     }
+   ],
+   "former_names": [
+    "FINANCE — Commitments & COD"
    ]
   },
   {
    "key": "p_fleet",
-   "name": "FLEET — Safety & Readings",
+   "name": "Fleet: Safety & Readings",
    "description": "Tyre tools only read and plan; a safety clearance is always a person's decision.",
    "rules": [
     {
@@ -189,36 +216,51 @@
      "action": "purchase_plan",
      "effect": "allow"
     }
+   ],
+   "former_names": [
+    "FLEET — Safety & Readings"
    ]
   },
   {
    "key": "p_content",
-   "name": "CONTENT — Claims & Publishing",
+   "name": "Content: Claims & Publishing",
    "description": "Every publication needs the owner's approval of the exact post.",
    "rules": [
     {
      "action": "marketing.schedule_post",
      "effect": "require_approval"
     }
+   ],
+   "former_names": [
+    "CONTENT — Claims & Publishing"
    ]
   },
   {
    "key": "p_memory",
-   "name": "MEMORY — Purpose & Retention",
+   "name": "Memory: Purpose & Retention",
    "mapped_to": "memory_governance",
-   "reason": "ANUM keeps memory rules in the organization's memory governance setting, not in a policy pack; the plan's memory rules are applied there."
+   "reason": "Memory rules live in one organization setting, not in a policy pack. The plan sets them there.",
+   "former_names": [
+    "MEMORY — Purpose & Retention"
+   ]
   },
   {
    "key": "p_runtime",
-   "name": "RUNTIME — Retry & Budget",
+   "name": "Runtime: Retry & Budget",
    "mapped_to": "model_budget",
-   "reason": "Retries are fixed by the runtime (safe reads are retried, external writes never) and AI spend by the workspace's monthly model budget, which the plan sets."
+   "reason": "ANUM already retries safe reads on its own and never retries anything sent outside. Spending is capped by the workspace's monthly AI budget, which the plan sets.",
+   "former_names": [
+    "RUNTIME — Retry & Budget"
+   ]
   },
   {
    "key": "p_admin",
-   "name": "ADMIN — Change Control",
+   "name": "Admin: Change Control",
    "mapped_to": "platform",
-   "reason": "Access, policy and retention changes already need the organization administrator role and are audited; there is no tool an agent could use to change them."
+   "reason": "Only an organization administrator can change access, policies or how long data is kept, and every change is logged. No agent has a tool to change them.",
+   "former_names": [
+    "ADMIN — Change Control"
+   ]
   }
  ],
  "role_templates": [
@@ -351,38 +393,50 @@
  "approval_rules": [
   {
    "key": "ar_prices",
-   "name": "Prices and stock — owner approves",
+   "name": "Prices and stock: owner approves",
    "action_pattern": "commerce.*.update_*",
    "minimum_approvers": 1,
    "required_roles": [
     "owner"
+   ],
+   "former_names": [
+    "Prices and stock — owner approves"
    ]
   },
   {
    "key": "ar_publish",
-   "name": "Publishing — owner approves",
+   "name": "Publishing: owner approves",
    "action_pattern": "marketing.schedule_post",
    "minimum_approvers": 1,
    "required_roles": [
     "owner"
+   ],
+   "former_names": [
+    "Publishing — owner approves"
    ]
   },
   {
    "key": "ar_autopost",
-   "name": "Automatic posting — owner approves",
+   "name": "Automatic posting: owner approves",
    "action_pattern": "marketing.enable_auto_post",
    "minimum_approvers": 1,
    "required_roles": [
     "owner"
+   ],
+   "former_names": [
+    "Automatic posting — owner approves"
    ]
   },
   {
    "key": "ar_external",
-   "name": "Unknown external actions — owner approves",
+   "name": "Unknown external actions: owner approves",
    "action_pattern": "external.action",
    "minimum_approvers": 1,
    "required_roles": [
     "owner"
+   ],
+   "former_names": [
+    "Unknown external actions — owner approves"
    ]
   },
   {
@@ -521,13 +575,13 @@
    "label": "Internal reports and tasks",
    "plan": "Automatic",
    "support": "supported",
-   "anum": "Read and internal-change tools run without approval where the agent's autonomy allows."
+   "anum": "Agents can read and make changes inside ANUM without asking, as far as each agent is allowed."
   },
   {
    "label": "Routine support replies",
    "plan": "Automatic after testing",
    "support": "supported",
-   "anum": "WhatsApp templates on the auto-send list send on their own; free text always asks."
+   "anum": "WhatsApp templates on the auto-send list go out on their own. Any other message asks first."
   },
   {
    "label": "Payments, transfers, purchases",
@@ -581,13 +635,13 @@
    "label": "Publish or change prices",
    "plan": "Owner, any value",
    "support": "supported",
-   "anum": "Approval rules 'Prices and stock' and 'Publishing' require the owner."
+   "anum": "The approval rules for prices and for publishing send these to the owner."
   },
   {
    "label": "Campaign or social publication",
    "plan": "Owner",
    "support": "supported",
-   "anum": "Approval rule 'Publishing'."
+   "anum": "The approval rule for publishing sends these to the owner."
   },
   {
    "label": "New promotional outreach",
@@ -605,25 +659,25 @@
    "label": "Delete records",
    "plan": "Never autonomous",
    "support": "supported",
-   "anum": "Delete actions are protected: they always ask."
+   "anum": "Deleting always asks first."
   },
   {
    "label": "Access, policy or retention change",
    "plan": "Owner",
    "support": "supported",
-   "anum": "Needs the owner or organization administrator role and is audited."
+   "anum": "Only an owner or organization administrator can do this, and it is logged."
   },
   {
    "label": "Approval expiry 24 hours",
    "plan": "24 hours",
    "support": "supported",
-   "anum": "ANUM's approval time-to-live is 24 hours by default."
+   "anum": "Approvals expire after 24 hours by default."
   },
   {
    "label": "Payload change invalidates approval",
    "plan": "Yes",
    "support": "supported",
-   "anum": "Approvals are bound to the payload hash."
+   "anum": "An approval only covers the exact content that was approved. If the content changes, it needs a new approval."
   },
   {
    "label": "No self-approval",
@@ -635,13 +689,13 @@
    "label": "Bulk = more than 10 promotional recipients in 24 hours",
    "plan": "Bulk needs approval",
    "support": "supported",
-   "anum": "ANUM asks for sends above 5 recipients by default, which is stricter."
+   "anum": "ANUM already asks before sending to more than 5 people, which is stricter."
   },
   {
    "label": "Task estimated above AED 20",
    "plan": "Approval",
    "support": "unsupported",
-   "anum": "ANUM has no per-task cost estimate before a run; the monthly budget stops calls instead."
+   "anum": "ANUM cannot estimate a task's cost before it runs. The monthly budget stops AI use instead."
   }
  ],
  "memory_governance": {
@@ -654,79 +708,79 @@
     "label": "Owner preferences",
     "plan": "Keep, review every 180 days",
     "support": "partial",
-    "anum": "One retention period (90 days) applies to remembered chat facts; ANUM has no per-category retention."
+    "anum": "ANUM keeps remembered chat facts for one set time (90 days). It cannot keep different kinds for different times."
    },
    {
     "label": "Brand tone",
     "plan": "Keep, review every 180 days",
     "support": "partial",
-    "anum": "Store it as a note in Knowledge base 01 Business Facts (notes are kept until deleted)."
+    "anum": "Save it as a note in the 01 Business Facts folder. Notes stay until someone deletes them."
    },
    {
     "label": "SOP references",
     "plan": "Keep, review every 90 days",
     "support": "supported",
-    "anum": "Notes and documents in Knowledge base 02 SOPs."
+    "anum": "Keep notes and documents in the 02 SOPs folder."
    },
    {
     "label": "Lead context",
     "plan": "Minimal, 90 days inactive",
     "support": "partial",
-    "anum": "Remembered chat facts expire after 90 days."
+    "anum": "Remembered chat facts are deleted after 90 days."
    },
    {
     "label": "Active support context",
     "plan": "Minimal, 30 days after closure",
     "support": "unsupported",
-    "anum": "No per-case retention."
+    "anum": "ANUM cannot keep something only for the length of a case."
    },
    {
     "label": "Complaint summary",
     "plan": "Restricted, 90 days",
     "support": "partial",
-    "anum": "90-day expiry applies; no restricted class."
+    "anum": "The 90-day limit applies. ANUM has no separate restricted kind."
    },
    {
     "label": "Fleet patterns per client",
     "plan": "90 days",
     "support": "supported",
-    "anum": "90-day expiry."
+    "anum": "Deleted after 90 days."
    },
    {
     "label": "Financial context",
     "plan": "References only, 30 days",
     "support": "unsupported",
-    "anum": "No per-category retention."
+    "anum": "ANUM cannot keep different kinds for different times."
    },
    {
     "label": "Meeting decisions",
     "plan": "After confirmation, 90 days",
     "support": "partial",
-    "anum": "Meeting notes are drafts until a person confirms them."
+    "anum": "Meeting notes stay drafts until a person confirms them."
    },
    {
     "label": "Raw audio",
     "plan": "Not long-term, 7 days",
     "support": "supported",
-    "anum": "Voice retention is handled by the voice retention job."
+    "anum": "Voice recordings are deleted on their own schedule."
    },
    {
     "label": "Temporary execution context",
     "plan": "7 days",
     "support": "supported",
-    "anum": "Run checkpoints are not memory."
+    "anum": "Saved progress of a running task is not kept as memory."
    },
    {
     "label": "Opt-out suppression",
     "plan": "Kept",
-    "support": "unsupported",
-    "anum": "No opt-out list exists yet."
+    "support": "supported",
+    "anum": "Opt-outs are kept on the contact suppression list until a person removes them, and every send checks it."
    },
    {
     "label": "Never: passwords, tokens, recovery codes, card details, unnecessary IDs, unrelated family or health data",
     "plan": "Never stored",
     "support": "partial",
-    "anum": "Secrets are redacted from approvals and audit records; agents are told never to store them."
+    "anum": "Secrets are hidden in approvals and logs, and agents are told never to save them."
    }
   ]
  },
@@ -1111,7 +1165,7 @@
   {
    "key": "a1",
    "code": "A1",
-   "name": "GROUP — Chief of Staff",
+   "name": "Group: Chief of Staff",
    "department": "Command",
    "business": "GROUP",
    "icon": "briefcase",
@@ -1156,12 +1210,15 @@
    "kpi": "At least 95% of tasks have an owner, a due date and a next action.",
    "supervisor": "Owner",
    "budget_aed": 60,
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GROUP — Chief of Staff"
+   ]
   },
   {
    "key": "a2",
    "code": "A2",
-   "name": "FLEET — Sales Pipeline",
+   "name": "Fleet: Sales Pipeline",
    "department": "Sales",
    "business": "FLEET",
    "icon": "chart",
@@ -1212,12 +1269,15 @@
    "kpi": "At least 90% of eligible follow-ups on time.",
    "supervisor": "Operations/Care Lead",
    "budget_aed": 100,
-   "week": 4
+   "week": 4,
+   "former_names": [
+    "FLEET — Sales Pipeline"
+   ]
   },
   {
    "key": "a3",
    "code": "A3",
-   "name": "FLEET — Proposal Consultant",
+   "name": "Fleet: Proposal Consultant",
    "department": "Sales",
    "business": "FLEET",
    "icon": "file-text",
@@ -1254,12 +1314,15 @@
    "kpi": "A standard draft within 1 business day.",
    "supervisor": "Owner",
    "budget_aed": 100,
-   "week": 4
+   "week": 4,
+   "former_names": [
+    "FLEET — Proposal Consultant"
+   ]
   },
   {
    "key": "a4",
    "code": "A4",
-   "name": "TYRE — Fleet Planner",
+   "name": "Tyre: Fleet Planner",
    "department": "Fleet & Tyres",
    "business": "TYRE",
    "icon": "truck",
@@ -1298,12 +1361,15 @@
    "kpi": "At least 95% of inspection evidence complete.",
    "supervisor": "Fleet specialist",
    "budget_aed": 100,
-   "week": 5
+   "week": 5,
+   "former_names": [
+    "TYRE — Fleet Planner"
+   ]
   },
   {
    "key": "a5",
    "code": "A5",
-   "name": "TYRE — Tyre Analyst",
+   "name": "Tyre: Tyre Analyst",
    "department": "Fleet & Tyres",
    "business": "TYRE",
    "icon": "wrench",
@@ -1342,12 +1408,15 @@
    "kpi": "At least 98% of readings pass validation.",
    "supervisor": "Fleet specialist",
    "budget_aed": 180,
-   "week": 5
+   "week": 5,
+   "former_names": [
+    "TYRE — Tyre Analyst"
+   ]
   },
   {
    "key": "a6",
    "code": "A6",
-   "name": "GALLERY — Commerce Coordinator",
+   "name": "Gallery: Commerce Coordinator",
    "department": "Commerce & Care",
    "business": "GALLERY",
    "icon": "shopping-cart",
@@ -1386,12 +1455,15 @@
    "kpi": "At least 95% order completeness.",
    "supervisor": "Operations/Care Lead",
    "budget_aed": 100,
-   "week": 3
+   "week": 3,
+   "former_names": [
+    "GALLERY — Commerce Coordinator"
+   ]
   },
   {
    "key": "a7",
    "code": "A7",
-   "name": "GALLERY — Customer Care",
+   "name": "Gallery: Customer Care",
    "department": "Commerce & Care",
    "business": "GALLERY",
    "icon": "heart",
@@ -1428,12 +1500,15 @@
    "kpi": "Median reply within 5 minutes.",
    "supervisor": "Operations/Care Lead",
    "budget_aed": 180,
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GALLERY — Customer Care"
+   ]
   },
   {
    "key": "a8",
    "code": "A8",
-   "name": "GROUP — Finance Controller",
+   "name": "Group: Finance Controller",
    "department": "Finance",
    "business": "GROUP",
    "icon": "chart",
@@ -1475,12 +1550,15 @@
    "kpi": "All due COD reconciled or explicitly marked unresolved.",
    "supervisor": "Finance Reviewer",
    "budget_aed": 100,
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GROUP — Finance Controller"
+   ]
   },
   {
    "key": "a9",
    "code": "A9",
-   "name": "GROUP — Marketing Studio",
+   "name": "Group: Marketing Studio",
    "department": "Marketing",
    "business": "GROUP",
    "icon": "sparkles",
@@ -1518,12 +1596,15 @@
    "kpi": "At least 80% of drafts accepted.",
    "supervisor": "Owner",
    "budget_aed": 100,
-   "week": 6
+   "week": 6,
+   "former_names": [
+    "GROUP — Marketing Studio"
+   ]
   },
   {
    "key": "a10",
    "code": "A10",
-   "name": "GROUP — Product Support",
+   "name": "Group: Product Support",
    "department": "Product Support",
    "business": "GROUP",
    "icon": "wrench",
@@ -1562,12 +1643,15 @@
    "kpi": "Critical issues triaged within 30 minutes.",
    "supervisor": "Product maintainer",
    "budget_aed": 80,
-   "week": 6
+   "week": 6,
+   "former_names": [
+    "GROUP — Product Support"
+   ]
   },
   {
    "key": "a11",
    "code": "A11",
-   "name": "GROUP — Knowledge Steward",
+   "name": "Group: Knowledge Steward",
    "department": "Systems & Knowledge",
    "business": "GROUP",
    "icon": "search",
@@ -1606,12 +1690,15 @@
    "kpi": "Every knowledge source has an owner, a version and a review date.",
    "supervisor": "Owner",
    "budget_aed": 40,
-   "week": 7
+   "week": 7,
+   "former_names": [
+    "GROUP — Knowledge Steward"
+   ]
   },
   {
    "key": "a12",
    "code": "A12",
-   "name": "GROUP — Automation Guardian",
+   "name": "Group: Automation Guardian",
    "department": "Systems & Knowledge",
    "business": "GROUP",
    "icon": "bot",
@@ -1645,13 +1732,16 @@
    "kpi": "At least 98% of runs succeed, zero duplicate external actions.",
    "supervisor": "Owner",
    "budget_aed": 60,
-   "week": 7
+   "week": 7,
+   "former_names": [
+    "GROUP — Automation Guardian"
+   ]
   }
  ],
  "assistants": [
   {
    "key": "d_command",
-   "name": "GROUP — Command",
+   "name": "Group: Command",
    "plan_department": "Command",
    "department": "custom",
    "agents": [
@@ -1668,12 +1758,15 @@
     "خطة"
    ],
    "autonomy": "suggest",
-   "instructions": "You are the Command department assistant. Route and propose work for GROUP — Chief of Staff. You have no approval authority: every action you propose waits for a person.",
-   "week": 7
+   "instructions": "You are the Command department assistant. Route and propose work for Group: Chief of Staff. You have no approval authority: every action you propose waits for a person.",
+   "week": 7,
+   "former_names": [
+    "GROUP — Command"
+   ]
   },
   {
    "key": "d_sales",
-   "name": "FLEET — Sales",
+   "name": "Fleet: Sales",
    "plan_department": "Sales",
    "department": "sales",
    "agents": [
@@ -1694,12 +1787,15 @@
     "سعر"
    ],
    "autonomy": "suggest",
-   "instructions": "You are the Sales department assistant. Route and propose work for FLEET — Sales Pipeline, FLEET — Proposal Consultant. You have no approval authority: every action you propose waits for a person.",
-   "week": 7
+   "instructions": "You are the Sales department assistant. Route and propose work for Fleet: Sales Pipeline, Fleet: Proposal Consultant. You have no approval authority: every action you propose waits for a person.",
+   "week": 7,
+   "former_names": [
+    "FLEET — Sales"
+   ]
   },
   {
    "key": "d_fleet",
-   "name": "TYRE — Fleet & Tyres",
+   "name": "Tyre: Fleet & Tyres",
    "plan_department": "Fleet & Tyres",
    "department": "tyre_engineering",
    "agents": [
@@ -1722,12 +1818,15 @@
     "فحص"
    ],
    "autonomy": "suggest",
-   "instructions": "You are the Fleet & Tyres department assistant. Route and propose work for TYRE — Fleet Planner, TYRE — Tyre Analyst. You have no approval authority: every action you propose waits for a person.",
-   "week": 7
+   "instructions": "You are the Fleet & Tyres department assistant. Route and propose work for Tyre: Fleet Planner, Tyre: Tyre Analyst. You have no approval authority: every action you propose waits for a person.",
+   "week": 7,
+   "former_names": [
+    "TYRE — Fleet & Tyres"
+   ]
   },
   {
    "key": "d_care",
-   "name": "GALLERY — Commerce & Care",
+   "name": "Gallery: Commerce & Care",
    "plan_department": "Commerce & Care",
    "department": "support",
    "agents": [
@@ -1751,12 +1850,15 @@
     "شكوى"
    ],
    "autonomy": "suggest",
-   "instructions": "You are the Commerce & Care department assistant. Route and propose work for GALLERY — Commerce Coordinator, GALLERY — Customer Care. You have no approval authority: every action you propose waits for a person.",
-   "week": 7
+   "instructions": "You are the Commerce & Care department assistant. Route and propose work for Gallery: Commerce Coordinator, Gallery: Customer Care. You have no approval authority: every action you propose waits for a person.",
+   "week": 7,
+   "former_names": [
+    "GALLERY — Commerce & Care"
+   ]
   },
   {
    "key": "d_finance",
-   "name": "GROUP — Finance",
+   "name": "Group: Finance",
    "plan_department": "Finance",
    "department": "finance",
    "agents": [
@@ -1774,12 +1876,15 @@
     "دفع"
    ],
    "autonomy": "suggest",
-   "instructions": "You are the Finance department assistant. Route and propose work for GROUP — Finance Controller. You have no approval authority: every action you propose waits for a person.",
-   "week": 7
+   "instructions": "You are the Finance department assistant. Route and propose work for Group: Finance Controller. You have no approval authority: every action you propose waits for a person.",
+   "week": 7,
+   "former_names": [
+    "GROUP — Finance"
+   ]
   },
   {
    "key": "d_marketing",
-   "name": "GROUP — Marketing",
+   "name": "Group: Marketing",
    "plan_department": "Marketing",
    "department": "custom",
    "agents": [
@@ -1797,12 +1902,15 @@
     "محتوى"
    ],
    "autonomy": "suggest",
-   "instructions": "You are the Marketing department assistant. Route and propose work for GROUP — Marketing Studio. You have no approval authority: every action you propose waits for a person.",
-   "week": 7
+   "instructions": "You are the Marketing department assistant. Route and propose work for Group: Marketing Studio. You have no approval authority: every action you propose waits for a person.",
+   "week": 7,
+   "former_names": [
+    "GROUP — Marketing"
+   ]
   },
   {
    "key": "d_product",
-   "name": "GROUP — Product Support",
+   "name": "Group: Product Support",
    "plan_department": "Product Support",
    "department": "support",
    "agents": [
@@ -1823,12 +1931,15 @@
     "تطبيق"
    ],
    "autonomy": "suggest",
-   "instructions": "You are the Product Support department assistant. Route and propose work for GROUP — Product Support. You have no approval authority: every action you propose waits for a person.",
-   "week": 7
+   "instructions": "You are the Product Support department assistant. Route and propose work for Group: Product Support. You have no approval authority: every action you propose waits for a person.",
+   "week": 7,
+   "former_names": [
+    "GROUP — Product Support"
+   ]
   },
   {
    "key": "d_systems",
-   "name": "GROUP — Systems & Knowledge",
+   "name": "Group: Systems & Knowledge",
    "plan_department": "Systems & Knowledge",
    "department": "custom",
    "agents": [
@@ -1847,212 +1958,317 @@
     "معرفة"
    ],
    "autonomy": "suggest",
-   "instructions": "You are the Systems & Knowledge department assistant. Route and propose work for GROUP — Knowledge Steward, GROUP — Automation Guardian. You have no approval authority: every action you propose waits for a person.",
-   "week": 7
+   "instructions": "You are the Systems & Knowledge department assistant. Route and propose work for Group: Knowledge Steward, Group: Automation Guardian. You have no approval authority: every action you propose waits for a person.",
+   "week": 7,
+   "former_names": [
+    "GROUP — Systems & Knowledge"
+   ]
   }
  ],
  "saved_commands": [
   {
    "key": "cmd01",
-   "title": "Command — Morning Brief",
-   "text": "Give me today's briefing across my authorised businesses."
+   "title": "Command: Morning Brief",
+   "text": "Give me today's briefing across my authorised businesses.",
+   "former_names": [
+    "Command — Morning Brief"
+   ]
   },
   {
    "key": "cmd02",
-   "title": "Command — Priorities",
-   "text": "What are my top three priorities today, and what is blocking them?"
+   "title": "Command: Priorities",
+   "text": "What are my top three priorities today, and what is blocking them?",
+   "former_names": [
+    "Command — Priorities"
+   ]
   },
   {
    "key": "cmd03",
-   "title": "Command — Approval Queue",
-   "text": "Show me the approvals waiting for me, oldest first."
+   "title": "Command: Approval Queue",
+   "text": "Show me the approvals waiting for me, oldest first.",
+   "former_names": [
+    "Command — Approval Queue"
+   ]
   },
   {
    "key": "cmd04",
-   "title": "Command — Workload",
-   "text": "Show the team's workload and anything overdue."
+   "title": "Command: Workload",
+   "text": "Show the team's workload and anything overdue.",
+   "former_names": [
+    "Command — Workload"
+   ]
   },
   {
    "key": "cmd05",
-   "title": "Sales — Due Follow-ups",
-   "text": "Which lead follow-ups are due today?"
+   "title": "Sales: Due Follow-ups",
+   "text": "Which lead follow-ups are due today?",
+   "former_names": [
+    "Sales — Due Follow-ups"
+   ]
   },
   {
    "key": "cmd06",
-   "title": "Sales — Draft Follow-up",
-   "text": "Draft a follow-up for my most overdue lead."
+   "title": "Sales: Draft Follow-up",
+   "text": "Draft a follow-up for my most overdue lead.",
+   "former_names": [
+    "Sales — Draft Follow-up"
+   ]
   },
   {
    "key": "cmd07",
-   "title": "Sales — Prepare Quote",
-   "text": "Prepare a draft quote for the latest qualified requirement."
+   "title": "Sales: Prepare Quote",
+   "text": "Prepare a draft quote for the latest qualified requirement.",
+   "former_names": [
+    "Sales — Prepare Quote"
+   ]
   },
   {
    "key": "cmd08",
-   "title": "Sales — Meeting Request",
-   "text": "Draft a meeting request for the next qualified lead."
+   "title": "Sales: Meeting Request",
+   "text": "Draft a meeting request for the next qualified lead.",
+   "former_names": [
+    "Sales — Meeting Request"
+   ]
   },
   {
    "key": "cmd09",
-   "title": "Fleet — Overdue Inspections",
-   "text": "Which tyre inspections are overdue?"
+   "title": "Fleet: Overdue Inspections",
+   "text": "Which tyre inspections are overdue?",
+   "former_names": [
+    "Fleet — Overdue Inspections"
+   ]
   },
   {
    "key": "cmd10",
-   "title": "Fleet — Critical Defects",
-   "text": "Show critical tyre defects that need action."
+   "title": "Fleet: Critical Defects",
+   "text": "Show critical tyre defects that need action.",
+   "former_names": [
+    "Fleet — Critical Defects"
+   ]
   },
   {
    "key": "cmd11",
-   "title": "Fleet — Invalid Readings",
-   "text": "Which tyre readings failed validation this week?"
+   "title": "Fleet: Invalid Readings",
+   "text": "Which tyre readings failed validation this week?",
+   "former_names": [
+    "Fleet — Invalid Readings"
+   ]
   },
   {
    "key": "cmd12",
-   "title": "Fleet — Tyre Cost Review",
-   "text": "Review tyre cost per kilometre this month."
+   "title": "Fleet: Tyre Cost Review",
+   "text": "Review tyre cost per kilometre this month.",
+   "former_names": [
+    "Fleet — Tyre Cost Review"
+   ]
   },
   {
    "key": "cmd13",
-   "title": "Fleet — Replacement Review",
-   "text": "Which tyres are due for replacement review?"
+   "title": "Fleet: Replacement Review",
+   "text": "Which tyres are due for replacement review?",
+   "former_names": [
+    "Fleet — Replacement Review"
+   ]
   },
   {
    "key": "cmd14",
-   "title": "Commerce — Unconfirmed Orders",
-   "text": "Show Gallery orders that are not confirmed yet."
+   "title": "Commerce: Unconfirmed Orders",
+   "text": "Show Gallery orders that are not confirmed yet.",
+   "former_names": [
+    "Commerce — Unconfirmed Orders"
+   ]
   },
   {
    "key": "cmd15",
-   "title": "Commerce — COD Confirmation",
-   "text": "Which cash-on-delivery orders still need confirmation?"
+   "title": "Commerce: COD Confirmation",
+   "text": "Which cash-on-delivery orders still need confirmation?",
+   "former_names": [
+    "Commerce — COD Confirmation"
+   ]
   },
   {
    "key": "cmd16",
-   "title": "Commerce — Fulfilment Gaps",
-   "text": "Which confirmed orders are missing fulfilment evidence?"
+   "title": "Commerce: Fulfilment Gaps",
+   "text": "Which confirmed orders are missing fulfilment evidence?",
+   "former_names": [
+    "Commerce — Fulfilment Gaps"
+   ]
   },
   {
    "key": "cmd17",
-   "title": "Care — Delayed Replies",
-   "text": "Which customer messages are waiting longer than five minutes?"
+   "title": "Care: Delayed Replies",
+   "text": "Which customer messages are waiting longer than five minutes?",
+   "former_names": [
+    "Care — Delayed Replies"
+   ]
   },
   {
    "key": "cmd18",
-   "title": "Care — Arabic Order Reply",
-   "text": "Draft an Arabic reply about the customer's order status."
+   "title": "Care: Arabic Order Reply",
+   "text": "Draft an Arabic reply about the customer's order status.",
+   "former_names": [
+    "Care — Arabic Order Reply"
+   ]
   },
   {
    "key": "cmd19",
-   "title": "Care — Complaint Handover",
-   "text": "Hand the latest complaint over to the Care Lead."
+   "title": "Care: Complaint Handover",
+   "text": "Hand the latest complaint over to the Care Lead.",
+   "former_names": [
+    "Care — Complaint Handover"
+   ]
   },
   {
    "key": "cmd20",
-   "title": "Finance — COD Position",
-   "text": "What is today's COD position: expected, collected and remitted?"
+   "title": "Finance: COD Position",
+   "text": "What is today's COD position: expected, collected and remitted?",
+   "former_names": [
+    "Finance — COD Position"
+   ]
   },
   {
    "key": "cmd21",
-   "title": "Finance — Variances",
-   "text": "Show COD variances and who must act on each."
+   "title": "Finance: Variances",
+   "text": "Show COD variances and who must act on each.",
+   "former_names": [
+    "Finance — Variances"
+   ]
   },
   {
    "key": "cmd22",
-   "title": "Finance — Expense Check",
-   "text": "Check this week's expenses against evidence."
+   "title": "Finance: Expense Check",
+   "text": "Check this week's expenses against evidence.",
+   "former_names": [
+    "Finance — Expense Check"
+   ]
   },
   {
    "key": "cmd23",
-   "title": "Finance — Refund Review",
-   "text": "List refunds waiting for review and who may approve each."
+   "title": "Finance: Refund Review",
+   "text": "List refunds waiting for review and who may approve each.",
+   "former_names": [
+    "Finance — Refund Review"
+   ]
   },
   {
    "key": "cmd24",
-   "title": "Marketing — Weekly Content",
-   "text": "Prepare this week's content plan for each business."
+   "title": "Marketing: Weekly Content",
+   "text": "Prepare this week's content plan for each business.",
+   "former_names": [
+    "Marketing — Weekly Content"
+   ]
   },
   {
    "key": "cmd25",
-   "title": "Marketing — Campaign Preview",
-   "text": "Show me the next campaign exactly as it would be published."
+   "title": "Marketing: Campaign Preview",
+   "text": "Show me the next campaign exactly as it would be published.",
+   "former_names": [
+    "Marketing — Campaign Preview"
+   ]
   },
   {
    "key": "cmd26",
-   "title": "Product — Issue Brief",
-   "text": "Give me a brief of open app issues by product."
+   "title": "Product: Issue Brief",
+   "text": "Give me a brief of open app issues by product.",
+   "former_names": [
+    "Product — Issue Brief"
+   ]
   },
   {
    "key": "cmd27",
-   "title": "Product — Critical Issues",
-   "text": "Which critical app issues are open, and since when?"
+   "title": "Product: Critical Issues",
+   "text": "Which critical app issues are open, and since when?",
+   "former_names": [
+    "Product — Critical Issues"
+   ]
   },
   {
    "key": "cmd28",
-   "title": "Knowledge — Meeting Actions",
-   "text": "List the actions from my last confirmed meeting."
+   "title": "Knowledge: Meeting Actions",
+   "text": "List the actions from my last confirmed meeting.",
+   "former_names": [
+    "Knowledge — Meeting Actions"
+   ]
   },
   {
    "key": "cmd29",
-   "title": "Systems — Failed Runs",
-   "text": "Which automations or tasks failed today?"
+   "title": "Systems: Failed Runs",
+   "text": "Which automations or tasks failed today?",
+   "former_names": [
+    "Systems — Failed Runs"
+   ]
   },
   {
    "key": "cmd30",
-   "title": "Systems — AI Budget",
-   "text": "How much of this month's AI budget is used?"
+   "title": "Systems: AI Budget",
+   "text": "How much of this month's AI budget is used?",
+   "former_names": [
+    "Systems — AI Budget"
+   ]
   }
  ],
  "automations": [
   {
    "key": "auto01",
    "number": 1,
-   "name": "GROUP — Morning Brief",
+   "name": "Group: Morning Brief",
    "agent": "a1",
    "trigger": {
     "type": "schedule",
     "cron": "30 8 * * 1-5"
    },
    "week": 1,
-   "prompt": "Act as GROUP — Chief of Staff (Turn priorities into coordinated work.) Prepare today's morning brief across the authorised businesses: urgent alerts, approvals waiting, today's three priorities, customers and orders, COD money, fleet, sales and products, system and budget, and meetings. Mark any source you cannot read as Unavailable, never zero. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Group: Chief of Staff (Turn priorities into coordinated work.) Prepare today's morning brief across the authorised businesses: urgent alerts, approvals waiting, today's three priorities, customers and orders, COD money, fleet, sales and products, system and budget, and meetings. Mark any source you cannot read as Unavailable, never zero. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GROUP — Morning Brief"
+   ]
   },
   {
    "key": "auto02",
    "number": 2,
-   "name": "GROUP — New Command Plan",
+   "name": "Group: New Command Plan",
    "agent": "a1",
    "trigger": {
     "type": "builtin",
     "reason": "ANUM Command already turns every request into a plan with agents, risk and approval gates before anything runs."
    },
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GROUP — New Command Plan"
+   ]
   },
   {
    "key": "auto03",
    "number": 3,
-   "name": "GROUP — Overdue Task Follow-up",
+   "name": "Group: Overdue Task Follow-up",
    "agent": "a1",
    "trigger": {
     "type": "builtin",
     "reason": "Team work's reminder sweep already notifies the assignee and creator once a work item is overdue, and ANUM follow-ups comment on items at their follow-up time."
    },
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GROUP — Overdue Task Follow-up"
+   ]
   },
   {
    "key": "auto04",
    "number": 4,
-   "name": "GROUP — Approval Ageing Reminder",
+   "name": "Group: Approval Ageing Reminder",
    "agent": "a1",
    "trigger": {
     "type": "unsupported",
     "reason": "ANUM shows waiting approvals in the bell and expires them after 24 hours, but no tool lets an automation list approvals, so an ageing reminder cannot be built yet."
    },
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GROUP — Approval Ageing Reminder"
+   ]
   },
   {
    "key": "auto05",
    "number": 5,
-   "name": "GALLERY — Classify New Messages",
+   "name": "Gallery: Classify New Messages",
    "agent": "a7",
    "trigger": {
     "type": "event",
@@ -2062,82 +2278,103 @@
     ]
    },
    "week": 1,
-   "prompt": "Act as GALLERY — Customer Care (Provide courteous bilingual support from verified records.) Classify this new customer message for the right business and department (order, delivery, return, complaint, supplier, other) and say who should handle it. Do not reply to the customer. Message: WhatsApp conversation {{trigger.conversation_id}}, email {{trigger.message_id}} in mailbox {{trigger.account_id}}, from {{trigger.from}}, subject {{trigger.subject}}, category {{trigger.category}}. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Gallery: Customer Care (Provide courteous bilingual support from verified records.) Classify this new customer message for the right business and department (order, delivery, return, complaint, supplier, other) and say who should handle it. Do not reply to the customer. Message: WhatsApp conversation {{trigger.conversation_id}}, email {{trigger.message_id}} in mailbox {{trigger.account_id}}, from {{trigger.from}}, subject {{trigger.subject}}, category {{trigger.category}}. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GALLERY — Classify New Messages"
+   ]
   },
   {
    "key": "auto06",
    "number": 6,
-   "name": "GALLERY — Routine Enquiry Reply",
+   "name": "Gallery: Routine Enquiry Reply",
    "agent": "a7",
    "trigger": {
     "type": "manual_step",
     "reason": "Routine replies send on their own only through WhatsApp's auto-send list of approved templates (WhatsApp > Templates, Send without asking). Tick templates there after testing them; free-text replies always ask."
    },
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GALLERY — Routine Enquiry Reply"
+   ]
   },
   {
    "key": "auto07",
    "number": 7,
-   "name": "GALLERY — Opt-out Suppression",
+   "name": "Gallery: Opt-out Suppression",
    "agent": "a7",
    "trigger": {
     "type": "builtin",
     "reason": "Built in: an inbound WhatsApp STOP or unsubscribe goes onto the contact suppression list automatically (Contact opt-outs), and every send checks the list."
    },
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GALLERY — Opt-out Suppression"
+   ]
   },
   {
    "key": "auto08",
    "number": 8,
-   "name": "GALLERY — Validate New Order",
+   "name": "Gallery: Validate New Order",
    "agent": "a6",
    "trigger": {
     "type": "webhook",
     "source": "the Gallery store's new-order notification"
    },
    "week": 3,
-   "prompt": "Act as GALLERY — Commerce Coordinator (Validate Gallery orders and hand verified orders to fulfilment.) Validate the new Gallery order: variant, approved price, address, stock evidence and COD amount. List anything missing. Do not change the order. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Gallery: Commerce Coordinator (Validate Gallery orders and hand verified orders to fulfilment.) Validate the new Gallery order: variant, approved price, address, stock evidence and COD amount. List anything missing. Do not change the order. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GALLERY — Validate New Order"
+   ]
   },
   {
    "key": "auto09",
    "number": 9,
-   "name": "GALLERY — COD Confirmation",
+   "name": "Gallery: COD Confirmation",
    "agent": "a6",
    "trigger": {
     "type": "webhook",
     "source": "the Gallery store when an order passes validation"
    },
    "week": 3,
-   "prompt": "Act as GALLERY — Commerce Coordinator (Validate Gallery orders and hand verified orders to fulfilment.) Draft the cash-on-delivery confirmation message for the validated order with its exact facts. Do not send it and do not promise a delivery date without evidence. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Gallery: Commerce Coordinator (Validate Gallery orders and hand verified orders to fulfilment.) Draft the cash-on-delivery confirmation message for the validated order with its exact facts. Do not send it and do not promise a delivery date without evidence. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GALLERY — COD Confirmation"
+   ]
   },
   {
    "key": "auto10",
    "number": 10,
-   "name": "GALLERY — Fulfilment Checklist",
+   "name": "Gallery: Fulfilment Checklist",
    "agent": "a6",
    "trigger": {
     "type": "webhook",
     "source": "the Gallery store when an order is confirmed"
    },
    "week": 3,
-   "prompt": "Act as GALLERY — Commerce Coordinator (Validate Gallery orders and hand verified orders to fulfilment.) Create the fulfilment checklist for the confirmed order as work for the responsible person. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Gallery: Commerce Coordinator (Validate Gallery orders and hand verified orders to fulfilment.) Create the fulfilment checklist for the confirmed order as work for the responsible person. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GALLERY — Fulfilment Checklist"
+   ]
   },
   {
    "key": "auto11",
    "number": 11,
-   "name": "GALLERY — Missing Fulfilment Evidence",
+   "name": "Gallery: Missing Fulfilment Evidence",
    "agent": "a6",
    "trigger": {
     "type": "schedule",
     "cron": "0 16 * * 1-5"
    },
    "week": 3,
-   "prompt": "Act as GALLERY — Commerce Coordinator (Validate Gallery orders and hand verified orders to fulfilment.) List confirmed Gallery orders that are missing fulfilment evidence and escalate each to the Operations/Care Lead. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Gallery: Commerce Coordinator (Validate Gallery orders and hand verified orders to fulfilment.) List confirmed Gallery orders that are missing fulfilment evidence and escalate each to the Operations/Care Lead. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GALLERY — Missing Fulfilment Evidence"
+   ]
   },
   {
    "key": "auto12",
    "number": 12,
-   "name": "GALLERY — Complaint Handover",
+   "name": "Gallery: Complaint Handover",
    "agent": "a7",
    "trigger": {
     "type": "event",
@@ -2153,36 +2390,45 @@
     ]
    },
    "week": 1,
-   "prompt": "Act as GALLERY — Customer Care (Provide courteous bilingual support from verified records.) Acknowledge-and-handover plan for this complaint: summarise it, collect evidence and name the person who must handle it. Any remedy (refund, concession) needs approval. Do not reply to the customer. WhatsApp conversation {{trigger.conversation_id}}, message {{trigger.message_id}}. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Gallery: Customer Care (Provide courteous bilingual support from verified records.) Acknowledge-and-handover plan for this complaint: summarise it, collect evidence and name the person who must handle it. Any remedy (refund, concession) needs approval. Do not reply to the customer. WhatsApp conversation {{trigger.conversation_id}}, message {{trigger.message_id}}. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GALLERY — Complaint Handover"
+   ]
   },
   {
    "key": "auto13",
    "number": 13,
-   "name": "GROUP — Daily COD Reconciliation",
+   "name": "Group: Daily COD Reconciliation",
    "agent": "a8",
    "trigger": {
     "type": "schedule",
     "cron": "0 17 * * 1-5"
    },
    "week": 1,
-   "prompt": "Act as GROUP — Finance Controller (Reconcile COD and prepare finance approval packs.) Reconcile today's COD: expected, collected and remitted, separately. List variances by band: up to AED 25 for Finance within 2 hours, above AED 25 for the owner today, above AED 250 or suspected fraud for the owner at once. Never write anything off. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Group: Finance Controller (Reconcile COD and prepare finance approval packs.) Reconcile today's COD: expected, collected and remitted, separately. List variances by band: up to AED 25 for Finance within 2 hours, above AED 25 for the owner today, above AED 250 or suspected fraud for the owner at once. Never write anything off. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GROUP — Daily COD Reconciliation"
+   ]
   },
   {
    "key": "auto14",
    "number": 14,
-   "name": "GROUP — COD Variance Routing",
+   "name": "Group: COD Variance Routing",
    "agent": "a8",
    "trigger": {
     "type": "covered",
     "by": 13,
     "reason": "Variance routing by amount is part of the daily COD reconciliation (automation 13); ANUM cannot start an automation from an amount."
    },
-   "week": 1
+   "week": 1,
+   "former_names": [
+    "GROUP — COD Variance Routing"
+   ]
   },
   {
    "key": "auto15",
    "number": 15,
-   "name": "GROUP — Expense Pack",
+   "name": "Group: Expense Pack",
    "agent": "a8",
    "trigger": {
     "type": "event",
@@ -2198,119 +2444,149 @@
     ]
    },
    "week": 1,
-   "prompt": "Act as GROUP — Finance Controller (Reconcile COD and prepare finance approval packs.) Prepare an expense review pack for this uploaded expense file: check it against evidence and approved limits. Any payment needs human approval and a human executes it. File {{trigger.file_id}} ({{trigger.name}}). If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Group: Finance Controller (Reconcile COD and prepare finance approval packs.) Prepare an expense review pack for this uploaded expense file: check it against evidence and approved limits. Any payment needs human approval and a human executes it. File {{trigger.file_id}} ({{trigger.name}}). If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GROUP — Expense Pack"
+   ]
   },
   {
    "key": "auto16",
    "number": 16,
-   "name": "FLEET — Qualify New Lead",
+   "name": "Fleet: Qualify New Lead",
    "agent": "a2",
    "trigger": {
     "type": "webhook",
     "source": "the website or CRM's new-lead notification"
    },
    "week": 4,
-   "prompt": "Act as FLEET — Sales Pipeline (Qualify leads and keep a dated next action for each one.) Qualify this new lead: fit, need, authority, timing and contact eligibility. Record a dated next action. Do not contact the lead. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Fleet: Sales Pipeline (Qualify leads and keep a dated next action for each one.) Qualify this new lead: fit, need, authority, timing and contact eligibility. Record a dated next action. Do not contact the lead. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "FLEET — Qualify New Lead"
+   ]
   },
   {
    "key": "auto17",
    "number": 17,
-   "name": "FLEET — Follow-ups Due",
+   "name": "Fleet: Follow-ups Due",
    "agent": "a2",
    "trigger": {
     "type": "schedule",
     "cron": "0 10,15 * * 1-5"
    },
    "week": 4,
-   "prompt": "Act as FLEET — Sales Pipeline (Qualify leads and keep a dated next action for each one.) List lead follow-ups due now and draft each follow-up for approval. Skip contacts who refused or opted out. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Fleet: Sales Pipeline (Qualify leads and keep a dated next action for each one.) List lead follow-ups due now and draft each follow-up for approval. Skip contacts who refused or opted out. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "FLEET — Follow-ups Due"
+   ]
   },
   {
    "key": "auto18",
    "number": 18,
-   "name": "FLEET — Quote Draft",
+   "name": "Fleet: Quote Draft",
    "agent": "a3",
    "trigger": {
     "type": "manual",
     "reason": "Run it by hand from Automations when a requirement is qualified."
    },
    "week": 4,
-   "prompt": "Act as FLEET — Proposal Consultant (Prepare consulting and app proposals from approved requirements.) Prepare a draft quote for the latest qualified requirement from approved rates and templates. Mark missing information. Do not send it. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Fleet: Proposal Consultant (Prepare consulting and app proposals from approved requirements.) Prepare a draft quote for the latest qualified requirement from approved rates and templates. Mark missing information. Do not send it. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "FLEET — Quote Draft"
+   ]
   },
   {
    "key": "auto19",
    "number": 19,
-   "name": "GROUP — Meeting Minutes",
+   "name": "Group: Meeting Minutes",
    "agent": "a11",
    "trigger": {
     "type": "builtin",
     "reason": "The Meetings page writes the summary, decisions and action items when you bring a transcript; there is no meeting-ended event to start an automation."
    },
-   "week": 7
+   "week": 7,
+   "former_names": [
+    "GROUP — Meeting Minutes"
+   ]
   },
   {
    "key": "auto20",
    "number": 20,
-   "name": "TYRE — Inspections Due",
+   "name": "Tyre: Inspections Due",
    "agent": "a4",
    "trigger": {
     "type": "schedule",
     "cron": "0 8 * * 1-5"
    },
    "week": 5,
-   "prompt": "Act as TYRE — Fleet Planner (Coordinate inspection and defect work for assigned clients and assets.) List tyre inspections due and overdue per client and asset, and the evidence each still needs. Missing evidence means incomplete, not passed. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Tyre: Fleet Planner (Coordinate inspection and defect work for assigned clients and assets.) List tyre inspections due and overdue per client and asset, and the evidence each still needs. Missing evidence means incomplete, not passed. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "TYRE — Inspections Due"
+   ]
   },
   {
    "key": "auto21",
    "number": 21,
-   "name": "TYRE — Critical Defect Alert",
+   "name": "Tyre: Critical Defect Alert",
    "agent": "a4",
    "trigger": {
     "type": "schedule",
     "cron": "0 9-18 * * 1-5"
    },
    "week": 5,
-   "prompt": "Act as TYRE — Fleet Planner (Coordinate inspection and defect work for assigned clients and assets.) Check tyre alerts for critical defects and escalate each to the responsible person at once. Never clear an asset for use. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Tyre: Fleet Planner (Coordinate inspection and defect work for assigned clients and assets.) Check tyre alerts for critical defects and escalate each to the responsible person at once. Never clear an asset for use. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "TYRE — Critical Defect Alert"
+   ]
   },
   {
    "key": "auto22",
    "number": 22,
-   "name": "TYRE — Weekly Readings Review",
+   "name": "Tyre: Weekly Readings Review",
    "agent": "a5",
    "trigger": {
     "type": "schedule",
     "cron": "0 9 * * 1"
    },
    "week": 5,
-   "prompt": "Act as TYRE — Tyre Analyst (Validate tyre readings and analyse tyre performance and cost.) Validate this week's tyre readings and summarise tyre performance from valid readings only. List exclusions with reasons. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Tyre: Tyre Analyst (Validate tyre readings and analyse tyre performance and cost.) Validate this week's tyre readings and summarise tyre performance from valid readings only. List exclusions with reasons. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "TYRE — Weekly Readings Review"
+   ]
   },
   {
    "key": "auto23",
    "number": 23,
-   "name": "GROUP — Weekly Marketing Brief",
+   "name": "Group: Weekly Marketing Brief",
    "agent": "a9",
    "trigger": {
     "type": "schedule",
     "cron": "0 10 * * 1"
    },
    "week": 6,
-   "prompt": "Act as GROUP — Marketing Studio (Prepare accurate, premium content for each business.) Prepare this week's marketing brief and content drafts for each business. Nothing is published without the owner's approval. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Group: Marketing Studio (Prepare accurate, premium content for each business.) Prepare this week's marketing brief and content drafts for each business. Nothing is published without the owner's approval. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GROUP — Weekly Marketing Brief"
+   ]
   },
   {
    "key": "auto24",
    "number": 24,
-   "name": "GROUP — New App Issue",
+   "name": "Group: New App Issue",
    "agent": "a10",
    "trigger": {
     "type": "webhook",
     "source": "the app issue tracker or support form"
    },
    "week": 6,
-   "prompt": "Act as GROUP — Product Support (Turn app issues into verified issue records and resolutions.) Prepare an issue record for this report: product, version if known, reproduction steps, expected and actual result, impact and evidence. Flag security or widespread failures. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Group: Product Support (Turn app issues into verified issue records and resolutions.) Prepare an issue record for this report: product, version if known, reproduction steps, expected and actual result, impact and evidence. Flag security or widespread failures. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GROUP — New App Issue"
+   ]
   },
   {
    "key": "auto25",
    "number": 25,
-   "name": "GROUP — Failed Run Review",
+   "name": "Group: Failed Run Review",
    "agent": "a12",
    "trigger": {
     "type": "event",
@@ -2319,7 +2595,10 @@
     ]
    },
    "week": 7,
-   "prompt": "Act as GROUP — Automation Guardian (Review automation outcomes, tool health and AI costs.) A task run failed. Review what failed, whether any external write or message may have happened, and propose a safe recovery. Do not retry external writes. Failed task {{trigger.task_id}}. If the data you need is not available, say Unavailable; never invent it."
+   "prompt": "Act as Group: Automation Guardian (Review automation outcomes, tool health and AI costs.) A task run failed. Review what failed, whether any external write or message may have happened, and propose a safe recovery. Do not retry external writes. Failed task {{trigger.task_id}}. If the data you need is not available, say Unavailable; never invent it.",
+   "former_names": [
+    "GROUP — Failed Run Review"
+   ]
   }
  ],
  "pilot_checks": [
@@ -2545,7 +2824,7 @@
   {
    "key": "m_people",
    "title": "Invite people and set their roles",
-   "detail": "Invite the Operations/Care Lead, Finance Reviewer, Product maintainer and Fleet specialist as members, the stakeholder as viewer, in Members. Give the trusted technical admin org_admin in Keycloak."
+   "detail": "In Members, invite the Operations and Care lead, the finance reviewer, the product maintainer and the fleet specialist as members, and the stakeholder as a viewer. Give your trusted technical admin the organization administrator role in Keycloak."
   },
   {
    "key": "m_approvers",
@@ -2555,89 +2834,89 @@
   {
    "key": "m_2fa",
    "title": "Turn on two-step sign-in for everyone",
-   "detail": "Two-step sign-in is enforced by the sign-in provider (Keycloak), not by this plan."
+   "detail": "Two-step sign-in is switched on in the sign-in service (Keycloak). This plan cannot do it for you."
   },
   {
    "key": "m_two_person",
    "title": "Turn on the two-person rule",
-   "detail": "Approval policy > Two-person rule, once a second owner exists."
+   "detail": "Go to Approval policy and turn on the two-person rule once you have a second owner."
   },
   {
    "key": "m_integrations",
    "title": "Connect integrations in the plan's order",
-   "detail": "Model gateway, SMTP and phone push, one mailbox per business, calendar, WhatsApp, commerce, Zoom or Teams, tyre planning, speech, web search, marketing and social, webhooks. Each needs your own account and credentials."
+   "detail": "Connect them in this order: AI model, email and phone alerts, one mailbox per business, calendar, WhatsApp, online store, Zoom or Teams, tyre planning, speech, web search, marketing and social media, webhooks. Each one needs your own account and login."
   },
   {
    "key": "m_documents",
    "title": "Upload the knowledge documents",
-   "detail": "Upload each business's documents into the knowledge folders with owner, version, approval status, effective date and review date in the title or a note."
+   "detail": "Upload each business's documents into the knowledge folders. In the title or a note, write who owns it, its version, whether it is approved, when it starts and when to review it."
   },
   {
    "key": "m_webhooks",
-   "title": "Add webhook triggers to the store, CRM and issue tracker automations",
-   "detail": "Automations 8, 9, 10, 16 and 24 need a webhook trigger from the source system. Create it in Automations > Triggers; its secret is shown once."
+   "title": "Connect the store, CRM and issue tracker to their automations",
+   "detail": "Automations 8, 9, 10, 16 and 24 start when another system (the store, the CRM or the issue tracker) sends a message. Set that up in Automations > Triggers. Its secret is shown only once."
   },
   {
    "key": "m_test_automations",
    "title": "Test and turn on each automation",
-   "detail": "Every automation is created turned off. Run it by hand, check the result, then turn on its schedule or trigger."
+   "detail": "Every automation starts turned off. Run it by hand, check the result, then turn on its schedule or trigger."
   },
   {
    "key": "m_whatsapp_templates",
    "title": "Choose routine WhatsApp templates",
-   "detail": "WhatsApp > Templates > Send without asking, after testing each template."
+   "detail": "In WhatsApp > Templates, choose which templates may send without asking. Test each one first."
   },
   {
    "key": "m_promote",
-   "title": "Promote agents one action at a time",
-   "detail": "Agents start at the plan's starting autonomy. Raise an agent's autonomy in its Settings only after its drafts have been checked."
+   "title": "Give agents more freedom one step at a time",
+   "detail": "Agents start with little freedom. Give an agent more in its Settings only after its drafts have been checked."
   }
  ],
  "unsupported": [
   {
    "key": "u_per_agent_budget",
    "title": "Per-agent AI budget caps",
-   "reason": "ANUM budgets AI use per workspace and per organization, not per agent. The plan's agent caps are added up into the workspace's monthly budget."
+   "reason": "ANUM sets an AI budget per workspace and per organization, not per agent. The plan adds the agents' amounts together into one monthly budget for the workspace."
   },
   {
    "key": "u_budget_alerts",
    "title": "Budget alerts at 50, 75 and 90 percent",
-   "reason": "ANUM records crossings at 80 and 100 percent only; at 100 percent it blocks, as the plan asks."
+   "reason": "ANUM warns at 80 percent and stops AI use at 100 percent, as the plan asks."
   },
   {
    "key": "u_banking",
    "title": "Banking, bank reconciliation and money movement",
-   "reason": "No bank connection or payment tool exists; COD reconciliation uses commerce order data only."
+   "reason": "ANUM cannot connect to a bank or move money. Cash on delivery is checked against store orders only."
   },
   {
    "key": "u_courier",
    "title": "Courier tracking and delivery proof",
-   "reason": "No courier integration exists; delivery status comes from the commerce connector only."
+   "reason": "ANUM is not connected to a courier. Delivery status comes from the online store only."
   },
   {
    "key": "u_departments",
    "title": "Departments as objects",
-   "reason": "A department is a name on agents and assistants; there is no department entity with its own members or policies."
+   "reason": "A department is only a label on agents and assistants. It has no members or rules of its own."
   },
   {
    "key": "u_agent_automations",
    "title": "Automations that run as a chosen agent",
-   "reason": "An automation's task runs as the person who owns the schedule; the prompt carries the agent's duty, not its tools or autonomy."
+   "reason": "An automation runs as the person who owns it. Its instructions describe the agent's job, but it does not get that agent's tools or freedom."
   },
   {
    "key": "u_per_workspace_agents",
    "title": "Agents placed in each business workspace",
-   "reason": "The plan is applied to the workspace you open it in. The business workspaces are created empty; open one and apply the plan there if it needs its own agents."
+   "reason": "The plan is applied to the workspace you open it in. The business workspaces start empty; open one and apply the plan there if it needs its own agents."
   },
   {
    "key": "u_home",
    "title": "Configurable Home priorities",
-   "reason": "Home shows Today's Focus, approvals and activity from the real modules in a fixed order; it never shows zero for missing data."
+   "reason": "Home shows Today's Focus, approvals and activity in a fixed order. It never shows zero when data is missing."
   },
   {
    "key": "u_loop_limits",
    "title": "Loop limit of 5 cycles and retry counts per agent",
-   "reason": "Run limits are fixed by the runtime, not configurable per agent."
+   "reason": "ANUM sets how many times a task may retry or repeat. It cannot be changed per agent."
   }
  ]
 }

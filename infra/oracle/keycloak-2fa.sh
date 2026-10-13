@@ -95,7 +95,7 @@ case "$ACTION" in
     ;;
   sign-up)
     PRIVACY_URL="$(env_value ANUM_PRIVACY_POLICY_URL)"
-    [ -n "$PRIVACY_URL" ] || die "set ANUM_PRIVACY_POLICY_URL in $ENV_FILE (the published privacy policy, https) first"
+    [ -n "$PRIVACY_URL" ] || die "set ANUM_PRIVACY_POLICY_URL in $ENV_FILE (the published privacy policy, https; the web host serves one at https://$(env_value ANUM_WEB_HOST)/privacy) first"
     ;;
 esac
 command -v python3 >/dev/null || die "python3 is missing"

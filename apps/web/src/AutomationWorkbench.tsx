@@ -29,7 +29,7 @@ function Badge({ status }: { status: string }) { return <span className={`status
 /**
  * Automations (docs/automation.md): a searchable, paged list; the selected automation's steps,
  * schedules and run history; a composer for creating and editing. Owners change any automation,
- * members their own, viewers read only — the page says so instead of showing dead buttons.
+ * members their own, viewers read only; the page says so instead of showing dead buttons.
  */
 export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 0 }: { focus?: AutomationFocus | null; onOpenTask?: (taskId: string) => void; refreshSignal?: number }) {
   const [viewer, setViewer] = useState<Viewer>({ userId: api.currentUserId(), role: null });

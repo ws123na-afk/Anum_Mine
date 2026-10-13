@@ -79,7 +79,7 @@ export function ChatCardView({ card, live = false, onChange, onOpen }: { card: C
         <div><dt>{t('chatCard.approval.action')}</dt><dd><code>{approval.action}</code></dd></div>
         <div><dt>{t('chatCard.approval.risk')}</dt><dd><span className={`statusBadge ${approval.risk_level === 'high' ? 'dangerTone' : 'warning'}`}>{riskLabel(approval.risk_level)}</span></dd></div>
         {approval.target && <div><dt>{t('chatCard.approval.target')}</dt><dd><code>{approval.target}</code></dd></div>}
-        <div><dt>{t('chatCard.approval.hash')}</dt><dd><code className="chatCardHash">{approval.payload_hash ?? '—'}</code></dd></div>
+        <div><dt>{t('chatCard.approval.hash')}</dt><dd><code className="chatCardHash">{approval.payload_hash ?? '-'}</code></dd></div>
       </dl>
       {approval.arguments && Object.keys(approval.arguments).length > 0 && <details className="chatCardArgs"><summary>{t('chatCard.approval.arguments')}</summary>
         <dl>{Object.entries(approval.arguments).map(([key, value]) => <div key={key}><dt>{key}</dt><dd dir="auto">{display(value)}</dd></div>)}</dl>

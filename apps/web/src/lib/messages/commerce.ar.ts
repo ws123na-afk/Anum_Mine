@@ -320,7 +320,7 @@ export const commerceAr: Record<keyof typeof commerceEn, Message> = {
 
   'commerce.page.previous': 'السابق',
   'commerce.page.next': 'التالي',
-  'commerce.page.window': '{first}–{last} من {total}',
+  'commerce.page.window': '{first} إلى {last} من {total}',
   'commerce.page.none': 'لا شيء لعرضه',
   'commerce.notify.title': 'تنبيه المتجر',
   'commerce.notify.fallback': 'قناة بيع تحتاج إلى اهتمامك.',

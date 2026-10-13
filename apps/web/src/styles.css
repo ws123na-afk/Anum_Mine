@@ -519,6 +519,8 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
 .signInDivider { align-items: center; color: var(--d-muted); display: flex; font-size: 13px; gap: var(--d-s3); }
 .signInDivider::before, .signInDivider::after { border-top: 1px solid var(--d-line); content: ""; flex: 1; }
 .signInSwitch { color: var(--d-muted); font-size: 14px; text-align: center; }
+.signInLegal { display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s1) var(--d-s3); justify-content: center; }
+.signInLegal a { color: var(--d-muted); }
 .linkButton { background: none; border: 0; box-shadow: none; color: var(--d-sky); cursor: pointer; display: inline-flex; font: inherit; font-weight: 600; gap: var(--d-s1); min-height: 0; padding: 0; text-decoration: underline; width: auto; }
 .linkButton svg { block-size: 16px; inline-size: 16px; }
 .consent { align-items: flex-start; display: flex; gap: var(--d-s2); font-size: 14px; }

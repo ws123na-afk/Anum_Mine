@@ -70,7 +70,7 @@ describe('rollout and results', () => {
   test('fixed reasons are shown in the reader\'s language; others are the API sentence', () => {
     setLocale('ar');
     try {
-      assert.match(reasonText(item('a', { reason_code: 'needs_org_admin', reason: 'Needs the organization administrator role' })), /org_admin/);
+      assert.match(reasonText(item('a', { reason_code: 'needs_org_admin', reason: 'Needs the organization administrator role' })), /مسؤول المؤسسة/);
       assert.doesNotMatch(reasonText(item('a', { reason_code: 'needs_org_admin', reason: 'x' })), /^Needs/);
       assert.equal(reasonText(item('a', { reason_code: 'will_create', reason: 'Created active.' })), 'Created active.');
     } finally { setLocale('en'); }

@@ -227,7 +227,7 @@ function ForecastRow({ item }: { item: TyreForecast }) {
     <td dir="auto">{item.current_tread_mm === null ? '-' : `${num(item.current_tread_mm)} mm`}</td>
     <td>{item.wear_mm_per_30_days === null ? '-' : t('tyre.forecast.wear', { value: num(item.wear_mm_per_30_days, 2) })}{item.wear_mm_per_1000km !== null && <small>{t('tyre.forecast.wearKm', { value: num(item.wear_mm_per_1000km, 2) })}</small>}</td>
     <td><span className={`statusBadge ${forecastTone(item, today())}`}>{item.state === 'due' ? t('tyre.forecast.dueNow') : item.projected_removal ? day(item.projected_removal) : t(`tyre.state.${item.state}` as MessageKey)}</span></td>
-    <td>{item.earliest_removal ? `${day(item.earliest_removal)} – ${item.latest_removal ? day(item.latest_removal) : t('tyre.forecast.later')}` : '-'}{item.note && <small>{item.note}</small>}</td>
+    <td>{item.earliest_removal ? t('tyre.forecast.window', { from: day(item.earliest_removal), to: item.latest_removal ? day(item.latest_removal) : t('tyre.forecast.later') }) : '-'}{item.note && <small>{item.note}</small>}</td>
     <td><span className={`statusBadge ${confidenceTone(item.confidence)}`}>{t(`tyre.confidence.${item.confidence}` as MessageKey)}</span><small>{t(`tyre.basis.${item.basis}` as MessageKey)}</small></td>
   </tr>;
 }
