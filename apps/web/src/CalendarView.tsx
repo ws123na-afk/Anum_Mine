@@ -321,10 +321,11 @@ function EventFormDialog({ event, day, onClose, onSaved }: { event: CalendarEven
       <label className="field"><span>{t('calendar.form.title')}</span><input data-autofocus dir="auto" value={form.title} maxLength={160} required aria-invalid={touched && problem === 'title' ? true : undefined} onChange={(e) => set('title', e.target.value)} /></label>
       <div className="calendarFormRow">
         <label className="field"><span>{t('calendar.kind')}</span><select value={form.kind} onChange={(e) => set('kind', e.target.value as EventForm['kind'])}>{EVENT_KINDS.map((k) => <option key={k} value={k}>{t(`calendar.kind.${k}` as MessageKey)}</option>)}</select></label>
-        <label className="field"><span>{t('calendar.form.date')}</span><input type="date" value={form.date} required onChange={(e) => set('date', e.target.value)} /></label>
+        <label className="field"><span>{t('calendar.form.date')}</span><input type="date" value={form.date} required onChange={(e) => { const date = e.target.value; setForm((old) => ({ ...old, date, endDate: old.endDate === old.date || old.endDate < date ? date : old.endDate })); }} /></label>
       </div>
       <div className="calendarFormRow">
         <label className="field"><span>{t('calendar.form.start')}</span><input type="time" value={form.startTime} required onChange={(e) => set('startTime', e.target.value)} /></label>
+        <label className="field"><span>{t('calendar.form.endDate')}</span><input type="date" value={form.endDate} min={form.date} required aria-invalid={touched && problem === 'order' ? true : undefined} onChange={(e) => set('endDate', e.target.value)} /></label>
         <label className="field"><span>{t('calendar.form.end')}</span><input type="time" value={form.endTime} required aria-invalid={touched && problem === 'order' ? true : undefined} onChange={(e) => set('endTime', e.target.value)} /></label>
       </div>
       <label className="field"><span>{t('calendar.location')}</span><input dir="auto" value={form.location} maxLength={200} onChange={(e) => set('location', e.target.value)} /></label>

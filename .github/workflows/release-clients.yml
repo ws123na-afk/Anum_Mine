@@ -99,9 +99,9 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
       BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
-      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
-      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
+      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
+      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
     steps:
       - uses: actions/checkout@v7
       - name: Check signing secrets and production configuration
@@ -112,9 +112,9 @@ jobs:
           ANUM_ANDROID_KEY_ALIAS: ${{ secrets.ANUM_ANDROID_KEY_ALIAS }}
           ANUM_ANDROID_KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          ANUM_PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
-          ANUM_PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
-          ANUM_PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
+          ANUM_PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
+          ANUM_PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
+          ANUM_PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
           UPLOAD: ${{ needs.version.outputs.upload }}
         run: bash .github/scripts/mobile-release-config.sh android
       - uses: actions/setup-java@v6
@@ -136,6 +136,11 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/anum-upload.jks"
           test -s "$RUNNER_TEMP/anum-upload.jks"
           echo "ANUM_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/anum-upload.jks" >> "$GITHUB_ENV"
+      - name: Write the Firebase push config
+        if: steps.config.outputs.build == 'true'
+        env:
+          ANUM_ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANUM_ANDROID_GOOGLE_SERVICES_JSON }}
+        run: bash .github/scripts/mobile-firebase-config.sh android
       - name: Build the signed app bundle
         if: steps.config.outputs.build == 'true'
         working-directory: apps/mobile
@@ -199,6 +204,87 @@ jobs:
         if: steps.config.outputs.build == 'true' && steps.config.outputs.play != 'true'
         run: echo "::notice title=Play upload skipped::Build-only run. A release tag or the upload input uploads (and then needs the PLAY_SERVICE_ACCOUNT_JSON secret)."
 
+  android-apk:
+    # An installable APK for phones that are not on a Play track (sideloading, the owner's own
+    # phone). Built on every run with the production configuration, so it can never fall back to
+    # the development sign-in. Signed with the upload key when all four signing secrets are set,
+    # else with the debug key (installable, never uploaded to Play); docs/mobile.md#installable-apk.
+    name: Android installable APK
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
+      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the production configuration
+        run: |
+          for value in "$PRODUCTION_API_URL" "$PRODUCTION_OIDC_ISSUER" "$PRODUCTION_WEB_APP_URL"; do
+            if [[ "$value" != https://* ]]; then
+              echo "::error title=APK misconfigured::The ANUM_PRODUCTION_* variables must start with https:// (got $value)."
+              exit 1
+            fi
+          done
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+      - name: Decode the upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANUM_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::notice title=APK signed with the debug key::The Android signing secrets are not set. The APK installs on a phone but cannot update a Play-installed app and must never be uploaded to Play."
+            exit 0
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/anum-upload.jks"
+          test -s "$RUNNER_TEMP/anum-upload.jks"
+          echo "ANUM_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/anum-upload.jks" >> "$GITHUB_ENV"
+      - name: Write the Firebase push config
+        env:
+          ANUM_ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANUM_ANDROID_GOOGLE_SERVICES_JSON }}
+        run: bash .github/scripts/mobile-firebase-config.sh android
+      - name: Build the release APK
+        working-directory: apps/mobile
+        env:
+          ANUM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANUM_ANDROID_KEYSTORE_PASSWORD }}
+          ANUM_ANDROID_KEY_ALIAS: ${{ secrets.ANUM_ANDROID_KEY_ALIAS }}
+          ANUM_ANDROID_KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter pub get
+          jq -n --arg api "$PRODUCTION_API_URL" --arg issuer "$PRODUCTION_OIDC_ISSUER" --arg web "$PRODUCTION_WEB_APP_URL" \
+            '{ANUM_API_URL: $api, ANUM_OIDC_ISSUER: $issuer, ANUM_WEB_APP_URL: $web}' > "$RUNNER_TEMP/production.json"
+          flutter build apk --release \
+            --build-name="$VERSION" --build-number="$BUILD_NUMBER" \
+            --obfuscate --split-debug-info=build/symbols \
+            --dart-define-from-file="$RUNNER_TEMP/production.json"
+          dir=build/app/outputs/flutter-apk
+          mv "$dir/app-release.apk" "$dir/anum-$VERSION-$BUILD_NUMBER.apk"
+          (cd "$dir" && sha256sum "anum-$VERSION-$BUILD_NUMBER.apk" | tee "anum-$VERSION-$BUILD_NUMBER.apk.sha256")
+          {
+            echo "- Installable APK: \`$(cat "$dir/anum-$VERSION-$BUILD_NUMBER.apk.sha256")\`"
+            echo "  - API \`$PRODUCTION_API_URL\`, sign-in \`$PRODUCTION_OIDC_ISSUER\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove the decoded keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/anum-upload.jks"
+      - name: Upload the APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: anum-android-apk
+          path: |
+            apps/mobile/build/app/outputs/flutter-apk/anum-*.apk
+            apps/mobile/build/app/outputs/flutter-apk/anum-*.apk.sha256
+          if-no-files-found: error
+
   ios:
     name: iOS app
     needs: version
@@ -207,9 +293,9 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
       BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
-      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
-      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
+      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
+      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
+      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
     defaults:
       run:
         working-directory: apps/mobile
@@ -224,15 +310,21 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
-          ANUM_PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
-          ANUM_PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
-          ANUM_PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
+          ANUM_PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
+          ANUM_PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
+          ANUM_PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
           UPLOAD: ${{ needs.version.outputs.upload }}
         run: bash .github/scripts/mobile-release-config.sh ios
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
+      - name: Write the Firebase push config
+        # The job's default working directory is apps/mobile.
+        working-directory: .
+        env:
+          ANUM_IOS_GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.ANUM_IOS_GOOGLE_SERVICE_INFO_PLIST }}
+        run: bash .github/scripts/mobile-firebase-config.sh ios
       - run: flutter pub get
       - name: Compile check (no code signing)
         if: steps.config.outputs.signed != 'true'

@@ -117,6 +117,7 @@ export const calendarEn = {
   'calendar.form.date': 'Date',
   'calendar.form.start': 'Starts',
   'calendar.form.end': 'Ends',
+  'calendar.form.endDate': 'End date',
   'calendar.form.link': 'Meeting link',
   'calendar.form.phone': 'Phone number',
   'calendar.form.attendees': 'People',

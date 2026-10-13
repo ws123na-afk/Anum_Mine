@@ -268,7 +268,8 @@ test('focus mode shows only the scene and the orb, still talks, and Esc restores
   await probe(page, (p) => p.endSpeech());
   await page.keyboard.press('Escape');
   await expect(voice).not.toHaveAttribute('data-focus', /.+/);
-  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+  // Leaving the browser's full screen finishes after the page has already dropped focus mode.
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
   await expect(voice.locator('.voiceSpaceBar')).toBeVisible();
   await expect(voice.locator('.voiceSpaceBottom')).toBeVisible();
 });
