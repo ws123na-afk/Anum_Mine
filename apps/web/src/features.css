@@ -24,10 +24,34 @@
 .featureToggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; }
 .featureToggle input { width: 18px; height: 18px; }
 
-/* Memory view: a memory remembered from a chat links back to its conversation. One row per memory
-   on wider screens (text, index state, source, delete); stacked below 760px like the shared rule. */
-@media (min-width: 761px) {
-  .memoryTable .memoryRow { grid-template-columns: minmax(0, 1fr) auto minmax(0, max-content) auto; }
+/* Memory view: one toolbar row (search, source filter, chat memory chip, re-index, add), then the
+   memories grouped by where they came from, each group a table (PageParts.tsx .dataTable). */
+.kbBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); margin-bottom: var(--d-s3); min-width: 0; }
+.kbBar .kbSearch { flex: 1 1 320px; }
+.kbBarActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-inline-start: auto; }
+.kbBarActions > button:not(.chipButton) { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s3); }
+.kbBarActions > button:not(.secondary):not(.chipButton) { background: var(--d-primary-grad); border: 0; box-shadow: var(--d-button-shadow); color: var(--d-on-primary); font-weight: 650; }
+.segmentedRadios { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 12px; gap: 2px; padding: 3px; }
+.segmentedRadios label { border-radius: 9px; color: var(--d-muted); font-size: 13px; font-weight: 600; min-height: 34px; padding: 0 var(--d-s3); }
+.segmentedRadios label:has(input:checked) { background: var(--d-glass-3); color: var(--d-text); }
+.segmentedRadios input { height: 14px; width: 14px; }
+.memoryTable { overflow: visible; }
+.memoryRows { table-layout: fixed; }
+.memoryColText { width: auto; } .memoryColSource { width: 150px; } .memoryColAdded { width: 130px; } .memoryColIndex { width: 120px; } .memoryColActions { width: 150px; }
+.memoryRows tr.memoryGroupRow > th { background: var(--d-glass-1); color: var(--d-text); font-size: 13px; font-weight: 650; padding-block: var(--d-s2); }
+.memoryRows tr.memoryGroupRow:hover > th { background: var(--d-glass-1); }
+.memoryRows tr.memoryRow { display: table-row; padding: 0; }
+.memoryRows td { vertical-align: top; }
+.memoryCell { min-width: 220px; }
+.memoryCell p { color: var(--d-text); font-size: 14px; margin: 2px 0 0; overflow-wrap: anywhere; }
+.memoryLabel { align-items: center; display: flex; gap: var(--d-s2); }
+.memoryLabel strong { color: var(--d-muted); font-size: 12.5px; font-weight: 600; }
+.typeIcon.small { border-radius: 8px; height: 24px; width: 24px; }
+.typeIcon.small svg { height: 14px; width: 14px; }
+.memoryRows .memoryChatLink { min-height: 34px; }
+@media (max-width: 760px) {
+  .memoryCell { min-width: 0; } .kbBarActions { margin-inline-start: 0; }
+  .memoryRows { table-layout: auto; }
 }
 .memorySource { color: var(--d-faint); display: block; font-size: 12px; margin-top: var(--d-s1); overflow-wrap: anywhere; }
 .memoryChatLink { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13px; gap: var(--d-s1); min-height: 44px; padding: 0 var(--d-s3); white-space: nowrap; width: fit-content; }

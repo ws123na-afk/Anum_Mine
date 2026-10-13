@@ -171,3 +171,29 @@ button.chatCardItem:hover, a.chatCardItem:hover { background: var(--d-glass-2); 
 .chatTurn.user > .chatMeta, .chatTurn.user > .chatEdit { flex-basis: 100%; text-align: end; }
 .chatTurn.user > .msgActions { margin-top: 0; }
 @media (max-width: 480px) { .chatLog { gap: var(--d-s3); } }
+
+/* ---------- The AI Chat page (docs/conversations.md#page-layout): conversations, the thread and the
+   context rail as panes that fill the window (PageParts.tsx SplitView). Embedded in an agent's page
+   the chat keeps the two columns above. ---------- */
+.chatTalkTo { align-items: center; color: var(--d-muted); display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s2); min-width: 0; white-space: nowrap; }
+.chatTalkTo select { max-width: 220px; min-height: 40px; }
+.splitView.chatSplit { align-items: stretch; }
+@media (min-width: 1024px) {
+  .splitView.chatSplit { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); }
+  .chatSplit .chatList { align-content: start; grid-auto-rows: max-content; position: static; }
+  .chatSplit .chatListScroll { max-height: none; overflow: visible; }
+  .chatSplit .chatPanel { display: flex; flex-direction: column; overflow: hidden; }
+  .chatSplit .chatPanel > * { flex: none; }
+  .chatSplit .chatPanel > .chatLog { flex: 1 1 auto; max-height: none; min-height: 0; }
+}
+@media (min-width: 1280px) {
+  .splitView.chatSplit { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(250px, 290px); }
+}
+.chatRail { display: grid; min-width: 0; }
+.chatRailPane { padding: var(--d-s1) 0; }
+.railIcon { color: var(--d-violet); flex: none; height: 14px; margin-inline-end: var(--d-s1); vertical-align: -2px; width: 14px; }
+.chatRail .railItem strong { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+a.railItem { text-decoration: none; }
+a.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line); }
+.chatRail .statusBadge { font-size: 11px; padding: 0 6px; }
+.chatRailToggle { flex: none; }

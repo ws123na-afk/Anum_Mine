@@ -1,16 +1,20 @@
 // Knowledge base (docs/knowledge-base.md): collections of documents and notes, keyword plus
 // semantic search, "Ask the knowledge base" with numbered, provenance-labelled citations,
 // index state per item and re-index, and per-collection visibility (workspace or private).
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { BookOpen, CircleDot, FilePlus2, FileText, Library, Link2, Lock, NotebookPen, RefreshCw, Search, Sparkles, Trash2, Upload, Users } from 'lucide-react';
+// The page leads with the index summary; a collection opens straight onto its items table and
+// the create and add forms open in dialogs.
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { BookOpen, CircleDot, FilePlus2, FileText, Library, Link2, Lock, NotebookPen, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, Users } from 'lucide-react';
 import type { KnowledgeAnswer, KnowledgeCollection, KnowledgeItem, KnowledgeItemKind, KnowledgeItemPage, KnowledgeSearchResult, Visibility } from '@anum/contracts';
-import { ConfirmDialog, Drawer } from './Dialog';
+import { ConfirmDialog, Drawer, Modal } from './Dialog';
 import { StarButton, useStars } from './Favorites';
 import { getFiles } from './lib/api';
 import { ApiError, describeError, isBudgetExceeded, isPermissionDenied, budgetMessage } from './lib/errors';
-import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { ITEMS_PAGE, fileSize, parseTags } from './lib/library';
 import * as lib from './lib/libraryApi';
+import { KnowledgeSummary, useRetrievalStatus } from './MemoryView';
+import { DialogButton, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './library.css';
 
 type Flash = { text: string; error?: boolean } | null;
@@ -35,59 +39,64 @@ export function KnowledgeView({ initialCollectionId }: { initialCollectionId?: s
   const [selected, setSelected] = useState<string | null>(initialCollectionId ?? null);
   const [flash, setFlash] = useState<Flash>(null);
   const stars = useStars('collection');
+  const retrieval = useRetrievalStatus();
+  const wide = useMediaQuery(SPLIT_QUERY);
 
   const fetchCollections = useCallback(async () => {
     setLoad({ kind: 'loading' });
     try {
       const rows = await lib.listCollections();
       setCollections(rows);
-      setSelected((current) => current && rows.some((c) => c.id === current) ? current : rows[0]?.id ?? null);
       setLoad({ kind: 'ready' });
     } catch (e) { setLoad(isPermissionDenied(e) ? { kind: 'forbidden', detail: describeError(e) } : { kind: 'error', detail: describeError(e) }); }
   }, []);
   useEffect(() => { void fetchCollections(); }, [fetchCollections]);
+  // A collection opens straight onto its items: the one linked to, else the first on a wide screen.
+  useEffect(() => { if (wide && load.kind === 'ready' && !selected && collections[0]) setSelected(collections[0].id); }, [wide, load.kind, selected, collections]);
 
   const choose = (id: string | null) => { setSelected(id); history.replaceState(null, '', id ? `#knowledge/${encodeURIComponent(id)}` : '#knowledge'); };
   const current = collections.find((c) => c.id === selected) ?? null;
   const missing = load.kind === 'ready' && initialCollectionId && selected === initialCollectionId && !current;
+  const created = (c: KnowledgeCollection) => { setCollections((rows) => [...rows, c].sort((a, b) => a.name.localeCompare(b.name))); choose(c.id); setFlash({ text: t('kb.created', { name: c.name }) }); };
 
   return <>
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('kb.eyebrow')}</p><h2>{t('kb.title')}</h2><p>{t('kb.intro')}</p></div>
-    </section>
+    <KnowledgeSummary status={retrieval.status} onRetry={retrieval.reload} />
     <Notice flash={flash} />
     {stars.error && <Notice flash={{ text: stars.error, error: true }} />}
-    {load.kind === 'loading' && <p className="muted" role="status">{t('kb.loading')}</p>}
-    {load.kind === 'forbidden' && <div className="surface libraryState" role="alert"><Lock aria-hidden="true" /><p>{t('kb.forbidden', { message: load.detail })}</p></div>}
-    {load.kind === 'error' && <div className="surface libraryState" role="alert"><p>{t('kb.loadFailed', { message: load.detail })}</p><button type="button" className="secondary" onClick={() => void fetchCollections()}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
-    {load.kind === 'ready' && <>
-      {collections.length > 0 && <AskPanel collections={collections} selected={current} />}
-      <div className="kbLayout">
-        <aside className="surface libraryPanel kbCollections" aria-labelledby="kb-collections">
-          <h3 id="kb-collections">{t('kb.collections')}</h3>
-          {collections.length === 0 && <p className="muted">{t('kb.noCollections')}</p>}
-          {collections.length > 0 && <ul className="kbCollectionList">{collections.map((c) => <li key={c.id}>
+    {load.kind === 'loading' && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('kb.loading')}</p>}
+    {load.kind === 'forbidden' && <div className="surface emptyState" role="alert"><Lock aria-hidden="true" /><h3>{t('pages.kb.deniedTitle')}</h3><p>{t('kb.forbidden', { message: load.detail })}</p></div>}
+    {load.kind === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('kb.loadFailed', { message: load.detail })}</span><button type="button" className="secondary" onClick={() => void fetchCollections()}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
+    {load.kind === 'ready' && collections.length === 0 && <section className="surface kbStart" aria-labelledby="kb-start">
+      <div className="kbStartText"><Library aria-hidden="true" /><h3 id="kb-start">{t('kb.emptyTitle')}</h3><p>{t('kb.emptyText')}</p></div>
+      <CreateCollection onCreated={created} />
+    </section>}
+    {load.kind === 'ready' && collections.length > 0 && <>
+      <AskPanel collections={collections} selected={current} action={<DialogButton label={t('kb.newCollection')} icon={<Plus aria-hidden="true" />} className="secondary">{(close) => <CreateCollection onCreated={(c) => { close(); created(c); }} onCancel={close} />}</DialogButton>} />
+      <SplitView className="kbSplit" show={current ? 'detail' : 'list'}>
+        <aside data-pane="list" className="pane kbCollections" aria-labelledby="kb-collections">
+          <div className="paneHead"><h2 id="kb-collections">{t('kb.collections')} <span className="muted">{formatNumber(collections.length)}</span></h2></div>
+          <ul className="kbCollectionList">{collections.map((c) => <li key={c.id}>
             <button type="button" className={`kbCollectionButton ${c.id === selected ? 'active' : ''}`} aria-current={c.id === selected ? 'true' : undefined} onClick={() => choose(c.id)}>
               <span dir="auto">{c.name}</span>
               <small>{c.visibility === 'private' ? <Lock aria-label={t('library.private')} /> : <Users aria-label={t('library.workspace')} />}{t('kb.itemCount', { n: c.item_count })}</small>
             </button>
-          </li>)}</ul>}
-          <CreateCollection onCreated={(c) => { setCollections((rows) => [...rows, c].sort((a, b) => a.name.localeCompare(b.name))); choose(c.id); setFlash({ text: t('kb.created', { name: c.name }) }); }} />
+          </li>)}</ul>
         </aside>
-        <section className="kbDetail">
-          {missing && <div className="surface libraryState" role="alert"><p>{t('kb.collectionMissing')}</p></div>}
-          {!current && !missing && collections.length === 0 && <div className="surface emptyState"><Library aria-hidden="true" /><h3>{t('kb.emptyTitle')}</h3><p>{t('kb.emptyText')}</p></div>}
+        <section data-pane="detail" className="pane kbDetail" aria-label={current ? undefined : t('kb.collections')}>
+          {missing && <div className="paneBody"><p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{t('kb.collectionMissing')}</p></div>}
+          {!current && !missing && <div className="paneEmpty"><BookOpen aria-hidden="true" /><h3>{t('pages.kb.pickTitle')}</h3><p>{t('pages.kb.pickText')}</p></div>}
           {current && <CollectionDetail key={current.id} collection={current} starred={stars.ids.has(current.id)} onStar={() => void stars.toggle(current.id)}
+            onBack={() => choose(null)}
             onChanged={(c) => setCollections((rows) => rows.map((row) => row.id === c.id ? c : row))}
-            onCountChange={(delta) => setCollections((rows) => rows.map((row) => row.id === current.id ? { ...row, item_count: Math.max(0, row.item_count + delta) } : row))}
-            onDeleted={() => { setFlash({ text: t('kb.deleted', { name: current.name }) }); setCollections((rows) => rows.filter((row) => row.id !== current.id)); choose(collections.find((c) => c.id !== current.id)?.id ?? null); }} />}
+            onCountChange={(delta) => { setCollections((rows) => rows.map((row) => row.id === current.id ? { ...row, item_count: Math.max(0, row.item_count + delta) } : row)); retrieval.reload(); }}
+            onDeleted={() => { setFlash({ text: t('kb.deleted', { name: current.name }) }); setCollections((rows) => rows.filter((row) => row.id !== current.id)); choose(collections.find((c) => c.id !== current.id)?.id ?? null); retrieval.reload(); }} />}
         </section>
-      </div>
+      </SplitView>
     </>}
   </>;
 }
 
-function CreateCollection({ onCreated }: { onCreated: (c: KnowledgeCollection) => void }) {
+function CreateCollection({ onCreated, onCancel }: { onCreated: (c: KnowledgeCollection) => void; onCancel?: () => void }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<Visibility>('workspace');
@@ -101,20 +110,19 @@ function CreateCollection({ onCreated }: { onCreated: (c: KnowledgeCollection) =
     catch (e) { setProblem(failure(e, 'kb.createDenied')); }
     finally { setBusy(false); }
   }
-  return <form className="kbCreate" onSubmit={submit} aria-labelledby="kb-create-title">
-    <h4 id="kb-create-title">{t('kb.newCollection')}</h4>
-    <label className="field"><span>{t('kb.name')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} dir="auto" /></label>
+  return <form className="kbCreate" onSubmit={submit} aria-label={t('kb.newCollection')}>
+    <label className="field"><span>{t('kb.name')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} dir="auto" data-autofocus /></label>
     <label className="field"><span>{t('kb.description')}</span><input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={1000} dir="auto" /></label>
     <fieldset className="kbVisibility"><legend>{t('kb.visibility')}</legend>
       <label><input type="radio" name="kb-visibility" checked={visibility === 'workspace'} onChange={() => setVisibility('workspace')} />{t('library.workspace')}</label>
       <label><input type="radio" name="kb-visibility" checked={visibility === 'private'} onChange={() => setVisibility('private')} />{t('library.privateToMe')}</label>
     </fieldset>
     {problem && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{problem}</p>}
-    <div className="actions"><button type="submit" disabled={busy}><FilePlus2 aria-hidden="true" />{busy ? t('kb.creating') : t('kb.create')}</button></div>
+    <div className="actions"><button type="submit" disabled={busy}><FilePlus2 aria-hidden="true" />{busy ? t('kb.creating') : t('kb.create')}</button>{onCancel && <button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button>}</div>
   </form>;
 }
 
-function AskPanel({ collections, selected }: { collections: KnowledgeCollection[]; selected: KnowledgeCollection | null }) {
+function AskPanel({ collections, selected, action }: { collections: KnowledgeCollection[]; selected: KnowledgeCollection | null; action?: ReactNode }) {
   const [text, setText] = useState('');
   const [scope, setScope] = useState<'all' | 'current'>('all');
   const [busy, setBusy] = useState<'ask' | 'search' | null>(null);
@@ -135,45 +143,47 @@ function AskPanel({ collections, selected }: { collections: KnowledgeCollection[
     finally { setBusy(null); }
   }
 
-  return <section className="surface libraryPanel kbAsk" aria-labelledby="kb-ask-title">
-    <h3 id="kb-ask-title"><Sparkles aria-hidden="true" />{t('kb.askTitle')}</h3>
-    <form className="kbAskForm" onSubmit={(e) => { e.preventDefault(); void run('ask'); }}>
-      <label className="field kbAskInput"><span>{t('kb.askLabel')}</span><input type="search" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('kb.askPlaceholder')} maxLength={2000} dir="auto" /></label>
-      {selected && <label className="field"><span>{t('kb.scope')}</span>
-        <select value={scope} onChange={(e) => setScope(e.target.value as 'all' | 'current')}><option value="all">{t('kb.scopeAll')}</option><option value="current">{t('kb.scopeCurrent', { name: selected.name })}</option></select>
-      </label>}
-      <div className="actions kbAskActions">
-        <button type="submit" disabled={busy !== null}><Sparkles aria-hidden="true" />{busy === 'ask' ? t('kb.asking') : t('kb.ask')}</button>
-        <button type="button" className="secondary" disabled={busy !== null} onClick={() => void run('search')}><Search aria-hidden="true" />{busy === 'search' ? t('kb.searching') : t('common.search')}</button>
-      </div>
+  return <section className="kbAsk" aria-labelledby="kb-ask-title">
+    <h2 id="kb-ask-title" className="visuallyHidden">{t('kb.askTitle')}</h2>
+    <form className="toolbar kbAskForm" onSubmit={(e) => { e.preventDefault(); void run('ask'); }}>
+      <label className="visuallyHidden" htmlFor="kb-ask-input">{t('kb.askLabel')}</label>
+      <input id="kb-ask-input" type="search" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('kb.askPlaceholder')} maxLength={2000} dir="auto" />
+      {selected && <><label className="visuallyHidden" htmlFor="kb-ask-scope">{t('kb.scope')}</label>
+        <select id="kb-ask-scope" value={scope} onChange={(e) => setScope(e.target.value as 'all' | 'current')}><option value="all">{t('kb.scopeAll')}</option><option value="current">{t('kb.scopeCurrent', { name: selected.name })}</option></select></>}
+      <button type="submit" disabled={busy !== null}><Sparkles aria-hidden="true" />{busy === 'ask' ? t('kb.asking') : t('kb.ask')}</button>
+      <button type="button" className="secondary" disabled={busy !== null} onClick={() => void run('search')}><Search aria-hidden="true" />{busy === 'search' ? t('kb.searching') : t('common.search')}</button>
+      {action}
     </form>
     {problem && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{problem}</p>}
-    {answer && <div className="kbAnswer" aria-live="polite">
-      {answer.status !== 'answered' && <p className="notice" role="status"><CircleDot aria-hidden="true" />{answer.answer}</p>}
-      {answer.status === 'answered' && <p className="kbAnswerText" dir="auto">{answer.answer}</p>}
-      {answer.citations.length > 0 && <><h4>{t('kb.sources')}</h4><ol className="kbCitations">{answer.citations.map((c) => <li key={c.n} value={c.n}>
-        <strong dir="auto">{c.title}</strong> <span className="statusBadge neutral">{c.provenance === 'file' ? t('kb.provenance.file') : t('kb.provenance.memory')}</span>
-        <small>{names.get(c.collection_id) ?? ''} · {t('kb.match', { score: Math.round(c.score * 100) })}</small>
-        <q dir="auto">{c.snippet}</q>
-      </li>)}</ol><p className="muted kbUntrusted">{t('kb.untrusted')}</p></>}
-    </div>}
-    {results && <div className="kbResults" aria-live="polite">
-      {results.semantic === 'no_index' && <p className="muted">{t('kb.semanticNoIndex')}</p>}
-      {results.semantic === 'unavailable' && <p className="muted">{t('kb.semanticUnavailable')}</p>}
-      {results.hits.length === 0 ? <p className="muted">{t('kb.noHits', { query: results.query })}</p>
-        : <ul className="libraryList">{results.hits.map((hit) => <li key={hit.item.id} className="libraryRow">
-          <span className="libraryMain">
-            <strong dir="auto">{hit.item.title}</strong>
-            <small>{hit.collection_name} · {hit.matched_by.map((m) => t(`kb.matched.${m}` as MessageKey)).join(' + ')}</small>
-            {hit.snippet && <q dir="auto">{hit.snippet}</q>}
-          </span>
-        </li>)}</ul>}
+    {(answer || results) && <div className="surface kbAskResult">
+      {answer && <div className="kbAnswer" aria-live="polite">
+        {answer.status !== 'answered' && <p className="notice" role="status"><CircleDot aria-hidden="true" />{answer.answer}</p>}
+        {answer.status === 'answered' && <p className="kbAnswerText" dir="auto">{answer.answer}</p>}
+        {answer.citations.length > 0 && <><h3>{t('kb.sources')}</h3><ol className="kbCitations">{answer.citations.map((c) => <li key={c.n} value={c.n}>
+          <strong dir="auto">{c.title}</strong> <span className="statusBadge neutral">{c.provenance === 'file' ? t('kb.provenance.file') : t('kb.provenance.memory')}</span>
+          <small>{names.get(c.collection_id) ?? ''} · {t('kb.match', { score: Math.round(c.score * 100) })}</small>
+          <q dir="auto">{c.snippet}</q>
+        </li>)}</ol><p className="muted kbUntrusted">{t('kb.untrusted')}</p></>}
+      </div>}
+      {results && <div className="kbResults" aria-live="polite">
+        {results.semantic === 'no_index' && <p className="muted">{t('kb.semanticNoIndex')}</p>}
+        {results.semantic === 'unavailable' && <p className="muted">{t('kb.semanticUnavailable')}</p>}
+        {results.hits.length === 0 ? <p className="muted">{t('kb.noHits', { query: results.query })}</p>
+          : <ul className="libraryList">{results.hits.map((hit) => <li key={hit.item.id} className="libraryRow">
+            <span className="libraryMain">
+              <strong dir="auto">{hit.item.title}</strong>
+              <small>{hit.collection_name} · {hit.matched_by.map((m) => t(`kb.matched.${m}` as MessageKey)).join(' + ')}</small>
+              {hit.snippet && <q dir="auto">{hit.snippet}</q>}
+            </span>
+          </li>)}</ul>}
+      </div>}
+      <div className="actions"><button type="button" className="secondary" onClick={() => { setAnswer(null); setResults(null); }}>{t('pages.kb.closeAnswer')}</button></div>
     </div>}
   </section>;
 }
 
-function CollectionDetail({ collection, starred, onStar, onChanged, onCountChange, onDeleted }: {
-  collection: KnowledgeCollection; starred: boolean; onStar: () => void; onChanged: (c: KnowledgeCollection) => void; onCountChange: (delta: number) => void; onDeleted: () => void;
+function CollectionDetail({ collection, starred, onStar, onBack, onChanged, onCountChange, onDeleted }: {
+  collection: KnowledgeCollection; starred: boolean; onStar: () => void; onBack: () => void; onChanged: (c: KnowledgeCollection) => void; onCountChange: (delta: number) => void; onDeleted: () => void;
 }) {
   const [filters, setFilters] = useState<{ q?: string; tag?: string; kind?: KnowledgeItemKind | '' }>({});
   const [draft, setDraft] = useState('');
@@ -184,6 +194,7 @@ function CollectionDetail({ collection, starred, onStar, onChanged, onCountChang
   const [busy, setBusy] = useState(false);
   const [openItem, setOpenItem] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const request = useRef(0);
 
@@ -206,56 +217,65 @@ function CollectionDetail({ collection, starred, onStar, onChanged, onCountChang
     setBusy(true); setFlash(null);
     try { await fn(); } catch (e) { setFlash({ text: failure(e, denied), error: true }); } finally { setBusy(false); }
   }
-  const added = (item: KnowledgeItem, key: MessageKey) => { setFlash({ text: t(key, { title: item.title }) }); onCountChange(1); void fetchItems(filters); };
+  const added = (item: KnowledgeItem, key: MessageKey) => { setAdding(false); setFlash({ text: t(key, { title: item.title }) }); onCountChange(1); void fetchItems(filters); };
   const reindex = () => void act(async () => {
     const result = await lib.reindexCollection(collection.id);
     setItems((rows) => rows.map((row) => result.items.find((i) => i.id === row.id) ?? row));
     setFlash({ text: t('kb.reindexed', { indexed: result.indexed, reused: result.reused, failed: result.failed + result.missing }) });
   }, 'kb.reindexDenied');
+  const filtered = Boolean(filters.q || filters.tag || filters.kind);
 
   return <div className="kbCollection">
-    <section className="surface libraryPanel">
-      <div className="libraryPanelHead">
-        <div className="kbCollectionHead">
-          <h3 dir="auto">{collection.name}</h3>
-          <p className="muted">{collection.visibility === 'private' ? <><Lock aria-hidden="true" />{t('kb.privateNote')}</> : <><Users aria-hidden="true" />{t('kb.workspaceNote')}</>}</p>
-          {collection.description && <p dir="auto">{collection.description}</p>}
-        </div>
+    <div className="paneHead kbCollectionTop">
+      <div className="kbCollectionHead">
+        <button type="button" className="secondary paneBack" onClick={onBack}>{t('page.back')}</button>
+        <h2 dir="auto">{collection.name}</h2>
+        <p className="muted">{collection.visibility === 'private' ? <><Lock aria-hidden="true" />{t('kb.privateNote')}</> : <><Users aria-hidden="true" />{t('kb.workspaceNote')}</>}{collection.description && <> · <span dir="auto">{collection.description}</span></>}</p>
+      </div>
+      <div className="kbCollectionActions">
+        <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('pages.kb.addItem')}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={reindex}><RefreshCw aria-hidden="true" />{t('kb.reindex')}</button>
+        {collection.can_manage && <button type="button" className="secondary" disabled={busy} onClick={() => setEditing(true)}><Pencil aria-hidden="true" />{t('kb.edit')}</button>}
+        {collection.can_manage && <button type="button" className="secondary dangerText" disabled={busy} onClick={() => setConfirming(true)}><Trash2 aria-hidden="true" />{t('kb.deleteCollection')}</button>}
         <StarButton starred={starred} label={collection.name} onToggle={onStar} />
       </div>
-      <div className="actions">
-        <button type="button" className="secondary" disabled={busy} onClick={reindex}><RefreshCw aria-hidden="true" />{t('kb.reindex')}</button>
-        {collection.can_manage && <button type="button" className="secondary" disabled={busy} onClick={() => setEditing((v) => !v)} aria-expanded={editing}>{t('kb.edit')}</button>}
-        {collection.can_manage && <button type="button" className="danger" disabled={busy} onClick={() => setConfirming(true)}><Trash2 aria-hidden="true" />{t('kb.deleteCollection')}</button>}
-      </div>
-      {editing && <EditCollection collection={collection} onSaved={(c) => { onChanged(c); setEditing(false); setFlash({ text: t('kb.saved') }); }} />}
+    </div>
+    <div className="paneBody">
       <Notice flash={flash} />
-    </section>
-    <AddItems collection={collection} onAdded={added} />
-    <section className="surface libraryPanel" aria-labelledby="kb-items" aria-busy={state === 'loading'}>
-      <h3 id="kb-items">{t('kb.items')}{page ? <span className="muted"> · {t('kb.itemCount', { n: page.total })}</span> : null}</h3>
-      <form className="libraryFilters" role="search" onSubmit={(e) => { e.preventDefault(); setFilters({ ...filters, q: draft.trim() || undefined }); }}>
-        <label className="field librarySearch"><span>{t('kb.filterItems')}</span><input type="search" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={200} dir="auto" /></label>
-        <label className="field"><span>{t('kb.kind')}</span>
-          <select value={filters.kind ?? ''} onChange={(e) => setFilters({ ...filters, kind: e.target.value as KnowledgeItemKind | '' })}><option value="">{t('kb.anyKind')}</option><option value="file">{t('kb.kind.file')}</option><option value="note">{t('kb.kind.note')}</option></select>
-        </label>
-        <label className="field"><span>{t('kb.tag')}</span>
-          <select value={filters.tag ?? ''} onChange={(e) => setFilters({ ...filters, tag: e.target.value || undefined })}><option value="">{t('kb.anyTag')}</option>{(page?.tags ?? []).map((tag) => <option key={tag} value={tag}>{tag}</option>)}</select>
-        </label>
-        <div className="actions libraryFilterActions"><button type="submit"><Search aria-hidden="true" />{t('common.search')}</button></div>
+      <form className="toolbar kbItemFilters" role="search" onSubmit={(e) => { e.preventDefault(); setFilters({ ...filters, q: draft.trim() || undefined }); }}>
+        <label className="visuallyHidden" htmlFor="kb-filter-q">{t('kb.filterItems')}</label>
+        <input id="kb-filter-q" type="search" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t('kb.filterItems')} maxLength={200} dir="auto" />
+        <label className="visuallyHidden" htmlFor="kb-filter-kind">{t('kb.kind')}</label>
+        <select id="kb-filter-kind" value={filters.kind ?? ''} onChange={(e) => setFilters({ ...filters, kind: e.target.value as KnowledgeItemKind | '' })}><option value="">{t('kb.anyKind')}</option><option value="file">{t('kb.kind.file')}</option><option value="note">{t('kb.kind.note')}</option></select>
+        <label className="visuallyHidden" htmlFor="kb-filter-tag">{t('kb.tag')}</label>
+        <select id="kb-filter-tag" value={filters.tag ?? ''} onChange={(e) => setFilters({ ...filters, tag: e.target.value || undefined })}><option value="">{t('kb.anyTag')}</option>{(page?.tags ?? []).map((tag) => <option key={tag} value={tag}>{tag}</option>)}</select>
+        <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
+        {filtered && <button type="button" className="secondary" onClick={() => { setDraft(''); setFilters({}); }}>{t('common.clear')}</button>}
       </form>
-      {state === 'loading' && <p className="muted libraryState" role="status">{t('kb.loadingItems')}</p>}
-      {typeof state === 'object' && <div className="libraryState" role="alert"><p>{t('kb.itemsFailed', { message: state.error })}</p><button type="button" className="secondary" onClick={() => void fetchItems(filters)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
-      {state === 'ready' && items.length === 0 && <div className="emptyState"><BookOpen aria-hidden="true" /><h3>{filters.q || filters.tag || filters.kind ? t('kb.noItemsMatch') : t('kb.noItems')}</h3><p>{t('kb.noItemsText')}</p></div>}
-      {state === 'ready' && items.length > 0 && <ul className="libraryList">{items.map((item) => <li key={item.id} className="libraryRow">
-        <span className="libraryMain">
-          <button type="button" className="linkButton libraryTitle" dir="auto" onClick={() => setOpenItem(item.id)}>{item.kind === 'file' ? <FileText aria-hidden="true" /> : <NotebookPen aria-hidden="true" />}{item.title}</button>
-          <small><IndexBadge item={item} /><span>{item.kind === 'file' ? t('kb.kind.file') : t('kb.kind.note')}</span>{item.size_bytes !== null && <span>{fileSize(item.size_bytes)}</span>}<span>{formatDateTime(item.created_at, { dateStyle: 'medium' })}</span></small>
-          {item.tags.length > 0 && <span className="kbTags">{item.tags.map((tag) => <button type="button" key={tag} className="libChip" onClick={() => setFilters({ ...filters, tag })} aria-label={t('kb.filterByTag', { tag })}>{tag}</button>)}</span>}
-        </span>
-      </li>)}</ul>}
-      {state === 'ready' && page && items.length < page.total && <div className="actions libraryMore"><button type="button" className="secondary" onClick={() => void more()}>{t('kb.more', { shown: items.length, total: page.total })}</button></div>}
-    </section>
+      <section aria-labelledby="kb-items" aria-busy={state === 'loading'} className="kbItems">
+        <h3 id="kb-items" className="kbItemsHead">{t('kb.items')}{page ? <span className="muted"> · {t('kb.itemCount', { n: page.total })}</span> : null}</h3>
+        {state === 'loading' && <p className="muted" role="status">{t('kb.loadingItems')}</p>}
+        {typeof state === 'object' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('kb.itemsFailed', { message: state.error })}</span><button type="button" className="secondary" onClick={() => void fetchItems(filters)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
+        {state === 'ready' && items.length === 0 && <div className="paneEmpty"><BookOpen aria-hidden="true" /><h3>{filtered ? t('kb.noItemsMatch') : t('kb.noItems')}</h3><p>{t('kb.noItemsText')}</p><div className="actions">{filtered ? <button type="button" className="secondary" onClick={() => { setDraft(''); setFilters({}); }}>{t('common.clear')}</button> : <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('pages.kb.addItem')}</button>}</div></div>}
+        {state === 'ready' && items.length > 0 && <div className="dataTableWrap"><table className="dataTable kbItemsTable">
+          <caption className="visuallyHidden">{t('kb.items')}</caption>
+          <thead><tr><th scope="col">{t('pages.kb.col.title')}</th><th scope="col" className="optional">{t('pages.kb.col.tags')}</th><th scope="col">{t('pages.kb.col.index')}</th><th scope="col" className="optional num">{t('pages.files.col.size')}</th><th scope="col" className="optional">{t('pages.kb.col.added')}</th></tr></thead>
+          <tbody>{items.map((item) => <tr key={item.id} className="libraryRow">
+            <th scope="row"><button type="button" className="cellButton" dir="auto" onClick={() => setOpenItem(item.id)}>
+              <strong>{item.kind === 'file' ? <FileText aria-hidden="true" className="cellIcon" /> : <NotebookPen aria-hidden="true" className="cellIcon" />}{item.title}</strong>
+              <small>{item.kind === 'file' ? t('kb.kind.file') : t('kb.kind.note')}</small>
+            </button></th>
+            <td className="optional">{item.tags.length > 0 ? <span className="kbTags">{item.tags.map((tag) => <button type="button" key={tag} className="libChip" onClick={() => setFilters({ ...filters, tag })} aria-label={t('kb.filterByTag', { tag })}>{tag}</button>)}</span> : <span className="muted">-</span>}</td>
+            <td><IndexBadge item={item} /></td>
+            <td className="optional num muted">{item.size_bytes !== null ? <bdi>{fileSize(item.size_bytes)}</bdi> : '-'}</td>
+            <td className="optional nowrap muted">{formatDateTime(item.created_at, { dateStyle: 'medium' })}</td>
+          </tr>)}</tbody>
+        </table></div>}
+        {state === 'ready' && page && items.length < page.total && <div className="actions libraryMore"><button type="button" className="secondary" onClick={() => void more()}>{t('kb.more', { shown: items.length, total: page.total })}</button></div>}
+      </section>
+    </div>
+    {adding && <Modal title={t('kb.add')} className="formDialog" onClose={() => setAdding(false)}><AddItems collection={collection} onAdded={added} onCancel={() => setAdding(false)} /></Modal>}
+    {editing && <Modal title={t('pages.kb.editTitle')} className="formDialog" onClose={() => setEditing(false)}><EditCollection collection={collection} onCancel={() => setEditing(false)} onSaved={(c) => { onChanged(c); setEditing(false); setFlash({ text: t('kb.saved') }); }} /></Modal>}
     {openItem && <ItemDrawer id={openItem} onClose={() => setOpenItem(null)} onChanged={(item) => setItems((rows) => rows.map((row) => row.id === item.id ? item : row))} onRemoved={(title) => { setOpenItem(null); setFlash({ text: t('kb.removed', { title }) }); onCountChange(-1); void fetchItems(filters); }} />}
     {confirming && <ConfirmDialog title={t('kb.deleteTitle')} confirmLabel={t('kb.deleteCollection')} danger busy={busy} onCancel={() => setConfirming(false)}
       onConfirm={() => void act(async () => { await lib.deleteCollection(collection.id); setConfirming(false); onDeleted(); }, 'kb.manageDenied')}>
@@ -264,7 +284,7 @@ function CollectionDetail({ collection, starred, onStar, onChanged, onCountChang
   </div>;
 }
 
-function EditCollection({ collection, onSaved }: { collection: KnowledgeCollection; onSaved: (c: KnowledgeCollection) => void }) {
+function EditCollection({ collection, onSaved, onCancel }: { collection: KnowledgeCollection; onSaved: (c: KnowledgeCollection) => void; onCancel: () => void }) {
   const [name, setName] = useState(collection.name);
   const [description, setDescription] = useState(collection.description);
   const [problem, setProblem] = useState<string | null>(null);
@@ -277,11 +297,11 @@ function EditCollection({ collection, onSaved }: { collection: KnowledgeCollecti
     <label className="field"><span>{t('kb.name')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required dir="auto" /></label>
     <label className="field"><span>{t('kb.description')}</span><input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={1000} dir="auto" /></label>
     {problem && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{problem}</p>}
-    <div className="actions"><button type="submit" disabled={!name.trim()}>{t('kb.save')}</button></div>
+    <div className="actions"><button type="submit" disabled={!name.trim()}>{t('kb.save')}</button><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button></div>
   </form>;
 }
 
-function AddItems({ collection, onAdded }: { collection: KnowledgeCollection; onAdded: (item: KnowledgeItem, key: MessageKey) => void }) {
+function AddItems({ collection, onAdded, onCancel }: { collection: KnowledgeCollection; onAdded: (item: KnowledgeItem, key: MessageKey) => void; onCancel: () => void }) {
   const [mode, setMode] = useState<'upload' | 'note' | 'link'>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
@@ -311,8 +331,7 @@ function AddItems({ collection, onAdded }: { collection: KnowledgeCollection; on
     finally { setBusy(false); }
   }
 
-  return <section className="surface libraryPanel" aria-labelledby="kb-add">
-    <h3 id="kb-add">{t('kb.add')}</h3>
+  return <div className="kbAddItems">
     <div className="libraryChips" role="tablist" aria-label={t('kb.add')}>
       {(['upload', 'note', 'link'] as const).map((value) => <button type="button" role="tab" key={value} aria-selected={mode === value} className={`libChip ${mode === value ? 'active' : ''}`} onClick={() => { setMode(value); setProblem(null); }}>
         {value === 'upload' ? <Upload aria-hidden="true" /> : value === 'note' ? <NotebookPen aria-hidden="true" /> : <Link2 aria-hidden="true" />}{t(`kb.mode.${value}` as MessageKey)}
@@ -335,9 +354,9 @@ function AddItems({ collection, onAdded }: { collection: KnowledgeCollection; on
       </label>}
       <label className="field"><span>{t('kb.tags')}</span><input value={tags} onChange={(e) => setTags(e.target.value)} placeholder={t('kb.tagsPlaceholder')} maxLength={600} dir="auto" /></label>
       {problem && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{problem}</p>}
-      <div className="actions"><button type="submit" disabled={busy}>{busy ? t('kb.adding') : t(`kb.submit.${mode}` as MessageKey)}</button></div>
+      <div className="actions"><button type="submit" disabled={busy}>{busy ? t('kb.adding') : t(`kb.submit.${mode}` as MessageKey)}</button><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button></div>
     </form>
-  </section>;
+  </div>;
 }
 
 function ItemDrawer({ id, onClose, onChanged, onRemoved }: { id: string; onClose: () => void; onChanged: (item: KnowledgeItem) => void; onRemoved: (title: string) => void }) {

@@ -1,50 +1,77 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { CopyAction } from './MessageActions';
-import { CheckCircle2, CircleDot, Copy, Link2, ListChecks, Lock, Mail, Pencil, PhoneCall, RefreshCw, Search, Send, Sparkles, Trash2, Unlink, Upload, X } from 'lucide-react';
+import { CheckCircle2, CircleDot, Copy, Link2, ListChecks, Lock, Mail, Pencil, PhoneCall, Plug, RefreshCw, Search, Send, Sparkles, Trash2, Unlink, Upload, X } from 'lucide-react';
 import * as api from './lib/api';
 import { ApiError, describeError, isPermissionDenied } from './lib/errors';
-import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import {
-  clock, draftText, durationText, isWorking, mailtoLink, oauthCallback, pageNumbers, parseRecipients, recentActivity, sourceLabel,
+  clock, draftText, durationText, isWorking, mailtoLink, oauthCallback, pageNumbers, parseRecipients, sourceLabel,
   statusLabel, statusTone, textDirection, uploadProblem, MEETING_PAGE_SIZE, STATUSES, TRANSCRIPT_PAGE_SIZE,
   type ApiEmailAccountChoice, type ApiExternalMeeting, type ApiMeeting, type ApiMeetingSetup, type ApiTranscriptPage, type ConnectorProvider, type MeetingLanguage, type MeetingStatus,
 } from './lib/meetings';
 import * as meetingsApi from './lib/meetingsApi';
+import { actionItemCounts, figure, localDay, type ActionCounts } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
+import { PageHeader, PageSummary, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './admin.css';
 import './meetings.css';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' } | { state: 'error'; message: string };
 const fail = <T,>(e: unknown): Load<T> => isPermissionDenied(e) ? { state: 'denied' } : { state: 'error', message: describeError(e) };
 const POLL_MS = 2500;
+/** Action items are counted over at most this many of the newest meetings (pages of 100). */
+const STATS_PAGES = 5;
+type Stats = { total: number; counted: number; actions: ActionCounts };
+
+/** Every meeting's action items, a page of 100 at a time, up to STATS_PAGES pages. */
+async function loadStats(): Promise<Stats> {
+  const items: ApiMeeting[] = [];
+  let total = 0;
+  for (let page = 0; page < STATS_PAGES; page += 1) {
+    const result = await meetingsApi.listMeetings({ offset: page * 100, limit: 100 });
+    total = result.total;
+    items.push(...result.items);
+    if (items.length >= total || result.items.length === 0) break;
+  }
+  return { total, counted: items.length, actions: actionItemCounts(items, localDay(new Date())) };
+}
 
 /**
- * Calls & Meetings (docs/meetings.md): import a recording, a transcript file or a Zoom/Teams
- * transcript; read the AI summary, decisions, action items and follow-up draft with their
- * provenance; search the transcript. Opens the Zoom/Microsoft sign-in callback too.
+ * Calls & Meetings (docs/meetings.md): the summary band (meetings and their open, overdue and done
+ * action items), the meeting list next to the open meeting (30/70), and the Zoom and Teams meetings
+ * that can be imported. Import a recording, a transcript file or a Zoom/Teams transcript; read the
+ * AI summary, decisions, action items and follow-up draft with their provenance; search the
+ * transcript. Opens the Zoom/Microsoft sign-in callback too.
  */
 export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: { onOpenTasks?(): void; onOpenApprovals?(): void; onOpenSettings?(): void }) {
   const searchId = useId();
+  const wide = useMediaQuery(SPLIT_QUERY);
   const [setup, setSetup] = useState<Load<ApiMeetingSetup>>({ state: 'loading' });
   const [page, setPage] = useState<Load<{ items: ApiMeeting[]; total: number }>>({ state: 'loading' });
-  const [recent, setRecent] = useState<ApiMeeting[]>([]);
+  const [stats, setStats] = useState<{ state: 'loading' } | { state: 'ready'; value: Stats } | { state: 'error' }>({ state: 'loading' });
   const [draft, setDraft] = useState(''), [query, setQuery] = useState(''), [status, setStatus] = useState<MeetingStatus | ''>('');
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(location.hash.split('?')[1] ?? '').get('meeting'));
+  const [picked, setPicked] = useState(() => (selected ? 1 : 0));
+  const [listTab, setListTab] = useState<'meetings' | 'connectors'>('meetings');
   const [importing, setImporting] = useState(false);
   const [note, setNote] = useState<string | null>(null), [problem, setProblem] = useState<string | null>(null);
   const [agents, setAgents] = useState<string[]>([]);
+  const autoPicked = useRef(false);
 
   const loadSetup = useCallback(() => meetingsApi.getSetup().then((value) => setSetup({ state: 'ready', value }), (e) => setSetup(fail(e))), []);
+  const refreshStats = useCallback(() => loadStats().then((value) => setStats({ state: 'ready', value }), () => setStats({ state: 'error' })), []);
   const load = useCallback(async () => {
     try {
       const result = await meetingsApi.listMeetings({ query, status, offset, limit: MEETING_PAGE_SIZE });
       setPage({ state: 'ready', value: { items: result.items, total: result.total } });
     } catch (e) { setPage(fail(e)); }
-    meetingsApi.listMeetings({ status: 'ready', limit: 5 }).then((r) => setRecent(r.items), () => setRecent([]));
   }, [query, status, offset]);
+  const changed = useCallback(() => { void load(); void refreshStats(); }, [load, refreshStats]);
   useEffect(() => { void loadSetup(); }, [loadSetup]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void refreshStats(); }, [refreshStats]);
   useEffect(() => { meetingsApi.listAgents().then(setAgents, () => setAgents([])); }, []);
 
   // Keep the list fresh while anything on it is still being processed.
@@ -62,84 +89,125 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
     window.history.replaceState(null, '', `${window.location.origin}/#meetings`);
     if ('error' in callback) { setProblem(t('meetings.connect.providerError', { message: callback.error })); return; }
     meetingsApi.finishConnector(callback.code, callback.state).then(
-      (connected) => { setNote(t('meetings.connect.done', { provider: providerName(connected.provider), account: connected.account_label ?? '' })); void loadSetup(); setImporting(true); },
+      (connected) => { setNote(t('meetings.connect.done', { provider: providerName(connected.provider), account: connected.account_label ?? '' })); void loadSetup(); setListTab('connectors'); },
       (e) => setProblem(t('meetings.connect.failed', { message: describeError(e) })),
     );
   }, [loadSetup]);
 
-  const open = (id: string | null) => {
+  const open = (id: string | null, byPerson = true) => {
     setSelected(id);
-    history.replaceState(null, '', id ? `#meetings?meeting=${encodeURIComponent(id)}` : '#meetings');
+    if (id && byPerson) setPicked((n) => n + 1);
+    // The default pick (the newest meeting on a wide screen) leaves the address as it is.
+    if (byPerson || !id) history.replaceState(null, '', id ? `#meetings?meeting=${encodeURIComponent(id)}` : '#meetings');
   };
+  // On a wide screen the detail pane opens on the newest meeting, once.
+  const firstId = page.state === 'ready' ? page.value.items[0]?.id ?? null : null;
+  useEffect(() => {
+    if (!wide || autoPicked.current || selected || !firstId) return;
+    autoPicked.current = true;
+    open(firstId, false);
+  }, [wide, selected, firstId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const info = setup.state === 'ready' ? setup.value : null;
   const canCreate = info?.can_create ?? false;
   const searching = Boolean(query || status);
   const total = page.state === 'ready' ? page.value.total : 0;
   const pages = Math.max(1, Math.ceil(total / MEETING_PAGE_SIZE));
   const current = Math.floor(offset / MEETING_PAGE_SIZE) + 1;
-  const activity = recentActivity(recent);
+  const statsValue = stats.state === 'ready' ? stats.value : null;
+  const partial = statsValue && statsValue.counted < statsValue.total;
+  const connectors = info?.connectors ?? [];
+  const connectedCount = connectors.filter((c) => c.connected).length;
 
   function submitSearch(event: FormEvent) { event.preventDefault(); setOffset(0); setQuery(draft.trim()); }
 
+  const figures = [
+    figure('meetings', t('pages.meetings.fig.meetings'), stats, () => ({ value: formatNumber(statsValue!.total), hint: partial ? t('pages.meetings.fig.counted', { count: statsValue!.counted }) : t('pages.meetings.fig.all') })),
+    figure('open', t('pages.meetings.fig.open'), stats, () => ({ value: formatNumber(statsValue!.actions.open), hint: t('pages.meetings.fig.openHint'), tone: statsValue!.actions.open ? 'accent' : '' })),
+    figure('overdue', t('pages.meetings.fig.overdue'), stats, () => ({ value: formatNumber(statsValue!.actions.overdue), hint: statsValue!.actions.overdue ? t('pages.meetings.fig.overdueHint') : t('pages.meetings.fig.noneOverdue'), tone: statsValue!.actions.overdue ? 'danger' : '' })),
+    figure('done', t('pages.meetings.fig.done'), stats, () => ({ value: formatNumber(statsValue!.actions.done), hint: t('pages.meetings.fig.doneHint'), tone: statsValue!.actions.done ? 'ok' : '' })),
+  ];
+
   return <>
-    <section className="moduleIntro meetingsIntro">
-      <div><p className="eyebrow">{t('meetings.eyebrow')}</p><h2>{t('meetings.title')}</h2><p>{t('meetings.intro')}</p></div>
+    <PageHeader title={viewLabel('meetings')} subtitle={t('pages.meetings.subtitle')} actions={<>
+      {info && <button type="button" className={`chipButton ${connectedCount ? 'success' : 'neutral'}`} onClick={() => setListTab('connectors')} aria-label={t('pages.meetings.connectorsChipLabel', { count: connectedCount })}><span className="chipDot" aria-hidden="true" /><span>{t('pages.meetings.connectorsChip', { count: connectedCount })}</span></button>}
       {canCreate && <button type="button" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('meetings.importButton')}</button>}
-    </section>
+    </>} />
     {info && !info.can_create && <p className="notice" role="status"><Lock aria-hidden="true" />{t('meetings.viewerNote')}</p>}
     {info && !info.model_ready && <div className="notice" role="status"><Sparkles aria-hidden="true" /><span>{t('meetings.noModel')}</span>{onOpenSettings && <button type="button" className="secondary" onClick={onOpenSettings}>{t('meetings.openModelSettings')}</button>}</div>}
     {setup.state === 'error' && <ErrorNotice message={t('meetings.setupFailed', { message: setup.message })} onRetry={() => void loadSetup()} />}
     {note && <Notice>{note}</Notice>}
     {problem && <Notice error>{problem}</Notice>}
+    {page.state !== 'denied' && <PageSummary label={t('pages.meetings.summary')} figures={figures} onRetry={() => { setStats({ state: 'loading' }); void refreshStats(); }} />}
 
-    {activity.length > 0 && <section className="surface meetingsActivity" aria-labelledby={`${searchId}-activity`}>
-      <h2 id={`${searchId}-activity`}>{t('meetings.activity.title')}</h2>
-      <ul>{activity.map((entry) => <li key={entry.id}>
-        <PhoneCall aria-hidden="true" />
-        <button type="button" className="rowLink" onClick={() => open(entry.meetingId)}><span dir="auto">{entry.title}</span></button>
-        {entry.agent && <span className="tagChip" dir="ltr">{entry.agent}</span>}
-        <time dateTime={entry.at}>{formatDateTime(entry.at)}</time>
-      </li>)}</ul>
-    </section>}
+    {page.state === 'denied' && <section className="surface emptyState" aria-labelledby="meetings-denied"><Lock aria-hidden="true" /><h3 id="meetings-denied">{t('pages.meetings.deniedTitle')}</h3><p>{t('meetings.readDenied')}</p></section>}
+    {page.state !== 'denied' && <SplitView className="meetingsSplit" show={selected ? 'detail' : 'list'}>
+      <section data-pane="list" className="pane meetingsListPane" aria-label={t('meetings.list')} aria-busy={page.state === 'loading'}>
+        <div className="paneHead meetingsListHead">
+          <div className="segmented" role="tablist" aria-label={t('pages.meetings.listTabs')}>
+            <button type="button" role="tab" aria-selected={listTab === 'meetings'} onClick={() => setListTab('meetings')}>{t('pages.meetings.tab.meetings', { count: total })}</button>
+            <button type="button" role="tab" aria-selected={listTab === 'connectors'} onClick={() => setListTab('connectors')}>{t('pages.meetings.tab.connectors')}</button>
+          </div>
+          {listTab === 'meetings' && page.state !== 'loading' && (total > 0 || searching) && <form className="toolbar meetingsListToolbar" role="search" onSubmit={submitSearch}>
+            <label className="visuallyHidden" htmlFor={`${searchId}-q`}>{t('meetings.searchLabel')}</label>
+            <input id={`${searchId}-q`} type="search" value={draft} placeholder={t('meetings.searchLabel')} maxLength={200} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setQuery(''); setOffset(0); } }} />
+            <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
+            <label className="visuallyHidden" htmlFor={`${searchId}-status`}>{t('meetings.statusFilter')}</label>
+            <select id={`${searchId}-status`} value={status} onChange={(e) => { setOffset(0); setStatus(e.target.value as MeetingStatus | ''); }}>
+              <option value="">{t('meetings.allStatuses')}</option>
+              {STATUSES.map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}
+            </select>
+          </form>}
+        </div>
+        {listTab === 'meetings' && <>
+          {page.state === 'loading' && <div className="paneBody"><Notice>{t('meetings.loading')}</Notice></div>}
+          {page.state === 'error' && <div className="paneBody"><ErrorNotice message={t('meetings.loadFailed', { message: page.message })} onRetry={() => void load()} /></div>}
+          {page.state === 'ready' && page.value.items.length > 0 && <ul className="meetingRows">
+            {page.value.items.map((meeting) => {
+              const open_ = meeting.action_items.filter((item) => !item.done).length;
+              return <li key={meeting.id} className={meeting.id === selected ? 'selected' : undefined}>
+                <button type="button" className="meetingRow" aria-current={meeting.id === selected ? 'true' : undefined} aria-label={t('meetings.open', { title: meeting.title })} onClick={() => open(meeting.id)}>
+                  <span className="meetingRowTop"><strong dir="auto">{meeting.title}</strong><span className={`statusBadge ${statusTone(meeting.status)}`}>{statusLabel(meeting.status)}</span></span>
+                  <small>{[sourceLabel(meeting.source), formatDateTime(meeting.occurred_at ?? meeting.created_at, { dateStyle: 'medium', timeStyle: 'short' }), durationText(meeting.duration_seconds)].filter(Boolean).join(' · ')}</small>
+                  {(meeting.action_items.length > 0 || meeting.agent_skill_id) && <span className="meetingRowMeta">
+                    {meeting.action_items.length > 0 && <span className={open_ ? 'meetingOpenItems' : 'muted'}><ListChecks aria-hidden="true" />{open_ ? t('pages.meetings.row.open', { count: open_ }) : t('pages.meetings.row.allDone')}</span>}
+                    {meeting.agent_skill_id && <span className="tagChip" dir="ltr">{meeting.agent_skill_id}</span>}
+                  </span>}
+                </button>
+              </li>;
+            })}
+          </ul>}
+          {page.state === 'ready' && pages > 1 && <nav className="meetingsPager" aria-label={t('meetings.pages')}>
+            <button type="button" className="secondary" disabled={current <= 1} onClick={() => setOffset(offset - MEETING_PAGE_SIZE)}>{t('meetings.previous')}</button>
+            {pageNumbers(current, pages).map((number, index) => number === null
+              ? <span key={`gap-${index}`} aria-hidden="true">…</span>
+              : <button key={number} type="button" className={number === current ? '' : 'secondary'} aria-current={number === current ? 'page' : undefined} aria-label={t('meetings.pageN', { page: number })} onClick={() => setOffset((number - 1) * MEETING_PAGE_SIZE)}>{number}</button>)}
+            <button type="button" className="secondary" disabled={current >= pages} onClick={() => setOffset(offset + MEETING_PAGE_SIZE)}>{t('meetings.next')}</button>
+            <span className="muted">{t('meetings.totalCount', { count: total })}</span>
+          </nav>}
+          {page.state === 'ready' && !page.value.items.length && (searching
+            ? <div className="paneEmpty"><Search aria-hidden="true" /><h3>{t('meetings.noMatch')}</h3><p>{t('meetings.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setDraft(''); setQuery(''); setStatus(''); setOffset(0); }}>{t('meetings.clearSearch')}</button></div></div>
+            : <div className="paneEmpty"><PhoneCall aria-hidden="true" /><h3>{t('meetings.empty')}</h3><p>{canCreate ? t('meetings.emptyText') : t('meetings.emptyReadOnly')}</p>{canCreate && <div className="actions"><button type="button" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('meetings.importFirst')}</button></div>}</div>)}
+        </>}
+        {listTab === 'connectors' && <div className="paneBody meetingConnectors">
+          {setup.state === 'loading' && <Notice>{t('pages.meetings.connectorsLoading')}</Notice>}
+          {setup.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('meetings.viewerNote')}</p>}
+          {setup.state === 'error' && <ErrorNotice message={t('meetings.setupFailed', { message: setup.message })} onRetry={() => void loadSetup()} />}
+          {info && !info.can_create && <p className="muted">{t('pages.meetings.connectorsViewer')}</p>}
+          {info && info.can_create && connectors.map((connector) => <section key={connector.provider} className="meetingConnectorBlock" aria-labelledby={`${searchId}-${connector.provider}`}>
+            <h3 id={`${searchId}-${connector.provider}`}><Plug aria-hidden="true" />{providerName(connector.provider)}<span className={`statusBadge ${connector.connected ? 'success' : connector.available ? 'neutral' : 'warning'}`}>{connector.connected ? t('pages.meetings.connector.connected') : connector.available ? t('pages.meetings.connector.notConnected') : t('pages.meetings.connector.notSetUp')}</span></h3>
+            <ConnectorImport provider={connector.provider} setup={info} language="auto" agent="" onSetupChanged={() => void loadSetup()} onImported={(meeting) => { setNote(t('meetings.imported', { title: meeting.title })); changed(); setListTab('meetings'); open(meeting.id); }} />
+          </section>)}
+        </div>}
+      </section>
+      <section data-pane="detail" className="pane meetingsDetailPane" aria-label={selected ? undefined : t('meetings.detail.title')}>
+        {selected
+          ? <MeetingDetail key={selected} meetingId={selected} setup={info} agents={agents} focusSignal={picked} onClose={() => open(null)} onChanged={changed} onDeleted={(title) => { open(null); setNote(t('meetings.deleted', { title })); changed(); }} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenSettings={onOpenSettings} />
+          : <div className="paneEmpty"><PhoneCall aria-hidden="true" /><h3>{t('pages.meetings.pickTitle')}</h3><p>{total ? t('pages.meetings.pickText') : canCreate ? t('meetings.emptyText') : t('meetings.emptyReadOnly')}</p></div>}
+      </section>
+    </SplitView>}
 
-    {selected && <MeetingDetail key={selected} meetingId={selected} setup={info} agents={agents} onClose={() => open(null)} onChanged={() => void load()} onDeleted={(title) => { open(null); setNote(t('meetings.deleted', { title })); void load(); }} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenSettings={onOpenSettings} />}
-
-    {page.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('meetings.readDenied')}</p>}
-    {page.state === 'error' && <ErrorNotice message={t('meetings.loadFailed', { message: page.message })} onRetry={() => void load()} />}
-    {page.state !== 'denied' && (total > 0 || searching) && <form className="actions meetingsToolbar" role="search" onSubmit={submitSearch}>
-      <label className="visuallyHidden" htmlFor={`${searchId}-q`}>{t('meetings.searchLabel')}</label>
-      <input id={`${searchId}-q`} type="search" value={draft} placeholder={t('meetings.searchLabel')} maxLength={200} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setQuery(''); setOffset(0); } }} />
-      <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
-      <label className="visuallyHidden" htmlFor={`${searchId}-status`}>{t('meetings.statusFilter')}</label>
-      <select id={`${searchId}-status`} value={status} onChange={(e) => { setOffset(0); setStatus(e.target.value as MeetingStatus | ''); }}>
-        <option value="">{t('meetings.allStatuses')}</option>
-        {STATUSES.map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}
-      </select>
-    </form>}
-    {page.state === 'loading' && <Notice>{t('meetings.loading')}</Notice>}
-    {page.state === 'ready' && page.value.items.length > 0 && <section className="surface memoryTable meetingsTable" aria-label={t('meetings.list')}>
-      {page.value.items.map((meeting) => <div className={`memoryRow ${meeting.id === selected ? 'focusedRow' : ''}`} key={meeting.id}>
-        <div><span className="typeIcon"><PhoneCall aria-hidden="true" /></span><div>
-          <button type="button" className="rowLink" aria-current={meeting.id === selected ? 'true' : undefined} aria-label={t('meetings.open', { title: meeting.title })} onClick={() => open(meeting.id)}><strong dir="auto">{meeting.title}</strong></button>
-          <p>{[sourceLabel(meeting.source), formatDateTime(meeting.occurred_at ?? meeting.created_at), durationText(meeting.duration_seconds)].filter(Boolean).join(' · ')}{meeting.agent_skill_id && <> · <span className="tagChip" dir="ltr">{meeting.agent_skill_id}</span></>}</p>
-          {meeting.summary && <p className="meetingSnippet" dir={textDirection(meeting.language)}>{meeting.summary}</p>}
-        </div></div>
-        <span className={`statusBadge ${statusTone(meeting.status)}`}>{statusLabel(meeting.status)}</span>
-      </div>)}
-    </section>}
-    {page.state === 'ready' && pages > 1 && <nav className="meetingsPager" aria-label={t('meetings.pages')}>
-      <button type="button" className="secondary" disabled={current <= 1} onClick={() => setOffset(offset - MEETING_PAGE_SIZE)}>{t('meetings.previous')}</button>
-      {pageNumbers(current, pages).map((number, index) => number === null
-        ? <span key={`gap-${index}`} aria-hidden="true">…</span>
-        : <button key={number} type="button" className={number === current ? '' : 'secondary'} aria-current={number === current ? 'page' : undefined} aria-label={t('meetings.pageN', { page: number })} onClick={() => setOffset((number - 1) * MEETING_PAGE_SIZE)}>{number}</button>)}
-      <button type="button" className="secondary" disabled={current >= pages} onClick={() => setOffset(offset + MEETING_PAGE_SIZE)}>{t('meetings.next')}</button>
-      <span className="muted">{t('meetings.totalCount', { count: total })}</span>
-    </nav>}
-    {page.state === 'ready' && !page.value.items.length && (searching
-      ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('meetings.noMatch')}</h3><p>{t('meetings.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setDraft(''); setQuery(''); setStatus(''); setOffset(0); }}>{t('meetings.clearSearch')}</button></div></div>
-      : <div className="emptyState"><PhoneCall aria-hidden="true" /><h3>{t('meetings.empty')}</h3><p>{canCreate ? t('meetings.emptyText') : t('meetings.emptyReadOnly')}</p>{canCreate && <div className="actions"><button type="button" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('meetings.importFirst')}</button></div>}</div>)}
-
-    {importing && info && <ImportDrawer setup={info} agents={agents} onClose={() => setImporting(false)} onSetupChanged={() => void loadSetup()} onImported={(meeting) => { setImporting(false); setNote(t('meetings.imported', { title: meeting.title })); void load(); open(meeting.id); }} />}
+    {importing && info && <ImportDrawer setup={info} agents={agents} onClose={() => setImporting(false)} onSetupChanged={() => void loadSetup()} onImported={(meeting) => { setImporting(false); setNote(t('meetings.imported', { title: meeting.title })); changed(); open(meeting.id); }} />}
   </>;
 }
 
@@ -262,8 +330,8 @@ function ConnectorImport({ provider, setup, language, agent, onImported, onSetup
 
 // ------------------------------------------------------------------------------------------- detail
 
-function MeetingDetail({ meetingId, setup, agents, onClose, onChanged, onDeleted, onOpenTasks, onOpenApprovals, onOpenSettings }: {
-  meetingId: string; setup: ApiMeetingSetup | null; agents: string[]; onClose(): void; onChanged(): void; onDeleted(title: string): void; onOpenTasks?(): void; onOpenApprovals?(): void; onOpenSettings?(): void;
+function MeetingDetail({ meetingId, setup, agents, focusSignal, onClose, onChanged, onDeleted, onOpenTasks, onOpenApprovals, onOpenSettings }: {
+  meetingId: string; setup: ApiMeetingSetup | null; agents: string[]; focusSignal: number; onClose(): void; onChanged(): void; onDeleted(title: string): void; onOpenTasks?(): void; onOpenApprovals?(): void; onOpenSettings?(): void;
 }) {
   const [detail, setDetail] = useState<Load<ApiMeeting> | { state: 'missing' }>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
@@ -280,7 +348,8 @@ function MeetingDetail({ meetingId, setup, agents, onClose, onChanged, onDeleted
     });
     return () => { live = false; };
   }, [meetingId, attempt]);
-  useEffect(() => { if (detail.state !== 'loading') heading.current?.focus(); }, [detail.state === 'loading']); // eslint-disable-line react-hooks/exhaustive-deps
+  // Focus moves to the meeting when a person opened it (not when the pane opens on the newest one).
+  useEffect(() => { if (detail.state !== 'loading' && focusSignal > 0) heading.current?.focus(); }, [detail.state === 'loading', focusSignal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const meeting = detail.state === 'ready' ? detail.value : null;
   // Poll while the meeting is being transcribed or summarised.
@@ -302,11 +371,12 @@ function MeetingDetail({ meetingId, setup, agents, onClose, onChanged, onDeleted
 
   const title = meeting?.title ?? t('meetings.detail.title');
   const dir = meeting ? textDirection(meeting.language) : 'auto';
-  return <section className="surface meetingDetail" aria-labelledby="meeting-detail-heading" aria-busy={detail.state === 'loading'}>
-    <div className="sectionHeader">
-      <div><p className="eyebrow">{t('meetings.detail.eyebrow')}</p><h2 id="meeting-detail-heading" ref={heading} tabIndex={-1} dir="auto">{title}</h2></div>
-      <button type="button" className="iconButton" aria-label={t('meetings.detail.close')} title={t('meetings.detail.close')} onClick={onClose}><X aria-hidden="true" /></button>
+  return <section className="meetingDetail" aria-labelledby="meeting-detail-heading" aria-busy={detail.state === 'loading'}>
+    <div className="paneHead">
+      <h2 id="meeting-detail-heading" ref={heading} tabIndex={-1} dir="auto">{title}</h2>
+      <button type="button" className="iconButton small" aria-label={t('meetings.detail.close')} title={t('meetings.detail.close')} onClick={onClose}><X aria-hidden="true" /></button>
     </div>
+    <div className="paneBody">
     {detail.state === 'loading' && <Notice>{t('meetings.detail.loading')}</Notice>}
     {detail.state === 'missing' && <Notice error>{t('meetings.detail.missing')}</Notice>}
     {detail.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('meetings.readDenied')}</p>}
@@ -353,6 +423,7 @@ function MeetingDetail({ meetingId, setup, agents, onClose, onChanged, onDeleted
       {meeting.follow_up && <FollowUp key={meeting.follow_up.approval_id ?? 'draft'} meeting={meeting} canEdit={canEdit} mailboxes={setup?.email_accounts ?? []} dir={dir} busy={busy} act={act} onOpenTasks={onOpenApprovals} />}
       {meeting.segment_count > 0 && <Transcript meeting={meeting} />}
     </>}
+    </div>
   </section>;
 }
 

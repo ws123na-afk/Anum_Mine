@@ -31,6 +31,8 @@ export interface EmailMessage {
   summary: string | null; triage_source: 'rules' | 'model' | null; triage_model: string | null;
 }
 export interface MessagePage { items: EmailMessage[]; next_cursor: string | null; accounts: number }
+/** `GET /api/v1/email/summary`: unread counts across the mailboxes the caller can see. */
+export interface InboxSummary { accounts: number; unread: number; high_priority_unread: number; by_category: Partial<Record<Category, number>>; needs_attention: EmailMessage[] }
 export interface ApiApprovalLike { id: string; payload_hash?: string | null; status: string; expires_at?: string | null; arguments?: Record<string, unknown>; [key: string]: unknown }
 export interface EmailDraft {
   id: string; account_id: string; message_id: string | null; to: string[]; cc: string[]; subject: string; body: string; status: DraftStatus;

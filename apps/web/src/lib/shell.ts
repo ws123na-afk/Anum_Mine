@@ -39,8 +39,11 @@ export const VIEWS: readonly View[] = [...NAV.flatMap((group) => group.views), .
 export const OWNER_ONLY: ReadonlySet<View> = new Set(['developer']);
 /** The platform console: only for platform operators (the API answers 403 to anyone else). */
 export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations']);
-/** Views that draw their own page header (the Command Center, and the Voice page's full-bleed space scene). */
-export const OWN_HEADER: ReadonlySet<View> = new Set(['home', 'command', 'voice']);
+/**
+ * Views that draw their own page header: the Command Center, the Voice page's full-bleed space scene,
+ * and the working pages whose one header row carries their actions (PageParts.tsx PageHeader).
+ */
+export const OWN_HEADER: ReadonlySet<View> = new Set(['home', 'command', 'voice', 'assistant', 'files', 'inbox', 'whatsapp', 'meetings', 'marketing']);
 
 export function isView(value: string): value is View {
   return (VIEWS as readonly string[]).includes(value);
@@ -59,6 +62,8 @@ export function viewFromHash(hash: string): View {
   // A report or collection opened by link (docs/reports.md, docs/knowledge-base.md).
   if (id.startsWith('reports/')) return 'reports';
   if (id.startsWith('knowledge/')) return 'knowledge';
+  // The AI team org chart and a member's profile (docs/org-chart.md#profile-page).
+  if (id.startsWith('agents/')) return 'agents';
   // A Marketing tab opened by link (#marketing-calendar, docs/marketing.md).
   if (id.startsWith('marketing-')) return 'marketing';
   return isView(id) ? id : 'home';
