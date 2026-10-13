@@ -513,9 +513,9 @@ def _find_tasks(context: TenantContext, name: str, statuses: frozenset[TaskStatu
 
     with _units(context) as repository:
         if name == LAST:
-            rows = repository.list_tasks(context, limit=20, filters=TaskFilters(created_by=context.user_id))
-            rows = [row for row in rows if statuses is None or row.status in statuses]
-            return rows[:1]
+            # "My last task" is the caller's newest task whatever its state: the operation
+            # then checks that task's state (never an older task that happens to fit).
+            return repository.list_tasks(context, limit=1, filters=TaskFilters(created_by=context.user_id))
         rows = repository.list_tasks(context, limit=50, filters=TaskFilters(query=name[:200]))
     if statuses is not None:
         rows = [row for row in rows if row.status in statuses]
@@ -790,6 +790,16 @@ async def _status_of(action: ParsedAction, context: TenantContext, arabic: bool)
     if problem is not None or task is None:
         yield problem  # type: ignore[misc]
         return
+    async for step in _status_for(task, context, arabic):
+        yield step
+
+
+async def _status_for(task: "Task", context: TenantContext, arabic: bool) -> AsyncIterator[ActionStep]:
+    """Where ``task`` stands, said aloud (a status answer, or why an action did not apply)."""
+    from .authorization import Permission
+    from .dependencies import require_permission
+
+    require_permission(context, Permission.TASK_READ)
     current, result, failure, approval = await asyncio.to_thread(_run_view, context, task.id)
     current = current or task
     view = _approval_view(approval, context)
@@ -797,7 +807,7 @@ async def _status_of(action: ParsedAction, context: TenantContext, arabic: bool)
     reply = f"{_say(arabic, f'Task {_q(current.title, False)}:', f'المهمة {_q(current.title, True)}:')} {outcome_sentence(current, result, approval if pending else None, failure, arabic)}"
     yield ActionStep(
         VoiceActionCard(
-            kind=action.kind, state="status", title=current.title, task_id=current.id, task_status=current.status,
+            kind=ActionKind.TASK_STATUS, state="status", title=current.title, task_id=current.id, task_status=current.status,
             approval=view, approvals_pending=1 if pending else 0, summary=_clip(failure or result or "", 600),
         ),
         reply,
@@ -807,10 +817,16 @@ async def _status_of(action: ParsedAction, context: TenantContext, arabic: bool)
 async def _cancel(runtime: VoiceTaskRuntime, action: ParsedAction, context: TenantContext, arabic: bool) -> AsyncIterator[ActionStep]:
     from .tasks import ACTIVE_STATUSES
 
-    found = await asyncio.to_thread(_find_tasks, context, action.name or LAST, frozenset(ACTIVE_STATUSES))
-    task, problem = _one_task(action.kind, action.name or LAST, found, arabic)
+    name = action.name or LAST
+    found = await asyncio.to_thread(_find_tasks, context, name, None if name == LAST else frozenset(ACTIVE_STATUSES))
+    task, problem = _one_task(action.kind, name, found, arabic)
     if problem is not None or task is None:
         yield problem  # type: ignore[misc]
+        return
+    if task.status not in ACTIVE_STATUSES:
+        # Your last task already finished: say where it stands instead of cancelling another.
+        async for step in _status_for(task, context, arabic):
+            yield step
         return
     cancelled = await runtime.cancel(context, task.id)
     reply = _say(arabic, f"Cancelled task {_q(cancelled.title, False)}. Its pending approvals were withdrawn.", f"ألغيت المهمة {_q(cancelled.title, True)} وسُحبت موافقاتها المعلقة.")
@@ -821,7 +837,13 @@ async def _run_existing(runtime: VoiceTaskRuntime, action: ParsedAction, context
     from .tasks import RETRYABLE_STATUSES
 
     startable = frozenset({TaskStatus.CREATED, TaskStatus.QUEUED, *RETRYABLE_STATUSES})
-    found = await asyncio.to_thread(_find_tasks, context, action.name or LAST, startable)
+    name = action.name or LAST
+    found = await asyncio.to_thread(_find_tasks, context, name, None if name == LAST else startable)
+    if found and name == LAST and found[0].status not in startable:
+        # Your last task is running or done: say where it stands instead of starting an older one.
+        async for step in _status_for(found[0], context, arabic):
+            yield step
+        return
     if not found and action.name and action.name != LAST:
         # Nothing waiting by that name: say where it stands if it exists at all.
         others = await asyncio.to_thread(_find_tasks, context, action.name, None)

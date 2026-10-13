@@ -587,6 +587,9 @@ def _prepare_ask(
             # Assistant chat's action card; its tool call waits for an approval by policy.
             action = ParsedAction(ActionKind.CREATE_TASK, work=" ".join(text.split()))
             intent, tier = VoiceIntent.ACTION, VoiceRiskTier.ACTION
+    if action is not None and action.kind != ActionKind.TASK_STATUS and not _claim_segment(context, segment.id):
+        # A retried or concurrent submit of a segment already acted on: never act twice.
+        action, reply = None, already_handled_reply(arabic)
     return _PreparedAsk(
         session=session,
         segment=segment,
@@ -601,6 +604,23 @@ def _prepare_ask(
         reply=reply,
         action=action,
     )
+
+
+def _claim_segment(context: TenantContext, segment_id: str) -> bool:
+    """Consume the segment before a state-changing action, atomically (the same claim as
+    ``/commands``: one conditional UPDATE in PostgreSQL). False when it was already used."""
+    with open_voice_store(context) as store:
+        try:
+            store.consume_segment(segment_id)
+        except ValueError:
+            return False
+    return True
+
+
+def already_handled_reply(arabic: bool) -> str:
+    if arabic:
+        return "نفّذت هذا الطلب بالفعل. تابع تقدمه في المهام."
+    return "I've already acted on that request. Check Tasks for its progress."
 
 
 def _action_for(

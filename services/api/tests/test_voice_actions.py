@@ -333,3 +333,82 @@ def test_a_teammate_is_assigned_through_the_runtimes_team_tool() -> None:
     # Nobody is called Ahmed in this workspace: the run fails and says why.
     assert final["state"] == "failed" and "Ahmed" in final["summary"]
     assert "It failed" in spoken(frames)
+
+
+# -- "my last task" and replayed segments ------------------------------------------------------
+
+
+def _age(task_id: str, status: str, minutes_ago: int) -> None:
+    from datetime import timedelta
+
+    from anum_api.schemas import TaskStatus, utc_now
+
+    task = store.tasks[task_id]
+    task.status = TaskStatus(status)
+    task.created_at = utc_now() - timedelta(minutes=minutes_ago)
+
+
+def test_my_last_task_is_the_newest_one_even_when_it_cannot_take_the_action() -> None:
+    older = create_task("Older running report")
+    newest = create_task("Newest finished report")
+    _age(older["id"], "running", 10)
+    _age(newest["id"], "completed", 1)
+
+    frames = say("cancel my last task")
+    final = cards(frames)[-1]
+    # It says where the newest task stands and leaves the older running one alone.
+    assert final["state"] == "status" and final["task_id"] == newest["id"] and final["task_status"] == "completed"
+    assert store.tasks[older["id"]].status.value == "running"
+    assert '"Newest finished report"' in spoken(frames)
+
+    started = cards(say("start my last task"))[-1]
+    assert started["state"] == "status" and started["task_id"] == newest["id"]
+    assert store.tasks[older["id"]].status.value == "running" and len(store.runs) == 0
+
+    status = cards(say("what's the status of my last task"))[-1]
+    assert status["task_id"] == newest["id"]
+
+
+def test_my_last_task_is_cancelled_when_it_is_the_newest_and_still_active() -> None:
+    older = create_task("Older waiting report")
+    newest = create_task("Newest waiting report")
+    _age(older["id"], "created", 10)
+    _age(newest["id"], "created", 1)
+    final = cards(say("cancel my last task"))[-1]
+    assert final["state"] == "cancelled" and final["task_id"] == newest["id"]
+    assert store.tasks[older["id"]].status.value == "created"
+
+
+def _segment(text: str) -> tuple[str, str]:
+    session_id = client.post("/api/v1/voice/sessions", headers=OWNER, json={}).json()["id"]
+    segment = client.post(
+        f"/api/v1/voice/sessions/{session_id}/transcript", headers=OWNER,
+        json={"text": text, "is_final": True, "client_sequence": 0},
+    ).json()
+    return session_id, segment["id"]
+
+
+@pytest.mark.parametrize("path", ["ask", "ask/stream"])
+def test_a_resubmitted_segment_never_acts_twice(path: str) -> None:
+    session_id, segment_id = _segment("create a task to draft the weekly report")
+    url = f"/api/v1/voice/sessions/{session_id}/{path}"
+    first = client.post(url, headers=OWNER, json={"transcript_segment_id": segment_id})
+    second = client.post(url, headers=OWNER, json={"transcript_segment_id": segment_id})
+    # The other path cannot replay it either.
+    other = "ask/stream" if path == "ask" else "ask"
+    third = client.post(f"/api/v1/voice/sessions/{session_id}/{other}", headers=OWNER, json={"transcript_segment_id": segment_id})
+    assert first.status_code == second.status_code == third.status_code == 200
+    assert len(store.tasks) == 1
+    for replay in (second, third):
+        assert "already acted on that request" in replay.text
+    # Nor can the commands route turn it into a second task.
+    command = client.post(f"/api/v1/voice/sessions/{session_id}/commands", headers=OWNER, json={"transcript_segment_id": segment_id})
+    assert command.status_code == 409 and len(store.tasks) == 1
+
+
+def test_a_question_can_be_asked_again_with_the_same_segment() -> None:
+    session_id, segment_id = _segment("what's the status of my workspace?")
+    url = f"/api/v1/voice/sessions/{session_id}/ask"
+    replies = [client.post(url, headers=OWNER, json={"transcript_segment_id": segment_id}) for _ in range(2)]
+    assert [r.status_code for r in replies] == [200, 200]
+    assert "already acted" not in replies[1].json()["reply"]
