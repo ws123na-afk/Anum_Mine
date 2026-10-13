@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { BASE_CONFIG, extendCsp, releaseConfig } from './release-config.mjs';
+import { BASE_CONFIG, DEFAULT_RELEASE_ENV, checkWebBundle, extendCsp, releaseConfig, releaseEnv } from './release-config.mjs';
 
 const base = JSON.parse(readFileSync(BASE_CONFIG, 'utf8'));
 
@@ -41,10 +41,46 @@ test('Windows signing uses the certificate thumbprint with SHA-256', () => {
   assert.equal(config.bundle.windows.digestAlgorithm, 'sha256');
 });
 
-test('an empty environment produces an empty overlay with warnings', () => {
-  const { config, warnings } = releaseConfig({}, base);
-  assert.deepEqual(config, {});
-  assert.equal(warnings.length, 3);
+test('an empty environment builds for the production deployment, with warnings for the unsigned parts', () => {
+  const { config, env, warnings } = releaseConfig({}, base);
+  assert.deepEqual(env, { VITE_ANUM_API_URL: 'https://api.anum360os.com', VITE_ANUM_OIDC_ISSUER: 'https://auth.anum360os.com/realms/anum', VITE_ANUM_OIDC_CLIENT_ID: 'anum-desktop' });
+  const connect = config.app.security.csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('connect-src'));
+  for (const source of ['https://auth.anum360os.com', 'https://api.anum360os.com', 'wss://api.anum360os.com']) assert.ok(connect.split(' ').includes(source), source);
+  assert.equal(config.plugins, undefined);
+  assert.equal(config.bundle, undefined);
+  assert.equal(warnings.length, 2);
+});
+
+test('empty CI variables fall back to the defaults instead of the local development session', () => {
+  const { env } = releaseEnv({ VITE_ANUM_API_URL: '', VITE_ANUM_OIDC_ISSUER: '  ', VITE_ANUM_OIDC_CLIENT_ID: '' });
+  assert.deepEqual(env, { ...DEFAULT_RELEASE_ENV });
+});
+
+test('overrides are normalised without trailing slashes', () => {
+  const { env, warnings } = releaseEnv({ VITE_ANUM_API_URL: 'https://api.anum.example/', VITE_ANUM_OIDC_ISSUER: 'https://id.anum.example/realms/anum/' });
+  assert.equal(env.VITE_ANUM_API_URL, 'https://api.anum.example');
+  assert.equal(env.VITE_ANUM_OIDC_ISSUER, 'https://id.anum.example/realms/anum');
+  assert.deepEqual(warnings, []);
+});
+
+test('a release never points at local services or a non-Keycloak issuer', () => {
+  assert.throws(() => releaseEnv({ VITE_ANUM_API_URL: 'http://localhost:8000' }), /HTTPS/);
+  assert.throws(() => releaseEnv({ VITE_ANUM_API_URL: 'https://127.0.0.1:8000' }), /local host/);
+  assert.throws(() => releaseEnv({ VITE_ANUM_OIDC_ISSUER: 'https://localhost:8080/realms/anum' }), /local host/);
+  assert.throws(() => releaseEnv({ VITE_ANUM_OIDC_ISSUER: 'https://auth.anum.example/' }), /realms/);
+  assert.throws(() => releaseEnv({ VITE_ANUM_API_URL: 'https://api.anum.example/?x=1' }), /query/);
+});
+
+test('an old DuckDNS address is reported', () => {
+  const { warnings } = releaseEnv({ VITE_ANUM_OIDC_ISSUER: 'https://anum-auth.duckdns.org/realms/anum' });
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /DuckDNS/);
+});
+
+test('the built bundle must carry the issuer, client id and API', () => {
+  const { env } = releaseEnv({});
+  assert.equal(checkWebBundle([`const a="${env.VITE_ANUM_OIDC_ISSUER}",b="${env.VITE_ANUM_OIDC_CLIENT_ID}";`, `fetch("${env.VITE_ANUM_API_URL}/api/v1")`], env), null);
+  assert.match(checkWebBundle(['fetch("http://localhost:8000/api/v1/auth/local/session")'], env), /VITE_ANUM_OIDC_ISSUER, VITE_ANUM_OIDC_CLIENT_ID, VITE_ANUM_API_URL/);
 });
 
 test('extendCsp appends without duplicates', () => {

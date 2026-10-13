@@ -187,7 +187,7 @@ def _release_config(
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": str(output)}
     env["UPLOAD"] = "true" if upload else "false"
     env.update(values)
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - fixed script, test-controlled environment
         ["bash", str(RELEASE_CONFIG_SCRIPT), platform],
         env=env,
         capture_output=True,

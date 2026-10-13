@@ -103,11 +103,12 @@ const productionApiUrl = 'https://api.anum360os.com/';
 /// development machine, as the Android emulator sees it.
 const developmentApiUrl = 'http://10.0.2.2:8000/';
 
-/// The API origin for a defined `ANUM_API_URL` (empty when not defined).
+/// The API origin for a defined `ANUM_API_URL` (empty when not defined),
+/// always ending in one `/` so relative API paths resolve under it.
 String resolveApiUrl(String definedUrl, {required bool release}) {
   final url = definedUrl.trim();
-  if (url.isNotEmpty) return url;
-  return release ? productionApiUrl : developmentApiUrl;
+  if (url.isEmpty) return release ? productionApiUrl : developmentApiUrl;
+  return '${url.replaceFirst(RegExp(r'/+$'), '')}/';
 }
 
 const _developmentHosts = {'localhost', '127.0.0.1', '10.0.2.2', '0.0.0.0'};

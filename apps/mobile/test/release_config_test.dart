@@ -20,6 +20,11 @@ void main() {
     expect(resolveApiUrl('  ', release: false), developmentApiUrl);
     expect(resolveApiUrl(' https://api.example.invalid/ ', release: true),
         'https://api.example.invalid/');
+    // With or without the trailing slash the repository variable may carry.
+    expect(resolveApiUrl('https://api.anum360os.com', release: true),
+        productionApiUrl);
+    expect(resolveApiUrl('https://api.example.invalid/base//', release: true),
+        'https://api.example.invalid/base/');
   });
 
   test(
