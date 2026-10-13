@@ -1,5 +1,6 @@
 import { automatedBrowser, chooseRecognitionMode, type AvailabilityProbe, type RecognitionMode } from './recognitionMode';
-import type { Task } from '@anum/contracts';
+import type { Task, VoiceTurnTiming } from '@anum/contracts';
+import { createNaturalSpeaker, NATURAL_WAIT_MS } from './voiceTiming';
 import { apiBaseUrl, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
 import { matchWakeWord } from './wake';
@@ -96,6 +97,8 @@ export interface VoiceAskResult {
   assistant_segment: TranscriptSegment;
   /** What a request for work did: the task, its agent and where it stands (null for answers). */
   action?: VoiceActionCard | null;
+  /** Where the turn's time went on the server (docs/voice.md#latency). */
+  timing?: VoiceTurnTiming | null;
 }
 
 /** Ask a spoken question, or ask for work: the server acts through the governed task path. */
@@ -113,6 +116,22 @@ export interface VoiceStreamHandlers {
   onText?: (text: string) => void;
   /** What a request for work did, first when the task exists, then with its outcome. */
   onAction?: (card: VoiceActionCard) => void;
+  /** The server's timings for the turn, just before it ends. */
+  onTiming?: (timing: VoiceTurnTiming) => void;
+}
+
+function asTiming(value: unknown): VoiceTurnTiming | null {
+  if (!value || typeof value !== 'object') return null;
+  const data = value as Partial<VoiceTurnTiming>;
+  return typeof data.total_ms === 'number' && typeof data.tool_ms === 'number' ? {
+    first_token_ms: typeof data.first_token_ms === 'number' ? data.first_token_ms : null,
+    tool_ms: data.tool_ms,
+    total_ms: data.total_ms,
+    tool_rounds: typeof data.tool_rounds === 'number' ? data.tool_rounds : 0,
+    tool_calls: typeof data.tool_calls === 'number' ? data.tool_calls : 0,
+    grounding: data.grounding === 'tools' || data.grounding === 'snapshot' ? data.grounding : 'none',
+    sources: Array.isArray(data.sources) ? data.sources.filter((item): item is string => typeof item === 'string') : [],
+  } : null;
 }
 
 /**
@@ -130,6 +149,7 @@ export async function streamVoiceAssistant(
   let segment: TranscriptSegment | null = null;
   let failure: string | null = null;
   let action: VoiceActionCard | null = null;
+  let timing: VoiceTurnTiming | null = null;
   await postSse(`/api/v1/voice/sessions/${sessionId}/ask/stream`, { transcript_segment_id: transcriptSegmentId }, signal, (event) => {
     const data = (event.data ?? {}) as Record<string, unknown>;
     if (event.event === 'meta') {
@@ -141,8 +161,12 @@ export async function streamVoiceAssistant(
     } else if (event.event === 'action') {
       const card = latestCard(null, data.card);
       if (card) { action = card; handlers.onAction?.(card); }
+    } else if (event.event === 'timing') {
+      timing = asTiming(data);
+      if (timing) handlers.onTiming?.(timing);
     } else if (event.event === 'done') {
       segment = (data.assistant_segment as TranscriptSegment | null) ?? null;
+      timing ??= asTiming(data.timing);
     } else if (event.event === 'error') {
       failure = typeof data.message === 'string' ? data.message : t('voice.err.couldNotAnswer');
     }
@@ -154,6 +178,7 @@ export async function streamVoiceAssistant(
     ...(meta as Omit<VoiceAskResult, 'reply' | 'assistant_segment'>),
     reply: reply.trim(),
     action,
+    timing,
     assistant_segment: segment ?? { id: `assistant-${now}`, session_id: sessionId, role: 'assistant', text: reply.trim(), is_final: true, client_sequence: 0, created_at: now },
   };
 }
@@ -299,8 +324,12 @@ export function createPushToTalk(
 
 const voiceServerUrl: string | undefined = import.meta.env.VITE_ANUM_TTS_URL;
 
-/** `natural` = Kokoro in the browser (free, English); `server` = self-hosted voice; otherwise a system voice name. */
-export type ReplyVoice = '' | 'natural' | 'server' | string;
+/**
+ * `auto` (the default) = the natural voice when it is ready within 1.5 s for a sentence, the best
+ * system voice otherwise; `natural` = always Kokoro in the browser (free, English; waits for it);
+ * `server` = self-hosted voice; `''` = the best system voice; otherwise a system voice name.
+ */
+export type ReplyVoice = '' | 'auto' | 'natural' | 'server' | string;
 
 export interface SpeakOptions {
   voice?: ReplyVoice;
@@ -308,18 +337,35 @@ export interface SpeakOptions {
   onStart?: () => void;
   onEnd?: () => void;
   onFallback?: (reason: string) => void;
+  /** Which engine spoke the sentence, for the natural and automatic voices. */
+  onEngine?: (engine: 'natural' | 'system') => void;
 }
+
+// Set once the browser has had its chance to load its voices (the Voice page asks when it opens).
+// After that a sentence never waits for them again: a browser with no voices used to add 1.5 s
+// before every spoken sentence (docs/voice.md#latency).
+let voicesSettled = false;
 
 /** Voices the browser/OS provides for free. Loads asynchronously in Chrome. */
 export function listSystemVoices(): Promise<SpeechSynthesisVoice[]> {
   if (!('speechSynthesis' in window)) return Promise.resolve([]);
   const voices = window.speechSynthesis.getVoices();
-  if (voices.length) return Promise.resolve(voices);
-  return new Promise((resolve) => {
-    const done = () => resolve(window.speechSynthesis.getVoices());
+  if (voices.length || voicesSettled) return Promise.resolve(voices);
+  pendingVoices ??= new Promise((resolve) => {
+    const done = () => { voicesSettled = true; pendingVoices = null; resolve(window.speechSynthesis.getVoices()); };
     window.speechSynthesis.addEventListener('voiceschanged', done, { once: true });
     window.setTimeout(done, 1500);
   });
+  return pendingVoices;
+}
+let pendingVoices: Promise<SpeechSynthesisVoice[]> | null = null;
+
+/** The voices for a sentence about to be spoken: never more than a quarter second's wait. */
+function voicesForSpeech(): Promise<SpeechSynthesisVoice[]> {
+  return Promise.race([
+    listSystemVoices(),
+    new Promise<SpeechSynthesisVoice[]>((resolve) => window.setTimeout(() => resolve(window.speechSynthesis.getVoices()), 250)),
+  ]);
 }
 
 const naturalHints = /natural|neural|online|premium|enhanced|wavenet|siri|google/i;
@@ -358,9 +404,17 @@ function loadKokoro(): Promise<KokoroInstance> {
   return kokoro;
 }
 
-/** Start downloading the natural voice in the background (about 90 MB, cached by the browser). */
+const naturalSpeaker = createNaturalSpeaker(
+  loadKokoro,
+  async (tts: KokoroInstance, text: string) => (await tts.generate(text, { voice: 'af_heart' })).toBlob(),
+);
+
+/**
+ * Start loading the natural voice in the background (about 90 MB the first time, then from the
+ * browser's cache), so it is warm by the first reply. Never rejects.
+ */
 export function prepareNaturalVoice(): Promise<void> {
-  return loadKokoro().then(() => undefined);
+  return naturalSpeaker.warm();
 }
 
 // The reply's loudness for the space orb (docs/voice.md#the-space-orb). Natural and server voices
@@ -453,7 +507,7 @@ async function speakWithSystemVoice(text: string, options: SpeakOptions): Promis
   utterance.lang = options.locale;
   utterance.rate = 1;
   utterance.pitch = 1;
-  const voices = await listSystemVoices();
+  const voices = await voicesForSpeech();
   const named = options.voice ? voices.find((voice) => voice.name === options.voice) : undefined;
   const chosen = named ?? rankVoices(voices, options.locale)[0];
   if (chosen) utterance.voice = chosen;
@@ -481,16 +535,18 @@ export async function speak(text: string, options: SpeakOptions): Promise<void> 
       await playBlob(await response.blob(), options);
       return;
     }
-    if (options.voice === 'natural' && naturalVoiceSupports(options.locale)) {
-      const tts = await loadKokoro();
-      const audio = await tts.generate(text, { voice: 'af_heart' });
-      await playBlob(audio.toBlob(), options);
-      return;
+    if ((options.voice === 'natural' || options.voice === 'auto') && naturalVoiceSupports(options.locale)) {
+      // Automatic: a sentence the natural voice cannot have ready in 1.5 s is spoken by the system
+      // voice (quietly, it is the default). Chosen explicitly: wait for it, fall back on failure only.
+      const outcome = await naturalSpeaker.speak(text, options.voice === 'auto' ? NATURAL_WAIT_MS : null);
+      options.onEngine?.(outcome.kind === 'audio' ? 'natural' : 'system');
+      if (outcome.kind === 'audio') { await playBlob(outcome.audio, options); return; }
+      if (options.voice === 'natural') options.onFallback?.(t('voice.err.engine'));
     }
   } catch (error) {
     options.onFallback?.(error instanceof Error ? error.message : t('voice.err.engine'));
   }
-  await speakWithSystemVoice(text, { ...options, voice: options.voice === 'natural' || options.voice === 'server' ? '' : options.voice });
+  await speakWithSystemVoice(text, { ...options, voice: options.voice === 'natural' || options.voice === 'server' || options.voice === 'auto' ? '' : options.voice });
 }
 
 /** A soft two-note chime when the assistant wakes up. Generated, so nothing is downloaded. */

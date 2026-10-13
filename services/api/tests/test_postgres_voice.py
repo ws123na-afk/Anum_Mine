@@ -337,3 +337,38 @@ def test_a_saved_call_keeps_its_summary_as_a_private_conversation(client: TestCl
             text("select count(*) from voice_transcript_segments where session_id = :id"), {"id": session_id}
         ).scalar_one()
     assert left == 0
+
+
+def test_a_grounded_answer_reads_tasks_under_rls_and_audits_the_lookup(client: TestClient, database_engine: Engine) -> None:
+    """docs/voice.md#grounded-answers: the lookups run as the app role in the caller's scope."""
+    from test_voice_grounding import ScriptedToolModel
+
+    from anum_api.voice import voice_model_gateway
+
+    other = headers(workspace_id=WORKSPACE_B, tenant_id=TENANT_B)
+    for hdrs, title in ((A, "Quarterly VAT filing"), (other, "Secret merger plan")):
+        created = client.post("/api/v1/tasks", headers=hdrs, json={"title": title, "prompt": title})
+        assert created.status_code in (200, 201), created.text
+    model = ScriptedToolModel([
+        ([("workspace_tasks", {"query": "VAT"})], "tool_use"),
+        (["According to Tasks, the VAT filing exists."], "end_turn"),
+    ])
+    app.dependency_overrides[voice_model_gateway] = lambda: model
+    try:
+        session_id = _session(client)
+        segment = _say(client, session_id, "Which VAT filings are open?", 0)
+        response = client.post(f"/api/v1/voice/sessions/{session_id}/ask/stream", headers=A, json={"transcript_segment_id": segment["id"]})
+    finally:
+        app.dependency_overrides.pop(voice_model_gateway, None)
+    assert response.status_code == 200 and "event: timing" in response.text
+    assert len(model.rounds) == 2, (len(model.rounds), response.text)
+    result = model.rounds[1].prior[-1]["content"][0]
+    assert not result["is_error"]
+    assert "Quarterly VAT filing" in result["content"] and "Secret merger plan" not in result["content"]
+    assert "Secret merger plan" not in model.messages[0][0]["content"]
+    with database_engine.connect() as connection:
+        rows = connection.execute(text(
+            "select tenant_id, workspace_id, metadata from audit_records where action = 'tool.call' and target = 'workspace_tasks'"
+        )).all()
+    assert rows and all((row.tenant_id, row.workspace_id) == (TENANT_A, WORKSPACE_A) for row in rows)
+    assert all(row.metadata.get("surface") == "voice" for row in rows)

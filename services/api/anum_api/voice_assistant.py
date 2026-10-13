@@ -243,10 +243,12 @@ def voice_messages(
     max_turns: int = 8,
     max_chars: int = 6000,
     data_blocks: Sequence[str] = (),
+    rules_extra: str = "",
 ) -> list[ChatMessage]:
     """Chat messages for a streamed spoken answer: the rules, the recent spoken turns
     (``(role, text)``, newest last, bounded) and the question, each user turn labeled
-    as untrusted speech."""
+    as untrusted speech. ``rules_extra`` (the grounding rules, voice_grounding.py)
+    replaces the tyre-only preface that plain data blocks get."""
     kept: list[tuple[str, str]] = []
     used = 0
     for role, text in reversed((history or [])[-max_turns:]):
@@ -257,7 +259,8 @@ def voice_messages(
     kept.reverse()
     while kept and kept[0][0] != "user":
         kept.pop(0)
-    messages: list[ChatMessage] = [{"role": "system", "content": with_untrusted_rules(_rules(name, facts, data_blocks), *data_blocks)}]
+    rules = f"{voice_rules(name, facts)}\n{rules_extra}" if rules_extra else _rules(name, facts, data_blocks)
+    messages: list[ChatMessage] = [{"role": "system", "content": with_untrusted_rules(rules, *data_blocks)}]
     turns = kept + [("user", question)]
     for role, text in turns:
         content = label_untrusted(text, source=Provenance.USER_SPEECH, origin="voice") if role == "user" else text

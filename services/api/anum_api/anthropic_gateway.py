@@ -19,7 +19,9 @@ Anthropic has no embeddings endpoint: ``embed`` uses the deterministic local emb
 from __future__ import annotations
 
 import copy
+import json
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any
 
@@ -141,6 +143,78 @@ def _attach_image(body: dict[str, Any], image: VisionImage) -> None:
         return
 
 
+# Characters of a tool's streamed arguments kept; a read tool's arguments are a few fields.
+TOOL_INPUT_MAX_CHARS = 4000
+
+
+@dataclass
+class ToolRound:
+    """One streamed Messages API turn in which the model may call client tools (voice
+    grounding, docs/voice.md#grounded-answers).
+
+    ``tools`` are the Messages API tool definitions; ``prior`` the turns since the last
+    plain message (each assistant turn's content blocks exactly as they came back, thinking
+    blocks included, then one user turn with every ``tool_result``). ``final`` sends
+    ``tool_choice: none``: the model must answer now. While the turn streams, its content
+    blocks are collected here; text deltas still reach the caller as they arrive.
+    """
+
+    tools: list[dict[str, Any]]
+    prior: list[dict[str, Any]] = field(default_factory=list)
+    final: bool = False
+    stop_reason: str | None = None
+    _blocks: dict[int, dict[str, Any]] = field(default_factory=dict)
+    _partial: dict[int, list[str]] = field(default_factory=dict)
+    # tool_use ids whose streamed arguments were not one JSON object (never run).
+    invalid: set[str] = field(default_factory=set)
+
+    def start(self, index: int, block: Mapping[str, Any]) -> None:
+        self._blocks[index] = dict(block)
+        if block.get("type") == "tool_use":
+            self._partial[index] = []
+
+    def delta(self, index: int, delta: Mapping[str, Any]) -> None:
+        block = self._blocks.get(index)
+        if block is None:
+            return
+        kind = delta.get("type")
+        if kind == "text_delta":
+            block["text"] = (block.get("text") or "") + str(delta.get("text") or "")
+        elif kind == "thinking_delta":
+            block["thinking"] = (block.get("thinking") or "") + str(delta.get("thinking") or "")
+        elif kind == "signature_delta":
+            block["signature"] = (block.get("signature") or "") + str(delta.get("signature") or "")
+        elif kind == "input_json_delta" and index in self._partial:
+            self._partial[index].append(str(delta.get("partial_json") or ""))
+
+    def stop(self, index: int) -> None:
+        block = self._blocks.get(index)
+        if block is None or block.get("type") != "tool_use" or index not in self._partial:
+            return
+        raw = "".join(self._partial.pop(index))
+        # Strict parse, then a shape check: eager input streaming does not validate, so a
+        # cut-off or malformed input is never run (docs/voice.md#grounded-answers).
+        parsed: Any = None
+        if len(raw) <= TOOL_INPUT_MAX_CHARS:
+            try:
+                parsed = json.loads(raw) if raw.strip() else {}
+            except ValueError:
+                parsed = None
+        if not isinstance(parsed, dict):
+            self.invalid.add(str(block.get("id")))
+            parsed = {}
+        block["input"] = parsed
+
+    def content(self) -> list[dict[str, Any]]:
+        """The assistant turn's blocks in order, to send back unchanged in the next round."""
+        for index in list(self._partial):
+            self.stop(index)
+        return [self._blocks[index] for index in sorted(self._blocks)]
+
+    def tool_uses(self) -> list[dict[str, Any]]:
+        return [block for block in self.content() if block.get("type") == "tool_use"]
+
+
 def count_cache_breakpoints(body: Mapping[str, Any]) -> int:
     """How many ``cache_control`` markers a Messages API body carries."""
     count = sum(1 for tool in body.get("tools") or [] if "cache_control" in tool)
@@ -181,6 +255,15 @@ class AnthropicGateway(OpenAICompatibleGateway):
         self.tools = [dict(tool) for tool in tools] if tools else None
         self.effort = effort or None
         self.route_efforts = {ModelRoute(k): v for k, v in (route_efforts or {}).items()}
+        self._tool_round: ToolRound | None = None
+
+    def with_tool_round(self, tool_round: ToolRound) -> AnthropicGateway:
+        """A copy whose next ``stream_chat`` offers ``tool_round.tools``, appends its prior
+        tool turns and collects the turn's content blocks into it (read-only voice
+        grounding: the caller decides which tools exist and runs them through ToolPolicy)."""
+        variant = copy.copy(self)
+        variant._tool_round = tool_round
+        return variant
 
     def for_route(self, route: ModelRoute) -> AnthropicGateway:
         route = ModelRoute(route)
@@ -239,11 +322,32 @@ class AnthropicGateway(OpenAICompatibleGateway):
     def _stream_request(
         self, messages: list[ChatMessage], max_tokens: int
     ) -> tuple[str, dict[str, object]]:
+        if self._tool_round is not None:
+            return self._tool_round_request(messages, max_tokens, self._tool_round)
         # A frame is shown once: caching the message that carries it would only add the
         # 1.25x write charge.
         body = self._request(messages, max_tokens, cache=True, cache_messages=self._image is None)
         if self._image is not None:
             _attach_image(body, self._image)
+        body["stream"] = True
+        return f"{self.base_url}/v1/messages", body
+
+    def _tool_round_request(
+        self, messages: list[ChatMessage], max_tokens: int, tool_round: ToolRound
+    ) -> tuple[str, dict[str, object]]:
+        """Tools (cached first), system and the conversation, then the tool turns so far."""
+        body = build_messages_request(
+            messages,
+            model=self.model,
+            max_tokens=max_tokens,
+            tools=tool_round.tools,
+            effort=self.effort,
+            cache=True,
+        )
+        body["messages"].extend(copy.deepcopy(tool_round.prior))
+        # Never forced: a forced tool_choice is refused by current models. ``none`` on the
+        # last round makes the model answer from what it has.
+        body["tool_choice"] = {"type": "none"} if tool_round.final else {"type": "auto"}
         body["stream"] = True
         return f"{self.base_url}/v1/messages", body
 
@@ -374,6 +478,17 @@ class AnthropicGateway(OpenAICompatibleGateway):
         kind = data.get("type")
         if kind == "error" or data.get("error"):
             raise ModelStreamError("model provider reported a stream error")
+        tool_round = self._tool_round
+        if tool_round is not None:
+            index = data.get("index")
+            if kind == "content_block_start" and isinstance(index, int):
+                tool_round.start(index, data.get("content_block") or {})
+            elif kind == "content_block_delta" and isinstance(index, int):
+                tool_round.delta(index, data.get("delta") or {})
+            elif kind == "content_block_stop" and isinstance(index, int):
+                tool_round.stop(index)
+            elif kind == "message_delta":
+                tool_round.stop_reason = (data.get("delta") or {}).get("stop_reason") or tool_round.stop_reason
         if kind == "message_start":
             message = data.get("message") or {}
             stream.model = message.get("model") or stream.model
