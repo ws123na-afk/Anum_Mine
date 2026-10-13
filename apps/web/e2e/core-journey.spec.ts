@@ -47,22 +47,27 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/#tasks');
 });
 
-test('primary task journey reaches a completed real API result', async ({ page }) => {
+test('primary task journey reaches a completed real API result', async ({ page, isMobile }) => {
   await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
   const instructions = page.getByLabel('Task instructions');
   await instructions.fill('Review the release');
   await page.getByRole('button', { name: 'Run task' }).click();
-  await expect(page.getByText('Workspace state is current.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Web task' })).toBeVisible();
-  await expect(page.getByText('Release reviewed.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Answer' }).getByText('Done')).toBeVisible();
+  // The run's steps are under the Runs tab of the task detail.
+  await page.getByRole('tab', { name: /^Runs/ }).click();
+  await expect(page.getByText('Release reviewed.')).toBeVisible();
   // The stream mock answers 204 without a body, so the badge reports the stream as offline.
   await expect(page.getByText('Updates offline')).toBeVisible();
+  // On a narrow screen the detail replaces the list; Back shows the composer and its notice.
+  if (isMobile) await page.getByRole('button', { name: 'Back to the list' }).click();
+  await expect(page.getByText('Workspace state is current.')).toBeVisible();
 });
 
-test('task history filters by status and search', async ({ page }) => {
+test('task history filters by status and search', async ({ page, isMobile }) => {
   await page.getByLabel('Task instructions').fill('Review the release');
   await page.getByRole('button', { name: 'Run task' }).click();
+  if (isMobile) await page.getByRole('button', { name: 'Back to the list' }).click();
   await expect(page.getByText('1 of 1 tasks')).toBeVisible();
   await page.getByLabel('Status').selectOption('failed');
   await expect(page.getByRole('heading', { name: 'No matching tasks' })).toBeVisible();

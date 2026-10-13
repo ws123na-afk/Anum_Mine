@@ -149,3 +149,17 @@
   .cmSegment { width: 100%; }
   .cmSegment button { flex: 1 1 auto; }
 }
+
+/* Overview grid (docs/commerce.md#overview): wide panels span two columns so tables never clip. */
+@media (min-width: 1100px) {
+  .cmOverviewGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cmOverviewGrid > .cmWide { grid-column: span 2; }
+}
+.cmMoney { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
+.cmMoney dt { color: var(--d-faint); font-size: 12px; }
+.cmMoney dd { font-variant-numeric: tabular-nums; margin: 2px 0 0; }
+.cmTable td small { color: var(--d-faint); display: block; font-size: 12px; }
+.cmTable td strong { font-weight: 600; }
+.cmReturns td { white-space: nowrap; }
+.cmReturns td:nth-child(5) { min-width: 160px; white-space: normal; }
+.cmLayout > .pageHeader, .cmLayout > .pageSummary { margin-bottom: 0; }

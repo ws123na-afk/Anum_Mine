@@ -4,7 +4,7 @@
 import { t, type MessageKey } from './i18n.ts';
 
 export type View =
-  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'marketing' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
+  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'marketing' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'developer' | 'organisations';
 
@@ -12,9 +12,9 @@ export type NavGroup = 'main' | 'more' | 'admin';
 
 /**
  * The sidebar: the mockup's entries first (Home, ANUM Command, AI Chat, Agents, Voice, Automations,
- * Tasks, Integrations, Documents, Knowledge Base, Reports, ANUM Store), then everything else under
- * More and Admin so every view stays one click away. Calendar from the mockup has no API yet and is
- * not listed.
+ * Tasks, Calendar, Integrations, Documents, Knowledge Base, Reports, ANUM Store), then everything else
+ * under More and Admin so every view stays one click away. Calendar reads the workspace calendar
+ * (`GET /calendar/events`, `GET /calendar/next-steps`, docs/calendar.md).
  *
  * The Knowledge Base entry has two tabs: Memories (`#memory`) and Collections (`#knowledge`,
  * docs/knowledge-base.md). `knowledge` is a tab of `memory` (TABS_OF), not a sidebar entry.
@@ -24,7 +24,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'marketing', 'files', 'memory', 'reports', 'skills'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'marketing', 'files', 'memory', 'reports', 'skills'] },
   { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'developer', 'organisations'] },
 ];
@@ -43,7 +43,10 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations']);
  * Views that draw their own page header: the Command Center, the Voice page's full-bleed space scene,
  * and the working pages whose one header row carries their actions (PageParts.tsx PageHeader).
  */
-export const OWN_HEADER: ReadonlySet<View> = new Set(['home', 'command', 'voice', 'assistant', 'files', 'inbox', 'whatsapp', 'meetings', 'marketing']);
+export const OWN_HEADER: ReadonlySet<View> = new Set([
+  'home', 'command', 'voice', 'assistant', 'files', 'inbox', 'whatsapp', 'meetings', 'marketing',
+  'tasks', 'commerce', 'team', 'assistants', 'call', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning',
+]);
 
 export function isView(value: string): value is View {
   return (VIEWS as readonly string[]).includes(value);

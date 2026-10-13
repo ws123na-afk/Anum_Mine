@@ -13,6 +13,10 @@ Implemented in `services/api/anum_api/organisations.py`, migration `0039_team_wo
 
 Both are organisation roles: a workspace role never grants them, and they are dropped when the user acts in another organisation (below). Without the role the console answers `403` naming the realm role to assign; the web hides the console entry unless the token carries it.
 
+## Web console
+
+`#organisations` (platform operators): one header row with **Onboard a customer company** (a dialog), a band (organisations, those needing attention, active members and pending invitations, overdue of open work), and a table with one row per organisation (health, members, workspaces, invitations, open and overdue work, open agent tasks, last activity, plan, and Reissue invitation while nobody has joined) with search by name or id and a health filter. Tests: `apps/web/e2e/team.spec.ts`.
+
 ## Onboarding a customer company
 
 `POST /api/v1/platform/organizations {tenant_id, display_name, workspace_name, first_admin_email, plan}` (platform operator) creates, in one transaction inside the **new** tenant's RLS context:

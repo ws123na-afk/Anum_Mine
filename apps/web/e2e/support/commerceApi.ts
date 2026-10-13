@@ -121,6 +121,25 @@ export function commerceReply(state: State, method: string, url: URL, body: unkn
     const found = state.orders.find((o) => o.id === orderDetail[1]);
     return found ? ok({ ...found, customer: state.permissions.pii ? { id: 'ccust_1', city: 'Riyadh', country: 'SA', orders_count: 1, pii_visible: true, name: 'Example Buyer', email: 'buyer@example.test', phone: '+966500000000', address: '1 Example Street, Riyadh' } : { id: 'ccust_1', city: 'Riyadh', country: 'SA', orders_count: 1, pii_visible: false, name: null, email: null, phone: null, address: null }, returns: [] }) : ok({ error: { code: 'not_found', message: 'Order not found' } }, 404);
   }
+  if (rest === '/returns') {
+    const days = Number(url.searchParams.get('days') ?? 30);
+    const at = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+    const rows = [
+      { id: 'cret_1', channel: 'amazon', order_external_id: '402-0000001-0000001', sku: 'MX-2055516', quantity: 1, reason: 'Wrong size ordered', status: 'refunded', amount: 450, currency: 'SAR', returned_at: at(2) },
+      { id: 'cret_2', channel: 'noon', order_external_id: 'NSA-1001', sku: 'MX-2055516', quantity: 1, reason: null, status: 'requested', amount: null, currency: 'SAR', returned_at: at(9) },
+      { id: 'cret_3', channel: 'amazon', order_external_id: '402-0000002-0000002', sku: 'BR-2156517', quantity: 1, reason: 'Damaged in transit', status: 'refunded', amount: 900, currency: 'SAR', returned_at: at(45) },
+    ].filter((row) => Date.parse(row.returned_at) >= Date.now() - days * 86_400_000);
+    return page(rows);
+  }
+  if (rest === '/summary') {
+    const period = url.searchParams.get('period');
+    const arabic = url.searchParams.get('lang') === 'ar';
+    const data = period === 'today'
+      ? { period, channel: null, start: '2026-10-12', end: '2026-10-12', orders: 4, units: 9, revenue: { SAR: 1980, AED: 410 }, top_skus: [['MX-2055516', 4]] }
+      : { period, channel: null, start: '2026-10-06', end: '2026-10-12', orders: 31, units: 70, revenue: { SAR: 12600 }, top_skus: [['MX-2055516', 22], ['BR-2156517', 9]] };
+    const text = arabic ? `مبيعاتك: ${data.orders} طلب، ${data.units} قطعة.` : `Sales across all channels: ${data.orders} orders, ${data.units} units.`;
+    return ok({ text, data });
+  }
   if (rest === '/alerts') {
     const status = url.searchParams.get('status') ?? 'open';
     return page(state.alerts.filter((a) => a.status === status));

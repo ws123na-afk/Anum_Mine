@@ -100,7 +100,7 @@ async function mockApi(page: Page, options: Options = {}) {
 test('the activity feed lists what ANUM did, undoes it, tightens it and accepts a suggestion', async ({ page }) => {
   const calls = await mockApi(page);
   await page.goto('/#activity');
-  await expect(page.getByRole('heading', { name: 'What ANUM did on its own' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Activity' })).toBeVisible();
   const feed = page.getByRole('list', { name: 'Activity' });
   await expect(feed.getByText('Archived email auto_1')).toBeVisible();
   await expect(feed.getByText('Answered the weekly sales question')).toBeVisible();
@@ -159,7 +159,7 @@ test('empty and error states say what to do next', async ({ page }) => {
 test('owners save autonomy settings; floors and refusals are shown in place', async ({ page }) => {
   const calls = await mockApi(page);
   await page.goto('/#autonomy');
-  await expect(page.getByRole('heading', { name: 'When ANUM may act without asking' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Autonomy' })).toBeVisible();
   await expect(page.getByText('Organization limit: Ask always')).toBeVisible();
   await page.getByLabel('Email', { exact: true }).selectOption('act_and_notify');
   await page.getByLabel('Recipients threshold', { exact: true }).fill('3');

@@ -10,7 +10,12 @@ import {
   type ApprovalRule, type EnterpriseOperations, type GovernanceSummary, type PolicyPack, type RegionStatus, type RoleTemplate, type RoutingTarget, type TargetDraft,
 } from './lib/governance';
 import { t } from './lib/i18n';
+import { figure, type Figure } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { Modal } from './Dialog';
+import { PageHeader, PageSummary, PaneProblem } from './PageParts';
 import './governance.css';
+import './adminPages.css';
 
 const base = import.meta.env.VITE_ANUM_API_URL ?? 'http://localhost:8000';
 
@@ -178,27 +183,53 @@ export function EnterpriseView() {
   };
   const set = (key: keyof TargetDraft, value: string) => editing && setEditing({ ...editing, draft: { ...editing.draft, [key]: value } });
   const input = (key: Exclude<keyof TargetDraft, 'status'>, label: string, disabled = false) => <label className="field"><span>{label}</span><input dir="ltr" value={editing?.draft[key] ?? ''} disabled={disabled} onChange={(e) => set(key, e.target.value)} /></label>;
+  const opsLoad = { state: loadError ? 'error' as const : ops ? 'ready' as const : 'loading' as const };
+  const figures: Figure[] = [
+    figure('regions', t('ent.metric.regions'), opsLoad, () => ({ value: regions.regions, hint: t('pages2.ent.fig.targets', { count: targets.length }) })),
+    figure('healthy', t('ent.metric.healthy'), opsLoad, () => ({ value: String(ops!.healthy_targets), hint: ops!.degraded_targets ? t('pages2.ent.fig.degraded', { count: ops!.degraded_targets }) : t('pages2.ent.fig.noneDegraded'), tone: ops!.degraded_targets ? 'warn' : '' })),
+    figure('packages', t('ent.metric.packages'), opsLoad, () => ({ value: String(ops!.installed_packages), hint: t('pages2.ent.fig.packagesHint') })),
+    figure('failover', t('ent.metric.failover'), opsLoad, () => ({ value: regions.failover, hint: regions.detail })),
+  ];
+  const newTarget = () => { setFormError(null); setEditing({ draft: emptyTargetDraft(), isNew: true }); };
   return <>
-    <section className="metrics"><Metric label={t('ent.metric.regions')} value={regions.regions} /><Metric label={t('ent.metric.healthy')} value={String(ops?.healthy_targets ?? 0)} /><Metric label={t('ent.metric.packages')} value={String(ops?.installed_packages ?? 0)} /><Metric label={t('ent.metric.failover')} value={regions.failover} detail={regions.detail} /></section>
-    <section className="moduleIntro"><div><p className="eyebrow">{t('ent.eyebrow')}</p><h2>{t('ent.title')}</h2><p>{t('ent.intro')}</p></div><div className="actions">{canManage && <button type="button" onClick={() => { setFormError(null); setEditing({ draft: emptyTargetDraft(), isNew: true }); }}><Plus size={17} aria-hidden="true" />{t('ent.addTarget')}</button>}<button type="button" className="secondary" onClick={() => void load()}><RefreshCw size={17} aria-hidden="true" />{t('ent.refresh')}</button></div></section>
-    {!loaded && <Notice>{t('ent.loading')}</Notice>}
-    {loadError && <Notice error>{loadError}</Notice>}
+    <PageHeader title={viewLabel('enterprise')} subtitle={t('ent.intro')} actions={<>
+      {canManage && <button type="button" aria-haspopup="dialog" onClick={newTarget}><Plus size={17} aria-hidden="true" />{t('ent.addTarget')}</button>}
+      <button type="button" className="secondary" onClick={() => void load()}><RefreshCw size={17} aria-hidden="true" />{t('ent.refresh')}</button>
+    </>} />
+    <PageSummary label={t('pages2.ent.summary')} figures={figures} onRetry={() => void load()} />
     {capabilityError && <Notice error>{t('ent.capabilityError', { message: capabilityError })}</Notice>}
     {readOnlyNotice && <Notice>{readOnlyNotice}</Notice>}
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-    {editing && canManage && <form className="surface govSection govForm" aria-label={t('ent.form.label')} onSubmit={(e) => { e.preventDefault(); void save(); }}>
-      <div className="sectionHeader"><div><p className="eyebrow">{t('ent.form.eyebrow')}</p><h2>{editing.isNew ? t('ent.form.new') : t('ent.form.edit', { id: editing.draft.id })}</h2></div></div>
-      <div className="govGrid">
-        {input('id', t('ent.field.id'), !editing.isNew)}{input('region', t('ent.field.region'))}{input('provider', t('ent.field.provider'))}{input('model', t('ent.field.model'))}
-        <label className="field"><span>{t('ent.field.status')}</span><select value={editing.draft.status} onChange={(e) => set('status', e.target.value as RegionStatus)}>{(['unverified', 'healthy', 'degraded', 'offline'] as const).map((s) => <option key={s} value={s}>{t(`ent.status.${s}`)}</option>)}</select></label>
-        {input('modalities', t('ent.field.modalities'))}{input('sensitivity', t('ent.field.sensitivity'))}{input('cost', t('ent.field.cost'))}{input('latency', t('ent.field.latency'))}
-      </div>
-      <p className="muted">{t('ent.noDelete')}</p>
-      {formError && <Notice error>{formError}</Notice>}
-      <div className="actions"><button type="submit" disabled={busy !== null}>{t('ent.save')}</button><button type="button" className="secondary" onClick={() => setEditing(null)}>{t('common.cancel')}</button></div>
-    </form>}
-    {loaded && targets.length === 0 && <p className="muted">{t('ent.empty')}</p>}
-    <div className="integrationGrid govTargets">{targets.map((target) => <article className="surface integration govTarget" key={target.id}><div className="integrationIcon" aria-hidden="true"><Route /></div><div><h3 dir="ltr">{target.id}</h3><p dir="ltr">{target.region} · {target.provider}/{target.model}</p><small>{target.status === 'unverified' ? t('ent.notMeasured') : t('ent.costLatency', { cost: String(target.cost_per_1k_tokens), latency: target.latency_ms })}</small></div><div className="govTargetMeta"><span className={`statusBadge ${target.status === 'healthy' ? 'success' : target.status === 'offline' ? 'neutral' : 'warning'}`}>{t(`ent.status.${target.status}`)}</span>{canManage && <button type="button" className="iconButton" aria-label={t('ent.editLabel', { id: target.id }, { isolate: false })} title={t('ent.edit')} onClick={() => { setFormError(null); setEditing({ draft: targetDraft(target), isNew: false }); }}><Pencil aria-hidden="true" /></button>}</div></article>)}</div>
+    {editing && canManage && <Modal title={editing.isNew ? t('ent.form.new') : t('ent.form.edit', { id: editing.draft.id })} className="formDialog entDialog" onClose={() => setEditing(null)}>
+      <form className="govForm" aria-label={t('ent.form.label')} onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        <div className="govGrid">
+          {input('id', t('ent.field.id'), !editing.isNew)}{input('region', t('ent.field.region'))}{input('provider', t('ent.field.provider'))}{input('model', t('ent.field.model'))}
+          <label className="field"><span>{t('ent.field.status')}</span><select value={editing.draft.status} onChange={(e) => set('status', e.target.value as RegionStatus)}>{(['unverified', 'healthy', 'degraded', 'offline'] as const).map((s) => <option key={s} value={s}>{t(`ent.status.${s}`)}</option>)}</select></label>
+          {input('modalities', t('ent.field.modalities'))}{input('sensitivity', t('ent.field.sensitivity'))}{input('cost', t('ent.field.cost'))}{input('latency', t('ent.field.latency'))}
+        </div>
+        <p className="muted">{t('ent.noDelete')}</p>
+        {formError && <Notice error>{formError}</Notice>}
+        <div className="actions"><button type="submit" disabled={busy !== null}>{t('ent.save')}</button><button type="button" className="secondary" onClick={() => setEditing(null)}>{t('common.cancel')}</button></div>
+      </form>
+    </Modal>}
+    <section className="pane entTargets" aria-labelledby="ent-targets-title">
+      <div className="paneHead"><h2 id="ent-targets-title">{t('pages2.ent.targets')}</h2>{loaded && <span className="muted">{t('pages2.ent.fig.targets', { count: targets.length })}</span>}</div>
+      {!loaded && <div className="paneBody"><Notice>{t('ent.loading')}</Notice></div>}
+      {loadError && <div className="paneBody"><PaneProblem text={loadError} onRetry={() => void load()} /></div>}
+      {loaded && !loadError && targets.length === 0 && <div className="paneEmpty"><Route aria-hidden="true" /><h3>{t('pages2.ent.noTargets')}</h3><p>{t('ent.empty')}</p>{canManage && <div className="actions"><button type="button" onClick={newTarget}><Plus aria-hidden="true" />{t('ent.addTarget')}</button></div>}</div>}
+      {targets.length > 0 && <div className="dataTableWrap"><table className="dataTable">
+        <thead><tr><th scope="col">{t('ent.field.id')}</th><th scope="col" className="entWide">{t('ent.field.region')}</th><th scope="col">{t('pages2.ent.col.model')}</th><th scope="col" className="optional">{t('ent.field.modalities')}</th><th scope="col">{t('ent.field.status')}</th><th scope="col" className="optional">{t('pages2.ent.col.costLatency')}</th><th scope="col"><span className="visuallyHidden">{t('pages2.assistants.col.actions')}</span></th></tr></thead>
+        <tbody>{targets.map((target) => <tr key={target.id}>
+          <th scope="row"><code dir="ltr">{target.id}</code><small className="entNarrow" dir="ltr">{target.region}</small></th>
+          <td className="entWide" dir="ltr">{target.region}</td>
+          <td dir="ltr">{target.provider}/{target.model}</td>
+          <td className="optional" dir="ltr">{target.modalities.join(', ')}<small>{target.sensitivity.join(', ')}</small></td>
+          <td><span className={`statusBadge ${target.status === 'healthy' ? 'success' : target.status === 'offline' ? 'neutral' : 'warning'}`}>{t(`ent.status.${target.status}`)}</span></td>
+          <td className="optional">{target.status === 'unverified' ? <span className="muted">{t('ent.notMeasured')}</span> : t('ent.costLatency', { cost: String(target.cost_per_1k_tokens), latency: target.latency_ms })}</td>
+          <td><div className="cellActions">{canManage && <button type="button" className="iconButton" aria-label={t('ent.editLabel', { id: target.id }, { isolate: false })} title={t('ent.edit')} onClick={() => { setFormError(null); setEditing({ draft: targetDraft(target), isNew: false }); }}><Pencil aria-hidden="true" /></button>}</div></td>
+        </tr>)}</tbody>
+      </table></div>}
+    </section>
     <MarketplaceCatalog owner={owner} canManage={canManage} onChanged={() => void load()} />
   </>;
 }

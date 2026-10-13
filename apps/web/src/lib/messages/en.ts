@@ -17,6 +17,8 @@ import { orgChartEn } from './orgChart.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
+import { calendarEn } from './calendar.en.ts';
+import { pages2En } from './pages2.en.ts';
 
 export const en = {
   // ---- Commerce (commerce.en.ts) ----
@@ -28,6 +30,8 @@ export const en = {
   ...chatEn,
   ...setupEn,
   ...pagesEn,
+  ...calendarEn,
+  ...pages2En,
   // ---- Common ----
   'common.listAnd': '{head} and {last}',
   'common.listSeparator': ', ',

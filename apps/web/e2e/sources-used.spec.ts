@@ -88,7 +88,8 @@ async function runTask(page: Page) {
   await page.goto('/#tasks');
   await page.getByLabel('Task instructions').fill('Summarise the launch notes');
   await page.getByRole('button', { name: 'Run task' }).click();
-  await expect(page.getByText('Launch notes summarised.')).toBeVisible();
+  // The run's steps are under the Runs tab; the Answer tab (with the sources it used) stays open.
+  await expect(page.getByRole('tab', { name: 'Runs (1)' })).toBeVisible();
 }
 
 test('a run lists the memories and files its prompt used, by name and kind, from one lookup', async ({ page }) => {

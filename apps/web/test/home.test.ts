@@ -29,7 +29,7 @@ describe('what opens where', () => {
   test('every feature key opens a real web view, and pins never offer Home itself', () => {
     for (const view of Object.values(FEATURE_VIEWS)) assert.ok(VIEWS.includes(view), view);
     assert.equal(viewForFeature('email'), 'inbox');
-    assert.equal(viewForFeature('calendar'), 'meetings');
+    assert.equal(viewForFeature('calendar'), 'calendar');
     assert.equal(viewForFeature('unknown'), null);
     assert.ok(!PINNABLE_FEATURES.includes('insights'));
   });

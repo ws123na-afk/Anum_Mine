@@ -12,6 +12,7 @@ export const commerceAr: Record<keyof typeof commerceEn, Message> = {
   'commerce.tabs': 'أقسام التجارة',
   'commerce.tab.overview': 'نظرة عامة',
   'commerce.tab.orders': 'الطلبات',
+  'commerce.tab.returns': 'المرتجعات',
   'commerce.tab.catalog': 'الكتالوج',
   'commerce.tab.alerts': 'التنبيهات',
   'commerce.tab.connections': 'الاتصالات',

@@ -37,7 +37,7 @@ test('Home is the overview of the day, not the command page', async ({ page }) =
   await expect(glance.getByRole('button', { name: /Tasks\s*0\s*running.*0 failed · 1 waiting/ })).toBeVisible();
   await expect(glance.getByRole('button', { name: /Unread email\s*1/ })).toBeVisible();
   await expect(glance.getByRole('button', { name: /Unread WhatsApp\s*3\s*In 1 chat/ })).toBeVisible();
-  await expect(glance.getByRole('button', { name: /Meetings today\s*1/ })).toBeVisible();
+  await expect(glance.getByRole('button', { name: /Meetings today\s*2/ })).toBeVisible();
   await expect(glance.getByRole('button', { name: /AI budget this month\s*75%/ })).toBeVisible();
 
   await expect(page.getByRole('region', { name: /Today's focus/ }).getByRole('button', { name: /Invoice overdue from Gulf Tyres/ })).toBeVisible();

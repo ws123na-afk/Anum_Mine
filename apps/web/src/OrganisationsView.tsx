@@ -7,7 +7,11 @@ import type { CreatedOrganisation, OrganisationBranding, OrganisationPlan, Organ
 import * as team from './lib/teamApi';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
-import { EMAIL_PATTERN, TENANT_ID_PATTERN, healthTone, organisationInvitationLink, slugify } from './lib/team';
+import { EMAIL_PATTERN, TENANT_ID_PATTERN, healthTone, organisationInvitationLink, organisationMatches, organisationTotals, slugify } from './lib/team';
+import { figure } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { Modal } from './Dialog';
+import { PageHeader, PageSummary, PaneProblem } from './PageParts';
 import './team.css';
 
 const PLANS: OrganisationPlan[] = ['trial', 'standard', 'enterprise'];
@@ -51,41 +55,66 @@ export function OrganisationsView() {
     catch (e) { setFlash({ text: describeError(e), error: true }); }
   };
 
-  if (state.kind === 'denied') return <section className="surface adminForbidden teamPanel" aria-labelledby="orgs-denied">
+  const [query, setQuery] = useState('');
+  const [health, setHealth] = useState<'' | OrganisationSummary['health']>('');
+  const header = <PageHeader title={viewLabel('organisations')} subtitle={t('orgs.intro')} actions={state.kind !== 'denied' && <button type="button" aria-haspopup="dialog" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('orgs.onboard')}</button>} />;
+  if (state.kind === 'denied') return <>{header}<section className="surface adminForbidden teamPanel" aria-labelledby="orgs-denied">
     <span className="adminIcon"><Lock aria-hidden="true" /></span>
-    <div><h3 id="orgs-denied">{t('orgs.deniedTitle')}</h3><p>{t('orgs.deniedText')}</p><p className="muted">{t('orgs.apiAnswered', { message: state.detail })}</p></div>
-  </section>;
+    <div><h2 id="orgs-denied">{t('orgs.deniedTitle')}</h2><p>{t('orgs.deniedText')}</p><p className="muted">{t('orgs.apiAnswered', { message: state.detail })}</p></div>
+  </section></>;
+  const totals = orgs ? organisationTotals(orgs) : null;
+  const load_ = { state: orgs ? 'ready' as const : state.kind === 'error' ? 'error' as const : 'loading' as const };
+  const figures = [
+    figure('orgs', t('pages2.orgs.fig.orgs'), load_, () => ({ value: String(totals!.count), hint: t('pages2.orgs.fig.workspaces', { count: totals!.workspaces }) })),
+    figure('attention', t('pages2.orgs.fig.attention'), load_, () => ({ value: String(totals!.attention), hint: totals!.attention ? t('pages2.orgs.fig.attentionHint') : t('pages2.orgs.fig.allHealthy'), tone: totals!.attention ? 'danger' : 'ok' })),
+    figure('members', t('orgs.count.members'), load_, () => ({ value: String(totals!.members), hint: t('pages2.orgs.fig.invitations', { count: totals!.invitations }) })),
+    figure('overdue', t('orgs.count.overdue'), load_, () => ({ value: String(totals!.overdue), hint: t('pages2.orgs.fig.openWork', { count: totals!.openWork }), tone: totals!.overdue ? 'warn' : '' })),
+  ];
+  const shown = (orgs ?? []).filter((org) => (!health || org.health === health) && organisationMatches(org, query));
   return <div className="orgsView">
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('orgs.eyebrow')}</p><h2>{t('orgs.title')}</h2><p>{t('orgs.intro')}</p></div>
-      <div className="actions"><button type="button" onClick={() => setCreating((v) => !v)} aria-expanded={creating}><Plus aria-hidden="true" />{t('orgs.onboard')}</button></div>
-    </section>
-    {creating && <OnboardForm onCancel={() => setCreating(false)} onCreated={created} />}
+    {header}
+    <PageSummary label={t('pages2.orgs.summary')} figures={figures} onRetry={() => void load()} />
+    {creating && <Modal title={t('orgs.onboard')} className="formDialog orgDialog" onClose={() => setCreating(false)}><OnboardForm onCancel={() => setCreating(false)} onCreated={created} /></Modal>}
     {invite && <InvitationReveal {...invite} onDone={() => setInvite(null)} />}
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-    {state.kind === 'error' && <section className="surface teamPanel"><Notice error>{t('orgs.loadFailed', { message: state.detail })}</Notice><div className="actions"><button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></section>}
+    {state.kind === 'error' && <PaneProblem text={t('orgs.loadFailed', { message: state.detail })} onRetry={() => void load()} />}
     {orgs === null && state.kind === 'ok' && <p className="muted" role="status">{t('team.loading')}</p>}
-    {orgs && !orgs.length && <section className="surface teamPanel"><div className="emptyState"><Building2 aria-hidden="true" /><h3>{t('orgs.empty')}</h3><p>{t('orgs.emptyText')}</p></div></section>}
-    {orgs && orgs.length > 0 && <ul className="orgList">{orgs.map((org) => <li key={org.tenant_id} className="surface orgCard">
-      <div className="rowTitle"><h3>{org.display_name}</h3><span className={`statusBadge ${healthTone(org.health)}`}>{t(`orgs.health.${org.health}` as MessageKey)}</span></div>
-      <p className="muted" dir="ltr">{org.tenant_id}</p>
-      <p className="muted">{t(`orgs.healthHelp.${org.health}` as MessageKey)}</p>
-      <dl className="orgCounts">
-        <div><dt>{t('orgs.count.members')}</dt><dd>{org.active_members}</dd></div>
-        <div><dt>{t('orgs.count.workspaces')}</dt><dd>{org.workspaces}</dd></div>
-        <div><dt>{t('orgs.count.invitations')}</dt><dd>{org.pending_invitations}</dd></div>
-        <div><dt>{t('orgs.count.work')}</dt><dd>{org.open_work_items}</dd></div>
-        <div><dt>{t('orgs.count.overdue')}</dt><dd className={org.overdue_work_items ? 'overdueCell' : ''}>{org.overdue_work_items}</dd></div>
-        <div><dt>{t('orgs.count.tasks')}</dt><dd>{org.open_agent_tasks}</dd></div>
-        <div><dt>{t('orgs.lastActivity')}</dt><dd>{org.last_activity_at ? formatDateTime(org.last_activity_at) : t('orgs.never')}</dd></div>
-        <div><dt>{t('orgs.created')}</dt><dd>{formatDateTime(org.created_at, { dateStyle: 'medium' })}</dd></div>
-      </dl>
-      <div className="orgActions">
-        <label className="field"><span>{t('orgs.plan')}</span>
-          <select value={org.plan} onChange={(e) => void setPlan(org, e.target.value as OrganisationPlan)}>{PLANS.map((p) => <option key={p} value={p}>{t(`orgs.plan.${p}` as MessageKey)}</option>)}</select></label>
-        {org.active_members === 0 && <div className="actions"><button type="button" className="secondary" onClick={() => void reissue(org)}><Mail aria-hidden="true" />{t('orgs.reinvite')}</button></div>}
+    {orgs && <section className="pane orgsTablePane" aria-labelledby="orgs-table-title">
+      <div className="paneHead">
+        <h2 id="orgs-table-title">{t('pages2.orgs.tableTitle', { count: orgs.length })}</h2>
+        {orgs.length > 0 && <div className="toolbar orgsToolbar" role="search">
+          <label className="visuallyHidden" htmlFor="orgs-search">{t('pages2.orgs.search')}</label>
+          <input id="orgs-search" type="search" value={query} placeholder={t('pages2.orgs.search')} onChange={(e) => setQuery(e.target.value)} />
+          <label className="visuallyHidden" htmlFor="orgs-health">{t('pages2.orgs.healthFilter')}</label>
+          <select id="orgs-health" value={health} onChange={(e) => setHealth(e.target.value as typeof health)}>
+            <option value="">{t('pages2.orgs.anyHealth')}</option>
+            {(['attention', 'setting_up', 'active', 'idle'] as const).map((h) => <option key={h} value={h}>{t(`orgs.health.${h}` as MessageKey)}</option>)}
+          </select>
+        </div>}
       </div>
-    </li>)}</ul>}
+      {!orgs.length && <div className="paneEmpty"><Building2 aria-hidden="true" /><h3>{t('orgs.empty')}</h3><p>{t('orgs.emptyText')}</p><div className="actions"><button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('orgs.onboard')}</button></div></div>}
+      {orgs.length > 0 && !shown.length && <div className="paneEmpty"><Building2 aria-hidden="true" /><h3>{t('pages2.orgs.noMatch')}</h3><div className="actions"><button type="button" className="secondary" onClick={() => { setQuery(''); setHealth(''); }}>{t('common.clear')}</button></div></div>}
+      {shown.length > 0 && <div className="dataTableWrap"><table className="dataTable orgsTable">
+        <thead><tr>
+          <th scope="col">{t('pages2.orgs.col.organisation')}</th><th scope="col">{t('pages2.orgs.col.health')}</th>
+          <th scope="col" className="num">{t('orgs.count.members')}</th><th scope="col" className="num optional">{t('orgs.count.workspaces')}</th><th scope="col" className="num optional">{t('orgs.count.invitations')}</th>
+          <th scope="col" className="num">{t('orgs.count.work')}</th><th scope="col" className="num">{t('orgs.count.overdue')}</th><th scope="col" className="num optional">{t('orgs.count.tasks')}</th>
+          <th scope="col" className="optional">{t('orgs.lastActivity')}</th><th scope="col">{t('orgs.plan')}</th>
+        </tr></thead>
+        <tbody>{shown.map((org) => <tr key={org.tenant_id}>
+          <th scope="row"><strong dir="auto">{org.display_name}</strong><small dir="ltr">{org.tenant_id} · {t('pages2.orgs.since', { when: formatDateTime(org.created_at, { dateStyle: 'medium' }) })}</small></th>
+          <td><span className={`statusBadge ${healthTone(org.health)}`} title={t(`orgs.healthHelp.${org.health}` as MessageKey)}>{t(`orgs.health.${org.health}` as MessageKey)}</span></td>
+          <td className="num">{org.active_members}</td><td className="num optional">{org.workspaces}</td><td className="num optional">{org.pending_invitations}</td>
+          <td className="num">{org.open_work_items}</td><td className={`num ${org.overdue_work_items ? 'overdueCell' : ''}`}>{org.overdue_work_items}</td><td className="num optional">{org.open_agent_tasks}</td>
+          <td className="optional nowrap">{org.last_activity_at ? formatDateTime(org.last_activity_at) : t('orgs.never')}</td>
+          <td><div className="orgPlanCell">
+            <label className="visuallyHidden" htmlFor={`plan-${org.tenant_id}`}>{t('pages2.orgs.planFor', { name: org.display_name })}</label>
+            <select id={`plan-${org.tenant_id}`} value={org.plan} onChange={(e) => void setPlan(org, e.target.value as OrganisationPlan)}>{PLANS.map((p) => <option key={p} value={p}>{t(`orgs.plan.${p}` as MessageKey)}</option>)}</select>
+            {org.active_members === 0 && <button type="button" className="secondary" onClick={() => void reissue(org)}><Mail aria-hidden="true" />{t('orgs.reinvite')}</button>}
+          </div></td>
+        </tr>)}</tbody>
+      </table></div>}
+    </section>}
     <p className="muted orgPrivacy">{t('orgs.privacyNote')}</p>
   </div>;
 }
@@ -114,8 +143,7 @@ function OnboardForm({ onCancel, onCreated }: { onCancel(): void; onCreated(resu
     catch (e) { setProblem(describeError(e)); } finally { setBusy(false); }
   };
   const err = (key: string, id: string) => errors[key] ? <small id={id} className="fieldError">{t(errors[key])}</small> : null;
-  return <form className="surface settingsForm" onSubmit={submit} aria-labelledby="onboard-title" noValidate>
-    <h2 id="onboard-title">{t('orgs.onboard')}</h2>
+  return <form className="settingsForm onboardForm" onSubmit={submit} noValidate>
     <p className="muted">{t('orgs.onboardHelp')}</p>
     <div className="formGrid">
       <div><label className="field"><span>{t('orgs.field.name')}</span><input value={name} maxLength={160} aria-invalid={Boolean(errors.name)} aria-describedby="org-name-error" onChange={(e) => { setName(e.target.value); if (!idTouched) setTenantId(slugify(e.target.value)); }} /></label>{err('name', 'org-name-error')}</div>

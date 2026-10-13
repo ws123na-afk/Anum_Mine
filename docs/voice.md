@@ -235,6 +235,12 @@ Engines are pluggable and reported honestly by `GET /api/v1/voice/capabilities`;
 - Either way the session is then completed (`session` retention erases the transcript). A failed save shows the reason with **Retry** and **End without saving**.
 - Viewers cannot save a call (`task:create`, `403`).
 
+### Recent calls
+
+`GET /api/v1/voice/sessions?limit=&cursor=&status=` lists the caller's own calls and Voice sessions in the current workspace, newest first (`task:read`; viewers too). Rows are private to the user: the query filters on tenant, workspace and user, and the PostgreSQL policies on `voice_sessions` and `voice_transcript_segments` check `anum.user_id` as well, so another person in the same workspace never sees them. `limit` is 1 to 100 (default 20); `next_cursor` (an opaque keyset on `created_at` and `id`) fetches older rows and a cursor the API did not issue is `422`; `status` is `active`, `completed` or `cancelled`. Each row is the session plus `segment_count` (transcript lines still stored) and `first_line` (the caller's first final line, at most 160 characters). Both are `0` and `null` once the transcript is gone: `session` retention erases it when the call ends, and a `30_days` transcript is hidden from its `expires_at` on. The list reads the session rows plus two grouped reads of the segments, never one query per row.
+
+The web Call page shows this list next to the start card ("Recent calls"): status, date, language, retention and the first line, with **Load older**. Opening a row reads its transcript (`GET /api/v1/voice/sessions/{id}/transcript`); a saved call's summary is in AI Chat as its own conversation.
+
 ### States
 
 | State | What the caller sees |

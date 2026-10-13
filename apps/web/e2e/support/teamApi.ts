@@ -7,7 +7,7 @@ const now = () => new Date().toISOString();
 const later = new Date(Date.now() + 2 * 86_400_000).toISOString();
 const earlier = new Date(Date.now() - 3 * 3_600_000).toISOString();
 
-export interface TeamMockOptions { denyEdit?: boolean; emptyWork?: boolean; denyOrganisations?: boolean }
+export interface TeamMockOptions { denyEdit?: boolean; emptyWork?: boolean; denyOrganisations?: boolean; denyAssistants?: boolean; denyAssistantChanges?: boolean }
 
 type Item = Record<string, unknown> & { id: string; title: string; status: string; version: number; comments: Record<string, unknown>[]; checklist: Record<string, unknown>[]; attachments: Record<string, unknown>[] };
 
@@ -64,7 +64,12 @@ export function createTeamMock(options: TeamMockOptions = {}) {
     if (path === '/api/v1/organization/branding' && method === 'PUT') return json({ tenant_id: 'tenant_local', display_name: body().display_name, has_logo: false, logo_content_type: null, updated_at: now() });
     if (path === '/api/v1/me/organizations') return json([{ tenant_id: 'tenant_local', name: 'ANUM', display_name: 'Tyre House', current: true, workspaces: [{ workspace_id: 'workspace_foundation', workspace_name: 'Foundation', role: 'owner' }] }, { tenant_id: 'gulf_tyres', name: 'Gulf Tyres', display_name: 'Gulf Tyres', current: false, workspaces: [{ workspace_id: 'gulf_tyres_main', workspace_name: 'Main', role: 'member' }] }]);
     if (path === '/api/v1/team/people') return json(people);
+    if (path.startsWith('/api/v1/assistants') && options.denyAssistants) return json({ error: { code: 'forbidden', message: 'Seeing department assistants needs a member or owner role in this workspace.' } }, 403);
+    if (path.startsWith('/api/v1/assistants/asst_') && options.denyAssistantChanges) return json({ error: { code: 'forbidden', message: 'Only a workspace owner can change department assistants.' } }, 403);
     if (path === '/api/v1/assistants' && method === 'GET') return json(assistants);
+    const assistantPath = /^\/api\/v1\/assistants\/(asst_[^/]+)$/.exec(path);
+    if (assistantPath && method === 'PUT') { const index = assistants.findIndex((a) => a.id === assistantPath[1]); assistants[index] = { ...assistants[index], ...body(), updated_at: now() }; return json(assistants[index]); }
+    if (assistantPath && method === 'DELETE') { const index = assistants.findIndex((a) => a.id === assistantPath[1]); assistants.splice(index, 1); await route.fulfill({ status: 204 }); return true; }
     if (path === '/api/v1/assistants/templates') return json(templates);
     if (path === '/api/v1/assistants' && method === 'POST') { const a = { ...body(), id: `asst_${assistants.length + 1}`, created_by: 'user_local', created_at: now(), updated_at: now() }; assistants.push(a); return json(a, 201); }
     if (path === '/api/v1/assistants/route') {

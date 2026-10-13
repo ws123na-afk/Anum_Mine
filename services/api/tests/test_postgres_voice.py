@@ -337,3 +337,31 @@ def test_a_saved_call_keeps_its_summary_as_a_private_conversation(client: TestCl
             text("select count(*) from voice_transcript_segments where session_id = :id"), {"id": session_id}
         ).scalar_one()
     assert left == 0
+
+
+def test_recent_sessions_are_listed_from_postgres_for_their_owner_only(client: TestClient) -> None:
+    first = _session(client, "permanent")
+    _say(client, first, "Which orders ship today?", 0)
+    _say(client, first, "and which are late", 1)
+    assert client.post(f"/api/v1/voice/sessions/{first}/complete", headers=A).status_code == 200
+    erased = _session(client, "session")
+    _say(client, erased, "secret", 0)
+    assert client.post(f"/api/v1/voice/sessions/{erased}/complete", headers=A).status_code == 200
+    newest = _session(client)
+    for other in (headers("user_other"), headers(workspace_id=WORKSPACE_A2), headers(tenant_id=TENANT_B, workspace_id=WORKSPACE_B)):
+        _session(client, hdrs=other)
+
+    voice_store.clear()  # read back from PostgreSQL, not process memory
+    page = client.get("/api/v1/voice/sessions?limit=2", headers=A)
+    assert page.status_code == 200, page.text
+    body = page.json()
+    assert [item["id"] for item in body["items"]] == [newest, erased]
+    assert body["items"][1]["segment_count"] == 0 and body["items"][1]["first_line"] is None
+    older = client.get(f"/api/v1/voice/sessions?limit=2&cursor={body['next_cursor']}", headers=A).json()
+    assert [item["id"] for item in older["items"]] == [first]
+    assert older["items"][0]["segment_count"] == 2
+    assert older["items"][0]["first_line"] == "Which orders ship today?"
+    assert older["next_cursor"] is None
+    assert [item["id"] for item in client.get("/api/v1/voice/sessions?status=active", headers=A).json()["items"]] == [newest]
+    others = client.get("/api/v1/voice/sessions", headers=headers("user_other")).json()["items"]
+    assert first not in {item["id"] for item in others} and len(others) == 1

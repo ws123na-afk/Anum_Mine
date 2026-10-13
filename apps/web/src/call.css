@@ -9,7 +9,9 @@
   height: 48px; place-items: center; width: 48px;
 }
 .callLobbyIcon svg { height: 22px; width: 22px; }
-.callLobbyGrid { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.callLobbyGrid { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.callLobbyGrid .field { margin: 0; min-width: 0; }
+.callLobbyGrid select { max-width: 100%; min-width: 0; text-overflow: ellipsis; width: 100%; }
 .callFacts { color: var(--d-muted); display: grid; font-size: 14px; gap: var(--d-s2); margin: 0; padding-inline-start: var(--d-s5); }
 .callStart { font-weight: 650; min-height: 48px; padding-inline: var(--d-s5); }
 .callStart svg, .callEndButton svg { height: 18px; width: 18px; }
@@ -123,3 +125,39 @@
 }
 @media (prefers-reduced-motion: reduce) { .callLiveDot { animation: none; } }
 .callEndTime { color: var(--d-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* Call page (docs/voice.md#recent-calls): a compact start card beside the recent calls. */
+.callPage { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) { .callPage { grid-template-columns: minmax(360px, 5fr) minmax(0, 6fr); } }
+.callPage .callLobby { gap: var(--d-s3); margin: 0; max-width: none; padding: var(--d-s4); }
+.callPage .callLobby .actions { margin-top: 0; }
+.callPage .callLobbyGrid { gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); }
+.callPage .callLobbyHead { gap: var(--d-s3); }
+.callPage .callLobbyHead h2 { font-size: 17px; margin-bottom: 2px; }
+.callPage .callLobbyIcon { height: 40px; width: 40px; }
+.callFactsBox summary { color: var(--d-muted); cursor: pointer; font-size: 13px; font-weight: 600; min-height: 32px; padding: 6px 0; }
+.callFactsBox .callFacts { font-size: 13.5px; margin-top: var(--d-s1); }
+.callPage .callStart { width: 100%; justify-content: center; }
+.recentCalls .paneHead h2 { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.recentCallsNote { font-size: 13px; }
+.recentCallList { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.recentCallList > li { border-bottom: 1px solid var(--d-line); }
+.recentCallList > li:last-child { border-bottom: 0; }
+.recentCallRow {
+  align-items: center; background: none; border: 0; border-radius: 10px; color: var(--d-text); display: grid; gap: var(--d-s3);
+  grid-template-columns: minmax(0, 1fr) auto 18px; min-height: 52px; padding: 6px var(--d-s2); text-align: start; width: 100%;
+}
+.recentCallRow:hover { background: var(--d-glass-1); }
+.recentCallMain { display: grid; gap: 1px; min-width: 0; }
+.recentCallMain strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recentCallMain small { color: var(--d-muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.recentCallChevron { color: var(--d-faint); height: 18px; transition: transform 160ms var(--d-ease); width: 18px; }
+.recentCallList > li.open .recentCallChevron { transform: rotate(180deg); }
+.recentCallDetail { display: grid; gap: var(--d-s2); padding: var(--d-s1) var(--d-s2) var(--d-s3); }
+.recentCallLines { display: grid; gap: var(--d-s2); list-style: none; margin: 0; max-height: 320px; overflow: auto; padding: 0; }
+.recentCallLines li { border-inline-start: 3px solid var(--d-line-strong); padding-inline-start: var(--d-s2); }
+.recentCallLines li.assistant { border-inline-start-color: var(--d-violet); }
+.recentCallWho { color: var(--d-faint); display: block; font-size: 12px; font-weight: 600; }
+.recentCallLines p { font-size: 14px; margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.recentCallChat { align-items: center; display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s1); }
+.recentCallsMore { margin-top: 0; }

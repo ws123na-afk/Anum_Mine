@@ -30,8 +30,9 @@ export async function mockCallApi(page: Page, options: { vision?: boolean; failA
         locales: ['en-US', 'en-GB', 'ar-SA', 'ar-AE'], max_audio_bytes: 4194304, max_audio_ms: 120000, max_speech_chars: 600,
       });
     }
+    if (path === '/api/v1/voice/sessions' && request.method() === 'GET') return route.fallback();
     if (path === '/api/v1/voice/sessions') return json({ id: 'voice_call', locale: 'en-US', retention: 'session', assistant_name: 'Anum', status: 'active', created_at: now, updated_at: now, expires_at: null }, 201);
-    if (path.endsWith('/transcript')) {
+    if (path.endsWith('/transcript') && request.method() === 'POST') {
       const body = request.postDataJSON() as { text: string };
       const id = `seg_${sequence++}`;
       texts.set(id, body.text);

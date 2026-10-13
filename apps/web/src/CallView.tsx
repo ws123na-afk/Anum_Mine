@@ -12,6 +12,9 @@ import { CallEngine, type CallProblem, type CallSnapshot } from './lib/callEngin
 import { callApi, getVoiceCapabilities } from './lib/callApi';
 import { captureFrame, createCallRecognizer, createCallSpeaker, openCamera, openMicrophone, type Facing, type ReplyEngine } from './lib/callBrowser';
 import { detectRecognitionMode, naturalVoiceSupports, outputAmplitude, type TranscriptRetention } from './lib/voice';
+import { viewLabel } from './lib/shell';
+import { PageHeader } from './PageParts';
+import { RecentCalls } from './RecentCalls';
 import './voice.css';
 import './call.css';
 
@@ -37,8 +40,9 @@ function problemText(problem: CallProblem, capabilities: VoiceCapabilities): str
   }
 }
 
-export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprovals?: () => void; onOpenConversation?: (id: string) => void } = {}) {
+export function CallView({ onOpenApprovals, onOpenConversation, onOpenChat }: { onOpenApprovals?: () => void; onOpenConversation?: (id: string) => void; onOpenChat?: () => void } = {}) {
   const [stage, setStage] = useState<Stage>('lobby');
+  const [historyTick, setHistoryTick] = useState(0);
   const [capabilities, setCapabilities] = useState<VoiceCapabilities | null>(null);
   const [locale, setLocale] = useState(() => callLocaleFor(document.documentElement.lang || 'en', stored('anum.call.locale', '')));
   const [stt, setStt] = useState<'device' | 'server'>(() => stored('anum.call.stt', 'device') === 'server' ? 'server' : 'device');
@@ -217,6 +221,7 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
     setChatOpen(false);
     setNotice('');
     setStage('lobby');
+    setHistoryTick((n) => n + 1);
   }
 
   function sendTyped(event?: FormEvent) {
@@ -255,61 +260,70 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
   const latency = snapshot?.lastLatencyMs ?? null;
 
   if (stage === 'lobby') {
-    return <section className="callLobby surface" aria-labelledby="call-lobby-title">
-      <div className="callLobbyHead">
-        <span className="callLobbyIcon" aria-hidden="true"><Phone /></span>
-        <div>
-          <h2 id="call-lobby-title">{t('call.lobby.title', { name })}</h2>
-          <p className="muted">{t('call.lobby.text', { name })}</p>
-        </div>
+    return <>
+      <PageHeader title={viewLabel('call')} subtitle={t('pages2.call.subtitle', { name })} />
+      <div className="callPage">
+        <section className="callLobby surface" aria-labelledby="call-lobby-title">
+          <div className="callLobbyHead">
+            <span className="callLobbyIcon" aria-hidden="true"><Phone /></span>
+            <div>
+              <h2 id="call-lobby-title">{t('call.lobby.title', { name })}</h2>
+              <p className="muted">{t('pages2.call.startHint')}</p>
+            </div>
+          </div>
+          {!capabilities && <p className="notice" role="status">{t('call.lobby.checking')}</p>}
+          <div className="callLobbyGrid">
+            <label className="field"><span>{t('call.settings.language')}</span>
+              <select value={locale} onChange={(event) => setLocale(event.target.value)}>
+                {caps.locales.map((value) => <option key={value} value={value} lang={value}>{LOCALE_LABELS[value] ?? value}</option>)}
+              </select>
+            </label>
+            <label className="field"><span>{t('call.settings.retention')}</span>
+              <select value={retention} onChange={(event) => setRetention(event.target.value as TranscriptRetention)}>
+                <option value="session">{t('call.retention.session')}</option>
+                <option value="30_days">{t('call.retention.30_days')}</option>
+                <option value="permanent">{t('call.retention.permanent')}</option>
+              </select>
+            </label>
+            <label className="field"><span>{t('call.settings.recognition')}</span>
+              <select value={stt} onChange={(event) => setStt(event.target.value === 'server' ? 'server' : 'device')}>
+                <option value="device">{t('call.engine.deviceStt')}</option>
+                {serverStt && <option value="server">{t('call.engine.server', { label: serverStt.label, model: serverStt.model ?? '' })}</option>}
+              </select>
+            </label>
+            <label className="field"><span>{t('call.settings.voice')}</span>
+              <select value={tts} onChange={(event) => setTts(event.target.value as ReplyEngine)}>
+                <option value="device">{t('call.engine.deviceTts')}</option>
+                {naturalVoiceSupports(locale) && <option value="natural">{t('call.engine.natural')}</option>}
+                {serverTts && <option value="server">{t('call.engine.server', { label: serverTts.label, model: serverTts.model ?? '' })}</option>}
+              </select>
+            </label>
+          </div>
+          <details className="callFactsBox">
+            <summary>{t('pages2.call.howItWorks')}</summary>
+            <ul className="callFacts">
+              <li>{stt === 'server' && serverStt ? costLine(serverStt, 'stt') : t('call.fact.deviceStt')}</li>
+              <li>{tts === 'server' && serverTts ? costLine(serverTts, 'tts') : t('call.fact.deviceTts')}</li>
+              <li>{caps.vision.available ? t('call.fact.vision', { model: caps.vision.model ?? '' }) : (caps.vision.reason ?? t('call.problem.vision-off'))}</li>
+              <li>{t('call.fact.approvals')}</li>
+              <li>{t('call.fact.latency', { seconds: formatNumber(caps.latency_target_ms.first_audio / 1000) })}</li>
+            </ul>
+          </details>
+          {lobbyProblem && <p className="notice errorNotice" role="alert">{problemText(lobbyProblem, caps)}</p>}
+          <div className="actions">
+            <button type="button" className="callStart" onClick={() => void start()} disabled={starting}>
+              <Phone aria-hidden="true" />{starting ? t('call.lobby.starting') : lobbyProblem ? t('call.lobby.retry') : t('call.lobby.start')}
+            </button>
+          </div>
+        </section>
+        <RecentCalls refresh={historyTick} onOpenChat={onOpenChat} />
       </div>
-      {!capabilities && <p className="notice" role="status">{t('call.lobby.checking')}</p>}
-      <div className="callLobbyGrid">
-        <label className="field"><span>{t('call.settings.language')}</span>
-          <select value={locale} onChange={(event) => setLocale(event.target.value)}>
-            {caps.locales.map((value) => <option key={value} value={value} lang={value}>{LOCALE_LABELS[value] ?? value}</option>)}
-          </select>
-        </label>
-        <label className="field"><span>{t('call.settings.recognition')}</span>
-          <select value={stt} onChange={(event) => setStt(event.target.value === 'server' ? 'server' : 'device')}>
-            <option value="device">{t('call.engine.deviceStt')}</option>
-            {serverStt && <option value="server">{t('call.engine.server', { label: serverStt.label, model: serverStt.model ?? '' })}</option>}
-          </select>
-        </label>
-        <label className="field"><span>{t('call.settings.voice')}</span>
-          <select value={tts} onChange={(event) => setTts(event.target.value as ReplyEngine)}>
-            <option value="device">{t('call.engine.deviceTts')}</option>
-            {naturalVoiceSupports(locale) && <option value="natural">{t('call.engine.natural')}</option>}
-            {serverTts && <option value="server">{t('call.engine.server', { label: serverTts.label, model: serverTts.model ?? '' })}</option>}
-          </select>
-        </label>
-        <label className="field"><span>{t('call.settings.retention')}</span>
-          <select value={retention} onChange={(event) => setRetention(event.target.value as TranscriptRetention)}>
-            <option value="session">{t('call.retention.session')}</option>
-            <option value="30_days">{t('call.retention.30_days')}</option>
-            <option value="permanent">{t('call.retention.permanent')}</option>
-          </select>
-        </label>
-      </div>
-      <ul className="callFacts">
-        <li>{stt === 'server' && serverStt ? costLine(serverStt, 'stt') : t('call.fact.deviceStt')}</li>
-        <li>{tts === 'server' && serverTts ? costLine(serverTts, 'tts') : t('call.fact.deviceTts')}</li>
-        <li>{caps.vision.available ? t('call.fact.vision', { model: caps.vision.model ?? '' }) : (caps.vision.reason ?? t('call.problem.vision-off'))}</li>
-        <li>{t('call.fact.approvals')}</li>
-        <li>{t('call.fact.latency', { seconds: formatNumber(caps.latency_target_ms.first_audio / 1000) })}</li>
-      </ul>
-      {lobbyProblem && <p className="notice errorNotice" role="alert">{problemText(lobbyProblem, caps)}</p>}
-      <div className="actions">
-        <button type="button" className="callStart" onClick={() => void start()} disabled={starting}>
-          <Phone aria-hidden="true" />{starting ? t('call.lobby.starting') : lobbyProblem ? t('call.lobby.retry') : t('call.lobby.start')}
-        </button>
-      </div>
-    </section>;
+    </>;
   }
 
   if (stage === 'ending' || stage === 'ended') {
     const summary = snapshot?.summary;
-    return <section className="callEnd surface" aria-labelledby="call-end-title">
+    return <><h1 id="view-title" className="visuallyHidden">{viewLabel('call')}</h1><section className="callEnd surface" aria-labelledby="call-end-title">
       <div ref={dialog} tabIndex={-1} className="callEndBody" role={stage === 'ending' ? 'dialog' : undefined} aria-modal={stage === 'ending' ? true : undefined} aria-labelledby="call-end-title">
         <p className="callEndTime">{t('call.end.duration', { time: formatCallTime(elapsed) })}</p>
         <h2 id="call-end-title">{stage === 'ending' ? t('call.end.askTitle') : t('call.end.doneTitle')}</h2>
@@ -332,7 +346,7 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
           </div>
         </>}
       </div>
-    </section>;
+    </section></>;
   }
 
   const phase = snapshot?.phase ?? 'connecting';
@@ -341,7 +355,7 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
   const orbSize = camera ? 160 : Math.round(Math.min(400, window.innerHeight * 0.38, Math.max(220, Math.min(window.innerWidth, window.innerHeight) * 0.45)));
   const pending = snapshot?.pendingApprovals ?? 0;
   const spaceMode = callSpaceMode(phase, pending > 0);
-  return <section className={`callScreen ${chatOpen ? 'withChat' : ''}`} aria-label={t('call.screen', { name })} data-phase={phase}>
+  return <><h1 id="view-title" className="visuallyHidden">{viewLabel('call')}</h1><section className={`callScreen ${chatOpen ? 'withChat' : ''}`} aria-label={t('call.screen', { name })} data-phase={phase}>
     <header className="callTop">
       <div className="callWho">
         <h2>{name}</h2>
@@ -437,7 +451,7 @@ export function CallView({ onOpenApprovals, onOpenConversation }: { onOpenApprov
       </div>
       <button type="button" className="callEndButton" onClick={hangUp}><PhoneOff aria-hidden="true" />{t('call.control.end')}</button>
     </footer>
-  </section>;
+  </section></>;
 }
 
 function costLine(engine: { label: string; model: string | null; usd_per_minute: number | null; usd_per_million_chars: number | null }, kind: 'stt' | 'tts'): string {

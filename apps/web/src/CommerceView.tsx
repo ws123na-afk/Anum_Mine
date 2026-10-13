@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import type {
   Approval, CommerceAlert, CommerceChannel, CommerceConnector, CommerceDashboard, CommerceListing, CommerceOrder, CommerceOrderDetail,
-  CommercePage, CommerceProduct, CommerceSettings, CommerceSetup, OwnStoreMode, TyreSpec,
+  CommercePage, CommerceProduct, CommerceReturn, CommerceSettings, CommerceSetup, OwnStoreMode, TyreSpec,
 } from '@anum/contracts';
 import * as api from './lib/commerceApi';
 import {
@@ -20,11 +20,15 @@ import {
 } from './lib/commerce';
 import { shortHash } from './lib/approvals';
 import { describeError, isPermissionDenied } from './lib/errors';
-import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
+import { stockAndPrices, summaryFigures, type SummaryNumbers } from './lib/commerce';
+import { figure, type Figure } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { PageHeader, PageSummary } from './PageParts';
 import './commerce.css';
 
-type Tab = 'overview' | 'orders' | 'catalog' | 'alerts' | 'connections';
-const TABS: Tab[] = ['overview', 'orders', 'catalog', 'alerts', 'connections'];
+type Tab = 'overview' | 'orders' | 'returns' | 'catalog' | 'alerts' | 'connections';
+const TABS: Tab[] = ['overview', 'orders', 'returns', 'catalog', 'alerts', 'connections'];
 const PAGE = 20;
 const when = (value: string | null | undefined) => (value ? formatDateTime(value) : '—');
 
@@ -64,13 +68,16 @@ export function CommerceView({ onOpenApprovals }: { onOpenApprovals?: () => void
   useEffect(() => { void load(); }, [load]);
   const pick = (next: Tab) => { setTab(next); try { sessionStorage.setItem('anum.commerce.tab', next); } catch { /* per page only */ } };
 
-  if (setup.kind === 'loading') return <Notice busy>{t('commerce.loading')}</Notice>;
-  if (setup.kind === 'denied') return <Denied text={t('commerce.denied.read')} />;
-  if (setup.kind === 'error') return <LoadError message={t('commerce.error.load', { message: setup.message })} retry={() => void load()} />;
+  const header = <PageHeader title={viewLabel('commerce')} subtitle={t('pages2.commerce.subtitle')} />;
+  if (setup.kind === 'loading') return <>{header}<Notice busy>{t('commerce.loading')}</Notice></>;
+  if (setup.kind === 'denied') return <>{header}<Denied text={t('commerce.denied.read')} /></>;
+  if (setup.kind === 'error') return <>{header}<LoadError message={t('commerce.error.load', { message: setup.message })} retry={() => void load()} /></>;
   const { permissions } = setup.value;
   const noChannels = setup.value.connectors === 0;
   const active: Tab = noChannels && tab !== 'catalog' ? 'connections' : tab;
   return <div className="cmLayout">
+    {header}
+    {!noChannels && <TodayBand />}
     <nav className="settingsTabs cmTabs" aria-label={t('commerce.tabs')}>
       {TABS.map((id) => <button key={id} type="button" aria-current={active === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`commerce.tab.${id}` as MessageKey)}</button>)}
     </nav>
@@ -80,6 +87,7 @@ export function CommerceView({ onOpenApprovals }: { onOpenApprovals?: () => void
     </section>}
     {active === 'overview' && <Overview />}
     {active === 'orders' && <Orders canSeeBuyers={permissions.pii} />}
+    {active === 'returns' && <Returns />}
     {active === 'catalog' && <Catalog permissions={permissions} onOpenApprovals={onOpenApprovals} />}
     {active === 'alerts' && <Alerts canAct={permissions.operate} />}
     {active === 'connections' && <Connections permissions={permissions} onChanged={() => void api.getSetup().then((value) => setSetup({ kind: 'ready', value })).catch(() => undefined)} />}
@@ -124,13 +132,18 @@ function Overview() {
     </section>
     {d.connectors === 0 ? <div className="emptyState"><Plug aria-hidden="true" /><h3>{t('commerce.overview.noChannels')}</h3><p>{t('commerce.overview.noChannelsText')}</p></div> : <>
       <SalesChart dashboard={d} />
-      <div className="cmGrid">
-        <section className="surface cmPanel" aria-labelledby="cm-by-channel">
+      <div className="cmGrid cmOverviewGrid">
+        <section className="surface cmPanel cmWide" aria-labelledby="cm-by-channel">
           <h2 id="cm-by-channel">{t('commerce.overview.byChannel')}</h2>
           {d.by_channel.length === 0 ? <p className="muted cmEmpty">{t('commerce.overview.noSales')}</p> : <div className="cmTableWrap"><table className="cmTable">
             <thead><tr><th scope="col">{t('commerce.col.marketplace')}</th><th scope="col" className="num">{t('commerce.col.orders')}</th><th scope="col" className="num">{t('commerce.col.units')}</th><th scope="col" className="num">{t('commerce.col.revenue')}</th></tr></thead>
             <tbody>{d.by_channel.map((row) => <tr key={`${row.marketplace_id}-${row.currency}`}><td><ChannelDot channel={row.channel} />{row.marketplace}</td><td className="num">{formatCount(row.orders)}</td><td className="num">{formatCount(row.units)}</td><td className="num">{formatMoney(row.revenue, row.currency)}</td></tr>)}</tbody>
           </table></div>}
+          <dl className="cmFacts cmMoney" aria-label={t('commerce.overview.money')}>
+            <div><dt>{t('commerce.money.fees')}</dt><dd>{Object.keys(d.fees).length ? Object.entries(d.fees).map(([code, amount]) => formatMoney(amount, code)).join(' · ') : '–'}</dd></div>
+            <div><dt>{t('commerce.money.refunds')}</dt><dd>{Object.keys(d.returns.amount).length ? Object.entries(d.returns.amount).map(([code, amount]) => formatMoney(amount, code)).join(' · ') : '–'}</dd></div>
+            <div><dt>{t('commerce.money.alerts')}</dt><dd>{formatCount(d.open_alerts)}</dd></div>
+          </dl>
         </section>
         <section className="surface cmPanel" aria-labelledby="cm-top">
           <h2 id="cm-top">{t('commerce.overview.top')}</h2>
@@ -146,31 +159,50 @@ function Overview() {
             <Badge tone={orderTone(o.status, o.late)}>{o.late ? t('commerce.order.late') : orderStatusLabel(o.status)}</Badge>
           </li>)}</ul>}
         </section>
-        <section className="surface cmPanel" aria-labelledby="cm-low">
-          <h2 id="cm-low">{t('commerce.overview.lowStock')}</h2>
-          {d.low_stock.length === 0 ? <p className="muted cmEmpty"><CheckCircle2 aria-hidden="true" />{t('commerce.overview.noLowStock')}</p> : <ul className="cmList">{d.low_stock.slice(0, 12).map((row) => <li key={row.listing_id}>
-            <div><strong>{row.sku}</strong><small><ChannelDot channel={row.channel} />{row.marketplace}</small></div>
-            <Badge tone={row.quantity <= 0 ? 'dangerTone' : 'warning'}>{row.quantity <= 0 ? t('commerce.stock.out') : t('commerce.stock.left', { count: row.quantity })}</Badge>
-          </li>)}</ul>}
-        </section>
-        <section className="surface cmPanel" aria-labelledby="cm-prices">
-          <h2 id="cm-prices">{t('commerce.overview.prices')}</h2>
-          {d.price_alerts.length === 0 ? <p className="muted cmEmpty">{t('commerce.overview.noPriceAlerts')}</p> : <ul className="cmList">{d.price_alerts.map((row) => <li key={row.listing_id}>
-            <div><strong>{row.sku}</strong><small>{row.marketplace} · {t('commerce.price.yours', { price: formatMoney(row.price, row.currency) })}</small></div>
-            <span className="cmPriceNote">{row.buy_box_winner === false ? t('commerce.price.buyBoxLost', { price: formatMoney(row.buy_box_price, row.currency) }) : t('commerce.price.lowest', { price: formatMoney(row.lowest_competitor_price, row.currency) })}</span>
-          </li>)}</ul>}
-        </section>
-        <section className="surface cmPanel" aria-labelledby="cm-money">
-          <h2 id="cm-money">{t('commerce.overview.money')}</h2>
-          <dl className="cmFacts">
-            <div><dt>{t('commerce.money.fees')}</dt><dd>{Object.keys(d.fees).length ? Object.entries(d.fees).map(([code, amount]) => formatMoney(amount, code)).join(' · ') : '—'}</dd></div>
-            <div><dt>{t('commerce.money.refunds')}</dt><dd>{Object.keys(d.returns.amount).length ? Object.entries(d.returns.amount).map(([code, amount]) => formatMoney(amount, code)).join(' · ') : '—'}</dd></div>
-            <div><dt>{t('commerce.money.alerts')}</dt><dd>{formatCount(d.open_alerts)}</dd></div>
-          </dl>
-        </section>
+        <StockAndPrices dashboard={d} />
       </div>
     </>}
   </>;
+}
+
+/** Low stock and buy-box or price alerts in one compact table: one row per listing that needs a look. */
+function StockAndPrices({ dashboard: d }: { dashboard: CommerceDashboard }) {
+  const rows = stockAndPrices(d.low_stock, d.price_alerts);
+  return <section className="surface cmPanel cmWide" aria-labelledby="cm-stock-prices">
+    <h2 id="cm-stock-prices">{t('pages2.commerce.stockPrices')}</h2>
+    {rows.length === 0 ? <p className="muted cmEmpty"><CheckCircle2 aria-hidden="true" />{t('pages2.commerce.stockPricesNone')}</p> : <div className="cmTableWrap" tabIndex={0} role="group" aria-labelledby="cm-stock-prices"><table className="cmTable">
+      <thead><tr><th scope="col">{t('pages2.commerce.col.sku')}</th><th scope="col">{t('commerce.col.marketplace')}</th><th scope="col">{t('pages2.commerce.col.stock')}</th><th scope="col">{t('pages2.commerce.col.price')}</th></tr></thead>
+      <tbody>{rows.map((row) => <tr key={row.listingId}>
+        <td><strong>{row.sku}</strong></td>
+        <td><ChannelDot channel={row.channel} />{row.marketplace}</td>
+        <td>{row.quantity === null ? <span className="muted">–</span> : <Badge tone={row.quantity <= 0 ? 'dangerTone' : 'warning'}>{row.quantity <= 0 ? t('commerce.stock.out') : t('commerce.stock.left', { count: row.quantity })}</Badge>}</td>
+        <td>{row.price ? <span className={row.price.buyBoxLost ? 'cmPriceNote' : undefined}>{row.price.buyBoxLost ? t('commerce.price.buyBoxLost', { price: formatMoney(row.price.buyBoxPrice, row.price.currency) }) : t('commerce.price.lowest', { price: formatMoney(row.price.lowest, row.price.currency) })}<small>{t('commerce.price.yours', { price: formatMoney(row.price.yours, row.price.currency) })}</small></span> : <span className="muted">–</span>}</td>
+      </tr>)}</tbody>
+    </table></div>}
+    {rows.length >= 12 && <p className="muted">{t('pages2.commerce.stockPricesMore')}</p>}
+  </section>;
+}
+
+/** The page's band: today's and the last seven days' sales from `GET /commerce/summary`, with its sentence. */
+function TodayBand() {
+  const [today, setToday] = useState<Load<SummaryNumbers & { text: string }>>({ kind: 'loading' });
+  const [week, setWeek] = useState<Load<SummaryNumbers>>({ kind: 'loading' });
+  const load = useCallback(() => {
+    const lang = getLocale() === 'ar' ? 'ar' : 'en';
+    setToday({ kind: 'loading' }); setWeek({ kind: 'loading' });
+    api.getSummary('today', lang).then((value) => setToday({ kind: 'ready', value: { ...summaryFigures(value.data), text: value.text } }), (e: unknown) => setToday(failed(e)));
+    api.getSummary('last_7_days', lang).then((value) => setWeek({ kind: 'ready', value: summaryFigures(value.data) }), (e: unknown) => setWeek(failed(e)));
+  }, []);
+  useEffect(load, [load]);
+  const state = (l: Load<unknown>) => ({ state: l.kind === 'ready' ? 'ready' as const : l.kind === 'loading' ? 'loading' as const : 'error' as const });
+  const t1 = today.kind === 'ready' ? today.value : null, w = week.kind === 'ready' ? week.value : null;
+  const figures: Figure[] = [
+    figure('orders', t('pages2.commerce.fig.ordersToday'), state(today), () => ({ value: formatCount(t1!.orders), hint: t('commerce.metric.units', { count: t1!.units }), tone: t1!.orders ? 'accent' : '' })),
+    figure('revenue', t('pages2.commerce.fig.revenueToday'), state(today), () => ({ value: t1!.revenue.length ? formatMoney(t1!.revenue[0].amount, t1!.revenue[0].currency) : '–', hint: t1!.revenue.length > 1 ? t1!.revenue.slice(1).map((r) => formatMoney(r.amount, r.currency)).join(' · ') : t('pages2.commerce.fig.revenueHint') })),
+    figure('week', t('pages2.commerce.fig.ordersWeek'), state(week), () => ({ value: formatCount(w!.orders), hint: w!.revenue.length ? w!.revenue.map((r) => formatMoney(r.amount, r.currency)).join(' · ') : t('pages2.commerce.fig.noSales') })),
+    figure('top', t('pages2.commerce.fig.topWeek'), state(week), () => ({ value: w!.topSku ?? '–', hint: w!.topSku ? t('commerce.overview.unitsSold', { count: w!.topUnits }) : t('pages2.commerce.fig.noSales') })),
+  ];
+  return <PageSummary label={t('pages2.commerce.summary')} figures={figures} onRetry={load} footer={t1 ? <span dir="auto">{t1.text}</span> : undefined} />;
 }
 
 function Metric({ icon, label, value, detail, tone }: { icon: ReactNode; label: string; value: string; detail: string; tone?: 'danger' }) {
@@ -444,6 +476,50 @@ function ProductForm({ product, onDone }: { product: CommerceProduct | null; onD
 }
 
 // ---- Alerts ---------------------------------------------------------------------------------
+
+// ---- Returns -------------------------------------------------------------------------------
+
+const RETURN_WINDOWS = [7, 30, 90] as const;
+const RETURN_STATUSES = ['requested', 'approved', 'received', 'refunded', 'completed', 'rejected', 'cancelled'];
+/** A marketplace's return status in words; a status ANUM does not know shows as the marketplace sent it. */
+const returnStatus = (status: string) => (RETURN_STATUSES.includes(status) ? t(`pages2.commerce.returnStatus.${status}` as MessageKey) : status);
+
+function Returns() {
+  const [days, setDays] = useState<number>(30), [offset, setOffset] = useState(0);
+  const [state, setState] = useState<Load<CommercePage<CommerceReturn>>>({ kind: 'loading' });
+  const load = useCallback(async () => {
+    setState({ kind: 'loading' });
+    try { setState({ kind: 'ready', value: await api.listReturns(days, PAGE, offset) }); } catch (e) { setState(failed(e)); }
+  }, [days, offset]);
+  useEffect(() => { void load(); }, [load]);
+  return <section className="surface cmPanel" aria-labelledby="cm-returns">
+    <div className="sectionHeader"><h2 id="cm-returns">{t('pages2.commerce.returns.title')}</h2>
+      <div className="cmSegment" role="radiogroup" aria-label={t('pages2.commerce.returns.window')}>
+        {RETURN_WINDOWS.map((value) => <button key={value} type="button" role="radio" aria-checked={days === value} onClick={() => { setOffset(0); setDays(value); }}>{t('pages2.commerce.returns.days', { count: value })}</button>)}
+      </div>
+    </div>
+    <p className="muted">{t('pages2.commerce.returns.intro')}</p>
+    {state.kind === 'loading' && <Notice busy>{t('pages2.commerce.returns.loading')}</Notice>}
+    {state.kind === 'denied' && <Notice error>{t('commerce.denied.read')}</Notice>}
+    {state.kind === 'error' && <LoadError message={t('pages2.commerce.returns.failed', { message: state.message })} retry={() => void load()} />}
+    {state.kind === 'ready' && state.value.items.length === 0 && <div className="emptyState"><Undo2 aria-hidden="true" /><h3>{t('pages2.commerce.returns.empty', { count: days })}</h3><p>{t('pages2.commerce.returns.emptyText')}</p></div>}
+    {state.kind === 'ready' && state.value.items.length > 0 && <>
+      <div className="cmTableWrap"><table className="cmTable cmReturns">
+        <thead><tr><th scope="col">{t('pages2.commerce.returns.col.when')}</th><th scope="col">{t('commerce.col.order')}</th><th scope="col">{t('pages2.commerce.col.sku')}</th><th scope="col" className="num">{t('pages2.commerce.returns.col.qty')}</th><th scope="col">{t('pages2.commerce.returns.col.reason')}</th><th scope="col">{t('commerce.col.status')}</th><th scope="col" className="num">{t('pages2.commerce.returns.col.amount')}</th></tr></thead>
+        <tbody>{state.value.items.map((row) => <tr key={row.id}>
+          <td>{when(row.returned_at)}</td>
+          <td><ChannelDot channel={row.channel} /><span dir="ltr">{row.order_external_id}</span><small>{channelLabel(row.channel)}</small></td>
+          <td dir="ltr">{row.sku ?? '–'}</td>
+          <td className="num">{formatCount(row.quantity)}</td>
+          <td dir="auto">{row.reason ?? <span className="muted">{t('pages2.commerce.returns.noReason')}</span>}</td>
+          <td><Badge tone={row.status === 'completed' || row.status === 'refunded' ? 'success' : row.status === 'rejected' ? 'dangerTone' : 'warning'}>{returnStatus(row.status)}</Badge></td>
+          <td className="num">{row.amount === null ? '–' : formatMoney(row.amount, row.currency)}</td>
+        </tr>)}</tbody>
+      </table></div>
+      <Pager page={state.value} onPage={setOffset} label={t('pages2.commerce.returns.pages')} />
+    </>}
+  </section>;
+}
 
 function Alerts({ canAct }: { canAct: boolean }) {
   const [status, setStatus] = useState('open'), [offset, setOffset] = useState(0);

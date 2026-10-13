@@ -39,8 +39,9 @@ test('an owner reads the dashboard: totals, sales by day, late orders, low stock
   await expect(totals.getByText('1 late')).toBeVisible();
   await expect(page.getByRole('img', { name: /Sales by day for 30 days/ })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Orders to ship' }).getByText('Late')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Low stock' }).getByText('MX-2055516')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Buy box and prices' }).getByText('Buy box lost at SAR 430.00')).toBeVisible();
+  const stockRow = page.getByRole('region', { name: 'Stock and prices to check' }).getByRole('row', { name: /MX-2055516/ });
+  await expect(stockRow).toContainText('3 left');
+  await expect(stockRow).toContainText('Buy box lost at SAR 430.00');
   await page.getByText('Show as a table').click();
   await expect(page.getByRole('region', { name: /Sales by day/ }).getByRole('table')).toBeVisible();
   await page.getByLabel('Currency').selectOption('AED');

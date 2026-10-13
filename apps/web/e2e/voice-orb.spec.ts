@@ -20,6 +20,7 @@ async function mockVoice(page: Page, options: { pendingApprovals?: number } = {}
   await page.route('http://localhost:8000/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     const json = (body: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/v1/voice/sessions' && route.request().method() === 'GET') return json({ items: [], next_cursor: null });
     if (path === '/api/v1/voice/sessions') return json({ id: 'voice_orb', locale: 'en-US', retention: 'session', assistant_name: 'Layla', status: 'active', created_at: now, updated_at: now, expires_at: null });
     if (path.endsWith('/transcript')) return json({ id: 'seg_1', session_id: 'voice_orb', role: 'user', text: 'hi', is_final: true, client_sequence: 1, created_at: now });
     if (path.endsWith('/ask/stream')) {

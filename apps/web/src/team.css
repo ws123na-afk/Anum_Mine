@@ -162,3 +162,46 @@
 /* Auto-route channels in the assistant editor: a plain group, no browser fieldset frame. */
 .assistantChannels { border: 0; padding: 0; margin: var(--d-s4) 0 0; min-width: 0; }
 .assistantChannels > legend { padding: 0; font-weight: 600; }
+
+/* Team dashboard (docs/team-work.md#dashboard): the workload table above the board, one panel. */
+.workloadBlock { border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-top: var(--d-s3); padding-bottom: var(--d-s4); }
+.workloadHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.workloadHead h3 { font-size: 15px; }
+.workloadHead .muted { flex-basis: 100%; font-size: 13px; }
+.workloadTable tbody tr.selected > * { background: var(--d-glass-2); }
+.workloadTable .cellButton strong { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.boardHeading { font-size: 15px; margin-top: var(--d-s4); }
+.teamDashboard .board { margin-top: var(--d-s2); }
+.workDialog { max-width: 720px; }
+.workDialog .workForm { padding: 0; }
+.teamView > .pageHeader, .teamView > .pageSummary { margin-bottom: 0; }
+
+/* Assistants (AssistantsView.tsx): one table with each assistant's queue, the route form folded away. */
+.assistantsView > .pageHeader, .assistantsView > .pageSummary { margin-bottom: 0; }
+.assistantsTable .tagRow { margin-top: 4px; }
+.assistantsTable .tagRow span { font-size: 11.5px; }
+.assistantRoutes { display: block; max-width: 44ch; }
+.assistantsRoute { padding: 0; }
+.assistantsRoute > summary {
+  align-items: center; cursor: pointer; display: flex; flex-wrap: wrap; font-weight: 650; gap: var(--d-s1) var(--d-s2); list-style: none; min-height: 52px; padding: var(--d-s3) var(--d-s4);
+}
+.assistantsRoute > summary::-webkit-details-marker { display: none; }
+.assistantsRoute > summary small { color: var(--d-muted); flex-basis: 100%; font-size: 13px; font-weight: 400; }
+.assistantsRoute[open] > summary { border-bottom: 1px solid var(--d-line); }
+.assistantsRoute .routeForm { padding: var(--d-s3) var(--d-s4) var(--d-s4); }
+.assistantDialog { max-width: 720px; }
+.assistantDialog .assistantForm { padding: 0; }
+
+/* Organisations (OrganisationsView.tsx): one row per organisation. */
+.orgsView > .pageHeader, .orgsView > .pageSummary { margin-bottom: 0; }
+.orgsToolbar { flex: 1 1 360px; justify-content: flex-end; }
+.orgsToolbar input[type="search"] { max-width: 280px; }
+.orgsTable tbody th small { margin-top: 1px; }
+.orgPlanCell { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.orgPlanCell select { min-height: 36px; width: auto; }
+.orgPlanCell button { min-height: 36px; white-space: nowrap; }
+.orgDialog { max-width: 720px; }
+.orgDialog .onboardForm { padding: 0; }
+.teamView > *, .assistantsView > *, .orgsView > * { min-width: 0; }
+.orgsTable thead th { white-space: normal; }
+.orgsTable tbody th { min-width: 150px; }

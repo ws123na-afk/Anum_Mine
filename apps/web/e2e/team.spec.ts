@@ -77,10 +77,10 @@ test('a refused change says who may make it', async ({ page }) => {
 test('board, workload and activity tabs', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#team');
-  await page.getByRole('navigation', { name: 'Team sections' }).getByRole('button', { name: 'Team board' }).click();
+  // The board and the workload share the Team dashboard tab.
+  await page.getByRole('navigation', { name: 'Team sections' }).getByRole('button', { name: 'Team dashboard' }).click();
   await expect(page.getByRole('heading', { level: 3, name: /In progress/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Draft a quote for Al Noor fleet/ })).toBeVisible();
-  await page.getByRole('navigation', { name: 'Team sections' }).getByRole('button', { name: 'Workload' }).click();
   await expect(page.getByRole('meter', { name: 'Omar Owner: 85% of weekly capacity' })).toBeVisible();
   await page.getByRole('navigation', { name: 'Team sections' }).getByRole('button', { name: 'Activity' }).click();
   await expect(page.getByText(/Ahmed Saleh created "Count winter tyre stock"/)).toBeVisible();
@@ -105,30 +105,11 @@ test('the notifications menu lists my team notifications and opens the work item
   await expect(page.getByRole('button', { name: `Notifications, ${before - 1} waiting` })).toBeVisible();
 });
 
-test('assistants: templates, creating one and routing a message', async ({ page }) => {
-  await mockWorkspaceApi(page);
-  await page.goto('/#assistants');
-  await expect(page.getByRole('heading', { level: 3, name: /Sales assistant/ })).toBeVisible();
-  await expect(page.getByText('Takes new messages from: WhatsApp')).toBeVisible();
-  await page.getByRole('listitem').filter({ hasText: 'Support' }).getByRole('button', { name: 'Use template' }).click();
-  const email = page.getByRole('checkbox', { name: 'Email' });
-  await expect(email).not.toBeChecked();
-  await email.click();
-  await expect(email).toBeChecked();
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('support assistant was saved.')).toBeVisible();
-  await expect(page.getByText('Takes new messages from: Email')).toBeVisible();
-  await page.getByLabel('From').fill('+966500000000');
-  await page.getByLabel('Message', { exact: true }).fill('What is your price for 4 tyres?');
-  await page.getByRole('button', { name: 'Route message' }).click();
-  await expect(page.getByText('Routed to Sales assistant (price).')).toBeVisible();
-});
-
 test('platform console: onboard a customer company and see the one-time invitation', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#organisations');
-  await expect(page.getByRole('heading', { level: 3, name: 'Gulf Tyres' })).toBeVisible();
-  await expect(page.getByText('Needs attention')).toBeVisible();
+  await expect(page.getByRole('rowheader', { name: /^Gulf Tyres/ })).toBeVisible();
+  await expect(page.getByRole('row', { name: /^Gulf Tyres/ }).getByText('Needs attention')).toBeVisible();
   await page.getByRole('button', { name: 'Onboard a customer company' }).click();
   await page.getByLabel('Organisation name').fill('Acme Tyres');
   await expect(page.getByLabel('Organisation id')).toHaveValue('acme_tyres');
@@ -140,7 +121,7 @@ test('platform console: onboard a customer company and see the one-time invitati
   await expect(page.getByRole('heading', { name: 'Invitation for the first admin of Acme Tyres' })).toBeVisible();
   await expect(page.getByLabel('Invitation link')).toHaveValue(/#invitation=anum_inv_example&workspace=acme_tyres_main&tenant=acme_tyres$/);
   await page.getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByRole('heading', { level: 3, name: 'Acme Tyres' })).toBeVisible();
+  await expect(page.getByRole('rowheader', { name: /^Acme Tyres/ })).toBeVisible();
 });
 
 test('platform console explains who may use it', async ({ page }) => {

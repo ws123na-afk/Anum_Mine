@@ -245,3 +245,12 @@ export function packageBody(d: PackageDraft): Result<MarketPackage> {
   if (regions.length > 20) return { ok: false, error: t('market.err.regions') };
   return { ok: true, value: { id, name, kind: d.kind, version: d.version.trim(), publisher, verified: d.verified, permissions, regions } };
 }
+
+/** The ANUM Store's band: skills in the catalogue (plus built-in ones), installed, switched off, upgradable and not installed. */
+export function skillCounts(groups: readonly Pick<SkillGroup, 'state' | 'upgrade'>[], builtins: number) {
+  return {
+    total: groups.length + builtins, builtin: builtins,
+    installed: groups.filter((g) => g.state === 'installed').length, disabled: groups.filter((g) => g.state === 'disabled').length,
+    available: groups.filter((g) => g.state === 'available').length, upgrades: groups.filter((g) => g.upgrade !== null).length,
+  };
+}
