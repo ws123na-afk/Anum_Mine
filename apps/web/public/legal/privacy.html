@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy | Anum OS</title>
+  <meta name="description" content="How Anum OS handles account, workspace and connected social media data, including TikTok.">
+  <link rel="canonical" href="https://app.anum360os.com/privacy">
+  <style>
+    :root {
+      color-scheme: dark light;
+      --bg: #070b1a; --surface: #0e1530; --line: #22305a;
+      --text: #eef2ff; --muted: #b9c3e6; --link: #9cc0ff;
+      --accent: linear-gradient(90deg, #4f8bff, #7a6bff 55%, #b56bff);
+    }
+    @media (prefers-color-scheme: light) {
+      :root { --bg: #f4f6fb; --surface: #ffffff; --line: #d7ddef; --text: #0d1530; --muted: #3d4766; --link: #2f5fd0; }
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 16px/1.65 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    a { color: var(--link); text-underline-offset: 2px; overflow-wrap: anywhere; }
+    a[href^="tel:"] { white-space: nowrap; }
+    a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 2px; }
+    .bar { height: 4px; background: var(--accent); }
+    header, main, footer { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+    header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-top: 20px; padding-bottom: 20px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-weight: 700; letter-spacing: .04em; text-decoration: none; }
+    .mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--accent); color: #fff; font-weight: 800; }
+    nav { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 15px; }
+    nav a[aria-current="page"] { color: var(--text); font-weight: 600; text-decoration: none; }
+    main { padding-bottom: 32px; }
+    h1 { font-size: clamp(28px, 6vw, 40px); line-height: 1.15; margin: 8px 0 8px; }
+    .meta { color: var(--muted); margin: 0 0 24px; }
+    .summary { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 0 0 8px; }
+    .summary p { margin: 0; }
+    h2 { font-size: 20px; line-height: 1.3; margin: 32px 0 8px; }
+    p, ul { margin: 0 0 12px; }
+    ul { padding-inline-start: 22px; }
+    li { margin-bottom: 6px; }
+    footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; padding-top: 16px; padding-bottom: 32px; }
+    footer p { margin: 0 0 6px; }
+  </style>
+</head>
+<body>
+  <div class="bar" aria-hidden="true"></div>
+  <header>
+    <a class="brand" href="/"><span class="mark" aria-hidden="true">A</span>Anum OS</a>
+    <nav aria-label="Legal"><a href="/privacy" aria-current="page">Privacy</a><a href="/terms">Terms</a><a href="/">Open Anum OS</a></nav>
+  </header>
+  <main>
+    <h1>Privacy Policy</h1>
+    <p class="meta">Effective 13 October 2026</p>
+    <div class="summary"><p>Your company's data stays in its own workspace. We never post to TikTok or any other platform without the owner's approval, we never sell data, and you can disconnect at any time.</p></div>
+    <h2>1. Who we are</h2>
+    <p>Anum OS is a business operations platform: one command center to run a whole company. It is built and operated by Shahzeb Rahman under his Abu Dhabi trade licence.</p>
+    <p>The web app is at <a href="https://app.anum360os.com">https://app.anum360os.com</a>. The desktop, iOS and Android apps use the same account. Anum OS is hosted on Oracle Cloud servers.</p>
+    <h2>2. Your account</h2>
+    <p>You sign in through ANUM's own identity service. We store your name and email address. You can also turn on two-factor sign-in.</p>
+    <p>The data a company enters, such as tasks, approvals, files, messages and knowledge, belongs to that company's workspace. Each workspace is kept separate from every other workspace.</p>
+    <h2>3. Connected social media accounts</h2>
+    <p>In Marketing, a workspace owner may connect Facebook, Instagram, LinkedIn, X, TikTok and YouTube. Each connection uses the platform's official login.</p>
+    <ul>
+      <li>Access tokens are stored encrypted.</li>
+      <li>Tokens are never shown to anyone.</li>
+      <li>Tokens are refreshed when needed.</li>
+      <li>Tokens are revoked when the owner disconnects the account.</li>
+    </ul>
+    <h2>4. TikTok</h2>
+    <p>When an owner connects TikTok, Anum OS uses only these TikTok features:</p>
+    <ul>
+      <li><strong>Login Kit (user.info.basic):</strong> shows which TikTok account is connected. We read the open id, display name and avatar.</li>
+      <li><strong>Content Posting API (video.upload):</strong> sends a video that the team created and the owner approved to the creator's TikTok inbox as a draft.</li>
+      <li><strong>Content Posting API (video.publish):</strong> posts an approved video at the scheduled time. We use this only after TikTok approves the app.</li>
+      <li><strong>video.list:</strong> reads the views, likes, comments and shares of videos posted from Anum OS, for the weekly report.</li>
+    </ul>
+    <p>Nothing is posted to TikTok without the owner's approval.</p>
+    <p>We do not read private messages, follower lists or other people's content. We do not sell data. We do not use TikTok data for advertising or to train AI models.</p>
+    <p>We keep TikTok data only while the account is connected. Disconnecting removes the tokens. Stored post statistics are deleted on request or when the workspace is deleted.</p>
+    <p>You can also remove access in TikTok: open TikTok's settings, then Security and permissions, then Manage app permissions.</p>
+    <h2>5. AI features</h2>
+    <p>AI features process the workspace's own content to draft text. AI providers receive only what each request needs.</p>
+    <h2>6. Your rights</h2>
+    <p>You can access, correct, delete and export your data. In Anum OS, open Settings, then Privacy. You can also email us at <a href="mailto:info@shahzebrahman.com">info@shahzebrahman.com</a>.</p>
+    <h2>7. Changes</h2>
+    <p>If this policy changes, we post the new version on this page with a new effective date.</p>
+    <h2>8. Contact</h2>
+    <p>Email <a href="mailto:info@shahzebrahman.com">info@shahzebrahman.com</a> or call <a href="tel:+971566726276">+971 56 672 6276</a>.</p>
+
+  </main>
+  <footer>
+    <p>Anum OS is built and operated by Shahzeb Rahman under his Abu Dhabi trade licence.</p>
+    <p>Contact: <a href="mailto:info@shahzebrahman.com">info@shahzebrahman.com</a>, <a href="tel:+971566726276">+971 56 672 6276</a></p>
+    <p><a href="/privacy">Privacy Policy</a> &middot; <a href="/terms">Terms of Service</a> &middot; <a href="/">Open Anum OS</a></p>
+  </footer>
+</body>
+</html>
