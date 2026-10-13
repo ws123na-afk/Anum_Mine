@@ -8,7 +8,10 @@ that runs against live data:
   the exact payload, whatever the autonomy level, and no plan agent holds a payment tool.
 - OWN03: a send to 20 recipients always asks (bulk), even with an approved template.
 - OWN01: "Show all COD orders awaiting remittance..." plans read-only steps that need no approval.
-- CC04: ANUM has no opt-out suppression, and the plan says so instead of claiming it.
+- CC04: a STOP message puts the customer on the contact suppression list and every later
+  send to them is refused and audited.
+- The plan's AED thresholds are real approval rules: a refund of AED 300 goes to owners only,
+  one of AED 200 to the approvers the owner names.
 """
 
 from __future__ import annotations
@@ -173,8 +176,54 @@ def test_own01_the_cod_summary_command_plans_read_only_steps(client: TestClient)
         assert step["tool"]["action_kind"] in {"read", None} or step["tool"]["name"] == "anum.respond", step["tool"]
 
 
-def test_cc04_opt_out_is_reported_as_not_supported(client: TestClient) -> None:
+def test_cc04_a_stop_message_suppresses_every_later_send(client: TestClient) -> None:
+    from anum_api.agent_tools import ToolRegistry, ToolResult
+    from anum_api.suppression import SuppressionChannel, apply_inbound_keyword, suppression_store
+
+    suppression_store.clear()
     preview = plan_tests.preview(client)
-    assert any(item["key"] == "u_optout" and item["action"] == "unsupported" for item in preview["items"])
+    assert not any(item["key"] == "u_optout" for item in preview["items"])
+    assert next(item for item in preview["items"] if item["key"] == "auto07")["action"] == "builtin"
     opt_out = next(check for check in load_blueprints()[PLAN].pilot_checks if check.id == "CC04")
-    assert opt_out.support == "unsupported" and "cannot pass" in opt_out.anum
+    assert opt_out.support == "supported"
+    context = TenantContext(tenant_id="tenant_setup", workspace_id="workspace_setup", user_id="owner_1", roles=["owner"])
+    sent: list[ToolCall] = []
+
+    async def handler(call: ToolCall, _: TenantContext) -> ToolResult:
+        sent.append(call)
+        return ToolResult(status="succeeded", summary="sent")
+
+    registry = ToolRegistry()
+    template = ToolDefinition(name="send_whatsapp_template", description="Send a template", risk_level=RiskLevel.MEDIUM,
+                              category="whatsapp", action_kind="send")
+    registry.register(template, handler)
+    apply_inbound_keyword(context, SuppressionChannel.WHATSAPP, "971500000001", "stop", "TEST")
+    import asyncio
+
+    result = asyncio.run(registry.execute(ToolCall(name=template.name, arguments={"to": "971500000001", "template": "new_collection"}), context))
+    assert result.status == "blocked" and "opted out" in result.summary and sent == []
+    assert [r for r in store.audit_records if r.action == "suppression.send_refused"]
+    suppression_store.clear()
+
+
+def test_the_plans_aed_thresholds_are_approval_rules(client: TestClient) -> None:
+    from anum_api.approval_routing import build_route
+    from anum_api.governance import governance_store
+    from anum_api.tool_governance import tool_governance_from
+
+    blueprint = load_blueprints()[PLAN]
+    thresholds = {note.label: note.support for note in blueprint.approval_thresholds}
+    for label in ("Refund up to AED 250", "Refund above AED 250 or disputed", "Goodwill discount up to AED 100 and 5%",
+                  "Standard quote up to AED 5,000", "Financial commitment above AED 5,000"):
+        assert thresholds[label] == "supported", label
+    assert not any(item.key == "u_amount_routing" for item in blueprint.unsupported)
+    plan_tests.apply(client, "pilot")
+    context = TenantContext(tenant_id="tenant_setup", workspace_id="workspace_setup", user_id="owner_1", roles=["owner"])
+    rules = [rule for rule in tool_governance_from(governance_store.list_approval_rules(context), []).approval_rules
+             if rule.action_pattern == "*refund*"]
+    assert len(rules) == 3
+    assert build_route(rules, {"amount": 300, "currency": "AED"}).rules == ["Refunds above AED 250: owner only"]
+    assert build_route(rules, {"amount": 200, "currency": "AED"}).rules == ["Refunds up to AED 250: Operations/Care Lead"]
+    assert build_route(rules, {"amount": 200, "disputed": True}).rules == ["Disputed refunds: owner only"]
+    commitment = next(rule for rule in governance_store.list_approval_rules(context) if rule.action_pattern == "*.purchase_*")
+    assert [step.approvers for step in commitment.approver_steps] == [["role:member"], ["owner"]]

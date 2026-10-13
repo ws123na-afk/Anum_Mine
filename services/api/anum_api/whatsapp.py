@@ -52,6 +52,7 @@ from .model_budget import ModelBudgetExceededError
 from .model_gateway import MockModelGateway, ModelGateway, build_default_model_gateway
 from .repository import AnumRepository
 from .runtime import AgentRuntime
+from .suppression import SuppressionChannel, apply_inbound_keyword, keyword_of
 from .schemas import (
     AgentRunStep,
     Approval,
@@ -572,6 +573,9 @@ class WebhookCounts(BaseModel):
     arrived: list[tuple[str, str, str]] = Field(default_factory=list, exclude=True)
     # New inbound messages, announced as ``whatsapp.message_received`` after the store commits.
     received: list[dict[str, Any]] = Field(default_factory=list)
+    # Opt-out / opt-in keywords (STOP, إيقاف, START, ...): (wa_id, keyword, message id),
+    # applied to the contact suppression list right after the store commits.
+    keywords: list[tuple[str, str, str]] = Field(default_factory=list, exclude=True)
 
 
 def _record_message(
@@ -631,6 +635,9 @@ def _record_message(
         if conversation.id not in counts.conversations:
             counts.conversations.append(conversation.id)
         text = message.body or (message.media.caption if message.media else "") or ""
+        keyword = keyword_of(message.body or "") if message.kind == "text" else None
+        if keyword is not None:
+            counts.keywords.append((wa_id, keyword, message.id))
         if text.strip():
             sender = f"{contact.profile_name} (+{wa_id})" if contact.profile_name else f"+{wa_id}"
             counts.arrived.append((sender, text, conversation.id))
@@ -1805,6 +1812,10 @@ async def receive_webhook(request: Request, background: BackgroundTasks) -> Resp
                 if meta_error:
                     account.last_error = f"Meta reported: {meta_error}"
                 store.save_account(account, access_token=None, app_secret=None)
+        for wa_id, keyword, message_id in counts.keywords:
+            # Before automations hear about the message, so nothing they start can send to
+            # a customer who has just opted out (docs/privacy.md#contact-suppression).
+            apply_inbound_keyword(context, SuppressionChannel.WHATSAPP, wa_id, keyword, f"WhatsApp message {message_id}")  # type: ignore[arg-type]
         if counts.conversations:
             background.add_task(triage_conversations, context, list(counts.conversations))
         if counts.arrived:

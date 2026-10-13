@@ -113,7 +113,7 @@ test('create account needs the privacy policy accepted, then opens the sign-up p
   await page.goto('/');
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByRole('heading', { name: 'Create your ANUM account' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'privacy policy' })).toHaveAttribute('href', PRIVACY);
+  await expect(page.getByRole('link', { name: 'privacy policy', exact: true })).toHaveAttribute('href', PRIVACY);
   const email = page.getByRole('button', { name: 'Sign up with email' });
   await expect(email).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Sign up with Google' })).toBeDisabled();

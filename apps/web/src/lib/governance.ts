@@ -7,7 +7,7 @@ import { t } from './i18n.ts';
 export interface PolicyRule { action: string; effect: string; conditions?: Record<string, unknown> }
 export interface PolicyPack { id: string; name: string; description: string; version: number; active: boolean; rules: PolicyRule[]; created_by: string; created_at: string }
 export interface RoleTemplate { id: string; name: string; permissions: string[]; created_at: string }
-export interface ApprovalRule { id: string; name: string; action_pattern: string; minimum_approvers: number; required_roles: string[]; enabled: boolean; created_at: string }
+export type { ApprovalRule } from './approvalRules.ts';
 export interface GovernanceSummary { policy_packs: number; active_policy_packs: number; role_templates: number; approval_rules: number; memory_governance_configured: boolean; can_manage_organization_policy?: boolean }
 export type RegionStatus = 'healthy' | 'degraded' | 'offline' | 'unverified';
 export interface RoutingTarget { id: string; region: string; provider: string; model: string; status: RegionStatus; modalities: string[]; sensitivity: string[]; cost_per_1k_tokens: number; latency_ms: number }
@@ -77,17 +77,6 @@ export function roleTemplateBody(name: string, permissions: string[]): Result<{ 
   const unique = [...new Set(permissions)];
   if (unique.length === 0) return { ok: false, error: t('gov.templates.err.permissions') };
   return { ok: true, value: { name: trimmed, permissions: unique } };
-}
-
-export function approvalRuleBody(input: { name: string; actionPattern: string; minimumApprovers: string; requiredRoles: string }): Result<{ name: string; action_pattern: string; minimum_approvers: number; required_roles: string[] }> {
-  const name = input.name.trim();
-  const pattern = input.actionPattern.trim();
-  if (!name) return { ok: false, error: t('gov.rules.err.name') };
-  if (!pattern) return { ok: false, error: t('gov.rules.err.pattern') };
-  const approvers = Number(input.minimumApprovers);
-  if (!Number.isInteger(approvers) || approvers < 1 || approvers > 10) return { ok: false, error: t('gov.rules.err.approvers') };
-  const roles = parseList(input.requiredRoles);
-  return { ok: true, value: { name, action_pattern: pattern, minimum_approvers: approvers, required_roles: roles.length ? roles : ['owner'] } };
 }
 
 /**

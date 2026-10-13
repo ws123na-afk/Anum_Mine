@@ -124,6 +124,46 @@ class BlueprintApprovalRule(BlueprintNamed):
     action_pattern: str
     minimum_approvers: int = 1
     required_roles: list[str] = Field(default_factory=lambda: ["owner"])
+    # Approval routing (docs/approvals-and-risk.md#approval-routing): the AED band and the
+    # approver steps the plan's thresholds map onto.
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    approver_steps: list[list[str]] = Field(default_factory=list)
+    note: str | None = None
+
+    def create_body(self) -> Any:
+        from .governance import ApprovalRuleCreate
+
+        return ApprovalRuleCreate(
+            name=self.name, action_pattern=self.action_pattern, minimum_approvers=self.minimum_approvers,
+            required_roles=self.required_roles, conditions=self.conditions,
+            approver_steps=[{"approvers": step} for step in self.approver_steps],
+        )
+
+    def facts(self) -> list[str]:
+        from .approval_routing import describe_approvers
+
+        facts = [f"Applies to: {self.action_pattern}"]
+        band = []
+        if "amount_above" in self.conditions:
+            band.append(f"above AED {self.conditions['amount_above']:,}")
+        if "amount_at_most" in self.conditions:
+            band.append(f"up to AED {self.conditions['amount_at_most']:,}")
+        if "percent_of_order_at_most" in self.conditions:
+            band.append(f"at most {self.conditions['percent_of_order_at_most']}% of the order")
+        if self.conditions.get("disputed") == "yes":
+            band.append("disputed")
+        elif self.conditions.get("disputed") == "no":
+            band.append("not disputed")
+        if band:
+            facts.append("When: " + ", ".join(band))
+        if self.approver_steps:
+            steps = [describe_approvers(step) for step in self.approver_steps]
+            facts.append("Who approves: " + (" then ".join(steps)))
+        else:
+            facts.append(f"Who approves: {', '.join(self.required_roles)}")
+        if self.note:
+            facts.append(self.note)
+        return facts
 
 
 class SupportNote(_Strict):
@@ -623,14 +663,12 @@ class Planner:
 
         # Approval rules
         for rule in self.bp.approval_rules:
-            facts = [f"Applies to: {rule.action_pattern}", f"Who approves: {', '.join(rule.required_roles)}"]
+            facts = rule.facts()
             entry = self._existing(rule.key)
             found = next((r for r in rules if (entry and r.id == entry.target_id) or r.name.casefold() in _known_as(rule.name, rule.former_names)), None)
             out.append(self._tenant_object(rule.key, "approval_rule", rule.name, entry, found.id if found else None, facts, link,
-                                           lambda rule=rule: Applied(target_id=gov.create_approval_rule(gov.ApprovalRuleCreate(
-                                               name=rule.name, action_pattern=rule.action_pattern, minimum_approvers=rule.minimum_approvers,
-                                               required_roles=rule.required_roles), self.context).id),
-                                           "An approval rule for the whole organization. When an agent tries one of these actions, it waits until an owner approves."))
+                                           lambda rule=rule: Applied(target_id=gov.create_approval_rule(rule.create_body(), self.context).id),
+                                           "An approval rule for the whole organization. When an agent tries one of these actions, it waits until the people the rule names approve it."))
 
         # Policy packs
         for pack in self.bp.policy_packs:

@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from .approval_routing import MAX_STEPS, ApprovalConditions, ApproverStep
 from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import has_permission, require_permission, tenant_context
@@ -65,13 +66,21 @@ class ApprovalRuleCreate(BaseModel):
     action_pattern: str = Field(min_length=1, max_length=160)
     minimum_approvers: int = Field(default=1, ge=1, le=10)
     required_roles: list[str] = Field(default_factory=lambda: ["owner"])
+    # Approval routing (docs/approvals-and-risk.md#approval-routing): when the rule applies
+    # (an AED amount band, a share of the order value, a disputed flag) and who approves,
+    # in one or two sequential steps. Without steps the rule keeps the original behaviour
+    # (owners holding ``required_roles``, ``minimum_approvers`` distinct people).
+    conditions: ApprovalConditions = Field(default_factory=ApprovalConditions)
+    approver_steps: list[ApproverStep] = Field(default_factory=list, max_length=MAX_STEPS)
+    enabled: bool = True
 
 
 class ApprovalRule(ApprovalRuleCreate):
     id: str
     tenant_id: str
-    enabled: bool = True
     created_at: datetime
+    updated_at: datetime | None = None
+    updated_by: str | None = None
 
 
 class MemoryGovernanceUpdate(BaseModel):
@@ -121,6 +130,8 @@ class GovernanceRepository(Protocol):
     def add_role_template(self, context: TenantContext, template: RoleTemplate) -> RoleTemplate: ...
     def list_approval_rules(self, context: TenantContext) -> list[ApprovalRule]: ...
     def add_approval_rule(self, context: TenantContext, rule: ApprovalRule) -> ApprovalRule: ...
+    def save_approval_rule(self, context: TenantContext, rule: ApprovalRule) -> ApprovalRule: ...
+    def delete_approval_rule(self, context: TenantContext, rule_id: str) -> bool: ...
     def get_memory_governance(self, context: TenantContext) -> MemoryGovernance | None: ...
     def save_memory_governance(self, context: TenantContext, value: MemoryGovernance) -> MemoryGovernance: ...
     def record_audit(self, record: AuditRecord) -> AuditRecord: ...
@@ -198,6 +209,21 @@ class GovernanceStore:
         with self._lock:
             self.approval_rules.setdefault(rule.tenant_id, []).append(rule)
         return rule
+
+    def save_approval_rule(self, context: TenantContext, rule: ApprovalRule) -> ApprovalRule:
+        with self._lock:
+            rules = self.approval_rules.setdefault(context.tenant_id, [])
+            for index, item in enumerate(rules):
+                if item.id == rule.id:
+                    rules[index] = rule
+        return rule
+
+    def delete_approval_rule(self, context: TenantContext, rule_id: str) -> bool:
+        with self._lock:
+            rules = self.approval_rules.get(context.tenant_id, [])
+            kept = [item for item in rules if item.id != rule_id]
+            self.approval_rules[context.tenant_id] = kept
+            return len(kept) != len(rules)
 
     def get_memory_governance(self, context: TenantContext) -> MemoryGovernance | None:
         return self.memory_governance.get(context.tenant_id)
@@ -343,6 +369,19 @@ def list_role_templates(context: TenantContext = Depends(tenant_context)) -> lis
         return store.list_role_templates(context)
 
 
+def _rule_audit(rule: ApprovalRule) -> dict[str, Any]:
+    """What an approval rule change records: its settings, never anything secret."""
+    return {
+        "name": rule.name,
+        "action_pattern": rule.action_pattern,
+        "enabled": rule.enabled,
+        "minimum_approvers": rule.minimum_approvers,
+        "required_roles": list(rule.required_roles),
+        "conditions": rule.conditions.model_dump(exclude_none=True),
+        "approver_steps": [step.approvers for step in rule.approver_steps],
+    }
+
+
 @router.post("/organization/approval-rules", response_model=ApprovalRule, status_code=201)
 def create_approval_rule(payload: ApprovalRuleCreate, context: TenantContext = Depends(tenant_context)) -> ApprovalRule:
     _organization_admin(context)
@@ -350,8 +389,43 @@ def create_approval_rule(payload: ApprovalRuleCreate, context: TenantContext = D
                         created_at=utc_now(), **payload.model_dump())
     with open_governance_store(context) as store:
         result = store.add_approval_rule(context, rule)
-        _audit(store, context, "approval_rule.created", f"approval_rule:{result.id}", {"action_pattern": result.action_pattern})
+        _audit(store, context, "approval_rule.created", f"approval_rule:{result.id}", _rule_audit(result))
     return result
+
+
+def _approval_rule(store: GovernanceRepository, context: TenantContext, rule_id: str) -> ApprovalRule:
+    rule = next((item for item in store.list_approval_rules(context) if item.id == rule_id), None)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Approval rule not found")
+    return rule
+
+
+@router.put("/organization/approval-rules/{rule_id}", response_model=ApprovalRule)
+def update_approval_rule(
+    rule_id: str, payload: ApprovalRuleCreate, context: TenantContext = Depends(tenant_context)
+) -> ApprovalRule:
+    """Replace an approval rule's settings (org_admin). Takes effect at the next evaluation,
+    including approvals already waiting: the route is re-read at every approve."""
+    _organization_admin(context)
+    with open_governance_store(context) as store:
+        before = _approval_rule(store, context, rule_id)
+        rule = ApprovalRule(id=before.id, tenant_id=before.tenant_id, created_at=before.created_at,
+                            updated_at=utc_now(), updated_by=context.user_id, **payload.model_dump())
+        result = store.save_approval_rule(context, rule)
+        _audit(store, context, "approval_rule.updated", f"approval_rule:{result.id}",
+               {"before": _rule_audit(before), "after": _rule_audit(result)})
+    return result
+
+
+@router.delete("/organization/approval-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_approval_rule(rule_id: str, context: TenantContext = Depends(tenant_context)) -> None:
+    """Delete an approval rule (org_admin). Approvals it routed fall back to the remaining
+    rules (or the owners) at their next decision."""
+    _organization_admin(context)
+    with open_governance_store(context) as store:
+        before = _approval_rule(store, context, rule_id)
+        store.delete_approval_rule(context, rule_id)
+        _audit(store, context, "approval_rule.deleted", f"approval_rule:{rule_id}", _rule_audit(before))
 
 
 @router.get("/organization/approval-rules", response_model=list[ApprovalRule])

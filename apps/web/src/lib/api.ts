@@ -1,4 +1,4 @@
-import type { AgentRun, Approval, DomainEvent, SignInOptions, TenantContext, Task, UserPreferencesUpdate } from '@anum/contracts';
+import type { AgentRun, Approval, ApprovalRouteReason, DomainEvent, SignInOptions, TenantContext, Task, UserPreferencesUpdate } from '@anum/contracts';
 import { parseSignInOptions } from './signIn';
 import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
@@ -81,6 +81,21 @@ export interface ApiApproval {
   target?: string | null;
   required_approvals?: number;
   approvers?: { user_id: string; approved_at: string; reason?: string | null }[];
+  routing?: ApiApprovalRouting | null;
+  suppressed?: { recipient: string; channel: string; purpose: string }[];
+}
+
+export interface ApiApprovalRouting {
+  routed: boolean;
+  rules?: string[];
+  steps?: { approvers: string[][]; approved_by?: string | null }[];
+  current_step?: number;
+  reasons?: ApprovalRouteReason[];
+  fallback?: boolean;
+  can_approve: boolean;
+  can_reject: boolean;
+  refusal?: string | null;
+  summary?: string;
 }
 
 /** `GET /api/v1/me/workspace-memberships` row (docs/identity.md, My workspaces). */
@@ -610,5 +625,22 @@ export function mapApproval(approval: ApiApproval): Approval {
     target: approval.target ?? null,
     requiredApprovals: approval.required_approvals ?? 1,
     approvers: (approval.approvers ?? []).map((approver) => ({ userId: approver.user_id, approvedAt: approver.approved_at, reason: approver.reason ?? null })),
+    routing: approval.routing ? mapRouting(approval.routing) : null,
+    suppressed: approval.suppressed ?? [],
+  };
+}
+
+function mapRouting(routing: ApiApprovalRouting): NonNullable<Approval['routing']> {
+  return {
+    routed: routing.routed,
+    rules: routing.rules ?? [],
+    steps: (routing.steps ?? []).map((step) => ({ approvers: step.approvers, approvedBy: step.approved_by ?? null })),
+    currentStep: routing.current_step ?? 0,
+    reasons: routing.reasons ?? [],
+    fallback: routing.fallback ?? false,
+    canApprove: routing.can_approve,
+    canReject: routing.can_reject,
+    refusal: (routing.refusal ?? null) as NonNullable<Approval['routing']>['refusal'],
+    summary: routing.summary ?? '',
   };
 }

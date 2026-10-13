@@ -1,0 +1,32 @@
+/* Contact opt-outs (src/SuppressionView.tsx). Spacing from the shared --d-s* tokens. */
+.suppLayout { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); margin-top: var(--d-s4); }
+.suppAdd, .suppList { display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s5); }
+.suppAdd h3 { font-size: 15px; }
+.suppAdd .field, .suppFilters .field { margin-top: var(--d-s1); }
+.suppAdd input, .suppAdd select, .suppFilters input, .suppFilters select { width: 100%; }
+.suppAdd small { display: block; font-size: 12px; }
+.suppAdd .actions { margin-top: var(--d-s2); }
+.suppPair { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.suppFilters { align-items: end; display: grid; gap: 0 var(--d-s3); grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; }
+.suppFilters .actions { flex-wrap: nowrap; }
+.suppCount { border-top: 1px solid var(--d-line); font-size: 14px; margin-top: var(--d-s3); padding-top: var(--d-s3); }
+.suppRows { display: grid; list-style: none; margin: 0; padding: 0; }
+.suppRow { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding: var(--d-s3) 0; }
+.suppRow:first-child { border-top: 0; }
+.suppMain { display: grid; gap: var(--d-s1); min-width: 0; }
+.suppMain strong { font-family: var(--d-mono); font-size: 14px; overflow-wrap: anywhere; }
+.suppMain small { font-size: 12px; overflow-wrap: anywhere; }
+.suppRow .tagRow .suppAll { font-weight: 700; }
+.suppReason { color: var(--d-muted); }
+.suppRow > button { align-items: center; display: inline-flex; gap: var(--d-s2); white-space: nowrap; }
+.suppMore { justify-content: center; }
+.suppExportNote { font-size: 12px; max-width: 240px; }
+@media (max-width: 1100px) {
+  .suppLayout { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .suppFilters { grid-template-columns: 1fr; }
+  .suppPair { grid-template-columns: 1fr; }
+  .suppRow { grid-template-columns: 1fr; }
+  .suppRow > button { justify-self: start; }
+}

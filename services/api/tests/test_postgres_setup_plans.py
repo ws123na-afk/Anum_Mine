@@ -82,7 +82,7 @@ def test_pilot_applies_through_postgres_and_reapplying_creates_nothing(
     total = _count(app_session, "select count(*) from setup_plan_items")
     tenant_level = _count(app_session, "select count(*) from setup_plan_items where workspace_id = ''")
     assert total >= 100
-    assert tenant_level == 21 + 24  # memory rules, 4 approval rules, 6 packs, 10 role templates + published skill versions
+    assert tenant_level == 31 + 24  # memory rules, 14 approval rules, 6 packs, 10 role templates + published skill versions
     assert _count(app_session, "select count(*) from setup_plan_items where state = 'claimed'") == 0
 
     # Another workspace of the tenant sees only the tenant-level rows; another tenant sees none.

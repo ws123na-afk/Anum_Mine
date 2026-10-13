@@ -61,11 +61,23 @@ from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
 from .valkey import CoordinationUnavailable, LockNotAcquired, build_run_lock_manager
 from .agent_tools import default_tool_registry
 from .tool_governance import decision_requirements, match_governance, required_approvals
+from .suppression import suppressed_for_call
+from .approval_routing import (
+    Route,
+    build_route,
+    eligible_for,
+    related_actions,
+    self_approval_refused,
+    summary_of,
+)
 from .schemas import (
     AgentRun,
     AgentRunStep,
     Approval,
     ApprovalApproverRecord,
+    ApprovalRouting,
+    ApprovalStepView,
+    SuppressedRecipient,
     ApprovalDecisionRequest,
     ApprovalDecisionResponse,
     ApprovalRejectRequest,
@@ -153,6 +165,7 @@ from .agent_profiles import NOT_FOUND as AGENT_NOT_FOUND, AgentStatus, configure
 from .agent_profiles import router as agents_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
+from .suppression import router as suppression_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
@@ -293,6 +306,7 @@ app.include_router(conversations_router)
 app.include_router(privacy_router)
 app.include_router(phase5_router)
 app.include_router(governance_router)
+app.include_router(suppression_router)
 app.include_router(automation_router)
 app.include_router(files_router)
 app.include_router(retrieval_router)
@@ -1477,11 +1491,8 @@ async def list_approvals(
 ) -> list[Approval]:
     require_permission(context, Permission.APPROVAL_READ)
     now = utc_now()
-    return _with_progress(
-        [as_viewed(approval, now) for approval in repository.list_approvals(context)],
-        context,
-        repository,
-    )
+    approvals = [as_viewed(approval, now) for approval in repository.list_approvals(context)]
+    return _with_progress(approvals, context, repository, siblings=approvals)
 
 
 @app.get("/api/v1/approvals/{approval_id}", response_model=Approval)
@@ -1622,7 +1633,9 @@ async def approve(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> ApprovalDecisionResponse | JSONResponse:
-    require_permission(context, Permission.APPROVAL_DECIDE)
+    # Owners hold approval:decide; anyone else may decide only an approval an organization
+    # approval rule routes to them (checked in _decide_approval_locked).
+    require_permission(context, Permission.APPROVAL_READ)
     return await _decide_approval(
         approval_id,
         ApprovalStatus.APPROVED,
@@ -1646,7 +1659,7 @@ async def reject(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> ApprovalDecisionResponse | JSONResponse:
-    require_permission(context, Permission.APPROVAL_DECIDE)
+    require_permission(context, Permission.APPROVAL_READ)
     return await _decide_approval(
         approval_id,
         ApprovalStatus.REJECTED,
@@ -1838,12 +1851,218 @@ def _governance_decision_refusal(
     )
 
 
+def _route_refusal_response(
+    request: Request,
+    context: TenantContext,
+    repository: AnumRepository,
+    task: Task,
+    approval: Approval,
+    route: Route,
+    step: int,
+    action: str,
+    message: str,
+    now: datetime,
+) -> JSONResponse:
+    """Audit a refused decision on a routed approval and answer 403 (the approval stays pending)."""
+    repository.record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            actor=context.user_id,
+            action=action,
+            target=approval.id,
+            outcome="denied",
+            correlation_id=task.id,
+            created_at=now,
+            metadata={
+                "task_id": task.id,
+                "tool": approval.action,
+                "risk_level": approval.risk_level.value,
+                "approval_rules": route.rules,
+                "step": step + 1,
+                "steps": len(route.steps),
+                "route": summary_of(route, step),
+            },
+        )
+    )
+    return error_response(
+        request, status_code=status.HTTP_403_FORBIDDEN, code=ErrorCode.FORBIDDEN, message=message
+    )
+
+
+def _delegated_refusal(
+    request: Request,
+    context: TenantContext,
+    repository: AnumRepository,
+    task: Task,
+    approval: Approval,
+    route: Route,
+    recorded: list[ApprovalApproverRecord],
+    decision: ApprovalStatus,
+) -> JSONResponse | None:
+    """A caller without ``approval:decide`` may decide only what a route lists them for:
+    approve the current step, or reject at any step they could approve."""
+    step = min(len(recorded), len(route.steps) - 1) if route.steps else 0
+    if route.routed:
+        if decision == ApprovalStatus.REJECTED and any(eligible_for(context, item) for item in route.steps):
+            return None
+        if decision == ApprovalStatus.APPROVED and (
+            eligible_for(context, route.steps[step]) or any(row.user_id == context.user_id for row in recorded)
+        ):
+            return None
+    message = (
+        f"Only the approvers this approval is routed to may decide it ({summary_of(route, step)})."
+        if route.routed
+        else "Only workspace owners may decide this approval: no approval rule routes it to you."
+    )
+    return _route_refusal_response(
+        request, context, repository, task, approval, route, step, "approval.route_denied", message, utc_now()
+    )
+
+
+def _routing_refusal(
+    request: Request,
+    context: TenantContext,
+    repository: AnumRepository,
+    task: Task,
+    approval: Approval,
+    route: Route,
+    recorded: list[ApprovalApproverRecord],
+    now: datetime,
+) -> tuple[JSONResponse | None, _DecisionRequirements]:
+    """Enforce an approval route on an approve: the decider must be listed for the
+    current step and must not approve their own request (docs/approvals-and-risk.md#approval-routing).
+    Each step is approved by a different person, in order."""
+    requirements = _DecisionRequirements(route.required, route.rules)
+    if any(row.user_id == context.user_id for row in recorded):
+        return None, requirements  # answered with 409 by the chain check
+    step = min(len(recorded), len(route.steps) - 1)
+    if not eligible_for(context, route.steps[step]):
+        where = f"step {step + 1} of {len(route.steps)}" if len(route.steps) > 1 else "this approval"
+        return (
+            _route_refusal_response(
+                request, context, repository, task, approval, route, step, "approval.route_denied",
+                f"{summary_of(route, step)}. You are not an approver for {where}, so you cannot approve it."
+                " You can still reject it if you are an approver of any step.",
+                now,
+            ),
+            requirements,
+        )
+    if self_approval_refused(context, route, context.user_id in {task.created_by, approval.requested_by}):
+        return (
+            _route_refusal_response(
+                request, context, repository, task, approval, route, step, "approval.self_approval_denied",
+                "Approvers never approve their own request: you created or started this task, so another "
+                "approver must decide. You can still reject it.",
+                now,
+            ),
+            requirements,
+        )
+    return None, requirements
+
+
+def _route_for(
+    approval: Approval,
+    context: TenantContext,
+    repository: AnumRepository,
+    *,
+    governance: object | None = None,
+    siblings: list[Approval] | None = None,
+) -> Route:
+    """The approval route (docs/approvals-and-risk.md#approval-routing), re-read now.
+
+    The rules come from the tenant's governance in the caller's RLS scope; the amounts
+    of the task's other pending or approved approvals are added (no splitting).
+    """
+    match = match_governance(
+        governance if governance is not None else repository.get_tool_governance(context),  # type: ignore[arg-type]
+        tool=approval.action,
+        target=approval.target,
+        risk_level=approval.risk_level,
+    )
+    if not match.approval_rules:
+        return Route()
+    now = utc_now()
+    others = siblings if siblings is not None else repository.list_task_approvals(approval.task_id, context)
+    related = related_actions([as_viewed(other, now) for other in others], approval.id, approval.task_id)
+    return build_route(match.approval_rules, approval.arguments, related)
+
+
+def _routing_view(
+    approval: Approval,
+    route: Route,
+    context: TenantContext,
+    recorded: list[ApprovalApproverRecord],
+    task_creator: str | None,
+    two_person_rule: bool,
+) -> ApprovalRouting:
+    """Who may approve this approval, why, and what the caller may do now."""
+    pending = approval.status == ApprovalStatus.PENDING
+    owner_decides = has_permission(context, Permission.APPROVAL_DECIDE)
+    own = context.user_id in {task_creator, approval.requested_by}
+    already = any(row.user_id == context.user_id for row in recorded)
+    viewer = not ({role.lower() for role in context.roles} & {"owner", "member"}) and "org_admin" not in {
+        role.lower() for role in context.organization_roles
+    }
+    two_person_blocks = (
+        two_person_rule and approval.risk_level in TWO_PERSON_RISK_LEVELS and own and owner_decides
+    )
+    if route.routed:
+        step = min(len(recorded), len(route.steps) - 1)
+        eligible = eligible_for(context, route.steps[step])
+        any_step = any(eligible_for(context, item) for item in route.steps)
+        refusal = (
+            "not_pending" if not pending
+            else "viewer" if viewer
+            else "already_approved" if already
+            else "not_listed" if not eligible
+            else "own_request" if self_approval_refused(context, route, own) or two_person_blocks
+            else "no_hash" if not approval.payload_hash
+            else None
+        )
+        return ApprovalRouting(
+            routed=True,
+            rules=route.rules,
+            steps=[
+                ApprovalStepView(approvers=sets, approved_by=recorded[index].user_id if index < len(recorded) else None)
+                for index, sets in enumerate(route.steps)
+            ],
+            current_step=step,
+            reasons=route.reasons,
+            fallback=route.fallback,
+            can_approve=refusal is None,
+            can_reject=pending and (owner_decides or any_step),
+            refusal=refusal,  # type: ignore[arg-type]
+            summary=summary_of(route, step),
+        )
+    refusal = (
+        "not_pending" if not pending
+        else "viewer" if viewer
+        else "not_listed" if not owner_decides
+        else "already_approved" if already
+        else "own_request" if two_person_blocks
+        else "no_hash" if not approval.payload_hash
+        else None
+    )
+    return ApprovalRouting(
+        routed=False,
+        steps=[ApprovalStepView(approvers=[["owner"]])],
+        can_approve=refusal is None,
+        can_reject=pending and owner_decides,
+        refusal=refusal,  # type: ignore[arg-type]
+    )
+
+
 def _with_progress(
     approvals: list[Approval],
     context: TenantContext,
     repository: AnumRepository,
+    *,
+    siblings: list[Approval] | None = None,
 ) -> list[Approval]:
-    """Attach each approval's recorded approvers and the approvals it requires.
+    """Attach each approval's recorded approvers, the approvals it requires, its route
+    (who may approve it and why) and recipients on the contact suppression list.
 
     A pending (or rejected or expired) approval shows what the current organization
     rules require; an approved one shows the approvals it actually collected.
@@ -1851,20 +2070,52 @@ def _with_progress(
     if not approvals:
         return approvals
     recorded = repository.list_approval_approvers([approval.id for approval in approvals], context)
-    governance = None
+    governance = repository.get_tool_governance(context)
+    two_person_rule = repository.get_approval_policy(context).two_person_rule
+    by_task: dict[str, list[Approval]] = {}
+    creators: dict[str, str | None] = {}
     result = []
     for approval in approvals:
-        approvers = [row.view() for row in recorded.get(approval.id, [])]
+        rows = recorded.get(approval.id, [])
+        approvers = [row.view() for row in rows]
+        if siblings is not None:
+            others = siblings
+        else:
+            if approval.task_id not in by_task:
+                by_task[approval.task_id] = repository.list_task_approvals(approval.task_id, context)
+            others = by_task[approval.task_id]
+        route = _route_for(approval, context, repository, governance=governance, siblings=others)
         if approval.status == ApprovalStatus.APPROVED:
             required = max(1, len(approvers))
+        elif route.routed:
+            required = route.required
         else:
-            if governance is None:
-                governance = repository.get_tool_governance(context)
             match = match_governance(
                 governance, tool=approval.action, target=approval.target, risk_level=approval.risk_level
             )
             required = required_approvals(decision_requirements(match)[0])
-        result.append(approval.model_copy(update={"approvers": approvers, "required_approvals": required}))
+        if approval.task_id not in creators:
+            task = repository.get_task(approval.task_id, context)
+            creators[approval.task_id] = task.created_by if task else None
+        routing = _routing_view(approval, route, context, rows, creators[approval.task_id], two_person_rule)
+        suppressed = (
+            suppressed_for_call(context, approval.action, approval.arguments, tool_registry.definition(approval.action))
+            if approval.status == ApprovalStatus.PENDING
+            else []
+        )
+        result.append(
+            approval.model_copy(
+                update={
+                    "approvers": approvers,
+                    "required_approvals": required,
+                    "routing": routing,
+                    "suppressed": [
+                        SuppressedRecipient(recipient=hit.masked, channel=hit.channel, purpose=hit.purpose)
+                        for hit in suppressed
+                    ],
+                }
+            )
+        )
     return result
 
 
@@ -1904,6 +2155,14 @@ async def _decide_approval_locked(
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval already decided")
 
+    # Who may decide: owners (approval:decide), or a person an approval route lists.
+    route = _route_for(approval, context, repository)
+    recorded = repository.list_approval_approvers([approval.id], context).get(approval.id, [])
+    if not has_permission(context, Permission.APPROVAL_DECIDE):
+        delegated_refusal = _delegated_refusal(request, context, repository, task, approval, route, recorded, decision)
+        if delegated_refusal is not None:
+            return delegated_refusal
+
     runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
     # The approval's own run: a retried task has several runs (docs/tasks.md#retry).
     run = (
@@ -1934,9 +2193,14 @@ async def _decide_approval_locked(
             )
     requirements = _DecisionRequirements()
     if decision == ApprovalStatus.APPROVED:
-        refusal, requirements = _governance_decision_refusal(
-            request, context, repository, task, approval, now
-        )
+        if route.routed:
+            refusal, requirements = _routing_refusal(
+                request, context, repository, task, approval, route, recorded, now
+            )
+        else:
+            refusal, requirements = _governance_decision_refusal(
+                request, context, repository, task, approval, now
+            )
         if refusal is not None:
             return refusal
     if (
@@ -1984,7 +2248,7 @@ async def _decide_approval_locked(
             approval=_approval_with_progress(approval, context, repository) or approval, task=task, run=run
         )
 
-    approvers = repository.list_approval_approvers([approval.id], context).get(approval.id, [])
+    approvers = recorded
     if decision == ApprovalStatus.APPROVED:
         if any(approver.user_id == context.user_id for approver in approvers):
             raise HTTPException(

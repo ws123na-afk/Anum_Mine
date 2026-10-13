@@ -2,6 +2,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from anum_api.approval_routing import ApprovalConditions, ApproverStep
 from anum_api.audit import AuditRecord
 from anum_api.governance import (
     ApprovalRule,
@@ -167,6 +168,10 @@ class SqlAlchemyGovernanceStore:
                 required_roles=list(record.required_roles),
                 enabled=record.enabled,
                 created_at=record.created_at,
+                conditions=ApprovalConditions.model_validate(record.conditions or {}),
+                approver_steps=[ApproverStep.model_validate(step) for step in record.approver_steps or []],
+                updated_at=record.updated_at,
+                updated_by=record.updated_by,
             )
             for record in records
         ]
@@ -183,10 +188,36 @@ class SqlAlchemyGovernanceStore:
                 required_roles=list(rule.required_roles),
                 enabled=rule.enabled,
                 created_at=rule.created_at,
+                conditions=rule.conditions.model_dump(exclude_none=True),
+                approver_steps=[step.model_dump() for step in rule.approver_steps],
             )
         )
         self.session.flush()
         return rule
+
+    def save_approval_rule(self, context: TenantContext, rule: ApprovalRule) -> ApprovalRule:
+        record = self.session.get(ApprovalRuleRecord, rule.id)
+        if record is None or record.tenant_id != context.tenant_id:
+            return rule
+        record.name = rule.name
+        record.action_pattern = rule.action_pattern
+        record.minimum_approvers = rule.minimum_approvers
+        record.required_roles = list(rule.required_roles)
+        record.enabled = rule.enabled
+        record.conditions = rule.conditions.model_dump(exclude_none=True)
+        record.approver_steps = [step.model_dump() for step in rule.approver_steps]
+        record.updated_at = rule.updated_at
+        record.updated_by = rule.updated_by
+        self.session.flush()
+        return rule
+
+    def delete_approval_rule(self, context: TenantContext, rule_id: str) -> bool:
+        record = self.session.get(ApprovalRuleRecord, rule_id)
+        if record is None or record.tenant_id != context.tenant_id:
+            return False
+        self.session.delete(record)
+        self.session.flush()
+        return True
 
     # Memory governance --------------------------------------------------------------
 

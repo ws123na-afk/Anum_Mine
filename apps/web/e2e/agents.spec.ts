@@ -328,7 +328,7 @@ test('Arabic: the list, the wizard and the agent page are translated and right t
   await expect(page.getByRole('button', { name: /العمل\s*1/ })).toBeVisible();
   await page.getByRole('button', { name: 'إنشاء وكيل' }).click();
   await expect(page.getByRole('button', { name: /^وكيل الأسطول/ })).toBeVisible();
-  await page.getByRole('button', { name: 'إلغاء' }).click();
+  await page.getByRole('button', { name: 'إلغاء', exact: true }).click();
   await page.getByRole('button', { name: 'Fleet desk' }).click();
   for (const label of ['محادثة', 'مكالمة', 'تعديل', 'المزيد']) await expect(page.locator('.agentActions').getByRole('button', { name: label, exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'أقسام الوكيل' }).getByRole('button', { name: 'الذاكرة' })).toBeVisible();

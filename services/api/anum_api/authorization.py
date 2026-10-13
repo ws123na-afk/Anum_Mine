@@ -112,6 +112,11 @@ class Permission(StrEnum):
     MARKETING_READ = "marketing:read"
     MARKETING_WRITE = "marketing:write"
     MARKETING_MANAGE = "marketing:manage"
+    # Contact suppression list (docs/privacy.md#contact-suppression): owners view, add and
+    # remove entries (organization administrators too, through organization_policy:manage);
+    # only owners export it.
+    SUPPRESSION_MANAGE = "suppression:manage"
+    SUPPRESSION_EXPORT = "suppression:export"
 
 
 class OrganizationRole(StrEnum):

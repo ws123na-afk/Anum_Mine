@@ -27,6 +27,11 @@ const pendingApproval = {
   reason: 'External or high-impact actions require explicit approval.', created_at: now, run_id: 'run_release', step_id: 'step_proposal',
   arguments: { action: 'Publish the release notes', channel: '#announcements' }, payload_hash: 'ab'.repeat(32), expires_at: later,
   decided_at: null, decided_by: null, required_approvals: 2, approvers: [],
+  // Approval routing (docs/approvals-and-risk.md#approval-routing): two steps, owners each time.
+  routing: {
+    routed: true, rules: ['Integrations'], steps: [{ approvers: [['owner']], approved_by: null }, { approvers: [['owner']], approved_by: null }], current_step: 0,
+    reasons: [{ code: 'rule', rule: 'Integrations', applies: true, currency: 'AED', related: 0 }], fallback: false, can_approve: true, can_reject: true, refusal: null, summary: '',
+  },
 };
 const decidedApproval = { ...pendingApproval, id: 'approval_done', status: 'approved', decided_at: now, decided_by: 'user_owner', decision_reason: 'Checked the wording.', required_approvals: 1 };
 const memories = [
@@ -306,7 +311,15 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/approval-policy') return json({ two_person_rule: true, medium_risk_requires_approval: false, updated_by: 'user_local', updated_at: now });
     if (path === '/api/v1/policy-packs') return json([{ id: 'pack_1', name: 'Organization baseline', description: 'Approval-first enterprise defaults', version: 1, active: true, rules: [{ action: 'integration.write', effect: 'require_approval' }, { action: 'payment.send', effect: 'deny' }, { action: 'email.send', effect: 'require_approval' }], created_by: 'user_local', created_at: now }]);
     if (path === '/api/v1/role-templates') return json([{ id: 'role_1', name: 'Analyst', permissions: ['task:read', 'memory:read'], created_at: now }]);
-    if (path === '/api/v1/organization/approval-rules') return json([{ id: 'rule_1', name: 'Integrations', action_pattern: 'integration.*', minimum_approvers: 2, required_roles: ['owner'], enabled: true, created_at: now }]);
+    if (path === '/api/v1/organization/approval-rules') return json([
+      { id: 'rule_1', name: 'Integrations', action_pattern: 'integration.*', minimum_approvers: 2, required_roles: ['owner'], enabled: true, created_at: now },
+      { id: 'rule_2', name: 'Refunds up to AED 250', action_pattern: '*refund*', minimum_approvers: 1, required_roles: ['owner'], enabled: true, created_at: now, conditions: { currency: 'AED', disputed: 'no', amount_at_most: 250 }, approver_steps: [{ approvers: ['owner', 'user:care_lead'] }] },
+    ]);
+    // Contact opt-outs (docs/privacy.md#contact-suppression).
+    if (path === '/api/v1/contact-suppressions') return json({ items: [
+      { id: 'supp_1', masked: '+971•••4567', kind: 'phone', channel: 'whatsapp', purpose: 'all', source: 'whatsapp_keyword', reason: 'The contact asked to stop.', created_by: 'system:inbound', created_at: now },
+      { id: 'supp_2', masked: 'a•••@example.com', kind: 'email', channel: 'email', purpose: 'marketing', source: 'manual', reason: 'Asked by phone', created_by: 'user_local', created_at: now },
+    ], total: 2, can_manage: true, can_export: true });
     if (path === '/api/v1/marketplace/packages') return json(packages);
     // Commerce (docs/commerce.md): one Amazon and one own-store connection with data on every tab.
     const commerce = commerceReply(commerceFixture, method, url, request.postData() ? request.postDataJSON() : null);
