@@ -24,7 +24,7 @@ from anum_api.schemas import RiskLevel, TenantContext, WorkspaceMembership
 from anum_api.tyre import api as tyre_api
 from anum_api.tyre import service, sources, tools
 from anum_api.tyre.store import memory_tyre_store
-from tyre_fixtures import AS_OF, FakeSupabase
+from tyre_fixtures import AS_OF, TABLES, FakeSupabase
 
 TENANT, WORKSPACE = "tenant_tyre", "workspace_tyre"
 OWNER = {"x-tenant-id": TENANT, "x-workspace-id": WORKSPACE, "x-user-id": "owner_tyre", "x-user-roles": "owner"}
@@ -96,7 +96,7 @@ def test_setup_wizard_states_and_roles(fake_source: FakeSupabase) -> None:
     assert tested["ok"] is True and tested["setup"]["connection"]["status"] == "ok"
 
     discovery = client.post(f"{API}/discover", headers=OWNER).json()
-    assert discovery["suggestion"]["preset"] == "tyrepulse" and len(discovery["tables"]) == 6
+    assert discovery["suggestion"]["preset"] == "tyrepulse" and len(discovery["tables"]) == len(TABLES)
     assert client.get(f"{API}/presets/tyrepulse", headers=VIEWER).json()["entities"]["tyres"]["source"] == "tyre_records"
     assert client.post(f"{API}/sync", headers=MEMBER).status_code == 409  # no mapping yet
 
@@ -108,7 +108,12 @@ def test_setup_wizard_states_and_roles(fake_source: FakeSupabase) -> None:
     assert client.post(f"{API}/sync", headers=VIEWER).status_code == 403
     synced = client.post(f"{API}/sync", headers=MEMBER).json()
     assert synced["setup"]["sync"]["counts"]["tyres"] == 32 and synced["new_alerts"] == 6
-    assert synced["setup"]["sync"]["entities"]["inspections"]["issues"] == {"no tread or pressure reading": 6}
+    entities, counts = synced["setup"]["sync"]["entities"], synced["setup"]["sync"]["counts"]
+    assert entities["inspections"]["issues"] == {"kept for the vehicle position (no tyre record matched)": 4}
+    # Operations data: the work order older than the 90-day window was not read at all.
+    assert counts["inspection_visits"] == 24 and counts["inspection_schedules"] == 3 and counts["checklists"] == 3
+    assert counts["work_orders"] == 3 and entities["work_orders"]["read"] == 3
+    assert counts["odometer_readings"] == 3 and counts["hour_readings"] == 1 and counts["sites"] == 1
     # Another tenant sees nothing.
     assert client.get(f"{API}/setup", headers=OTHER).json()["connection"] is None
 

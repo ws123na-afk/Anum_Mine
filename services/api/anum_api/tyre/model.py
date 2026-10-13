@@ -2,14 +2,17 @@
 
 The owner's data lives in their own Supabase or Firebase project with their own table
 and column names. A :class:`TyreMapping` says, per ANUM entity (vehicles, tyres,
-inspections, pressure readings, removals, costs, suppliers), which table or collection
-to read and which source column fills each ANUM field. Sync applies it and keeps the
+tyre readings from inspections, pressure readings, removals, costs, suppliers, and the
+fleet's operations data: inspection visits and schedules, workshop checklists, work
+orders, odometer and engine-hour readings, sites), which table or collection to read and
+which source column fills each ANUM field. Sync applies it and keeps the
 result as a :class:`TyreDataset`; every report, forecast, plan and alert is computed from
 that dataset, never from the source directly.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
@@ -33,12 +36,21 @@ class Entity(StrEnum):
     REMOVALS = "removals"
     COSTS = "costs"
     SUPPLIERS = "suppliers"
+    # Fleet operations (docs/tyre-planning.md#fleet-operations-data).
+    INSPECTION_VISITS = "inspection_visits"
+    INSPECTION_SCHEDULES = "inspection_schedules"
+    CHECKLISTS = "checklists"
+    WORK_ORDERS = "work_orders"
+    ODOMETER_READINGS = "odometer_readings"
+    HOUR_READINGS = "hour_readings"
+    SITES = "sites"
 
 
 class FieldKind(StrEnum):
     TEXT = "text"
     NUMBER = "number"
     DATE = "date"
+    BOOLEAN = "boolean"
 
 
 class FieldSpec(BaseModel):
@@ -52,7 +64,7 @@ def _f(name: str, kind: FieldKind, description: str, required: bool = False) -> 
     return FieldSpec(name=name, kind=kind, description=description, required=required)
 
 
-T, N, D = FieldKind.TEXT, FieldKind.NUMBER, FieldKind.DATE
+T, N, D, B = FieldKind.TEXT, FieldKind.NUMBER, FieldKind.DATE, FieldKind.BOOLEAN
 
 # What each ANUM entity holds. "One of" requirements (a tyre id or a serial) are checked
 # in ``TyreMapping.problems``.
@@ -93,7 +105,7 @@ ENTITY_FIELDS: dict[Entity, list[FieldSpec]] = {
     Entity.INSPECTIONS: [
         _f("tyre_id", T, "Tyre record id (or map the serial)"),
         _f("tyre_serial", T, "Tyre serial (used when there is no tyre id)"),
-        _f("vehicle_id", T, "Vehicle"),
+        _f("vehicle_id", T, "Vehicle (with the position, finds the tyre fitted there on the day)"),
         _f("position", T, "Wheel position"),
         _f("inspected_at", D, "Inspection date", True),
         _f("tread_depth", N, "Tread depth (the lowest groove)"),
@@ -103,7 +115,7 @@ ENTITY_FIELDS: dict[Entity, list[FieldSpec]] = {
         _f("hours", N, "Engine hours at inspection"),
     ],
     Entity.PRESSURE_READINGS: [
-        _f("tyre_id", T, "Tyre record id (or map the serial)"),
+        _f("tyre_id", T, "Tyre record id (or map the serial or the vehicle)"),
         _f("tyre_serial", T, "Tyre serial"),
         _f("vehicle_id", T, "Vehicle"),
         _f("position", T, "Wheel position"),
@@ -135,10 +147,91 @@ ENTITY_FIELDS: dict[Entity, list[FieldSpec]] = {
         _f("id", T, "Supplier id or code", True),
         _f("name", T, "Supplier name"),
     ],
+    Entity.INSPECTION_VISITS: [
+        _f("id", T, "Inspection id", True),
+        _f("vehicle_id", T, "Vehicle inspected", True),
+        _f("inspected_at", D, "Inspection date", True),
+        _f("site", T, "Site"),
+        _f("inspection_type", T, "Inspection type"),
+        _f("status", T, "Status (done, in progress...)"),
+        _f("severity", T, "Severity of the findings"),
+        _f("approval_status", T, "Approval status"),
+        _f("odometer_km", N, "Odometer at inspection"),
+        _f("hours", N, "Engine hours at inspection"),
+    ],
+    Entity.INSPECTION_SCHEDULES: [
+        _f("id", T, "Schedule id", True),
+        _f("scheduled_for", D, "Scheduled date", True),
+        _f("vehicle_id", T, "Vehicle"),
+        _f("site", T, "Site"),
+        _f("inspection_type", T, "Inspection type"),
+        _f("priority", T, "Priority"),
+        _f("status", T, "Status (scheduled, completed...)"),
+        _f("completed_inspection_id", T, "The inspection that completed it"),
+    ],
+    Entity.CHECKLISTS: [
+        _f("id", T, "Submission id", True),
+        _f("submitted_at", D, "Submission date", True),
+        _f("template", T, "Checklist template name"),
+        _f("vehicle_id", T, "Vehicle"),
+        _f("site", T, "Site"),
+        _f("title", T, "Title"),
+        _f("status", T, "Status"),
+        _f("score_pct", N, "Score in percent"),
+        _f("passed", B, "Passed (true or false)"),
+        _f("approval_status", T, "Approval status"),
+    ],
+    Entity.WORK_ORDERS: [
+        _f("id", T, "Work order number", True),
+        _f("opened_at", D, "Opened date", True),
+        _f("vehicle_id", T, "Vehicle"),
+        _f("site", T, "Site or workshop"),
+        _f("status", T, "Status (open, completed, closed...)"),
+        _f("priority", T, "Priority"),
+        _f("work_type", T, "Work type"),
+        _f("completed_at", D, "Completion date"),
+        _f("tyre_serial", T, "Tyre serial, for tyre work"),
+        _f("labour_hours", N, "Labour hours"),
+        _f("labour_cost", N, "Labour cost"),
+        _f("parts_cost", N, "Parts cost"),
+        _f("tyre_cost", N, "Tyre cost"),
+        _f("total_cost", N, "Total cost"),
+    ],
+    Entity.ODOMETER_READINGS: [
+        _f("vehicle_id", T, "Vehicle", True),
+        _f("read_at", D, "Reading date", True),
+        _f("odometer_km", N, "Odometer", True),
+        _f("site", T, "Site"),
+    ],
+    Entity.HOUR_READINGS: [
+        _f("vehicle_id", T, "Vehicle", True),
+        _f("read_at", D, "Reading date", True),
+        _f("hours", N, "Engine hours", True),
+        _f("site", T, "Site"),
+    ],
+    Entity.SITES: [
+        _f("id", T, "Site id or name that other tables use", True),
+        _f("name", T, "Site name"),
+        _f("region", T, "Region"),
+        _f("city", T, "City"),
+        _f("active", B, "Active"),
+    ],
 }
 
-# Entities whose rows attach to a tyre by id or serial: one of the two must be mapped.
+# Entities whose rows attach to a tyre. Removals need the tyre (id or serial); readings may
+# also attach to a vehicle (and position), as TyrePulse's inspections do.
 TYRE_LINKED = (Entity.INSPECTIONS, Entity.PRESSURE_READINGS, Entity.REMOVALS)
+VEHICLE_LINK_ALLOWED = (Entity.INSPECTIONS, Entity.PRESSURE_READINGS)
+
+# Columns ANUM never reads, whatever the mapping says: people's contact details, names of
+# staff and drivers, signatures, photos and locations (docs/tyre-planning.md#what-anum-reads).
+PERSONAL_COLUMN = re.compile(
+    r"e-?mail|phone|mobile|whatsapp|password|passcode|token|secret|signature|licen[cs]e|national_id|iqama|passport"
+    r"|(^|[_.])(driver|inspector|technician|approver|reporter|operator|supervisor|assessor|actor|entry|washed_by)([_.]|$)"
+    r"|printed_name|full_name|first_name|last_name|username|user\d*_(name|code)|latitude|longitude|(^|[_.])gps"
+    r"|photo|image|selfie|attendees",
+    re.IGNORECASE,
+)
 
 
 class TreadUnit(StrEnum):
@@ -176,6 +269,14 @@ class EntityMapping(BaseModel):
     source: str = Field(min_length=1, max_length=200, pattern=IDENTIFIER)
     # ANUM field -> source column (Firestore: field path such as "specs.size").
     fields: dict[str, str] = Field(default_factory=dict)
+    # A column holding one entry per tyre (a JSON object keyed by position, or a list), as
+    # TyrePulse's ``inspections.tyre_conditions``: each entry becomes its own row, and fields
+    # name the entry's keys as "<column>.<key>".
+    expand: str | None = Field(default=None, max_length=200, pattern=IDENTIFIER)
+    # Large tables: sync only rows whose ``window_column`` (a date) is within the last
+    # ``window_days`` days, newest first.
+    window_days: int | None = Field(default=None, ge=1, le=3650)
+    window_column: str | None = Field(default=None, max_length=200, pattern=IDENTIFIER)
 
     @field_validator("fields")
     @classmethod
@@ -187,8 +288,19 @@ class EntityMapping(BaseModel):
                 continue
             if len(column) > 200 or not _valid_identifier(column):
                 raise ValueError(f"{key}: source column names are letters, digits, '_', '.', '-', '/' or spaces")
+            if PERSONAL_COLUMN.search(column):
+                raise ValueError(
+                    f"{key}: ANUM does not read '{column}': names, contact details, signatures, photos and "
+                    "locations of people stay in the source."
+                )
             cleaned[key] = column
         return cleaned
+
+    @model_validator(mode="after")
+    def _window(self) -> EntityMapping:
+        if (self.window_days is None) != (self.window_column is None):
+            raise ValueError("window_days and window_column go together")
+        return self
 
 
 def _valid_identifier(value: str) -> bool:
@@ -207,6 +319,22 @@ class TyreMapping(BaseModel):
     units: Units = Field(default_factory=Units)
     # Raw status text (lowercase) -> fitted | stock | removed | scrapped.
     status_values: dict[str, str] = Field(default_factory=dict)
+    # Wheel position codes of readings -> the tyres' codes, when the two use different
+    # systems (TyrePulse inspections say "F1L", its tyre records "LHF1").
+    position_aliases: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("position_aliases")
+    @classmethod
+    def _aliases(cls, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > 200:
+            raise ValueError("position_aliases: at most 200 entries")
+        cleaned = {}
+        for raw, canonical in value.items():
+            key, target = normalise_position(raw), normalise_position(canonical)
+            if not key or not target or len(key) > 40 or len(target) > 40:
+                raise ValueError("position_aliases: position codes of 1 to 40 characters")
+            cleaned[key] = target
+        return cleaned
 
     @field_validator("status_values")
     @classmethod
@@ -237,9 +365,19 @@ class TyreMapping(BaseModel):
             for spec in ENTITY_FIELDS[entity]:
                 if spec.required and spec.name not in mapping.fields:
                     found.append(f"{entity.value}: map a column to '{spec.name}' ({spec.description}).")
-            if entity in TYRE_LINKED and not {"tyre_id", "tyre_serial"} & set(mapping.fields):
+            if entity in VEHICLE_LINK_ALLOWED:
+                if not {"tyre_id", "tyre_serial", "vehicle_id"} & set(mapping.fields):
+                    found.append(f"{entity.value}: map 'tyre_id', 'tyre_serial' or 'vehicle_id' so rows attach to a tyre or vehicle.")
+            elif entity in TYRE_LINKED and not {"tyre_id", "tyre_serial"} & set(mapping.fields):
                 found.append(f"{entity.value}: map either 'tyre_id' or 'tyre_serial' so rows attach to a tyre.")
+            if mapping.expand and not any(column.startswith(mapping.expand + ".") for column in mapping.fields.values()):
+                found.append(f"{entity.value}: no field reads the entries of '{mapping.expand}'.")
         return found
+
+
+def normalise_position(value: str | None) -> str:
+    """Position codes compare without case or spaces ("lhf1 " is "LHF1")."""
+    return re.sub(r"\s+", "", value or "").upper()
 
 
 class Assumptions(BaseModel):
@@ -337,7 +475,9 @@ class Tyre(BaseModel):
 
 
 class Inspection(BaseModel):
-    tyre_id: str
+    # None: a reading of a vehicle position that no tyre record matches (TyrePulse
+    # inspections name the position, rarely the serial).
+    tyre_id: str | None = None
     vehicle_id: str | None = None
     position: str | None = None
     inspected_at: date
@@ -382,6 +522,82 @@ class Supplier(BaseModel):
     name: str | None = None
 
 
+class InspectionVisit(BaseModel):
+    id: str
+    vehicle_id: str
+    inspected_at: date
+    site: str | None = None
+    inspection_type: str | None = None
+    status: str | None = None
+    severity: str | None = None
+    approval_status: str | None = None
+    odometer_km: float | None = None
+    hours: float | None = None
+
+
+class InspectionSchedule(BaseModel):
+    id: str
+    scheduled_for: date
+    vehicle_id: str | None = None
+    site: str | None = None
+    inspection_type: str | None = None
+    priority: str | None = None
+    status: str | None = None
+    completed_inspection_id: str | None = None
+
+
+class Checklist(BaseModel):
+    id: str
+    submitted_at: date
+    template: str | None = None
+    vehicle_id: str | None = None
+    site: str | None = None
+    title: str | None = None
+    status: str | None = None
+    score_pct: float | None = None
+    passed: bool | None = None
+    approval_status: str | None = None
+
+
+class WorkOrder(BaseModel):
+    id: str
+    opened_at: date
+    vehicle_id: str | None = None
+    site: str | None = None
+    status: str | None = None
+    priority: str | None = None
+    work_type: str | None = None
+    completed_at: date | None = None
+    tyre_serial: str | None = None
+    labour_hours: float | None = None
+    labour_cost: float | None = None
+    parts_cost: float | None = None
+    tyre_cost: float | None = None
+    total_cost: float | None = None
+
+
+class OdometerReading(BaseModel):
+    vehicle_id: str
+    read_at: date
+    odometer_km: float
+    site: str | None = None
+
+
+class HourReading(BaseModel):
+    vehicle_id: str
+    read_at: date
+    hours: float
+    site: str | None = None
+
+
+class Site(BaseModel):
+    id: str
+    name: str | None = None
+    region: str | None = None
+    city: str | None = None
+    active: bool | None = None
+
+
 class TyreDataset(BaseModel):
     vehicles: list[Vehicle] = Field(default_factory=list)
     tyres: list[Tyre] = Field(default_factory=list)
@@ -390,6 +606,13 @@ class TyreDataset(BaseModel):
     removals: list[Removal] = Field(default_factory=list)
     costs: list[Cost] = Field(default_factory=list)
     suppliers: list[Supplier] = Field(default_factory=list)
+    inspection_visits: list[InspectionVisit] = Field(default_factory=list)
+    inspection_schedules: list[InspectionSchedule] = Field(default_factory=list)
+    checklists: list[Checklist] = Field(default_factory=list)
+    work_orders: list[WorkOrder] = Field(default_factory=list)
+    odometer_readings: list[OdometerReading] = Field(default_factory=list)
+    hour_readings: list[HourReading] = Field(default_factory=list)
+    sites: list[Site] = Field(default_factory=list)
     currency: str = "SAR"
 
 

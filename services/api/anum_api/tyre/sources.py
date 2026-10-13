@@ -58,7 +58,8 @@ from ..model_egress import (
     resolve_pinned,
 )
 from ..settings import settings
-from .mapping import TYREPULSE_PRESET, SourceColumn, SourceTable
+from .live_tables import LIVE_TABLES
+from .mapping import TYREPULSE_PRESET, SourceColumn, SourceTable, source_column
 from .model import SourceKind
 
 FIRESTORE_HOST = "firestore.googleapis.com"
@@ -84,6 +85,63 @@ class TyreSourceError(Exception):
 class FetchResult:
     rows: list[dict[str, Any]]
     cut: bool
+
+
+FILTER_OPS = frozenset({"eq", "gte", "lte"})
+
+
+@dataclass(frozen=True)
+class ReadQuery:
+    """Narrows a read: ``filters`` are (column, eq|gte|lte, value) and AND-ed; ``order`` is
+    (column, descending); ``limit`` caps the rows below ``ANUM_TYRE_MAX_ROWS_PER_ENTITY``.
+    Column names must be plain identifiers; values are sent as parameters, never as SQL."""
+
+    filters: tuple[tuple[str, str, str], ...] = ()
+    order: tuple[str, bool] | None = None
+    limit: int | None = None
+
+    def __post_init__(self) -> None:
+        for column, op, value in self.filters:
+            if op not in FILTER_OPS or not _SAFE_COLUMN.match(column) or len(str(value)) > 200:
+                raise TyreSourceError("That filter is not allowed.")
+        if self.order is not None and not _SAFE_COLUMN.match(self.order[0]):
+            raise TyreSourceError("That sort column is not allowed.")
+        if self.limit is not None and self.limit < 1:
+            raise TyreSourceError("The row limit must be positive.")
+
+
+def _row_limit(query: ReadQuery | None) -> int:
+    limit = _max_rows()
+    return min(limit, query.limit) if query and query.limit else limit
+
+
+def _compare(value: Any, op: str, wanted: str) -> bool:
+    if value is None:
+        return False
+    text = value.isoformat() if hasattr(value, "isoformat") else str(value)
+    if op == "eq":
+        return text == wanted
+    # Dates and ISO timestamps compare as text; numbers as numbers.
+    try:
+        left: Any = float(text)
+        right: Any = float(wanted)
+    except ValueError:
+        left, right = text[: len(wanted)] if len(wanted) == 10 else text, wanted
+    return left >= right if op == "gte" else left <= right
+
+
+def apply_query(rows: list[dict[str, Any]], query: ReadQuery | None) -> list[dict[str, Any]]:
+    """The same narrowing, on rows already read (Firestore, and tests)."""
+    if query is None:
+        return rows
+    kept = [row for row in rows if all(_compare(row.get(c), op, v) for c, op, v in query.filters)]
+    if query.order is not None:
+        column, descending = query.order
+        present = [row for row in kept if row.get(column) is not None]
+        absent = [row for row in kept if row.get(column) is None]
+        present.sort(key=lambda row: str(row.get(column)), reverse=descending)
+        kept = present + absent
+    return kept
 
 
 def _policy() -> EgressPolicy:
@@ -280,19 +338,32 @@ class SupabasePostgresSource:
 
         return list(await self._run(work))
 
-    async def fetch(self, table: str, columns: list[str]) -> FetchResult:
+    async def fetch(self, table: str, columns: list[str], query: ReadQuery | None = None) -> FetchResult:
         from psycopg import sql
 
         schema, name = _split_table(table, self.schema)
-        limit = _max_rows()
-        statement = sql.SQL("select {columns} from {table} limit {limit}").format(
+        limit = _row_limit(query)
+        operators = {"eq": "=", "gte": ">=", "lte": "<="}
+        conditions = [
+            sql.SQL("{} {} {}").format(sql.Identifier(column), sql.SQL(operators[op]), sql.Placeholder())
+            for column, op, _ in (query.filters if query else ())
+        ]
+        values = [value for _, _, value in (query.filters if query else ())]
+        order = (
+            sql.SQL(" order by {} {} nulls last").format(sql.Identifier(query.order[0]),
+                                                         sql.SQL("desc" if query.order[1] else "asc"))
+            if query and query.order else sql.SQL("")
+        )
+        statement = sql.SQL("select {columns} from {table}{where}{order} limit {limit}").format(
             columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
             table=sql.Identifier(schema, name),
+            where=sql.SQL(" where ") + sql.SQL(" and ").join(conditions) if conditions else sql.SQL(""),
+            order=order,
             limit=sql.Literal(limit + 1),
         )
 
         def work(connection: Any) -> FetchResult:
-            cursor = connection.execute(statement)
+            cursor = connection.execute(statement, values)
             rows = [dict(zip(columns, values)) for values in cursor.fetchmany(limit + 1)]
             return FetchResult(rows=rows[:limit], cut=len(rows) > limit)
 
@@ -421,9 +492,11 @@ def _assert_allowed_call(method: str, path: str) -> None:
     raise TyreSourceError("ANUM only reads tyre data: that request is not allowed.")
 
 
-# TyrePulse's tables, read first when the table list is long or the project hides it.
+# TyrePulse's tables, read first when the table list is long or the project hides it (the
+# reader's API guard refuses the table list, so discovery probes these one by one), then
+# the large tables ANUM reads on demand.
 _KNOWN_TABLES: tuple[str, ...] = tuple(dict.fromkeys(
-    entity.source for entity in TYREPULSE_PRESET.entities.values() if entity is not None
+    [entity.source for entity in TYREPULSE_PRESET.entities.values() if entity is not None] + list(LIVE_TABLES)
 ))
 
 
@@ -431,7 +504,9 @@ def _preset_columns(table: str) -> list[str]:
     columns: dict[str, None] = {}
     for entity in TYREPULSE_PRESET.entities.values():
         if entity is not None and entity.source == table:
-            columns.update(dict.fromkeys(entity.fields.values()))
+            columns.update(dict.fromkeys(source_column(entity, column) for column in entity.fields.values()))
+    if table in LIVE_TABLES:
+        columns.update(dict.fromkeys(LIVE_TABLES[table].columns))
     return list(columns)
 
 
@@ -457,7 +532,7 @@ class SupabaseRestSource:
         return headers
 
     async def _send(
-        self, method: str, path: str, *, params: dict[str, str] | None = None, headers: dict[str, str],
+        self, method: str, path: str, *, params: Any = None, headers: dict[str, str],
         body: dict[str, str] | None = None,
     ) -> httpx.Response:
         _assert_allowed_call(method, path)
@@ -479,7 +554,7 @@ class SupabaseRestSource:
     async def _data_headers(self, schema: str | None = None) -> dict[str, str]:
         return self._headers(schema)
 
-    async def _get(self, path: str, *, params: dict[str, str] | None = None, headers: dict[str, str]) -> httpx.Response:
+    async def _get(self, path: str, *, params: Any = None, headers: dict[str, str]) -> httpx.Response:
         response = await self._send("GET", path, params=params, headers=headers)
         if response.status_code >= 400:
             raise TyreSourceError(_http_problem(response.status_code, "Supabase"))
@@ -545,18 +620,21 @@ class SupabaseRestSource:
             )
         return tables
 
-    async def fetch(self, table: str, columns: list[str]) -> FetchResult:
+    async def fetch(self, table: str, columns: list[str], query: ReadQuery | None = None) -> FetchResult:
         schema, name = _split_table(table, self.schema)
-        limit = _max_rows()
+        limit = _row_limit(query)
         rows: list[dict[str, Any]] = []
         select = ",".join(_column_selector(column) for column in columns)
+        narrowing: list[tuple[str, str]] = [(column, f"{op}.{value}") for column, op, value in (query.filters if query else ())]
+        if query and query.order:
+            narrowing.append(("order", f"{query.order[0]}.{'desc' if query.order[1] else 'asc'}.nullslast"))
         offset = 0
         headers = await self._data_headers(schema)
         while len(rows) <= limit:
             page = min(PAGE_SIZE, limit + 1 - len(rows))
             response = await self._get(
                 f"/rest/v1/{quote(name, safe='')}",
-                params={"select": select, "limit": str(page), "offset": str(offset)},
+                params=[("select", select), *narrowing, ("limit", str(page)), ("offset", str(offset))],
                 headers=headers,
             )
             try:
@@ -721,7 +799,7 @@ class SupabaseAuthSource(SupabaseRestSource):
         session = await self._session()
         return {**self._headers(schema), "authorization": f"Bearer {session.access_token}"}
 
-    async def _get(self, path: str, *, params: dict[str, str] | None = None, headers: dict[str, str]) -> httpx.Response:
+    async def _get(self, path: str, *, params: Any = None, headers: dict[str, str]) -> httpx.Response:
         response = await self._send("GET", path, params=params, headers=headers)
         if response.status_code == 401:
             # The access token expired early or was revoked: renew once and retry.
@@ -928,7 +1006,13 @@ class FirestoreSource:
             )
         return tables
 
-    async def fetch(self, table: str, columns: list[str]) -> FetchResult:
+    async def fetch(self, table: str, columns: list[str], query: ReadQuery | None = None) -> FetchResult:
+        if query is not None:
+            # Firestore's REST list cannot filter: read (capped) and narrow here.
+            result = await self.fetch(table, columns)
+            narrowed = apply_query(result.rows, query)
+            limit = _row_limit(query)
+            return FetchResult(rows=narrowed[:limit], cut=result.cut or len(narrowed) > limit)
         limit = _max_rows()
         rows: list[dict[str, Any]] = []
         token: str | None = None

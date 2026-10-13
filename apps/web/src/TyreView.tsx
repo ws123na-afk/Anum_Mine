@@ -2,13 +2,13 @@
 // the connection wizard, over /api/v1/tyre. The server enforces every role; this view hides what
 // the caller's role cannot do and says who can.
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { AlertTriangle, Bell, BellRing, CalendarClock, CheckCircle2, CircleDot, Download, FileText, Gauge, Info, Lock, Plug, RefreshCw, Save, Search, Send, Trash2, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Bell, BellRing, CalendarClock, CheckCircle2, CircleDot, ClipboardList, Download, FileText, Gauge, Info, Lock, Plug, RefreshCw, Save, Search, Send, Trash2, TrendingDown } from 'lucide-react';
 import * as api from './lib/api';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import {
-  ALERT_KINDS, REPORT_KINDS, ago, alertKindLabel, confidenceTone, day, forecastTone, formatPrices, isRecipient, money, monthBars, monthLabel, newAlerts, num, pageRange, parsePrices, reportKindLabel, severityTone,
-  type AlertPage, type Assumptions, type Dashboard, type ForecastPage, type PurchasePlan, type ReportSchedule, type ReportSummary, type ScheduleDraft, type TyreAlert, type TyreForecast, type TyreSetup as Setup, type Page,
+  ALERT_KINDS, REPORT_KINDS, ago, alertKindLabel, hasOperations, confidenceTone, day, forecastTone, formatPrices, isRecipient, money, monthBars, monthLabel, newAlerts, num, pageRange, parsePrices, reportKindLabel, severityTone,
+  type AlertPage, type Assumptions, type Dashboard, type OperationsSummary, type ForecastPage, type PurchasePlan, type ReportSchedule, type ReportSummary, type ScheduleDraft, type TyreAlert, type TyreForecast, type TyreSetup as Setup, type Page,
 } from './lib/tyre';
 import * as tyreApi from './lib/tyreApi';
 import { TyreSetup } from './TyreSetup';
@@ -165,6 +165,7 @@ function DashboardPanel({ onOpen }: { onOpen: (tab: Tab) => void }) {
         </li>)}</ul> : <p className="muted">{t('tyre.dash.noAlerts')}</p>}
       </section>
     </div>
+    <OperationsCard operations={data.operations} />
     <section className="surface tyreCard" aria-labelledby="tyre-months-title">
       <h2 id="tyre-months-title"><CalendarClock aria-hidden="true" />{t('tyre.dash.byMonth')}</h2>
       {Object.keys(data.due_by_month).length ? <ul className="tyreBars">{monthBars(data.due_by_month).map((bar) => <li key={bar.month}>
@@ -172,6 +173,24 @@ function DashboardPanel({ onOpen }: { onOpen: (tab: Tab) => void }) {
       </li>)}</ul> : <p className="muted">{t('tyre.dash.noneYear')}</p>}
     </section>
   </div>}</LoadState>;
+}
+
+function OperationsCard({ operations }: { operations: OperationsSummary | undefined }) {
+  return <section className="surface tyreCard" aria-labelledby="tyre-ops-title">
+    <h2 id="tyre-ops-title"><ClipboardList aria-hidden="true" />{t('tyre.ops.title')}</h2>
+    {operations && hasOperations(operations) ? <>
+      <div className="tyreMetrics">
+        <Metric label={t('tyre.ops.vehiclesInspected')} value={num(operations.vehicles_inspected_last_30_days, 0)} hint={t('tyre.ops.vehiclesInspectedHint', { count: operations.vehicles_inspected_last_90_days, total: operations.vehicles })} />
+        <Metric label={t('tyre.ops.inspections')} value={num(operations.inspections_last_30_days, 0)} hint={t('tyre.ops.inspectionsHint', { total: operations.inspections_total, day: day(operations.last_inspection) })} />
+        <Metric label={t('tyre.ops.readings')} value={num(operations.tyre_readings, 0)} hint={t('tyre.ops.readingsHint', { count: operations.readings_on_tyre_records })} />
+        <Metric label={t('tyre.ops.schedule')} value={num(operations.schedules_overdue, 0)} hint={t('tyre.ops.scheduleHint', { count: operations.schedules_upcoming_14_days })} tone={operations.schedules_overdue ? 'warn' : ''} />
+        <Metric label={t('tyre.ops.checklists')} value={num(operations.checklists_last_30_days, 0)} hint={t('tyre.ops.checklistsHint', { count: operations.checklists_failed_last_30_days })} tone={operations.checklists_failed_last_30_days ? 'warn' : ''} />
+        <Metric label={t('tyre.ops.workOrders')} value={num(operations.work_orders_open, 0)} hint={t('tyre.ops.workOrdersHint', { count: operations.work_orders_opened_last_30_days })} />
+        <Metric label={t('tyre.ops.cost', { currency: operations.currency })} value={num(operations.work_order_cost_last_30_days, 0)} hint={operations.work_order_window_days ? t('tyre.ops.costHint', { days: operations.work_order_window_days }) : undefined} />
+      </div>
+      {operations.tyre_readings > operations.readings_on_tyre_records && <p className="muted">{t('tyre.ops.unmatched')}</p>}
+    </> : <p className="muted">{t('tyre.ops.empty')}</p>}
+  </section>;
 }
 
 // ---- forecasts ----

@@ -22,6 +22,14 @@ const preset = { preset: 'tyrepulse', units: { tread: 'mm', pressure: 'psi', dis
   vehicles: { source: 'vehicle_fleet', fields: { id: 'asset_no' } },
   inspections: { source: 'tyre_service_events', fields: { tyre_serial: 'tyre_serial', inspected_at: 'event_date', tread_depth: 'tread_depth' } },
 } };
+const operations = {
+  as_of: today, vehicles: 6, vehicles_inspected_last_30_days: 5, vehicles_inspected_last_90_days: 6, inspections_last_30_days: 12,
+  inspections_total: 1837, last_inspection: today, tyre_readings: 20582, readings_on_tyre_records: 4210, schedules_upcoming_14_days: 4,
+  schedules_overdue: 2, checklists_last_30_days: 18, checklists_failed_last_30_days: 1, checklists_total: 70, work_orders_open: 7,
+  work_orders_opened_last_30_days: 310, work_orders_synced: 10927, work_order_cost_last_30_days: 48250, work_order_window_days: 90,
+  odometer_readings: 2202, hour_readings: 5254, sites: 2, currency: 'SAR',
+};
+export const emptyOperations = { ...operations, vehicles_inspected_last_30_days: 0, vehicles_inspected_last_90_days: 0, inspections_last_30_days: 0, inspections_total: 0, last_inspection: null, tyre_readings: 0, readings_on_tyre_records: 0, schedules_upcoming_14_days: 0, schedules_overdue: 0, checklists_last_30_days: 0, checklists_failed_last_30_days: 0, checklists_total: 0, work_orders_open: 0, work_orders_opened_last_30_days: 0, work_orders_synced: 0, work_order_cost_last_30_days: null, odometer_readings: 0, hour_readings: 0, sites: 0 };
 const sync = { synced_at: now, synced_by: 'user_local', duration_ms: 420, entities: { tyres: { read: 32, kept: 32, skipped: 0, cut: false, issues: {} }, inspections: { read: 98, kept: 92, skipped: 6, cut: false, issues: { 'no tread or pressure reading': 6 } } }, counts: { tyres: 32, vehicles: 6, inspections: 92 } };
 const forecast = (n: number, extra: Record<string, unknown> = {}) => ({
   tyre_id: `t${n}`, serial: `fake-sn-${String(n).padStart(4, '0')}`, brand: 'brandalpha', size: '315/80r22.5', vehicle_id: 'fake-truck-01', vehicle_label: 'fake-plate-01', position: `P${n % 4 + 1}`,
@@ -33,7 +41,7 @@ forecasts[0] = forecast(1, { state: 'due', current_tread_mm: 2.8, confidence: 'h
 const alert = (id: string, kind: string, severity: string, label: string, message: string) => ({ id, key: `${kind}:${id}`, kind, severity, subject_type: 'tyre', subject_id: id, subject_label: label, message, value: {}, status: 'open', first_seen_at: now, last_seen_at: now, resolved_at: null, acknowledged_by: null, acknowledged_at: null });
 const summary = { as_of: today, currency: 'SAR', vehicles: 6, tyres_fitted: 24, tyres_in_stock: 2, tyres_removed_last_30_days: 2, tyres_with_readings: 23, average_tread_mm: 10.75, below_minimum: 1, in_warning_band: 1, pressure_checked: 23, pressure_compliant_pct: 91.3, under_inflated: 1, over_inflated: 1, overdue_inspections: 1, due_next_30_days: 2, due_next_90_days: 2, cost_per_1000_km: 33.58, cost_per_hour: null, min_tread_mm: 3 };
 
-export interface State { connected: boolean; saved?: Record<string, string>; mapped: boolean; synced: boolean; role: string; alerts: ReturnType<typeof alert>[]; reports: Record<string, unknown>[]; requests: string[] }
+export interface State { connected: boolean; saved?: Record<string, string>; mapped: boolean; synced: boolean; role: string; alerts: ReturnType<typeof alert>[]; reports: Record<string, unknown>[]; requests: string[]; operations?: typeof operations }
 
 export async function mockTyre(page: Page, initial: Partial<State> = {}) {
   const state: State = { connected: true, mapped: true, synced: true, role: 'owner', alerts: [
@@ -65,7 +73,7 @@ export async function mockTyre(page: Page, initial: Partial<State> = {}) {
     if (path === '/mapping/preview') return json({ problems: [], stats: sync.entities, sample: {} });
     if (path === '/mapping') { state.mapped = true; return json(setup()); }
     if (path === '/sync') { state.synced = true; return json({ setup: setup(), new_alerts: 3 }); }
-    if (path === '/dashboard') return json({ summary, synced_at: now, alert_counts: { critical: 2, warning: 1 }, top_alerts: state.alerts, due_soon: forecasts.slice(0, 5), due_by_month: { [month]: 2, '2027-04': 11 } });
+    if (path === '/dashboard') return json({ summary, operations: state.operations ?? operations, synced_at: now, alert_counts: { critical: 2, warning: 1 }, top_alerts: state.alerts, due_soon: forecasts.slice(0, 5), due_by_month: { [month]: 2, '2027-04': 11 } });
     if (path === '/forecasts') {
       const q = url.searchParams.get('q') ?? '';
       const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 25);

@@ -1,7 +1,7 @@
 """A local stand-in for a Supabase project shaped like TyrePulse, on real PostgreSQL.
 
 Used by ``test_postgres_tyrepulse_reader.py`` to run the SQL the owner ships
-(``infra/tyrepulse/supabase-anum-reader.sql``) against the same mechanics Supabase uses:
+(``infra/tyrepulse/supabase-anum-reader.sql`` and ``supabase-anum-reader-extend.sql``) against the same mechanics Supabase uses:
 
 * roles ``anon``, ``authenticated``, ``service_role`` and the ``authenticator`` login that
   PostgREST connects as; an admin login (``tp_admin``) that, like Supabase's ``postgres``,
@@ -35,6 +35,7 @@ import httpx
 import jwt
 import psycopg
 from psycopg import sql
+from psycopg.types.json import Jsonb
 
 from tyre_fixtures import ORG, TABLES, build_rows
 
@@ -45,6 +46,12 @@ PUBLISHABLE_KEY = "sb_publishable_example"
 SECRET_KEY = "sb_secret_example"
 PASSWORD = "example"
 DATA_TABLES = ("vehicle_fleet", "tyre_records", "tyre_service_events", "tpms_readings", "suppliers")
+# Operational tables the extend file adds (each has organisation_id), plus two it must not:
+# ``drivers`` (personal data) and ``ksa_kms`` (no organisation_id, so it cannot be pinned).
+OPERATION_TABLES = ("inspections", "inspection_schedules", "checklist_submissions", "work_orders",
+                    "work_order_line_items", "parts_consumption", "odometer_logs", "engine_hours_logs", "sites")
+EXCLUDED_TABLES = ("drivers", "ksa_kms")
+NO_ORG_TABLES = ("ksa_kms",)
 CLUSTER_ROLES = ("anum_reader", "authenticator", "anon", "authenticated", "service_role", ADMIN_ROLE)
 
 
@@ -69,6 +76,8 @@ def _column_type(column: str, values: list[Any]) -> str:
     if column == "organisation_id":
         return "uuid"
     sample = next((value for value in values if value is not None), None)
+    if isinstance(sample, (dict, list)):
+        return "jsonb"
     if isinstance(sample, bool):
         return "boolean"
     if isinstance(sample, (int, float)):
@@ -79,8 +88,13 @@ def _column_type(column: str, values: list[Any]) -> str:
 def table_rows() -> dict[str, list[dict[str, Any]]]:
     """Organisation A's fleet, a copy for organisation B, and one row without an organisation."""
     base = build_rows()
+    base["drivers"] = [{"id": "fake-driver-1", "full_name": "example", "phone": "example"}]
+    base["ksa_kms"] = [{"id": "fake-kms-1", "distance": 10.0}]
     rows: dict[str, list[dict[str, Any]]] = {}
-    for table in DATA_TABLES:
+    for table in (*DATA_TABLES, *OPERATION_TABLES, *EXCLUDED_TABLES):
+        if table in NO_ORG_TABLES:
+            rows[table] = [{**row, "country": "KSA"} for row in base[table]]
+            continue
         own = [{**row, "organisation_id": ORG, "country": row.get("country") or "KSA"} for row in base.get(table, [])]
         if not own:
             own = [{"id": f"fake-{table}-1", "organisation_id": ORG, "country": "KSA"}]
@@ -94,7 +108,7 @@ def _columns(table: str, rows: list[dict[str, Any]]) -> list[str]:
     names = dict.fromkeys(TABLES.get(table, []))
     for row in rows:
         names.update(dict.fromkeys(row))
-    names.update(dict.fromkeys(("id", "organisation_id", "country")))
+    names.update(dict.fromkeys(("id", "country") if table in NO_ORG_TABLES else ("id", "organisation_id", "country")))
     return list(names)
 
 
@@ -170,7 +184,7 @@ def _tyrepulse_schema(conn: psycopg.Connection) -> None:
     conn.execute("create policy profiles_self on public.profiles for select to authenticated using (id = (select auth.uid()))")
 
     rows = table_rows()
-    for table in (*DATA_TABLES, "audit_events"):
+    for table in (*DATA_TABLES, *OPERATION_TABLES, *EXCLUDED_TABLES, "audit_events"):
         data = rows.get(table) or [{"id": "fake-audit-1", "organisation_id": ORG, "country": "KSA"}]
         columns = _columns(table, data)
         column_sql = sql.SQL(", ").join(
@@ -187,10 +201,11 @@ def _tyrepulse_schema(conn: psycopg.Connection) -> None:
             sql.Identifier(table), sql.SQL(", ").join(map(sql.Identifier, columns)),
             sql.SQL(", ").join(sql.Placeholder() * len(columns)))
         with conn.cursor() as cursor:
-            cursor.executemany(insert, [[row.get(column) for column in columns] for row in data])
+            cursor.executemany(insert, [[Jsonb(row[column]) if isinstance(row.get(column), (dict, list)) else row.get(column)
+                                         for column in columns] for row in data])
         name = sql.Identifier(table)
         org_rule = ("organisation_id is null or organisation_id = (select public.app_current_org()) or (select public.is_super_admin())"
-                    if table == "suppliers" else
+                    if table == "suppliers" else "true" if table in NO_ORG_TABLES else
                     "organisation_id = (select public.app_current_org()) or (select public.is_super_admin())")
         country_rule = ("country is null or (select public.is_super_admin()) or (select public.app_sees_all_countries()) "
                         "or lower(btrim(country)) = any (coalesce((select public.app_country_scope()), array[]::text[]))")
@@ -357,10 +372,25 @@ class FakePostgrest:
                 columns = query.get("select", "*")
                 select = sql.SQL("*") if columns == "*" else sql.SQL(", ").join(
                     sql.Identifier(column.strip('"')) for column in columns.split(","))
-                statement = sql.SQL("select {} from public.{} order by 1 limit {} offset {}").format(
-                    select, sql.Identifier(table), sql.Literal(int(query.get("limit", "1000"))),
-                    sql.Literal(int(query.get("offset", "0"))))
-                cursor = conn.execute(statement)
+                # PostgREST's column=eq|gte|lte.value filters and order=column.desc, as ANUM sends them.
+                operators = {"eq": "=", "gte": ">=", "lte": "<="}
+                where, values = [], []
+                for column, value in query.items():
+                    if column in {"select", "limit", "offset", "order"}:
+                        continue
+                    op, _, wanted = value.partition(".")
+                    where.append(sql.SQL("{}::text {} %s").format(sql.Identifier(column), sql.SQL(operators[op])))
+                    values.append(wanted)
+                order = sql.SQL("1")
+                if "order" in query:
+                    column, _, rest = query["order"].partition(".")
+                    order = sql.SQL("{} {} nulls last").format(sql.Identifier(column),
+                                                               sql.SQL("desc" if rest.startswith("desc") else "asc"))
+                statement = sql.SQL("select {} from public.{}{} order by {} limit {} offset {}").format(
+                    select, sql.Identifier(table),
+                    sql.SQL(" where ") + sql.SQL(" and ").join(where) if where else sql.SQL(""), order,
+                    sql.Literal(int(query.get("limit", "1000"))), sql.Literal(int(query.get("offset", "0"))))
+                cursor = conn.execute(statement, values)
                 names = [column.name for column in cursor.description or []]
                 rows = [dict(zip(names, (str(v) if isinstance(v, uuid.UUID) else v for v in values)))
                         for values in cursor.fetchall()]

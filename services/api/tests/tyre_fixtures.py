@@ -1,7 +1,10 @@
 """A synthetic, clearly fake fleet shaped like TyrePulse's Supabase tables.
 
 Table and column names follow TyrePulse's migrations (vehicle_fleet, tyre_records,
-tyre_service_events, tpms_readings, suppliers); every value is invented: "fake-" ids,
+inspections with per-position ``tyre_conditions``, tyre_service_events, tpms_readings,
+suppliers, and the operations tables: inspection_schedules, checklist_submissions,
+work_orders, work_order_line_items, parts_consumption, odometer_logs, engine_hours_logs,
+sites); every value is invented: "fake-" ids,
 "brandalpha"/"brandbeta" brands, round numbers. Readings are dated relative to ``AS_OF``
 so forecasts can be checked exactly.
 
@@ -16,6 +19,13 @@ Fleet (6 trucks x 4 positions = 24 fitted tyres):
 * ``fake-sn-0604`` was never inspected and was fitted 200 days ago: overdue.
 * Four removed and two scrapped tyres give removal reasons and km; two in stock.
 * One repair cost of 4000 against ~300 typical: a cost anomaly.
+* Tread and pressure readings are TyrePulse inspections: one per truck and date, with an
+  entry per position carrying the serial (as strings, as TyrePulse stores them). Truck 01's
+  inspections also read a rear position ("R1Lo") that no tyre record names: kept as a
+  reading of that vehicle position.
+* Operations: 3 inspection schedules (upcoming, overdue, completed), 3 checklists (one
+  failed), 4 work orders (2 open, one 200 days old: outside the 90-day sync window), line
+  items and parts for work order fake-wo-1, odometer and engine-hour logs, 1 site.
 """
 
 from __future__ import annotations
@@ -45,6 +55,25 @@ TABLES: dict[str, list[str]] = {
                       "temperature", "target_pressure", "status", "recorded_at"],
     "suppliers": ["id", "supplier_name", "supplier_code", "supplier_type", "status"],
     "profiles": ["id", "username", "full_name"],
+    "inspections": ["id", "asset_no", "site", "inspection_date", "inspection_type", "status", "severity",
+                    "approval_status", "odometer_km", "hour_meter", "tyre_conditions", "inspector", "country",
+                    "organisation_id"],
+    "inspection_schedules": ["id", "asset_no", "site", "scheduled_date", "inspection_type", "priority", "status",
+                             "completed_inspection_id", "inspector_name", "country", "organisation_id"],
+    "checklist_submissions": ["id", "template_name", "asset_no", "site", "title", "status", "submitted_at",
+                              "score_pct", "score_passed", "approval_status", "printed_name", "country",
+                              "organisation_id"],
+    "work_orders": ["id", "work_order_no", "asset_no", "site", "status", "priority", "work_type", "opened_at",
+                    "completed_at", "tyre_serial", "labour_hours", "labour_cost", "parts_cost", "tyre_cost",
+                    "total_cost", "technician_name", "country", "organisation_id"],
+    "work_order_line_items": ["id", "work_order_no", "asset_no", "site", "opened_date", "work_type", "task", "action",
+                              "detail", "qty", "country", "organisation_id"],
+    "parts_consumption": ["id", "work_order_no", "asset_code", "site", "event_date", "item_code", "item_description",
+                          "qty_n", "cost_category", "line_cost", "tyre_cost", "spare_cost", "oil_cost", "currency",
+                          "country", "organisation_id"],
+    "odometer_logs": ["id", "asset_no", "reading_date", "odometer_km", "site", "country", "organisation_id"],
+    "engine_hours_logs": ["id", "asset_no", "reading_date", "engine_hours", "site", "country", "organisation_id"],
+    "sites": ["id", "name", "region", "city", "active", "country", "organisation_id"],
 }
 
 ORG = "00000000-0000-0000-0000-000000000000"
@@ -144,7 +173,130 @@ def build_rows() -> dict[str, list[dict[str, Any]]]:
         "vehicle_fleet": vehicles, "tyre_records": tyres, "tyre_service_events": events,
         "tpms_readings": tpms, "suppliers": suppliers,
         "profiles": [{"id": "p1", "username": "example", "full_name": "example user"}],
+        "inspections": inspections_from(events),
+        **operations_rows(),
     }
+
+
+def inspections_from(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """TyrePulse's shape: one inspection per truck and date, an entry per wheel position."""
+    by_visit: dict[tuple[str, str], dict[str, Any]] = {}
+    for event in events:
+        if event["event_type"] != "inspection":
+            continue
+        key = (event["asset_no"], event["event_date"])
+        visit = by_visit.setdefault(key, {
+            "id": f"00000000-0000-0000-0005-{len(by_visit):012d}", "asset_no": event["asset_no"], "site": "fake-site-a",
+            "inspection_date": event["event_date"], "inspection_type": "Routine", "status": "Done", "severity": None,
+            "approval_status": "approved", "odometer_km": None, "hour_meter": None, "tyre_conditions": {},
+            "inspector": "example", "country": "KSA", "organisation_id": ORG,
+        })
+        visit["tyre_conditions"][event["position"]] = {
+            "position": event["position"], "serial_number": event["tyre_serial"],
+            "tread_depth_mm": f"{event['tread_depth']}", "pressure_psi": f"{event['pressure']:g}",
+            "condition": "Good", "checked": True, "photo_url": None, "notes": "",
+        }
+        if event["asset_no"] == "fake-truck-01":
+            visit["tyre_conditions"]["R1Lo"] = {"position": "R1Lo", "serial_number": "", "tread_depth_mm": "",
+                                                "pressure_psi": "104", "condition": "Good", "photo_url": None}
+    return list(by_visit.values())
+
+
+def operations_rows() -> dict[str, list[dict[str, Any]]]:
+    common = {"country": "KSA", "organisation_id": ORG}
+    return {
+        "inspection_schedules": [
+            {"id": "00000000-0000-0000-0006-000000000001", "asset_no": "fake-truck-02", "site": "fake-site-a",
+             "scheduled_date": _day(-5), "inspection_type": "Routine", "priority": "normal", "status": "Scheduled",
+             "completed_inspection_id": None, "inspector_name": "example", **common},
+            {"id": "00000000-0000-0000-0006-000000000002", "asset_no": "fake-truck-03", "site": "fake-site-a",
+             "scheduled_date": _day(3), "inspection_type": "Routine", "priority": "high", "status": "Scheduled",
+             "completed_inspection_id": None, "inspector_name": "example", **common},
+            {"id": "00000000-0000-0000-0006-000000000003", "asset_no": "fake-truck-01", "site": "fake-site-a",
+             "scheduled_date": _day(30), "inspection_type": "Routine", "priority": "normal", "status": "Completed",
+             "completed_inspection_id": None, "inspector_name": "example", **common},
+        ],
+        "checklist_submissions": [
+            {"id": "00000000-0000-0000-0007-000000000001", "template_name": "fake daily check", "asset_no": "fake-truck-01",
+             "site": "fake-site-a", "title": "Daily", "status": "submitted", "submitted_at": f"{_day(2)}T07:00:00+00:00",
+             "score_pct": 95, "score_passed": True, "approval_status": "approved", "printed_name": "example", **common},
+            {"id": "00000000-0000-0000-0007-000000000002", "template_name": "fake daily check", "asset_no": "fake-truck-02",
+             "site": "fake-site-a", "title": "Daily", "status": "submitted", "submitted_at": f"{_day(4)}T07:00:00+00:00",
+             "score_pct": 60, "score_passed": False, "approval_status": "pending", "printed_name": "example", **common},
+            {"id": "00000000-0000-0000-0007-000000000003", "template_name": "fake workshop exit", "asset_no": "fake-truck-03",
+             "site": "fake-site-a", "title": "Exit", "status": "submitted", "submitted_at": f"{_day(40)}T07:00:00+00:00",
+             "score_pct": None, "score_passed": None, "approval_status": None, "printed_name": "example", **common},
+        ],
+        "work_orders": [
+            {"id": "00000000-0000-0000-0008-000000000001", "work_order_no": "fake-wo-1", "asset_no": "fake-truck-01",
+             "site": "fake-site-a", "status": "Open", "priority": "high", "work_type": "Tyre", "opened_at": f"{_day(3)}T08:00:00+00:00",
+             "completed_at": None, "tyre_serial": "fake-sn-0103", "labour_hours": 2, "labour_cost": 100, "parts_cost": 50,
+             "tyre_cost": 1200, "total_cost": 1350, "technician_name": "example", **common},
+            {"id": "00000000-0000-0000-0008-000000000002", "work_order_no": "fake-wo-2", "asset_no": "fake-truck-02",
+             "site": "fake-site-a", "status": "In Progress", "priority": "normal", "work_type": "Brakes",
+             "opened_at": f"{_day(10)}T08:00:00+00:00", "completed_at": None, "tyre_serial": None, "labour_hours": 4,
+             "labour_cost": 200, "parts_cost": 300, "tyre_cost": 0, "total_cost": 500, "technician_name": "example", **common},
+            {"id": "00000000-0000-0000-0008-000000000003", "work_order_no": "fake-wo-3", "asset_no": "fake-truck-01",
+             "site": "fake-site-a", "status": "Closed", "priority": "normal", "work_type": "Service",
+             "opened_at": f"{_day(20)}T08:00:00+00:00", "completed_at": f"{_day(19)}T08:00:00+00:00", "tyre_serial": None,
+             "labour_hours": 3, "labour_cost": 150, "parts_cost": 250, "tyre_cost": 0, "total_cost": 400,
+             "technician_name": "example", **common},
+            {"id": "00000000-0000-0000-0008-000000000004", "work_order_no": "fake-wo-old", "asset_no": "fake-truck-04",
+             "site": "fake-site-a", "status": "Closed", "priority": "normal", "work_type": "Service",
+             "opened_at": f"{_day(200)}T08:00:00+00:00", "completed_at": f"{_day(199)}T08:00:00+00:00", "tyre_serial": None,
+             "labour_hours": 3, "labour_cost": 150, "parts_cost": 250, "tyre_cost": 0, "total_cost": 400,
+             "technician_name": "example", **common},
+        ],
+        "work_order_line_items": [
+            {"id": f"00000000-0000-0000-0009-00000000000{i}", "work_order_no": "fake-wo-1", "asset_no": "fake-truck-01",
+             "site": "fake-site-a", "opened_date": _day(3), "work_type": "Tyre", "task": f"fake task {i}",
+             "action": "replace", "detail": "example", "qty": 1, **common}
+            for i in range(1, 3)
+        ],
+        "parts_consumption": [
+            {"id": f"00000000-0000-0000-0010-00000000000{i}", "work_order_no": "fake-wo-1" if i < 3 else "fake-wo-3",
+             "asset_code": "fake-truck-01", "site": "fake-site-a", "event_date": _day(3 if i < 3 else 20),
+             "item_code": f"fake-item-{i}", "item_description": "fake part", "qty_n": 1,
+             "cost_category": "tyre" if i == 1 else "spare", "line_cost": 100.0 * i, "tyre_cost": 100.0 if i == 1 else 0,
+             "spare_cost": 0 if i == 1 else 100.0 * i, "oil_cost": 0, "currency": "SAR", **common}
+            for i in range(1, 4)
+        ],
+        "odometer_logs": [
+            {"id": f"00000000-0000-0000-0011-00000000000{i}", "asset_no": "fake-truck-01", "reading_date": _day(60 - 30 * i),
+             "odometer_km": 105_000 + 6_000 * i, "site": "fake-site-a", **common}
+            for i in range(0, 3)
+        ],
+        "engine_hours_logs": [
+            {"id": "00000000-0000-0000-0012-000000000001", "asset_no": "fake-truck-01", "reading_date": _day(1),
+             "engine_hours": 5_000, "site": "fake-site-a", **common},
+        ],
+        "sites": [
+            {"id": "00000000-0000-0000-0013-000000000001", "name": "fake-site-a", "region": "fake-region",
+             "city": "fake-city", "active": True, **common},
+        ],
+    }
+
+
+def postgrest_filter(rows: list[dict[str, Any]], query: dict[str, list[str]]) -> list[dict[str, Any]]:
+    """PostgREST's ``column=eq|gte|lte.value`` filters and ``order=column.desc``, enough for ANUM's reads."""
+    kept = rows
+    for column, values in query.items():
+        if column in {"select", "limit", "offset", "order"}:
+            continue
+        for value in values:
+            op, _, wanted = value.partition(".")
+            if op == "eq":
+                kept = [row for row in kept if str(row.get(column)) == wanted]
+            elif op == "gte":
+                kept = [row for row in kept if row.get(column) is not None and str(row.get(column))[: len(wanted)] >= wanted]
+            elif op == "lte":
+                kept = [row for row in kept if row.get(column) is not None and str(row.get(column))[: len(wanted)] <= wanted]
+    if "order" in query:
+        column, _, rest = query["order"][0].partition(".")
+        present = [row for row in kept if row.get(column) is not None]
+        present.sort(key=lambda row: str(row.get(column)), reverse=rest.startswith("desc"))
+        kept = present + [row for row in kept if row.get(column) is None]
+    return kept
 
 
 class FakeSupabase:
@@ -172,7 +324,8 @@ class FakeSupabase:
         query = parse_qs(urlsplit(str(request.url)).query)
         columns = query["select"][0].split(",")
         limit, offset = int(query["limit"][0]), int(query["offset"][0])
-        page = self.rows[table][offset: offset + limit]
+        rows = postgrest_filter(self.rows[table], query)
+        page = rows[offset: offset + limit]
         return httpx.Response(200, json=[{column: row.get(column) for column in columns} for row in page])
 
     def client_factory(self) -> Callable[[], httpx.AsyncClient]:

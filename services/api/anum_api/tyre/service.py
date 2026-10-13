@@ -11,17 +11,17 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from ..schemas import TenantContext, new_id, utc_now
 from ..secret_box import SecretDecryptionError, secret_cipher
 from . import sources as source_module
 from .analytics import evaluate_alerts, forecast_tyres
-from .mapping import SourceTable, apply_mapping, mapped_columns, suggest_mapping
-from .model import Entity, EntityStats, SourceKind, SyncStats, TyreDataset, TyreMapping
+from .mapping import SourceTable, apply_mapping, mapped_columns, read_key, suggest_mapping
+from .model import Entity, EntityStats, SourceKind, SyncStats, TyreDataset, TyreMapping, dataset_counts
 from .reports import TITLES, build_report, summary_text
-from .sources import TyreSourceError
+from .sources import ReadQuery, TyreSourceError
 from .store import (
     ConnectionStatus,
     ReportKind,
@@ -141,22 +141,35 @@ async def discover(context: TenantContext) -> DiscoveryResult:
 async def read_source(
     connection: TyreConnection, mapping: TyreMapping, *, sample: int | None = None
 ) -> tuple[dict[Entity, list[dict[str, Any]]], dict[str, EntityStats]]:
-    """Fetch each mapped table once (its mapped columns) and hand rows to its entities."""
+    """Fetch each mapped table once (its mapped columns) and hand rows to its entities.
+
+    An entity with a window reads only rows newer than ``window_days`` (newest first), so
+    a large table such as TyrePulse's work orders is never copied whole."""
     source = open_connection_source(connection)
-    by_table: dict[str, list[dict[str, Any]]] = {}
-    cut: dict[str, bool] = {}
-    for table, columns in mapped_columns(mapping).items():
+    by_key: dict[tuple[str, str | None, int | None], list[dict[str, Any]]] = {}
+    cut: dict[tuple[str, str | None, int | None], bool] = {}
+    today = utc_now().date()
+    for key, columns in mapped_columns(mapping).items():
+        table, window_column, window_days = key
+        query = None
+        if window_column and window_days:
+            since = (today - timedelta(days=window_days)).isoformat()
+            query = ReadQuery(filters=((window_column, "gte", since),), order=(window_column, True),
+                              limit=sample or None)
+        elif sample:
+            query = ReadQuery(limit=sample)
         try:
-            result = await source.fetch(table, columns)
+            result = await source.fetch(table, columns, query) if query else await source.fetch(table, columns)
         except TyreSourceError as exc:
             raise TyreSourceError(f"Reading {table} failed: {exc.message}", hint=exc.hint) from None
-        by_table[table] = result.rows[:sample] if sample else result.rows
-        cut[table] = result.cut
+        by_key[key] = result.rows[:sample] if sample else result.rows
+        cut[key] = result.cut and not sample
     rows: dict[Entity, list[dict[str, Any]]] = {}
     stats: dict[str, EntityStats] = {}
     for entity, entity_mapping in mapping.entities.items():
-        rows[entity] = by_table.get(entity_mapping.source, [])
-        stats[entity.value] = EntityStats(read=len(rows[entity]), cut=cut.get(entity_mapping.source, False))
+        key = read_key(entity_mapping)
+        rows[entity] = by_key.get(key, [])
+        stats[entity.value] = EntityStats(read=len(rows[entity]), cut=cut.get(key, False))
     return rows, stats
 
 
@@ -207,7 +220,7 @@ async def sync(context: TenantContext, actor: str) -> SyncOutcome:
             current.status, current.last_error, current.last_tested_at = ConnectionStatus.OK, None, now
             store.save_connection(current)
     announce(context, raised)
-    counts = {entity.value: len(getattr(dataset, entity.value)) for entity in Entity}
+    counts = dataset_counts(dataset)
     return SyncOutcome(stats=sync_stats, counts=counts, raised=raised)
 
 

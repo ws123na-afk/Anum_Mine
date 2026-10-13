@@ -10,7 +10,9 @@ ANUM only ever **reads** the source. Nothing in tyre planning writes to it.
 - API: `services/api/anum_api/tyre/` (`/api/v1/tyre`), migrations `0037_tyre_planning` and
   `0053_tyre_supabase_auth` (the `supabase_auth` connection kind).
 - Owner SQL for TyrePulse: `infra/tyrepulse/supabase-anum-reader.sql` (undo:
-  `infra/tyrepulse/supabase-anum-reader-rollback.sql`).
+  `infra/tyrepulse/supabase-anum-reader-rollback.sql`), then
+  `infra/tyrepulse/supabase-anum-reader-extend.sql` for the operational tables (undo:
+  `infra/tyrepulse/supabase-anum-reader-extend-rollback.sql`).
 - Web: **Tyre planning** in the sidebar (`apps/web/src/TyreView.tsx`).
 - Flutter: **Home > Tyre planning** (dashboard, tyres due, alerts) in `apps/mobile/lib/features/tyre/`; connecting, mapping and reports are on the web.
 
@@ -53,9 +55,11 @@ no blanket `grant execute`):
 - TyrePulse's own policies still apply to the reader like to any user.
 - `infra/tyrepulse/supabase-anum-reader.sql` adds RESTRICTIVE policies that apply only to
   registered reader users (everyone else is unaffected): no insert, update or delete on any
-  table, and reads only of the five tyre tables (`vehicle_fleet`, `tyre_records`,
-  `tyre_service_events`, `tpms_readings`, `suppliers`), only rows of the reader's own
-  organisation, even if its profile is later made an administrator.
+  table, and reads only of the tables listed in `anum_integration.reader_tables` (the five
+  tyre tables `vehicle_fleet`, `tyre_records`, `tyre_service_events`, `tpms_readings`,
+  `suppliers`, plus the operational tables once `supabase-anum-reader-extend.sql` has run;
+  see [What ANUM reads](#what-anum-reads)), only rows of the reader's own organisation,
+  even if its profile is later made an administrator.
 - A PostgREST pre-request guard refuses every reader request that is not a `GET` / `HEAD`
   of one of those tables: no `/rpc` functions (SECURITY DEFINER functions skip RLS), no
   GraphQL, no other tables. Supabase runs `GET` requests in a read-only transaction.
@@ -68,7 +72,7 @@ no blanket `grant execute`):
   the session is kept in memory and refreshed, and the page shows only
   `<e-mail> · key …<last 4>`.
 
-Owner steps (about ten minutes):
+Owner steps (about fifteen minutes):
 
 1. **Run the SQL.** In the Supabase dashboard of the TyrePulse project open **SQL Editor >
    New query**, paste the whole of `infra/tyrepulse/supabase-anum-reader.sql` and press
@@ -91,19 +95,54 @@ Owner steps (about ten minutes):
    Every row of `verify_reader` should say `pass`. It tries reads, other organisations'
    rows, a table outside the list, insert / update / delete and API calls as the reader,
    and rolls every attempt back.
-4. **Copy the project details.** **Project Settings > API**: the project URL
+4. **Let ANUM read the operational data.** In the SQL Editor paste the whole of
+   `infra/tyrepulse/supabase-anum-reader-extend.sql` and press **Run** (safe to repeat).
+   Its messages list each table: `added: own organisation only, GET only, no writes`, or
+   `SKIPPED: ...` with the reason (`ksa_kms` and `uae_kms` have no `organisation_id`, so
+   they are skipped). Then run `verify_reader` again: every row should say `pass` (`warn`
+   on a read only means that table is empty for the reader's organisation).
+5. **Copy the project details.** **Project Settings > API**: the project URL
    (`https://<project-ref>.supabase.co`) and the **publishable** key (`sb_publishable_...`,
    or the legacy `anon` key). Never the secret / service_role key: ANUM refuses it.
-5. **Connect in ANUM.** **Tyre planning > Connection**, choose **TyrePulse sign-in
+6. **Connect in ANUM.** **Tyre planning > Connection**, choose **TyrePulse sign-in
    (Supabase)**, enter the project URL, the publishable key, the reader's e-mail and its
    password, **Save connection**, then **Test connection**. It answers
    `Signed in as <e-mail> (read-only). Rows visible in the first page: ...`. Then
-   **Discover tables**, **Use the TyrePulse preset** and **Sync now**.
+   **Discover tables**, **Use the TyrePulse preset**, **Save mapping** and **Sync now**.
+   A connection made before the extend file needs the same three clicks once more, so the
+   saved mapping picks up the inspections, checklists, work orders and meter tables.
 
 If the test fails: "refused the reader's e-mail or password" (check them, or reset the
 password in TyrePulse), "not confirmed" (confirm the user under **Authentication > Users**),
 `HTTP 403` (the user is not registered, or the guard refused the request: run
 `verify_reader`), rows `0` (the user's organisation, countries or sites in TyrePulse).
+
+### What ANUM reads
+
+With both SQL files run, the reader may `GET` these TyrePulse tables, own organisation
+only, never write:
+
+| Area | Tables | Synced or read on demand |
+| --- | --- | --- |
+| Tyres | `tyre_records`, `inspections` (readings per wheel position), `tpms_readings`, `tyre_service_events`, `suppliers`, `tyre_status_marks`, `tyre_spec_catalog`, `tyre_rotations`, `tyre_tread_readings`, `tyre_disposals`, `retread_jobs` | the mapped ones are synced |
+| Vehicles and meters | `vehicle_fleet`, `odometer_logs`, `engine_hours_logs`, `cpk_asset_meter`, `sites` | synced |
+| Inspections and workshop | `inspection_schedules`, `checklist_submissions`, `checklist_templates`, `workshop_status_records`, `workshop_status_events`, `wash_records`, `accidents`, `accident_damage_assessments` | schedules and checklists are synced |
+| Work orders | `work_orders` | synced for the last 90 days |
+| Large tables | `work_order_line_items`, `parts_consumption`, `production_logs` | never copied; line items and parts are read on demand, a bounded slice per question |
+
+Never readable, by design: everything about people's accounts and security (`profiles`,
+`auth.*`, logins, sessions, devices, API keys, audit and access logs, notifications, AI,
+cron and system tables, passwords, `console_*`, `user_*`) and personal data (`drivers`,
+`driver_*`). The extend file refuses such tables even when someone adds them to
+`reader_tables` by hand, and takes them off again when it runs. Tables without an
+`organisation_id` (`ksa_kms`, `uae_kms`) are skipped because the reader could not be
+pinned to one organisation there.
+
+Inside the allowed tables ANUM also never selects columns about people: names of
+inspectors, technicians, drivers, approvers and operators, e-mail addresses, phone
+numbers, signatures, photos and GPS positions. A mapping that names such a column is
+refused (`model.PERSONAL_COLUMN`), and the on-demand reads select a fixed list of
+operational columns (`tyre/live_tables.py`).
 
 The SQL file also tells you if it could not install the pre-request guard (another
 function already uses PostgREST's pre-request hook): add
@@ -174,17 +213,44 @@ each, a picker of your tables and columns:
 | Removals | date, and `tyre_id` or `tyre_serial` | reason, km, hours, tread at removal (optional: removal columns on Tyres also count) |
 | Costs | date, amount | tyre, vehicle, category, supplier |
 | Suppliers | `id` | name |
+| Inspection visits | `id`, vehicle, date | site, type, status, severity, approval, odometer, hours |
+| Inspection schedule | `id`, scheduled date | vehicle, site, type, priority, status, completing inspection |
+| Workshop checklists | `id`, submission date | template, vehicle, site, title, status, score, passed, approval |
+| Work orders | number, opened date | vehicle, site, status, priority, type, completion date, tyre serial, labour hours, labour, parts, tyre and total cost |
+| Odometer readings | vehicle, date, odometer | site |
+| Engine hour readings | vehicle, date, hours | site |
+| Sites | `id` (the name other tables use) | name, region, city, active |
+
+Inspections and pressure readings attach to a tyre by `tyre_id` or `tyre_serial`, or to a
+vehicle and wheel position (`vehicle_id` and `position`); removals need the tyre.
 
 **TyrePulse preset.** When discovery finds TyrePulse's `tyre_records` and
 `vehicle_fleet`, the suggestion is the ready-made TyrePulse mapping (fitted to the
-columns that exist): `vehicle_fleet` (asset_no, registration_no, current_km...),
-`tyre_records` as tyres and removals (serial_no, brand, size, asset_no, tyre_position,
-status, issue_date, km_at_fitment, removal_date, removal_reason, total_km,
-cost_per_tyre...), `tyre_service_events` as inspections (tread_depth, pressure,
-event_date) and costs (cost, event_type), `tpms_readings` as pressure readings with
-targets, and `suppliers`. Status values `Active`, `Removed` and `Scrapped` map to fitted,
-removed and scrapped. Every field stays editable, and **Use the TyrePulse preset**
-restores it. For other schemas the suggestion is a best guess by table and column names.
+columns that exist): `vehicle_fleet` (asset_no, registration_no, current_km,
+current_engine_hours...), `tyre_records` as tyres and removals (serial_no, brand, size,
+asset_no, tyre_position, status, issue_date, km_at_fitment, removal_date, removal_reason,
+total_km, cost_per_tyre...), **`inspections` as the tyre readings**, `tyre_service_events`
+as costs (cost, event_type), `tpms_readings` as pressure readings with targets,
+`suppliers`, and the operations data: `inspections` again as inspection visits,
+`inspection_schedules`, `checklist_submissions`, `work_orders` (last 90 days),
+`odometer_logs`, `engine_hours_logs` and `sites`. Status values `Active`, `Removed` and
+`Scrapped` map to fitted, removed and scrapped. Every field stays editable, and **Use the
+TyrePulse preset** restores it. For other schemas the suggestion is a best guess by table
+and column names.
+
+**Readings from TyrePulse inspections.** TyrePulse keeps tyre readings in `inspections`,
+one row per vehicle inspection, with `tyre_conditions` holding an entry per wheel
+position (`{"F1L": {"position", "serial_number", "pressure_psi", "tread_depth_mm",
+"condition"}, ...}`); its `tpms_readings` table is empty. The preset sets
+`expand: "tyre_conditions"` on the inspections entity, so each entry becomes one reading
+and fields name the entry's keys (`tyre_conditions.pressure_psi`). A reading attaches to
+a tyre by its serial when the inspector entered one, else to the tyre fitted at that
+vehicle and position on that day. Inspections name positions `F1L` / `R1Lo` while tyre
+records say `LHF1` / `LHCO`; only the front axles map without doubt, so the preset's
+`position_aliases` cover `FL`, `FR`, `F1L`, `F1R`, `F2L`, `F2R`, and the owner may add the
+rear axles in the saved mapping once they have checked their convention. A reading that
+matches no tyre record is kept as a reading of that vehicle position: it counts for
+pressure checks, odometer and inspection dates, not for a tyre's wear rate.
 
 Units are set once for the mapping: tread in mm or 32nds of an inch, pressure in psi,
 bar or kPa, distance in km or miles, and the currency code. ANUM stores mm, psi and km.
@@ -199,9 +265,33 @@ TyrePulse does): the fitment record covering the reading's date wins.
 **Sync now** reads each mapped table once (only the mapped columns), applies the
 mapping, stores the result as the workspace's snapshot, and re-evaluates alerts. Each
 table is read up to `ANUM_TYRE_MAX_ROWS_PER_ENTITY` rows (default 50,000); beyond that
-the page says the table was cut. Calls time out after `ANUM_TYRE_SOURCE_TIMEOUT_SECONDS`
+the page says the table was cut. An entity with a window (`window_days` and
+`window_column`; the preset gives work orders 90 days by `opened_at`) reads only rows
+newer than that, newest first, filtered at the source, so a table of ~94,000 work orders
+is never copied whole. Calls time out after `ANUM_TYRE_SOURCE_TIMEOUT_SECONDS`
 (default 20). Scheduled reports sync first. Everything on the dashboard, in reports and
 in assistant answers says when the data was synced.
+
+## Fleet operations data
+
+Besides tyres, the snapshot holds the fleet's operations data from the same read-only
+connection: inspection visits, the inspection schedule, workshop checklist submissions,
+work orders of the last 90 days, odometer and engine-hour readings and sites. The
+dashboard's **Fleet operations data** card shows vehicles inspected (30 and 90 days),
+inspections, tyre readings and how many matched a tyre record, scheduled inspections
+overdue and due in 14 days, checklists (and failed ones), open work orders and their
+cost; with nothing synced it says how to map them. Counts come from
+`anum_api/tyre/fleet.py`, the same functions the assistant tools use.
+
+A fitted tyre counts as inspected by its own readings or by a visit to its vehicle that
+covered it (a visit covers a tyre when it read the tyre's position, recorded nothing per
+position, or read positions no tyre record names). Odometer logs and inspection
+odometers feed each vehicle's km per day.
+
+The large tables are never copied: `work_order_line_items` and `parts_consumption` are
+read on demand for one work order, one vehicle or one period (at most 10,000 rows, only
+the operational columns in `tyre/live_tables.py`, filtered at the source), and nothing
+read that way is stored. `production_logs` is readable by the reader but not used yet.
 
 ## Method
 
@@ -294,9 +384,24 @@ stays downloadable.
 
 ## Assistant
 
-Four read-only, low-risk tools (`anum_api/tyre/tools.py`): `tyre_fleet_summary`,
-`tyres_due(month)`, `purchase_plan(months | month)` and `tyre_alerts`. Their summaries
-carry the numbers, units and sync time.
+Read-only, low-risk tools (`anum_api/tyre/tools.py`, `fleet_tools.py`), each answering
+from the synced snapshot or a bounded on-demand read, with the numbers, units and sync
+time in the summary:
+
+| Tool | Answers |
+| --- | --- |
+| `tyre_fleet_summary` | fleet tyre health plus the operations counts |
+| `tyres_due(month)`, `purchase_plan(months or month)`, `tyre_alerts` | removals, buying, open alerts |
+| `tyre_vehicles(site, inspected)` | every vehicle with fitted tyres, last inspection, tyres due, open work orders; "which vehicles were not inspected" |
+| `tyre_vehicle_detail(vehicle)` | one vehicle's tyres, the latest reading per wheel position, schedules, open work orders, checklists |
+| `tyre_inspections(date_from, date_to, site, vehicle, status)` | how many inspections of how many vehicles, which vehicles, by site; the schedule (upcoming, overdue) |
+| `tyre_checklists(date_from, date_to, site, vehicle, failed, template)` | workshop checklist submissions and failed ones |
+| `tyre_work_orders(open, date_from, date_to, site, vehicle, work_type, work_order)` | open or all work orders; one work order's line items and parts read on demand |
+| `tyre_maintenance_costs(date_from, date_to, site, vehicle, group_by)` | work order cost by vehicle, site or work type, plus parts issued (read on demand for one vehicle or up to 92 days) |
+
+The tool and its arguments come from the user's own words (dates such as "last week" or
+"this month", "vehicle T-12", "site Riyadh", "work order WO-123"). Every tool checks
+`tyre:read`, runs under tool policy and is audited as `tool.call`.
 
 - **Tasks:** the `anum.tyre-planning` skill triggers on tyre words; the planner picks
   the tool and arguments from the user's own prompt.
@@ -320,7 +425,7 @@ All under `/api/v1/tyre`; errors use the standard envelope.
 | `PUT /mapping`, `POST /mapping/preview` | manage | save; dry-run on a sample |
 | `PUT /assumptions` | manage | save and re-evaluate alerts |
 | `POST /sync` | operate | read the source now |
-| `GET /dashboard` | read | summary, alert counts, top alerts, soonest removals, removals per month |
+| `GET /dashboard` | read | summary, operations counts, alert counts, top alerts, soonest removals, removals per month |
 | `GET /forecasts`, `GET /forecasts.csv` | read | per tyre; `month`, `due_by`, `state`, `confidence`, `q`, `limit`, `offset` |
 | `GET /purchase-plan`, `GET /purchase-plan.csv` | read | `months` 1-36 |
 | `GET /alerts`, `POST /alerts/{id}/acknowledge`, `POST /alerts/{id}/reopen` | read / operate | `status`, `kind`, `q`, paging |
@@ -345,7 +450,15 @@ the alerts (reports stay until deleted). The fixture used by the tests
   bound to an existing draft or conversation; docs/tools-and-integrations.md#delivery), so
   until a new-message email send and a WhatsApp document send exist, reports are
   downloaded and sent by hand.
-- Firestore sub-collections and collection-group queries are not read.
+- Firestore sub-collections and collection-group queries are not read; windows and
+  on-demand filters are applied after a capped read there.
+- Rear-axle positions of TyrePulse inspections (`R1Lo`, `R2Ri`...) are not matched to tyre
+  records until the owner adds position aliases for their convention; until then those
+  readings stay readings of the vehicle position.
+- Work order and parts costs are reported by the cost tool but do not feed the tyre cost
+  per km (that still uses tyre purchase costs and `tyre_service_events`).
+- `production_logs`, `wash_records`, `accidents`, `workshop_status_*`, rotations,
+  retreads and disposals are readable by the reader but not mapped or answered yet.
 - The PDF export prints Latin text only.
 - Scheduled reports run only with the automation scheduler on
   (`ANUM_AUTOMATION_SCHEDULER_ENABLED=true`); a missed fire runs once, as for every

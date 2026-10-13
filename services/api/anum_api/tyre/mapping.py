@@ -3,7 +3,10 @@
 ``apply_mapping`` turns raw rows (one list per ANUM entity, keyed by source column) into
 a :class:`TyreDataset`: values are parsed (numbers, dates), units converted to mm, psi
 and km, statuses normalised, and inspections, pressure readings and removals attached
-to a tyre by id or, failing that, by serial. Rows that cannot be used are skipped and
+to a tyre by id, else by serial, else by vehicle and wheel position on the day (readings
+that match no tyre stay readings of that vehicle position). A column of per-tyre entries
+(``EntityMapping.expand``, TyrePulse's ``inspections.tyre_conditions``) is unpacked into
+one row per entry first. Rows that cannot be used are skipped and
 counted by reason in :class:`SyncStats`; row contents are never recorded.
 
 ``suggest_mapping`` proposes a mapping from a discovered schema: the TyrePulse preset
@@ -29,10 +32,16 @@ from .model import (
     EntityMapping,
     EntityStats,
     FieldKind,
+    HourReading,
     Inspection,
+    InspectionSchedule,
+    InspectionVisit,
+    OdometerReading,
     PressureReading,
     PressureUnit,
+    Checklist,
     Removal,
+    Site,
     Supplier,
     TreadUnit,
     Tyre,
@@ -41,6 +50,8 @@ from .model import (
     TyreStatus,
     Units,
     Vehicle,
+    WorkOrder,
+    normalise_position,
 )
 
 # --- value parsing --------------------------------------------------------------------
@@ -66,6 +77,19 @@ def parse_number(value: Any) -> float | None:
             return None
         number = float(match.group())
     return number if math.isfinite(number) else None
+
+
+def parse_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value or "").strip().lower()
+    if text in {"true", "t", "yes", "y", "1", "pass", "passed"}:
+        return True
+    if text in {"false", "f", "no", "n", "0", "fail", "failed"}:
+        return False
+    return None
 
 
 _DAY_FIRST = re.compile(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$")
@@ -162,6 +186,8 @@ def _read(row: Mapping[str, Any], fields: Mapping[str, str], name: str, kind: Fi
         return parse_number(value)
     if kind == FieldKind.DATE:
         return parse_date(value)
+    if kind == FieldKind.BOOLEAN:
+        return parse_bool(value)
     return parse_text(value)
 
 
@@ -181,34 +207,84 @@ def _values(row: Mapping[str, Any], entity: Entity, mapping: EntityMapping) -> d
     return {spec.name: _read(row, mapping.fields, spec.name, spec.kind) for spec in ENTITY_FIELDS[entity]}
 
 
-class _TyreIndex:
-    """Find the tyre a reading belongs to: by id, else by serial and date."""
+# Per-tyre entries unpacked from one row, at most (a truck has well under 64 wheels).
+MAX_ENTRIES_PER_ROW = 64
 
-    def __init__(self, tyres: Iterable[Tyre]) -> None:
+
+def expand_rows(rows: Iterable[Mapping[str, Any]], column: str) -> list[dict[str, Any]]:
+    """One row per entry of ``column`` (an object keyed by position, or a list of objects).
+
+    The entry replaces the column's value, so "<column>.<key>" reads it; the object key is
+    kept as "<column>.__key__". Rows without entries give nothing.
+    """
+    expanded: list[dict[str, Any]] = []
+    for row in rows:
+        value = row.get(column)
+        if isinstance(value, Mapping):
+            entries = list(value.items())
+        elif isinstance(value, list):
+            entries = [(str(index), item) for index, item in enumerate(value)]
+        else:
+            continue
+        for key, entry in entries[:MAX_ENTRIES_PER_ROW]:
+            if not isinstance(entry, Mapping):
+                continue
+            expanded.append({**row, column: {**entry, "__key__": key}})
+    return expanded
+
+
+def _vehicle_key(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _covering(candidates: list[Tyre], on: date) -> Tyre | None:
+    for tyre in reversed(candidates):
+        started = tyre.fitted_at is None or tyre.fitted_at <= on
+        ended = tyre.removed_at is not None and tyre.removed_at < on
+        if started and not ended:
+            return tyre
+    return None
+
+
+class _TyreIndex:
+    """Find the tyre a reading belongs to: by id, else by serial and date, else by the
+    vehicle and wheel position it was fitted to on that date."""
+
+    def __init__(self, tyres: Iterable[Tyre], aliases: Mapping[str, str] | None = None) -> None:
+        self.aliases = dict(aliases or {})
         self.by_id: dict[str, Tyre] = {}
         self.by_serial: dict[str, list[Tyre]] = defaultdict(list)
+        self.by_position: dict[tuple[str, str], list[Tyre]] = defaultdict(list)
         for tyre in tyres:
             self.by_id[tyre.id] = tyre
             if tyre.serial:
                 self.by_serial[tyre.serial.strip().lower()].append(tyre)
-        for items in self.by_serial.values():
+            if tyre.vehicle_id and tyre.position:
+                self.by_position[(_vehicle_key(tyre.vehicle_id), normalise_position(tyre.position))].append(tyre)
+        for items in (*self.by_serial.values(), *self.by_position.values()):
             items.sort(key=lambda item: item.fitted_at or date.min)
 
-    def find(self, tyre_id: str | None, serial: str | None, on: date | None) -> Tyre | None:
+    def position(self, raw: str | None) -> str:
+        code = normalise_position(raw)
+        return self.aliases.get(code, code)
+
+    def find(self, tyre_id: str | None, serial: str | None, on: date | None,
+             vehicle_id: str | None = None, position: str | None = None) -> Tyre | None:
         if tyre_id and tyre_id in self.by_id:
             return self.by_id[tyre_id]
-        if not serial:
-            return None
-        candidates = self.by_serial.get(serial.strip().lower())
-        if not candidates:
-            return None
-        if on is not None:
-            for tyre in reversed(candidates):
-                started = tyre.fitted_at is None or tyre.fitted_at <= on
-                ended = tyre.removed_at is not None and tyre.removed_at < on
-                if started and not ended:
-                    return tyre
-        return candidates[-1]
+        candidates = self.by_serial.get(serial.strip().lower()) if serial else None
+        if candidates:
+            if on is not None:
+                found = _covering(candidates, on)
+                if found is not None:
+                    return found
+            return candidates[-1]
+        if vehicle_id and position and on is not None:
+            fitted = self.by_position.get((_vehicle_key(vehicle_id), self.position(position)))
+            if fitted:
+                # Only the tyre fitted there on the day; never a guess.
+                return _covering(fitted, on)
+        return None
 
 
 def _skip(stats: EntityStats, reason: str) -> None:
@@ -230,7 +306,14 @@ def apply_mapping(
     dataset = TyreDataset(currency=units.currency)
 
     def entity_rows(entity: Entity) -> list[dict[str, Any]]:
-        return rows.get(entity, []) if entity in mapping.entities else []
+        if entity not in mapping.entities:
+            return []
+        found = rows.get(entity, [])
+        column = mapping.entities[entity].expand
+        if column:
+            found = expand_rows(found, column)
+            stats[entity.value].read = len(found)
+        return found
 
     # Vehicles.
     seen_vehicles: set[str] = set()
@@ -272,31 +355,35 @@ def apply_mapping(
         dataset.tyres.append(tyre)
         stats["tyres"].kept += 1
 
-    index = _TyreIndex(dataset.tyres)
+    index = _TyreIndex(dataset.tyres, mapping.position_aliases)
 
-    # Inspections.
+    # Inspections (tyre readings): attached to a tyre, else kept for the vehicle position.
     for row in entity_rows(Entity.INSPECTIONS):
         values = _values(row, Entity.INSPECTIONS, mapping.entities[Entity.INSPECTIONS])
         if values["inspected_at"] is None:
             _skip(stats["inspections"], "no inspection date")
             continue
-        tyre = index.find(values["tyre_id"], values["tyre_serial"], values["inspected_at"])
-        if tyre is None:
-            _skip(stats["inspections"], "no matching tyre")
-            continue
         tread = tread_to_mm(values["tread_depth"], units.tread)
         pressure = pressure_to_psi(values["pressure"], units.pressure)
-        if tread is None and pressure is None:
+        if tread is None and (pressure is None or pressure <= 0):
             _skip(stats["inspections"], "no tread or pressure reading")
             continue
         if tread is not None and not 0 <= tread <= 40:
             _skip(stats["inspections"], "tread depth out of range")
             continue
+        tyre = index.find(values["tyre_id"], values["tyre_serial"], values["inspected_at"],
+                          values["vehicle_id"], values["position"])
+        if tyre is None and not values["vehicle_id"]:
+            _skip(stats["inspections"], "no matching tyre or vehicle")
+            continue
+        if tyre is None:
+            stats["inspections"].issues["kept for the vehicle position (no tyre record matched)"] = (
+                stats["inspections"].issues.get("kept for the vehicle position (no tyre record matched)", 0) + 1)
         dataset.inspections.append(
             Inspection(
-                tyre_id=tyre.id,
-                vehicle_id=values["vehicle_id"] or tyre.vehicle_id,
-                position=values["position"] or tyre.position,
+                tyre_id=tyre.id if tyre else None,
+                vehicle_id=values["vehicle_id"] or (tyre.vehicle_id if tyre else None),
+                position=values["position"] or (tyre.position if tyre else None),
                 inspected_at=values["inspected_at"],
                 tread_mm=tread,
                 pressure_psi=pressure if pressure and pressure > 0 else None,
@@ -314,7 +401,8 @@ def apply_mapping(
         if values["recorded_at"] is None or pressure is None or pressure <= 0:
             _skip(stats["pressure_readings"], "no date or pressure")
             continue
-        tyre = index.find(values["tyre_id"], values["tyre_serial"], values["recorded_at"])
+        tyre = index.find(values["tyre_id"], values["tyre_serial"], values["recorded_at"],
+                          values["vehicle_id"], values["position"])
         if tyre is None and not values["vehicle_id"]:
             _skip(stats["pressure_readings"], "no matching tyre or vehicle")
             continue
@@ -402,7 +490,48 @@ def apply_mapping(
         dataset.suppliers.append(Supplier(**values))
         stats["suppliers"].kept += 1
 
+    _apply_operations(mapping, entity_rows, dataset, stats)
     return dataset, stats
+
+
+def _apply_operations(mapping: TyreMapping, entity_rows: Any, dataset: TyreDataset,
+                      stats: dict[str, EntityStats]) -> None:
+    """Fleet operations data: inspection visits and schedules, checklists, work orders,
+    meter readings and sites. Rows missing a required value are skipped and counted."""
+    units = mapping.units
+    simple: tuple[tuple[Entity, type[Any], tuple[str, ...], str], ...] = (
+        (Entity.INSPECTION_VISITS, InspectionVisit, ("id", "vehicle_id", "inspected_at"), "id"),
+        (Entity.INSPECTION_SCHEDULES, InspectionSchedule, ("id", "scheduled_for"), "id"),
+        (Entity.CHECKLISTS, Checklist, ("id", "submitted_at"), "id"),
+        (Entity.WORK_ORDERS, WorkOrder, ("id", "opened_at"), "id"),
+        (Entity.SITES, Site, ("id",), "id"),
+        (Entity.ODOMETER_READINGS, OdometerReading, ("vehicle_id", "read_at", "odometer_km"), ""),
+        (Entity.HOUR_READINGS, HourReading, ("vehicle_id", "read_at", "hours"), ""),
+    )
+    for entity, model, required, unique in simple:
+        seen: set[str] = set()
+        target = getattr(dataset, entity.value)
+        for row in entity_rows(entity):
+            values = _values(row, entity, mapping.entities[entity])
+            missing = [name for name in required if values.get(name) is None]
+            if missing:
+                _skip(stats[entity.value], f"no {missing[0].replace('_', ' ')}")
+                continue
+            if unique:
+                if values[unique] in seen:
+                    _skip(stats[entity.value], "duplicate id")
+                    continue
+                seen.add(values[unique])
+            if "odometer_km" in values:
+                values["odometer_km"] = distance_to_km(values["odometer_km"], units.distance)
+            if entity == Entity.ODOMETER_READINGS and values["odometer_km"] <= 0:
+                _skip(stats[entity.value], "zero or negative reading")
+                continue
+            if entity == Entity.HOUR_READINGS and values["hours"] <= 0:
+                _skip(stats[entity.value], "zero or negative reading")
+                continue
+            target.append(model(**values))
+            stats[entity.value].kept += 1
 
 
 # --- discovery and suggestions --------------------------------------------------------
@@ -422,9 +551,21 @@ class SourceTable(BaseModel):
     writable: bool = False
 
 
-# TyrePulse (the owner's own app, Supabase): tyre_records holds one row per fitment with
-# its removal; tyre_service_events holds tread and pressure checks and service costs;
-# tpms_readings holds sensor pressures with targets. Column names as in its migrations.
+# TyrePulse (the owner's own app, Supabase). tyre_records holds one row per fitment with
+# its removal. Tyre readings live in ``inspections``: one row per vehicle inspection whose
+# ``tyre_conditions`` holds an entry per wheel position ({"F1L": {"position", "serial_number",
+# "pressure_psi", "tread_depth_mm", "condition"}, ...}); tpms_readings and
+# tyre_service_events are TyrePulse's sensor and service tables. Inspections name positions
+# as F1L / R1Lo while tyre records say LHF1 / LHCO: only the front axles map without doubt,
+# so the preset aliases those and the owner may add the rear ones. Column names as in
+# TyrePulse's migrations. Never a column about a person (see model.PERSONAL_COLUMN).
+TYREPULSE_POSITION_ALIASES = {
+    "FL": "LHF1", "FR": "RHF1", "F1L": "LHF1", "F1R": "RHF1", "F2L": "LHF2", "F2R": "RHF2",
+}
+# Work orders are many (TyrePulse: ~94,000): sync the recent ones; older ones and the line
+# items and parts issues are read on demand (``live.py``).
+WORK_ORDER_WINDOW_DAYS = 90
+
 TYREPULSE_PRESET = TyreMapping(
     preset="tyrepulse",
     entities={
@@ -437,6 +578,7 @@ TYREPULSE_PRESET = TyreMapping(
                 "vehicle_type": "vehicle_type",
                 "site": "site",
                 "odometer_km": "current_km",
+                "hours": "current_engine_hours",
                 "status": "status",
             },
         ),
@@ -464,14 +606,17 @@ TYREPULSE_PRESET = TyreMapping(
             },
         ),
         Entity.INSPECTIONS: EntityMapping(
-            source="tyre_service_events",
+            source="inspections",
+            expand="tyre_conditions",
             fields={
-                "tyre_serial": "tyre_serial",
+                "tyre_serial": "tyre_conditions.serial_number",
                 "vehicle_id": "asset_no",
-                "position": "position",
-                "inspected_at": "event_date",
-                "tread_depth": "tread_depth",
-                "pressure": "pressure",
+                "position": "tyre_conditions.position",
+                "inspected_at": "inspection_date",
+                "tread_depth": "tyre_conditions.tread_depth_mm",
+                "pressure": "tyre_conditions.pressure_psi",
+                "odometer_km": "odometer_km",
+                "hours": "hour_meter",
             },
         ),
         Entity.PRESSURE_READINGS: EntityMapping(
@@ -499,9 +644,86 @@ TYREPULSE_PRESET = TyreMapping(
             source="suppliers",
             fields={"id": "supplier_name", "name": "supplier_name"},
         ),
+        Entity.INSPECTION_VISITS: EntityMapping(
+            source="inspections",
+            fields={
+                "id": "id",
+                "vehicle_id": "asset_no",
+                "inspected_at": "inspection_date",
+                "site": "site",
+                "inspection_type": "inspection_type",
+                "status": "status",
+                "severity": "severity",
+                "approval_status": "approval_status",
+                "odometer_km": "odometer_km",
+                "hours": "hour_meter",
+            },
+        ),
+        Entity.INSPECTION_SCHEDULES: EntityMapping(
+            source="inspection_schedules",
+            fields={
+                "id": "id",
+                "scheduled_for": "scheduled_date",
+                "vehicle_id": "asset_no",
+                "site": "site",
+                "inspection_type": "inspection_type",
+                "priority": "priority",
+                "status": "status",
+                "completed_inspection_id": "completed_inspection_id",
+            },
+        ),
+        Entity.CHECKLISTS: EntityMapping(
+            source="checklist_submissions",
+            fields={
+                "id": "id",
+                "submitted_at": "submitted_at",
+                "template": "template_name",
+                "vehicle_id": "asset_no",
+                "site": "site",
+                "title": "title",
+                "status": "status",
+                "score_pct": "score_pct",
+                "passed": "score_passed",
+                "approval_status": "approval_status",
+            },
+        ),
+        Entity.WORK_ORDERS: EntityMapping(
+            source="work_orders",
+            window_days=WORK_ORDER_WINDOW_DAYS,
+            window_column="opened_at",
+            fields={
+                "id": "work_order_no",
+                "opened_at": "opened_at",
+                "vehicle_id": "asset_no",
+                "site": "site",
+                "status": "status",
+                "priority": "priority",
+                "work_type": "work_type",
+                "completed_at": "completed_at",
+                "tyre_serial": "tyre_serial",
+                "labour_hours": "labour_hours",
+                "labour_cost": "labour_cost",
+                "parts_cost": "parts_cost",
+                "tyre_cost": "tyre_cost",
+                "total_cost": "total_cost",
+            },
+        ),
+        Entity.ODOMETER_READINGS: EntityMapping(
+            source="odometer_logs",
+            fields={"vehicle_id": "asset_no", "read_at": "reading_date", "odometer_km": "odometer_km", "site": "site"},
+        ),
+        Entity.HOUR_READINGS: EntityMapping(
+            source="engine_hours_logs",
+            fields={"vehicle_id": "asset_no", "read_at": "reading_date", "hours": "engine_hours", "site": "site"},
+        ),
+        Entity.SITES: EntityMapping(
+            source="sites",
+            fields={"id": "name", "name": "name", "region": "region", "city": "city", "active": "active"},
+        ),
     },
     units=Units(),
     status_values={"active": "fitted", "removed": "removed", "scrapped": "scrapped"},
+    position_aliases=TYREPULSE_POSITION_ALIASES,
 )
 
 PRESETS: dict[str, TyreMapping] = {"tyrepulse": TYREPULSE_PRESET}
@@ -520,8 +742,15 @@ def fit_to_schema(mapping: TyreMapping, tables: Iterable[SourceTable]) -> TyreMa
         if table is None:
             continue
         columns = {column.name for column in table.columns}
-        fields = {name: column for name, column in entity_mapping.fields.items() if column in columns}
-        entities[entity] = EntityMapping(source=table.name, fields=fields)
+        expand = entity_mapping.expand if entity_mapping.expand in columns else None
+        fields = {name: column for name, column in entity_mapping.fields.items()
+                  if column in columns or (expand and column.startswith(expand + "."))}
+        window = entity_mapping.window_column in columns
+        entities[entity] = EntityMapping(
+            source=table.name, fields=fields, expand=expand,
+            window_days=entity_mapping.window_days if window else None,
+            window_column=entity_mapping.window_column if window else None,
+        )
     return mapping.model_copy(update={"entities": entities})
 
 
@@ -625,11 +854,24 @@ def suggest_mapping(tables: list[SourceTable]) -> TyreMapping:
     return TyreMapping(entities=entities)
 
 
-def mapped_columns(mapping: TyreMapping) -> dict[str, list[str]]:
-    """Source table -> the columns any entity reads from it (what sync selects)."""
-    columns: dict[str, set[str]] = defaultdict(set)
+def source_column(entity_mapping: EntityMapping, column: str) -> str:
+    """The column a field is read from: an entry key of an expanded column reads that column."""
+    if entity_mapping.expand and column.startswith(entity_mapping.expand + "."):
+        return entity_mapping.expand
+    return column
+
+
+def read_key(entity_mapping: EntityMapping) -> tuple[str, str | None, int | None]:
+    """Entities that share a table and a window are read together."""
+    return entity_mapping.source, entity_mapping.window_column, entity_mapping.window_days
+
+
+def mapped_columns(mapping: TyreMapping) -> dict[tuple[str, str | None, int | None], list[str]]:
+    """(table, window column, window days) -> the columns any entity reads from it (what
+    sync selects)."""
+    columns: dict[tuple[str, str | None, int | None], set[str]] = defaultdict(set)
     for entity_mapping in mapping.entities.values():
-        columns[entity_mapping.source].update(
-            column for column in entity_mapping.fields.values()
+        columns[read_key(entity_mapping)].update(
+            source_column(entity_mapping, column) for column in entity_mapping.fields.values()
         )
-    return {table: sorted(values) for table, values in columns.items()}
+    return {key: sorted(values) for key, values in columns.items()}

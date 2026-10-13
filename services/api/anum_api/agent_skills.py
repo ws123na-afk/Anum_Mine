@@ -60,6 +60,10 @@ def prompt_words(prompt: str) -> set[str]:
     the), so "وأرسل" (and send) and "البريد" (the mail) match "أرسل" and "بريد".
     """
     words: set[str] = set()
+    # Two-word terms a trigger may name: "work order(s)" and "job card(s)" (fleet maintenance).
+    for phrase, token in ((r"\bwork\s*orders?\b", "work-order"), (r"\bjob\s*cards?\b", "job-card")):
+        if re.search(phrase, prompt, re.IGNORECASE):
+            words.add(token)
     for word in re.findall(r"[\w-]+", prompt.lower()):
         words.add(word)
         if not _ARABIC.match(word):
@@ -142,12 +146,17 @@ def default_skill_registry() -> SkillRegistry:
                 version="1.0.0",
                 name="Tyre planning",
                 description=(
-                    "Answers fleet tyre questions from the synced tyre data: health, tyres due, "
-                    "purchase plan and alerts (docs/tyre-planning.md)."
+                    "Answers fleet tyre and vehicle questions from the synced TyrePulse data: health, tyres "
+                    "due, purchase plan, alerts, vehicles, inspections, workshop checklists, work orders "
+                    "and maintenance costs (docs/tyre-planning.md)."
                 ),
                 triggers=frozenset(
                     {"tyre", "tyres", "tire", "tires", "tread", "treads", "retread",
-                     "إطار", "إطارات", "اطار", "اطارات", "الإطارات", "الاطارات", "كفر", "كفرات", "الكفرات"}
+                     "inspection", "inspections", "inspected", "checklist", "checklists", "workshop",
+                     "fleet", "vehicle", "vehicles", "truck", "trucks", "odometer", "mileage", "maintenance",
+                     "work-order", "job-card",
+                     "إطار", "إطارات", "اطار", "اطارات", "الإطارات", "الاطارات", "كفر", "كفرات", "الكفرات",
+                     "فحص", "الفحوصات", "مركبة", "المركبات", "الشاحنات", "ورشة", "صيانة"}
                 ),
                 # Selectable where the tyre tools are registered (the API and the worker).
                 required_tools=frozenset({"tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts"}),

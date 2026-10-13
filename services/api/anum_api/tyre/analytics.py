@@ -19,13 +19,13 @@ from __future__ import annotations
 import math
 import statistics
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, timedelta
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from .model import Assumptions, Cost, Inspection, Tyre, TyreDataset, TyreStatus, Vehicle
+from .model import Assumptions, Cost, Inspection, Tyre, TyreDataset, TyreStatus, Vehicle, normalise_position
 
 Z_95 = 1.96
 MAX_POINTS = 60
@@ -146,7 +146,8 @@ class _Context:
         self.vehicles: dict[str, Vehicle] = {vehicle.id: vehicle for vehicle in dataset.vehicles}
         self.inspections: dict[str, list[Inspection]] = defaultdict(list)
         for inspection in dataset.inspections:
-            self.inspections[inspection.tyre_id].append(inspection)
+            if inspection.tyre_id is not None:
+                self.inspections[inspection.tyre_id].append(inspection)
         for items in self.inspections.values():
             items.sort(key=lambda item: item.inspected_at)
         self.vehicle_km_per_day = self._vehicle_usage()
@@ -159,6 +160,8 @@ class _Context:
                 readings[inspection.vehicle_id].append(
                     (float(inspection.inspected_at.toordinal()), inspection.odometer_km)
                 )
+        for reading in self.dataset.odometer_readings:
+            readings[reading.vehicle_id].append((float(reading.read_at.toordinal()), reading.odometer_km))
         for tyre in self.dataset.tyres:
             if tyre.vehicle_id and tyre.fitted_at and tyre.fitted_km:
                 readings[tyre.vehicle_id].append((float(tyre.fitted_at.toordinal()), tyre.fitted_km))
@@ -495,17 +498,59 @@ class FleetSummary(BaseModel):
     min_tread_mm: float
 
 
+def _visit_covers(dataset: TyreDataset) -> Callable[[Tyre], date | None]:
+    """The last vehicle inspection visit that covered a tyre.
+
+    TyrePulse inspects all wheels of a vehicle in one visit. A visit covers a fitted tyre
+    when it recorded nothing per position, or a reading at the tyre's position, or readings
+    no tyre record matched (the position codes differ, so ANUM cannot tell which wheel was
+    skipped). A visit whose readings all matched tyres covers only those tyres."""
+    readings: dict[tuple[str, date], tuple[set[str], bool]] = {}
+    for item in dataset.inspections:
+        if not item.vehicle_id:
+            continue
+        key = (item.vehicle_id.strip().lower(), item.inspected_at)
+        positions, unmatched = readings.get(key, (set(), False))
+        if item.position:
+            positions.add(normalise_position(item.position))
+        readings[key] = (positions, unmatched or item.tyre_id is None)
+    visits: dict[str, list[date]] = defaultdict(list)
+    for visit in dataset.inspection_visits:
+        visits[visit.vehicle_id.strip().lower()].append(visit.inspected_at)
+    for dates in visits.values():
+        dates.sort(reverse=True)
+
+    def covered(tyre: Tyre) -> date | None:
+        vehicle = (tyre.vehicle_id or "").strip().lower()
+        for when in visits.get(vehicle, []):
+            found = readings.get((vehicle, when))
+            if found is None or found[1] or normalise_position(tyre.position) in found[0]:
+                return when
+        return None
+
+    return covered
+
+
 def overdue_tyres(dataset: TyreDataset, assumptions: Assumptions, as_of: date) -> list[tuple[Tyre, date | None, int]]:
-    """(tyre, last inspection, days since) for fitted tyres overdue for inspection."""
+    """(tyre, last inspection, days since) for fitted tyres overdue for inspection.
+
+    A tyre counts as inspected by its own readings or by a visit that covered it."""
     last: dict[str, date] = {}
     for inspection in dataset.inspections:
+        if inspection.tyre_id is None:
+            continue
         if inspection.tyre_id not in last or inspection.inspected_at > last[inspection.tyre_id]:
             last[inspection.tyre_id] = inspection.inspected_at
+    covered = _visit_covers(dataset)
     found = []
     for tyre in dataset.tyres:
         if tyre.status != TyreStatus.FITTED:
             continue
-        seen = last.get(tyre.id) or tyre.fitted_at
+        own = last.get(tyre.id)
+        visit = covered(tyre)
+        if visit is not None and (own is None or visit > own):
+            last[tyre.id] = own = visit
+        seen = own or tyre.fitted_at
         if seen is None:
             continue
         days = (as_of - seen).days
