@@ -473,8 +473,11 @@ An address is in several places. Change the host in `.env` (the three must stay 
 | Changed | Also do |
 |---|---|
 | `ANUM_WEB_HOST` | Keycloak admin console → realm `anum` → client `anum-web` → Valid redirect URIs, Valid post logout redirect URIs, Web origins (the realm was imported once). |
-| `ANUM_API_HOST` | Nothing else (the web bundle is rebuilt). |
-| `ANUM_AUTH_HOST` | Desktop and Flutter release builds (`ANUM_PRODUCTION_OIDC_ISSUER`). Existing sessions end: the token issuer changes. |
+| `ANUM_API_HOST` | Nothing else on the server (the web bundle is rebuilt). |
+| `ANUM_API_HOST` (apps) | The desktop and phone apps have the API compiled in: set the repository variable `ANUM_PRODUCTION_API_URL` (`https://<api host>/`) and build them again (below). |
+| `ANUM_AUTH_HOST` | Desktop and Flutter release builds (`ANUM_PRODUCTION_OIDC_ISSUER` = `https://<auth host>/realms/anum`). Existing sessions end: the token issuer changes. The `anum-desktop` client's redirect URIs name no host, so Keycloak needs no change for the desktop. |
+
+For the owner's deployment the hosts are `app.anum360os.com`, `api.anum360os.com` and `auth.anum360os.com` (they replaced the DuckDNS names). The desktop app: set `ANUM_PRODUCTION_API_URL` = `https://api.anum360os.com/` and `ANUM_PRODUCTION_OIDC_ISSUER` = `https://auth.anum360os.com/realms/anum` (GitHub, Settings, Secrets and variables, Actions, Variables), run Actions, "Release clients" with the **desktop** input ticked, and install the new build on each computer ([Moving to a new address](desktop.md#moving-to-a-new-address)). A release desktop build uses these two addresses even when the variables are empty, and refuses a local or plain-HTTP one, so it never offers the local development sign-in.
 
 Then `sudo infra/oracle/update.sh --no-pull` (rebuilds the web bundle, recreates the services, Caddy requests the new certificate).
 

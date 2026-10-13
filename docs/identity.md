@@ -283,7 +283,7 @@ The workspace a client sends is the one the user selected, else the token's `wor
 
 | Variable | Value |
 | --- | --- |
-| `VITE_ANUM_OIDC_ISSUER` | Issuer URL, for example `http://localhost:8080/realms/anum`. Unset or empty keeps the local session. |
+| `VITE_ANUM_OIDC_ISSUER` | Issuer URL, for example `http://localhost:8080/realms/anum`. Unset or empty keeps the local session, except in a desktop release build, which defaults to `https://auth.anum360os.com/realms/anum` and refuses local addresses ([Desktop release builds](desktop.md#release-builds)). |
 | `VITE_ANUM_OIDC_CLIENT_ID` | `anum-web` (default) in the browser, `anum-desktop` for the Tauri build. |
 | `VITE_ANUM_WORKSPACE_ID` | Optional workspace sent when the token has no `workspace_id` claim. |
 
