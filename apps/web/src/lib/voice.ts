@@ -8,6 +8,7 @@ export { defaultAssistantName, greeting, matchWakeWord, sanitizeAssistantName } 
 import { postSse } from './chatApi';
 import { latestCard, type VoiceActionCard } from './voiceActions';
 import { t } from './i18n';
+import { createRecognitionGate, recognitionErrorKind, wakeRestartDelay } from './recognitionGate';
 
 
 export type TranscriptRetention = 'session' | '30_days' | 'permanent';
@@ -212,26 +213,46 @@ export function baseRecognitionMode(): RecognitionMode {
 }
 
 /**
- * Call only from a user gesture. Automated (headless) browsers skip the on-device probe, which
- * crashes their renderer (lib/recognitionMode.ts).
+ * Needs no user gesture (only installing a language pack does), so the Voice page probes when it
+ * opens and the first tap never waits for it. Automated (headless) browsers skip the on-device
+ * probe, which crashes their renderer (lib/recognitionMode.ts).
  */
 export async function detectRecognitionMode(locale: string, automated: boolean = automatedBrowser()): Promise<RecognitionMode> {
   return chooseRecognitionMode(recognitionConstructor() as AvailabilityProbe | undefined, locale, automated);
 }
 
+// One recognition session at a time for the whole page (lib/recognitionGate.ts): the next
+// recognizer starts once the previous one has ended, and a refused start is retried.
+const recognitionGate = createRecognitionGate();
+
+/** Resolves once no recognizer is running (the wake listener has handed over), or after `maxWaitMs`. */
+export function recognitionIdle(maxWaitMs?: number): Promise<void> {
+  return recognitionGate.whenIdle(maxWaitMs);
+}
+
+const errorMessage = (code: string | undefined): string => {
+  switch (recognitionErrorKind(code)) {
+    case 'blocked': return t('voice.err.micBlocked');
+    case 'no-mic': return t('voice.err.noMic');
+    case 'network': return t('voice.err.network');
+    case 'not-heard': return t('voice.notHeard');
+    default: return t('voice.err.recognition');
+  }
+};
+
 export function createPushToTalk(
   onTranscript: (text: string, isFinal: boolean) => void,
-  onError: (message: string) => void,
+  onError: (message: string, code?: string) => void,
   locale = navigator.language || 'en-US',
   onEnd?: () => void,
   processLocally = false,
   continuous = true,
-): { supported: boolean; start: () => void; stop: () => void; cancel: () => void } {
+): { supported: boolean; start: () => Promise<boolean>; stop: () => void; cancel: () => void } {
   const Constructor = recognitionConstructor();
   if (!Constructor) {
     return {
       supported: false,
-      start: () => onError(t('voice.err.unsupported')),
+      start: async () => { onError(t('voice.err.unsupported')); return false; },
       stop: () => undefined,
       cancel: () => undefined,
     };
@@ -253,13 +274,26 @@ export function createPushToTalk(
     }
     onTranscript(text.replace(/\s+/g, ' ').trim(), isFinal);
   };
-  recognition.onerror = () => onError(t('voice.err.recognition'));
-  recognition.onend = () => onEnd?.();
+  // 'aborted' is our own cancel and 'no-speech' a silent turn (onEnd reports it): neither is an error.
+  recognition.onerror = (event: Event) => {
+    const code = (event as Event & { error?: string }).error;
+    const kind = recognitionErrorKind(code);
+    if (kind !== 'silent' && kind !== 'not-heard') onError(errorMessage(code), code);
+  };
+  let cancelled = false;
+  recognition.onend = () => { recognitionGate.ended(recognition); if (!cancelled) onEnd?.(); };
   return {
     supported: true,
-    start: () => recognition.start(),
-    stop: () => recognition.stop(),
-    cancel: () => recognition.abort(),
+    start: async () => {
+      const started = await recognitionGate.start(recognition);
+      // Cancelled while waiting for the microphone: end it at once.
+      if (started && cancelled) { try { recognition.abort(); } catch { /* ended */ } return false; }
+      if (!started && !cancelled) onError(t('voice.err.recognition'));
+      return started;
+    },
+    stop: () => { try { recognition.stop(); } catch { /* not started */ } },
+    // A cancelled turn ends quietly: no "didn't catch that", no hand-over.
+    cancel: () => { cancelled = true; try { recognition.abort(); } catch { /* not started */ } },
   };
 }
 
@@ -514,7 +548,7 @@ export function createWakeListener(
   name: string,
   locale: string,
   processLocally: boolean,
-  onWake: (rest: string) => void,
+  onWake: (rest: string, heard: string) => void,
   onError: (message: string) => void,
 ): WakeListener | null {
   const Constructor = recognitionConstructor();
@@ -522,36 +556,61 @@ export function createWakeListener(
   let running = false;
   let paused = false;
   let recognition: SpeechRecognitionLike | null = null;
+  let timer = 0;
+  let quickEnds = 0;
 
   const begin = () => {
-    if (!running || paused) return;
-    recognition = new Constructor();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = locale;
-    if (processLocally) recognition.processLocally = true;
-    recognition.onresult = (event) => {
+    window.clearTimeout(timer);
+    if (!running || paused || recognition) return;
+    const current = new Constructor();
+    recognition = current;
+    const startedAt = Date.now();
+    current.continuous = true;
+    current.interimResults = false;
+    current.lang = locale;
+    if (processLocally) current.processLocally = true;
+    current.onresult = (event) => {
       const latest = event.results[event.results.length - 1];
       if (!latest?.isFinal) return;
       const heard = latest[0].transcript.trim();
       const rest = matchWakeWord(heard, name);
-      if (rest !== null) onWake(rest);
+      if (rest !== null) onWake(rest, heard);
     };
-    recognition.onerror = (event: Event) => {
+    current.onerror = (event: Event) => {
       const code = (event as Event & { error?: string }).error;
-      if (code === 'not-allowed' || code === 'service-not-allowed') {
+      if (recognitionErrorKind(code) === 'blocked') {
         running = false;
         onError(t('voice.err.micBlocked'));
       }
     };
-    recognition.onend = () => { if (running && !paused) window.setTimeout(begin, 250); };
-    try { recognition.start(); } catch { /* already started */ }
+    // The browser ends a continuous session on silence or after about a minute: listen again at
+    // once (it used to wait 250 ms, missing the start of the next sentence).
+    current.onend = () => {
+      recognitionGate.ended(current);
+      if (recognition === current) recognition = null;
+      if (!running || paused) return;
+      const lasted = Date.now() - startedAt;
+      quickEnds = lasted >= 1000 ? 0 : quickEnds + 1;
+      timer = window.setTimeout(begin, wakeRestartDelay(lasted, quickEnds - 1));
+    };
+    void recognitionGate.start(current).then((started) => {
+      // Stopped or paused while waiting for the microphone: end the late starter at once.
+      if (started && recognition !== current) { try { current.abort(); } catch { /* ended */ } return; }
+      if (!started && recognition === current) { recognition = null; if (running && !paused) timer = window.setTimeout(begin, 500); }
+    });
+  };
+
+  const halt = () => {
+    window.clearTimeout(timer);
+    const current = recognition;
+    recognition = null;
+    try { current?.abort(); } catch { /* not started */ }
   };
 
   return {
     start: () => { running = true; paused = false; begin(); },
-    stop: () => { running = false; recognition?.abort(); recognition = null; },
-    pause: () => { paused = true; recognition?.abort(); recognition = null; },
+    stop: () => { running = false; halt(); },
+    pause: () => { paused = true; halt(); },
     resume: () => { if (running && paused) { paused = false; begin(); } },
   };
 }

@@ -2,7 +2,7 @@
 
 ANUM Command turns one spoken or typed request ("Check my emails, find today's urgent items, prepare a summary, check the PMV tyre report and schedule a meeting with the team tomorrow at 10 AM") into a plan of steps, shows which agents and tools each step will use and which steps will pause for approval, and, once the person confirms, runs the steps in parallel as ordinary tasks. The person can follow the work live, approve what needs approval, read the results and start a suggested next step.
 
-The API is `anum_api/commands.py` (router `/api/v1`), the PostgreSQL store `anum_api/db/command_repository.py` and the migration `0044_commands`. The Flutter screens are in `apps/mobile/lib/features/command/` ([Flutter mobile](mobile.md)); the web Command Center uses the same endpoints and the TypeScript types in `packages/contracts/src/command.ts`.
+The API is `anum_api/commands.py` (router `/api/v1`), the PostgreSQL store `anum_api/db/command_repository.py` and the migration `0044_commands`. The Flutter screens are in `apps/mobile/lib/features/command/` ([Flutter mobile](mobile.md)); the web Command Center (below) uses the same endpoints and the TypeScript types in `packages/contracts/src/command.ts`.
 
 ## The flow
 
@@ -149,6 +149,23 @@ Removes the command from the caller's history (`204`); its tasks stay in the wor
 | `DELETE /api/v1/quick-commands/{id}` | Deletes it (`204`) | `task:create` |
 
 A quick command is `{"id", "title", "text", "category", "position", "use_count", "last_used_at", "created_at", "updated_at"}`. At most 100 per user (`409` beyond). Using one is creating a command with its `quick_command_id`. Saying "run my <title> quick command" to the voice assistant does exactly that (`create_command_record`, the body of `POST /commands`, with `source: "voice"`) and starts every step ([Voice actions](voice.md#actions)). Audited as `quick_command.created`, `quick_command.updated` (field names) and `quick_command.deleted`.
+
+## The web Command Center
+
+On the web, ANUM Command (`#command`) is the page for giving orders; it is not the home. The overview of the day (approvals, tasks, inbox, meetings, alerts, budget) is Home ([home.md](home.md#the-web-home)), a separate page with its own component. Code: `apps/web/src/CommandCenter.tsx` and `src/commandCenter.css`, `src/lib/commands.ts` for the pure rules (mapping, plan editing, statuses; unit tested in `test/commands.test.ts`) and `src/lib/commandApi.ts` for every call.
+
+| Part | What it does | Backed by |
+|---|---|---|
+| Header | Title, the promise ("you see the plan first") and **Speak to the orb**, which opens the Voice page; the space orb lives there and is not repeated here | none |
+| Your order | Typed request (Enter shows the plan), push-to-talk microphone that fills the box for checking (English or Arabic), attach up to 5 documents (uploaded to Documents), and chips for saved, frequent and starter commands | `POST /files`, `GET /commands/suggestions` |
+| Here is what ANUM will do | The plan: each step's agent, tool, risk and whether it runs on its own, asks for approval or is blocked by policy, with the step's note (for example no calendar connected). Move up, move down, remove; Edit the request; **Start** (refused while a blocked step remains) | `POST /commands/preview`, then `POST /commands` and `POST /tasks/{id}/run` per step |
+| Running and recent commands | The caller's commands with status, steps done and progress, 10 at a time with "Load older commands" (the API's cursor). The newest opens on arrival | `GET /commands?limit=10&cursor=` |
+| Command | The selected command live: progress, every step with its status, agent, tool and result, **Approve all** for its pending approvals (one request each with the payload hash shown; a refusal does not stop the others), Review each, attached documents, next steps (a follow-up is planned, never run directly; "Save as a quick command"), **Stop**, Download report (Markdown) and Remove from history once nothing runs. It refreshes every 3 seconds while running and on workspace events | `GET /commands/{id}`, `POST /approvals/{id}/approve`, `GET /commands/{id}/next-steps`, `POST /tasks/bulk`, `GET /commands/{id}/report`, `DELETE /commands/{id}` |
+| Saved commands | The caller's quick commands by Work, Personal and Custom: Plan it, edit, delete and New saved command | `/quick-commands` |
+
+Viewers cannot create commands (`task:create`): the page says so and who can change it, and hides the composer, Stop, Approve all and the saved-command editing. Every list has loading, empty (with the next action) and error (what failed, Retry) states. A request handed over from Home (an insight's "Analyze") is planned on arrival and waits for Start.
+
+Tests: `e2e/command-center.spec.ts` (its own page without the overview, a typed command planned, reordered, started and finished with results and next steps, a saved command planned and a new one saved, a viewer and a failing history, a past command's detail, axe and no horizontal overflow at the five viewports in English and Arabic, dark and light).
 
 ## How the plan is made
 

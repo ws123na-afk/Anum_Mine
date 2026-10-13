@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// Integrations: last error and how to fix it, test connection, and the workspace's own
+// Integrations (details drawer): last error and how to fix it, test connection, and the workspace's own
 // encrypted token for the external REST webhook, against a mocked API
 // (docs/tools-and-integrations.md#workspace-configuration).
 const now = new Date().toISOString();
@@ -58,37 +58,42 @@ async function mockApi(page: Page, role: 'owner' | 'member' = 'owner') {
   return calls;
 }
 
-const card = (page: Page, name: string) => page.locator('article.integrationCard', { has: page.getByRole('heading', { name, exact: true }) });
+const card = (page: Page, name: string) => page.locator('li.intRow', { has: page.getByRole('heading', { name, exact: true }) });
+const drawer = (page: Page, name: string) => page.getByRole('dialog', { name });
 
 test('a degraded integration says how to fix it, and Test connection records the recovery', async ({ page }) => {
   const calls = await mockApi(page);
   await page.goto('/#integrations');
-  await expect(page.getByText('1 connected · 1 need attention · 1 not used')).toBeVisible();
+  await expect(page.getByText('1 connected · 0 need setup · 1 with errors · 1 not used')).toBeVisible();
   const valkey = card(page, 'Valkey');
   await expect(valkey.getByText('degraded')).toBeVisible();
-  await expect(valkey.getByText(/How to fix:/)).toBeVisible();
-  await expect(valkey.getByText(/running and reachable from the API/)).toBeVisible();
+  await valkey.getByRole('button', { name: 'Fix Valkey' }).click();
+  const panel = drawer(page, 'Valkey');
+  await expect(panel.getByText(/How to fix:/)).toBeVisible();
+  await expect(panel.getByText(/running and reachable from the API/)).toBeVisible();
 
-  await valkey.getByRole('button', { name: 'Test connection' }).click();
-  await expect(valkey.getByText(/Connection to Valkey works/)).toBeVisible();
-  await expect(valkey.getByText('connected')).toBeVisible();
+  await panel.getByRole('button', { name: 'Test connection' }).click();
+  await expect(panel.getByText(/Connection to Valkey works/)).toBeVisible();
+  await expect(panel.getByText('connected', { exact: true })).toBeVisible();
   // The failure stays visible as history after the recovery.
-  await expect(valkey.getByText(/Last error .*: Health check failed: ConnectionRefusedError/)).toBeVisible();
+  await expect(panel.getByText(/Last error .*: Health check failed: ConnectionRefusedError/)).toBeVisible();
   expect(calls.some((c) => c.method === 'POST' && c.path === '/api/v1/integrations/valkey/test')).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(valkey.getByRole('button', { name: 'Manage Valkey' })).toBeVisible();
   // An integration the operator did not configure offers nothing to test or switch.
-  const nats = card(page, 'NATS JetStream');
+  await card(page, 'NATS JetStream').getByRole('button', { name: 'Manage NATS JetStream' }).click();
+  const nats = drawer(page, 'NATS JetStream');
   await expect(nats.getByRole('button', { name: 'Test connection' })).toBeDisabled();
-  await nats.getByRole('button', { name: 'Configure NATS JetStream' }).click();
   await expect(nats.getByText(/nothing to switch here/)).toBeVisible();
 });
 
 test('an owner stores, sees only the hint of, and removes the webhook token', async ({ page }) => {
   const calls = await mockApi(page);
   await page.goto('/#integrations');
-  const hook = card(page, 'External REST webhook');
+  await card(page, 'External REST webhook').getByRole('button', { name: 'Manage External REST webhook' }).click();
+  const hook = drawer(page, 'External REST webhook');
   await expect(hook.getByText('No token: calls are sent without an Authorization header.')).toBeVisible();
-  await hook.getByRole('button', { name: 'Configure External REST webhook' }).click();
-  const form = page.getByRole('form', { name: 'External REST webhook token' });
+  const form = hook.getByRole('form', { name: 'External REST webhook token' });
   await form.getByLabel(/Workspace token/).fill('too short');
   await form.getByRole('button', { name: 'Store token' }).click();
   await expect(hook.getByText('The token cannot contain spaces or line breaks.')).toBeVisible();
@@ -108,8 +113,11 @@ test('an owner stores, sees only the hint of, and removes the webhook token', as
 test('a member sees health and who can change it, with no controls', async ({ page }) => {
   await mockApi(page, 'member');
   await page.goto('/#integrations');
-  await expect(page.getByText(/Only workspace owners can test connections, turn integrations off or store credentials/)).toBeVisible();
-  await expect(card(page, 'Valkey').getByText(/How to fix:/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Test connection' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Configure / })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Manage / })).toHaveCount(0);
+  await card(page, 'Valkey').getByRole('button', { name: 'Details for Valkey' }).click();
+  const panel = drawer(page, 'Valkey');
+  await expect(panel.getByText(/Only workspace owners can test connections, turn integrations off or store credentials/)).toBeVisible();
+  await expect(panel.getByText(/How to fix:/)).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Test connection' })).toHaveCount(0);
+  await expect(panel.getByRole('form')).toHaveCount(0);
 });

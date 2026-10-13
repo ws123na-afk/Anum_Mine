@@ -66,14 +66,14 @@ async function ask(page: Page, text: string) {
 
 async function openVoiceIn(page: Page, language: 'en' | 'ar') {
   await mockVoiceApi(page);
-  await page.addInitScript(() => { localStorage.setItem('anum.voice.reply', ''); localStorage.setItem('anum.voice.name', 'Layla'); localStorage.setItem('anum.voice.wake', 'off'); });
+  await page.addInitScript(() => { localStorage.setItem('anum.voice.reply', ''); localStorage.setItem('anum.voice.name', 'Layla'); localStorage.setItem('anum.voice.wake', 'off'); localStorage.setItem('anum.voice.chat', 'on'); });
   await page.goto('/#voice');
   await expect(page.locator('html')).toHaveAttribute('dir', language === 'ar' ? 'rtl' : 'ltr');
 }
 
 async function openVoice(page: Page) {
   await mockVoiceApi(page);
-  await page.addInitScript(() => { localStorage.setItem('anum.voice.reply', ''); localStorage.setItem('anum.voice.name', 'Layla'); localStorage.setItem('anum.voice.wake', 'off'); });
+  await page.addInitScript(() => { localStorage.setItem('anum.voice.reply', ''); localStorage.setItem('anum.voice.name', 'Layla'); localStorage.setItem('anum.voice.wake', 'off'); localStorage.setItem('anum.voice.chat', 'on'); });
   await page.goto('/#voice');
   await expect(page.getByRole('region', { name: 'Layla voice assistant' })).toBeVisible();
 }

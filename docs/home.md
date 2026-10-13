@@ -80,3 +80,26 @@ Migration `0046_home` adds `home_profiles` (tenant and user), `home_pins` and `h
 States: loading, the summary failing (what failed, Try again), no workspace access (who can fix it), empty focus/activity/pins (each with its next action), a part that could not load (named, with Try again), viewers without quick commands (why), and a failed save said inside the sheet. Pins are reordered with Move up/Move down buttons, so no drag gesture is needed.
 
 Differences from the mockups: the numbers and names are the workspace's own; there are no meetings until a calendar module exists; the header avatar shows the greeting name's initial (there is no profile photo in ANUM); "Send reminder" and "Compare" are supported verbs but no built-in source uses them yet (no reminder API exists).
+
+## The web home
+
+On the web (`apps/web`) Home and ANUM Command are two pages with two jobs. **Home** (`#home`, the landing page) is the owner's overview: what needs them today. **ANUM Command** (`#command`) is where orders are given ([command.md](command.md#the-web-command-center)). Home has no composer, plan or saved commands; its "Give ANUM an order" button and an insight's command action open ANUM Command, which plans the request (read-only) and runs nothing until the person presses Start.
+
+Code: `src/HomeView.tsx` and `src/home.css` for the page, `src/lib/home.ts` for the pure rules (unit tested in `test/home.test.ts`), `src/lib/homeApi.ts` for every API call. The panel states (loading, empty with a next action, error with Retry, permission denied, "Show more") are the shared `src/Panels.tsx`, also used by ANUM Command.
+
+| Part | What it shows | Backed by |
+|---|---|---|
+| Greeting | Good morning/afternoon/evening with the Home name (`profile.display_name`, else the sign-in name), today's date, Refresh, "Give ANUM an order" | `GET /home/summary` |
+| Today at a glance | Approvals waiting; tasks running, failed, waiting and not started; unread email and the number of mailboxes; unread WhatsApp messages and chats (the first 50 unread chats, "50+" beyond); today's meetings and the next one; automation alerts (live alerts for this user plus runs failed in the last 24 hours); AI budget use this month (the workspace or organisation budget closest to its limit, cost and tokens). Each card opens its area | Shell tasks and approvals, `GET /email/accounts`, `GET /whatsapp/conversations?filter=unread`, `GET /calendar/events` (local day), automation events and `counts.automations`, `GET /model-budgets` |
+| Waiting for your decision | Pending approvals, three at a time, with the exact tool, risk, the payload hash, **Approve** and **Deny**. They go through the shell's approval flow (`POST /approvals/{id}/approve` with `{"payload_hash"}`), so the two-person rule and approval chains apply; a refusal is shown on the card | `GET /approvals` |
+| Today's focus | `focus[]` with severity and progress, five at a time; a part that failed is named with Retry | `GET /home/summary` |
+| Recent activity | `activity[]`, six at a time | `GET /home/summary` |
+| Today's meetings | Time, title, place and Join (the event's https link) for the local day, ended ones last | `GET /calendar/events` |
+| Automation alerts | This user's alerts (opens the run) and the failed-run focus items | Event stream, `GET /home/summary` |
+| ANUM noticed | Insights with their action, Later (snooze 24 h) and Dismiss | `GET /home/insights`, `POST /insights/{key}/dismiss`, `/snooze` |
+| Pinned | The caller's pins: a part of ANUM opens its page, a link opens in a new tab, a workspace pin switches workspace. Edit pins adds a part or an https link, moves pins up and down and removes them (24 at most) | `/home/pins`, `PUT /home/pins/order` |
+| Go to | Quick links to ANUM Command, Inbox, WhatsApp, Tasks, Approvals, Calls & Meetings, Automations, Reports, Documents, Agents, Voice and AI Chat | none |
+
+Permissions are the API's: a part the role cannot read says so (for example "Only workspace owners see budget use", the calendar for viewers), and the rest of Home still loads. Workspace events refresh the summary and insights quietly.
+
+Tests: `e2e/home.spec.ts` (the overview with workspace data, Home is not the command page, approving sends the payload hash, an insight hands its request to ANUM Command, pins, a failing part and a viewer, the palette, notifications and the sidebar, axe and no horizontal overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 in English and Arabic, dark and light). Mocks: `e2e/support/homeApi.ts`.

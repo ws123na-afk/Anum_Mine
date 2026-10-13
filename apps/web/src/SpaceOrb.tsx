@@ -67,10 +67,10 @@ export function SpaceOrb({ mode, variant, getLevel, fallback, orbAnchor, floorAn
 
   const controls = variant === 'full' ? <div className="spaceControls">
     {textureError && <p className="spaceNote" role="alert">{t('voice.space.textureError')}</p>}
-    <button type="button" aria-pressed={paused} onClick={() => { const next = !paused; setPaused(next); scene.current?.setPaused(next); }}>
+    <button type="button" aria-pressed={paused} title={paused ? t('voice.space.resume') : t('voice.space.pause')} onClick={() => { const next = !paused; setPaused(next); scene.current?.setPaused(next); }}>
       {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}<span>{paused ? t('voice.space.resume') : t('voice.space.pause')}</span>
     </button>
-    <button type="button" disabled={paused || reduced} title={paused || reduced ? t('voice.space.meteorPaused') : undefined}
+    <button type="button" disabled={paused || reduced} title={paused || reduced ? t('voice.space.meteorPaused') : t('voice.space.meteor')}
       onClick={() => scene.current?.shootingStar()}>
       <Sparkles aria-hidden="true" /><span>{t('voice.space.meteor')}</span>
     </button>

@@ -151,10 +151,15 @@ test('Integrations, Skills and the marketplace read in Arabic, right to left, wi
 
   await page.goto('/#integrations');
   await expect(page.getByRole('heading', { level: 2, name: 'التكاملات' })).toBeVisible();
-  await expect(page.getByText('طريقة الإصلاح:')).toBeVisible();
-  await expect(page.getByText(/2 متصلة · 1 تحتاج إلى انتباه · 1 غير مستخدمة/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'اختبار الاتصال' }).first()).toBeVisible();
+  await expect(page.getByText('3 متصل · 2 يحتاج إلى إعداد · 2 به أخطاء · 1 غير مستخدم')).toBeVisible();
+  await expect(page.getByRole('radio', { name: /^خطأ/ })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
+  await page.getByRole('button', { name: /^إصلاح .?Valkey.?$/ }).click();
+  const valkey = page.getByRole('dialog', { name: 'Valkey' });
+  await expect(valkey.getByText('طريقة الإصلاح:')).toBeVisible();
+  await expect(valkey.getByRole('button', { name: 'اختبار الاتصال' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+  await page.keyboard.press('Escape');
 
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'متجر ANUM' }).click();
   await expect(page.getByLabel('البحث في المهارات')).toBeVisible();
@@ -225,6 +230,8 @@ test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ 
   expect(await noHorizontalOverflow(page)).toBe(true);
 
   await page.goto('/#voice');
+  // The conversation panel (with the example phrases and settings text) is opened for this check.
+  await page.evaluate(() => localStorage.setItem('anum.voice.chat', 'on'));
   await page.reload();
   await expect(page.getByRole('region', { name: /^المساعد الصوتي/ })).toBeVisible();
   await expect(page.getByText('جرّب أن تقول')).toBeVisible();
