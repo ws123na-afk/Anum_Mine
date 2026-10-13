@@ -37,15 +37,19 @@ The shell signs in through Keycloak with the shared web code when the web build 
 
 The listener gives up after ten minutes, and pressing Sign in again replaces a pending attempt. Other requests to the port (for example a favicon) get a 404 and do not end the wait; a forged callback from another local process fails the state check. Sign-out forgets the tokens in the shell and opens the end-session URL (with `id_token_hint`, without a post-logout redirect) in the system browser, where the Keycloak session lives. The commands are in `apps/desktop/src-tauri/src/oidc_loopback.rs`, without extra plugins; the webview calls them through `window.__TAURI_INTERNALS__` (`apps/web/src/lib/desktop.ts`), so the web build gains no Tauri dependency and a normal browser keeps the redirect flow.
 
-The `anum-desktop` realm client already allows `http://127.0.0.1/*`, and Keycloak matches a loopback redirect URI registered without a port on any port, as RFC 8252 section 7.3 requires. The round trip has not yet been run against a live Keycloak from a packaged build; do that (Windows and macOS, including cancel, retry and sign-out) before the desktop beta channel opens. The CSP's `connect-src` must include the issuer origin for the token request; release builds add it (below). See [Identity and sign-in](identity.md#web-and-desktop).
+The `anum-desktop` realm client already allows `http://127.0.0.1/*`, and Keycloak matches a loopback redirect URI registered without a port on any port, as RFC 8252 section 7.3 requires. The round trip has not yet been run against a live Keycloak from a packaged build; do that (Windows and macOS, including cancel, retry and sign-out) before the desktop beta channel opens. The CSP's `connect-src` must include the issuer origin for the token request; release builds add it (below). The client's redirect URIs and web origins name no server host, so moving the API or Keycloak to a new address needs a new desktop build but no change to the `anum-desktop` client ([Moving to a new address](#moving-to-a-new-address)). See [Identity and sign-in](identity.md#web-and-desktop).
 
 ## Release Builds
 
-`pnpm --filter @anum/desktop build:release` runs `scripts/release-config.mjs`, which writes the gitignored overlay `src-tauri/tauri.release.conf.json` from the environment, then `tauri build --config` with it. The committed `tauri.conf.json` holds no keys, and the overlay holds only public values:
+`pnpm --filter @anum/desktop build:release` runs `scripts/release-config.mjs --build`, which writes the gitignored overlay `src-tauri/tauri.release.conf.json` from the environment, runs `tauri build --config` with it (the Tauri CLI builds the web client first, with the sign-in variables below) and then checks the built web bundle. The committed `tauri.conf.json` holds no keys, and the overlay holds only public values.
+
+A release build always signs in through Keycloak; it never falls back to the local development session. The production API and issuer default to the owner's deployment, an unset or empty variable takes the default, and the build stops on a plain-HTTP or local (`localhost`, `127.0.0.1`) address, an issuer that is not `https://<host>/realms/<realm>`, or a web bundle that does not contain the issuer, client id and API address. The resolved values are printed (and written to the run summary in CI). A plain `pnpm build:desktop` keeps the development behaviour: the local API and session unless `VITE_ANUM_OIDC_ISSUER` is set.
 
 | Variable | Effect |
 | --- | --- |
-| `VITE_ANUM_OIDC_ISSUER`, `VITE_ANUM_API_URL` | Their HTTPS origins (and `wss://` for the API) are added to the CSP `connect-src`. Plain HTTP is refused. Use the same values for the web build. |
+| `VITE_ANUM_API_URL` | API base URL, default `https://api.anum360os.com`. Trailing slashes are removed. Its HTTPS origin and `wss://` origin are added to the CSP `connect-src`. |
+| `VITE_ANUM_OIDC_ISSUER` | Keycloak issuer, default `https://auth.anum360os.com/realms/anum`. Its origin is added to the CSP `connect-src`. |
+| `VITE_ANUM_OIDC_CLIENT_ID` | Keycloak client, default `anum-desktop`. |
 | `ANUM_TAURI_UPDATER_PUBKEY` | Updater public key (the `.pub` file from `tauri signer generate`). Turns on `createUpdaterArtifacts` and sets `plugins.updater.pubkey`. |
 | `ANUM_TAURI_UPDATER_ENDPOINT` | Required with the public key: the HTTPS update manifest URL (may use `{{target}}` and `{{current_version}}`). |
 | `ANUM_WINDOWS_CERTIFICATE_THUMBPRINT` | Authenticode certificate thumbprint in the build machine's certificate store; signs with SHA-256 and timestamps through `ANUM_WINDOWS_TIMESTAMP_URL` (DigiCert's by default). |
@@ -72,8 +76,8 @@ Repository variables (Settings, Secrets and variables, Actions, Variables):
 | Variable | Value |
 | --- | --- |
 | `ANUM_RELEASE_DESKTOP` | `true` turns the desktop jobs on for tags. Unset while desktop releases are deferred. |
-| `ANUM_PRODUCTION_API_URL` | Production API origin (HTTPS), compiled into the web bundle and the CSP. Shared with the mobile build. |
-| `ANUM_PRODUCTION_OIDC_ISSUER` | Production Keycloak issuer (HTTPS). Shared with the mobile build. |
+| `ANUM_PRODUCTION_API_URL` | Production API origin (HTTPS), compiled into the web bundle and the CSP: `https://api.anum360os.com/`. Shared with the mobile build. Unset, the desktop build uses `https://api.anum360os.com`. |
+| `ANUM_PRODUCTION_OIDC_ISSUER` | Production Keycloak issuer (HTTPS): `https://auth.anum360os.com/realms/anum`. Shared with the mobile build. Unset, the desktop build uses that value. |
 | `ANUM_TAURI_UPDATER_PUBKEY` | Contents of the `.pub` file from `pnpm --filter @anum/desktop exec tauri signer generate -w anum-updater.key` (run outside the repository). |
 | `ANUM_TAURI_UPDATER_ENDPOINT` | Manifest URL. For GitHub releases of a public repository: `https://github.com/<owner>/<repo>/releases/latest/download/latest.json`. |
 | `ANUM_TAURI_UPDATER_ARTIFACT_BASE_URL` | Optional. Where clients download the installers from; defaults to the tag's GitHub release download URL. Set it when the repository is private and the files are mirrored to public storage. |
@@ -88,7 +92,7 @@ Repository secrets:
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | Developer ID Application certificate as a base64 `.p12`, its password, and the identity name (`Developer ID Application: <Name> (<TEAM>)`). |
 | `APPLE_TEAM_ID`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY_P8` | Shared with iOS ([Flutter mobile](mobile.md#release-pipeline)); here the API key notarizes the macOS app. macOS signing needs both the certificate and the key. |
 
-Each desktop job uploads its installers, their SHA-256 files and (when signed for updates) a manifest fragment as the workflow artifact `anum-desktop-<platform>`. On a tag, the `publish` job merges the fragments into `latest.json` and attaches everything to a draft GitHub release named after the tag. It publishes nothing (artifacts only) when the production API and issuer variables are missing, so a release never carries a build that talks to local services.
+Each desktop job uploads its installers, their SHA-256 files and (when signed for updates) a manifest fragment as the workflow artifact `anum-desktop-<platform>`. On a tag, the `publish` job merges the fragments into `latest.json` and attaches everything to a draft GitHub release named after the tag. Every installer is built for the production API and Keycloak (the defaults above, or the two variables), so a release never carries a build that talks to local services. The CI job "Tauri desktop" (`ci.yml`) builds its unsigned Windows installer (`anum-desktop-windows`) the same way.
 
 Cutting a release:
 
@@ -99,6 +103,17 @@ Cutting a release:
 Rolling back: the updater never downgrades, so a bad desktop release is fixed forward. Unpublish or delete the bad GitHub release at once (the `latest` URL falls back to the previous published release, which stops further installs and updates to the bad version), then tag a new patch version with the fix or from the last good commit. Users who already installed the bad version move to the patch through the normal update prompt; installing the previous installer by hand also works.
 
 The pipeline has not run yet: it needs the variables and secrets above, and the signed and macOS paths cannot be exercised from a development container. It stays off until the owner turns desktop releases on with `ANUM_RELEASE_DESKTOP`.
+
+## Moving to a New Address
+
+The desktop app has the API and Keycloak addresses compiled in, so a move (as from the DuckDNS hosts to `app.anum360os.com`, `api.anum360os.com` and `auth.anum360os.com`) needs a new build; an installed copy keeps calling the old addresses. A build that showed the development sign-in, or that cannot reach the server, came from a build without these values (for example the CI artifact before this change) and has to be replaced.
+
+1. GitHub, Settings, Secrets and variables, Actions, Variables: set `ANUM_PRODUCTION_API_URL` to `https://api.anum360os.com/` and `ANUM_PRODUCTION_OIDC_ISSUER` to `https://auth.anum360os.com/realms/anum` (both shared with the phone apps). Delete neither: an empty value also gives these defaults, but the phone apps need them.
+2. Keycloak: nothing to change for the desktop. In the admin console (realm `anum`, Clients, `anum-desktop`) check that **Valid redirect URIs** contains `http://127.0.0.1/*` (the sign-in returns to `http://127.0.0.1:<port>/callback`), **Valid post logout redirect URIs** contains `tauri://localhost/*` and `http://tauri.localhost/*`, and **Web origins** contains `tauri://localhost` (macOS) and `http://tauri.localhost` (Windows); the token request is sent from those origins. Add any that is missing, then Save. The realm file already holds them.
+3. Actions, "Release clients", Run workflow on `main`, tick **desktop** (leave **upload** unticked unless a phone release is also wanted). A `vX.Y.Z` tag builds them too when `ANUM_RELEASE_DESKTOP` is `true`.
+4. Read the run summary: it lists `Desktop API: https://api.anum360os.com` and `Desktop Sign-in: https://auth.anum360os.com/realms/anum (client anum-desktop)` for each platform. Download the artifacts `anum-desktop-windows-x86_64` and `anum-desktop-darwin-aarch64` from the run page.
+5. Install on Windows: uninstall the old ANUM (Settings, Apps), then run the `.msi` (or the setup `.exe`). Without the code-signing certificate Windows SmartScreen warns; choose More info, Run anyway. On a Mac (Apple silicon): open the `.dmg` and drag ANUM to Applications, replacing the old copy. Without Apple signing macOS blocks the first start; open it with Control-click, Open, or allow it in System Settings, Privacy and Security.
+6. Start ANUM and choose Sign in: the default browser opens `auth.anum360os.com`, and after sign-in the browser tab says it can be closed and the app shows your workspace. Sessions from the old address are not carried over (the token issuer changed).
 
 ## Release Gate
 

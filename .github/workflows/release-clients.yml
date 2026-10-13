@@ -346,6 +346,9 @@ jobs:
         shell: bash
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      # Unset variables fall back to the production deployment (api.anum360os.com and
+      # auth.anum360os.com/realms/anum, apps/desktop/scripts/release-config.mjs); a local or
+      # plain-HTTP address stops the build, so an installer never uses the development session.
       VITE_ANUM_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
       VITE_ANUM_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
       VITE_ANUM_OIDC_CLIENT_ID: anum-desktop
@@ -463,28 +466,14 @@ jobs:
       contents: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
-      PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL }}
-      PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER }}
-      PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL }}
     steps:
       - uses: actions/checkout@v7
-      - name: Check production configuration
-        id: config
-        run: |
-          if [[ "$PRODUCTION_API_URL" == https://* && "$PRODUCTION_OIDC_ISSUER" == https://* ]]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice title=GitHub release skipped::The installers were built without ANUM_PRODUCTION_API_URL and ANUM_PRODUCTION_OIDC_ISSUER, so they are kept as workflow artifacts only."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/download-artifact@v8
-        if: steps.config.outputs.publish == 'true'
         with:
           pattern: anum-desktop-*
           path: ${{ runner.temp }}/release
           merge-multiple: true
       - name: Write the updater manifest
-        if: steps.config.outputs.publish == 'true'
         run: |
           cd "$RUNNER_TEMP/release"
           shopt -s nullglob
@@ -497,7 +486,6 @@ jobs:
             --version "$VERSION" --notes "ANUM $VERSION" --out latest.json "${fragments[@]}"
           rm "${fragments[@]}"
       - name: Create or update the draft release
-        if: steps.config.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
