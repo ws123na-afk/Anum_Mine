@@ -11,6 +11,7 @@ import { marketingAr } from './marketing.ar.ts';
 import { ownerAr } from './ar.owner.ts';
 import { governanceAr } from './ar.governance.ts';
 import { voiceAr } from './ar.voice.ts';
+import { voiceActionsAr } from './ar.voiceActions.ts';
 import { agentSkillsAr } from './agentSkills.ar.ts';
 import { orgChartAr } from './orgChart.ar.ts';
 import { chatAr } from './chat.ar.ts';
@@ -3629,4 +3630,5 @@ export const ar: Record<MessageKey, Message> = {
   ...ownerAr,
   ...governanceAr,
   ...voiceAr,
+  ...voiceActionsAr,
 };

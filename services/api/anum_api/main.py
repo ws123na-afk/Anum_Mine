@@ -118,6 +118,7 @@ from .meetings import router as meetings_router
 from .voice import router as voice_router
 from .voice_call import call_router as voice_call_router
 from . import chat_tools
+from . import voice_actions
 from .agent_skills import default_skill_registry
 from .conversations import router as conversations_router
 from .privacy import router as privacy_router
@@ -1029,6 +1030,11 @@ async def retry_task(
     units: UnitsOfWork = Depends(units_of_work),
 ) -> RunTaskResponse:
     """Start a new run of a failed or cancelled task; earlier runs stay in its history."""
+    return await start_task_retry(task_id, context, units)
+
+
+async def start_task_retry(task_id: str, context: TenantContext, units: UnitsOfWork) -> RunTaskResponse:
+    """``POST /tasks/{id}/retry`` for the route and the voice assistant (voice_actions.py)."""
     require_permission(context, Permission.TASK_RUN)
     async with _task_lock(context, task_id):
         if run_dispatcher is not None:
@@ -1090,6 +1096,13 @@ async def run_task(
     context: TenantContext = Depends(tenant_context),
     units: UnitsOfWork = Depends(units_of_work),
 ) -> RunTaskResponse:
+    return await start_task_run(task_id, context, units)
+
+
+async def start_task_run(task_id: str, context: TenantContext, units: UnitsOfWork) -> RunTaskResponse:
+    """``POST /tasks/{id}/run``: the one way a task starts, from the route, the voice
+    assistant (voice_actions.py) or anything else that must behave exactly like it
+    (permission, run lock, budget, agent profile, ToolPolicy, approvals)."""
     require_permission(context, Permission.TASK_RUN)
     async with _task_lock(context, task_id):
         if run_dispatcher is not None:
@@ -1234,6 +1247,16 @@ async def cancel_task(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
+    task, run = cancel_task_record(task_id, context, repository)
+    if run_dispatcher is not None and run is not None:
+        await run_dispatcher.cancelled(context, task.id)
+    return task
+
+
+def cancel_task_record(task_id: str, context: TenantContext, repository: AnumRepository) -> tuple[Task, AgentRun | None]:
+    """The stored part of ``POST /tasks/{id}/cancel`` (also used by voice_actions.py): the
+    task, its open run and its pending approvals, in the caller's unit of work. The caller
+    then tells the durable dispatcher, as the route does."""
     require_permission(context, Permission.TASK_CANCEL)
     task = _get_task_for_context(task_id, context, repository, for_update=True)
     if task.archived_at is not None:
@@ -1267,9 +1290,32 @@ async def cancel_task(
             correlation_id=task.id,
         ).event
     )
+    return task, run
+
+
+async def _cancel_task_for_voice(context: TenantContext, task_id: str) -> Task:
+    """``POST /tasks/{id}/cancel`` for a spoken request: its own unit of work, off the
+    event loop, then the durable dispatcher is told exactly as the route does."""
+
+    def stored() -> tuple[Task, AgentRun | None]:
+        with _membership_units(context) as repository:
+            return cancel_task_record(task_id, context, repository)
+
+    task, run = await asyncio.to_thread(stored)
     if run_dispatcher is not None and run is not None:
         await run_dispatcher.cancelled(context, task.id)
     return task
+
+
+# The voice assistant's actions run these same route bodies (docs/voice.md#actions).
+voice_actions.configure(
+    voice_actions.VoiceTaskRuntime(
+        tools=tool_registry,
+        run=lambda context, task_id: start_task_run(task_id, context, _membership_units),
+        retry=lambda context, task_id: start_task_retry(task_id, context, _membership_units),
+        cancel=_cancel_task_for_voice,
+    )
+)
 
 
 @app.get("/api/v1/agent-runs/{run_id}", response_model=AgentRun)

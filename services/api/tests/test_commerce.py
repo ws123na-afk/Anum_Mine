@@ -7,7 +7,7 @@ import hmac
 import json
 import time
 from collections.abc import Iterator
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -656,12 +656,23 @@ def test_voice_answers_sales_questions_from_the_synced_data() -> None:
     assert len(client.get("/api/v1/approvals", headers=OWNER).json()) == before  # voice only proposes
 
 
+def _midday_zone() -> str:
+    """A fixed-offset zone where it is about noon now, so orders a few hours old fall on "today".
+
+    The noon fixture's order is four hours old; in the default zone (Riyadh, UTC+3) that is
+    yesterday for the first hour after 00:00 UTC, which made this test fail at that time.
+    """
+    offset = 12 - datetime.now(timezone.utc).hour  # -11..12; Etc/GMT signs are inverted
+    return "Etc/GMT" + (f"+{-offset}" if offset < 0 else f"-{offset}")
+
+
 def test_summary_endpoint_in_both_languages() -> None:
     created = connect(NOON)
     sync(created["id"])
-    english = client.get(f"{API}/summary?period=today&channel=noon", headers=VIEWER).json()
+    tz = _midday_zone()
+    english = client.get(f"{API}/summary", params={"period": "today", "channel": "noon", "tz": tz}, headers=VIEWER).json()
     assert english["text"].startswith("noon sales today: 1 order, 2 units, SAR 880.00")
-    arabic = client.get(f"{API}/summary?period=today&channel=noon&lang=ar", headers=VIEWER).json()
+    arabic = client.get(f"{API}/summary", params={"period": "today", "channel": "noon", "lang": "ar", "tz": tz}, headers=VIEWER).json()
     assert arabic["text"].startswith("مبيعات نون اليوم")
     assert client.get(f"{API}/summary?period=forever", headers=VIEWER).status_code == 422
 
