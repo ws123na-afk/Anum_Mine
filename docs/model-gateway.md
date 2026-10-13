@@ -48,6 +48,7 @@ Every text call sends `max_tokens` = `ANUM_MODEL_MAX_OUTPUT_TOKENS` (default 102
 - **Total.** The whole stream, retries and backoff included, ends after `ANUM_MODEL_STREAM_TIMEOUT_SECONDS` (default 120) with `ModelStreamTimeout`. A retry whose backoff would end past that budget is not attempted.
 - **No retry after the first token.** Once text reached the caller any failure (network, timeout, an `error` event inside the stream) is raised, never retried.
 - **Cancellation.** Closing the iterator (the client disconnected or pressed Stop) closes the provider response, which stops generation.
+- **No long dashes.** Every reply (whole, structured or streamed) passes through `anum_api/punctuation.py`, which replaces em and en dashes; a streamed reply holds back only a trailing dash or trailing spaces until the next visible character. Usage is still counted from the provider's raw text ([Punctuation](web-localization.md#punctuation)).
 - **Usage.** `on_usage` receives the call's `ModelUsage` exactly once: the provider's figures from the final usage event, or, when the provider reports none or the stream failed or was closed after producing text, an estimate of about four characters per token. Streams log one `model_call` record with `operation=stream_text`, like every other call.
 
 ### Usage and cost accounting

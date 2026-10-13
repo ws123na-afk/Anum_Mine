@@ -833,3 +833,19 @@ def test_routing_suppression_migration_is_expand_only_with_forced_rls() -> None:
     assert "drop" not in upgrade and "alter_column" not in upgrade
     assert "force row level security" in upgrade and "create policy tenant_isolation_contact_suppressions" in revision_text
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_plain_dashes_migration_is_data_only_and_keeps_rls_forced() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0055_plain_dashes.py").read_text(encoding="utf-8")
+    assert 'revision = "0055_plain_dashes"' in revision_text and len("0055_plain_dashes") <= 32
+    assert 'down_revision = "0054_routing_suppression"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0055_plain_dashes.py"]
+    assert not [path for path in others if 'down_revision = "0054_routing_suppression"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # No schema change: the only DDL is the discovery policy, dropped in the same transaction.
+    assert "op.add_column(" not in upgrade and "op.create_table(" not in upgrade and "alter table" not in upgrade
+    assert upgrade.count("create policy {policy}") == 1 and upgrade.count("drop policy {policy}") == 1
+    assert "for select to current_user" in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "audit_records" not in revision_text.split("TABLES:", 1)[1].split("POLICY", 1)[0]

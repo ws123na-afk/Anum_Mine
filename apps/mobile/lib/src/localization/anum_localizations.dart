@@ -898,6 +898,7 @@ class AnumLocalizations {
     'calendarCancelText':
         'It stays in the history as cancelled. Attendees are not told automatically.',
     'calendarDelete': 'Delete event',
+    'calendarTimeRange': '{start} to {end}',
     'calendarDeleteTitle': 'Delete this event?',
     'calendarDeleteText':
         'It is removed from the workspace calendar for everyone.',
@@ -2295,6 +2296,7 @@ class AnumLocalizations {
     'calendarCancelText':
         'يبقى في السجل كموعد ملغى. لا يُبلَّغ المشاركون تلقائيًا.',
     'calendarDelete': 'حذف الموعد',
+    'calendarTimeRange': '{start} إلى {end}',
     'calendarDeleteTitle': 'حذف هذا الموعد؟',
     'calendarDeleteText': 'سيُحذف من تقويم مساحة العمل لدى الجميع.',
     'calendarFieldTitle': 'العنوان',

@@ -28,6 +28,8 @@ import re
 import secrets
 from enum import StrEnum
 
+from .punctuation import PLAIN_PUNCTUATION_RULE
+
 BLOCK_OPEN = "<<untrusted-data"
 BLOCK_CLOSE = "<<end-untrusted-data"
 TRUNCATION_NOTE = "[truncated by ANUM]"
@@ -100,6 +102,9 @@ def label_untrusted(
 
 
 def with_untrusted_rules(instructions: str, *blocks: str) -> str:
-    """Instructions first, then the rules for untrusted blocks, then the blocks."""
-    parts = [instructions.rstrip(), UNTRUSTED_DATA_RULES, *blocks]
+    """Instructions first, then the house punctuation rule (no long dashes, once), then
+    the rules for untrusted blocks, then the blocks."""
+    instructions = instructions.rstrip()
+    rule = "" if PLAIN_PUNCTUATION_RULE in instructions else PLAIN_PUNCTUATION_RULE
+    parts = [instructions, rule, UNTRUSTED_DATA_RULES, *blocks]
     return "\n\n".join(part for part in parts if part)

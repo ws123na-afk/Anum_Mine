@@ -23,6 +23,7 @@ from opentelemetry.trace import Span, SpanKind
 from pydantic import BaseModel, Field
 
 from .model_egress import model_http_client
+from .punctuation import DashFilter, plain_dashes, plain_dashes_in
 from .settings import ModelPrice, Settings, settings
 from .telemetry import annotate_model_span, model_call_span, telemetry
 
@@ -148,6 +149,16 @@ def estimate_tokens(text: str) -> int:
     return max(1, math.ceil(len(text) / 4)) if text else 0
 
 
+def parse_structured(response_model: type[StructuredModel], text: str) -> StructuredModel:
+    """A structured reply parsed, with no long dashes in its strings (drafts, summaries and
+    other fields people read). Text that is not JSON fails as pydantic's validation error."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return response_model.model_validate_json(text)
+    return response_model.model_validate(plain_dashes_in(data))
+
+
 def validate_messages(messages: list[ChatMessage]) -> list[ChatMessage]:
     if not messages:
         raise ValueError("a chat needs at least one message")
@@ -227,7 +238,7 @@ class MockModelGateway:
         words = prompt.split()
         summary = " ".join(words[:18]) if words else "empty task"
         response = ModelResponse(
-            text=f"Prepared ANUM plan for: {summary}",
+            text=plain_dashes(f"Prepared ANUM plan for: {summary}"),
             usage=ModelUsage(
                 input_tokens=max(1, len(words)),
                 output_tokens=12,
@@ -279,6 +290,7 @@ class MockModelGateway:
         if earlier > 0:
             reply += f" I can see {earlier} earlier question{'s' if earlier != 1 else ''} in this conversation."
         reply += " Connect a model in Settings for real answers."
+        reply = plain_dashes(reply)
         for index, word in enumerate(reply.split()):
             yield word if index == 0 else f" {word}"
         if on_usage is not None:
@@ -567,7 +579,7 @@ class OpenAICompatibleGateway:
             text = choice["message"]["content"] or "{}"
             normalized = self._normalize(text, payload, response, state, started)
             self._log_call("generate_structured", started, state, "ok", usage=normalized.usage)
-        return response_model.model_validate_json(text), normalized
+        return parse_structured(response_model, text), normalized
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
         async for chunk in self.stream_chat([{"role": "user", "content": prompt}]):
@@ -613,6 +625,8 @@ class OpenAICompatibleGateway:
         produced: list[str] = []
         stream = _StreamState(model=self.model)
         finished = False
+        # No long dashes in what people read; usage is still counted from the raw text.
+        dashes = DashFilter()
         # Not made current: an async generator resumes in its consumer's context, so a
         # current span would leak into (or be detached from) unrelated code.
         span = telemetry.tracer.start_span(
@@ -663,9 +677,14 @@ class OpenAICompatibleGateway:
                             chunks, done = self._stream_event(data, stream)
                             for content in chunks:
                                 produced.append(content)
-                                yield content
+                                shown = dashes.feed(content)
+                                if shown:
+                                    yield shown
                             if done:
                                 break
+                        held = dashes.flush()
+                        if held:
+                            yield held
                         finished = True
                         stream.usage = stream.usage or self._estimated_usage(
                             messages, produced, stream.model
@@ -896,7 +915,7 @@ class OpenAICompatibleGateway:
         output_tokens = int(usage.get("completion_tokens") or 0)
         model = payload.get("model") or self.model
         return ModelResponse(
-            text=text,
+            text=plain_dashes(text),
             usage=ModelUsage(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,

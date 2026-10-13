@@ -8,7 +8,7 @@ import 'home_controller.dart';
 import 'home_models.dart';
 import 'home_widgets.dart';
 
-/// "ANUM Proactive — ANUM noticed a few things" (mockup flow-overview 8):
+/// "ANUM Proactive: ANUM noticed a few things" (mockup flow-overview 8):
 /// each card has a finding, a question, one primary action and Dismiss /
 /// Later. Backed by `GET /api/v1/home/insights` (docs/home.md#insights).
 class ProactiveInsightsScreen extends StatefulWidget {

@@ -206,7 +206,7 @@ class ChatCardView extends StatelessWidget {
             Text(approval.target!, style: mono)),
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(l.t('chatCard.approval.hash'), style: faint),
-        Text(approval.payloadHash ?? '—',
+        Text(approval.payloadHash ?? '-',
             key: const Key('chat-card-hash'), style: mono),
       ]),
       if (approval.arguments.isNotEmpty)

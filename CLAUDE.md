@@ -9,6 +9,7 @@ ANUM is a monorepo: FastAPI API (`services/api`), React/Vite web (`apps/web`), T
 - Never commit secrets. `.env.example` files hold placeholders only.
 - Never mark a check `continue-on-error`, skip, or delete a test to get CI green.
 - `docs/production-plan.md` is the ordered path to production; check it before picking up new work.
+- No em or en dashes in any user-facing text or AI reply; use a colon, comma, 'to' or a new sentence. An empty value is `-`. Guards: `services/api/tests/test_no_long_dashes.py` (web, API, Flutter, Android, desktop sources) and `apps/web/test/plainPunctuation.test.ts`; model replies pass through `anum_api/punctuation.py` ([Punctuation](docs/web-localization.md#punctuation)).
 
 ## Responsive UI quality gate
 For every web or Flutter UI change, a passing build is not proof the UI is right:

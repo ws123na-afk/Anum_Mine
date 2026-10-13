@@ -51,7 +51,8 @@ class DeliveryResult(BaseModel):
 
 def report_text(report: WeeklyReport) -> tuple[str, str]:
     """(subject, body) in the report's language."""
-    period = f"{report.week_start.isoformat()} – {report.week_end.isoformat()}"
+    joiner = " إلى " if report.language == "ar" else " to "
+    period = f"{report.week_start.isoformat()}{joiner}{report.week_end.isoformat()}"
     subject = f"{report.headline} {period}"
     return subject, "\n\n".join([report.headline, *report.lines])
 

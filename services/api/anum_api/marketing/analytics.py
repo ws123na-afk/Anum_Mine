@@ -297,7 +297,7 @@ def weekly_report(context: TenantContext, *, week_start: date, tz: str, arabic: 
     lines = [summary_text(summary, platform=None, arabic=arabic, period=period)]
     for item in summary.platforms:
         label = PLATFORM_AR[item.platform] if arabic else PLATFORM_LABEL[item.platform]
-        rate = f"{item.engagement_rate * 100:.1f}%" if item.engagement_rate is not None else "–"
+        rate = f"{item.engagement_rate * 100:.1f}%" if item.engagement_rate is not None else "-"
         lines.append(
             f"{label}: {item.posts} منشورات، {_n(item.impressions or item.views)} ظهور، {_n(item.engagement)} تفاعل ({rate})."
             if arabic else f"{label}: {item.posts} posts, {_n(item.impressions or item.views)} impressions, {_n(item.engagement)} engagements ({rate})."

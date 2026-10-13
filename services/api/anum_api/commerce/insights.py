@@ -274,7 +274,7 @@ def dashboard(
 
     totals: dict[str, MoneyTotal] = {}
     for order in orders:
-        key = order.currency or "—"
+        key = order.currency or "-"
         total = totals.setdefault(key, MoneyTotal(currency=key))
         total.revenue += order.total_amount
         total.orders += 1
@@ -288,7 +288,7 @@ def dashboard(
     days: dict[tuple[str, str], DayRow] = {}
     top: dict[str, TopProduct] = {}
     for order in orders:
-        key = (order.channel.value, order.marketplace_id, order.currency or "—")
+        key = (order.channel.value, order.marketplace_id, order.currency or "-")
         row = by_channel.setdefault(
             key,
             ChannelRow(
@@ -296,13 +296,13 @@ def dashboard(
                 label=CHANNEL_LABELS[order.channel],
                 marketplace_id=order.marketplace_id,
                 marketplace=marketplace_name(order.channel, order.marketplace_id),
-                currency=order.currency or "—",
+                currency=order.currency or "-",
             ),
         )
         row.revenue = round(row.revenue + order.total_amount, 2)
         row.orders += 1
         row.units += _units(order)
-        if (order.currency or "—") != chosen:
+        if (order.currency or "-") != chosen:
             continue
         day = order.purchased_at.astimezone(tz).date().isoformat()
         day_row = days.setdefault((day, order.channel.value), DayRow(date=day, channel=order.channel))
@@ -310,7 +310,7 @@ def dashboard(
         day_row.orders += 1
         day_row.units += _units(order)
         for line in order.lines:
-            item = top.setdefault(line.sku, TopProduct(sku=line.sku, title=line.title, currency=chosen or "—"))
+            item = top.setdefault(line.sku, TopProduct(sku=line.sku, title=line.title, currency=chosen or "-"))
             item.units += line.quantity
             item.revenue = round(item.revenue + (line.total if line.total is not None else (line.unit_price or 0) * line.quantity), 2)
     top_rows = sorted(top.values(), key=lambda p: (p.units, p.revenue), reverse=True)[:10]
@@ -326,7 +326,7 @@ def dashboard(
     amounts: dict[str, float] = defaultdict(float)
     for record in returns:
         if record.amount is not None:
-            amounts[record.currency or "—"] += record.amount
+            amounts[record.currency or "-"] += record.amount
     sold_units = sum(_units(o) for o in orders)
     returned_units = sum(r.quantity for r in returns)
 
@@ -334,7 +334,7 @@ def dashboard(
     for fee in store.list_fees(context, since=start, until=end):
         if channel is None or fee.channel == channel:
             if fee.kind.value == "fee":
-                fees[fee.currency or "—"] += fee.amount
+                fees[fee.currency or "-"] += fee.amount
 
     pending_rows, pending_total, late_total = pending(store, context, settings, now)
     if channel is not None:
@@ -405,7 +405,7 @@ def sales_summary(
     units = 0
     skus: dict[str, int] = defaultdict(int)
     for order in orders:
-        totals[order.currency or "—"] += order.total_amount
+        totals[order.currency or "-"] += order.total_amount
         units += _units(order)
         for line in order.lines:
             skus[line.sku] += line.quantity
