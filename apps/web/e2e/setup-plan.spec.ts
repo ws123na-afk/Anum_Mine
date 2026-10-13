@@ -32,11 +32,12 @@ function afterApply(preview: Json): Json {
   return next;
 }
 
-interface Options { listStatus?: number; previewFails?: boolean; applyFails?: number; failKey?: string; empty?: boolean }
+interface Options { listStatus?: number; previewFails?: boolean; applyFails?: number; failKey?: string; empty?: boolean; slowFirstPreviewMs?: number }
 
 async function mockApi(page: Page, options: Options = {}) {
   const calls: { method: string; path: string; body?: Json }[] = [];
   let current = clone(pilot);
+  let previews = 0;
   const checks = clone(checksFixture);
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -73,6 +74,14 @@ async function mockApi(page: Page, options: Options = {}) {
       const phase = url.searchParams.get('phase');
       const preview = clone(current);
       preview.phase = phase;
+      preview.overwrite_edited = url.searchParams.get('overwrite_edited') === 'true';
+      if (previews++ === 0 && options.slowFirstPreviewMs) {
+        // The first answer arrives after a later one, as on a slow network.
+        await new Promise((resolve) => setTimeout(resolve, options.slowFirstPreviewMs));
+        await json(preview);
+        calls.push({ method: 'SERVED', path });
+        return;
+      }
       if (phase === 'all') {
         preview.budget_aed = 1200; preview.budget_usd = 326.75;
         for (const item of preview.items) if (item.action === 'later') { item.action = 'create'; item.reason_code = 'will_create'; item.reason = 'A new, empty workspace in this organization.'; }
@@ -135,6 +144,23 @@ test('the whole plan and "Replace my changes" are sent as chosen, and items can 
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
   expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: true, plan_version: 1 });
+});
+
+test('a late answer for an earlier choice never replaces the newest preview, and apply sends what is shown', async ({ page }) => {
+  const calls = await mockApi(page, { slowFirstPreviewMs: 1500 });
+  await page.goto('/#setup');
+  await expect(page.getByRole('button', { name: 'Apply pilot' })).toBeDisabled(); // no preview yet
+  await page.getByRole('button', { name: 'Whole plan' }).click();
+  await expect(page.getByText('AED 1,200', { exact: true })).toBeVisible();
+  // The pilot's answer, asked first, arrives last and is dropped.
+  await expect.poll(() => calls.some((c) => c.method === 'SERVED')).toBe(true);
+  await expect(page.getByText('AED 1,200', { exact: true })).toBeVisible();
+  await expect(page.getByText('AED 340', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Apply whole plan' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
+  await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
+  const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
+  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: false, plan_version: 1 });
 });
 
 test('pilot checks: record a result with a note and evidence, and the Week 1 gate follows', async ({ page }) => {

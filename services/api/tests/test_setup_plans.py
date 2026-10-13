@@ -379,25 +379,107 @@ def test_a_removed_item_stays_removed_unless_replaced(client: TestClient) -> Non
     assert next(i for i in replaced["items"] if i["key"] == "k07")["outcome"] == "created"
 
 
-def test_a_paused_agent_that_cannot_be_paused_is_removed_not_left_active(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_agents_outside_the_phase_are_created_paused_in_one_write(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from anum_api import agent_profiles
 
-    real = agent_profiles.update_agent
-
     async def refuse(agent_id, payload, context):  # type: ignore[no-untyped-def]
-        raise RuntimeError("store unavailable")
+        raise AssertionError("a new plan agent must not need a second call to get its status")
 
     monkeypatch.setattr(agent_profiles, "update_agent", refuse)
     result = apply(client)
+    assert not [i for i in items(result, "agents") if i["outcome"] == "failed"]
     names = agents(client)
-    # Only the pilot agents exist; every non-pilot agent failed and was removed again.
-    assert set(names) == {"GROUP — Chief of Staff", "GALLERY — Customer Care", "GROUP — Finance Controller"}
-    assert all(agent["status"] == "active" for agent in names.values())
-    assert sum(1 for i in items(result, "agents") if i["outcome"] == "failed") == 9
-    monkeypatch.setattr(agent_profiles, "update_agent", real)
+    assert len(names) == 12
+    assert {n for n, a in names.items() if a["status"] == "active"} == {
+        "GROUP — Chief of Staff", "GALLERY — Customer Care", "GROUP — Finance Controller"}
+    assert sum(1 for a in names.values() if a["status"] == "paused") == 9
+    # Every agent was stored once, already with its status (version 1).
+    assert all(a["version"] == 1 for a in names.values())
+
+
+def _stop_after_create(monkeypatch: pytest.MonkeyPatch, key: str, created_status: str | None = None) -> None:
+    """Simulate an apply that dies after creating ``key``'s agent and before recording it: the
+    APPLIED row is never written and the claim is not released (the process is gone)."""
+    from anum_api import agent_profiles
+    from anum_api.agent_profiles import AgentStatus
+    from anum_api.setup_plan_ledger import LedgerState
+
+    real_save, real_create = memory_setup_plan_ledger.save, agent_profiles.create_agent_with_status
+
+    def save(entry):  # type: ignore[no-untyped-def]
+        if entry.item_key == key and entry.state == LedgerState.APPLIED:
+            raise RuntimeError("worker stopped")
+        return real_save(entry)
+
+    async def create(payload, context, initial_status):  # type: ignore[no-untyped-def]
+        # ``created_status`` reproduces an agent left active by the older two-step create.
+        return await real_create(payload, context, AgentStatus(created_status) if created_status else initial_status)
+
+    monkeypatch.setattr(memory_setup_plan_ledger, "save", save)
+    monkeypatch.setattr(memory_setup_plan_ledger, "release", lambda entry: None)
+    monkeypatch.setattr(agent_profiles, "create_agent_with_status", create)
+
+
+def _age_claim(key: str, minutes: int = 30) -> None:
+    from datetime import timedelta
+
+    for row_key, row in list(memory_setup_plan_ledger.rows.items()):
+        if row.item_key == key:
+            memory_setup_plan_ledger.rows[row_key] = row.model_copy(update={
+                "created_at": row.created_at - timedelta(minutes=minutes), "updated_at": row.updated_at - timedelta(minutes=minutes)})
+
+
+def test_a_stopped_apply_is_taken_over_with_the_requested_status(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.setup_plan_ledger import LedgerOrigin, LedgerState
+
+    with monkeypatch.context() as patched:
+        _stop_after_create(patched, "a2", created_status="active")
+        first = apply(client)
+    assert next(i for i in first["items"] if i["key"] == "a2")["outcome"] == "failed"
+    assert agents(client)["FLEET — Sales Pipeline"]["status"] == "active"  # left behind by the stopped apply
+    _age_claim("a2")
+    plan = preview(client)
+    item = next(i for i in plan["items"] if i["key"] == "a2")
+    assert item["action"] == "present" and item["reason_code"] == "resume_stopped_apply"
     again = apply(client)
-    assert sum(1 for i in items(again, "agents") if i["outcome"] == "created") == 9
-    assert sum(1 for a in agents(client).values() if a["status"] == "active") == 3
+    assert next(i for i in again["items"] if i["key"] == "a2")["outcome"] == "present"
+    assert agents(client)["FLEET — Sales Pipeline"]["status"] == "paused"
+    row = next(r for r in memory_setup_plan_ledger.rows.values() if r.item_key == "a2")
+    assert row.state == LedgerState.APPLIED and row.origin == LedgerOrigin.CREATED
+    assert row.details["requested_status"] == "paused"
+    # It is the plan's again: a later pilot apply leaves it paused, "all" turns it on.
+    assert next(i for i in preview(client)["items"] if i["key"] == "a2")["action"] == "present"
+    apply(client, "all")
+    assert agents(client)["FLEET — Sales Pipeline"]["status"] == "active"
+    assert len(agents(client)) == 12
+
+
+def test_a_stopped_apply_does_not_take_over_an_agent_the_owner_changed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    with monkeypatch.context() as patched:
+        _stop_after_create(patched, "a2", created_status="active")
+        apply(client)
+    _age_claim("a2")
+    agent = agents(client)["FLEET — Sales Pipeline"]
+    edited = client.patch(f"/api/v1/agents/{agent['id']}", headers=ADMIN, json={"description": "Mine now", "version": agent["version"]})
+    assert edited.status_code == 200
+    result = apply(client)
+    item = next(i for i in result["items"] if i["key"] == "a2")
+    assert item["reason_code"] == "found_by_name" and item["outcome"] == "present"
+    after = agents(client)["FLEET — Sales Pipeline"]
+    assert after["status"] == "active" and after["description"] == "Mine now"
+
+
+def test_a_stale_claim_never_takes_over_an_agent_someone_else_made(client: TestClient) -> None:
+    apply(client)
+    agent = agents(client)["FLEET — Sales Pipeline"]
+    # The ledger lost the row, and an old stale claim by another person is left: the agent is linked, not changed.
+    for row_key, row in list(memory_setup_plan_ledger.rows.items()):
+        if row.item_key == "a2":
+            del memory_setup_plan_ledger.rows[row_key]
+    _claim("a2", minutes_old=30)
+    item = next(i for i in preview(client)["items"] if i["key"] == "a2")
+    assert item["reason_code"] == "found_by_name"
+    assert agents(client)["FLEET — Sales Pipeline"]["version"] == agent["version"]
 
 
 def test_a_half_built_automation_is_removed_and_created_whole_next_time(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,14 +1,14 @@
 // Setup plan (docs/setup-plan.md): preview a checked-in business blueprint against this workspace
 // and apply it with one confirmed action. Every write happens on the server through each
 // feature's own routes; this page only shows what will happen, asks, and reports what did.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CircleDot, ClipboardList, ExternalLink, RefreshCw, Search } from 'lucide-react';
 import { ConfirmDialog } from './Dialog';
 import { ApiError, describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import {
   CHECK_GROUPS, checkChanged, checkStatus, checkTone, evidenceProblem, type PilotCheck, type PilotCheckStatus, type PilotChecks,
-  actionLabel, actionTone, changeCount, failedItems, filterItems, groupBySection, itemHref, outcomeLabel, outcomeSummary, outcomeTone, reasonText,
+  actionLabel, actionTone, applyRequestFor, changeCount, failedItems, filterItems, groupBySection, itemHref, outcomeLabel, outcomeSummary, outcomeTone, previewMatches, reasonText,
   rolloutWeeks, sectionLabel, type SetupPlanApplyResult, type SetupPlanItem, type SetupPlanPhase, type SetupPlanPreview, type SetupPlanSection, type SetupPlanSummary,
 } from './lib/setupPlan';
 import * as api from './lib/setupPlanApi';
@@ -83,22 +83,29 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
   }, [planId]);
   useEffect(() => { void loadChecks(); }, [loadChecks]);
 
+  // Only the newest preview request may change the page: an older answer that arrives late is dropped.
+  const latestPreview = useRef(0);
   const refresh = useCallback(async (keepResult = false) => {
+    const request = ++latestPreview.current;
     setLoading(true); setError(null);
     if (!keepResult) setResult(null);
-    try { setPreview(await api.previewSetupPlan(planId, phase, overwrite)); }
-    catch (failure) {
+    try {
+      const next = await api.previewSetupPlan(planId, phase, overwrite);
+      if (request === latestPreview.current) setPreview(next);
+    } catch (failure) {
+      if (request !== latestPreview.current) return;
       if (isPermissionDenied(failure)) { onDenied(describeError(failure)); return; }
       setError(t('plan.loadFailed', { message: describeError(failure) }));
-    } finally { setLoading(false); }
+    } finally { if (request === latestPreview.current) setLoading(false); }
   }, [planId, phase, overwrite, onDenied]);
   useEffect(() => { void refresh(); }, [refresh]);
 
   const apply = async () => {
-    if (!preview) return;
+    if (!preview || !previewMatches(preview, phase, overwrite)) return;
     setApplying(true); setApplyError(null);
     try {
-      const applied = await api.applySetupPlan(planId, { phase, overwrite_edited: overwrite, plan_version: preview.plan.version });
+      // Exactly what the shown preview was built with, never a choice whose preview has not loaded.
+      const applied = await api.applySetupPlan(planId, applyRequestFor(preview));
       setResult(applied); setConfirming(false);
       await refresh(true);
     } catch (failure) {
@@ -109,6 +116,7 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
     } finally { setApplying(false); }
   };
 
+  const current = preview !== null && previewMatches(preview, phase, overwrite);
   const changes = preview ? changeCount(preview) : 0;
   const shown = result ?? preview;
   const counts = useMemo(() => {
@@ -142,7 +150,7 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
         <p className="muted">{phase === 'pilot' ? t('plan.phase.pilotHint') : t('plan.phase.allHint')}</p>
         <label className="planToggle"><input type="checkbox" checked={overwrite} disabled={applying} onChange={(event) => setOverwrite(event.target.checked)} /><span>{t('plan.overwrite')}<small className="muted">{t('plan.overwriteHint')}</small></span></label>
         <div className="actions">
-          <button type="button" disabled={loading || applying || !preview || changes === 0} onClick={() => setConfirming(true)}>
+          <button type="button" disabled={loading || applying || !current || changes === 0} onClick={() => setConfirming(true)}>
             <ClipboardList aria-hidden="true" />{changes === 0 && preview ? t('plan.apply.nothing') : phase === 'pilot' ? t('plan.apply.pilot') : t('plan.apply.all')}
           </button>
         </div>
@@ -168,7 +176,7 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
       <Gaps preview={preview} />
     </>}
 
-    {confirming && preview && <ConfirmDialog title={t('plan.confirm.title', { phase: phaseName })} confirmLabel={t('plan.confirm.go')} busy={applying} onConfirm={() => void apply()} onCancel={() => setConfirming(false)}>
+    {confirming && preview && current && <ConfirmDialog title={t('plan.confirm.title', { phase: phaseName })} confirmLabel={t('plan.confirm.go')} busy={applying} onConfirm={() => void apply()} onCancel={() => setConfirming(false)}>
       <p>{t('plan.confirm.body', { count: changes })}</p>
       <p className="muted">{t('plan.confirm.safety')}</p>
       {overwrite && <p className="planWarn">{t('plan.confirm.overwrite')}</p>}

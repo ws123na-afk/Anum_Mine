@@ -107,6 +107,7 @@ export const setupPlanAr: Record<keyof typeof setupPlanEn, Message> = {
   'plan.reason.busy': 'تطبيق آخر ينشئه الآن.',
   'plan.reason.recreate': 'حُذف بعد أن أنشأته الخطة؛ يُنشأ من جديد لأن «استبدل تعديلاتي» مفعّل.',
   'plan.reason.set_by_someone': 'ضبطه شخص في مؤسستك بالفعل. تتركه الخطة؛ فعّل «استبدل تعديلاتي» لاستخدام قيم الخطة.',
+  'plan.reason.resume_stopped_apply': 'أنشأه تطبيق سابق توقف قبل أن يكتمل. تتولاه الخطة وتضبط حالته كما تطلب.',
   'plan.tab.plan': "الخطة",
   'plan.tab.checks': "اختبارات التجربة",
   'plan.checks.intro': "نفّذ كل حالة على حسابات اختبار اصطناعية فقط، ثم سجّل ما حدث. تُحفظ النتائج لمؤسستك مع من سجّلها ومتى، وكل تغيير في سجل التدقيق.",

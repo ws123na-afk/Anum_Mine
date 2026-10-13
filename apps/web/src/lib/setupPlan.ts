@@ -1,7 +1,7 @@
 // Setup plan page helpers (docs/setup-plan.md): grouping, filters, the rollout track and the
 // result summary. Pure, so `pnpm --filter @anum/web test:unit` covers them without a browser.
 import type {
-  PilotCheck, PilotCheckStatus, PilotChecks, SetupPlanAction, SetupPlanApplyResult, SetupPlanItem, SetupPlanLink, SetupPlanOutcome, SetupPlanPreview, SetupPlanSection, SetupPlanWeek,
+  PilotCheck, PilotCheckStatus, PilotChecks, SetupPlanAction, SetupPlanApplyRequest, SetupPlanApplyResult, SetupPlanItem, SetupPlanLink, SetupPlanOutcome, SetupPlanPhase, SetupPlanPreview, SetupPlanSection, SetupPlanWeek,
 } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
 
@@ -49,9 +49,18 @@ export function groupBySection(items: readonly SetupPlanItem[]): { section: Setu
   return SECTION_ORDER.map((section) => ({ section, items: items.filter((item) => item.section === section) })).filter((group) => group.items.length > 0);
 }
 
+/** Whether the shown preview was built with the choices on screen (phase and "Replace my changes"). */
+export const previewMatches = (preview: Pick<SetupPlanPreview, 'phase' | 'overwrite_edited'>, phase: SetupPlanPhase, overwrite: boolean): boolean =>
+  preview.phase === phase && preview.overwrite_edited === overwrite;
+
+/** The apply request for a preview: the same phase and overwrite the owner reviewed, and its plan version. */
+export const applyRequestFor = (preview: Pick<SetupPlanPreview, 'phase' | 'overwrite_edited'> & { plan: { version: number } }): SetupPlanApplyRequest => ({
+  phase: preview.phase, overwrite_edited: preview.overwrite_edited, plan_version: preview.plan.version,
+});
+
 /** How many items applying the plan would create, update, or link (an existing object with the plan's name is recorded, not changed). */
 export const changeCount = (preview: Pick<SetupPlanPreview, 'items'>): number =>
-  preview.items.filter((item) => CHANGING.has(item.action) || item.reason_code === 'found_by_name').length;
+  preview.items.filter((item) => CHANGING.has(item.action) || item.reason_code === 'found_by_name' || item.reason_code === 'resume_stopped_apply').length;
 
 export interface RolloutWeek { week: number; title: string; pilot: boolean; names: string[] }
 
@@ -76,6 +85,7 @@ export const failedItems = (result: Pick<SetupPlanApplyResult, 'items'>): SetupP
 /** Reasons whose wording is fixed are shown in the reader's language; the others are the API's own sentence. */
 const LOCALIZED_REASONS = new Set([
   'needs_org_admin', 'needs_owner', 'not_in_phase', 'edited_by_owner', 'removed_by_owner', 'found_by_name', 'already_applied', 'busy', 'recreate', 'set_by_someone',
+  'resume_stopped_apply',
 ]);
 
 export function reasonText(item: Pick<SetupPlanItem, 'reason_code' | 'reason'>): string {

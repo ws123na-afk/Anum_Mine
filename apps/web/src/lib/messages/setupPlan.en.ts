@@ -107,6 +107,7 @@ export const setupPlanEn = {
   'plan.reason.busy': 'Another apply is creating it right now.',
   'plan.reason.recreate': 'It was removed after the plan created it; it is created again because Replace my changes is on.',
   'plan.reason.set_by_someone': 'Already set by someone in your organization. The plan leaves it; turn on Replace my changes to use the plan\'s.',
+  'plan.reason.resume_stopped_apply': 'An earlier apply created it and stopped before finishing. The plan takes it over and sets the status the plan asks for.',
   'plan.tab.plan': "Plan",
   'plan.tab.checks': "Pilot checks",
   'plan.checks.intro': "Run each case on synthetic test accounts only, then record what happened. Results are kept for your organization with who recorded them and when, and every change is in the audit log.",

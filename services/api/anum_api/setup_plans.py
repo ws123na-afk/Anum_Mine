@@ -464,6 +464,14 @@ class Planner:
     def item(self, key: str, section: Section, kind: str, name: str, action: ItemAction, code: str, reason: str, **extra: Any) -> PlanItem:
         return PlanItem(key=key, section=section, kind=kind, name=name, action=action, reason_code=code, reason=reason, **extra)
 
+    @staticmethod
+    def _stopped_create(raw: LedgerEntry | None, profile: Any) -> bool:
+        """``profile`` is what a stopped apply (``raw``, a stale claim) created: made by the same person
+        after the claim and never changed since. Anything else found by name is the owner's."""
+        if raw is None or raw.state != LedgerState.CLAIMED or raw.target_id is not None:
+            return False
+        return bool(profile.owner_user_id == raw.applied_by and profile.version == 1 and profile.created_at >= raw.created_at)
+
     def busy(self, entry: LedgerEntry | None) -> bool:
         return entry is not None and entry.state == LedgerState.CLAIMED and not entry.stale_claim(self.now)
 
@@ -860,8 +868,7 @@ class Planner:
             AgentProfileUpdate,
             AgentStatus,
             can_edit,
-            create_agent,
-            delete_agent,
+            create_agent_with_status,
             open_agent_store,
             update_agent,
         )
@@ -891,23 +898,37 @@ class Planner:
             current = by_id.get(entry.target_id) if entry and entry.target_id else None
             by_name = next((p for p in profiles if p.name.casefold() == agent.name.casefold()), None)
             link = Link(view="agents", id=(current or by_name).id if (current or by_name) else None)
-            status_word = "active" if active else "paused"
+            requested = AgentStatus.ACTIVE if active else AgentStatus.PAUSED
+            status_word = requested.value
 
-            def create(agent: BlueprintAgent = agent, active: bool = active) -> Applied:
+            def create(agent: BlueprintAgent = agent, requested: AgentStatus = requested) -> Applied:
                 fields, _, _ = self._agent_fields(agent, assume_pending=False)
-                view = _run(create_agent(AgentProfileCreate.model_validate(fields), self.context))
-                if not active:
-                    # Agents are created active; a plan agent outside the phase is paused at once, and
-                    # removed again if that fails, so it never stays active by mistake.
-                    try:
-                        view = _run(update_agent(view.id, AgentProfileUpdate(status=AgentStatus.PAUSED, version=view.version), self.context))
-                    except Exception:
-                        _run(delete_agent(view.id, self.context))
-                        raise
-                return Applied(target_id=view.id, target_version=view.version)
+                # The status is part of the one create write: a plan agent outside the phase is never
+                # active, not even between two calls.
+                view = _run(create_agent_with_status(AgentProfileCreate.model_validate(fields), self.context, requested))
+                return Applied(target_id=view.id, target_version=view.version, details={"requested_status": requested.value})
 
             if self.busy(entry):
                 out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.SKIPPED, "busy", "Another apply is creating it right now.", facts=facts, week=agent.week), agent.key, False))
+                continue
+            raw = self.ledger.get(agent.key)
+            if current is None and entry is None and by_name is not None and self._stopped_create(raw, by_name):
+                # An earlier apply created this agent and stopped before recording it. It is still the
+                # plan's (untouched since), so the plan takes it over and gives it the requested status.
+                if by_name.status != requested and not can_edit(by_name, self.context):
+                    out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.SKIPPED, "needs_owner",
+                                                 "Only the agent's creator or a workspace owner can finish setting it up.", link=link, facts=facts, week=agent.week), agent.key, False))
+                    continue
+
+                def adopt(profile: Any = by_name, requested: AgentStatus = requested) -> Applied:
+                    view = profile
+                    if profile.status != requested:
+                        view = _run(update_agent(profile.id, AgentProfileUpdate(status=requested, version=profile.version), self.context))
+                    return Applied(target_id=view.id, target_version=view.version, details={"requested_status": requested.value})
+
+                out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.PRESENT, "resume_stopped_apply",
+                                             f"An earlier apply created it and stopped before finishing; the plan takes it over and leaves it {status_word}.",
+                                             link=link, facts=facts, week=agent.week), agent.key, False, adopt))
                 continue
             if current is None and entry is None and by_name is not None:
                 out.append(Planned(self.item(agent.key, Section.AGENTS, "agent", agent.name, ItemAction.PRESENT, "found_by_name",
@@ -925,7 +946,12 @@ class Planner:
                 continue
             # It exists and the plan made or linked it.
             untouched = entry is not None and entry.origin == LedgerOrigin.CREATED and entry.target_version == current.version
-            desired_status = AgentStatus.ACTIVE if active else current.status
+            # In the phase: active. Outside it, a plan-owned agent nobody changed keeps the status the
+            # plan asked for (an owner's edit is left alone below unless they choose to replace it).
+            recorded = (entry.details or {}).get("requested_status") if entry is not None else None
+            desired_status = (AgentStatus.ACTIVE if active
+                              else AgentStatus(recorded) if untouched and recorded in {s.value for s in AgentStatus}
+                              else current.status)
             changes = {k: v for k, v in fields.items() if k in compare and _plain(getattr(current, k)) != v}
             if desired_status != current.status:
                 changes["status"] = desired_status.value

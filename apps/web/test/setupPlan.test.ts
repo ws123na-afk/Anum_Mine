@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  actionTone, changeCount, checkChanged, checkStatus, checkTone, evidenceProblem, failedItems, filterItems, groupBySection, itemHref, outcomeSummary, outcomeTone, reasonText, rolloutWeeks,
+  actionTone, applyRequestFor, changeCount, checkChanged, checkStatus, checkTone, evidenceProblem, failedItems, filterItems, groupBySection, itemHref, outcomeSummary, outcomeTone, previewMatches, reasonText, rolloutWeeks,
   type SetupPlanItem,
 } from '../src/lib/setupPlan.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -16,6 +16,14 @@ describe('setup plan items', () => {
   test('create, update and linking an existing object count as changes', () => {
     assert.equal(changeCount({ items: [item('a'), item('b', { action: 'update' }), item('c', { action: 'present' }), item('d', { action: 'skipped' })] }), 2);
     assert.equal(changeCount({ items: [item('c', { action: 'present', reason_code: 'found_by_name' })] }), 1);
+    assert.equal(changeCount({ items: [item('c', { action: 'present', reason_code: 'resume_stopped_apply' })] }), 1);
+  });
+  test('apply sends what the shown preview was built with, and a preview for other choices is not current', () => {
+    const shown = { phase: 'pilot' as const, overwrite_edited: false, plan: { version: 3 } };
+    assert.equal(previewMatches(shown, 'pilot', false), true);
+    assert.equal(previewMatches(shown, 'all', false), false);
+    assert.equal(previewMatches(shown, 'pilot', true), false);
+    assert.deepEqual(applyRequestFor(shown), { phase: 'pilot', overwrite_edited: false, plan_version: 3 });
   });
   test('filter by section, words (name, reason, facts) and changes only, keeping failures', () => {
     const items = [
