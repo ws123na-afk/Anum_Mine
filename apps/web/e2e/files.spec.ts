@@ -111,6 +111,8 @@ async function mockFiles(page: Page, options: Options = {}) {
         return json(done);
       }
     }
+    // The summary band counts indexed and failed files from the retrieval status.
+    if (path === '/api/v1/retrieval/status') return json({ embedding_model: 'anum-local-hash-v1', indexed: 1, failed: 1, skipped: 2, stale: 0, chunks: 3, sources: files.map((f) => ({ source_type: 'file', source_id: f.id, name: f.name, status: (f.index as Json | null)?.status ?? 'pending', error: null, chunk_count: 0, embedding_model: null, indexed_at: now })) });
     if (method === 'GET' && path.startsWith('/api/v1/')) return json([]);
     return route.abort();
   });
@@ -119,18 +121,25 @@ async function mockFiles(page: Page, options: Options = {}) {
 
 async function openFiles(page: Page) {
   await page.goto('/#files');
-  await expect(page.getByRole('heading', { name: 'Files', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Documents', level: 1 })).toBeVisible();
+}
+
+/** Below 1024px the list and the preview take turns: close the preview to get back to the list. */
+async function showList(page: Page) {
+  const close = page.getByRole('button', { name: 'Close file detail' });
+  if (await page.getByRole('region', { name: 'Files' }).isHidden() && await close.isVisible()) await close.click();
 }
 
 test('the list shows kind, size, uploader, index state and storage used', async ({ page }) => {
   await mockFiles(page);
   await openFiles(page);
   const list = page.getByRole('region', { name: 'Files' });
-  const row = list.locator('.memoryRow').filter({ hasText: 'release-guide.md' });
-  await expect(row.getByText('Markdown · 2.0 KB · You ·')).toBeVisible();
+  const row = list.locator('tbody tr').filter({ hasText: 'release-guide.md' });
+  await expect(row.getByText(/^Markdown · You ·/)).toBeVisible();
+  await expect(row).toContainText('2.0 KB');
   await expect(row.getByText('Indexed')).toBeVisible();
-  await expect(list.locator('.memoryRow').filter({ hasText: 'logo.png' }).getByText('PNG image · 67 B · user_other ·')).toBeVisible();
-  await expect(list.locator('.memoryRow').filter({ hasText: 'notes.txt' }).getByText('Indexing failed')).toBeVisible();
+  await expect(list.locator('tbody tr').filter({ hasText: 'logo.png' }).getByText(/^PNG image · user_other ·/)).toBeVisible();
+  await expect(list.locator('tbody tr').filter({ hasText: 'notes.txt' }).getByText('Indexing failed')).toBeVisible();
   const storage = page.getByRole('progressbar', { name: 'Workspace storage used' });
   await expect(storage).toHaveAttribute('aria-valuetext', '7.9 KB of 9.8 KB used · 5 files');
   await expect(page.getByText('Up to 4.0 KB per file.')).toBeVisible();
@@ -143,9 +152,9 @@ test('search, sort and load more ask the API for the right page', async ({ page 
   const api = await mockFiles(page, { files: [guide, ...many] });
   await openFiles(page);
   const list = page.getByRole('region', { name: 'Files' });
-  await expect(list.locator('.memoryRow')).toHaveCount(50);
+  await expect(list.locator('tbody tr')).toHaveCount(50);
   await page.getByRole('button', { name: 'Load more files' }).click();
-  await expect(list.locator('.memoryRow')).toHaveCount(56);
+  await expect(list.locator('tbody tr')).toHaveCount(56);
   expect(api.listCalls.at(-1)?.get('cursor')).toBe('file_48');
   await expect(page.getByRole('button', { name: 'Load more files' })).toHaveCount(0);
 
@@ -153,14 +162,14 @@ test('search, sort and load more ask the API for the right page', async ({ page 
   await expect.poll(() => api.listCalls.at(-1)?.toString()).toContain('sort=name&order=asc');
   await page.getByLabel('Search files by name').fill('guide');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(list.locator('.memoryRow')).toHaveCount(1);
+  await expect(list.locator('tbody tr')).toHaveCount(1);
   expect(api.listCalls.at(-1)?.get('q')).toBe('guide');
 
   await page.getByLabel('Search files by name').fill('nothing-here');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'No files match "nothing-here"' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search' }).click();
-  await expect(list.locator('.memoryRow')).toHaveCount(50);
+  await expect(list.locator('tbody tr')).toHaveCount(50);
 });
 
 test('an upload shows its result, refuses what the API would refuse, and reports the server reason', async ({ page }) => {
@@ -222,6 +231,7 @@ test('the detail panel previews Markdown safely, renames, re-indexes and deletes
   expect(api.requests.find((r) => r.method === 'PATCH')?.body).toBe('{"name":"launch-guide.md"}');
   await expect(page.getByRole('region', { name: 'launch-guide.md' }).getByText(/by You/)).toBeVisible();
 
+  await showList(page);
   await page.getByRole('button', { name: 'Show details of notes.txt' }).click();
   const notes = page.getByRole('region', { name: 'notes.txt' });
   await expect(notes.getByText('Indexing failed (model unavailable). Re-index to try again.')).toBeVisible();
@@ -245,6 +255,7 @@ test('images and PDFs preview from short-lived links; other kinds offer a downlo
   await expect(page.getByText('Only the person who uploaded this file or a workspace owner can rename or delete it.')).toBeVisible();
   expect(api.requests.find((r) => r.path === '/api/v1/files/file_logo/links')?.body).toBe('{"disposition":"inline"}');
 
+  await showList(page);
   await page.getByRole('button', { name: /^Show details of quarterly-launch/ }).click();
   await expect(page.getByText('Page 1 of 1')).toBeVisible();
   await expect(page.getByRole('img', { name: /^Page 1 of quarterly-launch/ })).toBeVisible();
@@ -254,6 +265,7 @@ test('images and PDFs preview from short-lived links; other kinds offer a downlo
     return [...canvas.getContext('2d')!.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
   })).toEqual([0, 0, 255, 255]);
 
+  await showList(page);
   await page.getByRole('button', { name: 'Show details of deck.pptx' }).click();
   await expect(page.getByText('PowerPoint deck files have no preview here. Download the file to open it.')).toBeVisible();
   const download = page.waitForEvent('download');
@@ -287,7 +299,7 @@ test('a failed list says what failed and retries', async ({ page }) => {
   await expect(alert).toBeVisible();
   api.answerList(200);
   await alert.getByRole('button', { name: 'Retry' }).click();
-  await expect(page.getByRole('region', { name: 'Files' }).locator('.memoryRow')).toHaveCount(5);
+  await expect(page.getByRole('region', { name: 'Files' }).locator('tbody tr')).toHaveCount(5);
   await expect(alert).toHaveCount(0);
 });
 
@@ -309,7 +321,7 @@ for (const size of [
       await mockFiles(page);
       await openFiles(page);
       const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      await expect(page.getByRole('region', { name: 'Files' }).locator('.memoryRow')).toHaveCount(5);
+      await expect(page.getByRole('region', { name: 'Files' }).locator('tbody tr')).toHaveCount(5);
       expect(await overflow()).toBeLessThanOrEqual(0);
       await page.getByRole('button', { name: /^Show details of quarterly-launch/ }).click();
       await expect(page.getByText('Page 1 of 1')).toBeVisible();
@@ -317,6 +329,7 @@ for (const size of [
       const panel = (await page.locator('.fileDetail').boundingBox())!;
       expect(panel.x).toBeGreaterThanOrEqual(0);
       expect(panel.x + panel.width).toBeLessThanOrEqual(size.width);
+      await showList(page);
       await page.getByRole('region', { name: 'Files' }).getByRole('button', { name: 'Delete release-guide.md' }).click();
       await expect(page.getByRole('button', { name: 'Confirm delete of release-guide.md' })).toBeVisible();
       expect(await overflow()).toBeLessThanOrEqual(0);

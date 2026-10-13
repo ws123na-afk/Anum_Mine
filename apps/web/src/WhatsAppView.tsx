@@ -17,6 +17,9 @@ import {
 } from './lib/whatsapp';
 import * as wa from './lib/whatsappApi';
 import { useIsOwner } from './useIsOwner';
+import { firstUnread } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './whatsapp.css';
 
 type Tab = 'inbox' | 'templates' | 'setup';
@@ -39,19 +42,20 @@ export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversation
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
-  if (load.kind === 'loading') return <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('wa.loading')}</p>;
-  if (load.kind === 'denied') return <section className="surface waPanel" aria-labelledby="wa-denied">
+  const header = <PageHeader title={viewLabel('whatsapp')} subtitle={t('pages.wa.subtitle')} actions={load.kind === 'ready' ? <StatusChip account={load.account} onSetup={() => setTab('setup')} /> : undefined} />;
+  if (load.kind === 'loading') return <>{header}<p className="notice" role="status"><CircleDot aria-hidden="true" />{t('wa.loading')}</p></>;
+  if (load.kind === 'denied') return <>{header}<section className="surface waPanel" aria-labelledby="wa-denied">
     <Lock aria-hidden="true" className="waPanelIcon" />
     <div><h2 id="wa-denied">{t('wa.denied.title')}</h2><p className="muted">{t('wa.denied.text')}</p></div>
-  </section>;
-  if (load.kind === 'error') return <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('wa.loadFailed', { message: load.message })}</span><span className="actions waInline"><button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}>{t('common.tryAgain')}</button></span></div>;
+  </section></>;
+  if (load.kind === 'error') return <>{header}<div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('wa.loadFailed', { message: load.message })}</span><span className="actions waInline"><button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}>{t('common.tryAgain')}</button></span></div></>;
 
   const { account } = load;
   const tabs: Tab[] = ['inbox', 'templates', 'setup'];
   return <div className="waLayout">
+    {header}
     <nav className="settingsTabs waTabs" aria-label={t('wa.sections')}>
       {tabs.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{t(`wa.tab.${id}`)}</button>)}
-      <StatusChip account={account} />
     </nav>
     {tab === 'inbox' && (account.configured
       ? <InboxView account={account} owner={owner === true} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} onOpenTemplates={() => setTab('templates')} focusConversationId={focusConversationId} />
@@ -63,10 +67,14 @@ export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversation
   </div>;
 }
 
-function StatusChip({ account }: { account: WaAccount }) {
-  if (!account.configured) return <span className="statusBadge neutral waTabStatus">{t('wa.state.notConnected')}</span>;
-  const tone = account.status === 'connected' ? 'success' : account.status === 'error' ? 'dangerTone' : 'warning';
-  return <span className={`statusBadge ${tone} waTabStatus`}>{t(`wa.state.${account.status ?? 'unverified'}`)}{account.display_phone_number && <> · <bdi dir="ltr">{account.display_phone_number}</bdi></>}</span>;
+/** The number's connection state; opens Setup (where owners connect, check and change it). */
+function StatusChip({ account, onSetup }: { account: WaAccount; onSetup?: () => void }) {
+  const tone = !account.configured ? 'neutral' : account.status === 'connected' ? 'success' : account.status === 'error' ? 'dangerTone' : 'warning';
+  if (!onSetup) return <span className={`statusBadge ${tone}`}>{account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected')}{account.display_phone_number && <> · <bdi dir="ltr">{account.display_phone_number}</bdi></>}</span>;
+  return <button type="button" className={`chipButton ${tone} waTabStatus`} onClick={onSetup} aria-label={t('pages.wa.chipLabel', { state: account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected') })}>
+    <span className="chipDot" aria-hidden="true" />
+    <span>{account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected')}{account.display_phone_number && <> · <bdi dir="ltr">{account.display_phone_number}</bdi></>}</span>
+  </button>;
 }
 
 function NotConnected({ account, onSetup }: { account: WaAccount; onSetup: () => void }) {
@@ -92,6 +100,8 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
   // Opened from an Assistant card: that conversation, even before it is in the loaded page.
   const [selected, setSelected] = useState<string | null>(focusConversationId);
   const searchId = useId();
+  const wide = useMediaQuery(SPLIT_QUERY);
+  const autoPicked = useRef(Boolean(focusConversationId));
 
   const load = useCallback(async () => {
     try {
@@ -128,11 +138,20 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
     } catch (e) { setError(describeError(e)); } finally { setLoadingMore(false); }
   }
 
+  // On a wide screen the thread opens on the first unread conversation, once.
+  useEffect(() => {
+    if (!wide || autoPicked.current || selected || state !== 'ready') return;
+    const first = firstUnread(items, (item) => item.unread_count > 0);
+    if (!first) return;
+    autoPicked.current = true;
+    setSelected(first.id);
+  }, [wide, selected, state, items]);
+
   const replace = (next: WaConversation) => setItems((current) => current.map((item) => item.id === next.id ? next : item));
   const chosen = items.find((item) => item.id === selected) ?? (selected !== null && selected === focusConversationId ? { id: selected } : null);
 
-  return <div className={`waInbox ${selected ? 'showThread' : 'showList'}`}>
-    <section className="surface waList" aria-labelledby="wa-list-heading">
+  return <SplitView layout="three" className={`waInbox ${selected ? 'showThread' : 'showList'}`} show={selected ? 'detail' : 'list'}>
+    <section data-pane="list" className="pane waList" aria-labelledby="wa-list-heading">
       <h2 id="wa-list-heading" className="visuallyHidden">{t('wa.list.heading')}</h2>
       <form className="waSearch" role="search" onSubmit={(e) => { e.preventDefault(); setApplied(query); }}>
         <label className="visuallyHidden" htmlFor={searchId}>{t('wa.list.search')}</label>
@@ -171,8 +190,9 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
     </section>
     {chosen
       ? <ThreadView key={chosen.id} conversationId={chosen.id} owner={owner} onBack={() => setSelected(null)} onChanged={replace} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} onOpenTemplates={onOpenTemplates} />
-      : <section className="surface waThread waThreadEmpty" aria-label={t('wa.thread.none')}><MessageCircle aria-hidden="true" /><p>{t('wa.thread.none')}</p></section>}
-  </div>;
+      : <><section data-pane="detail" className="pane waThread waThreadEmpty" aria-label={t('wa.thread.none')}><MessageCircle aria-hidden="true" /><p>{t('wa.thread.none')}</p></section>
+        <aside data-pane="rail" className="pane waRail" aria-label={t('pages.wa.railLabel')}><div className="paneEmpty"><p>{t('pages.wa.railEmpty')}</p></div></aside></>}
+  </SplitView>;
 }
 
 // ---------------------------------------------------------------- Thread
@@ -196,6 +216,8 @@ function ThreadView({ conversationId, owner, onBack, onChanged, onOpenApprovals,
   const composer = useRef<HTMLTextAreaElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const lastId = messages[messages.length - 1]?.id;
+  // From 1280px the AI suggestion sits in the rail next to the thread; narrower, inside the thread.
+  const railShown = useMediaQuery(RAIL_QUERY);
   const draftId = useId();
   const now = new Date();
 
@@ -280,11 +302,13 @@ function ThreadView({ conversationId, owner, onBack, onChanged, onOpenApprovals,
     } finally { setBusy(null); }
   }
 
-  if (state === 'loading' && !conversation) return <section className="surface waThread"><p className="notice" role="status"><CircleDot aria-hidden="true" />{t('wa.thread.loading')}</p></section>;
-  if (!conversation) return <section className="surface waThread"><div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('wa.thread.failed', { message: error ?? '' })}</span><span className="actions waInline"><button type="button" className="secondary" onClick={onBack}>{t('wa.thread.back')}</button><button type="button" className="secondary" onClick={() => void load(true)}>{t('common.tryAgain')}</button></span></div></section>;
+  const emptyRail = <aside data-pane="rail" className="pane waRail" aria-label={t('pages.wa.railLabel')} />;
+  if (state === 'loading' && !conversation) return <><section data-pane="detail" className="pane waThread"><p className="notice" role="status"><CircleDot aria-hidden="true" />{t('wa.thread.loading')}</p></section>{emptyRail}</>;
+  if (!conversation) return <><section data-pane="detail" className="pane waThread"><div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('wa.thread.failed', { message: error ?? '' })}</span><span className="actions waInline"><button type="button" className="secondary" onClick={onBack}>{t('wa.thread.back')}</button><button type="button" className="secondary" onClick={() => void load(true)}>{t('common.tryAgain')}</button></span></div></section>{emptyRail}</>;
 
   const replyWindow = windowState(conversation, now);
-  return <section className="surface waThread" aria-labelledby="wa-thread-title">
+  const suggestionPanel = <SuggestionPanel conversation={conversation} suggestion={suggestion} busy={busy === 'draft'} onDraft={() => void makeDraft()} onUse={(text) => { setDraft(text); setMode('text'); composer.current?.focus(); }} canUse={replyWindow.open} />;
+  return <><section data-pane="detail" className="pane waThread" aria-labelledby="wa-thread-title">
     <header className="waThreadHeader">
       <button type="button" className="secondary iconOnly waBack" onClick={onBack} aria-label={t('wa.thread.back')} title={t('wa.thread.back')}><ArrowLeft aria-hidden="true" className="flipRtl" /></button>
       <div className="waThreadWho">
@@ -295,7 +319,7 @@ function ThreadView({ conversationId, owner, onBack, onChanged, onOpenApprovals,
     </header>
     {state === 'error' && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{t('wa.thread.refreshFailed', { message: error ?? '' })}</p>}
 
-    <SuggestionPanel conversation={conversation} suggestion={suggestion} busy={busy === 'draft'} onDraft={() => void makeDraft()} onUse={(text) => { setDraft(text); setMode('text'); composer.current?.focus(); }} canUse={replyWindow.open} />
+    {!railShown && suggestionPanel}
     {budget && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{budget}</span>{onOpenBudgets && <span className="actions waInline"><button type="button" className="secondary" onClick={onOpenBudgets}>{t('wa.openBudgets')}</button></span>}</p>}
 
     <div className="waMessages" ref={scroller} role="region" tabIndex={0} aria-label={t('wa.thread.messages')}>
@@ -330,7 +354,21 @@ function ThreadView({ conversationId, owner, onBack, onChanged, onOpenApprovals,
         <button type="button" className="secondary" onClick={() => setMode('template')}>{t('wa.compose.useTemplate')}</button>
       </div>)}
     {mode === 'template' && <TemplateComposer conversation={conversation} onSent={afterSend} onManage={onOpenTemplates} />}
-  </section>;
+  </section>
+  <aside data-pane="rail" className="pane waRail" aria-label={t('pages.wa.railLabel')}>
+    <section className="railSection" aria-labelledby="wa-rail-contact">
+      <h3 id="wa-rail-contact">{t('pages.wa.contact')}</h3>
+      <dl className="railFacts">
+        <dt>{t('pages.wa.name')}</dt><dd><bdi>{contactLabel(conversation)}</bdi></dd>
+        <dt>{t('pages.wa.number')}</dt><dd><bdi dir="ltr">+{conversation.wa_id}</bdi></dd>
+        <dt>{t('pages.wa.topic')}</dt><dd>{conversation.category ? categoryLabel(conversation.category) : t('pages.wa.noTopic')}</dd>
+        <dt>{t('pages.wa.window')}</dt><dd>{windowLabel(conversation, now)}</dd>
+        <dt>{t('pages.wa.lastMessage')}</dt><dd><time dateTime={conversation.last_message_at}>{time(conversation.last_message_at)}</time></dd>
+        <dt>{t('pages.wa.awaiting')}</dt><dd>{conversation.awaiting_approval ? <>{t('wa.list.awaiting', { count: conversation.awaiting_approval })}{onOpenApprovals && <> · <button type="button" className="linkButton" onClick={onOpenApprovals}>{t('wa.approve.openApprovals')}</button></>}</> : t('pages.wa.noneAwaiting')}</dd>
+      </dl>
+    </section>
+    {railShown && <div className="railSection">{suggestionPanel}</div>}
+  </aside></>;
 }
 
 function SuggestionPanel({ conversation, suggestion, busy, onDraft, onUse, canUse }: { conversation: WaConversation; suggestion: WaSuggestion | null; busy: boolean; onDraft: () => void; onUse: (text: string) => void; canUse: boolean }) {

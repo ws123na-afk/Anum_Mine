@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // Integrations view: live health including the private web search (SearXNG) behind the
-// `web_search` agent tool, and the owner's per-workspace switch, against a mocked API
+// `web_search` agent tool, and the owner's per-workspace switch in the details drawer, against a mocked API
 // (docs/tools-and-integrations.md#web-search).
 const now = new Date().toISOString();
 type Json = Record<string, unknown>;
@@ -52,44 +52,61 @@ async function mockApi(page: Page, searchStatus: 'connected' | 'disabled' | 'deg
   return calls;
 }
 
-const searchCard = (page: Page) => page.locator('article.integrationCard', { has: page.getByRole('heading', { name: 'SearXNG web search' }) });
+// Rows are compact: name, purpose, status and one action; details open in a drawer.
+const row = (page: Page, name: string) => page.locator('li.intRow', { has: page.getByRole('heading', { name, exact: true }) });
+const services = (page: Page) => page.getByRole('button', { name: /^Platform services/ });
 
 test('a connected SearXNG says agents can use web_search', async ({ page }) => {
   await mockApi(page, 'connected');
   await page.goto('/#integrations');
-  const card = searchCard(page);
-  await expect(card).toBeVisible();
+  // Every service works, so the section starts collapsed and opens on demand.
+  await expect(services(page)).toHaveAttribute('aria-expanded', 'false');
+  await services(page).click();
+  const card = row(page, 'SearXNG web search');
   await expect(card.getByText('connected')).toBeVisible();
-  await expect(card.getByText('Agent tool web_search: available.')).toBeVisible();
+  await card.getByRole('button', { name: 'Manage SearXNG web search' }).click();
+  const drawer = page.getByRole('dialog', { name: 'SearXNG web search' });
+  await expect(drawer.getByText('Agent tool web_search: available.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(drawer).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Manage SearXNG web search' })).toBeFocused();
   // Infrastructure integrations carry no tool note.
-  const valkey = page.locator('article.integrationCard', { has: page.getByRole('heading', { name: 'Valkey' }) });
-  await expect(valkey.getByText(/Agent tool/)).toHaveCount(0);
+  await row(page, 'Valkey').getByRole('button', { name: 'Manage Valkey' }).click();
+  await expect(page.getByRole('dialog', { name: 'Valkey' }).getByText(/Agent tool/)).toHaveCount(0);
 });
 
 test('a degraded SearXNG explains that web_search calls fail', async ({ page }) => {
   await mockApi(page, 'degraded');
   await page.goto('/#integrations');
-  const card = searchCard(page);
+  // A section with an error starts open, and the summary counts it.
+  await expect(services(page)).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('radio', { name: /Error/ })).toHaveAccessibleName('Error 1');
+  const card = row(page, 'SearXNG web search');
   await expect(card.getByText('degraded')).toBeVisible();
-  await expect(card.getByText(/Health check failed: ConnectError/)).toBeVisible();
-  await expect(card.getByText('Agent tool web_search: calls fail until search answers.')).toBeVisible();
+  await card.getByRole('button', { name: 'Fix SearXNG web search' }).click();
+  const drawer = page.getByRole('dialog', { name: 'SearXNG web search' });
+  await expect(drawer.getByText(/Health check failed: ConnectError/)).toBeVisible();
+  await expect(drawer.getByText('Agent tool web_search: calls fail until search answers.')).toBeVisible();
 });
 
-test('an owner switches web search off for the workspace and the card says why', async ({ page }) => {
+test('an owner switches web search off for the workspace and the drawer says why', async ({ page }) => {
   const calls = await mockApi(page, 'connected');
   await page.goto('/#integrations');
-  const card = searchCard(page);
-  await card.getByRole('button', { name: 'Configure SearXNG web search' }).click();
-  const form = page.getByRole('form', { name: 'SearXNG web search configuration' });
+  await services(page).click();
+  await row(page, 'SearXNG web search').getByRole('button', { name: 'Manage SearXNG web search' }).click();
+  const drawer = page.getByRole('dialog', { name: 'SearXNG web search' });
+  const form = drawer.getByRole('form', { name: 'SearXNG web search configuration' });
   const toggle = form.getByRole('checkbox', { name: 'Use SearXNG web search in this workspace' });
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
   await form.getByRole('button', { name: 'Save configuration' }).click();
 
-  await expect(card.getByText(/SearXNG web search turned off for workspace workspace_foundation/)).toBeVisible();
-  await expect(card.getByText('Not used')).toBeVisible();
-  await expect(card.getByText('Turned off for this workspace by an owner.')).toBeVisible();
-  await expect(card.getByText('Agent tool web_search: unavailable here.')).toBeVisible();
+  await expect(drawer.getByText(/SearXNG web search turned off for workspace workspace_foundation/)).toBeVisible();
+  await expect(drawer.getByText('Not used')).toBeVisible();
+  await expect(drawer.getByText('Turned off for this workspace by an owner.')).toBeVisible();
+  await expect(drawer.getByText('Agent tool web_search: unavailable here.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(row(page, 'SearXNG web search').getByText('Not used')).toBeVisible();
   const put = calls.find((c) => c.method === 'PUT');
   expect(put?.body).toEqual({ enabled: false, endpoint: 'http://searxng:8080' });
 });

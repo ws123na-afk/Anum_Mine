@@ -35,6 +35,8 @@ async function mockVoice(page: Page, options: { pendingApprovals?: number } = {}
   // and a count of the animation frames waiting to run.
   await page.addInitScript(() => {
     localStorage.setItem('anum.voice.reply', ''); localStorage.setItem('anum.voice.name', 'Layla'); localStorage.setItem('anum.voice.wake', 'off');
+    // These specs read the conversation panel, which is off by default (voice-focus.spec.ts covers that).
+    localStorage.setItem('anum.voice.chat', 'on');
     const w = window as unknown as Window & Record<string, unknown>;
     const queue: string[] = [];
     let fail: string | null = null;
@@ -344,10 +346,10 @@ test('going to and from the Voice page ten times leaves no animation loop behind
   expect(errors).toEqual([]);
 });
 
-test('Voice is a full page: no Full screen button, and the settings open over the scene', async ({ page }) => {
+test('Voice is a full page (no dialog), and the settings open over the scene', async ({ page }) => {
   await mockVoice(page);
   const voice = await openVoice(page);
-  await expect(page.getByRole('button', { name: 'Full screen' })).toHaveCount(0);
+  // Full screen is focus mode on the page itself (voice-focus.spec.ts), never a dialog.
   await expect(page.getByRole('dialog')).toHaveCount(0);
   // The page has its own (hidden) heading for the main landmark.
   await expect(page.locator('main')).toHaveAccessibleName('Layla voice assistant');
@@ -400,6 +402,10 @@ for (const locale of ['en', 'ar'] as const) {
       if (width >= 390 && height >= 800) expect(layout.talk, size).toBeGreaterThanOrEqual(219);
       expect(layout.talk / layout.stageMin, size).toBeGreaterThanOrEqual(0.38);
       for (const control of [voice.locator('.voiceSpaceTalk'), ...await voice.locator('.voiceSpaceBar button, .voiceSpaceBar summary').all(), voice.locator('.voiceDock')]) {
+        // On narrow phones the bar's controls are one strip that scrolls sideways (never the page):
+        // every control can be scrolled into view without moving the page.
+        await control.evaluate((element) => element.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+        expect(await page.evaluate(() => [window.scrollX, window.scrollY]), size).toEqual([0, 0]);
         const b = (await control.boundingBox())!;
         expect(b.x, size).toBeGreaterThanOrEqual(0);
         expect(b.y).toBeGreaterThanOrEqual(0);

@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
 import { handleMeetings } from './meetingsApi';
 import { createTeamMock, type TeamMockOptions } from './teamApi';
+import { createHomeMock, type HomeMockState } from './homeApi';
 
 // One mocked workspace with something on every main view (the Command Center home, Assistant, Tasks, Approvals, Memory,
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
@@ -145,6 +146,9 @@ export const emailDraft = {
   body: 'Hello Sara,\n\nYes, 205/55R16 is in stock and ships tomorrow.', status: 'draft', source: 'model', model_provider: 'anthropic', model_name: 'claude-sonnet-5-5',
   saved_in_provider: true, error: null, approval: null, approval_note: null, created_by: 'user_local', created_at: now, updated_at: now, sent_at: null,
 };
+/** `GET /api/v1/email/summary` for the fixtures above: one unread customer question. */
+export const emailSummary = { accounts: 1, unread: 1, high_priority_unread: 1, by_category: { customer_question: 1 }, needs_attention: [] as unknown[] };
+
 export function emailDetail(id: string, drafts: unknown[] = [emailDraft]) {
   const message = emailMessages.find((m) => m.id === id) ?? emailMessages[0];
   return {
@@ -198,8 +202,9 @@ const agent = {
 
 const setupPlanPreview = () => JSON.parse(readFileSync(new URL('./setupPlanFixture.json', import.meta.url), 'utf8'));
 
-export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions = {}): Promise<void> {
+export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions = {}): Promise<HomeMockState> {
   const team = createTeamMock(teamOptions);
+  const home = createHomeMock();
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -225,7 +230,11 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
       return json(memories.filter((m) => !onlyChats || m.provenance.source_type === 'conversation'));
     }
     if (path === '/api/v1/retrieval/status') {
-      return json({ embedding_model: 'anum-local-hash-v1', indexed: 2, failed: 0, skipped: 0, stale: 0, chunks: 2, sources: memories.map((m) => ({ source_type: 'memory', source_id: m.id, name: null, status: 'indexed', error: null, chunk_count: 1, embedding_model: 'anum-local-hash-v1', indexed_at: now })) });
+      return json({ embedding_model: 'anum-local-hash-v1', indexed: 3, failed: 0, skipped: 1, stale: 0, chunks: 5, sources: [
+        ...memories.map((m) => ({ source_type: 'memory', source_id: m.id, name: null, status: 'indexed', error: null, chunk_count: 1, embedding_model: 'anum-local-hash-v1', indexed_at: now })),
+        { source_type: 'file', source_id: 'file_notes', name: 'release-notes.md', status: 'indexed', error: null, chunk_count: 3, embedding_model: 'anum-local-hash-v1', indexed_at: now },
+        { source_type: 'file', source_id: 'file_logo', name: 'logo.png', status: 'skipped', error: 'not_text', chunk_count: 0, embedding_model: null, indexed_at: now },
+      ] });
     }
     if (path === '/api/v1/me/preferences') return json({ remember_conversations: true, updated_at: now, conversation_memory: 'on' });
     if (path === '/api/v1/onboarding') return json({ complete: true, tenant: { id: 'tenant_local', name: 'ANUM' }, workspace: { id: 'workspace_foundation', name: 'Foundation' }, membership: { role: 'owner' }, model_configured: false });
@@ -243,6 +252,7 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/files/usage') return json(fileUsage);
     if (path === '/api/v1/files' && method === 'GET') return json(files);
     if (path === '/api/v1/files/file_notes') return json(files[0]);
+    if (path === '/api/v1/files/file_notes/links' && method === 'POST') return json({ url: '/api/v1/files/links/example-token', expires_at: later }, 201);
     if (path === '/api/v1/files/file_notes/preview') return json({ kind: 'markdown', text: '# Release notes\n\n- Faster exports', truncated: false, size_bytes: 2048 });
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: now, updated_at: now });
     // Automations (docs/automation.md): one automation with a schedule and a failed run.
@@ -311,6 +321,8 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/marketplace/installs') return json([{ package_id: 'acme.crm-sync', version: '1.2.0', enabled: true, installed_by: 'user_local', installed_at: now }]);
     if (path === '/api/v1/email/setup') return json(emailSetup);
     if (path === '/api/v1/email/accounts' && method === 'GET') return json([emailAccount]);
+    if (path === '/api/v1/email/summary') return json(emailSummary);
+    if (path === '/api/v1/email/drafts' && method === 'GET') return json([emailDraft]);
     if (path === '/api/v1/email/messages' && method === 'GET') return json({ items: emailMessages, next_cursor: null, accounts: 1 });
     if (path.startsWith('/api/v1/email/messages/') && method === 'GET') return json(emailDetail(path.split('/').pop() ?? ''));
     if (path === '/api/v1/learning') return json(learning);
@@ -326,8 +338,10 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/reports' && method === 'GET') return json({ items: [{ id: 'report_tyre', ...reportSummary, row_count: 2 }], total: 1, limit: 20, offset: 0, types: [{ type: 'tyre', count: 1 }] });
     if (path === '/api/v1/reports/generators') return json([{ type: 'task_summary', title: 'Task summary', description: '' }, { type: 'automation_summary', title: 'Automation summary', description: '' }]);
     if (path === '/api/v1/reports/report_tyre') return json(libraryReport);
+    if (await home.handle(route, path, method)) return;
     return route.abort();
   });
+  return home.state;
 }
 
 /** Start the page in `locale` the way a person's saved choice does (this browser's storage). */

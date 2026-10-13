@@ -11,12 +11,16 @@ import { formatDateTime, formatNumber, getLocale, t, type MessageKey } from './l
 import {
   CAMPAIGN_STATUSES, PLATFORMS, POST_STATUSES, accountStatusName, accountTone, campaignStatusName, change, checkDraft, composeText, dayKey, fromLocalInput,
   isLink, monthGrid, moveToDay, oauthCallback, parseHashtags, platformName, postActions, postsByDay, rate, slotLabel, statusName, statusTone, toLocalInput, when, withUtm,
-  type Account, type Campaign, type CampaignStatus, type IdeasResult, type Language, type MediaFile, type Platform, type Post, type PostStatus, type Preferences, type Provider, type Setup, type Summary, type WeeklyReport, type ChannelResult,
+  type Account, type Campaign, type CampaignStatus, type IdeasResult, type Language, type MediaFile, type Platform, type Post, type PostStatus, type Preferences, type Provider, type Setup, type Summary, type TimeSlot, type WeeklyReport, type ChannelResult,
 } from './lib/marketing';
 import * as m from './lib/marketingApi';
 import { listConversations } from './lib/whatsappApi';
 import { contactLabel, type WaConversation } from './lib/whatsapp';
 import { useIsOwner } from './useIsOwner';
+import { Drawer } from './Dialog';
+import { figure } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { PageHeader, PageSummary } from './PageParts';
 import './marketing.css';
 
 type Tab = 'posts' | 'calendar' | 'campaigns' | 'accounts' | 'analytics';
@@ -69,15 +73,15 @@ export function MarketingView({ onOpenBudgets, onOpenFiles }: { onOpenBudgets?: 
   const pick = (next: Tab) => { setTab(next); history.replaceState(null, '', `#marketing-${next}`); };
   const refreshAll = () => { setVersion((value) => value + 1); void load(); };
 
-  if (state === 'loading') return <Note>{t('marketing.loading')}</Note>;
-  if (state === 'denied') return <section className="surface mkPanel"><Lock aria-hidden="true" /><div><h2>{t('marketing.deniedTitle')}</h2><p className="muted">{t('marketing.deniedText')}</p></div></section>;
-  if (state === 'error' || !setup) return <section className="surface mkPanel"><ShieldAlert aria-hidden="true" /><div><h2>{t('marketing.errorTitle')}</h2><p className="muted">{t('marketing.errorText', { message: error ?? '' })}</p><div className="actions"><button type="button" onClick={() => { setState('loading'); void load(); }}>{t('common.tryAgain')}</button></div></div></section>;
+  const title = viewLabel('marketing');
+  if (state === 'loading') return <><PageHeader title={title} subtitle={t('pages.mk.subtitle')} /><Note>{t('marketing.loading')}</Note></>;
+  if (state === 'denied') return <><PageHeader title={title} subtitle={t('pages.mk.subtitle')} /><section className="surface mkPanel"><Lock aria-hidden="true" /><div><h2>{t('marketing.deniedTitle')}</h2><p className="muted">{t('marketing.deniedText')}</p></div></section></>;
+  if (state === 'error' || !setup) return <><PageHeader title={title} subtitle={t('pages.mk.subtitle')} /><section className="surface mkPanel"><ShieldAlert aria-hidden="true" /><div><h2>{t('marketing.errorTitle')}</h2><p className="muted">{t('marketing.errorText', { message: error ?? '' })}</p><div className="actions"><button type="button" onClick={() => { setState('loading'); void load(); }}>{t('common.tryAgain')}</button></div></div></section></>;
 
   const connected = accounts.filter((item) => item.status === 'connected');
   return <div className="mkLayout">
-    <section className="moduleIntro"><div><p className="eyebrow">{t('marketing.intro.eyebrow')}</p><h2>{t('marketing.intro.title')}</h2><p>{t('marketing.intro.text')}</p></div>
-      {setup.can_write && <button type="button" onClick={() => setComposer({})} disabled={connected.length === 0} aria-describedby={connected.length === 0 ? 'mk-no-accounts' : undefined}><Plus aria-hidden="true" />{t('marketing.newPost')}</button>}
-    </section>
+    <PageHeader title={title} subtitle={t('pages.mk.subtitle')} actions={setup.can_write ? <button type="button" onClick={() => setComposer({})} disabled={connected.length === 0} aria-describedby={connected.length === 0 ? 'mk-no-accounts' : undefined}><Plus aria-hidden="true" />{t('marketing.newPost')}</button> : undefined} />
+    <MarketingSummary key={`s${version}`} />
     {connected.length === 0 && <Note id="mk-no-accounts">{setup.can_manage ? t('marketing.noAccountsOwner') : t('marketing.noAccountsMember')}</Note>}
     {notice && <Note>{notice}</Note>}
     <nav className="settingsTabs mkTabs" aria-label={t('marketing.sections')}>{TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`marketing.tab.${id}`)}</button>)}</nav>
@@ -158,7 +162,7 @@ function PostCard({ post, setup, owner, onEdit, onChange, onRemove, onNotice }: 
       {actions.cancel && <button type="button" className="secondary" disabled={busy} onClick={() => void act(() => m.cancelPost(post.id), t('marketing.cancelled'))}>{t('marketing.cancel')}</button>}
       {actions.publishNow && <button type="button" disabled={busy} onClick={() => void act(() => m.publishNow(post.id))}>{t('marketing.publishNow')}</button>}
       {actions.retry && <button type="button" disabled={busy} onClick={() => void act(() => m.retryPost(post.id))}><RefreshCw aria-hidden="true" />{t('marketing.retry')}</button>}
-      {actions.remove && <button type="button" className="iconButton" disabled={busy} aria-label={t('marketing.deleteOf', { name: post.account_name })} title={t('marketing.delete')} onClick={() => { if (confirm(post.status === 'published' ? t('marketing.confirmDeletePublished') : t('marketing.confirmDelete'))) void act(async () => { await m.deletePost(post.id); onRemove(post.id); }, t('marketing.deleted')); }}><Trash2 aria-hidden="true" /></button>}
+      {actions.remove && <button type="button" className="secondary dangerText mkDelete" disabled={busy} aria-label={t('marketing.deleteOf', { name: post.account_name })} onClick={() => { if (confirm(post.status === 'published' ? t('marketing.confirmDeletePublished') : t('marketing.confirmDelete'))) void act(async () => { await m.deletePost(post.id); onRemove(post.id); }, t('marketing.deleted')); }}><Trash2 aria-hidden="true" />{t('marketing.delete')}</button>}
     </div>
     {scheduling && <form className="mkScheduleForm" onSubmit={(event) => { event.preventDefault(); setScheduling(false); void act(() => m.schedulePost(post.id, fromLocalInput(time)), t('marketing.scheduleAsked')); }}>
       <label className="field"><span>{t('marketing.when')}</span><input id={timeId} type="datetime-local" value={time} onChange={(event) => setTime(event.target.value)} /></label>
@@ -173,6 +177,8 @@ function PostsTab({ setup, campaigns, owner, onEdit, onNotice }: { setup: Setup;
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading'), [problem, setProblem] = useState<string | null>(null);
   const [status, setStatus] = useState<PostStatus | ''>(''), [platform, setPlatform] = useState<Platform | ''>(''), [campaignId, setCampaignId] = useState('');
   const [draft, setDraft] = useState(''), [query, setQuery] = useState(''), [more, setMore] = useState(false), [paging, setPaging] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const ids = useId();
   const load = useCallback(async () => {
     try {
       const page = await m.listPosts({ status, platform, campaignId, query, limit: PAGE });
@@ -187,24 +193,97 @@ function PostsTab({ setup, campaigns, owner, onEdit, onNotice }: { setup: Setup;
     catch (e) { onNotice(failure(e, t('marketing.posts.what'))); } finally { setPaging(false); }
   }
   const filtered = Boolean(status || platform || campaignId || query);
-  return <section aria-labelledby="mk-posts-title">
-    <h2 id="mk-posts-title" className="visuallyHidden">{t('marketing.tab.posts')}</h2>
-    <form className="surface mkFilters" role="search" onSubmit={(event: FormEvent) => { event.preventDefault(); setQuery(draft.trim()); }}>
-      <label className="field"><span>{t('marketing.filter.search')}</span><input type="search" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t('marketing.filter.searchPlaceholder')} /></label>
-      <label className="field"><span>{t('marketing.filter.status')}</span><select value={status} onChange={(event) => setStatus(event.target.value as PostStatus | '')}><option value="">{t('marketing.filter.all')}</option>{POST_STATUSES.map((value) => <option key={value} value={value}>{statusName(value)}</option>)}</select></label>
-      <label className="field"><span>{t('marketing.filter.platform')}</span><select value={platform} onChange={(event) => setPlatform(event.target.value as Platform | '')}><option value="">{t('marketing.filter.all')}</option>{PLATFORMS.map((value) => <option key={value} value={value}>{platformName(value)}</option>)}</select></label>
-      <label className="field"><span>{t('marketing.filter.campaign')}</span><select value={campaignId} onChange={(event) => setCampaignId(event.target.value)}><option value="">{t('marketing.filter.all')}</option>{campaigns.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <div className="actions mkInline"><button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button></div>
-    </form>
-    {state === 'loading' && <Note>{t('marketing.posts.loading')}</Note>}
-    {state === 'error' && <Note error>{problem} <button type="button" className="linkButton" onClick={() => { setState('loading'); void load(); }}>{t('common.retry')}</button></Note>}
-    {state === 'ready' && items.length === 0 && (filtered
-      ? <Empty title={t('marketing.posts.noMatch')} text={t('marketing.posts.noMatchText')} action={<button type="button" className="secondary" onClick={() => { setStatus(''); setPlatform(''); setCampaignId(''); setDraft(''); setQuery(''); }}>{t('common.clear')}</button>} />
-      : <Empty title={t('marketing.posts.empty')} text={setup.can_write ? t('marketing.posts.emptyText') : t('marketing.posts.emptyViewer')} />)}
-    {items.length > 0 && <ul className="mkList">{items.map((post) => <PostCard key={post.id} post={post} setup={setup} owner={owner} onEdit={onEdit} onNotice={onNotice}
-      onChange={(next) => setItems((current) => current.map((item) => item.id === next.id ? next : item))} onRemove={(id) => setItems((current) => current.filter((item) => item.id !== id))} />)}</ul>}
-    {more && <div className="actions mkMore"><button type="button" className="secondary" disabled={paging} onClick={() => void loadMore()}>{paging ? t('common.loading') : t('marketing.loadMore')}</button></div>}
+  const opened = items.find((item) => item.id === openId) ?? null;
+  return <section aria-labelledby="mk-posts-title" className="mkPosts">
+    <div className="mkPostsMain">
+      <h2 id="mk-posts-title" className="visuallyHidden">{t('marketing.tab.posts')}</h2>
+      <form className="toolbar mkPostFilters" role="search" onSubmit={(event: FormEvent) => { event.preventDefault(); setQuery(draft.trim()); }}>
+        <label className="visuallyHidden" htmlFor={`${ids}-q`}>{t('marketing.filter.search')}</label>
+        <input id={`${ids}-q`} type="search" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t('marketing.filter.searchPlaceholder')} />
+        <label className="visuallyHidden" htmlFor={`${ids}-status`}>{t('marketing.filter.status')}</label>
+        <select id={`${ids}-status`} value={status} onChange={(event) => setStatus(event.target.value as PostStatus | '')}><option value="">{t('pages.mk.anyStatus')}</option>{POST_STATUSES.map((value) => <option key={value} value={value}>{statusName(value)}</option>)}</select>
+        <label className="visuallyHidden" htmlFor={`${ids}-platform`}>{t('marketing.filter.platform')}</label>
+        <select id={`${ids}-platform`} value={platform} onChange={(event) => setPlatform(event.target.value as Platform | '')}><option value="">{t('pages.mk.anyPlatform')}</option>{PLATFORMS.map((value) => <option key={value} value={value}>{platformName(value)}</option>)}</select>
+        <label className="visuallyHidden" htmlFor={`${ids}-campaign`}>{t('marketing.filter.campaign')}</label>
+        <select id={`${ids}-campaign`} value={campaignId} onChange={(event) => setCampaignId(event.target.value)}><option value="">{t('pages.mk.anyCampaign')}</option>{campaigns.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
+        {filtered && <button type="button" className="secondary" onClick={() => { setStatus(''); setPlatform(''); setCampaignId(''); setDraft(''); setQuery(''); }}>{t('common.clear')}</button>}
+      </form>
+      {state === 'loading' && <Note>{t('marketing.posts.loading')}</Note>}
+      {state === 'error' && <Note error>{problem} <button type="button" className="linkButton" onClick={() => { setState('loading'); void load(); }}>{t('common.retry')}</button></Note>}
+      {state === 'ready' && items.length === 0 && (filtered
+        ? <Empty title={t('marketing.posts.noMatch')} text={t('marketing.posts.noMatchText')} action={<button type="button" className="secondary" onClick={() => { setStatus(''); setPlatform(''); setCampaignId(''); setDraft(''); setQuery(''); }}>{t('common.clear')}</button>} />
+        : <Empty title={t('marketing.posts.empty')} text={setup.can_write ? t('marketing.posts.emptyText') : t('marketing.posts.emptyViewer')} />)}
+      {items.length > 0 && <div className="pane dataTableWrap"><table className="dataTable mkPostTable">
+        <caption className="visuallyHidden">{t('marketing.tab.posts')}</caption>
+        <thead><tr><th scope="col">{t('pages.mk.col.post')}</th><th scope="col" className="optional">{t('pages.mk.col.account')}</th><th scope="col">{t('pages.mk.col.status')}</th><th scope="col" className="optional">{t('pages.mk.col.when')}</th></tr></thead>
+        <tbody>{items.map((post) => <tr key={post.id} className={post.id === openId ? 'selected' : undefined}>
+          <th scope="row"><button type="button" className="cellButton" aria-haspopup="dialog" aria-label={t('pages.mk.openPost', { account: post.account_name || post.account_id, text: post.text.slice(0, 60) })} onClick={() => setOpenId(post.id)}>
+            <strong dir={post.language === 'ar' ? 'rtl' : 'auto'} lang={post.language} className="mkExcerpt">{post.title || post.text || t('pages.mk.noText')}</strong>
+            <small>{t(`marketing.language.${post.language}`)}{post.media.length > 0 ? ` · ${t('pages.mk.media', { count: post.media.length })}` : ''}{post.issues.some((issue) => issue.severity === 'error') ? ` · ${t('pages.mk.hasIssues')}` : ''}</small>
+          </button></th>
+          <td className="optional"><span className={`mkPlatform ${post.platform}`}>{platformName(post.platform)}</span> <span dir="auto">{post.account_name || post.account_id}</span></td>
+          <td><Badge tone={statusTone(post.status)}>{statusName(post.status)}</Badge>{post.approval && <small>{t('pages.mk.awaitingApproval')}</small>}</td>
+          <td className="optional nowrap muted">{post.status === 'published' || post.status === 'sent_to_inbox' ? when(post.published_at) : when(post.scheduled_at)}</td>
+        </tr>)}</tbody>
+      </table></div>}
+      {more && <div className="actions mkMore"><button type="button" className="secondary" disabled={paging} onClick={() => void loadMore()}>{paging ? t('common.loading') : t('marketing.loadMore')}</button></div>}
+    </div>
+    <PlanRail />
+    {opened && <Drawer title={t('pages.mk.postTitle', { account: opened.account_name || opened.account_id })} onClose={() => setOpenId(null)}>
+      <ul className="mkList mkDrawerPost"><PostCard post={opened} setup={setup} owner={owner} onEdit={(post) => { setOpenId(null); onEdit(post); }} onNotice={onNotice}
+        onChange={(next) => setItems((current) => current.map((item) => item.id === next.id ? next : item))} onRemove={(id) => { setOpenId(null); setItems((current) => current.filter((item) => item.id !== id)); }} /></ul>
+    </Drawer>}
   </section>;
+}
+
+/** The summary band above every tab: the last 30 days from GET /marketing/analytics/summary. */
+function MarketingSummary() {
+  const [summary, setSummary] = useState<{ state: 'loading' } | { state: 'ready'; value: Summary } | { state: 'error' }>({ state: 'loading' });
+  const load = useCallback(() => { setSummary({ state: 'loading' }); m.getSummary(30, '').then((value) => setSummary({ state: 'ready', value }), () => setSummary({ state: 'error' })); }, []);
+  useEffect(() => { load(); }, [load]);
+  const value = summary.state === 'ready' ? summary.value : null;
+  const totals = value?.totals;
+  const shift = value ? change(value.totals.engagement_rate, value.previous.engagement_rate) : null;
+  const figures = [
+    figure('published', t('pages.mk.fig.published'), summary, () => ({ value: formatNumber(totals!.posts), hint: t('pages.mk.fig.publishedHint', { count: value!.previous.posts }) })),
+    figure('reach', t('pages.mk.fig.reach'), summary, () => ({ value: formatNumber(totals!.reach || totals!.views), hint: t('pages.mk.fig.reachHint', { clicks: formatNumber(totals!.clicks) }) })),
+    figure('rate', t('pages.mk.fig.rate'), summary, () => ({ value: rate(totals!.engagement_rate), hint: shift ? t('pages.mk.fig.rateHint', { change: shift }) : t('pages.mk.fig.rateNone'), tone: 'accent' })),
+    figure('upcoming', t('pages.mk.fig.upcoming'), summary, () => ({ value: formatNumber(value!.upcoming), hint: value!.failed ? t('pages.mk.fig.failed', { count: value!.failed }) : t('pages.mk.fig.noneFailed'), tone: value!.failed ? 'danger' : '' })),
+    figure('pending', t('pages.mk.fig.pending'), summary, () => ({ value: formatNumber(value!.pending_approval), hint: t('pages.mk.fig.pendingHint'), tone: value!.pending_approval ? 'warn' : '' })),
+  ];
+  return <PageSummary label={t('pages.mk.summary')} figures={figures} onRetry={load} />;
+}
+
+/** Next to the posts: the best times to post and this week's report, both from the API. */
+function PlanRail() {
+  const [slots, setSlots] = useState<TimeSlot[] | null | 'error'>(null);
+  const [report, setReport] = useState<WeeklyReport | null | 'error'>(null);
+  const language: Language = getLocale() === 'ar' ? 'ar' : 'en';
+  const loadSlots = useCallback(() => { setSlots(null); m.getBestTimes('').then(setSlots, () => setSlots('error')); }, []);
+  const loadReport = useCallback(() => { setReport(null); m.getWeeklyReport(language).then(setReport, () => setReport('error')); }, [language]);
+  useEffect(() => { loadSlots(); loadReport(); }, [loadSlots, loadReport]);
+  return <aside className="pane mkPlanRail" aria-label={t('pages.mk.railLabel')}>
+    <section className="railSection" aria-labelledby="mk-best-times">
+      <h3 id="mk-best-times">{t('pages.mk.bestTimes')}</h3>
+      {slots === null && <p>{t('common.loading')}</p>}
+      {slots === 'error' && <p>{t('pages.mk.bestTimesFailed')} <button type="button" className="linkButton" onClick={loadSlots}>{t('pages.mk.loadAgain')}</button></p>}
+      {Array.isArray(slots) && slots.length === 0 && <p>{t('pages.mk.bestTimesNone')}</p>}
+      {Array.isArray(slots) && slots.length > 0 && <><ol className="railList mkSlots">{slots.map((slot) => <li key={`${slot.weekday}-${slot.hour}`} className="railItem">
+        <strong>{slotLabel(slot)}</strong>
+        <small>{slot.basis === 'history' ? t('pages.mk.slotHistory', { rate: rate(slot.engagement_rate), count: slot.posts }) : t('pages.mk.slotDefault')}</small>
+      </li>)}</ol></>}
+    </section>
+    <section className="railSection" aria-labelledby="mk-week">
+      <h3 id="mk-week">{t('pages.mk.thisWeek')}</h3>
+      {report === null && <p>{t('common.loading')}</p>}
+      {report === 'error' && <p>{t('pages.mk.reportFailed')} <button type="button" className="linkButton" onClick={loadReport}>{t('pages.mk.loadAgain')}</button></p>}
+      {report && report !== 'error' && <>
+        <p className="mkWeekHead"><strong dir="auto">{report.headline}</strong><small>{report.week_start} → {report.week_end}</small></p>
+        {report.lines.length ? <ul className="mkWeekLines" dir={report.language === 'ar' ? 'rtl' : 'ltr'} lang={report.language}>{report.lines.map((line, index) => <li key={index}>{line}</li>)}</ul> : <p>{t('pages.mk.reportEmpty')}</p>}
+      </>}
+    </section>
+  </aside>;
 }
 
 // ---- composer -------------------------------------------------------------------------------------------
@@ -533,24 +612,31 @@ function AccountsTab({ setup, accounts, onChanged, onNotice }: { setup: Setup; a
   return <section aria-labelledby="mk-accounts-title" className="mkAccounts">
     <h2 id="mk-accounts-title">{t('marketing.accounts.title')}</h2>
     {!setup.can_manage && <Note>{t('marketing.accounts.ownerOnly')}</Note>}
-    <ul className="mkProviders">{setup.providers.map((provider) => <li key={provider.provider} className="surface mkProvider">
-      <div className="mkPostHead"><div><h3><Plug aria-hidden="true" className="mkInlineIcon" />{provider.label}</h3><small className="muted">{provider.platforms.map(platformName).join(' · ')}</small></div>
-        <Badge tone={provider.configured ? 'success' : 'warning'}>{provider.configured ? t('marketing.accounts.ready') : t('marketing.accounts.notSetUp')}</Badge></div>
-      {!provider.configured && <p className="muted">{t('marketing.accounts.missing')} {provider.missing.map((name) => <code key={name}>{name}</code>)}</p>}
-      <details><summary>{t('marketing.accounts.review')}</summary>{provider.platforms.map((platform) => <p key={platform} className="muted"><strong>{platformName(platform)}:</strong> {reviews.get(platform)}</p>)}{provider.provider === 'tiktok' && <p className="muted">{setup.tiktok_direct_post ? t('marketing.accounts.tiktokDirect') : t('marketing.accounts.tiktokInbox')}</p>}{provider.provider === 'meta' && !setup.public_media && <p className="muted">{t('marketing.accounts.publicMedia')}</p>}</details>
-      {setup.can_manage && <div className="actions mkInline"><button type="button" disabled={!provider.configured || busy !== null} onClick={() => void connect(provider.provider)}>{busy === provider.provider ? t('common.loading') : t('marketing.accounts.connect', { name: provider.label })}</button></div>}
-    </li>)}</ul>
+    <div className="pane dataTableWrap"><table className="dataTable mkProviderTable">
+      <caption>{t('pages.mk.providers')}</caption>
+      <thead><tr><th scope="col">{t('pages.mk.col.provider')}</th><th scope="col">{t('pages.mk.col.status')}</th><th scope="col" className="optional">{t('pages.mk.col.review')}</th><th scope="col"><span className="visuallyHidden">{t('pages.files.col.actions')}</span></th></tr></thead>
+      <tbody>{setup.providers.map((provider) => <tr key={provider.provider}>
+        <th scope="row"><strong><Plug aria-hidden="true" className="mkInlineIcon" />{provider.label}</strong><small>{provider.platforms.map(platformName).join(' · ')}</small></th>
+        <td><Badge tone={provider.configured ? 'success' : 'warning'}>{provider.configured ? t('marketing.accounts.ready') : t('marketing.accounts.notSetUp')}</Badge>{!provider.configured && <small>{t('marketing.accounts.missing')} {provider.missing.map((name) => <code key={name}>{name}</code>)}</small>}</td>
+        <td className="optional"><details><summary>{t('marketing.accounts.review')}</summary>{provider.platforms.map((platform) => <p key={platform} className="muted"><strong>{platformName(platform)}:</strong> {reviews.get(platform)}</p>)}{provider.provider === 'tiktok' && <p className="muted">{setup.tiktok_direct_post ? t('marketing.accounts.tiktokDirect') : t('marketing.accounts.tiktokInbox')}</p>}{provider.provider === 'meta' && !setup.public_media && <p className="muted">{t('marketing.accounts.publicMedia')}</p>}</details></td>
+        <td>{setup.can_manage && <div className="cellActions"><button type="button" className="secondary" disabled={!provider.configured || busy !== null} onClick={() => void connect(provider.provider)}>{busy === provider.provider ? t('common.loading') : t('marketing.accounts.connect', { name: provider.label })}</button></div>}</td>
+      </tr>)}</tbody>
+    </table></div>
     <h3>{t('marketing.accounts.connected')}</h3>
-    {accounts.length === 0 ? <Empty title={t('marketing.accounts.none')} text={setup.can_manage ? t('marketing.accounts.noneOwner') : t('marketing.accounts.noneMember')} /> : <ul className="mkList">{accounts.map((account) => <li key={account.id} className="surface mkAccount">
-      <div className="mkPostHead"><div><h3><span className={`mkPlatform ${account.platform}`}>{platformName(account.platform)}</span> <span dir="auto">{account.display_name}</span></h3><small className="muted">{[account.handle && `@${account.handle}`, account.last_checked_at && t('marketing.accounts.checked', { when: formatDateTime(account.last_checked_at) })].filter(Boolean).join(' · ')}</small></div>
-        <Badge tone={accountTone(account.status)}>{accountStatusName(account.status)}</Badge></div>
-      {account.last_error && <div className="mkError" role="note"><strong>{account.last_error.message}</strong><span>{account.last_error.fix}</span></div>}
-      {setup.can_manage && account.status !== 'revoked' && <div className="actions mkInline">
-        <button type="button" className="secondary" disabled={busy !== null} onClick={() => void run(account.id, () => m.checkAccount(account.id), t('marketing.accounts.checkedNote', { name: account.display_name }))}><RefreshCw aria-hidden="true" />{t('marketing.accounts.check')}</button>
-        <button type="button" className="secondary dangerButton" disabled={busy !== null} onClick={() => { if (confirm(t('marketing.accounts.confirmDisconnect', { name: account.display_name }))) void run(account.id, () => m.disconnectAccount(account.id), t('marketing.accounts.disconnected', { name: account.display_name })); }}>{t('marketing.accounts.disconnect')}</button>
-      </div>}
-      {setup.can_manage && account.status !== 'connected' && <div className="actions mkInline"><button type="button" onClick={() => void connect(account.provider)}>{t('marketing.accounts.reconnect')}</button></div>}
-    </li>)}</ul>}
+    {accounts.length === 0 ? <Empty title={t('marketing.accounts.none')} text={setup.can_manage ? t('marketing.accounts.noneOwner') : t('marketing.accounts.noneMember')} /> : <div className="pane dataTableWrap"><table className="dataTable mkAccountTable">
+      <caption className="visuallyHidden">{t('marketing.accounts.connected')}</caption>
+      <thead><tr><th scope="col">{t('pages.mk.col.account')}</th><th scope="col">{t('pages.mk.col.status')}</th><th scope="col" className="optional">{t('pages.mk.col.checked')}</th><th scope="col"><span className="visuallyHidden">{t('pages.files.col.actions')}</span></th></tr></thead>
+      <tbody>{accounts.map((account) => <tr key={account.id}>
+        <th scope="row"><span className={`mkPlatform ${account.platform}`}>{platformName(account.platform)}</span> <strong dir="auto">{account.display_name}</strong>{account.handle && <small dir="ltr">@{account.handle}</small>}{account.last_error && <div className="mkError" role="note"><strong>{account.last_error.message}</strong><span>{account.last_error.fix}</span></div>}</th>
+        <td><Badge tone={accountTone(account.status)}>{accountStatusName(account.status)}</Badge></td>
+        <td className="optional nowrap muted">{account.last_checked_at ? formatDateTime(account.last_checked_at) : '-'}</td>
+        <td>{setup.can_manage && <div className="cellActions">
+          {account.status !== 'revoked' && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void run(account.id, () => m.checkAccount(account.id), t('marketing.accounts.checkedNote', { name: account.display_name }))}><RefreshCw aria-hidden="true" />{t('marketing.accounts.check')}</button>}
+          {account.status !== 'connected' && <button type="button" className="secondary" onClick={() => void connect(account.provider)}>{t('marketing.accounts.reconnect')}</button>}
+          {account.status !== 'revoked' && <button type="button" className="secondary dangerText" disabled={busy !== null} onClick={() => { if (confirm(t('marketing.accounts.confirmDisconnect', { name: account.display_name }))) void run(account.id, () => m.disconnectAccount(account.id), t('marketing.accounts.disconnected', { name: account.display_name })); }}>{t('marketing.accounts.disconnect')}</button>}
+        </div>}</td>
+      </tr>)}</tbody>
+    </table></div>}
     <form className="surface mkPrefs" onSubmit={(event) => { event.preventDefault(); if (!prefs) return; setBusy('prefs'); void m.savePreferences({ brand_voice: prefs.brand_voice, timezone: prefs.timezone, default_hashtags_en: prefs.default_hashtags_en, default_hashtags_ar: prefs.default_hashtags_ar }).then((saved) => { setPrefs(saved); setPrefState(t('marketing.prefs.saved')); }).catch((e) => setPrefState(failure(e, t('marketing.prefs.what')))).finally(() => setBusy(null)); }}>
       <h3>{t('marketing.prefs.title')}</h3>
       {prefs ? <fieldset className="mkFieldset" disabled={!setup.can_manage}>

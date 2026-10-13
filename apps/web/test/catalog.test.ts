@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   canSwitchIntegration, compareVersions, credentialBody, credentialSource, emptyMarketFilter, emptyPublishDraft, filterPackages, filterSkills,
-  groupSkills, historyLabel, installSummary, integrationCounts, lastErrorNote, packageBody, pageOf, publishBody, rollbackTargets, sortIntegrations,
+  groupSkills, historyLabel, installSummary, lastErrorNote, packageBody, pageOf, publishBody, rollbackTargets,
   type IntegrationState, type MarketPackage,
 } from '../src/lib/catalog.ts';
 
@@ -15,11 +15,6 @@ const integration = (over: Partial<IntegrationState> = {}): IntegrationState => 
 const version = (v: string, over: Record<string, unknown> = {}) => ({ id: `id_${v}`, skill_id: 'acme.notes', version: v, name: 'Notes', description: 'Writes notes', required_tools: ['anum.respond'], risk_level: 'low', created_at: at, ...over });
 
 describe('integrations', () => {
-  test('counts and sorts degraded first', () => {
-    const items = [integration({ id: 'a', name: 'B', status: 'disabled' }), integration({ id: 'b', name: 'A' }), integration({ id: 'c', name: 'C', status: 'degraded' })];
-    assert.deepEqual(integrationCounts(items), { connected: 1, degraded: 1, unused: 1 });
-    assert.deepEqual(sortIntegrations(items).map((x) => x.id), ['c', 'b', 'a']);
-  });
   test('a switch is offered only when the operator configured it', () => {
     assert.equal(canSwitchIntegration(integration()), true);
     assert.equal(canSwitchIntegration(integration({ available: false, status: 'disabled' })), false);

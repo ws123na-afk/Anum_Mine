@@ -61,7 +61,7 @@ async function ask(page: Page, text: string) {
 test('voice assistant answers, asks before creating tasks and refuses voice approvals', async ({ page }) => {
   const created = await mockVoiceApi(page);
   // Use the device voice so the test never downloads the natural voice model.
-  await page.addInitScript(() => { localStorage.setItem('anum.voice.reply', ''); localStorage.setItem('anum.voice.name', 'Layla'); localStorage.setItem('anum.voice.wake', 'off'); });
+  await page.addInitScript(() => { localStorage.setItem('anum.voice.reply', ''); localStorage.setItem('anum.voice.name', 'Layla'); localStorage.setItem('anum.voice.wake', 'off'); localStorage.setItem('anum.voice.chat', 'on'); });
   await page.goto('/#voice');
   await expect(page.getByRole('region', { name: 'Layla voice assistant' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Tap to talk' })).toBeVisible();
@@ -98,22 +98,26 @@ async function fakeMicrophone(page: Page) {
       onresult: ((event: unknown) => void) | null = null;
       onerror: ((event: unknown) => void) | null = null;
       onend: (() => void) | null = null;
+      // Like the browser, a stopped or aborted recognizer stops listening and reports its end.
+      private done = false;
       start() {
         const poll = () => {
+          if (this.done) return;
           const phrase = queue.shift();
           if (phrase === undefined) { window.setTimeout(poll, 50); return; }
           const result = Object.assign([{ transcript: phrase }], { isFinal: true });
           this.onresult?.({ results: [result] });
-          window.setTimeout(() => this.onend?.(), 20);
+          window.setTimeout(() => this.stop(), 20);
         };
         poll();
       }
-      stop() { this.onend?.(); }
-      abort() { /* discard */ }
+      stop() { if (this.done) return; this.done = true; this.onend?.(); }
+      abort() { if (this.done) return; this.done = true; window.setTimeout(() => this.onend?.(), 0); }
     }
     Object.assign(window, { SpeechRecognition: FakeRecognition, webkitSpeechRecognition: FakeRecognition });
     localStorage.setItem('anum.voice.reply', '');
     localStorage.setItem('anum.voice.name', 'Layla');
+    localStorage.setItem('anum.voice.chat', 'on');
   });
 }
 
@@ -153,7 +157,8 @@ test('saying the name wakes the assistant with no tap, and it keeps listening fo
   await expect(page.getByText('what is the status of my workspace?')).toBeVisible();
   await expect(page.getByText('You have 2 tasks. 1 running.')).toBeVisible();
 
-  // Follow-up without saying the name again.
+  // Follow-up without saying the name again, once the reply has finished and the page listens.
+  await expect(page.locator('.voiceSpace')).toHaveAttribute('data-state', 'listening');
   await page.evaluate(() => (window as unknown as { __say: (text: string) => void }).__say("What's your name?"));
   await expect(page.getByText("I'm Layla, your assistant here in ANUM.")).toBeVisible();
 });

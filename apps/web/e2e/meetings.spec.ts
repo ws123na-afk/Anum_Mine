@@ -92,9 +92,12 @@ test('the list shows recent call summaries and opens a meeting with labelled AI 
   await mockApi(page);
   await page.goto('/#meetings');
   await expect(page.getByRole('heading', { level: 1, name: 'Calls & Meetings' })).toBeVisible();
-  const activity = page.getByRole('region', { name: 'Recent activity' });
-  await expect(activity.getByRole('button', { name: 'Call summary: PMV meeting' })).toBeVisible();
-  await activity.getByRole('button', { name: 'Call summary: PMV meeting' }).click();
+  // The summary band counts the action items across meetings: the PMV meeting has two open ones.
+  const band = page.getByRole('region', { name: 'Meetings and action items' });
+  await expect(band.getByText('Open action items')).toBeVisible();
+  await expect(band.locator('.pageFigure').nth(1).locator('strong')).toHaveText('2');
+  await expect(page.locator('.meetingRows li')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Open PMV meeting' }).click();
 
   const detail = page.locator('.meetingDetail');
   await expect(detail.getByRole('heading', { name: 'PMV meeting' })).toBeFocused();
@@ -205,8 +208,8 @@ test('viewers read meetings but are told who can import; failures say what faile
   await expect(page.getByRole('button', { name: 'Import a meeting' })).toHaveCount(0);
   await expect(page.getByRole('alert').filter({ hasText: 'Meetings could not be loaded: Database unavailable' })).toBeVisible();
   await page.getByRole('button', { name: 'Retry' }).click();
-  await expect(page.locator('.meetingsTable .memoryRow')).toHaveCount(1);
-  await page.locator('.meetingsTable').getByRole('button', { name: 'Open PMV meeting' }).click();
+  await expect(page.locator('.meetingRows li')).toHaveCount(1);
+  await page.locator('.meetingRows').getByRole('button', { name: 'Open PMV meeting' }).click();
   await expect(page.getByText('Only the person who imported this meeting or a workspace owner can change or delete it.')).toBeVisible();
   await expect(page.locator('.meetingDetail').getByRole('button', { name: 'Create a task for Send the tyre stock report' })).toHaveCount(0);
 });
@@ -228,8 +231,8 @@ test.describe('Arabic', () => {
     await page.goto('/#meetings');
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     await expect(page.getByRole('heading', { level: 1, name: 'المكالمات والاجتماعات' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /ملخص مكالمة: .*اجتماع خطة الإطارات/ })).toBeVisible();
-    await page.locator('.meetingsTable .rowLink').first().click();
+    await expect(page.locator('.meetingRows li')).toHaveCount(1);
+    await page.locator('.meetingRows .meetingRow').first().click();
     const detail = page.locator('.meetingDetail');
     await expect(detail.getByRole('heading', { name: 'الملخص' })).toBeVisible();
     await expect(detail.locator('.meetingSummary')).toHaveAttribute('dir', 'rtl');

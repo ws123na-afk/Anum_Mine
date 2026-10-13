@@ -85,6 +85,7 @@ x-user-roles: owner,member
 - [Multi-tenancy](docs/multi-tenancy.md)
 - [Agent runtime](docs/agent-runtime.md)
 - [Agents: user-built agents and department assistants](docs/agents.md)
+- [AI team org chart: owner, ANUM, departments and agents, live](docs/org-chart.md)
 - [Tasks and agent runs](docs/tasks.md)
 - [ANUM Command: plan, run and follow one request](docs/command.md)
 - [Model gateway](docs/model-gateway.md)
