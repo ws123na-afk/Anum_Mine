@@ -273,7 +273,7 @@ Implemented in `services/api/anum_api/workspace_admin.py`; `workspaces.archived_
 
 ## Client Sign-In
 
-Every client uses authorization code + PKCE (S256) with its own public Keycloak client from the table above, sends `Authorization: Bearer <access_token>` and `x-workspace-id` on every API call, refreshes before the access token expires, and signs out with RP-initiated logout (`end_session_endpoint` with `id_token_hint` and the client's post-logout redirect). When a client has no issuer configured it keeps the local development sign-in (`/api/v1/auth/local/*`), which only works against an API in `headers` mode.
+Every client uses authorization code + PKCE (S256) with its own public Keycloak client from the table above, sends `Authorization: Bearer <access_token>` and `x-workspace-id` on every API call, refreshes before the access token expires, and signs out with RP-initiated logout (`end_session_endpoint` with `id_token_hint` and the client's post-logout redirect). When a client has no issuer configured it keeps the local development sign-in (`/api/v1/auth/local/*`), which only works against an API in `headers` mode; Flutter release builds always have one (the production issuer by default).
 
 The workspace a client sends is the one the user selected, else the token's `workspace_id` claim, else the client's configured default. Clients read claims from the access token without verifying it; the API is the verifier. Clients never send `x-user-id` or `x-user-roles` with an OIDC token, and do not send `x-tenant-id` at all, so the token's `tenant_id` always decides the tenant.
 
@@ -310,7 +310,7 @@ The workspace in the top bar (`tenant / workspace`) opens the switcher (`apps/we
 
 | Define | Value |
 | --- | --- |
-| `ANUM_OIDC_ISSUER` | Issuer URL. Unset keeps the local development sign-in. |
+| `ANUM_OIDC_ISSUER` | Issuer URL. Unset: debug and profile builds keep the local development sign-in; release builds use `https://auth.anum360os.com/realms/anum` and never show the development sign-in ([Release builds](mobile.md#release-builds)). |
 | `ANUM_OIDC_CLIENT_ID` | `anum-flutter` (default). |
 | `ANUM_OIDC_REDIRECT_URL` | `com.anum.app:/oauth2redirect` (default). |
 | `ANUM_WORKSPACE_ID` | Optional workspace sent when the token has no `workspace_id` claim. |

@@ -474,7 +474,9 @@ An address is in several places. Change the host in `.env` (the three must stay 
 |---|---|
 | `ANUM_WEB_HOST` | Keycloak admin console → realm `anum` → client `anum-web` → Valid redirect URIs, Valid post logout redirect URIs, Web origins (the realm was imported once). |
 | `ANUM_API_HOST` | Nothing else (the web bundle is rebuilt). |
-| `ANUM_AUTH_HOST` | Desktop and Flutter release builds (`ANUM_PRODUCTION_OIDC_ISSUER`). Existing sessions end: the token issuer changes. |
+| `ANUM_AUTH_HOST` | Desktop and Flutter release builds (`ANUM_PRODUCTION_OIDC_ISSUER`). Existing sessions end: the token issuer changes. Phone apps: set the repository variables `ANUM_PRODUCTION_OIDC_ISSUER` (`https://<auth host>/realms/anum`) and `ANUM_PRODUCTION_API_URL`, run Actions → Release clients, install the new `anum-android-apk` artifact after uninstalling the old app ([Installable APK](mobile.md#installable-apk)); the `anum-flutter` client's redirect `com.anum.app:/oauth2redirect` stays as it is. Builds made for the old host keep calling it. |
+
+The owner's hosts since October 2026 are `app.anum360os.com`, `api.anum360os.com` and `auth.anum360os.com` (issuer `https://auth.anum360os.com/realms/anum`). The phone apps' release builds default to these ([Release builds](mobile.md#release-builds)), so the repository variables are needed only for different hosts (a variable that still holds a DuckDNS address wins over the default: change or delete it); a phone with an app built for the DuckDNS hosts needs the new build.
 
 Then `sudo infra/oracle/update.sh --no-pull` (rebuilds the web bundle, recreates the services, Caddy requests the new certificate).
 

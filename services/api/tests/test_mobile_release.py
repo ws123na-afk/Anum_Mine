@@ -118,6 +118,42 @@ def test_release_workflow_uploads_the_app_and_defers_desktop() -> None:
             assert "continue-on-error" not in step
 
 
+PRODUCTION_API = "https://api.anum360os.com/"
+PRODUCTION_ISSUER = "https://auth.anum360os.com/realms/anum"
+PRODUCTION_WEB = "https://app.anum360os.com/"
+APP_DART = MOBILE / "lib" / "src" / "anum_app.dart"
+
+
+def test_release_builds_default_to_the_production_hosts() -> None:
+    # Without dart-defines a release build uses the owner's domain and Keycloak, never the
+    # emulator address or the development sign-in (docs/mobile.md, "Release builds").
+    assert f"const productionApiUrl = '{PRODUCTION_API}';" in APP_DART.read_text(encoding="utf-8")
+    assert f"const productionOidcIssuer = '{PRODUCTION_ISSUER}';" in OIDC_DART.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_mobile_release_jobs_fall_back_to_the_production_hosts() -> None:
+    workflow = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    for name in ("android", "android-apk", "ios"):
+        env = workflow["jobs"][name]["env"]
+        assert env["PRODUCTION_API_URL"].endswith(f"|| '{PRODUCTION_API}' }}}}"), name
+        assert env["PRODUCTION_OIDC_ISSUER"].endswith(f"|| '{PRODUCTION_ISSUER}' }}}}"), name
+        assert env["PRODUCTION_WEB_APP_URL"].endswith(f"|| '{PRODUCTION_WEB}' }}}}"), name
+
+
+def test_installable_apk_is_a_production_release_build() -> None:
+    job = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["android-apk"]
+    build = next(step for step in job["steps"] if step.get("name") == "Build the release APK")
+    assert "flutter build apk --release" in build["run"]
+    assert '--dart-define-from-file="$RUNNER_TEMP/production.json"' in build["run"]
+    upload = next(step for step in job["steps"] if step.get("name") == "Upload the APK")
+    assert upload["with"]["name"] == "anum-android-apk"
+    # The decoded keystore never outlives the job.
+    cleanup = next(step for step in job["steps"] if step.get("name") == "Remove the decoded keystore")
+    assert cleanup["if"] == "always()"
+
+
 RELEASE_CONFIG_SCRIPT = REPO_ROOT / ".github" / "scripts" / "mobile-release-config.sh"
 ANDROID_SIGNING = (
     "ANUM_ANDROID_KEYSTORE_BASE64",

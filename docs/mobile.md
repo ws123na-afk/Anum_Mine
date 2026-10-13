@@ -35,7 +35,7 @@ Flutter is the shipping Android and iOS app; the Kotlin client in `apps/android`
 
 ## Configuration
 
-Supply the API origin at build or run time. The Android emulator defaults to `10.0.2.2`:
+Supply the API origin at build or run time. Debug and profile builds default to the Android emulator's `10.0.2.2`; release builds default to the production API `https://api.anum360os.com/` ([Release builds](#release-builds)):
 
 ```bash
 flutter run --dart-define=ANUM_API_URL=http://10.0.2.2:8000/
@@ -52,7 +52,9 @@ flutter run \
 
 `ANUM_TERMS_URL` and `ANUM_PRIVACY_POLICY_URL` (optional) link the deployment's terms and privacy policy from Create account; `ANUM_APP_VERSION` sets the version shown in About. `ANUM_OIDC_CLIENT_ID`, `ANUM_OIDC_REDIRECT_URL` and `ANUM_WORKSPACE_ID` override the client, redirect and fallback workspace; `ANUM_WEB_APP_URL` (for example `http://localhost:5173/`) adds the web invitation link to new invitations ([Release builds](#release-builds)). The issuer must match the API's `ANUM_KEYCLOAK_ISSUER` exactly, which is why the emulator reaches Keycloak through `adb reverse` on `localhost` instead of `10.0.2.2`. Plain-HTTP issuers work only in debug and profile builds.
 
-When `ANUM_OIDC_ISSUER` is not defined the app keeps the local development sign-in (password, one-time code, password recovery), which requires an API in `ANUM_AUTH_MODE=headers`. Production builds must use HTTPS and OIDC; the local sign-in screen is not shown when an issuer is configured.
+When `ANUM_OIDC_ISSUER` is not defined, a debug or profile build keeps the local development sign-in (password, one-time code, password recovery), which requires an API in `ANUM_AUTH_MODE=headers`. A release build never shows it: without the define it signs in through the production issuer `https://auth.anum360os.com/realms/anum`. The local sign-in screen is not shown when an issuer is configured.
+
+The CI artifact `anum-mobile-debug` (from `ci.yml`) is such a debug build, made for a USB-connected phone with `adb reverse` (`ANUM_API_URL=http://127.0.0.1:8000/`, no issuer): installed on its own it opens the development sign-in and cannot reach production. Phones use the [installable APK](#installable-apk) or a store build.
 
 ### First Run
 
@@ -204,14 +206,22 @@ Production configuration is passed at build time; there are no flavours. Keep th
 }
 ```
 
-A release build whose `ANUM_API_URL` is not an `https://` address starts on an error screen naming the problem and creates no API client.
+Without defines a release build uses the owner's production hosts (`productionApiUrl` in `lib/src/anum_app.dart`, `productionOidcIssuer` in `lib/features/auth/oidc.dart`):
+
+| Define | Release default | Debug and profile default |
+| --- | --- | --- |
+| `ANUM_API_URL` | `https://api.anum360os.com/` | `http://10.0.2.2:8000/` |
+| `ANUM_OIDC_ISSUER` | `https://auth.anum360os.com/realms/anum` | none: the local development sign-in |
+| `ANUM_OIDC_CLIENT_ID` / `ANUM_OIDC_REDIRECT_URL` | `anum-flutter` / `com.anum.app:/oauth2redirect` | the same |
+
+A define always wins, so another deployment builds with its own values. A release build whose API is not an `https://` address, points at a development machine (`localhost`, `127.0.0.1`, `10.0.2.2`), or whose issuer is not an `https://` production address starts on an error screen naming the problem and creates no API client (`releaseConfigError`, `test/release_config_test.dart`); it can never fall back to the development sign-in.
 
 ```bash
 flutter build appbundle --release --dart-define-from-file=production.json
 flutter build ipa --release --dart-define-from-file=production.json
 ```
 
-The issuer must use HTTPS (plain HTTP is refused in release builds) and equal the API's `ANUM_KEYCLOAK_ISSUER`. Without `ANUM_OIDC_ISSUER` a release build would show the development sign-in, so a production build must always set it.
+The issuer must use HTTPS (plain HTTP is refused in release builds) and equal the API's `ANUM_KEYCLOAK_ISSUER`. Without `ANUM_OIDC_ISSUER` a release build uses the production issuer above, never the development sign-in.
 
 `ANUM_WEB_APP_URL` is optional: the address of the web app (absolute `http(s)` URL, path allowed). With it, a newly created invitation also shows and copies the web client's link `<ANUM_WEB_APP_URL>#invitation=<token>&workspace=<workspace_id>`, which opens the web app's accept form pre-filled ([Identity](identity.md#client-screens)). Without it, or with a value that is not an absolute `http(s)` URL, the app shows the token and the workspace id only. The release workflow adds it to the generated defines file when the optional repository variable `ANUM_PRODUCTION_WEB_APP_URL` is set.
 
@@ -244,17 +254,18 @@ iOS. The bundle identifier is `com.anum.app`; the redirect scheme and the microp
 `services/api/tests/test_mobile_release.py` runs the script for each row.
 
 - Android (`ubuntu-latest`): decodes the upload keystore into `$RUNNER_TEMP`, builds `flutter build appbundle --release` with `ANUM_ANDROID_REQUIRE_RELEASE_SIGNING=true` and the production values, refuses a debug-signed bundle, uploads `anum-<version>-<build>.aab` and its SHA-256 as the artifact `anum-android-release`, then (on tags, or manual runs with "upload") sends it to the Play internal track with `r0adkll/upload-google-play` pinned by commit. The keystore file is deleted at the end of the job.
+- Android installable APK (`android-apk`, every run): builds `flutter build apk --release` with the same production values and uploads `anum-<version>-<build>.apk` and its SHA-256 as the artifact `anum-android-apk` ([Installable APK](#installable-apk)). Signed with the upload key when the four signing secrets are set, otherwise with the debug key and a notice. It is never sent to Play.
 - iOS (`macos-latest`): with the Apple secrets, `flutter build ios --config-only` writes the production configuration and `xcodebuild archive` and `-exportArchive` sign with automatic, cloud-managed signing through the API key (`flutter build ipa` cannot pass an API key to Xcode). The export options (`method app-store-connect`, `manageAppVersionAndBuildNumber false`) keep the pipeline's build number. The IPA and its SHA-256 are uploaded as `anum-ios-release` and, on tags or with "upload", to TestFlight with `xcrun altool`. Without the secrets the job runs `flutter build ios --release --no-codesign` as a compile check. CI's `Flutter iOS compile check` job runs the cheaper debug variant on every pull request.
 
-Both builds get the same generated defines file (`ANUM_API_URL`, `ANUM_OIDC_ISSUER` and, when set, `ANUM_WEB_APP_URL`). The version name comes from the tag (`v1.2.3` becomes `1.2.3`; manual runs use the `X.Y.Z` of `version:` in `pubspec.yaml`) and the build number is the workflow run number plus `ANUM_BUILD_NUMBER_OFFSET`, so every upload has a higher Play version code and iOS build number than the last.
+All mobile builds get the same generated defines file (`ANUM_API_URL`, `ANUM_OIDC_ISSUER` and `ANUM_WEB_APP_URL`). Each mobile job falls back to the owner's hosts when a variable is not set: `https://api.anum360os.com/`, `https://auth.anum360os.com/realms/anum` and `https://app.anum360os.com/` (the desktop jobs do not). The version name comes from the tag (`v1.2.3` becomes `1.2.3`; manual runs use the `X.Y.Z` of `version:` in `pubspec.yaml`) and the build number is the workflow run number plus `ANUM_BUILD_NUMBER_OFFSET`, so every upload has a higher Play version code and iOS build number than the last.
 
 Repository variables:
 
 | Variable | Value |
 | --- | --- |
-| `ANUM_PRODUCTION_API_URL` | Production API origin, HTTPS (becomes `ANUM_API_URL`). Shared with the desktop build. |
-| `ANUM_PRODUCTION_OIDC_ISSUER` | Production Keycloak issuer, HTTPS, equal to the API's `ANUM_KEYCLOAK_ISSUER` (becomes `ANUM_OIDC_ISSUER`). |
-| `ANUM_PRODUCTION_WEB_APP_URL` | Optional. Production web app address (becomes `ANUM_WEB_APP_URL`, adds the web invitation link). |
+| `ANUM_PRODUCTION_API_URL` | Production API origin, HTTPS (becomes `ANUM_API_URL`). Mobile default `https://api.anum360os.com/`. Shared with the desktop build. |
+| `ANUM_PRODUCTION_OIDC_ISSUER` | Production Keycloak issuer, HTTPS, equal to the API's `ANUM_KEYCLOAK_ISSUER` (becomes `ANUM_OIDC_ISSUER`). Mobile default `https://auth.anum360os.com/realms/anum`. |
+| `ANUM_PRODUCTION_WEB_APP_URL` | Optional. Production web app address (becomes `ANUM_WEB_APP_URL`, adds the web invitation link). Mobile default `https://app.anum360os.com/`. |
 | `ANUM_BUILD_NUMBER_OFFSET` | Optional. A whole number added to the run number, for example to continue above a build uploaded by hand. |
 | `ANUM_PLAY_RELEASE_STATUS` | Optional. `completed` by default; set `draft` while the Play app has never been reviewed (Play refuses `completed` releases for a draft app). |
 | `ANUM_RELEASE_DESKTOP` | Optional. `true` also builds the desktop installers on tags. Leave unset while desktop releases are deferred. |
@@ -280,6 +291,36 @@ Rolling back a store release:
 - App Store: before release, remove the build from review or from the TestFlight groups. After release, pause the phased release if it is still running, then ship a fixed build through an expedited review; an approved version cannot be replaced by an older one.
 
 The pipeline has not run yet: it needs the keys and secrets above, and no signed build or macOS job can be run from a Linux development container. `services/api/tests/test_mobile_release.py` checks that the deployed realm's `anum-flutter` client registers exactly `com.anum.app:/oauth2redirect` (no wildcards) as its redirect and post-logout redirect, that the app's defaults, the Android `appAuthRedirectScheme` and applicationId, and the iOS URL scheme and bundle identifier agree with it, and that the workflow uploads `com.anum.app` and keeps the desktop jobs gated.
+
+### Installable APK
+
+For the owner's phone and testers who are not on a Play track. Every "Release clients" run builds it with the production addresses, so it signs in through `https://auth.anum360os.com/realms/anum` and talks to `https://api.anum360os.com/`.
+
+0. GitHub, Settings, Secrets and variables, Actions, Variables: if `ANUM_PRODUCTION_API_URL`, `ANUM_PRODUCTION_OIDC_ISSUER` or `ANUM_PRODUCTION_WEB_APP_URL` still hold the old DuckDNS addresses, set them to `https://api.anum360os.com/`, `https://auth.anum360os.com/realms/anum` and `https://app.anum360os.com/` (or delete them: the mobile jobs then use these defaults). A set variable always wins over the default. The API's `ANUM_KEYCLOAK_ISSUER` must be `https://auth.anum360os.com/realms/anum` too (`/readyz` and a web sign-in prove it).
+1. GitHub, Actions, Release clients, Run workflow: branch `main`, leave "upload" and "desktop" unticked. The Android installable APK job needs no secret; without the signing secrets the APK is signed with the debug key (a notice says so).
+2. When the run is green, open it, download the artifact `anum-android-apk` and unzip it: `anum-<version>-<build>.apk` and its `.sha256`. The run summary lists the API and sign-in addresses the APK was built with.
+3. On the phone, uninstall any earlier ANUM build first (Settings, Apps, ANUM, Uninstall), in particular a CI `anum-mobile-debug` build or one built from DuckDNS addresses: Android refuses to update an app signed with a different key, and the old build keeps its old addresses.
+4. Copy the APK to the phone (USB, Google Drive or e-mail to yourself), open it and allow "Install unknown apps" for the app that opens it when asked; or `adb install anum-<version>-<build>.apk`.
+5. Open ANUM and tap Sign in: the system browser opens the Keycloak page at `auth.anum360os.com`. After signing in it returns to the app (`com.anum.app:/oauth2redirect`).
+
+An APK signed with the debug key cannot later be replaced by the Play build (different signature): uninstall it before installing from Play. With the signing secrets set, the APK is signed with the upload key, which still differs from Play's app signing key, so the same applies.
+
+If sign-in fails in the browser with "Invalid parameter: redirect_uri", check the Keycloak client below; if the app says the build is misconfigured, a repository variable holds a non-https or development address.
+
+### Keycloak Client for the Apps
+
+The apps use the public client `anum-flutter` in realm `anum` (Android and iOS, authorization code + PKCE). Its redirect is a private-use URI scheme, not a web address, so it does not change when the domain changes:
+
+| Setting (Keycloak admin console, realm `anum`, Clients, `anum-flutter`) | Value |
+| --- | --- |
+| Client authentication | Off (public client) |
+| Standard flow | On; Direct access grants off |
+| Valid redirect URIs | `com.anum.app:/oauth2redirect` (exactly; no wildcard) |
+| Valid post logout redirect URIs | `com.anum.app:/oauth2redirect` |
+| Web origins | empty (the app makes no browser requests to Keycloak) |
+| Advanced, Proof Key for Code Exchange Code Challenge Method | `S256` |
+
+The realm import (`infra/keycloak/anum-realm.json`, `services/api/tests/test_mobile_release.py`) already contains exactly these values, so a moved Keycloak host needs no change here. Check them once in the console (the realm was imported once, so an older import may differ): if `anum-flutter` is missing or the redirect differs, set the values above and Save. What does change with the host is the token issuer: the API's `ANUM_KEYCLOAK_ISSUER` and the app's issuer must both be `https://auth.anum360os.com/realms/anum`, so builds made for the DuckDNS hosts stop working and must be replaced by a new build ([Changing an address](deploy-oracle.md#changing-an-address-later)).
 
 ### Crash Symbols
 
@@ -387,7 +428,7 @@ First release:
 
 Where the builds land:
 
-- GitHub: the run's summary lists each build's SHA-256, and its Artifacts hold `anum-android-release` and `anum-ios-release`.
+- GitHub: the run's summary lists each build's SHA-256, and its Artifacts hold `anum-android-release`, `anum-android-apk` ([Installable APK](#installable-apk)) and `anum-ios-release`.
 - Play Console, Testing, Internal testing: while `ANUM_PLAY_RELEASE_STATUS` is `draft` the release waits as a draft; open it and Roll out. Once one internal release is out, delete that variable so later tags roll out by themselves.
 - App Store Connect, TestFlight: the build appears after Apple's processing (usually 5 to 30 minutes). Answer the export compliance question for each build (the owner's declaration; the app itself uses only HTTPS and the operating system's keychain), then add the build to a tester group.
 

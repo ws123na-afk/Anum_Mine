@@ -93,6 +93,54 @@ abstract final class AnumRoutes {
   static const quickCommands = '/quick-commands';
 }
 
+/// API origin a release build uses when `ANUM_API_URL` is not defined: the
+/// owner's production API (docs/mobile.md, "Release builds"). A
+/// `--dart-define=ANUM_API_URL=...` (CI: the `ANUM_PRODUCTION_API_URL`
+/// repository variable) overrides it.
+const productionApiUrl = 'https://api.anum360os.com/';
+
+/// Debug and profile builds without `ANUM_API_URL`: the API on the
+/// development machine, as the Android emulator sees it.
+const developmentApiUrl = 'http://10.0.2.2:8000/';
+
+/// The API origin for a defined `ANUM_API_URL` (empty when not defined).
+String resolveApiUrl(String definedUrl, {required bool release}) {
+  final url = definedUrl.trim();
+  if (url.isNotEmpty) return url;
+  return release ? productionApiUrl : developmentApiUrl;
+}
+
+const _developmentHosts = {'localhost', '127.0.0.1', '10.0.2.2', '0.0.0.0'};
+
+/// Why this build's configuration cannot run, or null when it can. Release
+/// builds need an HTTPS API and an HTTPS Keycloak issuer on real hosts, so a
+/// release build can never land on the local development sign-in.
+String? releaseConfigError(
+    {required String apiUrl,
+    required OidcConfig? oidc,
+    required bool release}) {
+  if (!release) return null;
+  final apiError = releaseApiUrlError(apiUrl, release: true);
+  if (apiError != null) return apiError;
+  if (_developmentHosts.contains(Uri.parse(apiUrl).host)) {
+    return 'This build is misconfigured: ANUM_API_URL points at a development '
+        'machine ("$apiUrl"). Rebuild with the production API address.';
+  }
+  if (oidc == null) {
+    return 'This build is not configured for sign-in: ANUM_OIDC_ISSUER is '
+        'missing. Rebuild with --dart-define=ANUM_OIDC_ISSUER=https://...';
+  }
+  final issuer = Uri.tryParse(oidc.issuer);
+  if (issuer == null ||
+      issuer.scheme != 'https' ||
+      issuer.host.isEmpty ||
+      _developmentHosts.contains(issuer.host)) {
+    return 'This build is misconfigured: ANUM_OIDC_ISSUER must be the '
+        'production https:// Keycloak issuer (got "${oidc.issuer}").';
+  }
+  return null;
+}
+
 /// Why [apiUrl] cannot be used by a release build, or null when it can.
 /// Release builds talk to the API over HTTPS only.
 String? releaseApiUrlError(String apiUrl, {required bool release}) {
@@ -150,15 +198,16 @@ class _AnumAppState extends State<AnumApp> {
   @override
   void initState() {
     super.initState();
-    const configuredUrl = String.fromEnvironment(
-      'ANUM_API_URL',
-      defaultValue: 'http://10.0.2.2:8000/',
-    );
-    _configError = releaseApiUrlError(configuredUrl, release: kReleaseMode);
-    if (_configError != null) return;
-    // With --dart-define=ANUM_OIDC_ISSUER the app signs in through Keycloak;
-    // without it, the local development sign-in stays in place.
+    final configuredUrl = resolveApiUrl(
+        const String.fromEnvironment('ANUM_API_URL'),
+        release: kReleaseMode);
+    // Debug and profile builds without --dart-define=ANUM_OIDC_ISSUER keep
+    // the local development sign-in; release builds always use Keycloak
+    // (the production issuer unless the define names another).
     final oidcConfig = OidcConfig.fromEnvironment();
+    _configError = releaseConfigError(
+        apiUrl: configuredUrl, oidc: oidcConfig, release: kReleaseMode);
+    if (_configError != null) return;
     final oidc =
         oidcConfig == null ? null : AppAuthOidcAuthenticator(oidcConfig);
     final secureSessions = SecureSessionStore();
