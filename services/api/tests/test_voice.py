@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import anum_api.main  # noqa: F401  (configures the voice task runtime, as in the app)
 from anum_api.dependencies import memory_repository
 from anum_api.voice import router, voice_store
 
@@ -162,7 +163,12 @@ def test_status_question_reports_workspace_counts() -> None:
     assert "no tasks yet" in response.json()["reply"]
 
 
-def test_create_task_by_voice_only_proposes_and_needs_confirmation() -> None:
+def test_without_the_task_runtime_a_spoken_task_is_only_proposed(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # An app that mounts only the voice router has no task runtime: the old proposal flow.
+    # With the runtime (main.py) the task is created and run: tests/test_voice_actions.py.
+    from anum_api import voice_actions
+
+    monkeypatch.setattr(voice_actions, "_configured", None)
     _, response = _ask("Create a task: draft the quarterly review")
 
     body = response.json()
@@ -225,7 +231,9 @@ def test_calling_the_name_greets_and_wake_word_is_stripped() -> None:
 
     assert greeting.json()["intent"] == "greeting"
     assert status.json()["intent"] == "status"
-    assert task.json()["proposed_task"] == "book the review"
+    # The name is stripped before the request is read: the task is "Book the review".
+    assert task.json()["intent"] == "action"
+    assert task.json()["action"]["title"] == "Book the review"
 
 
 def test_status_reply_reads_naturally() -> None:

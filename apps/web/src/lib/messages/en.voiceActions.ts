@@ -1,0 +1,32 @@
+// English messages for voice action cards (VoiceActionCard.tsx, lib/voiceActions.ts,
+// docs/voice.md#actions). Spread into en.ts; the Arabic twin is ar.voiceActions.ts.
+import type { Message } from './types.ts';
+
+export const voiceActionsEn = {
+  'voice.tier.action': 'Done through ANUM',
+  'voiceAction.label': 'What {name} did',
+  'voiceAction.kind.create_task': 'New task',
+  'voiceAction.kind.assign': 'Work handed over',
+  'voiceAction.kind.run_task': 'Task started',
+  'voiceAction.kind.cancel_task': 'Task cancelled',
+  'voiceAction.kind.task_status': 'Task status',
+  'voiceAction.kind.run_quick_command': 'Quick command',
+  'voiceAction.state.running': 'Running',
+  'voiceAction.state.completed': 'Done',
+  'voiceAction.state.approval': 'Waiting for approval',
+  'voiceAction.state.failed': 'Failed',
+  'voiceAction.state.cancelled': 'Cancelled',
+  'voiceAction.state.created': 'Saved, not started',
+  'voiceAction.state.status': 'Status',
+  'voiceAction.state.not_found': 'Not found',
+  'voiceAction.state.ambiguous': 'Which one?',
+  'voiceAction.state.denied': 'Not allowed for your role',
+  'voiceAction.state.needs_detail': 'Needs more detail',
+  'voiceAction.agent': 'Agent: {name}',
+  'voiceAction.steps': { one: '{count} step', other: '{count} steps' },
+  'voiceAction.approvalsPending': { one: '{count} approval waiting', other: '{count} approvals waiting' },
+  'voiceAction.approvalNote': 'Approve or reject it in Approvals. Voice never decides an approval.',
+  'voiceAction.openTask': 'Open task',
+  'voiceAction.openApprovals': 'Open Approvals',
+  'voiceAction.candidates': 'Matches',
+} satisfies Record<string, Message>;

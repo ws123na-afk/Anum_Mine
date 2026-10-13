@@ -94,6 +94,10 @@ Tests: `apps/web/test/tasks.test.ts`, `apps/web/test/tasksQuery.test.ts`, `apps/
 - Task detail: priority and due date with **Change priority**, **Change due date** and **Remove due date**; Cancel, Retry (failed or cancelled), Rename, Archive or Restore, and "Copy run log" (the JSON export on the clipboard); run history chips switch the step timeline between runs. A `403` or `409` shows the API's sentence on the screen and keeps the workspace usable.
 - Layout is covered from 320 to 1440 wide at 200 percent text, in English and Arabic (`test/task_management_test.dart`, `test/lists/tasks_list_test.dart`).
 
+## Voice
+
+The voice assistant creates, starts, retries, cancels and reports on tasks by name with the same permissions and code as these routes (`main.start_task_run`, `start_task_retry`, `cancel_task_record`); tasks it creates record `task.created` with `source: "voice"` ([Voice actions](voice.md#actions)).
+
 ## Known limits
 
 - Search is a substring scan inside the filtered keyset page; no relevance ranking or trigram index yet.

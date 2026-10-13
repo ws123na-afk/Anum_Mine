@@ -1016,9 +1016,17 @@ async def create_command(
     repository: AnumRepository = Depends(repository_context),
 ) -> CommandView:
     """Create the command and one task per confirmed step; start them with ``/tasks/{id}/run``."""
+    return create_command_record(payload, _tools(request), repository, context)
+
+
+def create_command_record(
+    payload: CommandCreate, tools: ToolRegistry, repository: AnumRepository, context: TenantContext
+) -> CommandView:
+    """``POST /commands`` in the caller's unit of work: the route and a quick command run by
+    voice (voice_actions.py) plan, refuse blocked steps, create and audit the same way."""
     require_permission(context, Permission.TASK_CREATE)
     locale = payload.locale or language_of(payload.text)
-    planner = Planner(_tools(request), repository, context, locale)
+    planner = Planner(tools, repository, context, locale)
     planned = [planner.step(index, step.instruction) for index, step in enumerate(payload.steps, 1)]
     blocked = [step.position for step in planned if step.approval == ApprovalNeed.BLOCKED]
     if blocked:

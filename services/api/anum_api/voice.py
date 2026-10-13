@@ -38,6 +38,8 @@ from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .sse import SSE_HEADERS, sse
 from .tyre.tools import tyre_grounding
+from . import voice_actions
+from .voice_actions import ActionKind, ParsedAction, VoiceActionCard
 from .voice_assistant import (
     MAX_REPLY_CHARS,
     SMALL_TALK,
@@ -47,6 +49,7 @@ from .voice_assistant import (
     answer_question,
     classify,
     confirm_reply,
+    is_visual_only,
     mock_answer,
     snapshot,
     voice_messages,
@@ -140,6 +143,9 @@ class VoiceAskResult(BaseModel):
     proposed_task: str | None = None
     workspace: WorkspaceSnapshot
     assistant_segment: TranscriptSegment
+    # What a request for work did (docs/voice.md#actions); null for answers.
+    action_kind: ActionKind | None = None
+    action: VoiceActionCard | None = None
 
 
 def transcript_expiry(retention: TranscriptRetention, created_at: datetime) -> datetime | None:
@@ -440,13 +446,18 @@ async def ask_voice_assistant(
     context: TenantContext = Depends(tenant_context),
     gateway: ModelGateway = Depends(voice_model_gateway),
 ) -> VoiceAskResult:
-    """Answer a spoken question. Read-only: it never changes tasks or approvals.
+    """Answer a spoken question, or carry out a request for work through the governed
+    task path (voice_actions.py). It never decides an approval.
 
     No database session stays open while the model answers, and every read and write
     runs in a worker thread, never on the event loop (docs/realtime.md#event-loop).
     """
     asked = await asyncio.to_thread(prepare_ask_in_own_session, session_id, payload, context)
     reply = asked.reply
+    card: VoiceActionCard | None = None
+    if asked.action is not None:
+        performed = await voice_actions.perform_all(asked.action, context, asked.arabic)
+        card, reply = performed.card, performed.reply
     grounding = await tyre_grounding(context, asked.text) if reply is None else None
     if grounding is not None and getattr(gateway, "provider", "") == "mock":
         # No model to phrase it: say the tool's own answer, numbers included.
@@ -473,6 +484,8 @@ async def ask_voice_assistant(
         proposed_task=asked.proposal,
         workspace=asked.facts,
         assistant_segment=assistant_segment,
+        action_kind=asked.action.kind if asked.action else None,
+        action=card,
     )
 
 
@@ -490,6 +503,8 @@ class _PreparedAsk:
     proposal: str | None
     # A fixed reply (status, small talk, refusals); None when the model must answer.
     reply: str | None
+    # A request for work, carried out while the reply streams (voice_actions.py).
+    action: ParsedAction | None = None
 
 
 def _marketing_reply(context: TenantContext, text: str, arabic: bool) -> str:
@@ -539,6 +554,9 @@ def _prepare_ask(
     intent, proposal = classify(text, name)
     reply: str | None = None
     tier = VoiceRiskTier.READ
+    action: ParsedAction | None = None
+    if intent == VoiceIntent.ACTION:
+        intent, tier, action, proposal, reply = _action_for(text, context, arabic)
     if intent == VoiceIntent.VISUAL_ONLY:
         tier, reply = VoiceRiskTier.VISUAL_ONLY, visual_only_reply(arabic)
     elif intent == VoiceIntent.CREATE_TASK:
@@ -564,6 +582,14 @@ def _prepare_ask(
             tier = VoiceRiskTier(tier_value)
             if proposal is not None:
                 intent = VoiceIntent.CREATE_TASK
+        elif _is_tool_request(text):
+            # "Send the quarterly report to the bank": a task through the runtime, like the
+            # Assistant chat's action card; its tool call waits for an approval by policy.
+            action = ParsedAction(ActionKind.CREATE_TASK, work=" ".join(text.split()))
+            intent, tier = VoiceIntent.ACTION, VoiceRiskTier.ACTION
+    if action is not None and action.kind != ActionKind.TASK_STATUS and not _claim_segment(context, segment.id):
+        # A retried or concurrent submit of a segment already acted on: never act twice.
+        action, reply = None, already_handled_reply(arabic)
     return _PreparedAsk(
         session=session,
         segment=segment,
@@ -576,7 +602,62 @@ def _prepare_ask(
         tier=tier,
         proposal=proposal,
         reply=reply,
+        action=action,
     )
+
+
+def _claim_segment(context: TenantContext, segment_id: str) -> bool:
+    """Consume the segment before a state-changing action, atomically (the same claim as
+    ``/commands``: one conditional UPDATE in PostgreSQL). False when it was already used."""
+    with open_voice_store(context) as store:
+        try:
+            store.consume_segment(segment_id)
+        except ValueError:
+            return False
+    return True
+
+
+def already_handled_reply(arabic: bool) -> str:
+    if arabic:
+        return "نفّذت هذا الطلب بالفعل. تابع تقدمه في المهام."
+    return "I've already acted on that request. Check Tasks for its progress."
+
+
+def _action_for(
+    text: str, context: TenantContext, arabic: bool
+) -> tuple[VoiceIntent, VoiceRiskTier, ParsedAction | None, str | None, str | None]:
+    """(intent, tier, action, proposal, fixed reply) for a request for work.
+
+    An assignment that names nobody ANUM knows is not one ("have a nice day"); it is then
+    classified again without the action rules. Without the task runtime (an app that only
+    mounts the voice router) a new task is proposed for the user to confirm, as before.
+    """
+    parsed = voice_actions.parse_action(text)
+    if parsed is not None and parsed.kind == ActionKind.ASSIGN:
+        parsed = voice_actions.resolve_assignment(parsed, text, context)
+    if parsed is None:
+        if is_visual_only(text):
+            return VoiceIntent.VISUAL_ONLY, VoiceRiskTier.VISUAL_ONLY, None, None, visual_only_reply(arabic)
+        return VoiceIntent.QUESTION, VoiceRiskTier.READ, None, None, None
+    if voice_actions.configured() is None and parsed.kind == ActionKind.CREATE_TASK:
+        return VoiceIntent.CREATE_TASK, VoiceRiskTier.CONFIRM, None, parsed.work, confirm_reply(parsed.work, arabic)
+    tier = VoiceRiskTier.READ if parsed.kind == ActionKind.TASK_STATUS else VoiceRiskTier.ACTION
+    return VoiceIntent.ACTION, tier, parsed, None, None
+
+
+def _is_tool_request(text: str) -> bool:
+    """Whether the question asks for an outward action the runtime would plan as a tool call
+    (the Assistant chat's ``action`` category, chosen from the user's own words)."""
+    from . import chat_tools
+
+    runtime = chat_tools.configured()
+    if runtime is None or voice_actions.configured() is None:
+        return False
+    try:
+        return chat_tools.chat_intent(text, runtime.skills, runtime.tools.names) == "action"
+    except Exception:  # routing is best effort: the question is still answered
+        logger.warning("voice_tool_routing_failed")
+        return False
 
 
 def prepare_ask_in_own_session(session_id: str, payload: VoiceAskCreate, context: TenantContext) -> _PreparedAsk:
@@ -626,6 +707,40 @@ async def stream_voice_assistant(
     )
 
 
+async def _act(asked: _PreparedAsk, context: TenantContext, session_id: str) -> AsyncIterator[str]:
+    """The events of a request for work: ``meta``, ``action`` cards (the task as soon as it
+    exists, then its outcome), the spoken ``delta``, then ``done``. A camera frame is never
+    sent anywhere for it."""
+    action = asked.action
+    if action is None:  # pragma: no cover - only called for a request for work
+        return
+    sequence = asked.segment.client_sequence
+    yield sse(
+        "meta",
+        {
+            "intent": asked.intent.value,
+            "risk_tier": asked.tier.value,
+            "proposed_task": None,
+            "workspace": asked.facts.model_dump(mode="json"),
+            "vision": False,
+            "action_kind": action.kind.value,
+        },
+    )
+    parts: list[str] = []
+    try:
+        async for step in voice_actions.perform(action, context, asked.arabic):
+            yield sse("action", {"card": step.card.model_dump(mode="json")})
+            if step.reply:
+                parts.append(step.reply[:MAX_REPLY_CHARS])
+                yield sse("delta", {"text": step.reply[:MAX_REPLY_CHARS]})
+    except (asyncio.CancelledError, GeneratorExit):
+        if parts:
+            _store_voice_reply(context, session_id, "".join(parts).strip(), sequence)
+        raise
+    segment = await asyncio.to_thread(_store_voice_reply, context, session_id, "".join(parts).strip(), sequence)
+    yield sse("done", {"assistant_segment": segment.model_dump(mode="json") if segment else None})
+
+
 def stream_prepared_answer(
     asked: _PreparedAsk,
     context: TenantContext,
@@ -645,6 +760,10 @@ def stream_prepared_answer(
     sequence = asked.segment.client_sequence
 
     async def answer() -> AsyncIterator[str]:
+        if asked.action is not None:
+            async for frame in _act(asked, context, session_id):
+                yield frame
+            return
         looking = vision is not None and asked.reply is None
         # Tyre data for a tyre question (its own store session, never the request's).
         grounding = await tyre_grounding(context, asked.text) if asked.reply is None else None
@@ -656,6 +775,7 @@ def stream_prepared_answer(
                 "proposed_task": asked.proposal,
                 "workspace": asked.facts.model_dump(mode="json"),
                 "vision": looking,
+                "action_kind": None,
             },
         )
         fixed = asked.reply

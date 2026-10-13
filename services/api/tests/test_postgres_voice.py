@@ -178,6 +178,28 @@ def test_a_transcript_becomes_at_most_one_task(client: TestClient) -> None:
     assert second.status_code == 409
 
 
+def test_a_segment_acts_at_most_once_across_replicas(client: TestClient, database_engine: Engine) -> None:
+    session_id = _session(client)
+    segment = _say(client, session_id, "Create a task to draft the weekly report", 0)
+    body = {"transcript_segment_id": segment["id"]}
+    before = _count(database_engine, "tasks")
+
+    first = client.post(f"/api/v1/voice/sessions/{session_id}/ask", headers=A, json=body)
+    voice_store.clear()  # another replica: the claim must come from PostgreSQL
+    second = client.post(f"/api/v1/voice/sessions/{session_id}/ask/stream", headers=A, json=body)
+
+    assert first.status_code == 200 and first.json()["action"]["task_id"], first.text
+    assert second.status_code == 200 and "already acted on that request" in second.text
+    assert _count(database_engine, "tasks") == before + 1
+
+    # Concurrent claims of one fresh segment: exactly one wins.
+    fresh = _say(client, session_id, "Create a task to book the review", 1)
+    context = TenantContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A, user_id="user_test", roles=["member"])
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        claims = list(pool.map(lambda _: voice_module._claim_segment(context, fresh["id"]), range(6)))
+    assert claims.count(True) == 1
+
+
 def test_question_limit_is_shared_by_every_replica(
     client: TestClient, app_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:

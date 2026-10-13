@@ -148,7 +148,7 @@ Removes the command from the caller's history (`204`); its tasks stay in the wor
 | `PUT /api/v1/quick-commands/{id}` | Any of `title`, `text`, `category`, `position` (at least one) | `task:create` |
 | `DELETE /api/v1/quick-commands/{id}` | Deletes it (`204`) | `task:create` |
 
-A quick command is `{"id", "title", "text", "category", "position", "use_count", "last_used_at", "created_at", "updated_at"}`. At most 100 per user (`409` beyond). Using one is creating a command with its `quick_command_id`. Audited as `quick_command.created`, `quick_command.updated` (field names) and `quick_command.deleted`.
+A quick command is `{"id", "title", "text", "category", "position", "use_count", "last_used_at", "created_at", "updated_at"}`. At most 100 per user (`409` beyond). Using one is creating a command with its `quick_command_id`. Saying "run my <title> quick command" to the voice assistant does exactly that (`create_command_record`, the body of `POST /commands`, with `source: "voice"`) and starts every step ([Voice actions](voice.md#actions)). Audited as `quick_command.created`, `quick_command.updated` (field names) and `quick_command.deleted`.
 
 ## The web Command Center
 
