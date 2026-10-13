@@ -65,6 +65,21 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
     return next;
   });
   const allowed = new Set(views);
+  // The nav scrolls on its own: a view opened by link, the palette or a page button brings its
+  // entry into sight (to the nearest edge, so an entry already in view never moves), again once the
+  // views the person may open are known, since an owner-only entry appears only then. It moves the
+  // nav's scroll position only: scrollIntoView would also move the keyboard's starting point, so
+  // the first Tab would skip the "Skip to content" link.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = navRef.current, entry = nav?.querySelector<HTMLElement>('.navItem.active');
+    if (!nav || !entry) return;
+    const box = nav.getBoundingClientRect(), at = entry.getBoundingClientRect();
+    if (at.top < box.top) nav.scrollTop -= box.top - at.top;
+    else if (at.bottom > box.bottom) nav.scrollTop += at.bottom - box.bottom;
+    if (at.left < box.left) nav.scrollLeft -= box.left - at.left;
+    else if (at.right > box.right) nav.scrollLeft += at.right - box.right;
+  }, [view, views.length]);
   const item = (id: View) => <li key={id}><button type="button" className={`navItem ${view === id ? 'active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => onGo(id)}>
     {ICONS[id]}<span>{viewLabel(id)}</span>
     {id === 'approvals' && pendingApprovals > 0 && <span className="navCount" aria-label={t('nav.pendingCount', { count: pendingApprovals })}>{pendingApprovals}</span>}
@@ -81,7 +96,7 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
   };
   return <aside className="sidebar">
     <div className="brand">{branding?.logo ? <img className="brandLogo" src={branding.logo} alt="" /> : <AnumMark className="brandMark" size={36} />}<div><span className="brandName">{t('brand.name')}</span><small>{branding?.name ?? t('brand.tagline')}</small></div></div>
-    <nav aria-label={t('nav.primary')}>
+    <nav ref={navRef} aria-label={t('nav.primary')}>
       <ul className="navList">{NAV[0].views.filter((id) => allowed.has(id)).map(item)}</ul>
       {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
       {NAV.slice(1).map((g) => {

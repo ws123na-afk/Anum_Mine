@@ -75,7 +75,7 @@ The Flutter app ([Flutter mobile](mobile.md#phone-push)):
 - registers the token after sign-in when the phone already allows notifications, and again when Firebase rotates the token;
 - before sign-out and before a workspace switch, removes its registration (while the session still works), and after sign-out deletes the Firebase token so the next person on the phone gets a new one; after a switch it registers in the new workspace;
 - opens the approval queue, the task or the Developer screen when a push is tapped (from the background or a cold start), and shows a push that arrives while the app is open as an in-app notice with **Open**. A push for another workspace says so instead of opening it;
-- builds and runs without the owner's Firebase files: the Phone push card then says push is not set up in this build.
+- builds and runs without the owner's Firebase files: the Phone push card then says push is not set up in this build. CI release builds get the files from the `ANUM_ANDROID_GOOGLE_SERVICES_JSON` and `ANUM_IOS_GOOGLE_SERVICE_INFO_PLIST` repository secrets (the file contents, not a copied file; [Owner steps: Firebase project](mobile.md#owner-steps-firebase-project)).
 
 ## Not done yet
 

@@ -7,13 +7,21 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
 
+/// Keycloak issuer a release build uses when `ANUM_OIDC_ISSUER` is not
+/// defined: the owner's production realm (docs/mobile.md, "Release builds").
+/// A `--dart-define=ANUM_OIDC_ISSUER=...` (CI: the `ANUM_PRODUCTION_OIDC_ISSUER`
+/// repository variable) overrides it.
+const productionOidcIssuer = 'https://auth.anum360os.com/realms/anum';
+
 /// Keycloak sign-in settings, supplied at build time:
 ///
 /// ```sh
 /// flutter run --dart-define=ANUM_OIDC_ISSUER=http://localhost:8080/realms/anum
 /// ```
 ///
-/// Without `ANUM_OIDC_ISSUER` the app keeps the local development sign-in.
+/// Debug and profile builds without `ANUM_OIDC_ISSUER` keep the local
+/// development sign-in. Release builds never do: without the define they use
+/// [productionOidcIssuer].
 class OidcConfig {
   const OidcConfig({
     required this.issuer,
@@ -34,16 +42,37 @@ class OidcConfig {
   /// Sent as `x-workspace-id` when the token has no `workspace_id` claim.
   final String defaultWorkspaceId;
 
-  static OidcConfig? fromEnvironment() {
-    const issuer = String.fromEnvironment('ANUM_OIDC_ISSUER');
-    if (issuer.trim().isEmpty) return null;
+  static OidcConfig? fromEnvironment({bool release = kReleaseMode}) => resolve(
+        const String.fromEnvironment('ANUM_OIDC_ISSUER'),
+        release: release,
+        clientId: const String.fromEnvironment('ANUM_OIDC_CLIENT_ID',
+            defaultValue: 'anum-flutter'),
+        redirectUrl: const String.fromEnvironment('ANUM_OIDC_REDIRECT_URL',
+            defaultValue: 'com.anum.app:/oauth2redirect'),
+        defaultWorkspaceId: const String.fromEnvironment('ANUM_WORKSPACE_ID'),
+      );
+
+  /// The configuration for a defined issuer (empty when not defined). Null
+  /// only outside release builds, where the development sign-in stays.
+  static OidcConfig? resolve(
+    String definedIssuer, {
+    required bool release,
+    String clientId = 'anum-flutter',
+    String redirectUrl = 'com.anum.app:/oauth2redirect',
+    String defaultWorkspaceId = '',
+  }) {
+    var issuer = definedIssuer.trim();
+    if (issuer.isEmpty) {
+      if (!release) return null;
+      issuer = productionOidcIssuer;
+    }
     return OidcConfig(
-      issuer: issuer.trim().replaceFirst(RegExp(r'/+$'), ''),
-      clientId: const String.fromEnvironment('ANUM_OIDC_CLIENT_ID',
-          defaultValue: 'anum-flutter'),
-      redirectUrl: const String.fromEnvironment('ANUM_OIDC_REDIRECT_URL',
-          defaultValue: 'com.anum.app:/oauth2redirect'),
-      defaultWorkspaceId: const String.fromEnvironment('ANUM_WORKSPACE_ID'),
+      issuer: issuer.replaceFirst(RegExp(r'/+$'), ''),
+      clientId: clientId.trim().isEmpty ? 'anum-flutter' : clientId.trim(),
+      redirectUrl: redirectUrl.trim().isEmpty
+          ? 'com.anum.app:/oauth2redirect'
+          : redirectUrl.trim(),
+      defaultWorkspaceId: defaultWorkspaceId.trim(),
     );
   }
 

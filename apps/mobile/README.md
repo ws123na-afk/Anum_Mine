@@ -56,7 +56,7 @@ Widget tests exercise compact phone and expanded tablet dimensions, status seman
 
 ## Platform Boundaries
 
-Tokens belong in platform secure storage. Keycloak sign-in is configured with `--dart-define=ANUM_OIDC_ISSUER=...` (client `anum-flutter`, redirect `com.anum.app:/oauth2redirect`); see [docs/mobile.md](../../docs/mobile.md) and [docs/identity.md](../../docs/identity.md#flutter). Microphone, notification, and file access are requested only when the corresponding action starts. Release builds require OIDC and API configuration supplied outside source, Android and iOS signing identities, and device-level validation. Provider credentials and agent tool secrets must never be stored in the mobile application.
+Tokens belong in platform secure storage. Keycloak sign-in is configured with `--dart-define=ANUM_OIDC_ISSUER=...` (client `anum-flutter`, redirect `com.anum.app:/oauth2redirect`); release builds default to `https://auth.anum360os.com/realms/anum` and the API `https://api.anum360os.com/`, and never show the development sign-in; see [docs/mobile.md](../../docs/mobile.md) and [docs/identity.md](../../docs/identity.md#flutter). Microphone, notification, and file access are requested only when the corresponding action starts. Release builds require OIDC and API configuration supplied outside source, Android and iOS signing identities, and device-level validation. Provider credentials and agent tool secrets must never be stored in the mobile application.
 
 ## Figma Implementation Audit
 
@@ -75,7 +75,7 @@ Implemented runtime surfaces:
 
 Open screen and workflow gaps:
 
-- Keycloak sign-in (authorization code + PKCE via `flutter_appauth`, refresh, RP-initiated sign-out) is implemented behind `--dart-define=ANUM_OIDC_ISSUER`; without it, sign-in remains the development local-session flow. The browser round trip still needs emulator or device validation against a running Keycloak.
+- Keycloak sign-in (authorization code + PKCE via `flutter_appauth`, refresh, RP-initiated sign-out) is implemented behind `--dart-define=ANUM_OIDC_ISSUER`; without it, debug and profile builds keep the development local-session flow and release builds use the production issuer. The browser round trip still needs emulator or device validation against a running Keycloak.
 - Local OTP verification and password recovery are connected end to end. Production identity-provider recovery still depends on the selected OIDC provider.
 - Authenticated workspace switching rotates and atomically persists the local session; the complete visual workspace directory remains to be implemented.
 - Model testing reports success or the backend error and supports retry, but detailed provider latency, quota, and capability diagnostics are not implemented.

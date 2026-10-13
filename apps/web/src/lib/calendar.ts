@@ -112,7 +112,7 @@ export function replyCounts(event: CalendarEventView): Record<AttendeeResponse, 
 // ---- The event form ----------------------------------------------------------------------------
 
 export interface EventForm {
-  title: string; kind: EventKind; date: string; startTime: string; endTime: string;
+  title: string; kind: EventKind; date: string; startTime: string; endDate: string; endTime: string;
   location: string; conferenceUrl: string; phone: string; description: string; attendees: string;
 }
 
@@ -127,7 +127,7 @@ export function emptyForm(day: Date, now: Date): EventForm {
   const startHour = sameDay ? Math.min(23, now.getHours() + 1) : 9;
   const endHour = Math.min(23, startHour + 1);
   return {
-    title: '', kind: 'meeting', date: dayKey(day), startTime: `${pad(startHour)}:00`, endTime: startHour === 23 ? '23:59' : `${pad(endHour)}:00`,
+    title: '', kind: 'meeting', date: dayKey(day), startTime: `${pad(startHour)}:00`, endDate: dayKey(day), endTime: startHour === 23 ? '23:59' : `${pad(endHour)}:00`,
     location: '', conferenceUrl: '', phone: '', description: '', attendees: '',
   };
 }
@@ -137,15 +137,17 @@ export function formFromEvent(event: CalendarEventView): EventForm {
   const start = localInput(new Date(event.starts_at));
   const end = localInput(new Date(event.ends_at));
   return {
-    title: event.title, kind: event.kind, date: start.date, startTime: start.time, endTime: end.date === start.date ? end.time : '23:59',
+    title: event.title, kind: event.kind, date: start.date, startTime: start.time, endDate: end.date, endTime: end.time,
     location: event.location ?? '', conferenceUrl: event.conference_url ?? '', phone: event.phone ?? '', description: event.description ?? '',
     attendees: formatAttendees(event.attendees),
   };
 }
 
 /** One attendee per line: "Name <email>", "Name, email" or just a name. */
-export function parseAttendees(text: string, existing: readonly Attendee[] = []): { name: string; email: string | null; id?: string; response?: AttendeeResponse }[] {
-  const rows: { name: string; email: string | null; id?: string; response?: AttendeeResponse }[] = [];
+type AttendeeRow = { name: string; email: string | null; id?: string; role?: string | null; response?: AttendeeResponse };
+
+export function parseAttendees(text: string, existing: readonly Attendee[] = []): AttendeeRow[] {
+  const rows: AttendeeRow[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
@@ -156,7 +158,7 @@ export function parseAttendees(text: string, existing: readonly Attendee[] = [])
     const email = match ? match[2].toLowerCase() : bare ? bare[1].toLowerCase() : null;
     const name = (match ? match[1] : bare ? bare[1].split('@')[0] : line).replace(/\s+/g, ' ').trim().replace(/^"|"$/g, '') || (email ?? line);
     const known = existing.find((attendee) => (email && attendee.email?.toLowerCase() === email) || (!email && attendee.name === name));
-    rows.push(known ? { name, email, id: known.id, response: known.response } : { name, email });
+    rows.push(known ? { name, email, id: known.id, role: known.role ?? null, response: known.response } : { name, email });
   }
   return rows;
 }
@@ -170,8 +172,9 @@ export type FormProblem = 'title' | 'date' | 'order' | 'link' | null;
 /** What is wrong with the form before it is sent (the API checks again). */
 export function formProblem(form: EventForm): FormProblem {
   if (!form.title.trim()) return 'title';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date) || !/^\d{2}:\d{2}$/.test(form.startTime) || !/^\d{2}:\d{2}$/.test(form.endTime)) return 'date';
-  if (form.endTime <= form.startTime) return 'order';
+  const day = /^\d{4}-\d{2}-\d{2}$/, time = /^\d{2}:\d{2}$/;
+  if (!day.test(form.date) || !day.test(form.endDate) || !time.test(form.startTime) || !time.test(form.endTime)) return 'date';
+  if (`${form.endDate}T${form.endTime}` <= `${form.date}T${form.startTime}`) return 'order';
   if (form.conferenceUrl.trim() && !/^https:\/\/\S+$/.test(form.conferenceUrl.trim())) return 'link';
   return null;
 }
@@ -187,9 +190,9 @@ export function toInstant(date: string, time: string): string {
 export function eventBody(form: EventForm, existing: readonly Attendee[] = []): Record<string, unknown> {
   const text = (value: string) => value.trim() || null;
   return {
-    title: form.title.trim(), kind: form.kind, starts_at: toInstant(form.date, form.startTime), ends_at: toInstant(form.date, form.endTime),
+    title: form.title.trim(), kind: form.kind, starts_at: toInstant(form.date, form.startTime), ends_at: toInstant(form.endDate, form.endTime),
     location: text(form.location), conference_url: text(form.conferenceUrl), phone: text(form.phone), description: text(form.description),
-    attendees: parseAttendees(form.attendees, existing).map((row) => ({ ...(row.id ? { id: row.id } : {}), name: row.name, email: row.email, ...(row.response ? { response: row.response } : {}) })),
+    attendees: parseAttendees(form.attendees, existing).map((row) => ({ ...(row.id ? { id: row.id } : {}), name: row.name, email: row.email, ...(row.id ? { role: row.role ?? null } : {}), ...(row.response ? { response: row.response } : {}) })),
   };
 }
 
