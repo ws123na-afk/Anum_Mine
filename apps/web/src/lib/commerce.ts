@@ -208,3 +208,45 @@ export function pageLabel(offset: number, count: number, total: number): string 
   if (!total) return t('commerce.page.none');
   return t('commerce.page.window', { first: offset + 1, last: offset + count, total });
 }
+
+// ---- Overview: one table for stock and prices, the page band from /commerce/summary ----------------
+
+export interface StockPriceRow {
+  listingId: string; sku: string; channel: CommerceChannel; marketplace: string; quantity: number | null;
+  price: { yours: number | null; buyBoxPrice: number | null; lowest: number | null; buyBoxLost: boolean; currency: string | null } | null;
+}
+
+/** The channel a marketplace name belongs to, when a row does not say ("Amazon.sa", "noon UAE", a store name). */
+export function channelOfMarketplace(name: string): CommerceChannel {
+  const lower = name.toLowerCase();
+  return lower.includes('amazon') ? 'amazon' : lower.includes('noon') ? 'noon' : 'own_store';
+}
+
+/**
+ * Low-stock listings and price alerts merged by listing, worst first: out of stock, then low stock
+ * with a price problem, low stock, a lost buy box, and a cheaper competitor. At most `limit` rows.
+ */
+export function stockAndPrices(low: CommerceDashboard['low_stock'], prices: CommerceDashboard['price_alerts'], limit = 12): StockPriceRow[] {
+  const rows = new Map<string, StockPriceRow>();
+  for (const row of low) rows.set(row.listing_id, { listingId: row.listing_id, sku: row.sku, channel: row.channel, marketplace: row.marketplace, quantity: row.quantity, price: null });
+  for (const row of prices) {
+    const price = { yours: row.price, buyBoxPrice: row.buy_box_price, lowest: row.lowest_competitor_price, buyBoxLost: row.buy_box_winner === false, currency: row.currency };
+    const existing = rows.get(row.listing_id);
+    if (existing) existing.price = price;
+    else rows.set(row.listing_id, { listingId: row.listing_id, sku: row.sku, channel: channelOfMarketplace(row.marketplace), marketplace: row.marketplace, quantity: null, price });
+  }
+  const rank = (row: StockPriceRow) => (row.quantity !== null && row.quantity <= 0 ? 0 : row.quantity !== null && row.price ? 1 : row.quantity !== null ? 2 : row.price?.buyBoxLost ? 3 : 4);
+  return [...rows.values()].sort((a, b) => rank(a) - rank(b) || (a.quantity ?? Infinity) - (b.quantity ?? Infinity) || a.sku.localeCompare(b.sku)).slice(0, limit);
+}
+
+export interface SummaryNumbers { orders: number; units: number; revenue: { currency: string; amount: number }[]; topSku: string | null; topUnits: number }
+
+/** The numbers of `GET /commerce/summary` (`data`), checked: anything missing or malformed reads as none. */
+export function summaryFigures(data: Record<string, unknown>): SummaryNumbers {
+  const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+  const revenue = data.revenue && typeof data.revenue === 'object'
+    ? Object.entries(data.revenue as Record<string, unknown>).map(([currency, amount]) => ({ currency, amount: num(amount) })).sort((a, b) => b.amount - a.amount)
+    : [];
+  const top = Array.isArray(data.top_skus) && Array.isArray(data.top_skus[0]) ? data.top_skus[0] as unknown[] : null;
+  return { orders: num(data.orders), units: num(data.units), revenue, topSku: top && typeof top[0] === 'string' ? top[0] : null, topUnits: top ? num(top[1]) : 0 };
+}

@@ -8,9 +8,12 @@ export type FigureState = 'loading' | 'ready' | 'error';
 export type FigureTone = 'danger' | 'warn' | 'ok' | 'accent' | '';
 export interface Figure { id: string; label: string; state: FigureState; value?: string; hint?: string; tone?: FigureTone }
 
+/** One request's state on a page: loading, its value, refused for the person's role, or failed. */
+export type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied'; message: string } | { state: 'error'; message: string };
+
 /** A ready figure, or the load's own state while it is loading or failed. */
-export function figure(id: string, label: string, load: { state: FigureState }, ready: () => { value: string; hint?: string; tone?: FigureTone }): Figure {
-  if (load.state !== 'ready') return { id, label, state: load.state };
+export function figure(id: string, label: string, load: { state: FigureState | 'denied' }, ready: () => { value: string; hint?: string; tone?: FigureTone }): Figure {
+  if (load.state !== 'ready') return { id, label, state: load.state === 'denied' ? 'error' : load.state };
   return { id, label, state: 'ready', ...ready() };
 }
 

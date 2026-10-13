@@ -4,6 +4,8 @@ import { commerceReply, commerceState } from './commerceApi';
 import { handleMeetings } from './meetingsApi';
 import { createTeamMock, type TeamMockOptions } from './teamApi';
 import { createHomeMock, type HomeMockState } from './homeApi';
+import { createCalendarMock } from './calendarApi';
+import { voiceSessionsReply } from './voiceSessions';
 
 // One mocked workspace with something on every main view (the Command Center home, Assistant, Tasks, Approvals, Memory,
 // Files, Settings, Notifications, Privacy, Integrations, Skills, Agents, Enterprise, Activity, Autonomy), for the accessibility and localization specs. Every request the views make
@@ -210,6 +212,7 @@ const setupPlanPreview = () => JSON.parse(readFileSync(new URL('./setupPlanFixtu
 export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions = {}): Promise<HomeMockState> {
   const team = createTeamMock(teamOptions);
   const home = createHomeMock();
+  const calendar = createCalendarMock();
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -219,6 +222,11 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/events/stream') return route.fulfill({ status: 204 });
     if (path === '/api/v1/auth/local/session') return json({}, 404);
     if (path === '/api/v1/tasks' && method === 'GET') return json([task, doneTask]);
+    if (path === '/api/v1/tasks/summary') return json({ total: 2, archived: 0, by_status: { waiting_approval: 1, completed: 1 }, creators: ['user_local'] });
+    if (path === '/api/v1/tasks/task_release' || path === '/api/v1/tasks/task_done') return json(path.endsWith('task_done') ? doneTask : task);
+    if (path === '/api/v1/tasks/task_done/runs') return json([{ ...run, created_at: now, updated_at: now }]);
+    if (path === '/api/v1/tasks/task_release/runs') return json([]);
+    if (/^\/api\/v1\/tasks\/task_(done|release)\/events$/.test(path)) return json([{ id: 'event_task_1', type: 'task.created', version: 1, tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', subject: path.split('/')[4], correlation_id: path.split('/')[4], payload: {}, created_at: now }]);
     if (path === '/api/v1/tasks/task_done/latest-run') return json(run);
     if (path === '/api/v1/tasks/task_release/latest-run') return json({ detail: 'Agent run not found' }, 404);
     if (path === '/api/v1/approvals') return json([pendingApproval, decidedApproval]);
@@ -327,6 +335,7 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     // Calls & Meetings (docs/meetings.md).
     if (path.startsWith('/api/v1/meetings') && await handleMeetings(route)) return;
     // Agents (docs/agents.md): one shared agent and the catalog the wizard reads.
+    if (path === '/api/v1/agents/skills/usage') return json({ items: [{ skill_id: 'acme.release-notes', count: 1, agents: [{ id: 'agent_fleet', name: 'Fleet desk', icon: 'truck', color: '#0f766e', status: 'active' }] }] });
     if (path === '/api/v1/agents/catalog') return json({ tools: [], skills: [], templates: [], icons: ['bot'], autonomy_floor: { read: 'auto', write: 'ask', external: 'ask' } });
     if (path === '/api/v1/agents/agent_fleet') return json(agent);
     if (path === '/api/v1/agents/agent_fleet/memories') return json({ items: [{ id: 'agent_memory_1', agent_id: 'agent_fleet', content: 'Truck 12 runs on Michelin tyres.', source: 'manual', task_id: null, created_by: 'user_local', created_at: now }], next_cursor: null, total: 1 });
@@ -351,6 +360,9 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/reports' && method === 'GET') return json({ items: [{ id: 'report_tyre', ...reportSummary, row_count: 2 }], total: 1, limit: 20, offset: 0, types: [{ type: 'tyre', count: 1 }] });
     if (path === '/api/v1/reports/generators') return json([{ type: 'task_summary', title: 'Task summary', description: '' }, { type: 'automation_summary', title: 'Automation summary', description: '' }]);
     if (path === '/api/v1/reports/report_tyre') return json(libraryReport);
+    if (await calendar.handle(route)) return;
+    const voice = voiceSessionsReply(url, method);
+    if (voice) return json(voice.body, voice.status);
     if (await home.handle(route, path, method)) return;
     return route.abort();
   });

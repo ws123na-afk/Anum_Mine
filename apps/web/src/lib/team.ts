@@ -161,3 +161,47 @@ export function shouldNotifyDesktop(input: { recipient: unknown; me: string | nu
 export function boardColumn(status: WorkStatus): WorkStatus {
   return status === 'cancelled' ? 'done' : status;
 }
+
+/** The Team page's band (docs/team-work.md#dashboard): open, in progress, overdue and unassigned work across the team. */
+export function workloadTotals(workload: { rows: readonly { open: number; in_progress: number; blocked: number; overdue: number; due_this_week: number }[]; unassigned_open: number }) {
+  const sum = (key: 'open' | 'in_progress' | 'blocked' | 'overdue' | 'due_this_week') => workload.rows.reduce((total, row) => total + row[key], 0);
+  return { open: sum('open') + workload.unassigned_open, inProgress: sum('in_progress'), blocked: sum('blocked'), overdue: sum('overdue'), dueThisWeek: sum('due_this_week'), unassigned: workload.unassigned_open, people: workload.rows.length };
+}
+
+/**
+ * The Assistants page's band: assistants switched on, and their open, overdue, due-this-week and
+ * finished work. `done` is null while any assistant's finished count is unknown (never shown as 0).
+ */
+export function assistantTotals(
+  assistants: readonly { id: string; enabled: boolean }[],
+  rows: readonly { assignee_type: string; assignee_id: string; open: number; overdue: number; due_this_week: number }[],
+  done: Readonly<Record<string, number | null>>,
+) {
+  const ids = new Set(assistants.map((a) => a.id));
+  const mine = rows.filter((row) => row.assignee_type === 'assistant' && ids.has(row.assignee_id));
+  const finished = assistants.map((a) => done[a.id]);
+  return {
+    total: assistants.length, enabled: assistants.filter((a) => a.enabled).length,
+    open: mine.reduce((sum, row) => sum + row.open, 0), overdue: mine.reduce((sum, row) => sum + row.overdue, 0), dueWeek: mine.reduce((sum, row) => sum + row.due_this_week, 0),
+    done: finished.some((value) => value === null || value === undefined) ? null : finished.reduce<number>((sum, value) => sum + (value ?? 0), 0),
+  };
+}
+
+/** Whether an assistant matches the table's search: name, department, keywords or tools. */
+export function assistantMatches(a: { name: string; department: string; routing_keywords: readonly string[]; allowed_tools: readonly string[] }, query: string, department: (d: string) => string = (d) => d): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [a.name, department(a.department), a.department, ...a.routing_keywords, ...a.allowed_tools].some((value) => value.toLowerCase().includes(q));
+}
+
+/** The platform console's band: organisations, those needing attention, and their summed counts. */
+export function organisationTotals(orgs: readonly { health: string; workspaces: number; active_members: number; pending_invitations: number; open_work_items: number; overdue_work_items: number }[]) {
+  const sum = (key: 'workspaces' | 'active_members' | 'pending_invitations' | 'open_work_items' | 'overdue_work_items') => orgs.reduce((total, org) => total + org[key], 0);
+  return { count: orgs.length, attention: orgs.filter((org) => org.health === 'attention').length, workspaces: sum('workspaces'), members: sum('active_members'), invitations: sum('pending_invitations'), openWork: sum('open_work_items'), overdue: sum('overdue_work_items') };
+}
+
+/** Whether an organisation matches the console's search: its name or tenant id. */
+export function organisationMatches(org: { display_name: string; tenant_id: string }, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return !q || org.display_name.toLowerCase().includes(q) || org.tenant_id.toLowerCase().includes(q);
+}

@@ -20,6 +20,7 @@ test.describe('a browser that asks for Arabic', () => {
     await expect(page.getByLabel('تعليمات المهمة')).toBeVisible();
     // Step types and statuses from the API are labelled too.
     await page.getByRole('button', { name: /Summarize feedback/ }).click();
+    await page.getByRole('tab', { name: /^مرات التشغيل/ }).click();
     await expect(page.getByText('استدعاء النموذج')).toBeVisible();
     expect(await noHorizontalOverflow(page)).toBe(true);
   });
@@ -209,7 +210,7 @@ test('Members, Budgets and the Approval policy read in Arabic, right to left, wi
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
 
-test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ page }) => {
+test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ page, isMobile }) => {
   await mockWorkspaceApi(page);
   await useSavedLocale(page, 'ar');
 
@@ -224,9 +225,10 @@ test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ 
 
   await page.goto('/#enterprise');
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'عمليات المؤسسة' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'المؤسسة' })).toBeVisible();
   await expect(page.getByText(/^منطقة واحدة \(.?local.?\)$/)).toBeVisible();
-  await expect(page.getByText('لم تُقس التكلفة وزمن الاستجابة بعد')).toBeVisible();
+  // Cost and latency is one of the columns a narrow screen leaves out.
+  if (!isMobile) await expect(page.getByText('لم تُقس التكلفة وزمن الاستجابة بعد')).toBeVisible();
   await expect(page.getByRole('button', { name: 'تعديل configured-model' })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 

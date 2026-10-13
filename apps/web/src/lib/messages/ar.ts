@@ -19,6 +19,8 @@ import { orgChartAr } from './orgChart.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
+import { calendarAr } from './calendar.ar.ts';
+import { pages2Ar } from './pages2.ar.ts';
 
 export const ar: Record<MessageKey, Message> = {
   // ---- Commerce (commerce.ar.ts) ----
@@ -30,6 +32,8 @@ export const ar: Record<MessageKey, Message> = {
   ...chatAr,
   ...setupAr,
   ...pagesAr,
+  ...calendarAr,
+  ...pages2Ar,
   // ---- Common ----
   'common.listAnd': '{head} و{last}',
   'common.listSeparator': '، ',

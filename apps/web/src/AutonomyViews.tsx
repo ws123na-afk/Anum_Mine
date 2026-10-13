@@ -12,7 +12,10 @@ import {
 } from './lib/autonomy';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
+import { viewLabel } from './lib/shell';
+import { PageHeader } from './PageParts';
 import './autonomy.css';
+import './adminPages.css';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 type Flash = { text: string; error?: boolean } | null;
@@ -114,13 +117,10 @@ export function ActivityView({ onOpenSettings }: { onOpenSettings: () => void })
   const now = Date.now();
 
   return <>
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('activity.eyebrow')}</p><h2>{t('activity.title')}</h2><p>{t('activity.intro')}</p></div>
-      <div className="actions">
-        <button type="button" className="secondary" onClick={onOpenSettings}><ShieldCheck aria-hidden="true" />{t('activity.openSettings')}</button>
-        <button type="button" onClick={() => void refresh(filters)}><RefreshCw aria-hidden="true" />{t('shell.refresh')}</button>
-      </div>
-    </section>
+    <PageHeader title={viewLabel('activity')} subtitle={t('activity.intro')} actions={<>
+      <button type="button" className="secondary" onClick={onOpenSettings}><ShieldCheck aria-hidden="true" />{t('activity.openSettings')}</button>
+      <button type="button" onClick={() => void refresh(filters)}><RefreshCw aria-hidden="true" />{t('shell.refresh')}</button>
+    </>} />
 
     {proposals.length > 0 && <section className="surface autonomyProposals" aria-labelledby="proposals-title">
       <div className="sectionHeader"><h2 id="proposals-title"><Sparkles aria-hidden="true" />{t('activity.proposalsTitle')}</h2></div>
@@ -279,9 +279,10 @@ export function AutonomySettingsView({ onOpenActivity }: { onOpenActivity: () =>
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
-  if (load.kind === 'loading') return <Notice>{t('autonomy.loading')}</Notice>;
-  if (load.kind === 'error') return <><Notice error>{t('autonomy.loadFailed', { detail: load.detail })}</Notice><div className="actions"><button type="button" onClick={() => void refresh()}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></>;
-  if (load.kind === 'forbidden') return <ReadOnly title={t('activity.forbiddenTitle')}>{t('activity.forbidden', { detail: load.detail })}</ReadOnly>;
+  const autonomyHeader = <PageHeader title={viewLabel('autonomy')} subtitle={t('autonomy.intro')} />;
+  if (load.kind === 'loading') return <>{autonomyHeader}<Notice>{t('autonomy.loading')}</Notice></>;
+  if (load.kind === 'error') return <>{autonomyHeader}<Notice error>{t('autonomy.loadFailed', { detail: load.detail })}</Notice><div className="actions"><button type="button" onClick={() => void refresh()}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></>;
+  if (load.kind === 'forbidden') return <>{autonomyHeader}<ReadOnly title={t('activity.forbiddenTitle')}>{t('activity.forbidden', { detail: load.detail })}</ReadOnly></>;
   if (!overview || !draft || !guard) return null;
 
   const owner = overview.canManageWorkspace && denied === null;
@@ -341,17 +342,14 @@ export function AutonomySettingsView({ onOpenActivity }: { onOpenActivity: () =>
   };
 
   return <>
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('autonomy.eyebrow')}</p><h2>{t('autonomy.title')}</h2><p>{t('autonomy.intro')}</p></div>
-      <div className="actions">
-        <button type="button" className="secondary" onClick={onOpenActivity}><History aria-hidden="true" />{t('autonomy.openActivity', { count: overview.pendingProposals })}</button>
-        <button type="button" onClick={() => { setDenied(null); setFlash(null); void refresh(); }}><RefreshCw aria-hidden="true" />{t('shell.refresh')}</button>
-      </div>
-    </section>
+    <PageHeader title={viewLabel('autonomy')} subtitle={t('autonomy.intro')} actions={<>
+      <button type="button" className="secondary" onClick={onOpenActivity}><History aria-hidden="true" />{t('autonomy.openActivity', { count: overview.pendingProposals })}</button>
+      <button type="button" onClick={() => { setDenied(null); setFlash(null); void refresh(); }}><RefreshCw aria-hidden="true" />{t('shell.refresh')}</button>
+    </>} />
     {!owner && <ReadOnly title={t('autonomy.ownerRequiredTitle')}>{denied ?? t('autonomy.ownerRequired')}</ReadOnly>}
 
     <div className="autonomyLayout">
-      <section className="surface autonomyPanel" aria-labelledby="levels-title">
+      <section className="surface autonomyPanel autonomyLevelsPanel" aria-labelledby="levels-title">
         <div className="sectionHeader"><h2 id="levels-title">{t('autonomy.levels.title')}</h2></div>
         <p className="muted">{t('autonomy.levels.help')}</p>
         <div className="autonomyLevels">{CATEGORIES.map((category) => {
@@ -369,7 +367,7 @@ export function AutonomySettingsView({ onOpenActivity }: { onOpenActivity: () =>
         </div>
       </section>
 
-      <section className="surface autonomyPanel" aria-labelledby="thresholds-title">
+      <section className="surface autonomyPanel autonomyThresholdsPanel" aria-labelledby="thresholds-title">
         <div className="sectionHeader"><h2 id="thresholds-title">{t('autonomy.thresholds.title')}</h2></div>
         <p className="muted">{t('autonomy.thresholds.help')}</p>
         <div className="autonomyGrid">
@@ -397,7 +395,7 @@ export function AutonomySettingsView({ onOpenActivity }: { onOpenActivity: () =>
         {overview.settings.updatedAt && <p className="muted">{t('autonomy.lastChanged', { when: formatDateTime(overview.settings.updatedAt), who: overview.settings.updatedBy ?? '?' })}</p>}
       </section>
 
-      <section className="surface autonomyPanel" aria-labelledby="rules-title">
+      <section className="surface autonomyPanel autonomyRulesPanel" aria-labelledby="rules-title">
         <div className="sectionHeader"><h2 id="rules-title">{t('autonomy.rules.title')}</h2></div>
         <p className="muted">{t('autonomy.rules.help')}</p>
         {rules.length === 0
@@ -419,7 +417,7 @@ export function AutonomySettingsView({ onOpenActivity }: { onOpenActivity: () =>
         {ruleFlash && <Notice error={ruleFlash.error}>{ruleFlash.text}</Notice>}
       </section>
 
-      <section className="surface autonomyPanel" aria-labelledby="guardrails-title">
+      <section className="surface autonomyPanel autonomyGuardrailsPanel" aria-labelledby="guardrails-title">
         <div className="sectionHeader"><h2 id="guardrails-title">{t('autonomy.guardrails.title')}</h2></div>
         <p className="muted">{t('autonomy.guardrails.help')}</p>
         {!admin && <ReadOnly title={t('autonomy.guardrails.readOnlyTitle')}>{t('autonomy.guardrails.readOnly')}</ReadOnly>}

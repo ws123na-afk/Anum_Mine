@@ -11,6 +11,7 @@ export const commerceEn = {
   'commerce.tabs': 'Commerce sections',
   'commerce.tab.overview': 'Overview',
   'commerce.tab.orders': 'Orders',
+  'commerce.tab.returns': 'Returns',
   'commerce.tab.catalog': 'Catalogue',
   'commerce.tab.alerts': 'Alerts',
   'commerce.tab.connections': 'Connections',

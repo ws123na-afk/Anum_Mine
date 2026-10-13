@@ -129,9 +129,9 @@ async function noHorizontalOverflow(page: Page) {
 test('favorites: filter by type, open a starred report, remove it, then the empty state', async ({ page }) => {
   await mockLibrary(page);
   await page.goto('/#favorites');
-  await expect(page.getByRole('heading', { name: 'Favorites', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Favorites', level: 1 })).toBeVisible();
   await page.getByRole('group', { name: 'Filter favorites by type' }).getByRole('button', { name: 'Report' }).click();
-  await expect(page.locator('.libraryRow')).toHaveCount(1);
+  await expect(page.locator('.favoritesTable tbody tr')).toHaveCount(1);
   await page.getByRole('button', { name: 'Tyre cost report_00', exact: true }).click();
   await expect(page).toHaveURL(/#reports\/report_00$/);
   await expect(page.getByRole('dialog', { name: 'Tyre cost report_00' })).toBeVisible();

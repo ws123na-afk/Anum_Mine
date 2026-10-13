@@ -131,9 +131,9 @@ test('enterprise: a workspace owner who is not an organization administrator rea
   const calls = await mockApi(page, { canManage: false });
   await page.goto('/#enterprise');
 
-  await expect(page.getByRole('heading', { name: 'Enterprise operations' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Enterprise' })).toBeVisible();
   await expect(page.getByText(/Read only: routing targets and the marketplace catalog apply to every workspace in this organization/)).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'configured-model' })).toBeVisible();
+  await expect(page.getByRole('rowheader', { name: 'configured-model' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add routing target' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit configured-model' })).toHaveCount(0);
   // Installing into this workspace is the workspace owner's call, not the organization's.
@@ -163,7 +163,7 @@ test('enterprise: an organization administrator adds a routing target', async ({
   await form.getByLabel('Model').fill('primary');
   await form.getByRole('button', { name: 'Save target' }).click();
   await expect(page.getByText('Routing target eu-primary saved.')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'eu-primary' })).toBeVisible();
+  await expect(page.getByRole('rowheader', { name: 'eu-primary' })).toBeVisible();
   expect(calls.some((c) => c.method === 'PUT' && c.path === '/api/v1/routing/targets/eu-primary')).toBe(true);
 });
 
@@ -181,30 +181,26 @@ test('enterprise: if the capability check fails the targets are still shown, rea
   await page.goto('/#enterprise');
 
   await expect(page.getByText(/Could not check whether you may change routing targets, so they are shown read only/)).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'configured-model' })).toBeVisible();
+  await expect(page.getByRole('rowheader', { name: 'configured-model' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add routing target' })).toHaveCount(0);
 });
 
-// Routing target cards: the name and placement get the card's text width; status and edit sit on
-// their own line under them (they used to share one row and squeeze the text at 1024px).
+// Routing targets: a table whose target id, status and edit button stay readable and inside the
+// page at every size (the less important columns drop out on narrow screens).
 for (const size of [
   { width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 },
 ]) {
-  test(`enterprise: routing target cards are readable at ${size.width}x${size.height}`, async ({ page }) => {
+  test(`enterprise: routing targets are readable at ${size.width}x${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
     await mockApi(page, { canManage: true });
     await page.goto('/#enterprise');
-    const card = page.locator('.govTarget').first();
-    const heading = card.getByRole('heading', { name: 'configured-model' });
-    await expect(heading).toBeVisible();
-    const cardBox = (await card.boundingBox())!;
-    const textBox = (await heading.locator('..').boundingBox())!;
-    const edit = (await card.getByRole('button', { name: 'Edit configured-model' }).boundingBox())!;
-    // The text column takes most of the card, and the controls sit below the text, inside the card.
-    expect(textBox.width).toBeGreaterThan(cardBox.width * 0.6);
-    expect(edit.y).toBeGreaterThanOrEqual(textBox.y + textBox.height);
-    expect(edit.x + edit.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
-    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(size.width);
+    const row = page.getByRole('row', { name: /configured-model/ });
+    await expect(row.getByRole('rowheader', { name: 'configured-model' })).toBeVisible();
+    const edit = row.getByRole('button', { name: 'Edit configured-model' });
+    await expect(edit).toBeVisible();
+    const editBox = (await edit.boundingBox())!;
+    expect(editBox.x).toBeGreaterThanOrEqual(0);
+    expect(editBox.x + editBox.width).toBeLessThanOrEqual(size.width);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
   });

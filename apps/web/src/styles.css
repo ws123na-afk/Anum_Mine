@@ -121,11 +121,32 @@ a { color: var(--d-sky); }
 button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
 
 /* ---------- Shell ---------- */
-.shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; min-height: 100dvh; }
+.shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; min-height: 100dvh; position: relative; }
+/* The sidebar column's surface and edge run the full page height, however long the page is
+   (the sidebar itself is one window tall and sticks to the top). */
+.shell::before {
+  background: var(--d-sidebar); border-inline-end: 1px solid var(--d-line); content: ""; inset-block: 0; inset-inline-start: 0; pointer-events: none;
+  position: absolute; width: 248px; z-index: 0;
+}
 .sidebar {
-  background: var(--d-sidebar); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  border-inline-end: 1px solid var(--d-line); color: var(--d-text); display: flex; flex-direction: column;
-  height: 100vh; height: 100dvh; overflow-y: auto; padding: var(--d-s5) var(--d-s3); position: sticky; top: 0; scrollbar-width: thin;
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: var(--d-text); display: flex; flex-direction: column;
+  height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; padding: var(--d-s5) var(--d-s3) var(--d-s4); position: sticky; top: 0; z-index: 1;
+}
+/* Every group stays reachable without scrolling the whole sidebar: the main list scrolls inside
+   the space left after the More, Admin and workspace toggles, and an open group scrolls on its own. */
+.sidebar nav { display: flex; flex: 1 1 auto; flex-direction: column; gap: 0; min-height: 0; }
+.sidebar nav > .navList { flex: 0 1 auto; min-height: min(56vh, 700px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.sidebar nav > div, .sidebar .navGroup { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 46px; }
+.sidebar .navGroup > .navGroupToggle { flex: none; }
+.sidebar .navGroup > div[id] { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+@media (min-width: 761px) and (max-height: 1000px) {
+  .sidebar { padding-block: var(--d-s4) var(--d-s3); }
+  .sidebar .brand { padding-bottom: var(--d-s3); }
+  .sidebar .navItem { min-height: 36px; padding-block: 6px; }
+  .sidebar .navGroup { margin-top: var(--d-s2); padding-top: var(--d-s1); }
+  .sidebar .navGroupToggle { min-height: 32px; }
+  .sidebar nav > div, .sidebar .navGroup { min-height: 38px; }
+  .sidebar .systemState { padding-top: var(--d-s3); }
 }
 .brand { align-items: center; display: flex; font-size: 18px; font-weight: 750; gap: var(--d-s3); letter-spacing: -.01em; padding: 0 var(--d-s2) var(--d-s5); }
 .brandMark { filter: drop-shadow(0 4px 14px rgba(111, 107, 255, .45)); flex: none; }
@@ -645,15 +666,17 @@ code { unicode-bidi: isolate; }
    (the strip scrolls, never the page). */
 @media (max-width: 760px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
+  .shell::before { display: none; }
   .sidebar {
-    border-bottom: 1px solid var(--d-line); border-inline-end: 0; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr);
+    background: var(--d-sidebar); border-bottom: 1px solid var(--d-line); border-inline-end: 0; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr);
     height: auto; overflow: visible; padding: var(--d-s3) var(--d-s4) var(--d-s2); position: sticky; top: 0; z-index: 30;
   }
+  .sidebar nav > .navList, .sidebar .navGroup > div[id], .sidebar nav > div, .sidebar .navGroup { max-height: none; min-height: 0; overflow: visible; }
   .brand { padding: 0; }
   .brandName { font-size: 18px; }
   /* One horizontal strip with every view: groups flatten, the workspace list moves to the top-bar switcher. */
   .sidebar nav {
-    display: flex; gap: var(--d-s1); margin: 0 calc(var(--d-s4) * -1); overflow-x: auto; overscroll-behavior-x: contain;
+    display: flex; flex-direction: row; gap: var(--d-s1); margin: 0 calc(var(--d-s4) * -1); overflow-x: auto; overscroll-behavior-x: contain;
     padding: 2px var(--d-s4) var(--d-s1); scroll-snap-type: x proximity; scrollbar-width: none;
   }
   .sidebar nav::-webkit-scrollbar { display: none; }
@@ -727,3 +750,6 @@ code { unicode-bidi: isolate; }
   .topActions .workspaceSwitcher { flex: 0 1 auto; min-width: 0; }
   .topbar .topActions .workspaceSwitch { max-width: 100%; }
 }
+/* Settings > Workspace: the cards under "This workspace" share its width, two to a row on wide screens. */
+.settingsStack.settingsGrid { align-items: stretch; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); margin-top: var(--d-s5); max-width: none; }
+.settingsStack.settingsGrid > .notice { grid-column: 1 / -1; }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Activity, Archive, ArchiveRestore, CheckCircle2, CircleDot, Download, Hourglass, Pencil, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Square, X, XCircle,
+  Archive, ArchiveRestore, ArrowLeft, CircleDot, Download, Pencil, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Square, X,
 } from 'lucide-react';
 import type { AgentRun, Approval, DomainEvent, Task, TaskBulkAction, TaskSummary } from '@anum/contracts';
 import * as api from './lib/api';
@@ -16,6 +16,9 @@ import {
 } from './lib/tasks';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { riskLabel, statusLabel, stepLabel } from './lib/labels';
+import { figure } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { PageHeader, PageSummary, SplitView } from './PageParts';
 import './tasks.css';
 
 export interface TasksViewProps {
@@ -113,10 +116,12 @@ export function TasksView(p: TasksViewProps) {
 
   // ---- Summary (counts across the workspace for the other filters) ------------------------
   const [summary, setSummary] = useState<TaskSummary | null>(null);
+  // The band says "Unavailable" when the counts failed to load; it never shows the loaded rows as totals.
+  const [summaryState, setSummaryState] = useState<'loading' | 'ready' | 'error'>('loading');
   useEffect(() => {
     if (rangeError) return;
     let live = true;
-    tasksApi.getTaskSummary(query).then((s) => { if (live) setSummary(s); }, () => { if (live) setSummary(null); });
+    tasksApi.getTaskSummary(query).then((s) => { if (live) { setSummary(s); setSummaryState('ready'); } }, () => { if (live) { setSummary(null); setSummaryState('error'); } });
     return () => { live = false; };
   }, [queryKey, pulse, rangeError]);
   const counts = summaryCounts(summary, all);
@@ -156,95 +161,109 @@ export function TasksView(p: TasksViewProps) {
   const canCancel = roleAllows(role, 'cancel', null, userId);
   const creators = summary?.creators ?? [];
 
+  const [picked, setPicked] = useState(false);
+  const figures = [
+    figure('active', t('tasks.metric.active'), { state: summaryState }, () => ({ value: formatNumber(counts.active), hint: t('tasks.metric.activeAll'), tone: counts.active ? 'accent' : '' })),
+    figure('waiting', t('tasks.metric.waiting'), { state: summaryState }, () => ({ value: formatNumber(counts.waiting), hint: t('tasks.metric.waitingDetail'), tone: counts.waiting ? 'warn' : '' })),
+    figure('completed', t('tasks.metric.completed'), { state: summaryState }, () => ({ value: formatNumber(counts.completed), hint: filterCount ? t('tasks.metric.matching') : t('tasks.metric.workspace'), tone: counts.completed ? 'ok' : '' })),
+    figure('failed', t('tasks.metric.failed'), { state: summaryState }, () => ({ value: formatNumber(counts.failed), hint: t('tasks.metric.archived', { count: summary?.archived ?? 0 }), tone: counts.failed ? 'danger' : '' })),
+  ];
+  const historyLabel = query.archived ? t('tasks.history.archived') : t('tasks.history.eyebrow');
+
   return <>
-    <section className="metrics" aria-label={t('tasks.metric.label')}>
-      <Metric icon={<Activity />} label={t('tasks.metric.active')} value={counts.active} detail={t('tasks.metric.activeAll')} />
-      <Metric icon={<Hourglass />} label={t('tasks.metric.waiting')} value={counts.waiting} detail={t('tasks.metric.waitingDetail')} />
-      <Metric icon={<CheckCircle2 />} label={t('tasks.metric.completed')} value={counts.completed} detail={summary ? (filterCount ? t('tasks.metric.matching') : t('tasks.metric.workspace')) : t('tasks.metric.completedDetail')} />
-      <Metric icon={<XCircle />} label={t('tasks.metric.failed')} value={counts.failed} detail={summary ? t('tasks.metric.archived', { count: summary.archived }) : t('tasks.metric.failedDetail', { count: all.length })} />
-    </section>
-    <div className="taskLayout tasksPage">
-      <section className="surface composerSurface" aria-labelledby="task-composer-heading">
-        <div className="sectionHeader">
-          <div><p className="eyebrow">{t('tasks.composer.eyebrow')}</p><h2 id="task-composer-heading">{t('tasks.composer.title')}</h2></div>
-          <span className={`statusBadge ${badge.tone}`} title={t('tasks.streamTitle')}>{badge.label}</span>
-        </div>
-        <label className="field"><span>{t('tasks.instructions')}</span><textarea ref={composerRef} dir="auto" value={p.prompt} maxLength={8000} onChange={(e) => p.setPrompt(e.target.value)} placeholder={t('tasks.instructionsPlaceholder')} /></label>
-        <div className="actions">
-          <button onClick={p.runTask} disabled={p.busy || !p.prompt.trim() || !canRun} title={canRun ? undefined : permissionHint('run')}><Play aria-hidden="true" />{p.busy ? t('tasks.running') : t('tasks.run')}</button>
-        </div>
-        {!canRun && <p className="muted taskHint">{t('tasks.hint.readOnly', { hint: permissionHint('run') }, { isolate: false })}</p>}
-        <Notice>{p.message}</Notice>
-      </section>
-      <section className="surface taskSummary" aria-label={query.archived ? t('tasks.history.archived') : t('tasks.history.eyebrow')}>
-        <div className="sectionHeader">
-          <div><p className="eyebrow">{query.archived ? t('tasks.history.archived') : t('tasks.history.eyebrow')}</p><h2 aria-live="polite">{listLoading && !all.length ? t('common.loading') : t('tasks.history.count', { shown: all.length, count: summary ? (query.status === 'all' ? summary.total : counts.total) : all.length })}</h2></div>
-        </div>
-        <div className="taskFilters" role="search" aria-label={t('tasks.filter.label')}>
-          <label className="field taskSearch"><span>{t('tasks.search')}</span><input type="search" dir="auto" value={search} maxLength={200} onChange={(e) => setSearch(e.target.value)} placeholder={t('tasks.searchPlaceholder')} /></label>
-          <label className="field"><span>{t('tasks.status')}</span><select value={query.status} onChange={(e) => setQuery({ ...query, status: e.target.value as StatusFilter })}>{FILTERS.map((f) => <option key={f} value={f}>{t(`tasks.filter.${f}` as MessageKey)}</option>)}</select></label>
-          <label className="field"><span>{t('tasks.filter.creator')}</span><select value={query.creator} onChange={(e) => setQuery({ ...query, creator: e.target.value })}>
-            <option value="">{t('tasks.filter.anyone')}</option><option value="me">{t('tasks.filter.me')}</option>
-            {creators.filter((c) => c !== userId).map((c) => <option key={c} value={c}>{c}</option>)}
-          </select></label>
-          <label className="field"><span>{t('tasks.filter.from')}</span><input type="date" value={query.from} max={query.to || undefined} onChange={(e) => setQuery({ ...query, from: e.target.value })} /></label>
-          <label className="field"><span>{t('tasks.filter.to')}</span><input type="date" value={query.to} min={query.from || undefined} onChange={(e) => setQuery({ ...query, to: e.target.value })} /></label>
-        </div>
-        <div className="taskFilterBar">
+    <PageHeader title={viewLabel('tasks')} subtitle={t('pages2.tasks.subtitle')} actions={<span className={`statusBadge ${badge.tone}`} title={t('tasks.streamTitle')}>{badge.label}</span>} />
+    <PageSummary label={t('tasks.metric.label')} figures={figures} onRetry={refresh} />
+    <SplitView className="tasksSplit" show={picked && currentId ? 'detail' : 'list'} label={t('pages2.tasks.split')}>
+      <section data-pane="list" className="pane tasksListPane" aria-label={historyLabel}>
+        <form className="taskComposer" aria-labelledby="task-composer-heading" onSubmit={(e) => { e.preventDefault(); if (p.prompt.trim() && canRun && !p.busy) { setPicked(true); p.runTask(); } }}>
+          <h2 id="task-composer-heading" className="visuallyHidden">{t('tasks.composer.title')}</h2>
+          <label className="field"><span>{t('tasks.instructions')}</span><textarea ref={composerRef} dir="auto" rows={2} value={p.prompt} maxLength={8000} onChange={(e) => p.setPrompt(e.target.value)} placeholder={t('tasks.instructionsPlaceholder')}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} /></label>
+          <div className="taskComposerFoot">
+            <Notice>{p.message}</Notice>
+            <button type="submit" disabled={p.busy || !p.prompt.trim() || !canRun} title={canRun ? undefined : permissionHint('run')}><Play aria-hidden="true" />{p.busy ? t('tasks.running') : t('tasks.run')}</button>
+          </div>
+          {!canRun && <p className="muted taskHint">{t('tasks.hint.readOnly', { hint: permissionHint('run') }, { isolate: false })}</p>}
+        </form>
+        <div className="paneHead taskListHead">
+          <h2 aria-live="polite">{listLoading && !all.length ? t('common.loading') : t('tasks.history.count', { shown: all.length, count: summary ? (query.status === 'all' ? summary.total : counts.total) : all.length })}</h2>
           <label className="taskToggle"><input type="checkbox" checked={query.archived} onChange={(e) => { setChecked(new Set()); setQuery({ ...query, archived: e.target.checked }); }} />{summary ? t('tasks.filter.archivedCount', { count: summary.archived }) : t('tasks.filter.archived')}</label>
-          {filterCount > 0 && <button className="secondary taskSmallButton" onClick={clearFilters}><X aria-hidden="true" />{t('tasks.filter.clearCount', { count: filterCount })}</button>}
         </div>
-        {rangeError && <Notice error>{rangeError}</Notice>}
-        {checked.size > 0 && <div className="taskBulkBar" role="toolbar" aria-label={t('tasks.bulk.label')}>
-          <strong>{t('tasks.bulk.selected', { count: checked.size })}</strong>
-          {query.archived
-            ? <button className="secondary taskSmallButton" disabled={Boolean(bulkBusy)} onClick={() => void bulk('unarchive')}><ArchiveRestore aria-hidden="true" />{bulkBusy === 'unarchive' ? t('tasks.action.restoring') : t('tasks.action.restore')}</button>
-            : <>
-              <button className="secondary taskSmallButton" disabled={Boolean(bulkBusy)} onClick={() => void bulk('archive')}><Archive aria-hidden="true" />{bulkBusy === 'archive' ? t('tasks.action.archiving') : t('tasks.action.archive')}</button>
-              {canCancel && (confirmBulkCancel
-                ? <button className="danger taskSmallButton" disabled={Boolean(bulkBusy)} onClick={() => void bulk('cancel')}><Square aria-hidden="true" />{bulkBusy === 'cancel' ? t('tasks.action.cancelling') : t('tasks.bulk.confirmCancel', { count: checked.size })}</button>
-                : <button className="secondary taskSmallButton" disabled={Boolean(bulkBusy)} onClick={() => setConfirmBulkCancel(true)}><Square aria-hidden="true" />{t('tasks.bulk.cancel')}</button>)}
-            </>}
-          <button className="secondary taskSmallButton" onClick={() => { setChecked(new Set()); setConfirmBulkCancel(false); }}>{t('tasks.bulk.clear')}</button>
-        </div>}
-        {notice && <Notice error={notice.error}>{notice.text}</Notice>}
-        {showListError && <div className="notice errorNotice taskErrorRow" role="alert"><CircleDot aria-hidden="true" /><span>{t('tasks.listError', { reason: describeError(listError) })}</span><button className="secondary taskSmallButton" onClick={refresh}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
-        {all.length > 0 && <label className="taskToggle taskSelectAll"><input type="checkbox" checked={allChecked} onChange={toggleAll} />{all.length > BULK_MAX ? t('tasks.bulk.selectFirst', { count: BULK_MAX }) : t('tasks.bulk.selectAll')}</label>}
-        <div className={`compactList taskList ${stale ? 'taskListStale' : ''}`} aria-busy={listLoading}>
-          {all.map((x) => <div className="taskRow" key={x.id}>
-            <input type="checkbox" checked={checked.has(x.id)} onChange={() => toggle(x.id)} aria-label={t('tasks.bulk.selectOne', { title: x.title })} />
-            <button className={`recordButton ${currentId === x.id ? 'selected' : ''}`} aria-pressed={currentId === x.id} onClick={() => select(x)}>
-              <span><strong dir="auto">{x.title}</strong><small className="taskPromptPreview" dir="auto">{x.prompt}</small><small>{x.createdBy ? t('tasks.row.createdBy', { when: date(x.createdAt), who: x.createdBy === userId ? t('tasks.you') : x.createdBy }) : date(x.createdAt)}</small></span>
-              <Status value={x.status} />
-            </button>
-          </div>)}
-          {!listLoading && !showListError && !rangeError && !all.length && (filterCount
-            ? <Empty title={query.archived && filterCount === 1 ? t('tasks.archivedEmpty.title') : t('tasks.noMatch.title')} text={query.archived && filterCount === 1 ? t('tasks.archivedEmpty.text') : t('tasks.noMatch.filters')}>
-              <button className="secondary" onClick={clearFilters}>{query.archived && filterCount === 1 ? t('tasks.archivedEmpty.back') : t('tasks.filter.clear')}</button></Empty>
-            : <Empty title={t('tasks.empty.firstTitle')} text={t('tasks.empty.firstText')}>
-              {canRun && <button className="secondary" onClick={() => composerRef.current?.focus()}>{t('tasks.empty.write')}</button>}</Empty>)}
-          {listLoading && !all.length && <p className="muted taskLoading" role="status">{t('tasks.loadingList')}</p>}
+        <div className="paneBody taskListBody">
+          <div className="taskFilters" role="search" aria-label={t('tasks.filter.label')}>
+            <label className="field taskSearch"><span>{t('tasks.search')}</span><input type="search" dir="auto" value={search} maxLength={200} onChange={(e) => setSearch(e.target.value)} placeholder={t('tasks.searchPlaceholder')} /></label>
+            <label className="field"><span>{t('tasks.status')}</span><select value={query.status} onChange={(e) => setQuery({ ...query, status: e.target.value as StatusFilter })}>{FILTERS.map((f) => <option key={f} value={f}>{t(`tasks.filter.${f}` as MessageKey)}</option>)}</select></label>
+            <label className="field"><span>{t('tasks.filter.creator')}</span><select value={query.creator} onChange={(e) => setQuery({ ...query, creator: e.target.value })}>
+              <option value="">{t('tasks.filter.anyone')}</option><option value="me">{t('tasks.filter.me')}</option>
+              {creators.filter((c) => c !== userId).map((c) => <option key={c} value={c}>{c}</option>)}
+            </select></label>
+            <details className="taskDates" open={Boolean(query.from || query.to)}>
+              <summary>{query.from || query.to ? t('pages2.tasks.datesSet') : t('pages2.tasks.dates')}</summary>
+              <div className="taskDateFields">
+                <label className="field"><span>{t('tasks.filter.from')}</span><input type="date" value={query.from} max={query.to || undefined} onChange={(e) => setQuery({ ...query, from: e.target.value })} /></label>
+                <label className="field"><span>{t('tasks.filter.to')}</span><input type="date" value={query.to} min={query.from || undefined} onChange={(e) => setQuery({ ...query, to: e.target.value })} /></label>
+              </div>
+            </details>
+          </div>
+          {filterCount > 0 && <div className="taskFilterBar"><button className="secondary taskSmallButton" onClick={clearFilters}><X aria-hidden="true" />{t('tasks.filter.clearCount', { count: filterCount })}</button></div>}
+          {rangeError && <Notice error>{rangeError}</Notice>}
+          {checked.size > 0 && <div className="taskBulkBar" role="toolbar" aria-label={t('tasks.bulk.label')}>
+            <strong>{t('tasks.bulk.selected', { count: checked.size })}</strong>
+            {query.archived
+              ? <button className="secondary taskSmallButton" disabled={Boolean(bulkBusy)} onClick={() => void bulk('unarchive')}><ArchiveRestore aria-hidden="true" />{bulkBusy === 'unarchive' ? t('tasks.action.restoring') : t('tasks.action.restore')}</button>
+              : <>
+                <button className="secondary taskSmallButton" disabled={Boolean(bulkBusy)} onClick={() => void bulk('archive')}><Archive aria-hidden="true" />{bulkBusy === 'archive' ? t('tasks.action.archiving') : t('tasks.action.archive')}</button>
+                {canCancel && (confirmBulkCancel
+                  ? <button className="danger taskSmallButton" disabled={Boolean(bulkBusy)} onClick={() => void bulk('cancel')}><Square aria-hidden="true" />{bulkBusy === 'cancel' ? t('tasks.action.cancelling') : t('tasks.bulk.confirmCancel', { count: checked.size })}</button>
+                  : <button className="secondary taskSmallButton" disabled={Boolean(bulkBusy)} onClick={() => setConfirmBulkCancel(true)}><Square aria-hidden="true" />{t('tasks.bulk.cancel')}</button>)}
+              </>}
+            <button className="secondary taskSmallButton" onClick={() => { setChecked(new Set()); setConfirmBulkCancel(false); }}>{t('tasks.bulk.clear')}</button>
+          </div>}
+          {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+          {showListError && <div className="notice errorNotice taskErrorRow" role="alert"><CircleDot aria-hidden="true" /><span>{t('tasks.listError', { reason: describeError(listError) })}</span><button className="secondary taskSmallButton" onClick={refresh}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
+          {all.length > 0 && <label className="taskToggle taskSelectAll"><input type="checkbox" checked={allChecked} onChange={toggleAll} />{all.length > BULK_MAX ? t('tasks.bulk.selectFirst', { count: BULK_MAX }) : t('tasks.bulk.selectAll')}</label>}
+          <div className={`compactList taskList ${stale ? 'taskListStale' : ''}`} aria-busy={listLoading}>
+            {all.map((x) => <div className="taskRow" key={x.id}>
+              <input type="checkbox" checked={checked.has(x.id)} onChange={() => toggle(x.id)} aria-label={t('tasks.bulk.selectOne', { title: x.title })} />
+              <button className={`recordButton ${currentId === x.id ? 'selected' : ''}`} aria-pressed={currentId === x.id} onClick={() => { select(x); setPicked(true); }}>
+                <span><strong dir="auto">{x.title}</strong><small className="taskPromptPreview" dir="auto">{x.prompt}</small><small>{x.createdBy ? t('tasks.row.createdBy', { when: date(x.createdAt), who: x.createdBy === userId ? t('tasks.you') : x.createdBy }) : date(x.createdAt)}</small></span>
+                <Status value={x.status} />
+              </button>
+            </div>)}
+            {!listLoading && !showListError && !rangeError && !all.length && (filterCount
+              ? <Empty title={query.archived && filterCount === 1 ? t('tasks.archivedEmpty.title') : t('tasks.noMatch.title')} text={query.archived && filterCount === 1 ? t('tasks.archivedEmpty.text') : t('tasks.noMatch.filters')}>
+                <button className="secondary" onClick={clearFilters}>{query.archived && filterCount === 1 ? t('tasks.archivedEmpty.back') : t('tasks.filter.clear')}</button></Empty>
+              : <Empty title={t('tasks.empty.firstTitle')} text={t('tasks.empty.firstText')}>
+                {canRun && <button className="secondary" onClick={() => composerRef.current?.focus()}>{t('tasks.empty.write')}</button>}</Empty>)}
+            {listLoading && !all.length && <p className="muted taskLoading" role="status">{t('tasks.loadingList')}</p>}
+          </div>
+          {pageError && <Notice error>{pageError}</Notice>}
+          {more && all.length > 0 && <div className="actions taskMore"><button className="secondary" onClick={() => void loadMore()} disabled={paging || listLoading}>{paging ? t('common.loading') : t('tasks.loadMore')}</button></div>}
         </div>
-        {pageError && <Notice error>{pageError}</Notice>}
-        {more && all.length > 0 && <div className="actions"><button className="secondary" onClick={() => void loadMore()} disabled={paging || listLoading}>{paging ? t('common.loading') : t('tasks.loadMore')}</button></div>}
       </section>
-    </div>
-    {currentId
-      ? <TaskDetail key={currentId} taskId={currentId} listed={all.find((t) => t.id === currentId) ?? (p.task?.id === currentId ? p.task : null)}
-        recentRun={p.run} approvals={approvalsForTask(p.approvals, currentId)} pulse={pulse} role={role} userId={userId}
-        onChanged={refresh} openApprovals={p.openApprovals} openMemory={p.openMemory} openFile={p.openFile} />
-      : <section className="surface taskDetail"><Empty title={t('tasks.noneSelected.title')} text={t('tasks.noneSelected.text')} /></section>}
+      <section data-pane="detail" className="pane taskDetailPane" aria-label={currentId ? undefined : t('tasks.detail.eyebrow')}>
+        {currentId
+          ? <TaskDetail key={currentId} taskId={currentId} listed={all.find((t) => t.id === currentId) ?? (p.task?.id === currentId ? p.task : null)}
+            recentRun={p.run} approvals={approvalsForTask(p.approvals, currentId)} pulse={pulse} role={role} userId={userId} onBack={() => setPicked(false)}
+            onChanged={refresh} openApprovals={p.openApprovals} openMemory={p.openMemory} openFile={p.openFile} />
+          : <Empty title={t('tasks.noneSelected.title')} text={t('tasks.noneSelected.text')} />}
+      </section>
+    </SplitView>
   </>;
 }
 
 interface DetailProps {
   taskId: string; listed: Task | null; recentRun: AgentRun | null; approvals: Approval[]; pulse: string;
-  role: WorkspaceRole; userId: string | null; onChanged(): void; openApprovals(): void; openMemory(target: MemoryTarget): void; openFile(fileId: string): void;
+  role: WorkspaceRole; userId: string | null; onBack(): void; onChanged(): void; openApprovals(): void; openMemory(target: MemoryTarget): void; openFile(fileId: string): void;
 }
+
+type DetailTab = 'answer' | 'approvals' | 'runs' | 'activity';
+const DETAIL_TABS: readonly DetailTab[] = ['answer', 'approvals', 'runs', 'activity'];
 
 const newer = (a: Task | null, b: Task | null): Task | null => (!a ? b : !b ? a : b.updatedAt > a.updatedAt ? b : a);
 
-function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId, onChanged, openApprovals, openMemory, openFile }: DetailProps) {
+function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId, onBack, onChanged, openApprovals, openMemory, openFile }: DetailProps) {
+  const [tab, setTab] = useState<DetailTab>(() => (approvals.some((a) => a.status === 'pending') ? 'approvals' : 'answer'));
   const [fetched, setFetched] = useState<Task | null>(null), [taskError, setTaskError] = useState<unknown>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]), [olderRuns, setOlderRuns] = useState<AgentRun[]>([]);
   const [runsMore, setRunsMore] = useState(false), [runsError, setRunsError] = useState<string | null>(null), [runsLoading, setRunsLoading] = useState(true);
@@ -281,11 +300,13 @@ function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId,
   const historyRuns = latestRun && !allRuns.some((r) => r.id === latestRun.id) ? [latestRun, ...allRuns] : allRuns;
 
   if (!task) {
-    return <section className="surface taskDetail" aria-labelledby="task-detail-heading">
-      <h2 id="task-detail-heading" className="visuallyHidden">{t('tasks.detail.eyebrow')}</h2>
-      {taskError
-        ? <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{(taskError as { status?: number }).status === 404 ? t('tasks.detail.gone') : t('tasks.detail.error', { reason: describeError(taskError) })}</span></div>
-        : <p className="muted" role="status">{t('tasks.detail.loading')}</p>}
+    return <section className="taskDetail" aria-labelledby="task-detail-heading">
+      <div className="paneHead"><button type="button" className="secondary paneBack" onClick={onBack}><ArrowLeft className="flipRtl" aria-hidden="true" />{t('page.back')}</button><h2 id="task-detail-heading">{t('tasks.detail.eyebrow')}</h2></div>
+      <div className="paneBody">
+        {taskError
+          ? <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{(taskError as { status?: number }).status === 404 ? t('tasks.detail.gone') : t('tasks.detail.error', { reason: describeError(taskError) })}</span></div>
+          : <p className="muted" role="status">{t('tasks.detail.loading')}</p>}
+      </div>
     </section>;
   }
 
@@ -307,12 +328,17 @@ function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId,
   const answer = finalAnswer(run);
   const working = !isTerminal(task.status);
 
-  return <>
-    <section className="surface taskDetail" aria-labelledby="task-detail-heading">
-      <div className="sectionHeader">
-        <div className="taskDetailTitle"><p className="eyebrow">{t('tasks.detail.eyebrow')}</p><h2 id="task-detail-heading" dir="auto">{task.title}</h2></div>
-        <span className="taskBadges">{task.archivedAt && <span className="statusBadge neutral">{t('tasks.detail.archivedBadge')}</span>}<Status value={task.status} /></span>
-      </div>
+  const tabCount: Record<DetailTab, string> = {
+    answer: '', approvals: approvals.length ? ` (${formatNumber(approvals.length)})` : '',
+    runs: historyRuns.length ? ` (${formatNumber(historyRuns.length)}${runsMore ? '+' : ''})` : '', activity: allEvents.length ? ` (${formatNumber(allEvents.length)}${eventsMore ? '+' : ''})` : '',
+  };
+  return <section className="taskDetail" aria-labelledby="task-detail-heading">
+    <div className="paneHead taskDetailHead">
+      <button type="button" className="secondary paneBack" onClick={onBack}><ArrowLeft className="flipRtl" aria-hidden="true" />{t('page.back')}</button>
+      <div className="taskDetailTitle"><p className="eyebrow">{t('tasks.detail.eyebrow')}</p><h2 id="task-detail-heading" dir="auto">{task.title}</h2></div>
+      <span className="taskBadges">{task.archivedAt && <span className="statusBadge neutral">{t('tasks.detail.archivedBadge')}</span>}<Status value={task.status} /></span>
+    </div>
+    <div className="paneBody">
       <div className="taskToolbar" role="toolbar" aria-label={t('tasks.actions.label')}>
         {can.run && <button disabled={Boolean(busy) || !allow.run} onClick={() => void act('run', permissionHint('run'), async () => runOutcome(await tasksApi.runTask(task.id)))}><Play aria-hidden="true" />{busy === 'run' ? t('tasks.action.starting') : t('tasks.action.run')}</button>}
         {can.retry && <button disabled={Boolean(busy) || !allow.run} onClick={() => void act('retry', permissionHint('run'), async () => runOutcome(await tasksApi.retryTask(task.id)))}><RotateCcw aria-hidden="true" />{busy === 'retry' ? t('tasks.action.retrying') : t('tasks.action.retry')}</button>}
@@ -342,52 +368,61 @@ function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId,
           <h3 className="taskSubheading">{t('tasks.detail.instructions')}</h3>
           <Expandable className="taskInstructions" text={task.prompt} limit={600} />
         </>}
-    </section>
-    <section className="surface taskAnswer" aria-labelledby="task-answer-heading" aria-live="polite" aria-busy={working && !answer}>
-      <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.answer.eyebrow')}</p><h2 id="task-answer-heading">{t('tasks.answer.title')}</h2></div>{working && <span className="statusBadge warning">{t('tasks.answer.updating')}</span>}</div>
-      {answer ? <AiAnswer text={answer} /> : <p className="muted">{working ? t('tasks.answer.pending') : run ? t('tasks.answer.none') : t('tasks.answer.noRun')}</p>}
-    </section>
-    {approvals.length > 0 && <section className="surface taskAnswer" aria-labelledby="task-approvals-heading">
-      <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.approvals.eyebrow')}</p><h2 id="task-approvals-heading">{t('tasks.approvals.title')}</h2></div><button className="secondary taskSmallButton" onClick={openApprovals}><ShieldCheck aria-hidden="true" />{t('tasks.approvals.open')}</button></div>
-      <ul className="taskApprovals">{approvals.map((a) => <li key={a.id}><span><strong dir="ltr">{a.action}</strong><small>{t('tasks.approvals.meta', { risk: riskLabel(a.riskLevel), when: date(a.createdAt) })}{a.runId && historyRuns.length > 1 ? ` · ${runName(historyRuns, a.runId)}` : ''}</small><small dir="auto">{a.reason}</small></span><Status value={a.status} /></li>)}</ul>
-    </section>}
-    <section className="surface timelineSurface" aria-labelledby="task-runs-heading">
-      <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.runs.eyebrow')}</p><h2 id="task-runs-heading">{t('tasks.runs.title')}</h2></div>{historyRuns.length > 0 && <span className="statusBadge neutral">{t(runsMore ? 'tasks.runs.countMore' : 'tasks.runs.count', { count: historyRuns.length })}</span>}</div>
-      {runsError && <Notice error>{runsError}</Notice>}
-      {historyRuns.length > 1 && <ul className="taskRuns" aria-label={t('tasks.runs.listLabel')}>{historyRuns.map((r, i) => <li key={r.id}>
-        <button className={`recordButton ${run?.id === r.id ? 'selected' : ''}`} aria-pressed={run?.id === r.id} onClick={() => setChosenRun(r.id)}>
-          <span><strong>{runLabel(i, historyRuns.length)}</strong><small>{r.createdAt ? date(r.createdAt) : r.id} · {t('tasks.trace.count', { count: r.steps.length })}</small></span><Status value={r.status} />
-        </button></li>)}</ul>}
-      {runsMore && <div className="actions"><button className="secondary" disabled={busy === 'runs'} onClick={() => void (async () => {
-        setBusy('runs');
-        try { const page = await tasksApi.listTaskRuns(taskId, allRuns[allRuns.length - 1]?.id ?? null); setOlderRuns((o) => [...o, ...page]); setRunsMore(page.length >= RUN_PAGE_SIZE); }
-        catch (e) { setRunsError(t('tasks.runs.olderError', { reason: describeError(e) })); } finally { setBusy(null); }
-      })()}>{busy === 'runs' ? t('common.loading') : t('tasks.runs.loadOlder')}</button></div>}
-      <h3 className="taskSubheading">{run && historyRuns.length > 1 ? t('tasks.trace.of', { run: runName(historyRuns, run.id) }) : t('tasks.trace.title')}</h3>
-      {run?.steps.length
-        ? <ol className="timeline" aria-label={t('tasks.trace.listLabel')}>{run.steps.map((s, i) => <li className="timelineRow" key={s.id}>
-          <div className="timelineRail" aria-hidden="true"><span className="stepDot">{i + 1}</span>{i < run.steps.length - 1 && <span className="railLine" />}</div>
-          <div className="timelineBody"><div className="timelineTitle"><strong>{stepLabel(s.type)}</strong><time dateTime={s.createdAt}>{time(s.createdAt)}</time></div>
-            <Expandable text={s.summary} limit={400} />
-            {stepFacts(s).length > 0 && <dl className="stepFacts">{stepFacts(s).map((f) => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>}
-          </div></li>)}</ol>
-        : <Empty title={runsLoading ? t('tasks.trace.loading') : t('tasks.trace.noneYet')} text={run ? t('tasks.trace.pending') : can.run ? t('tasks.trace.notRun') : t('tasks.answer.noRun')} />}
-    </section>
-    <SourcesUsed run={run} onOpenMemory={openMemory} onOpenFile={openFile} />
-    <section className="surface timelineSurface" aria-labelledby="task-activity-heading">
-      <div className="sectionHeader"><div><p className="eyebrow">{t('tasks.activity.eyebrow')}</p><h2 id="task-activity-heading">{t('tasks.activity.title')}</h2></div></div>
-      {eventsError && <Notice error={eventsError !== EVENTS_DENIED()}>{eventsError}</Notice>}
-      {!eventsError && !allEvents.length && <p className="muted taskLoading">{eventsLoading ? t('tasks.activity.loading') : t('tasks.activity.empty')}</p>}
-      {allEvents.length > 0 && <ul className="taskEvents" aria-label={t('tasks.activity.listLabel')}>{allEvents.map((e) => <li key={e.id}>
-        <span className={`statusBadge ${eventTone(e)}`}>{eventLabel(e)}</span><time dateTime={e.createdAt}>{date(e.createdAt)}</time>
-      </li>)}</ul>}
-      {eventsMore && <div className="actions"><button className="secondary" disabled={busy === 'events'} onClick={() => void (async () => {
-        setBusy('events');
-        try { const page = await tasksApi.listTaskEvents(taskId, allEvents[allEvents.length - 1]?.id ?? null); setOlderEvents((o) => [...o, ...page]); setEventsMore(page.length >= EVENT_PAGE_SIZE); }
-        catch (e) { setEventsError(t('tasks.activity.olderError', { reason: describeError(e) })); } finally { setBusy(null); }
-      })()}>{busy === 'events' ? t('common.loading') : t('tasks.activity.loadOlder')}</button></div>}
-    </section>
-  </>;
+      <div className="segmented taskTabs" role="tablist" aria-label={t('pages2.tasks.tabs')}>
+        {DETAIL_TABS.map((id) => <button key={id} type="button" role="tab" id={`task-tab-${id}`} aria-selected={tab === id} aria-controls={`task-panel-${id}`} onClick={() => setTab(id)}>{t(`pages2.tasks.tab.${id}` as MessageKey)}{tabCount[id]}</button>)}
+      </div>
+      <div role="tabpanel" id={`task-panel-${tab}`} aria-labelledby={`task-tab-${tab}`} className="taskTabPanel">
+        {tab === 'answer' && <>
+          <section className="taskAnswer" aria-labelledby="task-answer-heading" aria-live="polite" aria-busy={working && !answer}>
+            <div className="taskPanelHead"><h3 id="task-answer-heading">{t('tasks.answer.title')}</h3>{working && <span className="statusBadge warning">{t('tasks.answer.updating')}</span>}</div>
+            {answer ? <AiAnswer text={answer} /> : <p className="muted">{working ? t('tasks.answer.pending') : run ? t('tasks.answer.none') : t('tasks.answer.noRun')}</p>}
+          </section>
+          <SourcesUsed run={run} onOpenMemory={openMemory} onOpenFile={openFile} />
+        </>}
+        {tab === 'approvals' && <section className="taskAnswer" aria-labelledby="task-approvals-heading">
+          <div className="taskPanelHead"><h3 id="task-approvals-heading">{t('tasks.approvals.title')}</h3><button className="secondary taskSmallButton" onClick={openApprovals}><ShieldCheck aria-hidden="true" />{t('tasks.approvals.open')}</button></div>
+          {approvals.length
+            ? <ul className="taskApprovals">{approvals.map((a) => <li key={a.id}><span><strong dir="ltr">{a.action}</strong><small>{t('tasks.approvals.meta', { risk: riskLabel(a.riskLevel), when: date(a.createdAt) })}{a.runId && historyRuns.length > 1 ? ` · ${runName(historyRuns, a.runId)}` : ''}</small><small dir="auto">{a.reason}</small></span><Status value={a.status} /></li>)}</ul>
+            : <Empty title={t('pages2.tasks.noApprovals')} text={t('pages2.tasks.noApprovalsText')} />}
+        </section>}
+        {tab === 'runs' && <section className="timelineSurface" aria-labelledby="task-runs-heading">
+          <div className="taskPanelHead"><h3 id="task-runs-heading">{t('tasks.runs.title')}</h3>{historyRuns.length > 0 && <span className="statusBadge neutral">{t(runsMore ? 'tasks.runs.countMore' : 'tasks.runs.count', { count: historyRuns.length })}</span>}</div>
+          {runsError && <Notice error>{runsError}</Notice>}
+          {historyRuns.length > 1 && <ul className="taskRuns" aria-label={t('tasks.runs.listLabel')}>{historyRuns.map((r, i) => <li key={r.id}>
+            <button className={`recordButton ${run?.id === r.id ? 'selected' : ''}`} aria-pressed={run?.id === r.id} onClick={() => setChosenRun(r.id)}>
+              <span><strong>{runLabel(i, historyRuns.length)}</strong><small>{r.createdAt ? date(r.createdAt) : r.id} · {t('tasks.trace.count', { count: r.steps.length })}</small></span><Status value={r.status} />
+            </button></li>)}</ul>}
+          {runsMore && <div className="actions"><button className="secondary" disabled={busy === 'runs'} onClick={() => void (async () => {
+            setBusy('runs');
+            try { const page = await tasksApi.listTaskRuns(taskId, allRuns[allRuns.length - 1]?.id ?? null); setOlderRuns((o) => [...o, ...page]); setRunsMore(page.length >= RUN_PAGE_SIZE); }
+            catch (e) { setRunsError(t('tasks.runs.olderError', { reason: describeError(e) })); } finally { setBusy(null); }
+          })()}>{busy === 'runs' ? t('common.loading') : t('tasks.runs.loadOlder')}</button></div>}
+          <h4 className="taskSubheading">{run && historyRuns.length > 1 ? t('tasks.trace.of', { run: runName(historyRuns, run.id) }) : t('tasks.trace.title')}</h4>
+          {run?.steps.length
+            ? <ol className="timeline" aria-label={t('tasks.trace.listLabel')}>{run.steps.map((s, i) => <li className="timelineRow" key={s.id}>
+              <div className="timelineRail" aria-hidden="true"><span className="stepDot">{i + 1}</span>{i < run.steps.length - 1 && <span className="railLine" />}</div>
+              <div className="timelineBody"><div className="timelineTitle"><strong>{stepLabel(s.type)}</strong><time dateTime={s.createdAt}>{time(s.createdAt)}</time></div>
+                <Expandable text={s.summary} limit={400} />
+                {stepFacts(s).length > 0 && <dl className="stepFacts">{stepFacts(s).map((f) => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>}
+              </div></li>)}</ol>
+            : <Empty title={runsLoading ? t('tasks.trace.loading') : t('tasks.trace.noneYet')} text={run ? t('tasks.trace.pending') : can.run ? t('tasks.trace.notRun') : t('tasks.answer.noRun')} />}
+        </section>}
+        {tab === 'activity' && <section className="timelineSurface" aria-labelledby="task-activity-heading">
+          <div className="taskPanelHead"><h3 id="task-activity-heading">{t('tasks.activity.title')}</h3></div>
+          {eventsError && <Notice error={eventsError !== EVENTS_DENIED()}>{eventsError}</Notice>}
+          {!eventsError && !allEvents.length && <p className="muted taskLoading">{eventsLoading ? t('tasks.activity.loading') : t('tasks.activity.empty')}</p>}
+          {allEvents.length > 0 && <ul className="taskEvents" aria-label={t('tasks.activity.listLabel')}>{allEvents.map((e) => <li key={e.id}>
+            <span className={`statusBadge ${eventTone(e)}`}>{eventLabel(e)}</span><time dateTime={e.createdAt}>{date(e.createdAt)}</time>
+          </li>)}</ul>}
+          {eventsMore && <div className="actions"><button className="secondary" disabled={busy === 'events'} onClick={() => void (async () => {
+            setBusy('events');
+            try { const page = await tasksApi.listTaskEvents(taskId, allEvents[allEvents.length - 1]?.id ?? null); setOlderEvents((o) => [...o, ...page]); setEventsMore(page.length >= EVENT_PAGE_SIZE); }
+            catch (e) { setEventsError(t('tasks.activity.olderError', { reason: describeError(e) })); } finally { setBusy(null); }
+          })()}>{busy === 'events' ? t('common.loading') : t('tasks.activity.loadOlder')}</button></div>}
+        </section>}
+      </div>
+    </div>
+  </section>;
 }
 
 function runName(runs: AgentRun[], runId: string): string {
@@ -425,7 +460,6 @@ function Expandable({ text, limit, className }: { text: string; limit: number; c
     {long && <button type="button" className="linkButton" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t('tasks.text.less') : t('tasks.text.all', { count: text.length })}</button>}</div>;
 }
 
-function Metric({ icon, label, value, detail }: { icon: ReactNode; label: string; value: number; detail: string }) { return <article className="metric"><div className="metricTop"><span>{label}</span><div className="metricIcon" aria-hidden="true">{icon}</div></div><strong>{formatNumber(value)}</strong><small>{detail}</small></article>; }
 function Status({ value }: { value: string }) { return <span className={`statusBadge ${value === 'completed' || value === 'approved' ? 'success' : ['failed', 'cancelled', 'rejected', 'expired'].includes(value) ? 'dangerTone' : 'warning'}`}>{statusLabel(value)}</span>; }
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) { return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>; }
 function Empty({ title, text, children }: { title: string; text: string; children?: ReactNode }) { return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p>{children}</div>; }

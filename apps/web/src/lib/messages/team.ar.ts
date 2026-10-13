@@ -17,7 +17,7 @@ export const teamAr: Record<keyof typeof teamEn, Message> = {
   'team.directoryFailed': 'تعذّر تحميل دليل الفريق: {message}',
   'team.sections': 'أقسام الفريق',
   'team.tab.mine': 'مهامي',
-  'team.tab.board': 'لوحة الفريق',
+  'team.tab.board': 'لوحة متابعة الفريق',
   'team.tab.workload': 'عبء العمل',
   'team.tab.activity': 'النشاط',
   'team.tab.people': 'الأشخاص',

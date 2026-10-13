@@ -8,11 +8,17 @@ import * as team from './lib/teamApi';
 import { apiRequest, currentUserId, downloadFile, getFiles, uploadFile, type FileRecord } from './lib/api';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
-import { BOARD_COLUMNS, PRIORITIES, STATUSES, assigneeOptions, assigneeValue, boardColumn, draftBody, dueState, emptyDraft, isoToLocalInput, loadTone, localInputToIso, parseAssignee, workQuery, type WorkDraft } from './lib/team';
+import { BOARD_COLUMNS, PRIORITIES, STATUSES, assigneeOptions, assigneeValue, boardColumn, draftBody, dueState, emptyDraft, isoToLocalInput, loadTone, localInputToIso, parseAssignee, workloadTotals, workQuery, type WorkDraft } from './lib/team';
+import { figure, type Load } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { loadFailure, PageHeader, PageSummary } from './PageParts';
+import { Modal } from './Dialog';
 import './team.css';
 
-type Tab = 'mine' | 'board' | 'workload' | 'activity' | 'people';
-const TABS: Tab[] = ['mine', 'board', 'workload', 'activity', 'people'];
+// The board and the workload table are one "Team dashboard" tab (docs/team-work.md#dashboard).
+type Tab = 'mine' | 'board' | 'activity' | 'people';
+const TABS: Tab[] = ['mine', 'board', 'activity', 'people'];
+const savedTab = (): Tab => { const saved = sessionStorageGet('anum.team.tab'); return saved === 'workload' ? 'board' : (TABS as string[]).includes(saved ?? '') ? saved as Tab : 'mine'; };
 type Flash = { text: string; error?: boolean } | null;
 
 const statusLabel = (s: WorkStatus) => t(`team.status.${s}` as MessageKey);
@@ -56,25 +62,35 @@ function useDirectory() {
 }
 
 export function TeamView({ focusItemId = null, onFocusChange, live = 0 }: { focusItemId?: string | null; onFocusChange?(id: string | null): void; live?: number }) {
-  const [tab, setTab] = useState<Tab>(() => (TABS as string[]).includes(sessionStorageGet('anum.team.tab') ?? '') ? sessionStorageGet('anum.team.tab') as Tab : 'mine');
+  const [tab, setTab] = useState<Tab>(savedTab);
   const [selected, setSelected] = useState<string | null>(focusItemId);
   const [creating, setCreating] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [workload, setWorkload] = useState<Load<Workload>>({ state: 'loading' });
   const dir = useDirectory();
   const changed = () => setRevision((n) => n + 1);
   useEffect(() => { if (focusItemId) setSelected(focusItemId); }, [focusItemId]);
   // Live events (someone else's change) reload the lists; an open form or detail keeps its state.
   useEffect(() => { if (live) setRevision((n) => n + 1); }, [live]);
+  const loadWorkload = useCallback(() => { team.getWorkload().then((value) => setWorkload({ state: 'ready', value }), (e: unknown) => setWorkload(loadFailure(e))); }, []);
+  useEffect(loadWorkload, [loadWorkload, revision]);
   const pick = (next: Tab) => { setTab(next); sessionStorageSet('anum.team.tab', next); };
   const open = (id: string | null) => { setSelected(id); onFocusChange?.(id); };
+  const totals = workload.state === 'ready' ? workloadTotals(workload.value) : null;
+  const figures = [
+    figure('open', t('pages2.team.fig.open'), workload, () => ({ value: String(totals!.open), hint: t('pages2.team.fig.openHint', { count: totals!.people }) })),
+    figure('progress', t('team.status.in_progress'), workload, () => ({ value: String(totals!.inProgress), hint: totals!.blocked ? t('pages2.team.fig.blocked', { count: totals!.blocked }) : t('pages2.team.fig.noneBlocked'), tone: totals!.blocked ? 'warn' : '' })),
+    figure('overdue', t('team.load.overdue'), workload, () => ({ value: String(totals!.overdue), hint: totals!.overdue ? t('pages2.team.fig.overdueHint') : t('pages2.team.fig.noneOverdue'), tone: totals!.overdue ? 'danger' : '' })),
+    figure('unassigned', t('pages2.team.fig.unassigned'), workload, () => ({ value: String(totals!.unassigned), hint: t('pages2.team.fig.week', { count: totals!.dueThisWeek }), tone: totals!.unassigned ? 'warn' : '' })),
+  ];
 
   return <div className="teamView">
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('team.eyebrow')}</p><h2>{t('team.title')}</h2><p>{t('team.intro')}</p></div>
-      <div className="actions"><button type="button" onClick={() => setCreating((v) => !v)} aria-expanded={creating}><Plus aria-hidden="true" />{t('team.newWork')}</button></div>
-    </section>
+    <PageHeader title={viewLabel('team')} subtitle={t('team.intro')} actions={<button type="button" onClick={() => setCreating(true)} aria-haspopup="dialog"><Plus aria-hidden="true" />{t('team.newWork')}</button>} />
+    <PageSummary label={t('pages2.team.summary')} figures={figures} onRetry={loadWorkload} />
     <CommandBox options={dir.options} onCreated={(item) => { changed(); open(item.id); }} />
-    {creating && <WorkForm options={dir.options} onCancel={() => setCreating(false)} onCreated={(item) => { setCreating(false); changed(); open(item.id); }} />}
+    {creating && <Modal title={t('team.newWork')} className="formDialog workDialog" onClose={() => setCreating(false)}>
+      <WorkForm options={dir.options} onCancel={() => setCreating(false)} onCreated={(item) => { setCreating(false); changed(); open(item.id); }} />
+    </Modal>}
     {dir.error && <Notice error>{t('team.directoryFailed', { message: dir.error })}</Notice>}
     <nav className="settingsTabs teamTabs" aria-label={t('team.sections')}>
       {TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`team.tab.${id}` as MessageKey)}</button>)}
@@ -82,8 +98,7 @@ export function TeamView({ focusItemId = null, onFocusChange, live = 0 }: { focu
     <div className={`teamSplit ${selected ? 'hasDetail' : ''}`}>
       <div className="teamMain">
         {tab === 'mine' && <WorkList key={`mine-${revision}`} scope="mine" selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
-        {tab === 'board' && <Board key={`board-${revision}`} selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
-        {tab === 'workload' && <WorkloadPanel key={`load-${revision}`} />}
+        {tab === 'board' && <Board key={`board-${revision}`} workload={workload} onRetryWorkload={loadWorkload} selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
         {tab === 'activity' && <ActivityFeed key={`feed-${revision}`} onOpen={open} />}
         {tab === 'people' && <PeoplePanel people={dir.people} onChanged={() => { void dir.reload(); changed(); }} />}
       </div>
@@ -169,8 +184,7 @@ function WorkForm({ options, onCancel, onCreated }: { options: ReturnType<typeof
     setBusy(true); setFlash(null);
     try { onCreated(await team.createWork(body)); } catch (e) { setFlash({ text: describeError(e), error: true }); } finally { setBusy(false); }
   };
-  return <form className="surface settingsForm workForm" onSubmit={submit} aria-labelledby="new-work-title" noValidate>
-    <h2 id="new-work-title">{t('team.newWork')}</h2>
+  return <form className="settingsForm workForm" onSubmit={submit} noValidate>
     <div className="formGrid">
       <div><label className="field"><span>{t('team.field.title')}</span>
         <input ref={titleRef} value={draft.title} onChange={(e) => set({ title: e.target.value })} maxLength={200} aria-invalid={Boolean(errors.title)} aria-describedby={errors.title ? 'work-title-error' : undefined} />
@@ -290,44 +304,45 @@ function BoardColumn({ status, assignee, selected, onOpen }: { status: WorkStatu
   </section>;
 }
 
-function Board({ selected, onOpen, onCreate }: { selected: string | null; onOpen(id: string): void; onCreate(): void }) {
+function Board({ workload, onRetryWorkload, selected, onOpen, onCreate }: { workload: Load<Workload>; onRetryWorkload(): void; selected: string | null; onOpen(id: string): void; onCreate(): void }) {
   const dir = useDirectory();
   const [assignee, setAssignee] = useState('');
-  return <section className="surface teamPanel" aria-labelledby="board-title">
+  return <section className="surface teamPanel teamDashboard" aria-labelledby="board-title">
     <div className="sectionHeader"><h2 id="board-title">{t('team.tab.board')}</h2>
       <div className="boardTools">
         <label className="field"><span>{t('team.field.assignee')}</span>
           <select value={assignee} onChange={(e) => setAssignee(e.target.value)}><option value="">{t('team.everyone')}</option>{dir.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
-        <div className="actions"><button type="button" onClick={onCreate}><Plus aria-hidden="true" />{t('team.newWork')}</button></div>
       </div>
     </div>
+    <WorkloadPanel workload={workload} onRetry={onRetryWorkload} selected={assignee} onPick={(value) => setAssignee((current) => (current === value ? '' : value))} onCreate={onCreate} />
+    <h3 className="boardHeading">{assignee ? t('pages2.team.boardFor', { name: dir.options.find((o) => o.value === assignee)?.label ?? assignee }) : t('pages2.team.boardAll')}</h3>
     <div className="board">{BOARD_COLUMNS.map((s) => <BoardColumn key={`${s}-${assignee}`} status={s} assignee={assignee} selected={selected} onOpen={onOpen} />)}</div>
   </section>;
 }
 
 // ------------------------------------------------------------------------- workload and activity
 
-function WorkloadPanel() {
-  const [data, setData] = useState<Workload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => { try { setData(await team.getWorkload()); setError(null); } catch (e) { setError(describeError(e)); } }, []);
-  useEffect(() => { void load(); }, [load]);
-  if (error) return <ListError detail={error} denied={false} onRetry={() => void load()} />;
-  if (!data) return <p className="muted" role="status">{t('team.loading')}</p>;
-  return <section className="surface teamPanel" aria-labelledby="workload-title">
-    <div className="sectionHeader"><h2 id="workload-title">{t('team.tab.workload')}</h2>{data.unassigned_open > 0 && <span className="statusBadge warning">{t('team.unassignedOpen', { count: data.unassigned_open })}</span>}</div>
-    {!data.rows.length ? <Empty icon={<Gauge aria-hidden="true" />} title={t('team.empty.workload')} text={t('team.empty.workloadText')} /> :
+function WorkloadPanel({ workload, onRetry, selected, onPick, onCreate }: { workload: Load<Workload>; onRetry(): void; selected: string; onPick(value: string): void; onCreate(): void }) {
+  if (workload.state === 'error' || workload.state === 'denied') return <ListError detail={workload.message} denied={workload.state === 'denied'} onRetry={onRetry} />;
+  if (workload.state === 'loading') return <p className="muted" role="status">{t('team.loading')}</p>;
+  const data = workload.value;
+  return <div className="workloadBlock" aria-labelledby="workload-title">
+    <div className="workloadHead"><h3 id="workload-title">{t('team.tab.workload')}</h3>{data.unassigned_open > 0 && <span className="statusBadge warning">{t('team.unassignedOpen', { count: data.unassigned_open })}</span>}<span className="muted">{t('pages2.team.workloadHint')}</span></div>
+    {!data.rows.length ? <Empty icon={<Gauge aria-hidden="true" />} title={t('team.empty.workload')} text={t('team.empty.workloadText')} action={<div className="actions"><button type="button" onClick={onCreate}><Plus aria-hidden="true" />{t('team.newWork')}</button></div>} /> :
       <div className="tableScroll"><table className="workloadTable">
         <thead><tr><th scope="col">{t('team.field.assignee')}</th><th scope="col">{t('team.load.open')}</th><th scope="col">{t('team.status.in_progress')}</th><th scope="col">{t('team.status.blocked')}</th><th scope="col">{t('team.load.overdue')}</th><th scope="col">{t('team.load.week')}</th><th scope="col">{t('team.load.capacity')}</th></tr></thead>
-        <tbody>{data.rows.map((r) => <tr key={`${r.assignee_type}:${r.assignee_id}`}>
-          <th scope="row">{r.assignee_type !== 'user' && <Bot aria-hidden="true" className="inlineIcon" />}{r.name}</th>
-          <td>{r.open}</td><td>{r.in_progress}</td><td>{r.blocked}</td><td className={r.overdue ? 'overdueCell' : ''}>{r.overdue}</td><td>{r.due_this_week}</td>
-          <td>{r.load_percent === null ? <span className="muted">{t('team.load.noCapacity', { hours: r.estimate_hours })}</span> :
-            <span className={`loadBar ${loadTone(r.load_percent)}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(r.load_percent, 100)} aria-label={t('team.load.meter', { name: r.name, percent: r.load_percent })}>
-              <span style={{ inlineSize: `${Math.min(r.load_percent, 100)}%` }} /><em>{t('team.load.hours', { hours: r.estimate_hours, capacity: r.capacity_hours ?? 0 })}</em></span>}</td>
-        </tr>)}</tbody>
+        <tbody>{data.rows.map((r) => {
+          const value = assigneeValue(r.assignee_type, r.assignee_id);
+          return <tr key={value} className={selected === value ? "selected" : undefined}>
+            <th scope="row"><button type="button" className="cellButton" aria-pressed={selected === value} title={t('pages2.team.filterBy', { name: r.name })} onClick={() => onPick(value)}><strong>{r.assignee_type !== 'user' && <Bot aria-hidden="true" className="inlineIcon" />}{r.name}</strong></button></th>
+            <td>{r.open}</td><td>{r.in_progress}</td><td>{r.blocked}</td><td className={r.overdue ? 'overdueCell' : ''}>{r.overdue}</td><td>{r.due_this_week}</td>
+            <td>{r.load_percent === null ? <span className="muted">{t('team.load.noCapacity', { hours: r.estimate_hours })}</span> :
+              <span className={`loadBar ${loadTone(r.load_percent)}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(r.load_percent, 100)} aria-label={t('team.load.meter', { name: r.name, percent: r.load_percent })}>
+                <span style={{ inlineSize: `${Math.min(r.load_percent, 100)}%` }} /><em>{t('team.load.hours', { hours: r.estimate_hours, capacity: r.capacity_hours ?? 0 })}</em></span>}</td>
+          </tr>;
+        })}</tbody>
       </table></div>}
-  </section>;
+  </div>;
 }
 
 function ActivityFeed({ onOpen }: { onOpen(id: string): void }) {

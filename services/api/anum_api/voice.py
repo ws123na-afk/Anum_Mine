@@ -15,6 +15,8 @@ tables under tenant, workspace and user RLS (migration 0009,
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import aclosing, contextmanager
@@ -25,7 +27,7 @@ from threading import RLock
 from time import perf_counter
 from typing import Literal, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -127,6 +129,60 @@ class VoiceSession(BaseModel):
     expires_at: datetime | None = None
 
 
+PREVIEW_CHARS = 160
+MAX_SESSIONS_LISTED = 100
+
+
+class VoiceSessionSummary(VoiceSession):
+    """A session in the "Recent calls" list (docs/voice.md#recent-calls)."""
+
+    segment_count: int = Field(description="Transcript lines still stored (0 once erased or expired)")
+    first_line: str | None = Field(default=None, description="The caller's first final line, shortened")
+
+
+class VoiceSessionPage(BaseModel):
+    items: list[VoiceSessionSummary]
+    next_cursor: str | None = Field(default=None, description="Pass as ``cursor`` for older sessions")
+
+
+SessionCursor = tuple[datetime, str]
+
+
+def encode_session_cursor(session: VoiceSession) -> str:
+    raw = f"{session.created_at.isoformat()}|{session.id}".encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def decode_session_cursor(value: str) -> SessionCursor:
+    """The (created_at, id) a cursor names; ``ValueError`` for anything this API did not issue."""
+    try:
+        raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+        stamp, session_id = raw.split("|", 1)
+        when = datetime.fromisoformat(stamp)
+    except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("Invalid cursor") from exc
+    if when.tzinfo is None or not session_id or len(session_id) > 80:
+        raise ValueError("Invalid cursor")
+    return when, session_id
+
+
+def preview_line(text_value: str | None) -> str | None:
+    if not text_value:
+        return None
+    line = " ".join(text_value.split())
+    return line if len(line) <= PREVIEW_CHARS else line[: PREVIEW_CHARS - 1].rstrip() + "…"
+
+
+def summarize_session(session: VoiceSession, segments: list[TranscriptSegment]) -> VoiceSessionSummary:
+    """The list row for one session: an expired transcript shows no count and no line."""
+    if transcript_expired(session):
+        segments = []
+    first = next((s for s in sorted(segments, key=lambda s: s.client_sequence) if s.role == TranscriptRole.USER and s.is_final), None)
+    return VoiceSessionSummary(
+        **session.model_dump(), segment_count=len(segments), first_line=preview_line(first.text if first else None)
+    )
+
+
 class VoiceCommandResult(BaseModel):
     session: VoiceSession
     task: Task
@@ -186,6 +242,9 @@ class VoiceSessionStore(Protocol):
     def consume_segment(self, segment_id: str) -> None: ...
     def count_ask(self, session_id: str) -> int: ...
     def close(self, session: VoiceSession, final_status: VoiceSessionStatus) -> VoiceSession: ...
+    def list_sessions(
+        self, *, limit: int, before: SessionCursor | None, status: VoiceSessionStatus | None
+    ) -> list[VoiceSessionSummary]: ...
 
 
 class VoiceStore:
@@ -304,6 +363,27 @@ class VoiceStore:
                 self.segments[session.id] = []
             return session
 
+    def list_sessions_for(
+        self,
+        context: TenantContext,
+        *,
+        limit: int,
+        before: SessionCursor | None,
+        status: VoiceSessionStatus | None,
+    ) -> list[VoiceSessionSummary]:
+        """The caller's own sessions in this workspace, newest first, after ``before``."""
+        scope = (context.tenant_id, context.workspace_id, context.user_id)
+        with self._lock:
+            rows = [
+                session
+                for session in self.sessions.values()
+                if (session.tenant_id, session.workspace_id, session.user_id) == scope
+                and (status is None or session.status == status)
+                and (before is None or (session.created_at, session.id) < before)
+            ]
+            rows.sort(key=lambda session: (session.created_at, session.id), reverse=True)
+            return [summarize_session(session, list(self.segments.get(session.id, []))) for session in rows[:limit]]
+
     def purge_expired(self, now: datetime | None = None) -> int:
         """Delete expired 30-day transcripts; returns the number of segments removed."""
         removed = 0
@@ -327,8 +407,24 @@ def open_voice_store(context: TenantContext) -> Iterator[VoiceSessionStore]:
 
         return SqlAlchemyVoiceStore(session, context)
 
-    with open_scoped_store(context, voice_store, sql_store, user_scoped=True) as store:
+    with open_scoped_store(context, _BoundVoiceStore(voice_store, context), sql_store, user_scoped=True) as store:
         yield store
+
+
+class _BoundVoiceStore:
+    """The in-memory store seen by one caller: ``list_sessions`` lists only their sessions."""
+
+    def __init__(self, store: VoiceStore, context: TenantContext) -> None:
+        self._store = store
+        self._context = context
+
+    def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+        return getattr(self._store, name)
+
+    def list_sessions(
+        self, *, limit: int, before: SessionCursor | None, status: VoiceSessionStatus | None
+    ) -> list[VoiceSessionSummary]:
+        return self._store.list_sessions_for(self._context, limit=limit, before=before, status=status)
 
 
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
@@ -381,6 +477,25 @@ def create_voice_session(
     require_permission(context, Permission.TASK_CREATE)
     with open_voice_store(context) as store:
         return store.create_session(payload, context)
+
+
+@router.get("/sessions", response_model=VoiceSessionPage)
+def list_voice_sessions(
+    limit: int = Query(default=20, ge=1, le=MAX_SESSIONS_LISTED),
+    cursor: str | None = Query(default=None, max_length=200),
+    session_status: VoiceSessionStatus | None = Query(default=None, alias="status"),
+    context: TenantContext = Depends(tenant_context),
+) -> VoiceSessionPage:
+    """The caller's own calls and voice sessions in this workspace, newest first (docs/voice.md#recent-calls)."""
+    require_permission(context, Permission.TASK_READ)
+    try:
+        before = decode_session_cursor(cursor) if cursor else None
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid cursor") from exc
+    with open_voice_store(context) as store:
+        rows = store.list_sessions(limit=limit + 1, before=before, status=session_status)
+    items = rows[:limit]
+    return VoiceSessionPage(items=items, next_cursor=encode_session_cursor(items[-1]) if len(rows) > limit else None)
 
 
 @router.get("/sessions/{session_id}", response_model=VoiceSession)

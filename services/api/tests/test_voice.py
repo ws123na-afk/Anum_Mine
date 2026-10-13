@@ -362,3 +362,55 @@ def test_streamed_ask_sends_recent_spoken_turns_to_the_model() -> None:
     assert roles == ["system", "user", "assistant", "user"]
     assert "Why is the sky blue?" in seen[1][1]["content"]
     assert "And at sunset?" in seen[1][-1]["content"]
+
+
+def test_recent_sessions_list_is_own_newest_first_and_paged() -> None:
+    first = client.post("/api/v1/voice/sessions", headers=headers, json={"retention": "permanent"}).json()["id"]
+    client.post(
+        f"/api/v1/voice/sessions/{first}/transcript",
+        headers=headers,
+        json={"text": "  How   many tyres are low on stock?  ", "client_sequence": 0},
+    )
+    client.post(f"/api/v1/voice/sessions/{first}/complete", headers=headers)
+    second = client.post("/api/v1/voice/sessions", headers=headers, json={}).json()["id"]
+    third = client.post("/api/v1/voice/sessions", headers=headers, json={}).json()["id"]
+    client.post("/api/v1/voice/sessions", headers={**headers, "x-user-id": "user_other"}, json={})
+    client.post("/api/v1/voice/sessions", headers={**headers, "x-workspace-id": "workspace_other"}, json={})
+
+    page = client.get("/api/v1/voice/sessions?limit=2", headers=headers)
+
+    assert page.status_code == 200
+    body = page.json()
+    assert [item["id"] for item in body["items"]] == [third, second]
+    assert body["next_cursor"]
+    older = client.get(f"/api/v1/voice/sessions?limit=2&cursor={body['next_cursor']}", headers=headers).json()
+    assert [item["id"] for item in older["items"]] == [first]
+    assert older["next_cursor"] is None
+    assert older["items"][0]["first_line"] == "How many tyres are low on stock?"
+    assert older["items"][0]["segment_count"] == 1
+    assert older["items"][0]["status"] == "completed"
+
+    completed = client.get("/api/v1/voice/sessions?status=completed", headers=headers).json()["items"]
+    assert [item["id"] for item in completed] == [first]
+
+
+def test_recent_sessions_list_rejects_a_forged_cursor_or_limit() -> None:
+    assert client.get("/api/v1/voice/sessions?cursor=not-a-cursor", headers=headers).status_code == 422
+    assert client.get("/api/v1/voice/sessions?limit=0", headers=headers).status_code == 422
+    assert client.get("/api/v1/voice/sessions?limit=101", headers=headers).status_code == 422
+
+
+def test_recent_sessions_list_hides_erased_and_expired_transcripts() -> None:
+    from datetime import timedelta
+
+    erased = client.post("/api/v1/voice/sessions", headers=headers, json={"retention": "session"}).json()["id"]
+    client.post(f"/api/v1/voice/sessions/{erased}/transcript", headers=headers, json={"text": "secret", "client_sequence": 0})
+    client.post(f"/api/v1/voice/sessions/{erased}/complete", headers=headers)
+    expired = client.post("/api/v1/voice/sessions", headers=headers, json={"retention": "30_days"}).json()["id"]
+    client.post(f"/api/v1/voice/sessions/{expired}/transcript", headers=headers, json={"text": "old", "client_sequence": 0})
+    voice_store.sessions[expired].expires_at = voice_store.sessions[expired].created_at - timedelta(seconds=1)
+
+    items = {item["id"]: item for item in client.get("/api/v1/voice/sessions", headers=headers).json()["items"]}
+
+    assert items[erased]["segment_count"] == 0 and items[erased]["first_line"] is None
+    assert items[expired]["segment_count"] == 0 and items[expired]["first_line"] is None

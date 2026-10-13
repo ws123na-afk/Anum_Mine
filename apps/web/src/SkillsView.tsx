@@ -9,8 +9,13 @@ import { getGovernanceSummary } from './lib/governanceApi';
 import { formatDateTime, t } from './lib/i18n';
 import { riskLabel } from './lib/labels';
 import { useIsOwner } from './useIsOwner';
+import { figure } from './lib/pageSummary';
+import { skillCounts } from './lib/catalog';
+import { viewLabel } from './lib/shell';
+import { PageHeader, PageSummary } from './PageParts';
 import './features.css';
 import './catalog.css';
+import './adminPages.css';
 
 const PAGE = 12;
 const agentsCalls = agentsApi(api.apiRequest, api.apiRequestVoid);
@@ -237,9 +242,17 @@ export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {})
   };
   const uninstall = (skillId: string) => void s.act(async () => { await api.uninstallSkill(skillId); setConfirmRemove(null); return t('skills.uninstalled'); }).then(() => agentsOf.load());
   const stateLabel = (g: SkillGroup) => g.state === 'available' ? t('skills.state.available') : g.state === 'installed' ? t('skills.state.installed') : t('skills.state.disabled');
+  const counts = skillCounts(groups, agentsOf.builtins.length);
+  const skillsLoad = { state: s.error && !groups.length ? 'error' as const : s.loading && !groups.length ? 'loading' as const : 'ready' as const };
+  const figures = [
+    figure('skills', t('pages2.skills.fig.skills'), skillsLoad, () => ({ value: String(counts.total), hint: t('pages2.skills.fig.builtin', { count: counts.builtin }) })),
+    figure('installed', t('pages2.skills.fig.installed'), skillsLoad, () => ({ value: String(counts.installed), hint: counts.disabled ? t('pages2.skills.fig.disabled', { count: counts.disabled }) : t('pages2.skills.fig.noneDisabled'), tone: counts.installed ? 'ok' : '' })),
+    figure('upgrades', t('pages2.skills.fig.upgrades'), skillsLoad, () => ({ value: String(counts.upgrades), hint: counts.upgrades ? t('pages2.skills.fig.upgradesHint') : t('pages2.skills.fig.upToDate'), tone: counts.upgrades ? 'warn' : '' })),
+    figure('available', t('pages2.skills.fig.available'), skillsLoad, () => ({ value: String(counts.available), hint: t('pages2.skills.fig.availableHint') })),
+  ];
   return <>
-    <section className="moduleIntro"><div><p className="eyebrow">{t('skills.eyebrow')}</p><h2>{t('skills.title')}</h2><p>{t('skills.intro')}</p></div>
-      <div className="actions">{admin && <button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button>}<button type="button" className="secondary" onClick={() => { void s.load(); void agentsOf.load(); }} disabled={s.loading}><RefreshCw aria-hidden="true" />{t('skills.refresh')}</button></div></section>
+    <PageHeader title={viewLabel('skills')} subtitle={t('skills.intro')} actions={<>{admin && <button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button>}<button type="button" className="secondary" onClick={() => { void s.load(); void agentsOf.load(); }} disabled={s.loading}><RefreshCw aria-hidden="true" />{t('skills.refresh')}</button></>} />
+    <PageSummary label={t('pages2.skills.summary')} figures={figures} onRetry={() => { void s.load(); void agentsOf.load(); }} />
     <Feedback error={s.error} note={s.note} loading={s.loading && !groups.length} label={t('skills.loadingLabel')} />
     {agentsOf.error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{agentsOf.error}</p>}
     {owner === false && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('skills.ownersOnlyAsk')}</p>}
@@ -248,10 +261,10 @@ export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {})
       <fieldset className="catalogSegments"><legend>{t('skills.show')}</legend>{(['all', 'installed', 'available', 'builtin'] as const).map((f) => <label key={f}><input type="radio" name="skill-filter" checked={filter === f} onChange={() => setFilter(f)} />{t(`skills.filter.${f}`)}</label>)}</fieldset>
       <p className="featureMeta" aria-live="polite">{t('skills.count', { shown: filtered.length + builtins.length, count: groups.length + agentsOf.builtins.length })}</p>
     </div>}
-    <div className="integrationGrid">{shown.map((g) => {
+    {shown.length > 0 && <div className="skillRows">{shown.map((g) => {
       const toolsOf = (g.install ? g.versions.find((v) => v.version === g.install!.version) ?? g.latest : g.latest).required_tools;
       const versions = t('skills.versions', { count: g.versions.length });
-      return <article className="surface integration catalogCard" key={g.skillId} id={`skill-${g.skillId.replace(/[^A-Za-z0-9_-]/g, '-')}`} aria-labelledby={`skill-title-${g.skillId}`}>
+      return <article className="skillRow catalogCard" key={g.skillId} id={`skill-${g.skillId.replace(/[^A-Za-z0-9_-]/g, '-')}`} aria-labelledby={`skill-title-${g.skillId}`}>
         <div className="integrationIcon" aria-hidden="true"><PackageCheck /></div>
         <div>
           <h3 id={`skill-title-${g.skillId}`}>{g.name} <small>{g.install ? g.install.version : g.latest.version}</small></h3>
@@ -275,7 +288,7 @@ export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {})
           </>}
         </div>
       </article>;
-    })}</div>
+    })}</div>}
     {builtins.length > 0 && <section className="skillBuiltins" aria-labelledby="skills-builtin-h">
       <div className="skillBuiltinsHead"><h3 id="skills-builtin-h">{t('skills.builtinTitle')}</h3><p className="featureMeta">{t('skills.builtinNote')}</p></div>
       <ul className="skillBuiltinGrid">{builtins.map((b) => <li key={b.id} className="surface skillBuiltin">

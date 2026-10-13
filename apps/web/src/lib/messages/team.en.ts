@@ -16,7 +16,7 @@ export const teamEn = {
   'team.directoryFailed': 'The team directory could not be loaded: {message}',
   'team.sections': 'Team sections',
   'team.tab.mine': 'My tasks',
-  'team.tab.board': 'Team board',
+  'team.tab.board': 'Team dashboard',
   'team.tab.workload': 'Workload',
   'team.tab.activity': 'Activity',
   'team.tab.people': 'People',

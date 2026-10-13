@@ -36,20 +36,25 @@ test('retrying a failed task adds a run and keeps the history', async ({ page })
   await page.goto('/#tasks');
   await history(page).getByRole('button', { name: /Quarterly invoice summary/ }).click();
   await expect(page.getByRole('heading', { name: 'Quarterly invoice summary' })).toBeVisible();
+  const tab = (name: RegExp) => page.getByRole('tab', { name });
+  await tab(/^Runs/).click();
   await expect(page.getByText('Failure in run_task_001_1')).toBeVisible();
   await toolbar(page).getByRole('button', { name: 'Retry' }).click();
   await expect(page.getByText('The run is completed.')).toBeVisible();
   const runs = page.getByRole('list', { name: 'Runs, newest first' });
   await expect(runs.getByRole('button', { name: /Run 2 \(latest\)/ })).toHaveAttribute('aria-pressed', 'true');
+  await tab(/^Answer/).click();
   await expect(page.getByRole('region', { name: 'Answer' }).getByText('Answer from run_task_001_2')).toBeVisible();
+  await tab(/^Runs/).click();
   await runs.getByRole('button', { name: /Run 1/ }).click();
   await expect(page.getByText('Failure in run_task_001_1')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Execution steps' }).getByText('workspace.summarize').first()).toBeVisible();
+  await tab(/^Activity/).click();
   const activity = page.getByRole('region', { name: 'Activity' });
   await expect(activity.getByText('Retry requested')).toBeVisible();
 });
 
-test('edit a task, archive it and restore it from the archived list', async ({ page }) => {
+test('edit a task, archive it and restore it from the archived list', async ({ page, isMobile }) => {
   const { seen } = await mockApi(page);
   await page.goto('/#tasks');
   await history(page).getByRole('button', { name: /Draft plan/ }).click();
@@ -64,6 +69,8 @@ test('edit a task, archive it and restore it from the archived list', async ({ p
   await toolbar(page).getByRole('button', { name: 'Archive' }).click();
   // The detail badge also reads "Task archived" while the task is still open: check the notice.
   await expect(page.getByRole('status').filter({ hasText: /Task archived\./ })).toBeVisible();
+  // On a narrow screen the detail replaces the list until Back.
+  if (isMobile) await page.getByRole('button', { name: 'Back to the list' }).click();
   await expect(history(page).getByRole('button', { name: /Weekly plan/ })).toHaveCount(0);
   await history(page).getByLabel(/Show archived/).check();
   await expect(page.getByRole('region', { name: 'Archived tasks' })).toBeVisible();
@@ -152,7 +159,9 @@ test('the task history, actions and run history read in Arabic, right to left', 
   await page.getByRole('region', { name: 'سجل المهام' }).getByRole('button', { name: /Quarterly invoice summary/ }).click();
   const actions = page.getByRole('toolbar', { name: 'إجراءات المهمة' });
   await actions.getByRole('button', { name: 'إعادة المحاولة' }).click();
+  await page.getByRole('tab', { name: /^مرات التشغيل/ }).click();
   await expect(page.getByRole('list', { name: 'مرات التشغيل، الأحدث أولًا' }).getByRole('button', { name: /التشغيل 2 \(الأحدث\)/ })).toBeVisible();
+  await page.getByRole('tab', { name: /^النشاط/ }).click();
   await expect(page.getByRole('region', { name: 'النشاط' }).getByText('طُلبت إعادة المحاولة')).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   expect(overflow).toBe(false);

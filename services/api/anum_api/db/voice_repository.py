@@ -16,13 +16,14 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from anum_api.maintenance import SessionFactory, discover, scoped_unit
 from anum_api.schemas import TenantContext, new_id, utc_now
 from anum_api.voice import (
+    SessionCursor,
     TranscriptRetention,
     TranscriptRole,
     TranscriptSegment,
@@ -30,6 +31,8 @@ from anum_api.voice import (
     VoiceSession,
     VoiceSessionCreate,
     VoiceSessionStatus,
+    VoiceSessionSummary,
+    preview_line,
     transcript_expired,
     transcript_expiry,
 )
@@ -217,6 +220,71 @@ class SqlAlchemyVoiceStore:
         if count is None:
             raise KeyError(session_id)
         return int(count)
+
+    def list_sessions(
+        self, *, limit: int, before: SessionCursor | None, status: VoiceSessionStatus | None
+    ) -> list[VoiceSessionSummary]:
+        """The caller's own sessions in this workspace, newest first (keyset on created_at, id).
+
+        RLS already limits rows to the user; the explicit filters keep the query correct
+        without it. Counts and first lines come from two grouped reads, not one per row.
+        """
+        statement = select(VoiceSessionRecord).where(
+            VoiceSessionRecord.tenant_id == self.context.tenant_id,
+            VoiceSessionRecord.workspace_id == self.context.workspace_id,
+            VoiceSessionRecord.user_id == self.context.user_id,
+        )
+        if status is not None:
+            statement = statement.where(VoiceSessionRecord.status == status.value)
+        if before is not None:
+            stamp, last_id = before
+            statement = statement.where(
+                or_(
+                    VoiceSessionRecord.created_at < stamp,
+                    and_(VoiceSessionRecord.created_at == stamp, VoiceSessionRecord.id < last_id),
+                )
+            )
+        records = self.session.scalars(
+            statement.order_by(VoiceSessionRecord.created_at.desc(), VoiceSessionRecord.id.desc()).limit(limit)
+        ).all()
+        sessions = [_session(record) for record in records]
+        readable = [session.id for session in sessions if not transcript_expired(session)]
+        counts: dict[str, int] = {}
+        firsts: dict[str, str] = {}
+        if readable:
+            segment = VoiceTranscriptSegmentRecord
+            scope = (segment.tenant_id == self.context.tenant_id, segment.session_id.in_(readable))
+            counts = {
+                row.session_id: int(row.total)
+                for row in self.session.execute(
+                    select(segment.session_id, func.count().label("total")).where(*scope).group_by(segment.session_id)
+                )
+            }
+            spoken = (*scope, segment.role == TranscriptRole.USER.value, segment.is_final.is_(True))
+            earliest = (
+                select(segment.session_id, func.min(segment.client_sequence).label("first_sequence"))
+                .where(*spoken)
+                .group_by(segment.session_id)
+                .subquery()
+            )
+            firsts = {
+                row.session_id: row.text
+                for row in self.session.execute(
+                    select(segment.session_id, segment.text).where(
+                        *spoken,
+                        segment.session_id == earliest.c.session_id,
+                        segment.client_sequence == earliest.c.first_sequence,
+                    )
+                )
+            }
+        return [
+            VoiceSessionSummary(
+                **session.model_dump(),
+                segment_count=counts.get(session.id, 0),
+                first_line=preview_line(firsts.get(session.id)),
+            )
+            for session in sessions
+        ]
 
     def close(self, session: VoiceSession, final_status: VoiceSessionStatus) -> VoiceSession:
         now = utc_now()

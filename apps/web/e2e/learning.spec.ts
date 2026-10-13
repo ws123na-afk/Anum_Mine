@@ -142,7 +142,7 @@ test('the main path: switch, style, preferences, routine to paused automation, a
   const sent = await mockApi(page);
   await page.goto('/#learning');
   await expect(page.getByRole('heading', { level: 1, name: 'What ANUM learned' })).toBeVisible();
-  const state = page.getByRole('region', { name: 'What ANUM learned' });
+  const state = page.getByRole('region', { name: 'Learning from your activity' });
   await expect(state.getByTestId('learning-state')).toHaveText('Learning');
 
   // The off switch, and back on.

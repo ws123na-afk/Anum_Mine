@@ -120,7 +120,8 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
 .segmented button[aria-selected="true"] { background: var(--d-glass-3); color: var(--d-text); }
 
 /* ---------- Dense, quiet record tables ---------- */
-.dataTableWrap { min-width: 0; overflow-x: auto; }
+/* relative: hidden labels inside cells (visuallyHidden is absolute) stay inside the scroller instead of widening the page. */
+.dataTableWrap { min-width: 0; overflow-x: auto; position: relative; }
 .dataTable { border-collapse: separate; border-spacing: 0; font-size: 14px; min-width: 100%; width: 100%; }
 .dataTable thead th {
   background: var(--d-surface-2); border-bottom: 1px solid var(--d-line); color: var(--d-muted); font-size: 12.5px; font-weight: 600; padding: var(--d-s2) var(--d-s3);
@@ -177,3 +178,5 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
   .pageSummary { padding: var(--d-s3); }
   .paneHead, .paneBody, .railSection { padding-inline: var(--d-s3); }
 }
+/* A pane placed directly in a page's grid never widens the page: wide tables scroll inside it. */
+.pane { min-width: 0; }

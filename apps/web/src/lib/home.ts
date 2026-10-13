@@ -35,7 +35,7 @@ export interface CalendarEvent {
 
 /** Feature keys of docs/home.md#targets and the web view that shows each (missing: the web has no such view). */
 export const FEATURE_VIEWS: Readonly<Record<string, View>> = {
-  command: 'command', chat: 'assistant', agents: 'agents', voice: 'voice', automations: 'automation', tasks: 'tasks', calendar: 'meetings',
+  command: 'command', chat: 'assistant', agents: 'agents', voice: 'voice', automations: 'automation', tasks: 'tasks', calendar: 'calendar',
   reports: 'reports', documents: 'files', integrations: 'integrations', knowledge: 'knowledge', approvals: 'approvals', email: 'inbox',
   whatsapp: 'whatsapp', autonomy: 'autonomy', settings: 'settings', insights: 'home', commerce: 'commerce', team: 'team', favorites: 'favorites',
   tyres: 'tyre', marketing: 'marketing',

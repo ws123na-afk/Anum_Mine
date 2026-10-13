@@ -2,9 +2,10 @@
 // band, a split view whose panes fill the window on desktop and stack on phones, and the "New..."
 // dialog that keeps create forms out of the way of the records.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { CircleAlert, RefreshCw } from 'lucide-react';
+import { CircleAlert, Lock, RefreshCw } from 'lucide-react';
 import { Modal } from './Dialog';
-import { fillHeight, type Figure } from './lib/pageSummary';
+import { fillHeight, type Figure, type Load } from './lib/pageSummary';
+import { describeError, isPermissionDenied } from './lib/errors';
 import { t } from './lib/i18n';
 import './pageParts.css';
 
@@ -109,4 +110,14 @@ export function DialogButton({ label, title, icon, className, disabled, describe
 /** A small "something is wrong" line inside a pane: what failed and the way to fix it. */
 export function PaneProblem({ text, onRetry }: { text: string; onRetry?: () => void }) {
   return <div className="notice errorNotice paneProblem" role="alert"><CircleAlert aria-hidden="true" /><span>{text}</span>{onRetry && <button type="button" className="secondary" onClick={onRetry}><RefreshCw aria-hidden="true" />{t('common.retry')}</button>}</div>;
+}
+
+/** A failed request as a page state: "denied" (the API's reason, naming who may) for a 403, else the error. */
+export function loadFailure<T>(error: unknown): Load<T> {
+  return isPermissionDenied(error) ? { state: 'denied', message: describeError(error) } : { state: 'error', message: describeError(error) };
+}
+
+/** A pane or page that the person's role cannot open: what it is and who can. */
+export function PaneDenied({ title, text }: { title: string; text: string }) {
+  return <div className="paneEmpty paneDenied" role="note"><Lock aria-hidden="true" /><h3>{title}</h3><p>{text}</p></div>;
 }

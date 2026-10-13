@@ -4,7 +4,8 @@
 import { apiBaseUrl, authHeaders } from './api';
 import { postSse } from './chatApi';
 import { apiErrorFromResponse } from './errors';
-import { appendTranscript, completeVoiceSession, createVoiceSession, submitVoiceCommand, type TranscriptRetention } from './voice';
+import { appendTranscript, completeVoiceSession, createVoiceSession, submitVoiceCommand, type TranscriptRetention, type TranscriptSegment } from './voice';
+import { callsPath, type CallPage } from './callHistory';
 import { DEVICE_ONLY, type VoiceCapabilities } from './call';
 import type { AskMeta, CallApi, CallSummaryResult, Frame, StreamHandlers } from './callEngine';
 
@@ -85,3 +86,16 @@ export const callApi: CallApi = {
   summarize: summarizeCall,
   async complete(sessionId) { await completeVoiceSession(sessionId); },
 };
+
+/** One page of the caller's own calls, newest first (docs/voice.md#recent-calls). */
+export async function listCalls(cursor: string | null, limit?: number): Promise<CallPage> {
+  const page = await (await request(callsPath(cursor, limit))).json() as Partial<CallPage> | null;
+  // A reply without a list (an older API or a proxy page) is an error, never a crash of the page.
+  if (!page || !Array.isArray(page.items)) throw new Error('The call list answer had no items.');
+  return { items: page.items, next_cursor: typeof page.next_cursor === 'string' ? page.next_cursor : null };
+}
+
+/** A call's stored transcript, in order; empty once erased or expired. */
+export async function getCallTranscript(sessionId: string): Promise<TranscriptSegment[]> {
+  return (await request(`/api/v1/voice/sessions/${encodeURIComponent(sessionId)}/transcript`)).json() as Promise<TranscriptSegment[]>;
+}

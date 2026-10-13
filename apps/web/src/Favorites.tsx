@@ -1,13 +1,16 @@
 // Favorites (docs/knowledge-base.md#favorites): the caller's starred items with type filters and
 // paging, the star toggle other views use, and the quick-access strip on the Assistant home.
 import { useCallback, useEffect, useState } from 'react';
-import { CircleDot, ExternalLink, RefreshCw, Star, StarOff } from 'lucide-react';
+import { CircleDot, ExternalLink, Star, StarOff } from 'lucide-react';
 import type { Favorite, FavoriteType } from '@anum/contracts';
 import { describeError } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
 import { FAVORITES_PAGE, FAVORITE_TYPES, favoriteTypeLabel } from './lib/library';
 import * as lib from './lib/libraryApi';
+import { viewLabel } from './lib/shell';
+import { PageHeader, PaneProblem } from './PageParts';
 import './library.css';
+import './adminPages.css';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'error'; detail: string };
 
@@ -76,39 +79,39 @@ export function FavoritesView({ onOpen }: { onOpen: (favorite: Favorite) => void
   }
 
   return <>
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('favorites.eyebrow')}</p><h2>{t('favorites.title')}</h2><p>{t('favorites.intro')}</p></div>
-    </section>
-    <div className="libraryChips" role="group" aria-label={t('favorites.filter')}>
-      <button type="button" className={`libChip ${type === null ? 'active' : ''}`} aria-pressed={type === null} onClick={() => setType(null)}>{t('favorites.all')}</button>
-      {FAVORITE_TYPES.map((value) => <button type="button" key={value} className={`libChip ${type === value ? 'active' : ''}`} aria-pressed={type === value} onClick={() => setType(value)}>{favoriteTypeLabel(value)}</button>)}
-    </div>
+    <PageHeader title={viewLabel('favorites')} subtitle={t('favorites.intro')} />
     {flash && <p className={`notice ${flash.error ? 'errorNotice' : ''}`} role={flash.error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{flash.text}</p>}
-    <section className="surface libraryPanel" aria-busy={load.kind === 'loading'} aria-labelledby="favorites-list">
-      <h3 id="favorites-list" className="libSrOnly">{t('favorites.title')}</h3>
-      {load.kind === 'loading' && <p className="muted" role="status">{t('favorites.loading')}</p>}
-      {load.kind === 'error' && <div role="alert" className="libraryState"><p>{t('favorites.loadFailed', { message: load.detail })}</p><button type="button" className="secondary" onClick={() => void fetchFirst(type)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
-      {load.kind === 'ready' && items.length === 0 && <div className="emptyState">
+    <section className="pane favoritesPane" aria-busy={load.kind === 'loading'} aria-labelledby="favorites-list">
+      <div className="paneHead">
+        <h2 id="favorites-list">{load.kind === 'ready' ? t('pages2.favorites.count', { count: total }) : t('favorites.title')}</h2>
+        <div className="libraryChips" role="group" aria-label={t('favorites.filter')}>
+          <button type="button" className={`libChip ${type === null ? 'active' : ''}`} aria-pressed={type === null} onClick={() => setType(null)}>{t('favorites.all')}</button>
+          {FAVORITE_TYPES.map((value) => <button type="button" key={value} className={`libChip ${type === value ? 'active' : ''}`} aria-pressed={type === value} onClick={() => setType(value)}>{favoriteTypeLabel(value)}</button>)}
+        </div>
+      </div>
+      {load.kind === 'loading' && <div className="paneBody"><p className="muted" role="status">{t('favorites.loading')}</p></div>}
+      {load.kind === 'error' && <div className="paneBody"><PaneProblem text={t('favorites.loadFailed', { message: load.detail })} onRetry={() => void fetchFirst(type)} /></div>}
+      {load.kind === 'ready' && items.length === 0 && <div className="paneEmpty">
         <Star aria-hidden="true" /><h3>{type ? t('favorites.emptyType', { type: favoriteTypeLabel(type) }) : t('favorites.empty')}</h3>
         <p>{t('favorites.emptyText')}</p>
+        {type && <div className="actions"><button type="button" className="secondary" onClick={() => setType(null)}>{t('pages2.favorites.showAll')}</button></div>}
       </div>}
-      {load.kind === 'ready' && items.length > 0 && <ul className="libraryList">
-        {items.map((favorite) => <li key={favorite.id} className="libraryRow">
-          <span className="libraryMain">
-            <button type="button" className="linkButton libraryTitle" dir="auto" onClick={() => onOpen(favorite)}>{favorite.label}<ExternalLink aria-hidden="true" /></button>
-            <small><span className="statusBadge">{favoriteTypeLabel(favorite.item_type)}</span> {t('favorites.starredOn', { date: formatDateTime(favorite.created_at, { dateStyle: 'medium' }) })}</small>
-          </span>
-          <button type="button" className="secondary" onClick={() => void unstar(favorite)} aria-label={t('favorites.unstar', { name: favorite.label })}><StarOff aria-hidden="true" />{t('favorites.remove')}</button>
-        </li>)}
-      </ul>}
-      {load.kind === 'ready' && items.length < total && <div className="actions libraryMore">
+      {load.kind === 'ready' && items.length > 0 && <div className="dataTableWrap"><table className="dataTable favoritesTable">
+        <thead><tr><th scope="col">{t('pages2.favorites.col.name')}</th><th scope="col">{t('pages2.favorites.col.type')}</th><th scope="col" className="optional">{t('pages2.favorites.col.starred')}</th><th scope="col"><span className="visuallyHidden">{t('pages2.assistants.col.actions')}</span></th></tr></thead>
+        <tbody>{items.map((favorite) => <tr key={favorite.id}>
+          <th scope="row"><button type="button" className="cellButton" dir="auto" onClick={() => onOpen(favorite)}><strong>{favorite.label}<ExternalLink aria-hidden="true" className="inlineIcon" /></strong></button></th>
+          <td><span className="statusBadge neutral">{favoriteTypeLabel(favorite.item_type)}</span></td>
+          <td className="optional nowrap">{formatDateTime(favorite.created_at, { dateStyle: 'medium' })}</td>
+          <td><div className="cellActions"><button type="button" className="iconButton" onClick={() => void unstar(favorite)} aria-label={t('favorites.unstar', { name: favorite.label })} title={t('favorites.remove')}><StarOff aria-hidden="true" /></button></div></td>
+        </tr>)}</tbody>
+      </table></div>}
+      {load.kind === 'ready' && items.length < total && <div className="actions libraryMore paneBody">
         <button type="button" className="secondary" disabled={more} onClick={() => void loadMore()}>{more ? t('common.loading') : t('favorites.more', { shown: items.length, total })}</button>
       </div>}
     </section>
   </>;
 }
 
-/** The first starred items, on the Assistant home. Hidden while there are none or on error. */
 export function FavoritesStrip({ onOpen, onOpenAll }: { onOpen: (favorite: Favorite) => void; onOpenAll: () => void }) {
   const [items, setItems] = useState<Favorite[] | null>(null);
   useEffect(() => {

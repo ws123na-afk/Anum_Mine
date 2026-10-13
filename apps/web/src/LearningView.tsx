@@ -13,7 +13,11 @@ import {
   type StyleForm,
 } from './lib/learning';
 import * as learningApi from './lib/learningApi';
+import { figure } from './lib/pageSummary';
+import { viewLabel } from './lib/shell';
+import { PageHeader, PageSummary } from './PageParts';
 import './learning.css';
+import './adminPages.css';
 
 type Load = { kind: 'loading' } | { kind: 'ready'; overview: LearningOverview } | { kind: 'denied' } | { kind: 'error'; message: string };
 type Outcome = { tone: 'ok' | 'error'; text: string } | null;
@@ -54,18 +58,30 @@ export function LearningView({ onOpenChatMemory, onOpenWorkbench }: { onOpenChat
   useEffect(() => { void refresh(); }, [refresh]);
   const changed = useCallback(() => { setVersion((v) => v + 1); void refresh(); }, [refresh]);
 
-  if (load.kind === 'loading') return <p className="notice" role="status" aria-live="polite"><CircleDot aria-hidden="true" />{t('learning.loading')}</p>;
-  if (load.kind === 'denied') return <section className="surface settingsForm" aria-labelledby="learning-denied"><h2 id="learning-denied">{t('learning.title')}</h2><p className="notice errorNotice" role="alert"><ShieldAlert aria-hidden="true" />{t('learning.denied')}</p></section>;
-  if (load.kind === 'error') return <section className="surface settingsForm" aria-labelledby="learning-error"><h2 id="learning-error">{t('learning.title')}</h2><p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{load.message}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></section>;
+  const header = <PageHeader title={viewLabel('learning')} subtitle={t('learning.intro')} />;
+  if (load.kind === 'loading') return <>{header}<p className="notice" role="status" aria-live="polite"><CircleDot aria-hidden="true" />{t('learning.loading')}</p></>;
+  if (load.kind === 'denied') return <>{header}<section className="surface settingsForm" aria-labelledby="learning-denied"><h2 id="learning-denied">{t('learning.title')}</h2><p className="notice errorNotice" role="alert"><ShieldAlert aria-hidden="true" />{t('learning.denied')}</p></section></>;
+  if (load.kind === 'error') return <>{header}<section className="surface settingsForm" aria-labelledby="learning-error"><h2 id="learning-error">{t('learning.title')}</h2><p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{load.message}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></section></>;
 
   const overview = load.overview;
+  const counts = overview.counts;
+  const figures = [
+    figure('signals', t('learning.stat.signals'), { state: 'ready' }, () => ({ value: formatNumber(signalTotal(counts.signals)), hint: t('pages2.learning.fig.signalsHint') })),
+    figure('preferences', t('learning.stat.preferences'), { state: 'ready' }, () => ({ value: formatNumber(counts.preferences), hint: t('pages2.learning.fig.preferencesHint') })),
+    figure('routines', t('learning.stat.routines'), { state: 'ready' }, () => ({ value: formatNumber(counts.routines_proposed), hint: t('pages2.learning.fig.routinesHint'), tone: counts.routines_proposed ? 'accent' : '' })),
+    figure('suggestions', t('learning.stat.suggestions'), { state: 'ready' }, () => ({ value: formatNumber(counts.suggestions_open), hint: t('pages2.learning.fig.suggestionsHint'), tone: counts.suggestions_open ? 'warn' : '' })),
+  ];
   return <div className="learningPage">
+    {header}
+    <PageSummary label={t('pages2.learning.summary')} figures={figures} />
     <StateCard overview={overview} onChange={(next) => setLoad({ kind: 'ready', overview: next })} onOpenChatMemory={onOpenChatMemory} />
     <div className="learningColumns">
       <StyleCard overview={overview} onSaved={changed} />
-      <PreferencesCard version={version} onChanged={() => void refresh()} />
+      <div className="learningStack">
+        <PreferencesCard version={version} onChanged={() => void refresh()} />
+        <NotesCard overview={overview} onApplied={changed} />
+      </div>
     </div>
-    <NotesCard overview={overview} onApplied={changed} />
     <RoutinesCard overview={overview} onChanged={() => void refresh()} onOpenWorkbench={onOpenWorkbench} />
     <SignalsCard version={version} onChanged={changed} />
   </div>;
@@ -79,7 +95,6 @@ function StateCard({ overview, onChange, onOpenChatMemory }: { overview: Learnin
   const [pending, setPending] = useState<boolean | null>(null);
   const describedBy = useId();
   const status = stateStatus(overview.state);
-  const counts = overview.counts;
 
   async function toggle(enabled: boolean) {
     setSaving(true); setOutcome(null); setPending(enabled);
@@ -91,25 +106,17 @@ function StateCard({ overview, onChange, onOpenChatMemory }: { overview: Learnin
     finally { setSaving(false); setPending(null); }
   }
 
-  const stats: [string, number][] = [
-    [t('learning.stat.signals'), signalTotal(counts.signals)],
-    [t('learning.stat.preferences'), counts.preferences],
-    [t('learning.stat.routines'), counts.routines_proposed],
-    [t('learning.stat.suggestions'), counts.suggestions_open],
-  ];
   return <section className="surface settingsForm learningState" aria-labelledby="learning-state-title" aria-busy={saving}>
     <div className="sectionHeader">
-      <div><p className="eyebrow">{t('learning.eyebrow')}</p><h2 id="learning-state-title">{t('learning.title')}</h2></div>
+      <h2 id="learning-state-title">{t('pages2.learning.switchTitle')}</h2>
       <span className={`statusBadge ${status.tone}`} data-testid="learning-state">{status.badge}</span>
     </div>
-    <p className="muted">{t('learning.intro')}</p>
     <label className="settingToggle">
       <div><strong>{t('learning.switch.label')}</strong><p id={describedBy}>{status.text}</p></div>
       <input type="checkbox" checked={pending ?? overview.profile.enabled} disabled={saving || overview.state === 'off_on_server'} aria-describedby={describedBy}
         onChange={(e) => void toggle(e.target.checked)} />
     </label>
     {!switchEditable(overview.state) && status.offerChatMemory && onOpenChatMemory && <div className="actions"><button type="button" className="secondary" onClick={onOpenChatMemory}><MessageSquare aria-hidden="true" />{t('learning.openChatMemory')}</button></div>}
-    <dl className="learningStats">{stats.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{formatNumber(value)}</dd></div>)}</dl>
     <Note outcome={outcome} />
   </section>;
 }

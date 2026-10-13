@@ -74,10 +74,11 @@ Retry creates a new run for a `failed` or `cancelled` task; earlier runs, their 
 
 `apps/web/src/TasksView.tsx`, helpers in `src/lib/tasks.ts` and `src/lib/tasksApi.ts`:
 
-- Metrics from `GET /tasks/summary` (active, waiting approval, completed, failed or cancelled, archived).
+- One header row and a summary band from `GET /tasks/summary` (active, waiting approval, completed, failed or cancelled, archived); a band whose summary failed says **Unavailable**, never the loaded rows' count.
+- A split view (`PageParts.tsx` `SplitView`): on the start side a compact composer (Ctrl+Enter runs it) above the history; on the end side the selected task. Below 1024px one or the other shows, with **Back to the list**.
 - History with server-side search (debounced), status, creator, date range and "Show archived"; "Clear filters"; keyset "Load more tasks"; per-row checkboxes with "Select all loaded" (at most 100) and a bulk bar (Archive, Restore, and for owners Cancel with a confirm step).
 - Task detail: Run (never run), Retry (failed or cancelled), Resume (stranded run), Cancel, Edit (title, and instructions while never run), Archive or Restore, Export JSON and Export Markdown. Actions the caller's role does not allow are disabled and a line says who can; a refusal shows the API's sentence.
-- Answer, approvals for the task (with the run each belongs to), run history (newest first, "Load older runs"), the selected run's step timeline with tool, risk, policy outcome, approval and token facts, Sources used, and Activity (task events, "Load older events").
+- Tabs under the task's facts: **Answer** (the answer and Sources used), **Approvals** (for the task, with the run each belongs to; opens on this tab while one is pending), **Runs** (run history (newest first, "Load older runs"), and the selected run's step timeline with tool, risk, policy outcome, approval and token facts) and **Activity** (task events, "Load older events").
 - Live: the shell's event stream reloads the task list and approvals; the view refetches its list, summary, the selected task, its runs and events on every change, so a run's steps, retries and decisions appear without reloading.
 - States: loading, empty workspace (focuses the composer), no matches (clear filters), no archived tasks, list error with "Try again", task not found, history or activity errors, and read-only roles.
 

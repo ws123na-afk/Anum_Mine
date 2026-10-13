@@ -87,6 +87,8 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, 
   test.describe(`at ${size.width}x${size.height}`, () => {
     test.use({ viewport: size });
     test('every page in the shared layout fits without horizontal overflow, in English and Arabic', async ({ page }) => {
+      // Eighteen page loads in one test: give it room on a busy runner.
+      test.setTimeout(90_000);
       for (const locale of ['en', 'ar'] as const) {
         for (const item of pages) {
           const tab = await page.context().newPage();

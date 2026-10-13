@@ -1,0 +1,53 @@
+/* Second pass of the shared page layout on the admin and settings pages (docs/design/anum360.md#page-layout):
+   Enterprise, ANUM Store, Favorites, Settings, Autonomy, Activity and What ANUM learned. Shared tokens,
+   logical properties only. */
+.entDialog { max-width: 760px; }
+.entTargets { margin-bottom: var(--d-s4); }
+.entTargets .dataTable small { color: var(--d-faint); display: block; font-size: 12px; }
+.entTargets .dataTable code { overflow-wrap: anywhere; }
+.entTargets .entNarrow { display: none; }
+/* The routing table keeps id, model, status and Edit inside the pane: the long columns drop out
+   below 1100px (the sidebar takes its share), and the region moves under the id on phones. */
+@media (max-width: 1100px) { .entTargets .dataTable .optional { display: none; } }
+@media (max-width: 560px) { .entTargets .entWide { display: none; } .entTargets .dataTable .entNarrow { display: block; } }
+
+/* ANUM Store (SkillsView.tsx): one dense row per skill instead of third-width cards. */
+.skillRows { background: linear-gradient(180deg, var(--d-surface-2), var(--d-surface-1)); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); display: grid; margin-bottom: var(--d-s4); min-width: 0; }
+.skillRow { align-items: start; border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: 36px minmax(0, 1fr) minmax(0, auto); padding: var(--d-s3) var(--d-s4); }
+.skillRow:last-child { border-bottom: 0; }
+.skillRow > div { min-width: 0; }
+.skillRow h3 { font-size: 15px; margin: 0; }
+.skillRow h3 small { color: var(--d-faint); font-size: 12.5px; font-weight: 500; }
+.skillRow p { color: var(--d-muted); font-size: 13.5px; margin: 2px 0 0; overflow-wrap: anywhere; }
+.skillRow > div > small { color: var(--d-faint); display: block; font-size: 12.5px; margin-top: 4px; }
+.skillRow .tagRow { margin-top: var(--d-s1); }
+.skillRow .integrationIcon { height: 36px; width: 36px; }
+.skillRow .featureSkillActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; max-width: 360px; }
+@media (max-width: 760px) {
+  .skillRow { grid-template-columns: 36px minmax(0, 1fr); }
+  .skillRow .featureSkillActions { grid-column: 1 / -1; justify-content: flex-start; max-width: none; }
+}
+
+/* Favorites (Favorites.tsx): a table of starred items with type chips in the pane head. */
+.favoritesPane .paneHead { align-items: flex-start; }
+.favoritesPane .libraryChips { margin: 0; }
+.favoritesTable .cellButton strong { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.favoritesTable .cellButton svg { height: 14px; width: 14px; }
+
+/* Autonomy (AutonomyViews.tsx): the short panels stack beside the long one so the columns end
+   together; the organisation guardrails take the full width with their fields in rows. */
+@media (min-width: 1101px) {
+  .autonomyLayout { grid-template-areas: "levels thresholds" "rules thresholds" "guard guard"; grid-template-rows: auto 1fr auto; }
+  .autonomyLevelsPanel { grid-area: levels; }
+  .autonomyThresholdsPanel { grid-area: thresholds; }
+  .autonomyRulesPanel { grid-area: rules; }
+  .autonomyGuardrailsPanel { grid-area: guard; }
+  .autonomyGuardrailsPanel .autonomyGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); }
+}
+
+/* What ANUM learned (LearningView.tsx): the figures in the band, the switch on one line, and the
+   short cards stacked beside the long style card. */
+.learningPage > .pageHeader, .learningPage > .pageSummary { margin-bottom: 0; }
+.learningStack { display: grid; gap: var(--d-s5); min-width: 0; }
+.learningState .sectionHeader { align-items: center; }
+.learningState .sectionHeader h2 { font-size: 16px; }
