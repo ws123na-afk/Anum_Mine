@@ -1,0 +1,163 @@
+// Mocked /api/v1/finance answers (docs/finance.md) shared by finance.spec.ts and the workspace mock
+// (accessibility, localization and page-layout specs). Synthetic values only: example merchants and
+// round amounts, never real account numbers.
+const now = new Date();
+const pad = (n: number) => String(n).padStart(2, '0');
+const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const day = (offset: number) => { const d = new Date(now); d.setDate(d.getDate() + offset); return isoDay(d); };
+const month = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+const stamp = now.toISOString();
+
+export interface FinanceState {
+  settings: { base_currency: string; timezone: string; category_rules: { match: string; category: string }[]; updated_at: string | null };
+  accounts: Record<string, unknown>[];
+  transactions: Record<string, unknown>[];
+  imports: Record<string, unknown>[];
+  bills: Record<string, unknown>[];
+  debts: Record<string, unknown>[];
+  goals: Record<string, unknown>[];
+  holdings: Record<string, unknown>[];
+  denied: boolean;
+  failSummary: boolean;
+}
+
+export function financeState({ empty = false, denied = false, failSummary = false }: { empty?: boolean; denied?: boolean; failSummary?: boolean } = {}): FinanceState {
+  const account = { id: 'fin_acct_current', name: 'Everyday account', kind: 'bank', currency: 'AED', institution: 'Example Bank', last4: '1234', opening_balance: '1000.00', balance: '15349.50', archived: false, transaction_count: 64, created_at: stamp, updated_at: stamp };
+  const card = { ...account, id: 'fin_acct_card', name: 'Rewards card', kind: 'card', last4: '9876', opening_balance: '0.00', balance: '-2450.00', transaction_count: 12 };
+  const merchants = [
+    ['CARREFOUR CITY CENTRE', 'groceries', '-120.50'], ['DEWA UTILITY', 'utilities', '-450.00'], ['TALABAT ORDER', 'dining', '-35.00'],
+    ['ENOC STATION', 'fuel', '-90.00'], ['SALARY OCTOBER', 'income', '15000.00'], ['NETFLIX.COM', 'subscriptions', '-39.00'],
+  ] as const;
+  const transactions = empty ? [] : Array.from({ length: 64 }, (_, i) => {
+    const [description, category, amount] = merchants[i % merchants.length];
+    return {
+      id: `fin_txn_${i}`, account_id: account.id, posted_on: day(-(i % 28)), amount, currency: 'AED', description: i === 0 ? '=HYPERLINK(example)' : description,
+      category, category_source: 'rule', notes: null, import_id: 'fin_imp_1', created_at: stamp, updated_at: stamp,
+    };
+  });
+  return {
+    settings: { base_currency: 'AED', timezone: 'Asia/Dubai', category_rules: [], updated_at: null },
+    accounts: empty ? [] : [account, card],
+    transactions,
+    imports: empty ? [] : [{ id: 'fin_imp_1', account_id: account.id, filename: 'october.csv', preset: 'emirates_nbd', date_format: '%d/%m/%Y', row_count: 65, imported_count: 64, duplicate_count: 0, error_count: 1, created_at: stamp }],
+    bills: empty ? [] : [
+      { id: 'fin_bill_rent', name: 'Rent', amount: '6500.00', currency: 'AED', cadence: 'monthly', next_due_on: day(3), category: 'housing', account_id: account.id, source: 'manual', active: true, notes: null, created_at: stamp, updated_at: stamp },
+      { id: 'fin_bill_dewa', name: 'DEWA', amount: '450.00', currency: 'AED', cadence: 'monthly', next_due_on: day(12), category: 'utilities', account_id: null, source: 'detected', active: true, notes: null, created_at: stamp, updated_at: stamp },
+    ],
+    debts: empty ? [] : [{ id: 'fin_debt_card', name: 'Rewards card', kind: 'card', balance: '2450.00', currency: 'AED', apr_percent: '39.9900', minimum_payment: '250.00', due_day: 25, account_id: card.id, notes: null, created_at: stamp, updated_at: stamp }],
+    goals: empty ? [] : [{ id: 'fin_goal_fund', name: 'Emergency fund', target_amount: '30000.00', saved_amount: '7500.00', currency: 'AED', target_on: null, account_id: null, notes: null, created_at: stamp, updated_at: stamp }],
+    holdings: [],
+    denied,
+    failSummary,
+  };
+}
+
+function summary(state: FinanceState, requested: string | null) {
+  const label = requested ?? month;
+  const rows = state.transactions.filter((t) => String(t.posted_on).startsWith(label));
+  const spend: Record<string, { amount: number; count: number }> = {};
+  let income = 0, out = 0;
+  for (const row of rows) {
+    const amount = Number(row.amount);
+    if (amount > 0) income += amount;
+    else { out -= amount; const key = String(row.category); spend[key] = { amount: (spend[key]?.amount ?? 0) - amount, count: (spend[key]?.count ?? 0) + 1 }; }
+  }
+  const money = (n: number) => n.toFixed(2);
+  const upcoming = state.bills.map((b) => ({ id: b.id, name: b.name, amount: b.amount, currency: b.currency, cadence: b.cadence, due_on: b.next_due_on, days_until: Math.round((new Date(String(b.next_due_on)).getTime() - new Date(day(0)).getTime()) / 86_400_000), category: b.category }));
+  return {
+    month: label, start: `${label}-01`, end: `${label}-28`, today: day(0), base_currency: state.settings.base_currency, timezone: state.settings.timezone,
+    accounts: state.accounts.map((a) => ({ id: a.id, name: a.name, kind: a.kind, currency: a.currency, institution: a.institution, last4: a.last4, balance: a.balance, archived: a.archived })),
+    balances: state.accounts.length ? [{ currency: 'AED', amount: money(state.accounts.reduce((sum, a) => sum + Number(a.balance), 0)) }] : [],
+    spend_by_category: Object.entries(spend).map(([category, v]) => ({ category, currency: 'AED', amount: money(v.amount), count: v.count })).sort((a, b) => Number(b.amount) - Number(a.amount)),
+    income: income ? [{ currency: 'AED', amount: money(income) }] : [], spend: out ? [{ currency: 'AED', amount: money(out) }] : [],
+    net: income || out ? [{ currency: 'AED', amount: money(income - out) }] : [], transaction_count: rows.length,
+    upcoming_bills: upcoming, bills_due: upcoming.length ? [{ currency: 'AED', amount: money(upcoming.reduce((s, b) => s + Number(b.amount), 0)) }] : [],
+    debts: state.debts.length ? [{ currency: 'AED', amount: '2450.00' }] : [], minimum_payments: state.debts.length ? [{ currency: 'AED', amount: '250.00' }] : [], debt_count: state.debts.length,
+    goals: state.goals.map((g) => ({ id: g.id, name: g.name, currency: g.currency, target_amount: g.target_amount, saved_amount: g.saved_amount, percent: 25, target_on: g.target_on })),
+  };
+}
+
+export const PREVIEW = {
+  account_id: 'fin_acct_current', currency: 'AED', filename: 'november.csv', preset: 'emirates_nbd', headers: ['Transaction Date', 'Narration', 'Debit', 'Credit'],
+  mapping: { date: 'Transaction Date', description: 'Narration', amount: null, debit: 'Debit', credit: 'Credit' }, date_format: '%d/%m/%Y', date_formats: ['%d/%m/%Y', '%m/%d/%Y'],
+  date_format_ambiguous: true, row_count: 4, valid_count: 3, new_count: 2, duplicate_count: 1, error_count: 1,
+  rows: [
+    { line: 2, posted_on: day(0), amount: '-120.50', currency: 'AED', description: 'CARREFOUR CITY CENTRE', category: 'groceries', duplicate: true },
+    { line: 3, posted_on: day(0), amount: '-60.00', currency: 'AED', description: 'SPINNEYS', category: 'groceries', duplicate: false },
+    { line: 4, posted_on: day(0), amount: '15000.00', currency: 'AED', description: 'SALARY NOVEMBER', category: 'income', duplicate: false },
+  ],
+  errors: [{ line: 5, message: 'The date could not be read with the chosen date format.' }],
+};
+
+const denied = { status: 403, body: { error: { code: 'forbidden', message: 'Finance is for workspace owners and members. Ask a workspace owner to change your role from viewer to member.', correlation_id: 'c', details: [] } } };
+
+/** The reply for one request, or null when the path is not a finance path. */
+export function financeReply(state: FinanceState, method: string, url: URL, body: unknown): { status: number; body: unknown } | null {
+  const path = url.pathname;
+  if (!path.startsWith('/api/v1/finance')) return null;
+  if (state.denied) return denied;
+  const ok = (value: unknown, status = 200) => ({ status, body: value });
+  const sub = path.slice('/api/v1/finance'.length);
+  if (sub === '/summary') return state.failSummary ? { status: 503, body: { error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } } } : ok(summary(state, url.searchParams.get('month')));
+  if (sub === '/settings') return method === 'PUT' ? ok((state.settings = { ...state.settings, ...(body as object), updated_at: stamp })) : ok(state.settings);
+  if (sub === '/formats') return ok({ presets: [{ id: 'emirates_nbd', label: 'Emirates NBD' }, { id: 'generic', label: 'Generic (date, description, amount)' }], date_formats: ['%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d'], categories: [], account_kinds: [], limits: { max_bytes: 2_000_000, max_rows: 5000, max_page: 200 } });
+  if (sub === '/accounts' && method === 'GET') return ok(state.accounts);
+  if (sub === '/accounts' && method === 'POST') {
+    const input = body as Record<string, unknown>;
+    const created = { id: `fin_acct_${state.accounts.length + 1}`, currency: 'AED', institution: null, last4: null, opening_balance: '0.00', archived: false, transaction_count: 0, created_at: stamp, updated_at: stamp, ...input, balance: input.opening_balance ?? '0.00' };
+    state.accounts.push(created);
+    return ok(created, 201);
+  }
+  if (sub.startsWith('/accounts/')) {
+    const id = decodeURIComponent(sub.split('/')[2]);
+    const found = state.accounts.find((a) => a.id === id);
+    if (!found) return ok({ error: { code: 'not_found', message: 'Account not found.', correlation_id: 'c', details: [] } }, 404);
+    if (method === 'DELETE') { state.accounts = state.accounts.filter((a) => a.id !== id); return ok(null, 204); }
+    if (method === 'PATCH') { Object.assign(found, body); return ok(found); }
+    return ok(found);
+  }
+  if (sub === '/transactions' && method === 'GET') {
+    const q = (url.searchParams.get('q') ?? '').toLowerCase();
+    const category = url.searchParams.get('category');
+    const limit = Number(url.searchParams.get('limit') ?? 50), offset = Number(url.searchParams.get('offset') ?? 0);
+    const found = state.transactions.filter((t) => (!q || String(t.description).toLowerCase().includes(q)) && (!category || t.category === category));
+    return ok({ items: found.slice(offset, offset + limit), total: found.length, limit, offset });
+  }
+  if (sub === '/transactions' && method === 'POST') {
+    const input = body as Record<string, unknown>;
+    const created = { id: `fin_txn_new_${state.transactions.length}`, currency: 'AED', category: input.category ?? 'other', category_source: input.category ? 'manual' : 'rule', import_id: null, created_at: stamp, updated_at: stamp, ...input };
+    state.transactions.unshift(created);
+    return ok(created, 201);
+  }
+  if (sub.startsWith('/transactions/') && !sub.endsWith('.csv')) {
+    const id = decodeURIComponent(sub.split('/')[2]);
+    const found = state.transactions.find((t) => t.id === id);
+    if (!found) return ok({ error: { code: 'not_found', message: 'Transaction not found.', correlation_id: 'c', details: [] } }, 404);
+    if (method === 'DELETE') { state.transactions = state.transactions.filter((t) => t.id !== id); return ok(null, 204); }
+    if (method === 'PATCH') { Object.assign(found, body, (body as { category?: string }).category ? { category_source: 'manual' } : {}); return ok(found); }
+    return ok(found);
+  }
+  if (sub === '/transactions/export.csv') return { status: 200, body: 'date,account,description\n' };
+  if (sub === '/imports/preview') return ok({ ...PREVIEW, filename: (body as { filename?: string }).filename ?? PREVIEW.filename });
+  if (sub === '/imports' && method === 'POST') {
+    const created = { id: `fin_imp_${state.imports.length + 1}`, account_id: 'fin_acct_current', filename: (body as { filename: string }).filename, preset: 'emirates_nbd', date_format: '%d/%m/%Y', row_count: 4, imported_count: 2, duplicate_count: 1, error_count: 1, created_at: stamp };
+    state.imports.unshift(created);
+    return ok(created, 201);
+  }
+  if (sub === '/imports') return ok({ items: state.imports, total: state.imports.length, limit: 20, offset: 0 });
+  if (sub.startsWith('/imports/') && method === 'DELETE') { state.imports = state.imports.slice(1); return ok(null, 204); }
+  if (sub === '/bills/upcoming') return ok(summary(state, null).upcoming_bills);
+  if (sub === '/bills/suggestions') return ok(state.transactions.length ? [{ name: 'NETFLIX.COM', amount: '39.00', currency: 'AED', cadence: 'monthly', next_due_on: day(20), category: 'subscriptions', account_id: 'fin_acct_current', occurrences: 6 }] : []);
+  for (const kind of ['bills', 'debts', 'goals', 'holdings'] as const) {
+    if (sub === `/${kind}` && method === 'GET') return ok(state[kind]);
+    if (sub === `/${kind}` && method === 'POST') { const created = { id: `fin_${kind}_${state[kind].length + 1}`, currency: 'AED', created_at: stamp, updated_at: stamp, notes: null, account_id: null, ...(body as object) }; state[kind].push(created); return ok(created, 201); }
+    if (sub.startsWith(`/${kind}/`)) {
+      const id = decodeURIComponent(sub.split('/')[2]);
+      if (method === 'DELETE') { state[kind] = state[kind].filter((item) => item.id !== id); return ok(null, 204); }
+      const found = state[kind].find((item) => item.id === id);
+      if (found && method === 'PATCH') Object.assign(found, body);
+      return found ? ok(found) : ok({ error: { code: 'not_found', message: 'Not found.', correlation_id: 'c', details: [] } }, 404);
+    }
+  }
+  return null;
+}

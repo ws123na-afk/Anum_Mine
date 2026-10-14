@@ -70,7 +70,13 @@ export function MarketingView({ onOpenBudgets, onOpenFiles }: { onOpenBudgets?: 
       .finally(() => void load());
   }, [load]);
 
-  const pick = (next: Tab) => { setTab(next); history.replaceState(null, '', `#marketing-${next}`); };
+  // Tabs are history entries, so Back and Forward move between them (docs/module-checklist.md#navigation).
+  const pick = (next: Tab) => { setTab(next); if (location.hash !== `#marketing-${next}`) history.pushState(null, '', `#marketing-${next}`); };
+  useEffect(() => {
+    const sync = () => { const id = location.hash.slice(11); if (location.hash.startsWith('#marketing-') && TABS.includes(id as Tab)) setTab(id as Tab); else if (location.hash === '#marketing') setTab('posts'); };
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
   const refreshAll = () => { setVersion((value) => value + 1); void load(); };
 
   const title = viewLabel('marketing');
@@ -80,7 +86,7 @@ export function MarketingView({ onOpenBudgets, onOpenFiles }: { onOpenBudgets?: 
 
   const connected = accounts.filter((item) => item.status === 'connected');
   return <div className="mkLayout">
-    <PageHeader title={title} subtitle={t('pages.mk.subtitle')} actions={setup.can_write ? <button type="button" onClick={() => setComposer({})} disabled={connected.length === 0} aria-describedby={connected.length === 0 ? 'mk-no-accounts' : undefined}><Plus aria-hidden="true" />{t('marketing.newPost')}</button> : undefined} />
+    <PageHeader title={title} subtitle={t('pages.mk.subtitle')} crumbs={tab === 'posts' ? undefined : [{ label: viewLabel('home'), href: '#home' }, { label: title, href: '#marketing-posts', onClick: () => pick('posts') }, { label: t(`marketing.tab.${tab}`) }]} actions={setup.can_write ? <button type="button" onClick={() => setComposer({})} disabled={connected.length === 0} aria-describedby={connected.length === 0 ? 'mk-no-accounts' : undefined}><Plus aria-hidden="true" />{t('marketing.newPost')}</button> : undefined} />
     <MarketingSummary key={`s${version}`} />
     {connected.length === 0 && <Note id="mk-no-accounts">{setup.can_manage ? t('marketing.noAccountsOwner') : t('marketing.noAccountsMember')}</Note>}
     {notice && <Note>{notice}</Note>}

@@ -117,6 +117,11 @@ class Permission(StrEnum):
     # only owners export it.
     SUPPRESSION_MANAGE = "suppression:manage"
     SUPPRESSION_EXPORT = "suppression:export"
+    # Personal finance (docs/finance.md#permissions): the ledger is the signed-in person's
+    # own (row policies on ``anum.user_id``), so these only say whether the role may use
+    # Finance at all. Owners and members read and manage their own ledger; viewers do not.
+    FINANCE_READ = "finance:read"
+    FINANCE_MANAGE = "finance:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -205,6 +210,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.WORK_MANAGE,
             Permission.CALENDAR_WRITE,
             Permission.MARKETING_WRITE,
+            Permission.FINANCE_READ,
+            Permission.FINANCE_MANAGE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

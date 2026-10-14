@@ -247,3 +247,13 @@ test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ 
   await expect(page.getByLabel('الاحتفاظ بالنصوص المفرّغة')).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
+
+test('Finance reads in Arabic, right to left, with dates and amounts kept left to right', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await useSavedLocale(page, 'ar');
+  await page.goto('/#finance-bills');
+  await expect(page.getByRole('heading', { level: 1, name: 'المالية' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'أقسام المالية' }).getByRole('button', { name: 'الفواتير' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('region', { name: 'الفواتير' })).toContainText('Rent');
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});

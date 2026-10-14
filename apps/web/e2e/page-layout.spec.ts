@@ -82,13 +82,15 @@ const pages: { hash: string; mock: (page: Page) => Promise<unknown>; ready: stri
   { hash: 'meetings', mock: mockWorkspaceApi, ready: '.meetingRows li' },
   { hash: 'marketing', mock: mockMarketing, ready: '.mkPostTable tbody tr' },
   { hash: 'marketing-accounts', mock: mockMarketing, ready: '.mkAccountTable tbody tr' },
+  { hash: 'finance', mock: mockWorkspaceApi, ready: '.finChart svg' },
+  { hash: 'finance-transactions', mock: mockWorkspaceApi, ready: '.finTxTable tbody tr' },
 ];
 for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
   test.describe(`at ${size.width}x${size.height}`, () => {
     test.use({ viewport: size });
     test('every page in the shared layout fits without horizontal overflow, in English and Arabic', async ({ page }) => {
-      // Eighteen page loads in one test: give it room on a busy runner.
-      test.setTimeout(90_000);
+      // Twenty-two page loads in one test: give it room on a busy runner.
+      test.setTimeout(120_000);
       for (const locale of ['en', 'ar'] as const) {
         for (const item of pages) {
           const tab = await page.context().newPage();

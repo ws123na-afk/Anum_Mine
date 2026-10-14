@@ -849,3 +849,30 @@ def test_plain_dashes_migration_is_data_only_and_keeps_rls_forced() -> None:
     assert "for select to current_user" in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "audit_records" not in revision_text.split("TABLES:", 1)[1].split("POLICY", 1)[0]
+
+
+def test_finance_ledger_migration_is_expand_only_with_owner_only_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0056_finance_ledger.py").read_text(encoding="utf-8")
+    assert 'revision = "0056_finance_ledger"' in revision_text and len("0056_finance_ledger") <= 32
+    assert 'down_revision = "0055_plain_dashes"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0056_finance_ledger.py"]
+    assert not [path for path in others if 'down_revision = "0055_plain_dashes"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = (
+        "finance_settings", "finance_accounts", "finance_imports", "finance_transactions",
+        "finance_bills", "finance_debts", "finance_goals", "finance_holdings",
+    )
+    assert upgrade.count("op.create_table(") == len(tables)
+    for table in tables:
+        assert f'"{table}"' in revision_text
+        assert f"_workspace_fk(\"{table}\")" in revision_text
+    # Forced RLS, the tenant policy and a restrictive owner policy on every table (loop).
+    assert "force row level security" in upgrade and "create policy tenant_isolation_{table}" in upgrade
+    assert "create policy owner_only_{table}" in upgrade and "as restrictive" in upgrade
+    assert "owner_user_id = nullif(current_setting('anum.user_id', true), '')" in revision_text
+    # Exact money, a currency per amount, at most four digits of a number, dedupe per account.
+    assert "MONEY = sa.Numeric(20, 4)" in revision_text and "last4 ~ '^[0-9]{4}$'" in upgrade
+    assert '"account_id", "dedupe_hash"' in revision_text
+    assert "drop" not in upgrade and "alter_column" not in upgrade and "add_column" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

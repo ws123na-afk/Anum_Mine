@@ -60,6 +60,8 @@ const homeExtraFeatures = <HomeFeature>[
       'tyres', 'homeFeatureTyres', Icons.tire_repair_outlined, AnumTone.ok),
   HomeFeature('marketing', 'homeFeatureMarketing', Icons.campaign_outlined,
       AnumTone.accent),
+  HomeFeature('finance', 'homeFeatureFinance',
+      Icons.account_balance_wallet_outlined, AnumTone.ok),
   HomeFeature('insights', 'homeProactive', Icons.auto_awesome_outlined,
       AnumTone.accent),
 ];

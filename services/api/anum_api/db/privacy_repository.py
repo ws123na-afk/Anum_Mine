@@ -9,6 +9,8 @@ caller explicitly, so a missing context finds nothing. No other role is used.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.orm import Session
 
@@ -244,6 +246,12 @@ class SqlAlchemyPrivacyStore:
         """Favorites, private collections and private reports, in this same transaction."""
         return sql_library(self.session, self.context)
 
+    def finance(self) -> Any:
+        """The caller's finance ledger (owner-only RLS), in this same transaction."""
+        from .finance_repository import SqlAlchemyFinanceStore
+
+        return SqlAlchemyFinanceStore(self.session, self.context)
+
     # -- email, WhatsApp, autonomy (migrations 0033 to 0035) ----------------------------
 
     def _mailbox_filter(self):  # type: ignore[no-untyped-def]
@@ -452,6 +460,7 @@ class SqlAlchemyPrivacyStore:
             **self.library().counts(),
             **module_private,
             home_items=home_counts(self.home(), self.context),
+            finance_records=self.finance().count_everything(self.context),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -493,6 +502,7 @@ class SqlAlchemyPrivacyStore:
         self.commands().delete_all()
         # Before the private memories go: a private collection's notes are among them.
         self.library().delete_all()
+        self.finance().delete_everything(self.context)
         # The caller's unsent drafts anywhere, then their private mailboxes (synced message
         # metadata and every draft in them cascade), then their pending connections.
         self.session.execute(

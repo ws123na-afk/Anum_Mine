@@ -147,6 +147,10 @@ class PrivateCounts(BaseModel):
     # agents and those agents' memories.
     private_agents: int = 0
     private_agent_memories: int = 0
+    # Personal finance (migration 0056_finance_ledger, docs/finance.md): every row of the
+    # caller's ledger (settings, accounts, transactions, imports, bills, debts, goals,
+    # holdings). It is private to them, so all of it is exported and deleted.
+    finance_records: int = 0
 
     @property
     def total(self) -> int:
@@ -452,6 +456,7 @@ class PrivacyStore(Protocol):
     def meeting_connections(self) -> list[StoredConnection]: ...
     def commands(self) -> CommandStore: ...
     def library(self) -> LibraryPrivacy: ...
+    def finance(self) -> Any: ...
     # Email, WhatsApp and autonomy rows the caller connected, wrote, sent or requested.
     def email_accounts_connected(self) -> list[EmailAccount]: ...
     def email_drafts_written(self) -> list[EmailDraft]: ...
@@ -616,6 +621,11 @@ class InMemoryPrivacyStore:
     def library(self) -> LibraryPrivacy:
         return memory_library(self.context)
 
+    def finance(self) -> Any:
+        from .finance.store import finance_store
+
+        return finance_store
+
     def team(self) -> Any:
         from .team_store import memory_team_store
 
@@ -770,6 +780,7 @@ class InMemoryPrivacyStore:
             **self.library().counts(),
             **module_private,
             home_items=home_counts(self.home(), self.context),
+            finance_records=self.finance().count_everything(self.context),
         )
         return private, self._shared_counts(module_shared)
 
@@ -827,6 +838,7 @@ class InMemoryPrivacyStore:
             connection_store.delete(self.context, connection.provider)
         self.commands().delete_all()
         self.library().delete_all()
+        self.finance().delete_everything(self.context)
         self._delete_email()
         self.delete_team_private()
         self.home().delete_all(self.context)
@@ -916,6 +928,35 @@ def _iso(value: datetime) -> str:
     return value.isoformat()
 
 
+def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
+    from .finance.store import TransactionFilter
+
+    hidden = {"tenant_id", "workspace_id", "owner_user_id"}
+    transactions: list[Any] = []
+    while True:
+        page, total = finance.list_transactions(context, TransactionFilter(), limit=1000, offset=len(transactions))
+        transactions += page
+        if not page or len(transactions) >= total:
+            break
+    imports: list[Any] = []
+    while True:
+        page, total = finance.list_imports(context, limit=200, offset=len(imports))
+        imports += page
+        if not page or len(imports) >= total:
+            break
+    settings = finance.get_settings(context)
+    return {
+        "settings": settings.model_dump(mode="json") if settings is not None else None,
+        "accounts": [a.model_dump(mode="json", exclude=hidden) for a in finance.list_accounts(context)],
+        "transactions": [t.model_dump(mode="json", exclude=hidden) for t in transactions],
+        "imports": [i.model_dump(mode="json", exclude=hidden) for i in imports],
+        **{
+            f"{kind}s": [item.model_dump(mode="json", exclude=hidden) for item in finance.list_items(context, kind)]
+            for kind in ("bill", "debt", "goal", "holding")
+        },
+    }
+
+
 def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tuple[str, Any]]:
     """The export, one top-level section at a time (so the size cap can stop early)."""
     membership = store.membership()
@@ -984,6 +1025,8 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     # Favorites, private knowledge base collections (with their items) and private reports.
     yield ("library", store.library().export())
     yield ("home", home_export(store.home(), context))
+    # The caller's whole finance ledger (docs/finance.md#privacy).
+    yield ("finance", finance_export(store.finance(), context))
     yield (
         "email",
         {

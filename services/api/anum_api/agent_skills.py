@@ -15,6 +15,17 @@ COMMERCE_TRIGGERS = frozenset(
     }
 )
 
+# Words that select the finance skill (anum_api/finance/tools.py parses the request). Moving
+# money ("pay", "transfer") is never the finance skill's: those stay with external-action.
+FINANCE_TRIGGERS = frozenset(
+    {
+        "spent", "spend", "spending", "expenses", "expense", "budget", "bills", "bill", "balance", "balances",
+        "income", "debts", "debt", "transactions", "finance", "finances", "subscriptions", "savings",
+        # Arabic: expenses, I spent, bills, a bill, balance, my balance, budget, debts.
+        "مصاريف", "مصروفات", "مصروف", "صرفت", "فواتير", "فاتورة", "رصيد", "رصيدي", "ميزانية", "ديون",
+    }
+)
+
 
 class SkillManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]+$")
@@ -142,6 +153,18 @@ def default_skill_registry() -> SkillRegistry:
                 required_tools=frozenset({"commerce.sales_summary"}),
             ),
             SkillManifest(
+                id="anum.finance",
+                version="1.0.0",
+                name="Personal finance",
+                description=(
+                    "Answers questions about your own spending, income, balances, bills and debts from your "
+                    "imported statements. Read only: it never pays, transfers or trades (docs/finance.md)."
+                ),
+                triggers=FINANCE_TRIGGERS,
+                # Selectable where the finance tools are registered (the API and the worker).
+                required_tools=frozenset({"finance.summary", "finance.transactions.search", "finance.bills.upcoming"}),
+            ),
+            SkillManifest(
                 id="anum.tyre-planning",
                 version="1.0.0",
                 name="Tyre planning",
@@ -189,7 +212,7 @@ def default_skill_registry() -> SkillRegistry:
                 description="Plans governed actions that affect systems outside ANUM.",
                 triggers=frozenset(
                     {
-                        "delete", "send", "publish", "spend", "pay", "permission", "credential",
+                        "delete", "send", "publish", "spend", "pay", "transfer", "permission", "credential",
                         "أرسل", "ارسل", "احذف", "انشر", "ادفع",
                     }
                 ),

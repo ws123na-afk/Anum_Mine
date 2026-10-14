@@ -45,6 +45,7 @@ class ChatCardView extends StatelessWidget {
     ChatCardCategory.action: Icons.shield_outlined,
     ChatCardCategory.commerce: Icons.shopping_bag_outlined,
     ChatCardCategory.tyre: Icons.tire_repair_outlined,
+    ChatCardCategory.finance: Icons.account_balance_wallet_outlined,
   };
 
   @override

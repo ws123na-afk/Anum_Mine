@@ -1,0 +1,90 @@
+/* Finance (docs/finance.md). Built on the commerce panel recipe (commerce.css) and shared tokens. */
+/* One column that may shrink: a wide table scrolls inside its panel, never the page. */
+.finLayout .cmPanel { grid-template-columns: minmax(0, 1fr); }
+.finLayout .cmOverviewGrid { align-items: start; }
+.finMoreFilters { flex: 1 1 100%; }
+.finMoreFilters summary { color: var(--d-sky); cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.finMoreFilters .cmFilters { margin-top: var(--d-s2); }
+.finLayout > .pageSummary { margin: 0; }
+.finReadOnly { font-size: 13px; margin: 0; }
+.finMonth { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.finMonth > strong { font-size: 15px; min-width: 9ch; text-align: center; }
+.finMonth > .cmInline { margin-inline-start: auto; }
+.finMonth > button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; justify-content: center; min-height: 40px; min-width: 40px; padding: 0 var(--d-s2); }
+.finHeadActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.finHeadActions > button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s3); }
+.finFilters input[type="date"] { min-width: 140px; }
+.finMoney { font-variant-numeric: tabular-nums; unicode-bidi: isolate; white-space: nowrap; }
+.finMoney.in { color: var(--d-ok); }
+.finIn { color: var(--d-ok); }
+.finOut { color: var(--d-warn); }
+.finFlow { display: grid; gap: var(--d-s3); margin: 0; }
+.finFlowRow { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s1); padding-top: var(--d-s3); }
+.finFlowRow:first-child { border-top: 0; padding-top: 0; }
+.finFlowRow dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.finFlowRow dd { display: flex; flex-wrap: wrap; font-size: 14px; gap: var(--d-s1) var(--d-s4); margin: 0; }
+.finFlowRow dd > span { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.finFlowRow svg { height: 16px; width: 16px; }
+.finChart { overflow: hidden; }
+.finChart svg { display: block; height: auto; max-height: none; width: 100%; }
+.finLabel { fill: var(--d-muted); font-size: 12px; }
+.finValue { fill: var(--d-text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.finBar0 { fill: rgb(var(--c-violet)); }
+.finBar1 { fill: rgb(var(--c-sky)); }
+.finBar2 { fill: rgb(var(--c-ok)); }
+.finBar3 { fill: rgb(var(--c-warn)); }
+.finBar4 { fill: rgb(var(--c-violet) / .6); }
+.finBar5 { fill: var(--d-line-strong); }
+.finTable td { vertical-align: top; }
+.finDescription { min-width: 180px; }
+.finDescription strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.finTable td small { color: var(--d-faint); display: block; font-size: 12px; overflow-wrap: anywhere; }
+.finRowActions { display: flex; gap: var(--d-s1); justify-content: flex-end; white-space: nowrap; }
+.finDuplicate { opacity: .6; }
+.finItems li { align-items: center; }
+.finItems li > div:first-child { flex: 1 1 auto; }
+.finItems strong .statusBadge { margin-inline-start: var(--d-s2); vertical-align: middle; }
+.finItemEnd, .finItemActions { align-items: center; display: flex; flex: none; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); justify-content: flex-end; }
+.finItemEnd > button.secondary { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); min-height: 40px; padding: 0 var(--d-s3); }
+.finArchived > div:first-child { opacity: .7; }
+.finGoal { display: grid; gap: var(--d-s1); }
+.finProgress { align-items: center; display: inline-grid; gap: var(--d-s2); grid-template-columns: minmax(80px, 160px) auto; }
+.finTrack { background: var(--d-glass-3); block-size: 8px; border-radius: 999px; display: block; overflow: hidden; }
+.finFill { background: rgb(var(--c-violet)); block-size: 100%; border-radius: inherit; display: block; }
+.finProgress > small { color: var(--d-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.finForm { display: grid; gap: var(--d-s1); min-width: 0; }
+.finCheck { align-items: center; display: flex; gap: var(--d-s2); min-height: 44px; }
+.finCheck input { accent-color: var(--d-violet); block-size: 18px; inline-size: 18px; min-height: 0; }
+.finMapping { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); margin: 0; min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.finMapping legend { color: var(--d-muted); font-size: 13px; font-weight: 600; padding: 0 var(--d-s1); }
+.finErrors summary { color: var(--d-warn); cursor: pointer; min-height: 32px; }
+.finErrors ul { margin: var(--d-s2) 0 0; padding-inline-start: var(--d-s5); }
+@media (max-width: 1023px) {
+  /* Transactions as cards below the two-pane width: description and amount, then date, category and actions. */
+  .finTxTable thead { display: none; }
+  .finTxTable, .finTxTable tbody { display: block; }
+  .finTxTable tr { border-top: 1px solid var(--d-line); display: grid; gap: 2px var(--d-s3); grid-template-areas: "desc desc amount" "date cat actions"; grid-template-columns: auto minmax(0, 1fr) auto; padding: var(--d-s2) 0; }
+  .finTxTable td { border: 0; padding: 0; }
+  .finTxTable .finDescription { grid-area: desc; min-width: 0; }
+  .finTxTable .num { align-self: start; grid-area: amount; }
+  .finTxTable .finDate { color: var(--d-faint); font-size: 12px; grid-area: date; }
+  .finTxTable .finCat { color: var(--d-muted); font-size: 12px; grid-area: cat; }
+  .finTxTable .finRowActions { grid-area: actions; }
+}
+@media (max-width: 760px) {
+  .finFilters .cmFilters > * { flex: 1 1 100%; }
+  .finItems li { align-items: flex-start; flex-wrap: wrap; }
+  .finItemEnd, .finItemActions { justify-content: flex-start; }
+}
+/* Overview: the chart, bills and goals in the main column, money in and out and balances beside
+   them, each column as tall as its own content (no empty cells next to a tall chart). */
+.finOverview { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); }
+.finColumn { align-content: start; display: grid; gap: var(--d-s4); min-width: 0; }
+@media (min-width: 1100px) { .finOverview { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+/* Money figures are long ("AED 12,899.50"): five columns only where each has room, never a number
+   broken in the middle. */
+.finLayout .pageFigure strong { overflow-wrap: normal; word-break: keep-all; }
+@media (min-width: 761px) and (max-width: 1279px) {
+  .finLayout .pageFigures[data-count="5"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .finLayout .pageFigures[data-count="5"] .pageFigure:nth-child(4) { border-inline-start: 0; padding-inline-start: 0; }
+}

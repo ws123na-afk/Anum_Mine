@@ -174,3 +174,18 @@ test('the catalogue reads in Arabic, right to left', async ({ page }) => {
   await expect(page.getByText('ميشلان برايمسي 4 مقاس 205/55R16')).toBeVisible();
   await expect(page.getByText('13 قطعة في المخزون')).toBeVisible();
 });
+
+test('Commerce tabs are deep links: Back returns to the previous tab and the breadcrumb leads home', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#commerce-orders');
+  await expect(tab(page, 'Orders')).toHaveAttribute('aria-current', 'page');
+  await tab(page, 'Alerts').click();
+  await expect(page).toHaveURL(/#commerce-alerts$/);
+  await page.goBack();
+  await expect(tab(page, 'Orders')).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Commerce' }).click();
+  await expect(tab(page, 'Overview')).toHaveAttribute('aria-current', 'page');
+  await tab(page, 'Returns').click();
+  await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Home' }).click();
+  await expect(page).toHaveURL(/#home$/);
+});

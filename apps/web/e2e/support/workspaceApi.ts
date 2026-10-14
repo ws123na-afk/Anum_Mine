@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
+import { financeReply, financeState } from './financeApi';
 import { handleMeetings } from './meetingsApi';
 import { createTeamMock, type TeamMockOptions } from './teamApi';
 import { createHomeMock, type HomeMockState } from './homeApi';
@@ -182,6 +183,7 @@ const note = {
 const signal = { id: 'signal_1', kind: 'draft_edited', surface: 'email', subject_id: null, skill: null, tool: null, contact: 'supplier@example.com', language: 'en', original_text: 'Hello, the order is late.', final_text: 'Dear supplier,\nThe order is late.\nBest regards', reason: null, metadata: { edit: { words_before: 5, words_after: 9, words_added: 5, words_removed: 1, changed_ratio: 0.5, greeting_before: 'Hello', greeting_after: 'Dear', sign_off_before: null, sign_off_after: 'Best regards' } }, created_at: now, truncated: false };
 
 const commerceFixture = commerceState('owner');
+const financeFixture = financeState();
 
 // Favorites, knowledge base and reports (docs/knowledge-base.md, docs/reports.md).
 const libraryReport = {
@@ -332,6 +334,9 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     // Commerce (docs/commerce.md): one Amazon and one own-store connection with data on every tab.
     const commerce = commerceReply(commerceFixture, method, url, request.postData() ? request.postDataJSON() : null);
     if (commerce) return json(commerce.body, commerce.status);
+    // Finance (docs/finance.md): two accounts, a month of transactions, bills, a debt and a goal.
+    const finance = financeReply(financeFixture, method, url, request.postData() ? request.postDataJSON() : null);
+    if (finance) return json(finance.body, finance.status);
     // Calls & Meetings (docs/meetings.md).
     if (path.startsWith('/api/v1/meetings') && await handleMeetings(route)) return;
     // Agents (docs/agents.md): one shared agent and the catalog the wizard reads.

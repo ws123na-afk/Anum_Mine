@@ -8,7 +8,16 @@ import '../../data/api_models.dart';
 
 enum ChatCardState { running, results, approval, failed, cancelled, denied }
 
-enum ChatCardCategory { email, whatsapp, commerce, tyre, web, files, action }
+enum ChatCardCategory {
+  email,
+  whatsapp,
+  commerce,
+  tyre,
+  finance,
+  web,
+  files,
+  action
+}
 
 ChatCardState? _state(String? value) => switch (value) {
       'running' => ChatCardState.running,
@@ -28,6 +37,7 @@ ChatCardCategory? _category(String? value) => switch (value) {
       'action' => ChatCardCategory.action,
       'commerce' => ChatCardCategory.commerce,
       'tyre' => ChatCardCategory.tyre,
+      'finance' => ChatCardCategory.finance,
       _ => null,
     };
 

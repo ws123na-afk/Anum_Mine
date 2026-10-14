@@ -4,7 +4,7 @@
 import { t, type MessageKey } from './i18n.ts';
 
 export type View =
-  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'marketing' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
+  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'policy' | 'suppressions' | 'developer' | 'organisations';
 
@@ -24,7 +24,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'marketing', 'files', 'memory', 'reports', 'skills'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'files', 'memory', 'reports', 'skills'] },
   { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'policy', 'suppressions', 'developer', 'organisations'] },
 ];
@@ -45,7 +45,7 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations']);
  */
 export const OWN_HEADER: ReadonlySet<View> = new Set([
   'home', 'command', 'voice', 'assistant', 'files', 'inbox', 'whatsapp', 'meetings', 'marketing',
-  'tasks', 'commerce', 'team', 'assistants', 'call', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning',
+  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning',
 ]);
 
 export function isView(value: string): value is View {
@@ -69,6 +69,10 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('agents/')) return 'agents';
   // A Marketing tab opened by link (#marketing-calendar, docs/marketing.md).
   if (id.startsWith('marketing-')) return 'marketing';
+  // A Finance tab opened by link (#finance-transactions, docs/finance.md).
+  if (id.startsWith('finance-')) return 'finance';
+  // A Commerce tab opened by link (#commerce-orders, docs/commerce.md).
+  if (id.startsWith('commerce-')) return 'commerce';
   return isView(id) ? id : 'home';
 }
 

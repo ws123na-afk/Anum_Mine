@@ -30,6 +30,14 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "finance_transactions",
+    "finance_imports",
+    "finance_holdings",
+    "finance_bills",
+    "finance_debts",
+    "finance_goals",
+    "finance_accounts",
+    "finance_settings",
     "contact_suppressions",
     "commerce_order_lines",
     "commerce_orders",

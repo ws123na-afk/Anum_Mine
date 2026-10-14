@@ -29,6 +29,8 @@ import '../email/inbox_screen.dart';
 import '../commerce/commerce_controller.dart';
 import '../../data/api_client.dart';
 import '../commerce/commerce_screen.dart';
+import '../finance/finance_controller.dart';
+import '../finance/finance_screen.dart';
 import '../library/library_models.dart' show Favorite;
 import '../library/library_repository.dart';
 import '../library/library_screens.dart';
@@ -78,6 +80,7 @@ class WorkspaceHome extends StatefulWidget {
       this.whatsappController,
       this.emailController,
       this.commerceController,
+      this.financeController,
       this.homeController,
       this.onOpenCommand,
       this.agentsController,
@@ -119,6 +122,9 @@ class WorkspaceHome extends StatefulWidget {
 
   /// Commerce (docs/commerce.md), opened from Home.
   final CommerceController? commerceController;
+
+  /// Finance (docs/finance.md), opened from the menu and Home pins.
+  final FinanceController? financeController;
 
   /// Home (docs/home.md). Built from the workspace repository's API client
   /// when not given.
@@ -247,6 +253,9 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   void _openWhatsApp() =>
       _push(WhatsAppScreen(controller: widget.whatsappController!));
   void _openInbox() => _push(InboxScreen(controller: widget.emailController!));
+  void _openFinance() =>
+      _push(FinanceScreen(controller: widget.financeController!));
+
   void _openMarketing() =>
       _push(MarketingScreen(controller: widget.marketingController!));
   void _openGovernance(GovernanceSection section) => _push(GovernanceScreen(
@@ -353,6 +362,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         if (widget.whatsappController != null) 'whatsapp',
         if (widget.settingsController.autonomy != null) 'autonomy',
         if (widget.commerceController != null) 'commerce',
+        if (widget.financeController != null) 'finance',
         if (widget.marketingController != null) 'marketing',
       };
 
@@ -416,6 +426,8 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
             builder: (_, c) => ActivityScreen(controller: c)));
       case 'commerce' when widget.commerceController != null:
         _push(CommerceScreen(controller: widget.commerceController!));
+      case 'finance' when widget.financeController != null:
+        _openFinance();
       case 'marketing' when widget.marketingController != null:
         _openMarketing();
       case 'more':
@@ -805,6 +817,9 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
             page('whatsapp', Icons.forum_outlined, _openWhatsApp),
           if (widget.marketingController != null)
             page('mk.title', Icons.campaign_outlined, _openMarketing),
+          if (widget.financeController != null)
+            page('financeMenu', Icons.account_balance_wallet_outlined,
+                _openFinance),
           if (_showDeveloper)
             destination('developer', Icons.construction_outlined,
                 WorkspaceDestination.developer),

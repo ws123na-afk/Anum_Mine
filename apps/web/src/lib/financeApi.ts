@@ -1,0 +1,76 @@
+// Finance over the live API (docs/finance.md#api). Every record is the caller's own; the server
+// checks finance:read / finance:manage on every route and the view only explains who may.
+import type {
+  FinanceAccount, FinanceAccountInput, FinanceBill, FinanceBillInput, FinanceBillSuggestion, FinanceDebt, FinanceDebtInput, FinanceFormats,
+  FinanceGoal, FinanceGoalInput, FinanceHolding, FinanceHoldingInput, FinanceImport, FinanceImportInput, FinanceImportPreview, FinancePage,
+  FinanceSettings, FinanceSummary, FinanceTransaction, FinanceTransactionInput, FinanceUpcomingBill,
+} from '@anum/contracts';
+import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
+import { apiErrorFromResponse } from './errors';
+
+const BASE = '/api/v1/finance';
+const get = <T>(path: string) => apiRequest<T>(`${BASE}${path}`, { method: 'GET' });
+const send = <T>(method: string, path: string, body?: unknown) => apiRequest<T>(`${BASE}${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+const remove = (path: string) => apiRequestVoid(`${BASE}${path}`, { method: 'DELETE' });
+const id = encodeURIComponent;
+
+export function query(params: Record<string, string | number | null | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value !== null && value !== undefined && value !== '') search.set(key, String(value));
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
+
+export interface TransactionQuery { q?: string; account_id?: string; category?: string; from?: string; to?: string; direction?: 'in' | 'out' | ''; limit: number; offset: number }
+
+export const getSummary = (month?: string) => get<FinanceSummary>(`/summary${query({ month })}`);
+export const getSettings = () => get<FinanceSettings>('/settings');
+export const saveSettings = (body: Omit<FinanceSettings, 'updated_at'>) => send<FinanceSettings>('PUT', '/settings', body);
+export const getFormats = () => get<FinanceFormats>('/formats');
+
+export const listAccounts = () => get<FinanceAccount[]>('/accounts');
+export const createAccount = (body: FinanceAccountInput) => send<FinanceAccount>('POST', '/accounts', body);
+export const updateAccount = (accountId: string, body: Partial<FinanceAccountInput>) => send<FinanceAccount>('PATCH', `/accounts/${id(accountId)}`, body);
+export const deleteAccount = (accountId: string) => remove(`/accounts/${id(accountId)}`);
+
+export const listTransactions = (q: TransactionQuery) => get<FinancePage<FinanceTransaction>>(`/transactions${query({ ...q })}`);
+export const createTransaction = (body: FinanceTransactionInput) => send<FinanceTransaction>('POST', '/transactions', body);
+export const updateTransaction = (transactionId: string, body: Partial<FinanceTransactionInput>) => send<FinanceTransaction>('PATCH', `/transactions/${id(transactionId)}`, body);
+export const deleteTransaction = (transactionId: string) => remove(`/transactions/${id(transactionId)}`);
+
+export const previewImport = (body: FinanceImportInput) => send<FinanceImportPreview>('POST', '/imports/preview', body);
+export const confirmImport = (body: FinanceImportInput) => send<FinanceImport>('POST', '/imports', body);
+export const listImports = (limit: number, offset: number) => get<FinancePage<FinanceImport>>(`/imports${query({ limit, offset })}`);
+export const deleteImport = (importId: string) => remove(`/imports/${id(importId)}`);
+
+export const listBills = () => get<FinanceBill[]>('/bills');
+export const upcomingBills = (days = 30) => get<FinanceUpcomingBill[]>(`/bills/upcoming${query({ days })}`);
+export const billSuggestions = () => get<FinanceBillSuggestion[]>('/bills/suggestions');
+export const createBill = (body: FinanceBillInput) => send<FinanceBill>('POST', '/bills', body);
+export const updateBill = (billId: string, body: FinanceBillInput) => send<FinanceBill>('PATCH', `/bills/${id(billId)}`, body);
+export const deleteBill = (billId: string) => remove(`/bills/${id(billId)}`);
+
+export const listDebts = () => get<FinanceDebt[]>('/debts');
+export const createDebt = (body: FinanceDebtInput) => send<FinanceDebt>('POST', '/debts', body);
+export const updateDebt = (debtId: string, body: FinanceDebtInput) => send<FinanceDebt>('PATCH', `/debts/${id(debtId)}`, body);
+export const deleteDebt = (debtId: string) => remove(`/debts/${id(debtId)}`);
+
+export const listGoals = () => get<FinanceGoal[]>('/goals');
+export const createGoal = (body: FinanceGoalInput) => send<FinanceGoal>('POST', '/goals', body);
+export const updateGoal = (goalId: string, body: FinanceGoalInput) => send<FinanceGoal>('PATCH', `/goals/${id(goalId)}`, body);
+export const deleteGoal = (goalId: string) => remove(`/goals/${id(goalId)}`);
+
+export const listHoldings = () => get<FinanceHolding[]>('/holdings');
+export const createHolding = (body: FinanceHoldingInput) => send<FinanceHolding>('POST', '/holdings', body);
+export const updateHolding = (holdingId: string, body: FinanceHoldingInput) => send<FinanceHolding>('PATCH', `/holdings/${id(holdingId)}`, body);
+export const deleteHolding = (holdingId: string) => remove(`/holdings/${id(holdingId)}`);
+
+/** Downloads the matching transactions as CSV (formula-safe on the server). */
+export async function downloadTransactions(q: Omit<TransactionQuery, 'limit' | 'offset'>): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}${BASE}/transactions/export.csv${query({ ...q })}`, { headers: await authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url; link.download = 'anum-transactions.csv'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

@@ -18,7 +18,7 @@ const PRIVATE_KEYS: (keyof PrivateCounts)[] = [
   'push_devices', 'meetings', 'meeting_transcript_segments', 'meeting_recordings', 'meeting_connections',
   'learning_signals', 'learned_items', 'favorites', 'private_collections', 'private_reports',
   'email_mailboxes', 'email_messages', 'email_drafts',
-  'team_notifications', 'team_profile', 'private_agents', 'private_agent_memories',
+  'team_notifications', 'team_profile', 'private_agents', 'private_agent_memories', 'finance_records',
 ];
 
 const SHARED_KEYS: (keyof SharedCounts)[] = [

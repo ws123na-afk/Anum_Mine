@@ -219,6 +219,7 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "home_items": 0,
         "private_agents": 0,
         "private_agent_memories": 0,
+        "finance_records": 0,
     }
     assert summary["shared"]["tasks_created"] == 1
 
