@@ -124,7 +124,8 @@ async def sync_connection(context: TenantContext, connection_id: str) -> SyncRep
         except ConnectorError as exc:
             error = exc.message
         except Exception:  # noqa: BLE001 - any adapter failure is the same for the person
-            logger.exception("finance_sync_failed", extra={"anum_finance": {"connection_id": connection_id, "provider": connection.provider}})
+            # Only the registry's own provider id: never a request value, credential or payload.
+            logger.exception("finance_sync_failed", extra={"anum_finance": {"provider": spec.id}})
             error = "The sync failed. ANUM will try again later."
 
     def save() -> SyncReport:
