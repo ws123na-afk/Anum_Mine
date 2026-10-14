@@ -7,6 +7,7 @@ import 'finance_controller.dart';
 import 'finance_models.dart';
 import 'finance_plan_models.dart';
 import 'finance_strings.dart';
+import 'finance_trading_models.dart';
 
 /// Finance on the phone (docs/finance.md): the signed-in person's own month,
 /// transactions, accounts, bills, debts and goals. Read only: nothing here
@@ -87,6 +88,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
       FinanceSection.safe => _safe(context, c, s),
       FinanceSection.guardian => _guardian(context, c, s),
       FinanceSection.connections => _connections(context, c, s),
+      FinanceSection.trading => _trading(context, c, s),
+      FinanceSection.execution => _execution(context, c, s),
     };
   }
 
@@ -114,6 +117,208 @@ class _FinanceScreenState extends State<FinanceScreen> {
       ];
     }
     return null;
+  }
+
+  // -- paper trading and the execution gateway (stages 6 and 7) -------------
+
+  String _intentLine(TradeIntent i, FinanceStrings s) => s.t(
+      i.side == 'sell' ? 'trading.sellLine' : 'trading.buyLine',
+      {'quantity': trimDecimal(i.quantity), 'symbol': i.symbol ?? ''});
+
+  List<Widget> _trading(
+      BuildContext context, FinanceController c, FinanceStrings s) {
+    final waiting = _state(c.tradingState, c.tradingState == FinanceLoad.ready,
+        c.tradingError, c.loadTrading, s);
+    if (waiting != null) return waiting;
+    return [
+      AnumSurface(
+          child: Text('${s.t('trading.simulated')} ${s.t('trading.note')}')),
+      for (final intent in c.pendingIntents)
+        AnumSurface(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AnumHeader(title: _intentLine(intent, s)),
+            if (intent.requestedBy == 'agent') Text(s.t('trading.byAgent')),
+            if (intent.portfolioName != null)
+              Text(intent.portfolioName!,
+                  style: TextStyle(color: context.palette.muted)),
+            if (intent.notional != null)
+              Text(s.t('trading.estimate', {
+                'value': formatAmount(intent.notional!, intent.currency ?? ''),
+                'fee': formatAmount(intent.fee ?? '0', intent.currency ?? ''),
+                'slippage':
+                    formatAmount(intent.slippage ?? '0', intent.currency ?? ''),
+              })),
+            Text(s.t('trading.verdict.${intent.outcome ?? 'allow'}')),
+            Text(
+                '${s.t('guardian.code')} ${intent.payloadHash.substring(0, 12)}',
+                textDirection: TextDirection.ltr,
+                style: TextStyle(color: context.palette.muted)),
+            Wrap(
+                spacing: AnumSpacing.sm,
+                runSpacing: AnumSpacing.xs,
+                children: [
+                  FilledButton(
+                      onPressed: () => _approveIntent(context, c, s, intent),
+                      child: Text(s.t('trading.approve'))),
+                  OutlinedButton(
+                      onPressed: () async => _say(
+                          await c.rejectIntent(intent) ??
+                              s.t('trading.rejected')),
+                      child: Text(s.t('guardian.reject'))),
+                ]),
+          ]),
+        ),
+      if (c.portfolios.isEmpty)
+        AnumEmpty(
+            title: s.t('trading.empty'),
+            message: s.t('trading.emptyText'),
+            icon: Icons.science_outlined)
+      else
+        for (final p in c.portfolios)
+          AnumSurface(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AnumHeader(
+                      eyebrow: s.t('trading.mode.${p.mode}'), title: p.name),
+                  if (p.mode == 'paper')
+                    AnumRow(
+                        title: s.t('trading.cash'),
+                        detail: formatAmounts(p.cash),
+                        icon: Icons.account_balance_wallet_outlined),
+                  AnumRow(
+                      title: s.t('trading.realised'),
+                      detail: formatAmounts(p.realised),
+                      icon: Icons.check_circle_outline),
+                  AnumRow(
+                      title: s.t('trading.unrealised'),
+                      detail: formatAmounts(p.unrealised),
+                      icon: Icons.show_chart),
+                  Text(
+                      s.t('trading.counts',
+                          {'positions': p.positions, 'waiting': p.waiting}),
+                      style: TextStyle(color: context.palette.muted)),
+                  Text(
+                      s.t('trading.assumptions', {
+                        'fee': _bps(p.feeBps),
+                        'slippage': _bps(p.slippageBps)
+                      }),
+                      style: TextStyle(color: context.palette.muted)),
+                ]),
+          ),
+      Text(s.t('trading.onWeb'),
+          style: TextStyle(color: context.palette.muted)),
+    ];
+  }
+
+  String _bps(String value) =>
+      '${((double.tryParse(value) ?? 0) / 100).toStringAsFixed(2)}%';
+
+  Future<void> _approveIntent(BuildContext context, FinanceController c,
+      FinanceStrings s, TradeIntent intent) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(s.t('trading.reviewTitle')),
+        scrollable: true,
+        content: Text('${_intentLine(intent, s)}\n\n${s.t('trading.note')}\n\n'
+            '${s.t('guardian.code')} ${intent.payloadHash.substring(0, 12)}'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(s.t('cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(s.t('trading.approve'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    _say(await c.approveIntent(intent) ?? s.t('trading.approved'));
+  }
+
+  // -- execution, kill switch, limited and wider live (stages 7 to 9) -------
+
+  List<Widget> _execution(
+      BuildContext context, FinanceController c, FinanceStrings s) {
+    final waiting = _state(c.executionLoad, c.execution != null,
+        c.executionError, c.loadExecution, s);
+    if (waiting != null) return waiting;
+    final e = c.execution!;
+    final live = c.live;
+    return [
+      AnumSurface(
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          AnumHeader(title: s.t('execution.kill')),
+          AnumRow(
+            title: s.t('execution.killPerson'),
+            detail: e.personSwitch
+                ? s.t('execution.killOn')
+                : s.t('execution.killOff'),
+            icon: Icons.power_settings_new,
+            tone: e.personSwitch ? AnumTone.warn : null,
+            trailing: Semantics(
+              label: s.t('execution.killPerson'),
+              child: Switch(
+                value: e.personSwitch,
+                onChanged: (value) async => _say(await c.setKillSwitch(value) ??
+                    s.t(value ? 'execution.stopped' : 'execution.resumed')),
+              ),
+            ),
+          ),
+          AnumRow(
+              title: s.t('execution.killGlobal'),
+              detail: e.globalSwitch
+                  ? s.t('execution.killOn')
+                  : s.t('execution.killOff'),
+              icon: Icons.shield_outlined,
+              tone: e.globalSwitch ? AnumTone.warn : null),
+        ]),
+      ),
+      AnumSurface(
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          AnumHeader(title: s.t('live.title')),
+          Text(s.t('live.off'), style: TextStyle(color: context.palette.warn)),
+          for (final check in live?.preconditions ?? const <LiveCheck>[])
+            AnumRow(
+                title: s.t('live.pre.${check.code}'),
+                icon: check.met ? Icons.check : Icons.close,
+                tone: check.met ? AnumTone.ok : AnumTone.warn),
+        ]),
+      ),
+      if (live != null)
+        AnumSurface(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AnumHeader(
+                title: s.t('wider.title'),
+                eyebrow: s
+                    .t('wider.tier', {'tier': live.tier, 'max': live.maxTier})),
+            Text(s.t('wider.off'),
+                style: TextStyle(color: context.palette.warn)),
+            if (live.frozen) ...[
+              Text(s.t('wider.frozen', {
+                'reason': s.t('wider.incident.${live.frozenReason ?? ''}')
+              })),
+              OutlinedButton(
+                  onPressed: () async =>
+                      _say(await c.reviewIncidents() ?? s.t('wider.reviewed')),
+                  child: Text(s.t('wider.review'))),
+            ],
+            for (final check in live.wider)
+              AnumRow(
+                  title: s.t('wider.criterion.${check.code}'),
+                  detail: '${check.value ?? ''} / ${check.needed ?? ''}',
+                  icon: check.met ? Icons.check : Icons.close,
+                  tone: check.met ? AnumTone.ok : AnumTone.warn),
+          ]),
+        ),
+      Text(s.t('execution.onWeb'),
+          style: TextStyle(color: context.palette.muted)),
+    ];
   }
 
   // -- safe to spend (stage 3) ---------------------------------------------

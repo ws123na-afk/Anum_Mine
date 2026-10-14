@@ -87,6 +87,8 @@ const pages: { hash: string; mock: (page: Page) => Promise<unknown>; ready: stri
   { hash: 'finance-safe', mock: mockWorkspaceApi, ready: '.finBuild' },
   { hash: 'finance-guardian', mock: mockWorkspaceApi, ready: '.finRules' },
   { hash: 'finance-connections', mock: mockWorkspaceApi, ready: '.finSource' },
+  { hash: 'finance-trading', mock: mockWorkspaceApi, ready: '.finTradeTable tbody tr' },
+  { hash: 'finance-execution', mock: mockWorkspaceApi, ready: '.finPreconditions li' },
 ];
 for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
   test.describe(`at ${size.width}x${size.height}`, () => {

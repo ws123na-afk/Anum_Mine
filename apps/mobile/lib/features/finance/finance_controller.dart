@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import 'finance_models.dart';
 import 'finance_plan_models.dart';
 import 'finance_repository.dart';
+import 'finance_trading_models.dart';
 
 enum FinanceLoad { idle, loading, ready, denied, error }
 
@@ -17,7 +18,9 @@ enum FinanceSection {
   debts,
   goals,
   guardian,
-  connections
+  connections,
+  trading,
+  execution
 }
 
 /// State of the phone's Finance screen (docs/finance.md): the month's summary,
@@ -68,6 +71,17 @@ class FinanceController extends ChangeNotifier {
 
   Future<void> load() => Future.wait([loadSummary(), loadAccounts()]);
 
+  // Stages 6 to 9: SIMULATED portfolios, requests waiting for approval, the
+  // kill switch and live use (off).
+  FinanceLoad tradingState = FinanceLoad.idle;
+  List<PortfolioSummary> portfolios = const [];
+  List<TradeIntent> pendingIntents = const [];
+  String? tradingError;
+  FinanceLoad executionLoad = FinanceLoad.idle;
+  ExecutionState? execution;
+  LiveState? live;
+  String? executionError;
+
   Future<void> select(FinanceSection next) async {
     section = next;
     notifyListeners();
@@ -88,6 +102,10 @@ class FinanceController extends ChangeNotifier {
         await loadGuardian();
       case FinanceSection.connections:
         await loadConnections();
+      case FinanceSection.trading:
+        await loadTrading();
+      case FinanceSection.execution:
+        await loadExecution();
       case FinanceSection.overview:
         break;
     }
@@ -294,6 +312,57 @@ class FinanceController extends ChangeNotifier {
   Future<String?> syncConnection(String id) =>
       _change(() => repository.syncConnection(id), loadConnections);
 
+  Future<void> loadTrading() async {
+    tradingState = FinanceLoad.loading;
+    tradingError = null;
+    notifyListeners();
+    try {
+      final found = await Future.wait(
+          [repository.portfolios(), repository.pendingIntents()]);
+      portfolios = found[0] as List<PortfolioSummary>;
+      pendingIntents = (found[1] as List<TradeIntent>)
+          .where((i) => i.mode == 'paper' || i.mode == 'shadow')
+          .toList();
+      tradingState = FinanceLoad.ready;
+    } catch (error) {
+      tradingState = _failed(error);
+      tradingError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadExecution() async {
+    executionLoad = FinanceLoad.loading;
+    executionError = null;
+    notifyListeners();
+    try {
+      final found = await Future.wait(
+          [repository.executionState(), repository.liveState()]);
+      execution = found[0] as ExecutionState;
+      live = found[1] as LiveState;
+      executionLoad = FinanceLoad.ready;
+    } catch (error) {
+      executionLoad = _failed(error);
+      executionError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  /// Approves exactly the request shown, with its payload hash, once. Agents
+  /// never reach this: only the person's own tap does.
+  Future<String?> approveIntent(TradeIntent intent) => _change(
+      () => repository.approveIntent(intent.id, intent.payloadHash),
+      loadTrading);
+
+  Future<String?> rejectIntent(TradeIntent intent) =>
+      _change(() => repository.rejectIntent(intent.id), loadTrading);
+
+  Future<String?> setKillSwitch(bool engaged) =>
+      _change(() => repository.setKillSwitch(engaged), loadExecution);
+
+  Future<String?> reviewIncidents() =>
+      _change(repository.reviewIncidents, loadExecution);
+
   /// Forget everything (sign-out or workspace switch).
   void reset() {
     summary = null;
@@ -310,6 +379,11 @@ class FinanceController extends ChangeNotifier {
     connections.clear();
     summaryState = accountsState = transactionsState = FinanceLoad.idle;
     safeState = guardianState = connectionsState = FinanceLoad.idle;
+    portfolios = const [];
+    pendingIntents = const [];
+    execution = null;
+    live = null;
+    tradingState = executionLoad = FinanceLoad.idle;
     notifyListeners();
   }
 }

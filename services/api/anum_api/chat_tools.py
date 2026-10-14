@@ -439,10 +439,11 @@ COMMERCE_READ_TOOLS = frozenset({"commerce.sales_summary", "commerce.list_orders
 # carries the answer only; amounts and descriptions reach the model as untrusted tool output.
 FINANCE_READ_TOOLS = frozenset({
     "finance.summary", "finance.transactions.search", "finance.bills.upcoming",
-    "finance.safe_to_spend", "finance.guardian.rules", "finance.guardian.check",
+    "finance.safe_to_spend", "finance.guardian.rules", "finance.guardian.check", "finance.paper.portfolios",
 })
-# A Guardian proposal only waits for the person's own confirmation in Finance, Guardian.
-FINANCE_CHAT_TOOLS = FINANCE_READ_TOOLS | {"finance.guardian.propose"}
+# A Guardian proposal only waits for the person's own confirmation in Finance, Guardian; a
+# SIMULATED paper order only waits for the person's own approval in Finance, Paper trading.
+FINANCE_CHAT_TOOLS = FINANCE_READ_TOOLS | {"finance.guardian.propose", "finance.paper.propose", "finance.live.widening.propose"}
 TYRE_READ_TOOLS = frozenset({
     "tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts",
     # Fleet operations (docs/tyre-planning.md#assistant).

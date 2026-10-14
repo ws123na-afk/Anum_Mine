@@ -372,18 +372,27 @@ def evaluate(action: GuardianAction, rules: GuardianRules, state: LedgerState) -
     return _decide(reasons)
 
 
-def gate(action: GuardianAction, rules: GuardianRules, state: LedgerState) -> Decision:
+def gate(action: GuardianAction, rules: GuardianRules, state: LedgerState, *, simulated: bool = False) -> Decision:
     """The mandatory check before any finance action: the rules plus the kernel's own limits.
 
-    No rule can lift a kernel limit. Today ANUM moves no money, so every money-moving
-    action is denied here; a ledger record (``record``) is only checked against the rules.
+    No rule can lift a kernel limit. ANUM moves no real money (stage 8 ships off and no live
+    executor exists), so every real money-moving action is denied here; a ledger record
+    (``record``) is only checked against the rules. A ``simulated`` action (a paper or shadow
+    order, stage 6) moves nothing, so the kernel adds only a note saying so: the rules
+    decide, exactly as they would for the real action, so the person sees which rules
+    would block it.
     """
     decision = evaluate(action, rules, state)
     reasons = list(decision.reasons)
-    if action.kind in MONEY_MOVING:
+    if action.kind in MONEY_MOVING and simulated:
+        reasons.append(Reason(
+            code="simulated_only", outcome="allow",
+            message="Simulated: nothing is bought, sold, paid or sent, and no real account is used.",
+        ))
+    elif action.kind in MONEY_MOVING:
         reasons.append(Reason(
             code="execution_not_available", outcome="deny",
-            message="ANUM does not move money: there is no payment, transfer or trading path. Nothing was sent.",
+            message="ANUM does not move money: live execution is not enabled. Nothing was sent.",
         ))
     return _decide(reasons)
 

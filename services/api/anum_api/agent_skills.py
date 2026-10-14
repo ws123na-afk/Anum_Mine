@@ -27,6 +27,10 @@ FINANCE_TRIGGERS = frozenset(
         "مصاريف", "مصروفات", "مصروف", "صرفت", "فواتير", "فاتورة", "رصيد", "رصيدي", "ميزانية", "ديون",
         # Arabic: (how much can I) spend, available (to spend), rules, limits.
         "أصرف", "اصرف", "متاح", "قواعد", "حدود",
+        # Stage 6: SIMULATED paper and shadow trading (proposals only; the person approves).
+        "paper", "shadow", "simulate", "simulated", "simulation", "portfolio", "portfolios",
+        # Arabic: trial (paper), simulation, portfolio.
+        "تجريبي", "تجريبيا", "تجريبية", "محاكاة", "المحفظة", "محفظة", "محفظتي",
     }
 )
 
@@ -162,8 +166,8 @@ def default_skill_registry() -> SkillRegistry:
                 name="Personal finance",
                 description=(
                     "Answers questions about your own spending, income, balances, bills, debts and what is safe to spend, "
-                    "and reads or proposes your Guardian rules (you confirm every change). It never pays, transfers or "
-                    "trades (docs/finance.md)."
+                    "reads or proposes your Guardian rules (you confirm every change), and reads or proposes SIMULATED paper "
+                    "and shadow orders that you approve yourself. It never pays, transfers or trades for real (docs/finance.md)."
                 ),
                 triggers=FINANCE_TRIGGERS,
                 # Selectable where the finance tools are registered (the API and the worker).

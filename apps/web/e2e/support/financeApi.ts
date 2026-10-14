@@ -27,11 +27,67 @@ export interface FinanceState {
   connections: Record<string, unknown>[];
   rates: Record<string, unknown>[];
   failSafe: boolean;
+  // Stages 6 to 8: SIMULATED paper and shadow trading, the gateway, limited live (off).
+  trading: TradingState;
+}
+
+export interface TradingState {
+  portfolios: Record<string, unknown>[];
+  orders: Record<string, unknown>[];
+  prices: Record<string, unknown>[];
+  intents: Record<string, unknown>[];
+  personSwitch: boolean;
+  globalSwitch: boolean;
+  role: 'owner' | 'member' | 'viewer';
+  live: { limits: Record<string, unknown>; version: number; opt_in: boolean };
+  failTrading: boolean;
+  widerFrozen: boolean;
 }
 
 export const NO_RULES = { allowed_currencies: [], max_single: [], max_daily_total: [], category_caps: [], blocked_categories: [], blocked_merchants: [], approval_above: [], quiet_hours: null, cooling_off: null };
 
-export function financeState({ empty = false, denied = false, failSummary = false, failSafe = false, agentProposal = false }: { empty?: boolean; denied?: boolean; failSummary?: boolean; failSafe?: boolean; agentProposal?: boolean } = {}): FinanceState {
+const ASSUMPTIONS = { fee_bps: '10.00', fee_min: '1.00', slippage_bps: '5.00', max_price_age_days: 3 };
+const NO_LIMITS = { max_per_action: [], max_per_day: [], max_per_month: [], instruments: [], accounts: [], currencies: [], cooling_off_hours: 24 };
+
+export function tradingState({ empty = false, agentProposal = false, failTrading = false, role = 'member' }: { empty?: boolean; agentProposal?: boolean; failTrading?: boolean; role?: 'owner' | 'member' | 'viewer' } = {}): TradingState {
+  const portfolio = { id: 'fin_port_practice', name: 'Practice', mode: 'paper', epoch: 1, assumptions: ASSUMPTIONS, starting_cash: [{ currency: 'USD', amount: '10000.00' }], created_at: stamp, reset_at: null };
+  const filled = {
+    id: 'fin_pord_1', portfolio_id: portfolio.id, intent_id: 'fin_int_done', epoch: 1, mode: 'paper', instrument_kind: 'security', symbol: 'EXMPL', currency: 'USD', side: 'buy',
+    order_type: 'market', quantity: '10.00000000', limit_price: null, status: 'filled', reason_code: null, reason: null, requested_by: 'person', market_price: '100.0000000000',
+    fill_price: '100.0500000000', price_as_of: day(0), price_source: 'manual', notional: '1000.50', fee: '1.00', slippage: '0.50', guardian_outcome: 'allow', guardian_codes: ['simulated_only'],
+    created_at: stamp, filled_at: stamp,
+  };
+  return {
+    portfolios: empty ? [] : [portfolio],
+    orders: empty ? [] : [filled],
+    prices: empty ? [] : [{ id: 'fin_price_1', symbol: 'EXMPL', currency: 'USD', price: '100.0000000000', as_of: day(0), source: 'manual', recorded_at: stamp }],
+    intents: agentProposal && !empty ? [intentFor({ portfolio_id: portfolio.id, side: 'buy', quantity: '3', requested_by: 'agent', id: 'fin_int_agent' })] : [],
+    personSwitch: false, globalSwitch: false, role, live: { limits: NO_LIMITS, version: 0, opt_in: false }, failTrading, widerFrozen: false,
+  };
+}
+
+let intentCount = 0;
+function intentFor(input: Record<string, unknown>): Record<string, unknown> {
+  intentCount += 1;
+  const quantity = Number(input.quantity ?? 1);
+  const blocked = String(input.symbol ?? 'EXMPL').toUpperCase() === 'BLOCKED';
+  const noPrice = String(input.symbol ?? 'EXMPL').toUpperCase() === 'NOPRICE' && input.order_type !== 'limit';
+  const reasons = blocked
+    ? [{ code: 'merchant_blocked', outcome: 'deny', message: 'You blocked the merchant blocked.', rule: 'blocked_merchants', params: { merchant: 'blocked' } }]
+    : [...(input.requested_by === 'agent' ? [{ code: 'agent_request', outcome: 'needs_approval', message: '', rule: null, params: {} }] : []), { code: 'simulated_only', outcome: 'allow', message: '', rule: null, params: {} }];
+  return {
+    id: input.id ?? `fin_int_${intentCount}`, mode: input.mode ?? 'paper', kind: 'trade', portfolio_id: input.portfolio_id, portfolio_name: 'Practice', instrument_kind: input.instrument_kind ?? 'security',
+    symbol: String(input.symbol ?? 'EXMPL').toUpperCase(), currency: input.currency ?? 'USD', side: input.side ?? 'buy', order_type: input.order_type ?? 'market', quantity: String(input.quantity ?? '1'),
+    limit_price: input.limit_price ?? null, amount: null, account_id: null, live_profile: null, requested_by: input.requested_by ?? 'person', reason: null,
+    payload_hash: `${intentCount}`.padEnd(64, 'd'), status: noPrice ? 'refused' : blocked ? 'denied' : 'pending_approval',
+    decision: noPrice ? {} : { outcome: blocked ? 'deny' : input.requested_by === 'agent' ? 'needs_approval' : 'allow', reasons }, guardian_version: 1,
+    estimate: noPrice ? null : { market_price: '100.0000000000', fill_price: '100.0500000000', notional: (quantity * 100.05).toFixed(2), fee: '1.00', slippage: (quantity * 0.05).toFixed(2), price_as_of: day(0), price_source: 'manual', fee_bps: '10.00', fee_min: '1.00', slippage_bps: '5.00', limit_met: true, simulated: true, note: 'SIMULATED.' },
+    refusal_code: noPrice ? 'no_price' : null, refusal: noPrice ? 'No price for NOPRICE in USD is recorded in the last 3 days.' : null,
+    created_at: stamp, expires_at: new Date(now.getTime() + 30 * 60_000).toISOString(), approved_at: null, executed_at: null, result: {}, simulated: true,
+  };
+}
+
+export function financeState({ empty = false, denied = false, failSummary = false, failSafe = false, agentProposal = false, failTrading = false, role = 'member' }: { empty?: boolean; denied?: boolean; failSummary?: boolean; failSafe?: boolean; agentProposal?: boolean; failTrading?: boolean; role?: 'owner' | 'member' | 'viewer' } = {}): FinanceState {
   const account = { id: 'fin_acct_current', name: 'Everyday account', kind: 'bank', currency: 'AED', institution: 'Example Bank', last4: '1234', opening_balance: '1000.00', balance: '15349.50', archived: false, transaction_count: 64, created_at: stamp, updated_at: stamp };
   const card = { ...account, id: 'fin_acct_card', name: 'Rewards card', kind: 'card', last4: '9876', opening_balance: '0.00', balance: '-2450.00', transaction_count: 12 };
   const merchants = [
@@ -70,6 +126,7 @@ export function financeState({ empty = false, denied = false, failSummary = fals
     versions: empty ? [] : [{ id: 'fin_gpol_1', version: 1, rules: NO_RULES, change_id: 'c0', confirmed_by: 'user_local', created_at: stamp }],
     connections: [],
     rates: [],
+    trading: tradingState({ empty, agentProposal, failTrading, role }),
   };
 }
 
@@ -112,7 +169,173 @@ function safeToSpend(state: FinanceState) {
 
 let changeCount = 0;
 
+function portfolioView(state: TradingState, portfolio: Record<string, unknown>) {
+  const filled = state.orders.filter((o) => o.portfolio_id === portfolio.id && o.status === 'filled' && o.epoch === portfolio.epoch);
+  let cash = 10000, qty = 0, cost = 0;
+  for (const o of filled) { const value = Number(o.notional) + Number(o.fee); if (o.side === 'buy') { cash -= value; qty += Number(o.quantity); cost += value; } }
+  const shadow = portfolio.mode === 'shadow';
+  const holdings = qty ? [{ instrument_kind: 'security', symbol: 'EXMPL', currency: 'USD', quantity: qty.toFixed(8), cost: cost.toFixed(2), average_price: (cost / qty).toFixed(10), price: '100.0000000000', price_as_of: day(0), price_source: 'manual', market_value: (qty * 100).toFixed(2), unrealised: (qty * 100 - cost).toFixed(2) }] : [];
+  return {
+    ...portfolio, cash: shadow ? [] : [{ currency: 'USD', amount: cash.toFixed(2) }], realised: [], unrealised: qty ? [{ currency: 'USD', amount: (qty * 100 - cost).toFixed(2) }] : [],
+    positions: holdings.length, waiting: state.orders.filter((o) => o.portfolio_id === portfolio.id && o.status === 'waiting').length, simulated: true, holdings,
+    fees: filled.length ? [{ currency: 'USD', amount: filled.reduce((s, o) => s + Number(o.fee), 0).toFixed(2) }] : [], slippage: filled.length ? [{ currency: 'USD', amount: filled.reduce((s, o) => s + Number(o.slippage), 0).toFixed(2) }] : [],
+    unpriced: [], shadow: shadow ? filled.map((o) => ({ order_id: o.id, symbol: o.symbol, currency: o.currency, side: o.side, quantity: o.quantity, fill_price: o.fill_price, filled_at: o.filled_at, fee: o.fee, price: '104.0000000000', price_as_of: day(0), result: '38.50', days: 3 })) : [],
+    shadow_totals: shadow && filled.length ? [{ currency: 'USD', amount: (38.5 * filled.length).toFixed(2) }] : [], note: 'SIMULATED.',
+  };
+}
+
+function liveView(state: TradingState) {
+  const limits = state.live.limits as { max_per_action: unknown[]; currencies: unknown[]; instruments: unknown[] };
+  const set = limits.max_per_action.length > 0 && limits.currencies.length > 0;
+  return {
+    enabled: false, opt_in: state.live.opt_in, opt_in_at: null, limits: state.live.limits, version: state.live.version,
+    preconditions: [
+      { code: 'deployment_flag', met: false, message: '' }, { code: 'live_executor', met: false, message: '' }, { code: 'write_connector', met: false, message: '' },
+      { code: 'opt_in', met: state.live.opt_in, message: '' }, { code: 'limits', met: set, message: '' },
+      { code: 'kill_switch_global', met: !state.globalSwitch, message: '' }, { code: 'kill_switch_person', met: !state.personSwitch, message: '' },
+    ],
+    pending: state.intents.filter((i) => i.mode === 'settings' && i.status === 'pending_approval'), owner_steps: ['a', 'b', 'c', 'd', 'e'],
+    note: 'Live execution is not enabled.',
+  };
+}
+
+function executionStatus(state: TradingState) {
+  return {
+    global_switch: { engaged: state.globalSwitch, changed_at: state.globalSwitch ? stamp : null, changed_by_you: false, reason: null, can_change: state.role === 'owner' },
+    person_switch: { engaged: state.personSwitch, changed_at: state.personSwitch ? stamp : null, changed_by_you: true, reason: null, can_change: true },
+    executors: [
+      { mode: 'paper', available: true, simulated: true, note: '' }, { mode: 'shadow', available: true, simulated: true, note: '' },
+      { mode: 'live', available: false, simulated: false, note: 'Live execution is not enabled.' },
+    ],
+    live_enabled: false, approval_minutes: 30, pending: state.intents.filter((i) => i.status === 'pending_approval').length,
+  };
+}
+
+function tradingReply(state: TradingState, method: string, sub: string, body: unknown, url: URL): { status: number; body: unknown } | null {
+  const ok = (value: unknown, status = 200) => ({ status, body: value });
+  const error = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, correlation_id: 'c', details: [] } } });
+  if (!sub.startsWith('/paper') && !sub.startsWith('/prices') && !sub.startsWith('/execution')) return null;
+  if (state.failTrading && method === 'GET' && sub === '/paper/portfolios') return error(503, 'internal_error', 'The database is not reachable.');
+  if (sub === '/prices' && method === 'GET') { const symbol = url.searchParams.get('symbol'); return ok(state.prices.filter((p) => !symbol || p.symbol === symbol)); }
+  if (sub === '/prices' && method === 'POST') {
+    const input = body as Record<string, string>;
+    const price = { id: `fin_price_${state.prices.length + 1}`, ...input, symbol: input.symbol.toUpperCase(), source: 'manual', recorded_at: stamp };
+    state.prices.unshift(price);
+    let changed = 0;
+    for (const o of state.orders) if (o.status === 'waiting' && Number(input.price) <= Number(o.limit_price)) { Object.assign(o, { status: 'filled', fill_price: input.price, notional: (Number(o.quantity) * Number(input.price)).toFixed(2), fee: '1.00', slippage: '0.00', filled_at: stamp, reason_code: null, reason: null }); changed += 1; }
+    return ok({ price, orders_changed: changed }, 201);
+  }
+  if (sub.startsWith('/prices/') && method === 'DELETE') { state.prices = state.prices.filter((p) => p.id !== decodeURIComponent(sub.split('/')[2])); return ok(null, 204); }
+  if (sub === '/paper/portfolios' && method === 'GET') return ok(state.portfolios.map((p) => portfolioView(state, p)));
+  if (sub === '/paper/portfolios' && method === 'POST') {
+    const input = body as Record<string, unknown>;
+    const created = { id: `fin_port_${state.portfolios.length + 1}`, name: input.name, mode: input.mode, epoch: 1, assumptions: { fee_bps: Number(input.fee_bps).toFixed(2), fee_min: Number(input.fee_min).toFixed(2), slippage_bps: Number(input.slippage_bps).toFixed(2), max_price_age_days: input.max_price_age_days }, starting_cash: input.starting_cash, created_at: stamp, reset_at: null };
+    state.portfolios.push(created);
+    return ok(portfolioView(state, created), 201);
+  }
+  const port = /^\/paper\/portfolios\/([^/]+)(?:\/(orders|reset|check))?$/.exec(sub);
+  if (port) {
+    const found = state.portfolios.find((p) => p.id === decodeURIComponent(port[1]));
+    if (!found) return error(404, 'not_found', 'Portfolio not found.');
+    if (method === 'DELETE') { state.portfolios = state.portfolios.filter((p) => p !== found); state.orders = state.orders.filter((o) => o.portfolio_id !== found.id); return ok(null, 204); }
+    if (port[2] === 'orders') {
+      const status = url.searchParams.get('status'), all = url.searchParams.get('run') === 'all';
+      const limit = Number(url.searchParams.get('limit') ?? 20), offset = Number(url.searchParams.get('offset') ?? 0);
+      const items = state.orders.filter((o) => o.portfolio_id === found.id && (!status || o.status === status) && (all || o.epoch === found.epoch)).map((o) => ({ ...o, simulated: true }));
+      return ok({ items: items.slice(offset, offset + limit), total: items.length, limit, offset });
+    }
+    if (port[2] === 'reset') {
+      found.epoch = Number(found.epoch) + 1; found.reset_at = stamp;
+      for (const o of state.orders) if (o.portfolio_id === found.id && o.status === 'waiting') Object.assign(o, { status: 'cancelled', reason_code: 'reset' });
+      return ok(portfolioView(state, found));
+    }
+    if (port[2] === 'check') return ok(portfolioView(state, found));
+    if (method === 'PATCH') { const input = body as Record<string, unknown>; Object.assign(found, { name: input.name ?? found.name, assumptions: { ...(found.assumptions as object), fee_bps: input.fee_bps, slippage_bps: input.slippage_bps } }); }
+    return ok(portfolioView(state, found));
+  }
+  const cancel = /^\/paper\/orders\/([^/]+)\/cancel$/.exec(sub);
+  if (cancel) {
+    const order = state.orders.find((o) => o.id === decodeURIComponent(cancel[1]));
+    if (!order) return error(404, 'not_found', 'Order not found.');
+    if (order.status !== 'waiting') return error(409, 'conflict', 'Only a waiting order can be cancelled.');
+    Object.assign(order, { status: 'cancelled', reason_code: 'cancelled', reason: 'Cancelled by you.' });
+    return ok({ ...order, simulated: true });
+  }
+  if (sub === '/execution/status') return ok(executionStatus(state));
+  if (sub === '/execution/kill-switch' && method === 'PUT') {
+    const input = body as { scope: 'person' | 'global'; engaged: boolean };
+    if (input.scope === 'global' && state.role !== 'owner') return error(403, 'forbidden', 'Only workspace owners and organisation administrators can change the organisation\'s kill switch.');
+    if (input.scope === 'global') state.globalSwitch = input.engaged; else state.personSwitch = input.engaged;
+    return ok(executionStatus(state));
+  }
+  if (sub === '/execution/live' && method === 'GET') return ok(liveView(state));
+  if (sub === '/execution/live/changes' && method === 'POST') {
+    const input = body as { limits: Record<string, unknown>; opt_in?: boolean };
+    if (input.opt_in) return error(409, 'conflict', 'Live execution is not enabled on this deployment, so you cannot opt in. You can set your limits now.');
+    intentCount += 1;
+    const change = { ...intentFor({ portfolio_id: null }), id: `fin_int_live_${intentCount}`, mode: 'settings', kind: 'live_profile', portfolio_name: null, symbol: null, side: null, quantity: null, order_type: null, currency: null, instrument_kind: null, estimate: null, decision: {}, simulated: false, live_profile: { base_version: state.live.version, limits: input.limits, opt_in: false } };
+    state.intents.unshift(change);
+    return ok(change, 201);
+  }
+  if (sub === '/execution/wider' || sub === '/execution/wider/review') {
+    if (sub === '/execution/wider/review') state.widerFrozen = false;
+    return ok({
+      enabled: false, live_enabled: false, tier: 0, kinds: ['trade'], limits: state.live.limits, frozen: state.widerFrozen, frozen_at: state.widerFrozen ? stamp : null,
+      frozen_reason: state.widerFrozen ? 'kill_switch_person' : null, graduated: false,
+      criteria: [
+        { code: 'stage8_ready', met: false, value: 'not met', needed: 'every stage 8 precondition' }, { code: 'days_live', met: false, value: '0', needed: '30' },
+        { code: 'executed_actions', met: false, value: '0', needed: '20' }, { code: 'no_denials_overridden', met: true, value: '0', needed: '0' },
+        { code: 'no_failed_executions', met: true, value: '0', needed: '0' }, { code: 'no_kill_switch_trips', met: !state.widerFrozen, value: state.widerFrozen ? '1' : '0', needed: '0' },
+        { code: 'not_frozen', met: !state.widerFrozen, value: state.widerFrozen ? 'frozen' : 'open', needed: 'open' },
+      ],
+      ceilings: { max_tier: 3, step_percent: 50, cooling_hours: 72, window_days: 30 }, widenings: [],
+      incidents: state.widerFrozen || sub === '/execution/wider/review' ? [{ id: 'fin_inc_1', code: 'kill_switch_person', tier_before: 0, tier_after: 0, created_at: stamp, reviewed_at: sub === '/execution/wider/review' ? stamp : null }] : [],
+      note: 'Wider live use is not enabled.',
+    });
+  }
+  if (sub === '/execution/wider/widenings' && method === 'POST') return error(409, 'conflict', 'Wider live use is not enabled. Live execution is not enabled either: nothing real runs, whatever the tier.');
+  if (sub === '/execution/live/opt-out') { state.live.opt_in = false; return ok(liveView(state)); }
+  if (sub === '/execution/intents' && method === 'GET') {
+    const status = url.searchParams.get('status'), mode = url.searchParams.get('mode');
+    const limit = Number(url.searchParams.get('limit') ?? 20), offset = Number(url.searchParams.get('offset') ?? 0);
+    const items = state.intents.filter((i) => (!status || i.status === status) && (!mode || i.mode === mode));
+    return ok({ items: items.slice(offset, offset + limit), total: items.length, limit, offset });
+  }
+  if (sub === '/execution/intents' && method === 'POST') {
+    const input = body as Record<string, unknown>;
+    if (input.mode === 'live') return error(409, 'conflict', 'Live execution is not enabled. ANUM places no real order, payment or transfer; nothing was sent.');
+    if (state.personSwitch || state.globalSwitch) return error(409, 'conflict', 'Your kill switch is on: nothing runs until you turn it off under Finance, Paper trading.');
+    const created = intentFor(input);
+    state.intents.unshift(created);
+    return ok(created, 201);
+  }
+  const act = /^\/execution\/intents\/([^/]+)\/(approve|reject)$/.exec(sub);
+  if (act) {
+    const intent = state.intents.find((i) => i.id === decodeURIComponent(act[1]));
+    if (!intent) return error(404, 'not_found', 'Request not found.');
+    if (intent.status !== 'pending_approval') return error(409, 'conflict', 'This request cannot be approved. Make a new one.');
+    if (act[2] === 'reject') { intent.status = 'rejected'; return ok(intent); }
+    if ((body as { payload_hash: string }).payload_hash !== intent.payload_hash) return error(409, 'conflict', 'The approval does not match the request shown. Reload it and approve again.');
+    if (state.personSwitch || state.globalSwitch) return error(409, 'conflict', 'Your kill switch is on: nothing runs until you turn it off under Finance, Paper trading.');
+    if (intent.kind === 'live_profile') {
+      state.live = { limits: (intent.live_profile as { limits: Record<string, unknown> }).limits, version: state.live.version + 1, opt_in: false };
+      Object.assign(intent, { status: 'executed', approved_at: stamp, executed_at: stamp, result: { live_version: state.live.version } });
+      return ok(intent);
+    }
+    const limitWaits = intent.order_type === 'limit' && Number(intent.limit_price) < 100;
+    const order = { id: `fin_pord_${state.orders.length + 2}`, portfolio_id: intent.portfolio_id, intent_id: intent.id, epoch: 1, mode: intent.mode, instrument_kind: intent.instrument_kind, symbol: intent.symbol, currency: intent.currency, side: intent.side, order_type: intent.order_type, quantity: Number(intent.quantity).toFixed(8), limit_price: intent.limit_price,
+      status: limitWaits ? 'waiting' : 'filled', reason_code: limitWaits ? 'waiting_limit' : null, reason: limitWaits ? 'Waiting.' : null, requested_by: intent.requested_by, market_price: '100.0000000000', fill_price: limitWaits ? null : '100.0500000000', price_as_of: day(0), price_source: 'manual',
+      notional: limitWaits ? null : (intent.estimate as { notional: string }).notional, fee: limitWaits ? null : '1.00', slippage: limitWaits ? null : '0.15', guardian_outcome: 'allow', guardian_codes: ['simulated_only'], created_at: stamp, filled_at: limitWaits ? null : stamp };
+    state.orders.unshift(order);
+    Object.assign(intent, { status: 'executed', approved_at: stamp, executed_at: stamp, result: { order_id: order.id, order_status: order.status, reason_code: order.reason_code, simulated: true } });
+    return ok(intent);
+  }
+  return null;
+}
+
 function financeStagesReply(state: FinanceState, method: string, sub: string, body: unknown, url: URL): { status: number; body: unknown } | null {
+  const trading = tradingReply(state.trading, method, sub, body, url);
+  if (trading) return trading;
   const ok = (value: unknown, status = 200) => ({ status, body: value });
   const conflict = (message: string) => ({ status: 409, body: { error: { code: 'conflict', message, correlation_id: 'c', details: [] } } });
   if (sub === '/safe-to-spend') return state.failSafe ? { status: 503, body: { error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } } } : ok(safeToSpend(state));

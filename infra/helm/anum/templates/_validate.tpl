@@ -20,6 +20,12 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if has (upper (toString $key)) (list "KEYCLOAK_ADMIN" "KEYCLOAK_ADMIN_PASSWORD" "KC_BOOTSTRAP_ADMIN_USERNAME" "KC_BOOTSTRAP_ADMIN_PASSWORD") -}}
 {{- fail (printf "%s is a Keycloak admin credential: ANUM never uses it, it must not be in config or extraEnv (rendered into a ConfigMap), and the API refuses the compose default admin/admin at startup" $key) -}}
 {{- end -}}
+{{- if and (eq (upper (toString $key)) "ANUM_FINANCE_WIDER_LIVE_ENABLED") (has (lower (trim (toString $value))) (list "true" "1" "yes" "on" "y" "t")) -}}
+{{- fail "ANUM_FINANCE_WIDER_LIVE_ENABLED must stay false: it requires ANUM_FINANCE_LIVE_ENABLED, which is refused while no live executor exists (docs/finance.md#wider-live). The API refuses it at startup" -}}
+{{- end -}}
+{{- if and (eq (upper (toString $key)) "ANUM_FINANCE_LIVE_ENABLED") (has (lower (trim (toString $value))) (list "true" "1" "yes" "on" "y" "t")) -}}
+{{- fail "ANUM_FINANCE_LIVE_ENABLED must stay false: ANUM has no live executor and no write-scoped connector, so live finance execution cannot be enabled (docs/finance.md#limited-live). The API refuses it at startup" -}}
+{{- end -}}
 {{- if and (eq (upper (toString $key)) "ANUM_FCM_SERVICE_ACCOUNT_JSON") (trim (toString (default "" $value))) -}}
 {{- fail "ANUM_FCM_SERVICE_ACCOUNT_JSON carries the Firebase service account's private key: put it in the secrets.app Secret (listed in secrets.app.optional), never in config or extraEnv (rendered into a ConfigMap). The API refuses a value that is not a service-account JSON key at startup" -}}
 {{- end -}}

@@ -30,6 +30,14 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "finance_live_incidents",
+    "finance_live_widenings",
+    "finance_exec_global",
+    "finance_exec_settings",
+    "finance_exec_intents",
+    "finance_paper_orders",
+    "finance_paper_portfolios",
+    "finance_prices",
     "finance_fx_rates",
     "finance_connections",
     "finance_guardian_changes",

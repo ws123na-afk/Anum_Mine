@@ -2,6 +2,7 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'finance_models.dart';
 import 'finance_plan_models.dart';
+import 'finance_trading_models.dart';
 
 /// Finance over the live API (docs/finance.md). Every record is the caller's
 /// own; the server checks `finance:read` and `finance:manage` on each call.
@@ -26,6 +27,16 @@ abstract interface class FinanceRepository {
   Future<void> createBill(
       {required String name, required String amount, required String dueOn});
   Future<void> deleteItem(String kind, String id);
+  // Stages 6 to 9: SIMULATED portfolios, requests waiting for the person's
+  // approval with their code, the kill switch, and live use (off).
+  Future<List<PortfolioSummary>> portfolios();
+  Future<List<TradeIntent>> pendingIntents();
+  Future<void> approveIntent(String id, String payloadHash);
+  Future<void> rejectIntent(String id);
+  Future<ExecutionState> executionState();
+  Future<void> setKillSwitch(bool engaged);
+  Future<LiveState> liveState();
+  Future<void> reviewIncidents();
   // Stages 3 to 5: safe to spend, the Guardian rules, read-only connections.
   Future<SafeToSpend> safeToSpend();
   Future<GuardianView> guardian();
@@ -177,5 +188,55 @@ class ApiFinanceRepository implements FinanceRepository {
   Future<void> syncConnection(String id) async {
     await api.request(
         'POST', '$base/connections/${Uri.encodeComponent(id)}/sync');
+  }
+
+  @override
+  Future<List<PortfolioSummary>> portfolios() async => _list(
+      await api.request('GET', '$base/paper/portfolios'),
+      PortfolioSummary.fromJson);
+
+  @override
+  Future<List<TradeIntent>> pendingIntents() async =>
+      JsonReader.of(await api.request('GET',
+              '$base/execution/intents?status=pending_approval&limit=50'))
+          .optObjects('items', TradeIntent.fromJson);
+
+  @override
+  Future<void> approveIntent(String id, String payloadHash) async {
+    await api.request(
+        'POST', '$base/execution/intents/${Uri.encodeComponent(id)}/approve',
+        body: {'payload_hash': payloadHash});
+  }
+
+  @override
+  Future<void> rejectIntent(String id) async {
+    await api.request(
+        'POST', '$base/execution/intents/${Uri.encodeComponent(id)}/reject',
+        body: const <String, Object?>{});
+  }
+
+  @override
+  Future<ExecutionState> executionState() async => ExecutionState.fromJson(
+      JsonReader.of(await api.request('GET', '$base/execution/status')));
+
+  @override
+  Future<void> setKillSwitch(bool engaged) async {
+    await api.request('PUT', '$base/execution/kill-switch',
+        body: {'scope': 'person', 'engaged': engaged});
+  }
+
+  @override
+  Future<LiveState> liveState() async {
+    final found = await Future.wait([
+      api.request('GET', '$base/execution/live'),
+      api.request('GET', '$base/execution/wider'),
+    ]);
+    return LiveState.from(JsonReader.of(found[0]), JsonReader.of(found[1]));
+  }
+
+  @override
+  Future<void> reviewIncidents() async {
+    await api.request('POST', '$base/execution/wider/review',
+        body: const <String, Object?>{});
   }
 }
