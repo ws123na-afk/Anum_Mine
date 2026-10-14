@@ -258,7 +258,9 @@ def test_config_refusals_mirror_the_helm_chart() -> None:
 
 
 def test_startup_policy_refuses_an_unsafe_mail_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    config = Settings(environment="staging", secrets_key="ZmFrZS1rZXktZm9yLXRlc3RzLW9ubHktMzItYnl0ZXM=", cors_origins=["https://app.example.test"])
+    from cryptography.fernet import Fernet
+
+    config = Settings(environment="staging", secrets_key=Fernet.generate_key().decode(), cors_origins=["https://app.example.test"])
     monkeypatch.setattr(mail_settings, "enabled", True)
     monkeypatch.setattr(mail_settings, "imap_host", "mail.example.test")
     monkeypatch.setattr(mail_settings, "smtp_host", "smtp-relay.brevo.com")
