@@ -150,3 +150,17 @@ describe('keyboard', () => {
     assert.equal(nextAfterRemoval(items, [9, 7, 5, 3], 9), null);
   });
 });
+
+describe('sidebar unread count', async () => {
+  const { mailUnread, publishMailUnread, subscribeMailUnread } = await import('../src/lib/mailUnread.ts');
+  test('publishing notifies only on change and never goes below zero', () => {
+    let calls = 0;
+    const stop = subscribeMailUnread(() => { calls += 1; });
+    publishMailUnread(3); publishMailUnread(3); publishMailUnread(-4);
+    assert.equal(calls, 2);
+    assert.equal(mailUnread(), 0);
+    stop();
+    publishMailUnread(9);
+    assert.equal(calls, 2);
+  });
+});
