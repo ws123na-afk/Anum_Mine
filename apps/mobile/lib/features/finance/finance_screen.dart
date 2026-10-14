@@ -5,6 +5,7 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'finance_controller.dart';
 import 'finance_models.dart';
+import 'finance_plan_models.dart';
 import 'finance_strings.dart';
 
 /// Finance on the phone (docs/finance.md): the signed-in person's own month,
@@ -83,7 +84,289 @@ class _FinanceScreenState extends State<FinanceScreen> {
       FinanceSection.bills => _items(context, c, s, 'bills'),
       FinanceSection.debts => _items(context, c, s, 'debts'),
       FinanceSection.goals => _items(context, c, s, 'goals'),
+      FinanceSection.safe => _safe(context, c, s),
+      FinanceSection.guardian => _guardian(context, c, s),
+      FinanceSection.connections => _connections(context, c, s),
     };
+  }
+
+  /// Loading, error or permission denied for a section, or null when ready.
+  List<Widget>? _state(FinanceLoad state, bool hasData, String? error,
+      Future<void> Function() retry, FinanceStrings s) {
+    if ((state == FinanceLoad.idle || state == FinanceLoad.loading) &&
+        !hasData) {
+      return [
+        AnumFeedback(
+            kind: AnumFeedbackKind.loading, message: s.t('loadingList'))
+      ];
+    }
+    if (state == FinanceLoad.denied) {
+      return [
+        AnumFeedback(kind: AnumFeedbackKind.permission, message: s.t('denied'))
+      ];
+    }
+    if (state == FinanceLoad.error) {
+      return [
+        AnumFeedback(
+            kind: AnumFeedbackKind.error,
+            message: s.t('listFailed', {'message': error ?? ''}),
+            onRetry: retry)
+      ];
+    }
+    return null;
+  }
+
+  // -- safe to spend (stage 3) ---------------------------------------------
+
+  String _safeNote(SafeLine line, FinanceStrings s) => switch (line.note) {
+        'bill_due' =>
+          s.t('safe.note.bill_due', {'date': line.params['date'] ?? ''}),
+        'minimum_due' ||
+        'minimum_passed' =>
+          s.t('safe.note.${line.note}', {'day': line.params['day'] ?? ''}),
+        'goal_derived' => s.t('safe.note.goal_derived', {
+            'left': formatAmount(line.params['left'] ?? '0', line.currency),
+            'n': line.params['months'] ?? '1'
+          }),
+        _ => s.t('safe.note.${line.note}'),
+      };
+
+  List<Widget> _safe(
+      BuildContext context, FinanceController c, FinanceStrings s) {
+    final waiting =
+        _state(c.safeState, c.safe != null, c.safeError, c.loadSafe, s);
+    if (waiting != null) return waiting;
+    final d = c.safe!;
+    if (d.currencies.isEmpty) {
+      return [
+        AnumEmpty(
+            title: s.t('safe.empty'),
+            message: s.t('safe.emptyText'),
+            icon: Icons.account_balance_outlined,
+            action: s.t('addAccount'),
+            onAction: () => _addAccount(context, c, s)),
+      ];
+    }
+    return [
+      Text(s.t('safe.intro', {'end': d.monthEnd, 'n': d.daysLeft}),
+          style: TextStyle(color: context.palette.muted)),
+      for (final row in d.currencies)
+        AnumSurface(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AnumMetric(
+                label: row.short
+                    ? s.t('safe.shortBy')
+                    : s.t('safe.left', {'currency': row.currency}),
+                value: formatAmount(
+                    row.safeToSpend.replaceFirst('-', ''), row.currency),
+                icon: row.short
+                    ? Icons.warning_amber_outlined
+                    : Icons.speed_outlined,
+                caption: row.short
+                    ? s.t('safe.shortHint')
+                    : s.t('safe.perDay', {
+                        'amount': formatAmount(row.perDay, row.currency),
+                        'n': d.daysLeft
+                      })),
+            AnumHeader(title: s.t('safe.howBuilt')),
+            for (final line in row.lines)
+              AnumRow(
+                  title:
+                      line.kind == 'buffer' ? s.t('safe.buffer') : line.label,
+                  subtitle:
+                      '${s.t('safe.group.${line.kind}')} · ${_safeNote(line, s)}',
+                  detail: formatAmount(line.amount, line.currency),
+                  tone: line.amount.startsWith('-') ? null : AnumTone.ok),
+          ]),
+        ),
+      if (d.combined != null)
+        AnumMetric(
+            label: s.t('safe.combined', {'currency': d.combined!.currency}),
+            value: formatAmount(d.combined!.amount, d.combined!.currency),
+            icon: Icons.currency_exchange),
+      if (d.excluded.isNotEmpty)
+        AnumSurface(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AnumHeader(title: s.t('safe.notCounted', {'n': d.excluded.length})),
+            for (final line in d.excluded)
+              AnumRow(title: line.label, subtitle: _safeNote(line, s)),
+          ]),
+        ),
+      Text(s.t('safe.disclaimer'),
+          style: TextStyle(color: context.palette.muted)),
+    ];
+  }
+
+  // -- guardian (stage 4) --------------------------------------------------
+
+  String _rule(RuleLine line, FinanceStrings s) => s.t(line.$1, line.$2);
+
+  List<Widget> _guardian(
+      BuildContext context, FinanceController c, FinanceStrings s) {
+    final waiting = _state(c.guardianState, c.guardian != null, c.guardianError,
+        c.loadGuardian, s);
+    if (waiting != null) return waiting;
+    final g = c.guardian!;
+    final lines = describeRules(g.rules, category: (x) => s.t('category.$x'));
+    return [
+      Text(s.t('guardian.intro'),
+          style: TextStyle(color: context.palette.muted)),
+      for (final change in g.pending)
+        AnumSurface(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AnumHeader(
+                title: change.proposedBy == 'agent'
+                    ? s.t('guardian.byAgent')
+                    : s.t('guardian.byYou')),
+            if (change.reason != null) Text(change.reason!),
+            for (final line in describeRules(change.rules,
+                category: (x) => s.t('category.$x')))
+              AnumRow(title: _rule(line, s), icon: Icons.rule),
+            if (change.loosens.isNotEmpty)
+              Text(s.t('guardian.loosens'),
+                  style: TextStyle(color: context.palette.warn)),
+            Text(
+                '${s.t('guardian.code')} ${change.payloadHash.substring(0, 12)}',
+                textDirection: TextDirection.ltr,
+                style: TextStyle(color: context.palette.muted)),
+            Wrap(
+                spacing: AnumSpacing.sm,
+                runSpacing: AnumSpacing.xs,
+                children: [
+                  FilledButton(
+                      onPressed: () => _confirmChange(context, c, s, change),
+                      child: Text(s.t('guardian.confirm'))),
+                  OutlinedButton(
+                      onPressed: () async => _say(
+                          await c.rejectChange(change) ??
+                              s.t('guardian.rejected')),
+                      child: Text(s.t('guardian.reject'))),
+                ]),
+          ]),
+        ),
+      if (lines.isEmpty)
+        AnumEmpty(
+            title: s.t('guardian.empty'),
+            message: s.t('guardian.emptyText'),
+            icon: Icons.shield_outlined)
+      else
+        AnumSurface(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AnumHeader(title: s.t('guardian.version', {'n': g.version})),
+            for (final line in lines)
+              AnumRow(
+                  title: _rule(line, s), icon: Icons.check, tone: AnumTone.ok),
+          ]),
+        ),
+      AnumSurface(
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          AnumHeader(title: s.t('guardian.alerts')),
+          if (c.alerts.isEmpty)
+            Text(s.t('guardian.alertsNone'))
+          else
+            for (final alert in c.alerts)
+              AnumRow(
+                  title: s.t('guardian.alert.${alert.code}', {
+                    'category':
+                        s.t('category.${alert.params['category'] ?? 'other'}'),
+                    'merchant': alert.params['merchant'] ?? '',
+                    'n': alert.params['count'] ?? '',
+                    'spent': formatAmount(alert.params['spent'] ?? '0',
+                        alert.params['currency'] ?? ''),
+                    'limit': formatAmount(alert.params['limit'] ?? '0',
+                        alert.params['currency'] ?? ''),
+                  }),
+                  icon: Icons.warning_amber_outlined,
+                  tone: alert.severity == 'over' ? AnumTone.warn : null),
+        ]),
+      ),
+      Text(s.t('guardian.editOnWeb'),
+          style: TextStyle(color: context.palette.muted)),
+    ];
+  }
+
+  Future<void> _confirmChange(BuildContext context, FinanceController c,
+      FinanceStrings s, GuardianChange change) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(s.t('guardian.reviewTitle')),
+        scrollable: true,
+        content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(s.t('guardian.reviewText')),
+              if (change.loosens.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: AnumSpacing.xs),
+                  child: Text(s.t('guardian.loosens'),
+                      style: TextStyle(color: context.palette.warn)),
+                ),
+            ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(s.t('cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(s.t('guardian.confirm'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    _say(await c.confirmChange(change) ?? s.t('guardian.confirmed'));
+  }
+
+  // -- connections (stage 5) -----------------------------------------------
+
+  List<Widget> _connections(
+      BuildContext context, FinanceController c, FinanceStrings s) {
+    final waiting = _state(c.connectionsState, c.connections.isNotEmpty,
+        c.connectionsError, c.loadConnections, s);
+    if (waiting != null) return waiting;
+    return [
+      Text(s.t('connections.intro'),
+          style: TextStyle(color: context.palette.muted)),
+      if (c.connections.isEmpty)
+        AnumEmpty(
+            title: s.t('connections.none'),
+            message: s.t('connections.connectOnWeb'),
+            icon: Icons.power_outlined)
+      else
+        AnumSurface(
+          padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xs),
+          child: Column(children: [
+            for (final conn in c.connections)
+              AnumRow(
+                title: conn.label,
+                icon: Icons.power_outlined,
+                tone: conn.status == 'error' ? AnumTone.warn : null,
+                subtitle: [
+                  s.t('connections.status.${conn.status}'),
+                  if (conn.lastSuccessAt != null)
+                    s.t('connections.lastSync',
+                        {'date': conn.lastSuccessAt!.substring(0, 10)}),
+                  if (conn.lastError != null) conn.lastError!,
+                ].join(' · '),
+                trailing: conn.status == 'disconnected'
+                    ? null
+                    : IconButton(
+                        tooltip: '${s.t('connections.sync')} ${conn.label}',
+                        icon: const Icon(Icons.sync),
+                        onPressed: () async => _say(
+                            await c.syncConnection(conn.id) ??
+                                s.t('connections.synced')),
+                      ),
+              ),
+          ]),
+        ),
+    ];
   }
 
   // -- overview -----------------------------------------------------------

@@ -256,4 +256,10 @@ test('Finance reads in Arabic, right to left, with dates and amounts kept left t
   await expect(page.getByRole('navigation', { name: 'أقسام المالية' }).getByRole('button', { name: 'الفواتير' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('region', { name: 'الفواتير' })).toContainText('Rent');
   expect(await noHorizontalOverflow(page)).toBe(true);
+  // Stages 3 to 5: safe to spend, the Guardian rules and connections, also right to left.
+  for (const [hash, heading] of [['finance-safe', 'المتاح للصرف'], ['finance-guardian', 'قواعد الصرف الخاصة بك'], ['finance-connections', 'اتصالاتك']] as const) {
+    await page.goto(`/#${hash}`);
+    await expect(page.getByRole('heading', { level: 2, name: heading })).toBeVisible();
+    expect(await noHorizontalOverflow(page)).toBe(true);
+  }
 });

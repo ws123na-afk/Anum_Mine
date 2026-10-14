@@ -48,7 +48,9 @@ from .models import (
     ImportRecord,
     Transaction,
 )
+from .guardian import Decision
 from .money import MoneyError, normalize_currency, quantize, to_money
+from .policy import check_record
 from .store import (
     MAX_ACCOUNTS,
     MAX_ITEMS,
@@ -117,6 +119,13 @@ def _audit(repository: AnumRepository, context: TenantContext, action: str, targ
             metadata=metadata or {},
         )
     )
+
+
+def _guardian_meta(decision: Decision | None) -> dict[str, Any]:
+    """The rule codes a record broke, never its amount or description."""
+    if decision is None or decision.outcome == "allow":
+        return {}
+    return {"guardian": decision.outcome, "guardian_codes": [r.code for r in decision.reasons]}
 
 
 def _not_found(what: str) -> HTTPException:
@@ -406,6 +415,9 @@ class TransactionView(BaseModel):
     import_id: str | None
     created_at: Any
     updated_at: Any
+    # Stage 4: what your Guardian rules say about this record (create and change only).
+    # Recording money already gone is never blocked; a rule it breaks is a warning.
+    guardian: Decision | None = None
 
 
 class TransactionPage(BaseModel):
@@ -511,8 +523,9 @@ def create_transaction(
             created_at=now, updated_at=now,
         )
         store.save_transaction(item)
-    _audit(repository, context, "finance.transaction.create", item.id)
-    return TransactionView(**_view(item))
+        decision = check_record(store, context, item, utc_now())
+    _audit(repository, context, "finance.transaction.create", item.id, _guardian_meta(decision))
+    return TransactionView(**_view(item), guardian=decision)
 
 
 @router.get("/transactions/{transaction_id}", response_model=TransactionView)
@@ -547,8 +560,9 @@ def update_transaction(
             item.category, item.category_source = categorize(item.description, item.amount, settings_for(store, context).category_rules)
         item.updated_at = utc_now()
         store.save_transaction(item)
-    _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes)})
-    return TransactionView(**_view(item))
+        decision = check_record(store, context, item, utc_now())
+    _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes), **_guardian_meta(decision)})
+    return TransactionView(**_view(item), guardian=decision)
 
 
 @router.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -633,6 +647,8 @@ class ImportView(BaseModel):
     duplicate_count: int
     error_count: int
     created_at: Any
+    # Stage 4: imported rows that break one of your Guardian rules (see Guardian, alerts).
+    rule_breaks: int = 0
 
 
 class ImportPage(BaseModel):
@@ -718,8 +734,31 @@ def confirm_import(
         record.imported_count = added
         record.duplicate_count += len(rows) - added
         store.save_import(record)
-    _audit(repository, context, "finance.import.create", record.id, {"imported": added, "duplicates": record.duplicate_count})
-    return ImportView(**_view(record))
+        breaks = _import_rule_breaks(store, context, rows)
+    _audit(repository, context, "finance.import.create", record.id, {"imported": added, "duplicates": record.duplicate_count, "rule_breaks": breaks})
+    return ImportView(**_view(record), rule_breaks=breaks)
+
+
+def _import_rule_breaks(store: FinanceStore, context: TenantContext, rows: list[Transaction]) -> int:
+    """How many imported rows break a rule: blocked merchants and categories, single limits."""
+    from .guardian import merchant_matches
+    from .policy import current_rules
+
+    rules, _ = current_rules(store, context)
+    if rules.is_empty():
+        return 0
+    singles = {limit.currency: limit.amount for limit in rules.max_single}
+    count = 0
+    for t in rows:
+        if t.amount >= 0:
+            continue
+        if (
+            t.category in rules.blocked_categories
+            or any(merchant_matches(p, t.description) for p in rules.blocked_merchants)
+            or (t.currency in singles and -t.amount > singles[t.currency])
+        ):
+            count += 1
+    return count
 
 
 @router.get("/imports", response_model=ImportPage)
@@ -791,6 +830,9 @@ class GoalInput(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     target_on: date | None = None
     account_id: str | None = Field(default=None, max_length=80)
+    # Stage 3: what you put aside each month (safe-to-spend sets it aside). Empty: worked
+    # out from the target date, or nothing.
+    monthly_contribution: Amount | None = None
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -845,6 +887,7 @@ class GoalView(BaseModel):
     currency: str
     target_on: date | None
     account_id: str | None
+    monthly_contribution: Decimal | None = None
     notes: str | None
     created_at: Any
     updated_at: Any
@@ -923,8 +966,12 @@ def _build_goal(store: FinanceStore, context: TenantContext, body: GoalInput, ex
         owner_user_id=context.user_id, name=_clean(body.name, 120) or "Goal",
         target_amount=_money(body.target_amount, currency, field="Target", positive=True, allow_zero=False),
         saved_amount=_money(body.saved_amount, currency, field="Saved so far", positive=True), currency=currency,
-        target_on=body.target_on, account_id=account.id if account else None, notes=_clean(body.notes, 1000),
-        created_at=existing.created_at if existing else now, updated_at=now,
+        target_on=body.target_on, account_id=account.id if account else None,
+        monthly_contribution=(
+            _money(body.monthly_contribution, currency, field="Monthly amount", positive=True)
+            if body.monthly_contribution not in (None, "") else None
+        ),
+        notes=_clean(body.notes, 1000), created_at=existing.created_at if existing else now, updated_at=now,
     )
 
 

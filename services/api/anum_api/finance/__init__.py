@@ -1,7 +1,9 @@
-"""Personal finance: the ledger and the Financial Twin, read only (docs/finance.md).
+"""Personal finance: the ledger, safe-to-spend, Guardian rules and read-only connectors (docs/finance.md).
 
-Stage 2 of the Finance domain. Nothing here moves money: there is no payment, transfer,
-order, bank, card or broker call anywhere in this package, and the agent tools only read.
+Stages 2 to 5 of the Finance domain. Nothing here moves money: there is no payment,
+transfer, order or withdrawal call anywhere in this package, connectors only read, and the
+Guardian ``gate`` denies every money-moving action. Agent tools read, or propose a stricter
+rule that the person confirms.
 
 * ``money``: exact amounts (``Decimal``), the one rounding rule, per-currency totals.
 * ``models``: settings, accounts, transactions, imports, bills, debts, goals, holdings.
@@ -11,7 +13,11 @@ order, bank, card or broker call anywhere in this package, and the agent tools o
 * ``summary``: balances, the month's spend by category, income versus spend, bills, debts.
 * ``tools``: the read-only agent tools (``finance.summary``, ``finance.transactions.search``,
   ``finance.bills.upcoming``) and the request parsing behind the finance skill.
-* ``api``: the HTTP routes under ``/api/v1/finance``.
+* ``api``: the HTTP routes under ``/api/v1/finance`` (stage 2).
+* ``safe_to_spend`` and ``fx``: stage 3, what is safe to spend, and recorded exchange rates.
+* ``guardian`` and ``policy``: stage 4, the pure rules evaluator and the gate, and the ledger state.
+* ``connectors``, ``sync`` and ``config``: stage 5, read-only connectors and their sync.
+* ``plan_api``: the HTTP routes of stages 3 to 5.
 
 Every record is the signed-in person's own: a restrictive row policy on ``anum.user_id``
 (migration ``0056_finance_ledger``) on top of the tenant and workspace isolation.

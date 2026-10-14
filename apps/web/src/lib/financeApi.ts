@@ -4,6 +4,9 @@ import type {
   FinanceAccount, FinanceAccountInput, FinanceBill, FinanceBillInput, FinanceBillSuggestion, FinanceDebt, FinanceDebtInput, FinanceFormats,
   FinanceGoal, FinanceGoalInput, FinanceHolding, FinanceHoldingInput, FinanceImport, FinanceImportInput, FinanceImportPreview, FinancePage,
   FinanceSettings, FinanceSummary, FinanceTransaction, FinanceTransactionInput, FinanceUpcomingBill,
+  FinanceConnection, FinanceConnectionInput, FinanceEvaluateInput, FinanceEvaluation, FinanceFxRate, FinanceFxRateInput, FinanceGuardian,
+  FinanceGuardianAlerts, FinanceGuardianChange, FinanceGuardianRules, FinanceGuardianVersion, FinancePlan, FinancePlanInput, FinanceProvider,
+  FinanceSafeToSpend, FinanceSyncReport,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -74,3 +77,28 @@ export async function downloadTransactions(q: Omit<TransactionQuery, 'limit' | '
   link.href = url; link.download = 'anum-transactions.csv'; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// ---- Stage 3: safe-to-spend ----
+export const getSafeToSpend = () => get<FinanceSafeToSpend>('/safe-to-spend');
+export const getPlan = () => get<FinancePlan>('/plan');
+export const savePlan = (body: FinancePlanInput) => send<FinancePlan>('PUT', '/plan', body);
+
+// ---- Stage 4: Guardian. A change applies only when confirmed with the payload hash shown. ----
+export const getGuardian = () => get<FinanceGuardian>('/guardian');
+export const guardianVersions = (limit: number, offset: number) => get<FinancePage<FinanceGuardianVersion>>(`/guardian/versions${query({ limit, offset })}`);
+export const guardianAlerts = (month?: string) => get<FinanceGuardianAlerts>(`/guardian/alerts${query({ month })}`);
+export const proposeRules = (rules: FinanceGuardianRules, reason?: string) => send<FinanceGuardianChange>('POST', '/guardian/changes', { rules, reason: reason || null });
+export const confirmChange = (changeId: string, payloadHash: string) => send<FinanceGuardian>('POST', `/guardian/changes/${id(changeId)}/confirm`, { payload_hash: payloadHash });
+export const rejectChange = (changeId: string) => send<FinanceGuardianChange>('POST', `/guardian/changes/${id(changeId)}/reject`);
+export const evaluateAction = (body: FinanceEvaluateInput) => send<FinanceEvaluation>('POST', '/guardian/evaluate', body);
+
+// ---- Stage 5: read-only connectors ----
+export const listProviders = () => get<FinanceProvider[]>('/connectors');
+export const listConnections = () => get<FinanceConnection[]>('/connections');
+export const createConnection = (body: FinanceConnectionInput) => send<FinanceConnection>('POST', '/connections', body);
+export const syncConnection = (connectionId: string) => send<FinanceSyncReport>('POST', `/connections/${id(connectionId)}/sync`);
+export const disconnectConnection = (connectionId: string) => send<FinanceConnection>('POST', `/connections/${id(connectionId)}/disconnect`);
+export const deleteConnection = (connectionId: string) => remove(`/connections/${id(connectionId)}`);
+export const listRates = (limit = 100) => get<FinanceFxRate[]>(`/fx-rates${query({ limit })}`);
+export const addRate = (body: FinanceFxRateInput) => send<FinanceFxRate>('POST', '/fx-rates', body);
+export const deleteRate = (rateId: string) => remove(`/fx-rates/${id(rateId)}`);

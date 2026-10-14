@@ -600,3 +600,38 @@ def test_webhook_trigger_secrets_are_re_encrypted_enabled_or_not(
             assert connection.execute(text("select id from automation_triggers order by 1")).scalars().all() == ["trig_a", "trig_b"]
     assert [SecretCipher([NEW_KEY]).decrypt(value) for value in stored] == ["example-hook-secret-a", "example-hook-secret-b"]
     assert rotate_automation_trigger_secrets(cipher, session_factory=app_factory).already_current == 2
+
+
+# -- finance connection credentials (0057_finance_plan_guard_conn) -------------------------
+
+
+def test_finance_credentials_are_re_encrypted_in_each_owners_scope(
+    seed_scopes: None, app_session: Callable[..., Iterator[Session]], app_factory: sessionmaker[Session], database_engine: Engine
+) -> None:
+    from anum_api.rotate_secrets import rotate_finance_credentials
+
+    old = SecretCipher([OLD_KEY])
+    for tenant_id, workspace_id, owner in ((TENANT_A, WORKSPACE_A, "user_a"), (TENANT_B, WORKSPACE_B, "user_b")):
+        with app_session(tenant_context(tenant_id, workspace_id), commit=True) as session:
+            session.execute(text("select set_config('anum.user_id', :u, true)"), {"u": owner})
+            session.execute(
+                text(
+                    "insert into finance_connections (id, tenant_id, workspace_id, owner_user_id, provider, kind, label, status, scopes, "
+                    "credentials_encrypted) values (:id, :t, :w, :u, 'test_bank', 'bank', 'Bank', 'active', '[\"transactions:read\"]', :c)"
+                ),
+                {"id": f"fconn_{owner}", "t": tenant_id, "w": workspace_id, "u": owner, "c": old.encrypt(f"example-finance-key-{owner}")},
+            )
+    cipher = SecretCipher([NEW_KEY, OLD_KEY])
+    assert (rotate_finance_credentials(cipher, session_factory=app_factory, dry_run=True).rotated) == 2
+    report = rotate_finance_credentials(cipher, session_factory=app_factory)
+    assert (report.scanned, report.rotated, report.failed) == (2, 2, 0)
+    with database_engine.connect() as connection:
+        rows = connection.execute(text("select owner_user_id, credentials_encrypted from finance_connections order by id")).all()
+        connection.rollback()
+        # The maintenance role finds them but can never read the ciphertext.
+        with pytest.raises(DBAPIError, match="permission denied"):
+            with connection.begin():
+                connection.execute(text("set local role anum_maintenance"))
+                connection.execute(text("select credentials_encrypted from finance_connections"))
+    assert [SecretCipher([NEW_KEY]).decrypt(row.credentials_encrypted) for row in rows] == ["example-finance-key-user_a", "example-finance-key-user_b"]
+    assert rotate_finance_credentials(cipher, session_factory=app_factory).already_current == 2

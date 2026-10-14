@@ -1,11 +1,13 @@
 // Finance view logic (docs/finance.md), pure so `pnpm --filter @anum/web test:unit` covers it.
 // Amounts arrive as decimal strings next to their currency. The view formats them for display only;
 // it never adds amounts of different currencies and never does arithmetic that the API should do.
-import type { FinanceCategory, FinanceCurrencyAmount, FinanceSummary } from '@anum/contracts';
+import type {
+  FinanceAmountLimit, FinanceCategory, FinanceCategoryCap, FinanceCurrencyAmount, FinanceGuardianRules, FinanceSafeLine, FinanceSummary,
+} from '@anum/contracts';
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
-export type FinanceTab = 'overview' | 'transactions' | 'accounts' | 'import' | 'bills' | 'debts' | 'goals' | 'holdings';
-export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'transactions', 'accounts', 'import', 'bills', 'debts', 'goals', 'holdings'];
+export type FinanceTab = 'overview' | 'safe' | 'transactions' | 'accounts' | 'import' | 'bills' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections';
+export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'safe', 'transactions', 'accounts', 'import', 'bills', 'debts', 'goals', 'holdings', 'guardian', 'connections'];
 
 const THREE = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 const ZERO = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'UGX', 'XAF', 'XOF']);
@@ -132,4 +134,143 @@ export function amountTone(value: string): 'in' | 'out' | '' {
 /** A date, amount or code kept left to right inside a sentence, also in Arabic (Unicode isolates). */
 export function isolate(value: string): string {
   return `\u2066${value}\u2069`;
+}
+
+
+// ---- Stage 3: safe-to-spend -----------------------------------------------------------------------
+
+/** Why a line is in (or out of) the figure, in the person's language. */
+export function safeNote(line: Pick<FinanceSafeLine, 'note' | 'params' | 'currency'>): string {
+  const { note, params } = line;
+  if (note === 'bill_due') return t('finance.safe.note.bill_due', { date: isolate(params.date ?? '') });
+  if (note === 'minimum_due' || note === 'minimum_passed') return t(`finance.safe.note.${note}`, { day: isolate(params.day ?? '') });
+  if (note === 'goal_derived') return t('finance.safe.note.goal_derived', { left: isolate(formatAmount(params.left ?? '0', line.currency)), count: Number(params.months ?? 1) });
+  return t(`finance.safe.note.${note}` as MessageKey);
+}
+
+/** The group a line is shown under, in build order. */
+export const SAFE_GROUPS = ['balance', 'bill', 'minimum_payment', 'goal', 'buffer'] as const;
+
+// ---- Stage 4: the Guardian rules ------------------------------------------------------------------
+
+export interface LimitDraft { currency: string; amount: string }
+export interface CapDraft extends LimitDraft { category: FinanceCategory }
+
+/** The editable form of the rules: every field a string, so typing never loses precision. */
+export interface RulesDraft {
+  allowedCurrencies: string;
+  maxSingle: LimitDraft[];
+  maxDaily: LimitDraft[];
+  approvalAbove: LimitDraft[];
+  caps: CapDraft[];
+  blockedCategories: FinanceCategory[];
+  blockedMerchants: string;
+  quietOn: boolean;
+  quietStart: string;
+  quietEnd: string;
+  coolingOn: boolean;
+  coolingHours: string;
+  coolingAbove: LimitDraft[];
+}
+
+export const EMPTY_RULES: FinanceGuardianRules = {
+  allowed_currencies: [], max_single: [], max_daily_total: [], category_caps: [], blocked_categories: [], blocked_merchants: [], approval_above: [],
+  quiet_hours: null, cooling_off: null,
+};
+
+const limits = (items: FinanceAmountLimit[]): LimitDraft[] => items.map((i) => ({ currency: i.currency, amount: i.amount }));
+
+export function draftFromRules(rules: FinanceGuardianRules): RulesDraft {
+  return {
+    allowedCurrencies: rules.allowed_currencies.join(', '),
+    maxSingle: limits(rules.max_single), maxDaily: limits(rules.max_daily_total), approvalAbove: limits(rules.approval_above),
+    caps: rules.category_caps.map((c) => ({ category: c.category, currency: c.currency, amount: c.amount })),
+    blockedCategories: [...rules.blocked_categories], blockedMerchants: rules.blocked_merchants.join('\n'),
+    quietOn: rules.quiet_hours !== null, quietStart: rules.quiet_hours?.start ?? '22:00', quietEnd: rules.quiet_hours?.end ?? '07:00',
+    coolingOn: rules.cooling_off !== null, coolingHours: String(rules.cooling_off?.hours ?? 24), coolingAbove: limits(rules.cooling_off?.at_or_above ?? []),
+  };
+}
+
+/** The draft as rules for the API, or the first mistake in the person's language. */
+export function rulesFromDraft(draft: RulesDraft): Checked<FinanceGuardianRules> {
+  const currencies = draft.allowedCurrencies.split(/[\s,،]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
+  if (currencies.some((c) => !/^[A-Z]{3}$/.test(c))) return { ok: false, error: t('finance.error.currency') };
+  const amounts = (rows: LimitDraft[]): Checked<FinanceAmountLimit[]> => {
+    const out: FinanceAmountLimit[] = [];
+    for (const row of rows) {
+      if (!row.amount.trim() && !row.currency.trim()) continue;
+      const currency = row.currency.trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) return { ok: false, error: t('finance.error.currency') };
+      if (out.some((o) => o.currency === currency)) return { ok: false, error: t('finance.guardian.error.twice', { currency }) };
+      const amount = parseAmount(row.amount, currency, { signed: false, allowZero: false });
+      if (!amount.ok) return amount;
+      out.push({ currency, amount: amount.value });
+    }
+    return { ok: true, value: out };
+  };
+  const single = amounts(draft.maxSingle), daily = amounts(draft.maxDaily), approval = amounts(draft.approvalAbove), cooling = amounts(draft.coolingAbove);
+  for (const checked of [single, daily, approval, cooling]) if (!checked.ok) return checked;
+  const caps: FinanceCategoryCap[] = [];
+  for (const row of draft.caps) {
+    if (!row.amount.trim()) continue;
+    const currency = row.currency.trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) return { ok: false, error: t('finance.error.currency') };
+    if (caps.some((c) => c.category === row.category && c.currency === currency)) return { ok: false, error: t('finance.guardian.error.capTwice', { category: categoryLabel(row.category), currency }) };
+    const amount = parseAmount(row.amount, currency, { signed: false, allowZero: false });
+    if (!amount.ok) return amount;
+    caps.push({ category: row.category, currency, amount: amount.value });
+  }
+  const merchants = draft.blockedMerchants.split(/\n|,/).map((m) => m.trim()).filter(Boolean);
+  if (merchants.some((m) => m.length < 2)) return { ok: false, error: t('finance.guardian.error.merchant') };
+  if (draft.quietOn && (!/^\d{2}:\d{2}$/.test(draft.quietStart) || !/^\d{2}:\d{2}$/.test(draft.quietEnd) || draft.quietStart === draft.quietEnd)) {
+    return { ok: false, error: t('finance.guardian.error.quiet') };
+  }
+  const hours = Number(draft.coolingHours);
+  if (draft.coolingOn && (!Number.isInteger(hours) || hours < 1 || hours > 168)) return { ok: false, error: t('finance.guardian.error.cooling') };
+  return {
+    ok: true,
+    value: {
+      allowed_currencies: [...new Set(currencies)], max_single: single.ok ? single.value : [], max_daily_total: daily.ok ? daily.value : [],
+      approval_above: approval.ok ? approval.value : [], category_caps: caps, blocked_categories: [...new Set(draft.blockedCategories)],
+      blocked_merchants: [...new Set(merchants)],
+      quiet_hours: draft.quietOn ? { start: draft.quietStart, end: draft.quietEnd } : null,
+      cooling_off: draft.coolingOn ? { hours, at_or_above: cooling.ok ? cooling.value : [] } : null,
+    },
+  };
+}
+
+/** Each rule as one plain sentence, in a fixed order (an empty list: no rules). */
+export function describeRules(rules: FinanceGuardianRules): string[] {
+  const money = (l: FinanceAmountLimit) => isolate(formatAmount(l.amount, l.currency));
+  const lines: string[] = [];
+  if (rules.allowed_currencies.length) lines.push(t('finance.guardian.rule.currencies', { list: isolate(rules.allowed_currencies.join(', ')) }));
+  for (const l of rules.max_single) lines.push(t('finance.guardian.rule.single', { amount: money(l) }));
+  for (const l of rules.max_daily_total) lines.push(t('finance.guardian.rule.daily', { amount: money(l) }));
+  for (const c of rules.category_caps) lines.push(t('finance.guardian.rule.cap', { category: categoryLabel(c.category), amount: money(c) }));
+  if (rules.blocked_categories.length) lines.push(t('finance.guardian.rule.blockedCategories', { list: rules.blocked_categories.map(categoryLabel).join(', ') }));
+  if (rules.blocked_merchants.length) lines.push(t('finance.guardian.rule.blockedMerchants', { list: rules.blocked_merchants.join(', ') }));
+  for (const l of rules.approval_above) lines.push(t('finance.guardian.rule.approval', { amount: money(l) }));
+  if (rules.quiet_hours) lines.push(t('finance.guardian.rule.quiet', { start: isolate(rules.quiet_hours.start), end: isolate(rules.quiet_hours.end) }));
+  if (rules.cooling_off) {
+    const at = rules.cooling_off.at_or_above.map(money).join(', ');
+    lines.push(at ? t('finance.guardian.rule.cooling', { count: rules.cooling_off.hours, amount: at }) : t('finance.guardian.rule.coolingAll', { count: rules.cooling_off.hours }));
+  }
+  return lines;
+}
+
+/** A rule kind's name ("max_single" to "Single payment limit"). */
+export function ruleKindLabel(kind: string): string {
+  return t(`finance.guardian.kind.${kind}` as MessageKey);
+}
+
+/** The first characters of a payload hash, grouped, so the person can compare what they confirm. */
+export function shortHash(hash: string): string {
+  return hash.slice(0, 12).replace(/(.{4})(?=.)/g, '$1 ');
+}
+
+/** "In 23 hours", "In 5 minutes": when a proposal lapses. */
+export function expiresLabel(expiresAt: string, now: Date = new Date()): string {
+  const minutes = Math.max(0, Math.round((new Date(expiresAt).getTime() - now.getTime()) / 60_000));
+  if (minutes < 60) return t('finance.guardian.expiresMinutes', { count: minutes });
+  return t('finance.guardian.expiresHours', { count: Math.round(minutes / 60) });
 }

@@ -1,6 +1,7 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'finance_models.dart';
+import 'finance_plan_models.dart';
 
 /// Finance over the live API (docs/finance.md). Every record is the caller's
 /// own; the server checks `finance:read` and `finance:manage` on each call.
@@ -25,6 +26,16 @@ abstract interface class FinanceRepository {
   Future<void> createBill(
       {required String name, required String amount, required String dueOn});
   Future<void> deleteItem(String kind, String id);
+  // Stages 3 to 5: safe to spend, the Guardian rules, read-only connections.
+  Future<SafeToSpend> safeToSpend();
+  Future<GuardianView> guardian();
+  Future<List<GuardianAlert>> guardianAlerts();
+
+  /// Confirms a proposed change with the payload hash the person was shown.
+  Future<void> confirmChange(String id, String payloadHash);
+  Future<void> rejectChange(String id);
+  Future<List<FinanceConnection>> connections();
+  Future<void> syncConnection(String id);
 }
 
 class ApiFinanceRepository implements FinanceRepository {
@@ -129,5 +140,42 @@ class ApiFinanceRepository implements FinanceRepository {
   @override
   Future<void> deleteItem(String kind, String id) async {
     await api.request('DELETE', '$base/$kind/${Uri.encodeComponent(id)}');
+  }
+
+  @override
+  Future<SafeToSpend> safeToSpend() async => SafeToSpend.fromJson(
+      JsonReader.of(await api.request('GET', '$base/safe-to-spend')));
+
+  @override
+  Future<GuardianView> guardian() async => GuardianView.fromJson(
+      JsonReader.of(await api.request('GET', '$base/guardian')));
+
+  @override
+  Future<List<GuardianAlert>> guardianAlerts() async =>
+      JsonReader.of(await api.request('GET', '$base/guardian/alerts'))
+          .optObjects('alerts', GuardianAlert.fromJson);
+
+  @override
+  Future<void> confirmChange(String id, String payloadHash) async {
+    await api.request(
+        'POST', '$base/guardian/changes/${Uri.encodeComponent(id)}/confirm',
+        body: {'payload_hash': payloadHash});
+  }
+
+  @override
+  Future<void> rejectChange(String id) async {
+    await api.request(
+        'POST', '$base/guardian/changes/${Uri.encodeComponent(id)}/reject');
+  }
+
+  @override
+  Future<List<FinanceConnection>> connections() async => _list(
+      await api.request('GET', '$base/connections'),
+      FinanceConnection.fromJson);
+
+  @override
+  Future<void> syncConnection(String id) async {
+    await api.request(
+        'POST', '$base/connections/${Uri.encodeComponent(id)}/sync');
   }
 }

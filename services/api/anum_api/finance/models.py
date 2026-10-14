@@ -182,6 +182,9 @@ class Goal(_Owned):
     currency: str
     target_on: date | None = None
     account_id: str | None = None
+    # Stage 3: what the person plans to put aside each month. None: safe-to-spend works it
+    # out from the target date (what is left over the months left), or sets nothing aside.
+    monthly_contribution: Decimal | None = None
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -200,3 +203,44 @@ class Holding(_Owned):
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+# -- Stage 3: safe-to-spend settings --------------------------------------------------------
+
+
+class CurrencyBuffer(BaseModel):
+    """Money the person always keeps back in one currency (never counted as spendable)."""
+
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    amount: Decimal
+
+
+class PlanSettings(BaseModel):
+    """Per person and workspace: the safe-to-spend buffer and whether to show a converted total."""
+
+    buffers: list[CurrencyBuffer] = Field(default_factory=list, max_length=20)
+    # Show one total in the base currency too, only when every rate needed is recorded.
+    combine_currencies: bool = False
+    # A rate older than this many days is not used for a combined total.
+    fx_max_age_days: int = Field(default=7, ge=1, le=60)
+    updated_at: datetime | None = None
+
+
+# -- Stage 5: FX rates ------------------------------------------------------------------------
+
+
+class FxRate(_Owned):
+    """One recorded exchange rate: 1 ``base`` = ``rate`` ``quote`` on ``as_of``, from ``source``.
+
+    Rates come from a connector (a real published source, stored with its date and name)
+    or from the person, typed by hand (source ``manual``). ANUM never invents a rate."""
+
+    id: str
+    base: str
+    quote: str
+    rate: Decimal
+    as_of: date
+    source: str
+    source_url: str | None = None
+    connection_id: str | None = None
+    fetched_at: datetime

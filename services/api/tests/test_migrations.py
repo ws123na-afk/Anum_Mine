@@ -876,3 +876,30 @@ def test_finance_ledger_migration_is_expand_only_with_owner_only_forced_rls() ->
     assert '"account_id", "dedupe_hash"' in revision_text
     assert "drop" not in upgrade and "alter_column" not in upgrade and "add_column" not in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_finance_stages_migration_is_expand_only_read_only_and_owner_scoped() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0057_finance_plan_guard_conn.py").read_text(encoding="utf-8")
+    assert 'revision = "0057_finance_plan_guard_conn"' in revision_text and len("0057_finance_plan_guard_conn") <= 32
+    assert 'down_revision = "0056_finance_ledger"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0057_finance_plan_guard_conn.py"]
+    assert not [path for path in others if 'down_revision = "0056_finance_ledger"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = ("finance_plans", "finance_guardian_versions", "finance_guardian_changes", "finance_connections", "finance_fx_rates")
+    assert upgrade.count("op.create_table(") == len(tables)
+    for table in tables:
+        assert f'"{table}"' in revision_text and f'_workspace_fk("{table}")' in revision_text
+    assert "force row level security" in upgrade and "create policy tenant_isolation_{table}" in upgrade
+    assert "create policy owner_only_{table}" in upgrade and "as restrictive" in upgrade
+    # Expand only: a nullable column and new tables; nothing dropped or altered.
+    assert 'op.add_column("finance_goals", sa.column("monthly_contribution", money, nullable=true))' in upgrade
+    assert "drop" not in upgrade and "alter_column" not in upgrade
+    # Read only in the database, versions unique per person, agents never loosen.
+    assert "ck_finance_connections_read_only" in upgrade and 'like_regex \\"[:]read$\\"' in upgrade
+    assert "uq_finance_guardian_versions_version" in upgrade and "ck_finance_guardian_changes_agent_strict" in upgrade
+    # The maintenance role reads only discovery columns of due rows; nothing else is granted.
+    grants = [line.strip() for line in upgrade.splitlines() if "grant " in line]
+    assert grants == ['"grant select (id, tenant_id, workspace_id, owner_user_id, enabled, status, next_sync_at) "']
+    assert "for select to anum_maintenance" in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "current_user = 'anum_maintenance'" in revision_text

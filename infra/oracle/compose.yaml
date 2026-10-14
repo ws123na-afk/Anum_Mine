@@ -352,6 +352,8 @@ services:
       ANUM_MARKETING_GOOGLE_CLIENT_SECRET: ${ANUM_MARKETING_GOOGLE_CLIENT_SECRET:-}
       # Sales channels sync in the background (docs/commerce.md); false = "Sync now" only.
       ANUM_COMMERCE_SYNC_ENABLED: ${ANUM_COMMERCE_SYNC_ENABLED:-false}
+      # Read-only finance connections (ECB exchange rates) sync in the background (docs/finance.md#sync).
+      ANUM_FINANCE_SYNC_ENABLED: ${ANUM_FINANCE_SYNC_ENABLED:-false}
       # The outbound REST webhook behind the external.action tool (always approved).
       ANUM_EXTERNAL_WEBHOOK_URL: ${ANUM_EXTERNAL_WEBHOOK_URL:-}
       ANUM_EXTERNAL_WEBHOOK_API_KEY: ${ANUM_EXTERNAL_WEBHOOK_API_KEY:-}

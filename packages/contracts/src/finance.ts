@@ -73,6 +73,8 @@ export interface FinanceTransaction {
   import_id: string | null;
   created_at: string;
   updated_at: string;
+  /** Stage 4: what the Guardian rules say about this record (on create and change only). */
+  guardian?: FinanceGuardianDecision | null;
 }
 
 export interface FinanceTransactionInput {
@@ -133,6 +135,8 @@ export interface FinanceImport {
   duplicate_count: number;
   error_count: number;
   created_at: string;
+  /** Stage 4: imported rows that break a Guardian rule (on a confirmed import). */
+  rule_breaks?: number;
 }
 
 export interface FinanceBill {
@@ -221,6 +225,8 @@ export interface FinanceGoal {
   currency: string;
   target_on: string | null;
   account_id: string | null;
+  /** Stage 3: what is put aside each month; null works it out from the target date. */
+  monthly_contribution: FinanceMoney | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -233,6 +239,7 @@ export interface FinanceGoalInput {
   currency?: string | null;
   target_on?: string | null;
   account_id?: string | null;
+  monthly_contribution?: FinanceMoney | null;
   notes?: string | null;
 }
 
@@ -281,3 +288,223 @@ export interface FinanceSummary {
   debt_count: number;
   goals: { id: string; name: string; currency: string; target_amount: FinanceMoney; saved_amount: FinanceMoney; percent: number; target_on: string | null }[];
 }
+
+
+// ---- Stage 3: safe-to-spend (docs/finance.md#safe-to-spend) -------------------------------------
+
+export interface FinanceCurrencyBuffer { currency: string; amount: FinanceMoney }
+
+export interface FinancePlan {
+  buffers: FinanceCurrencyBuffer[];
+  combine_currencies: boolean;
+  fx_max_age_days: number;
+  updated_at: string | null;
+}
+
+export interface FinancePlanInput {
+  buffers: FinanceCurrencyBuffer[];
+  combine_currencies: boolean;
+  fx_max_age_days?: number;
+}
+
+export type FinanceSafeLineKind = 'balance' | 'bill' | 'minimum_payment' | 'goal' | 'buffer';
+export type FinanceSafeNote =
+  | 'account_balance' | 'bill_due' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'goal_set' | 'goal_derived'
+  | 'goal_no_plan' | 'goal_reached' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
+
+/** One line of the figure: positive for money you have, negative for a deduction. */
+export interface FinanceSafeLine {
+  kind: FinanceSafeLineKind;
+  label: string;
+  ref_id: string | null;
+  currency: string;
+  amount: FinanceMoney;
+  note: FinanceSafeNote;
+  params: Record<string, string>;
+  detail: string;
+}
+
+export interface FinanceCurrencySafeToSpend {
+  currency: string;
+  available: FinanceMoney;
+  bills: FinanceMoney;
+  minimum_payments: FinanceMoney;
+  goals: FinanceMoney;
+  buffer: FinanceMoney;
+  safe_to_spend: FinanceMoney;
+  per_day: FinanceMoney;
+  short: boolean;
+  lines: FinanceSafeLine[];
+}
+
+export interface FinanceConversion {
+  from_currency: string;
+  to_currency: string;
+  amount: FinanceMoney;
+  /** 1 from_currency = rate to_currency, with the rate's date and source. */
+  rate: string;
+  converted: FinanceMoney;
+  as_of: string;
+  source: string;
+  via: string | null;
+}
+
+export interface FinanceSafeToSpend {
+  month: string;
+  today: string;
+  month_end: string;
+  days_left: number;
+  base_currency: string;
+  timezone: string;
+  currencies: FinanceCurrencySafeToSpend[];
+  excluded: FinanceSafeLine[];
+  combine_currencies: boolean;
+  combined_status: 'off' | 'single_currency' | 'ready' | 'missing_rates';
+  combined: { currency: string; safe_to_spend: FinanceMoney; per_day: FinanceMoney; conversions: FinanceConversion[] } | null;
+  missing_rates: string[];
+  fx_max_age_days: number;
+  accounts_counted: number;
+  note: string;
+}
+
+// ---- Stage 4: the Guardian rules (docs/finance.md#guardian) --------------------------------------
+
+export interface FinanceAmountLimit { currency: string; amount: FinanceMoney }
+export interface FinanceCategoryCap extends FinanceAmountLimit { category: FinanceCategory }
+
+export interface FinanceGuardianRules {
+  allowed_currencies: string[];
+  max_single: FinanceAmountLimit[];
+  max_daily_total: FinanceAmountLimit[];
+  category_caps: FinanceCategoryCap[];
+  blocked_categories: FinanceCategory[];
+  blocked_merchants: string[];
+  approval_above: FinanceAmountLimit[];
+  quiet_hours: { start: string; end: string } | null;
+  cooling_off: { hours: number; at_or_above: FinanceAmountLimit[] } | null;
+}
+
+export type FinanceGuardianOutcome = 'allow' | 'needs_approval' | 'deny';
+export interface FinanceGuardianReason { code: string; outcome: FinanceGuardianOutcome; message: string; rule: string | null; params: Record<string, string> }
+export interface FinanceGuardianDecision { outcome: FinanceGuardianOutcome; reasons: FinanceGuardianReason[] }
+
+export type FinanceGuardianChangeStatus = 'pending' | 'confirmed' | 'rejected' | 'expired' | 'superseded';
+
+/** Proposed rules. Nothing changes until the person confirms with this payload_hash. */
+export interface FinanceGuardianChange {
+  id: string;
+  base_version: number;
+  rules: FinanceGuardianRules;
+  proposed_by: 'person' | 'agent';
+  proposer: string;
+  reason: string | null;
+  payload_hash: string;
+  /** The rule kinds this change loosens; an assistant can never propose one that does. */
+  loosens: string[];
+  status: FinanceGuardianChangeStatus;
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+}
+
+export interface FinanceGuardian {
+  version: number;
+  rules: FinanceGuardianRules;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  pending: FinanceGuardianChange[];
+  kinds: string[];
+}
+
+export interface FinanceGuardianVersion { id: string; version: number; rules: FinanceGuardianRules; change_id: string; confirmed_by: string; created_at: string }
+
+export interface FinanceGuardianAlert {
+  code: 'cap_over' | 'cap_near' | 'merchant_blocked_seen' | 'category_blocked_seen' | 'daily_over' | 'single_over';
+  severity: 'over' | 'near';
+  message: string;
+  rule: string;
+  params: Record<string, string>;
+}
+
+export interface FinanceGuardianAlerts { month: string; version: number; alerts: FinanceGuardianAlert[] }
+
+export type FinanceActionKind = 'spend' | 'bill_payment' | 'transfer' | 'trade' | 'record';
+
+export interface FinanceEvaluateInput {
+  kind?: FinanceActionKind;
+  amount: FinanceMoney;
+  currency?: string | null;
+  category?: FinanceCategory | null;
+  merchant?: string | null;
+  at?: string | null;
+}
+
+/** A dry run: the rules' verdict and the kernel's (which never lets money move). */
+export interface FinanceEvaluation {
+  version: number;
+  action: { kind: FinanceActionKind; amount: FinanceMoney; currency: string; category: FinanceCategory | null; merchant: string | null; at: string };
+  rules_decision: FinanceGuardianDecision;
+  decision: FinanceGuardianDecision;
+  note: string;
+}
+
+// ---- Stage 5: read-only connectors (docs/finance.md#connectors) ----------------------------------
+
+export type FinanceConnectorKind = 'bank' | 'card' | 'broker' | 'crypto' | 'market_data' | 'fx';
+export type FinanceConnectionStatus = 'active' | 'error' | 'disconnected';
+
+export interface FinanceProvider {
+  id: string;
+  kind: FinanceConnectorKind;
+  name: string;
+  summary: string;
+  /** Always read-only scopes (each ends in ":read"). */
+  scopes: string[];
+  available: boolean;
+  needs_credentials: boolean;
+  credential_fields: string[];
+  sync_hours: number;
+  source_url: string | null;
+  terms: string | null;
+  /** For a source that is not built: what the owner must set up first. */
+  owner_action: string | null;
+}
+
+/** A connection. Credentials are write only: never sent back, only whether some are saved. */
+export interface FinanceConnection {
+  id: string;
+  provider: string;
+  provider_name: string;
+  kind: FinanceConnectorKind;
+  label: string;
+  status: FinanceConnectionStatus;
+  scopes: string[];
+  has_credentials: boolean;
+  credential_hint: string | null;
+  enabled: boolean;
+  next_sync_at: string;
+  last_sync_at: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
+  last_counts: Record<string, number>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceConnectionInput { provider: string; label?: string | null; credentials?: Record<string, string> | null }
+
+export interface FinanceSyncReport { connection_id: string; status: 'ok' | 'error' | 'skipped'; message: string; counts: Record<string, number> }
+
+export interface FinanceFxRate {
+  id: string;
+  base: string;
+  quote: string;
+  rate: string;
+  as_of: string;
+  source: string;
+  source_url: string | null;
+  connection_id: string | null;
+  fetched_at: string;
+}
+
+export interface FinanceFxRateInput { base: string; quote: string; rate: string; as_of: string }

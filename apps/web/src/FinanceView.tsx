@@ -21,6 +21,8 @@ import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
+import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
+import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import './commerce.css';
 import './finance.css';
@@ -34,25 +36,7 @@ const CATEGORIES: FinanceCategory[] = [
   'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
 ];
 
-type Load<T> = { kind: 'loading' } | { kind: 'ready'; value: T } | { kind: 'denied'; message: string } | { kind: 'error'; message: string };
-const failed = (e: unknown): Load<never> => (isPermissionDenied(e) ? { kind: 'denied', message: describeError(e) } : { kind: 'error', message: describeError(e) });
 const today = () => new Date().toISOString().slice(0, 10);
-
-function Notice({ children, error, busy }: { children: ReactNode; error?: boolean; busy?: boolean }) {
-  return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'} aria-live={error ? undefined : 'polite'} aria-busy={busy || undefined}><CircleDot aria-hidden="true" />{children}</p>;
-}
-function LoadError({ message, retry }: { message: string; retry: () => void }) {
-  return <div className="notice errorNotice cmLoadError" role="alert"><CircleDot aria-hidden="true" /><span>{message}</span><button type="button" className="secondary" onClick={retry}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>;
-}
-function Denied() {
-  return <section className="surface cmPanel cmDenied" aria-labelledby="fin-denied"><Lock aria-hidden="true" /><div><h2 id="fin-denied">{t('finance.denied.title')}</h2><p className="muted">{t('finance.denied.text')}</p></div></section>;
-}
-function Empty({ icon, title, text, action }: { icon: ReactNode; title: string; text: string; action?: ReactNode }) {
-  return <div className="emptyState">{icon}<h3>{title}</h3><p>{text}</p>{action}</div>;
-}
-function Money({ value, currency, signed }: { value: string; currency: string; signed?: boolean }) {
-  return <span className={`finMoney ${signed ? amountTone(value) : ''}`} dir="ltr">{formatAmount(value, currency)}</span>;
-}
 
 /** The finance tabs, deep-linkable (`#finance-transactions`) and in the browser history. */
 function useFinanceTab(): [FinanceTab, (next: FinanceTab) => void] {
@@ -123,6 +107,9 @@ export function FinanceView() {
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
+    {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
+    {tab === 'guardian' && <GuardianPanel base={base} />}
+    {tab === 'connections' && <ConnectionsPanel />}
     {tab === 'transactions' && <Transactions accounts={accountList} onChanged={onChanged} onImport={() => pick('import')} />}
     {tab === 'accounts' && <Accounts accounts={accounts} base={base} onChanged={onChanged} />}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
@@ -160,6 +147,7 @@ function Overview({ summary: s, month, onMonth, onOpen }: { summary: FinanceSumm
         </section>}
       </div>
       <div className="finColumn">
+        <SafeToSpendCard base={s.base_currency} onOpen={onOpen} />
         <section className="surface cmPanel" aria-labelledby="fin-flow">
           <h2 id="fin-flow">{t('finance.overview.flow')}</h2>
           {s.income.length === 0 && s.spend.length === 0 ? <p className="muted">{t('finance.overview.noFlow')}</p> : <dl className="finFlow">
@@ -338,14 +326,6 @@ function Transactions({ accounts, onChanged, onImport }: { accounts: FinanceAcco
   </section>;
 }
 
-function FormError({ id, text }: { id: string; text: string | null }) {
-  return text ? <p id={id} className="cmFieldError" role="alert">{text}</p> : null;
-}
-
-function FormActions({ busy, onCancel, label }: { busy: boolean; onCancel: () => void; label?: string }) {
-  return <div className="actions"><button type="submit" disabled={busy}>{busy ? t('finance.saving') : label ?? t('finance.save')}</button><button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button></div>;
-}
-
 function TransactionForm({ accounts, transaction, onDone }: { accounts: FinanceAccount[]; transaction: FinanceTransaction | null; onDone: (message: string | null) => void }) {
   const [accountId, setAccountId] = useState(transaction?.account_id ?? accounts.find((a) => !a.archived)?.id ?? '');
   const [postedOn, setPostedOn] = useState(transaction?.posted_on ?? today()), [amount, setAmount] = useState(transaction?.amount ?? '');
@@ -360,9 +340,13 @@ function TransactionForm({ accounts, transaction, onDone }: { accounts: FinanceA
     if (!description.trim()) { setError(t('finance.error.description')); return; }
     setBusy(true); setError(null);
     try {
-      if (transaction) await api.updateTransaction(transaction.id, { posted_on: postedOn, amount: checked.value, description: description.trim(), notes: notes.trim() || null, ...(category ? { category } : {}) });
-      else await api.createTransaction({ account_id: accountId, posted_on: postedOn, amount: checked.value, description: description.trim(), notes: notes.trim() || null, category: category || null });
-      onDone(transaction ? t('finance.transactions.saved') : t('finance.transactions.created'));
+      const result = transaction
+        ? await api.updateTransaction(transaction.id, { posted_on: postedOn, amount: checked.value, description: description.trim(), notes: notes.trim() || null, ...(category ? { category } : {}) })
+        : await api.createTransaction({ account_id: accountId, posted_on: postedOn, amount: checked.value, description: description.trim(), notes: notes.trim() || null, category: category || null });
+      const done = transaction ? t('finance.transactions.saved') : t('finance.transactions.created');
+      // A record breaking one of the person's Guardian rules is saved (the money is gone) and named.
+      const broken = result.guardian && result.guardian.outcome !== 'allow' ? result.guardian.reasons.map(reasonText).join(' ') : '';
+      onDone(broken ? `${done} ${t('finance.transactions.ruleWarning', { reasons: broken })}` : done);
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
   return <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
@@ -737,7 +721,7 @@ function Goals({ base, onChanged }: { base: string; onChanged: () => void }) {
     emptyIcon={<Flag aria-hidden="true" />} emptyTitle={t('finance.goals.empty')} emptyText={t('finance.goals.emptyText')}
     render={(g) => {
       const percent = Number(g.target_amount) > 0 ? Math.max(0, Math.min(100, Math.floor((Number(g.saved_amount) * 100) / Number(g.target_amount)))) : 0;
-      return <div className="finGoal"><strong dir="auto">{g.name}</strong><small>{t('finance.goals.progress', { saved: isolate(formatAmount(g.saved_amount, g.currency)), target: isolate(formatAmount(g.target_amount, g.currency)) })}{g.target_on ? ` · ${t('finance.goals.by', { date: isolate(g.target_on) })}` : ''}</small><Progress percent={percent} label={g.name} /></div>;
+      return <div className="finGoal"><strong dir="auto">{g.name}</strong><small>{t('finance.goals.progress', { saved: isolate(formatAmount(g.saved_amount, g.currency)), target: isolate(formatAmount(g.target_amount, g.currency)) })}{g.target_on ? ` · ${t('finance.goals.by', { date: isolate(g.target_on) })}` : ''}{g.monthly_contribution ? ` · ${t('finance.goals.monthly', { amount: isolate(formatAmount(g.monthly_contribution, g.currency)) })}` : ''}</small><Progress percent={percent} label={g.name} /></div>;
     }}
     form={(g, done) => <GoalForm goal={g} base={base} onDone={done} />}
     remove={(g) => api.deleteGoal(g.id)} />;
@@ -746,15 +730,18 @@ function Goals({ base, onChanged }: { base: string; onChanged: () => void }) {
 function GoalForm({ goal, base, onDone }: { goal: FinanceGoal | null; base: string; onDone: (message: string | null) => void }) {
   const [name, setName] = useState(goal?.name ?? ''), [currency, setCurrency] = useState(goal?.currency ?? base), [target, setTarget] = useState(goal?.target_amount ?? '');
   const [saved, setSaved] = useState(goal?.saved_amount ?? '0'), [by, setBy] = useState(goal?.target_on ?? ''), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId();
+  const [monthly, setMonthly] = useState(goal?.monthly_contribution ?? '');
+  const errorId = useId(), monthlyHelp = useId();
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) { setError(t('finance.error.name')); return; }
     const goalAmount = parseAmount(target, currency, { signed: false, allowZero: false }), savedAmount = parseAmount(saved || '0', currency, { signed: false });
     if (!goalAmount.ok) { setError(goalAmount.error); return; }
     if (!savedAmount.ok) { setError(savedAmount.error); return; }
+    const monthlyAmount = monthly.trim() ? parseAmount(monthly, currency, { signed: false }) : null;
+    if (monthlyAmount && !monthlyAmount.ok) { setError(monthlyAmount.error); return; }
     setBusy(true); setError(null);
-    const body = { name: name.trim(), currency, target_amount: goalAmount.value, saved_amount: savedAmount.value, target_on: by || null };
+    const body = { name: name.trim(), currency, target_amount: goalAmount.value, saved_amount: savedAmount.value, target_on: by || null, monthly_contribution: monthlyAmount?.ok ? monthlyAmount.value : null };
     try { if (goal) await api.updateGoal(goal.id, body); else await api.createGoal(body); onDone(t('finance.item.saved', { name: body.name })); }
     catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
@@ -765,7 +752,9 @@ function GoalForm({ goal, base, onDone }: { goal: FinanceGoal | null; base: stri
       <label className="field"><span>{t('finance.form.target', { currency })}</span><input value={target} onChange={(e) => setTarget(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
       <label className="field"><span>{t('finance.form.saved', { currency })}</span><input value={saved} onChange={(e) => setSaved(e.target.value)} inputMode="decimal" dir="ltr" /></label>
       <label className="field"><span>{t('finance.form.by')}</span><input type="date" value={by} onChange={(e) => setBy(e.target.value)} /></label>
+      <label className="field"><span>{t('finance.form.monthly', { currency })}</span><input value={monthly} onChange={(e) => setMonthly(e.target.value)} inputMode="decimal" dir="ltr" aria-describedby={monthlyHelp} /></label>
     </div>
+    <p id={monthlyHelp} className="muted finHelp">{t('finance.form.monthlyHelp')}</p>
     <FormError id={errorId} text={error} />
     <FormActions busy={busy} onCancel={() => onDone(null)} />
   </form>;

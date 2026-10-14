@@ -94,7 +94,7 @@ x-user-roles: owner,member
 - [Developer mode](docs/developer-mode.md)
 - [WhatsApp Business inbox](docs/whatsapp.md)
 - [Commerce: Amazon, noon and the own store](docs/commerce.md)
-- [Finance: your own ledger and Financial Twin, read only](docs/finance.md)
+- [Finance: your own ledger, safe-to-spend, Guardian rules and read-only connectors](docs/finance.md)
 - [Tyre planning](docs/tyre-planning.md)
 - [Social media marketing](docs/marketing.md)
 - [Memory](docs/memory.md)

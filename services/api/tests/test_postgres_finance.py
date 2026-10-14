@@ -157,3 +157,133 @@ def test_privacy_counts_exports_and_deletes_the_ledger(client: TestClient, app_s
     assert deleted.status_code == 200, deleted.text
     assert _count(app_session, "finance_accounts", "user_test") == 0
     assert _count(app_session, "finance_accounts", "user_owner") == 1
+
+
+# -- stages 3 to 5 (migration 0057_finance_plan_guard_conn) ------------------------------------
+
+NEW_TABLES = ("finance_plans", "finance_guardian_versions", "finance_guardian_changes", "finance_connections", "finance_fx_rates")
+
+
+def test_every_new_finance_table_has_forced_rls_and_an_owner_only_restrictive_policy(database_engine: Engine) -> None:
+    with database_engine.connect() as connection:
+        for table in NEW_TABLES:
+            forced = connection.execute(
+                text("select relrowsecurity and relforcerowsecurity from pg_class where relname = :t"), {"t": table}
+            ).scalar_one()
+            assert forced, table
+            policies = dict(
+                connection.execute(text("select policyname, permissive from pg_policies where tablename = :t"), {"t": table}).all()
+            )
+            assert policies.get(f"tenant_isolation_{table}") == "PERMISSIVE"
+            assert policies.get(f"owner_only_{table}") == "RESTRICTIVE"
+
+
+def test_rules_safe_to_spend_and_rates_persist_and_stay_private(
+    client: TestClient, app_session: Callable[..., Iterator[Session]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+
+    from anum_api.finance import connectors
+
+    client.post(f"{API}/accounts", headers=ME, json={"name": "Current", "kind": "bank", "opening_balance": "1000"})
+    client.post(f"{API}/goals", headers=ME, json={"name": "Car", "target_amount": "900", "monthly_contribution": "300"})
+    client.put(f"{API}/plan", headers=ME, json={"buffers": [{"currency": "AED", "amount": "200"}], "combine_currencies": True})
+    safe = client.get(f"{API}/safe-to-spend", headers=ME).json()
+    assert safe["currencies"][0]["safe_to_spend"] == "500.00"
+    assert client.get(f"{API}/safe-to-spend", headers=OWNER).json()["currencies"] == []
+
+    change = client.post(f"{API}/guardian/changes", headers=ME, json={"rules": {"blocked_merchants": ["talabat"]}}).json()
+    assert client.post(f"{API}/guardian/changes/{change['id']}/confirm", headers=OWNER, json={"payload_hash": change["payload_hash"]}).status_code == 404
+    confirmed = client.post(f"{API}/guardian/changes/{change['id']}/confirm", headers=ME, json={"payload_hash": change["payload_hash"]})
+    assert confirmed.status_code == 200 and confirmed.json()["version"] == 1
+    assert client.get(f"{API}/guardian", headers=OWNER).json()["version"] == 0
+    assert _count(app_session, "finance_guardian_versions", "user_test") == 1
+    assert _count(app_session, "finance_guardian_versions", "user_owner") == 0
+
+    today = client.get(f"{API}/summary", headers=ME).json()["today"]
+    xml = (
+        f"<Cube><Cube time='{today}'><Cube currency='USD' rate='1.1000'/><Cube currency='JPY' rate='160.00'/>"
+        "<Cube currency='GBP' rate='0.8500'/><Cube currency='INR' rate='92.000'/><Cube currency='CHF' rate='0.9500'/></Cube></Cube>"
+    )
+    monkeypatch.setattr(connectors, "finance_transport", httpx.MockTransport(lambda request: httpx.Response(200, text=xml)))
+    connection = client.post(f"{API}/connections", headers=ME, json={"provider": "ecb_fx"}).json()
+    report = client.post(f"{API}/connections/{connection['id']}/sync", headers=ME).json()
+    assert report["status"] == "ok" and report["counts"]["rates_new"] == 6
+    assert _count(app_session, "finance_fx_rates", "user_test") == 6
+    assert _count(app_session, "finance_fx_rates", None) == 0
+    assert client.get(f"{API}/fx-rates", headers=A2).json() == []
+    assert client.delete(f"{API}/connections/{connection['id']}", headers=ME).status_code == 204
+    assert _count(app_session, "finance_fx_rates", "user_test") == 0
+
+
+def test_the_database_refuses_write_scopes_kept_credentials_and_loosening_agents(
+    app_session: Callable[..., Iterator[Session]], seed_scopes: None
+) -> None:
+    insert = (
+        "insert into finance_connections (id, tenant_id, workspace_id, owner_user_id, provider, kind, label, status, scopes, credentials_encrypted) "
+        "values (:id, :t, :w, 'user_test', 'x', 'bank', 'x', :status, cast(:scopes as jsonb), :creds)"
+    )
+    for scopes, status, creds in (('["orders:write"]', "active", None), ('["balances:read", "transfers"]', "active", None),
+                                  ("[]", "active", None), ('["balances:read"]', "disconnected", "ciphertext")):
+        with pytest.raises(DBAPIError):
+            with app_session(tenant_context()) as session:
+                session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
+                session.execute(text(insert), {"id": "c1", "t": TENANT_A, "w": WORKSPACE_A, "status": status, "scopes": scopes, "creds": creds})
+    with pytest.raises(DBAPIError):
+        with app_session(tenant_context()) as session:
+            session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
+            session.execute(
+                text(
+                    "insert into finance_guardian_changes (id, tenant_id, workspace_id, owner_user_id, base_version, rules, proposed_by, "
+                    "proposer, payload_hash, loosens, status, expires_at) values ('g1', :t, :w, 'user_test', 0, '{}', 'agent', 'assistant', "
+                    ":h, '[\"max_single\"]', 'pending', now())"
+                ),
+                {"t": TENANT_A, "w": WORKSPACE_A, "h": "a" * 64},
+            )
+
+
+def test_maintenance_role_finds_only_due_connections_and_the_scheduler_syncs_on_postgres(
+    client: TestClient, database_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    import httpx
+
+    from anum_api.finance import connectors
+    from anum_api.finance.sync import _DUE, run_once
+
+    due = client.post(f"{API}/connections", headers=ME, json={"provider": "ecb_fx"}).json()
+    later = client.post(f"{API}/connections", headers=headers("user_other"), json={"provider": "ecb_fx"}).json()
+    with database_engine.begin() as connection:
+        connection.execute(text("update finance_connections set next_sync_at = now() + interval '1 hour' where id = :id"), {"id": later["id"]})
+    with database_engine.connect() as connection:
+        with connection.begin():
+            connection.execute(text("set local role anum_maintenance"))
+            found = [tuple(row) for row in connection.execute(_DUE, {"limit": 10})]
+        assert found == [(TENANT_A, WORKSPACE_A, "user_test", due["id"])]
+        for statement in (
+            "select credentials_encrypted from finance_connections",
+            "select label from finance_connections",
+            "select id from finance_fx_rates",
+            "update finance_connections set next_sync_at = now()",
+        ):
+            with pytest.raises(DBAPIError, match="permission denied"):
+                with connection.begin():
+                    connection.execute(text("set local role anum_maintenance"))
+                    connection.execute(text(statement))
+    today = client.get(f"{API}/summary", headers=ME).json()["today"]
+    xml = (
+        f"<Cube><Cube time='{today}'><Cube currency='USD' rate='1.1000'/><Cube currency='JPY' rate='160.00'/>"
+        "<Cube currency='GBP' rate='0.8500'/><Cube currency='INR' rate='92.000'/><Cube currency='CHF' rate='0.9500'/></Cube></Cube>"
+    )
+    monkeypatch.setattr(connectors, "finance_transport", httpx.MockTransport(lambda request: httpx.Response(200, text=xml)))
+    with database_engine.begin() as connection:
+        connection.execute(text(f"grant anum_maintenance to {APP_ROLE} with inherit false, set true"))
+    try:
+        assert asyncio.run(run_once()) == 1
+        assert asyncio.run(run_once()) == 0
+    finally:
+        with database_engine.begin() as connection:
+            connection.execute(text(f"revoke anum_maintenance from {APP_ROLE}"))
+    assert len(client.get(f"{API}/fx-rates", headers=ME).json()) == 6
+    assert client.get(f"{API}/fx-rates", headers=headers("user_other")).json() == []
