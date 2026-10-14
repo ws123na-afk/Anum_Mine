@@ -465,60 +465,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
     String? Function(Map<String, String> values) check,
     Future<String?> Function(Map<String, String> values) save,
   ) async {
-    final controllers = {for (final f in fields) f.$1: TextEditingController()};
-    String? error;
-    await showDialog<void>(
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text(title),
-          scrollable: true,
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            for (final f in fields)
-              Padding(
-                padding: const EdgeInsets.only(bottom: AnumSpacing.sm),
-                child: TextField(
-                    controller: controllers[f.$1],
-                    keyboardType: f.$3,
-                    decoration: InputDecoration(labelText: f.$2)),
-              ),
-            if (error != null)
-              Text(error!,
-                  style: TextStyle(color: context.palette.stop),
-                  semanticsLabel: error),
-          ]),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(s.t('cancel'))),
-            FilledButton(
-              onPressed: () async {
-                final values = {
-                  for (final e in controllers.entries)
-                    e.key: e.value.text.trim()
-                };
-                final problem = check(values);
-                if (problem != null) {
-                  setState(() => error = problem);
-                  return;
-                }
-                final failed = await save(values);
-                if (failed != null) {
-                  setState(() => error = failed);
-                  return;
-                }
-                if (context.mounted) Navigator.of(context).pop();
-                _say(s.t('saved'));
-              },
-              child: Text(s.t('save')),
-            ),
-          ],
-        ),
-      ),
+      builder: (context) => _FormDialog(
+          strings: s, title: title, fields: fields, check: check, save: save),
     );
-    for (final c in controllers.values) {
-      c.dispose();
-    }
+    if (saved == true) _say(s.t('saved'));
   }
 
   Future<void> _addAccount(
@@ -600,6 +552,92 @@ class _FinanceScreenState extends State<FinanceScreen> {
       );
 }
 
+/// A small form in a dialog that owns its text controllers, so they live
+/// until the dialog has finished closing.
+class _FormDialog extends StatefulWidget {
+  const _FormDialog(
+      {required this.strings,
+      required this.title,
+      required this.fields,
+      required this.check,
+      required this.save});
+  final FinanceStrings strings;
+  final String title;
+  final List<(String key, String label, TextInputType type)> fields;
+  final String? Function(Map<String, String> values) check;
+  final Future<String?> Function(Map<String, String> values) save;
+
+  @override
+  State<_FormDialog> createState() => _FormDialogState();
+}
+
+class _FormDialogState extends State<_FormDialog> {
+  late final Map<String, TextEditingController> _controllers = {
+    for (final f in widget.fields) f.$1: TextEditingController()
+  };
+  String? _error;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    for (final c in _controllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final values = {
+      for (final e in _controllers.entries) e.key: e.value.text.trim()
+    };
+    final problem = widget.check(values);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    setState(() => _busy = true);
+    final failed = await widget.save(values);
+    if (!mounted) return;
+    if (failed != null) {
+      setState(() {
+        _error = failed;
+        _busy = false;
+      });
+      return;
+    }
+    Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.strings;
+    final error = _error;
+    return AlertDialog(
+      title: Text(widget.title),
+      scrollable: true,
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        for (final f in widget.fields)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AnumSpacing.sm),
+            child: TextField(
+                controller: _controllers[f.$1],
+                keyboardType: f.$3,
+                decoration: InputDecoration(labelText: f.$2)),
+          ),
+        if (error != null)
+          Text(error, style: TextStyle(color: context.palette.stop)),
+      ]),
+      actions: [
+        TextButton(
+            onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+            child: Text(s.t('cancel'))),
+        FilledButton(
+            onPressed: _busy ? null : _submit, child: Text(s.t('save'))),
+      ],
+    );
+  }
+}
+
 class _Sections extends StatelessWidget {
   const _Sections({required this.controller, required this.strings});
   final FinanceController controller;
@@ -637,11 +675,15 @@ class _SpendBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xxs),
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
-            const SizedBox(width: AnumSpacing.xs),
-            Text(amount, textDirection: TextDirection.ltr),
-          ]),
+          // Wraps instead of clipping when large text leaves no room.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: AnumSpacing.xs,
+            children: [
+              Text(label),
+              Text(amount, textDirection: TextDirection.ltr),
+            ],
+          ),
           const SizedBox(height: AnumSpacing.xxs),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),

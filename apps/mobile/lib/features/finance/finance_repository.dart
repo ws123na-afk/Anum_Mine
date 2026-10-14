@@ -1,5 +1,5 @@
 import '../../data/api_client.dart';
-import '../../data/json_read.dart';
+import '../../data/api_models.dart';
 import 'finance_models.dart';
 
 /// Finance over the live API (docs/finance.md). Every record is the caller's

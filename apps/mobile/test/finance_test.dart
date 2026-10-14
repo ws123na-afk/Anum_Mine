@@ -208,8 +208,9 @@ Widget app(FinanceController controller,
         builder: (context) => Scaffold(
           body: Center(
             child: FilledButton(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => FinanceScreen(controller: controller))),
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                      builder: (_) => FinanceScreen(controller: controller))),
               child: const Text('Open Finance'),
             ),
           ),
