@@ -7,6 +7,8 @@ import type {
   FinanceConnection, FinanceConnectionInput, FinanceEvaluateInput, FinanceEvaluation, FinanceFxRate, FinanceFxRateInput, FinanceGuardian,
   FinanceGuardianAlerts, FinanceGuardianChange, FinanceGuardianRules, FinanceGuardianVersion, FinancePlan, FinancePlanInput, FinanceProvider,
   FinanceSafeToSpend, FinanceSyncReport,
+  FinanceExecutionStatus, FinanceIntent, FinanceIntentInput, FinanceIntentStatus, FinanceLive, FinanceLiveChangeInput, FinancePaperOrder,
+  FinancePaperOrderStatus, FinanceWider, FinanceWidening, FinanceWideningInput, FinancePortfolio, FinancePortfolioInput, FinancePortfolioSummary, FinancePrice, FinancePriceInput, FinancePriceSaved,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -102,3 +104,42 @@ export const deleteConnection = (connectionId: string) => remove(`/connections/$
 export const listRates = (limit = 100) => get<FinanceFxRate[]>(`/fx-rates${query({ limit })}`);
 export const addRate = (body: FinanceFxRateInput) => send<FinanceFxRate>('POST', '/fx-rates', body);
 export const deleteRate = (rateId: string) => remove(`/fx-rates/${id(rateId)}`);
+
+
+// ---- Stage 6: paper and shadow trading, SIMULATED --------------------------------------------------
+export const listPrices = (symbol?: string, limit = 100) => get<FinancePrice[]>(`/prices${query({ symbol, limit })}`);
+export const addPrice = (body: FinancePriceInput) => send<FinancePriceSaved>('POST', '/prices', body);
+export const deletePrice = (priceId: string) => remove(`/prices/${id(priceId)}`);
+export const listPortfolios = () => get<FinancePortfolioSummary[]>('/paper/portfolios');
+export const getPortfolio = (portfolioId: string) => get<FinancePortfolio>(`/paper/portfolios/${id(portfolioId)}`);
+export const createPortfolio = (body: FinancePortfolioInput) => send<FinancePortfolio>('POST', '/paper/portfolios', body);
+export const updatePortfolio = (portfolioId: string, body: Partial<FinancePortfolioInput>) => send<FinancePortfolio>('PATCH', `/paper/portfolios/${id(portfolioId)}`, body);
+export const resetPortfolio = (portfolioId: string, startingCash?: { currency: string; amount: string }[]) =>
+  send<FinancePortfolio>('POST', `/paper/portfolios/${id(portfolioId)}/reset`, startingCash ? { starting_cash: startingCash } : {});
+export const deletePortfolio = (portfolioId: string) => remove(`/paper/portfolios/${id(portfolioId)}`);
+export const checkWaiting = (portfolioId: string) => send<FinancePortfolio>('POST', `/paper/portfolios/${id(portfolioId)}/check`);
+export const listOrders = (portfolioId: string, q: { status?: FinancePaperOrderStatus | ''; run?: 'current' | 'all'; limit: number; offset: number }) =>
+  get<FinancePage<FinancePaperOrder>>(`/paper/portfolios/${id(portfolioId)}/orders${query({ ...q })}`);
+export const cancelOrder = (orderId: string) => send<FinancePaperOrder>('POST', `/paper/orders/${id(orderId)}/cancel`, {});
+
+// ---- Stage 7: the execution gateway ------------------------------------------------------------------
+export const createIntent = (body: FinanceIntentInput) => send<FinanceIntent>('POST', '/execution/intents', body);
+export const listIntents = (q: { status?: FinanceIntentStatus | ''; mode?: string; limit: number; offset: number }) =>
+  get<FinancePage<FinanceIntent>>(`/execution/intents${query({ ...q })}`);
+export const approveIntent = (intentId: string, payloadHash: string) => send<FinanceIntent>('POST', `/execution/intents/${id(intentId)}/approve`, { payload_hash: payloadHash });
+export const rejectIntent = (intentId: string) => send<FinanceIntent>('POST', `/execution/intents/${id(intentId)}/reject`, {});
+export const getExecutionStatus = () => get<FinanceExecutionStatus>('/execution/status');
+export const setKillSwitch = (scope: 'person' | 'global', engaged: boolean, reason?: string) =>
+  send<FinanceExecutionStatus>('PUT', '/execution/kill-switch', { scope, engaged, reason: reason || null });
+
+// ---- Stage 8: limited live, framework only and off -------------------------------------------------------
+export const getLive = () => get<FinanceLive>('/execution/live');
+export const proposeLiveChange = (body: FinanceLiveChangeInput) => send<FinanceIntent>('POST', '/execution/live/changes', body);
+export const optOutLive = () => send<FinanceLive>('POST', '/execution/live/opt-out', {});
+
+// ---- Stage 9: wider live use, framework only and off ---------------------------------------------------
+export const getWider = () => get<FinanceWider>('/execution/wider');
+export const proposeWidening = (body: FinanceWideningInput) => send<FinanceWidening>('POST', '/execution/wider/widenings', body);
+export const approveWidening = (wideningId: string, payloadHash: string) => send<FinanceWidening>('POST', `/execution/wider/widenings/${id(wideningId)}/approve`, { payload_hash: payloadHash });
+export const rejectWidening = (wideningId: string) => send<FinanceWidening>('POST', `/execution/wider/widenings/${id(wideningId)}/reject`, {});
+export const reviewIncidents = () => send<FinanceWider>('POST', '/execution/wider/review', {});

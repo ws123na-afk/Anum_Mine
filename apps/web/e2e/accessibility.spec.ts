@@ -22,6 +22,8 @@ const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
   { hash: 'finance-safe', ready: (page) => expect(page.locator('.finBuild').first()).toBeVisible() },
   { hash: 'finance-guardian', ready: (page) => expect(page.locator('.finRules').first()).toBeVisible() },
   { hash: 'finance-connections', ready: (page) => expect(page.locator('.finSource').first()).toBeVisible() },
+  { hash: 'finance-trading', ready: (page) => expect(page.locator('.finTradeTable tbody tr').first()).toBeVisible() },
+  { hash: 'finance-execution', ready: (page) => expect(page.locator('.finPreconditions li').first()).toBeVisible() },
   { hash: 'settings', ready: (page) => expect(page.locator('.chatMemorySetting input[type="checkbox"]')).toBeVisible() },
   { hash: 'notifications', ready: (page) => expect(page.locator('.phoneList .phoneRow')).toHaveCount(1) },
   { hash: 'language', ready: (page) => expect(page.locator('.languageChoices')).toBeVisible() },

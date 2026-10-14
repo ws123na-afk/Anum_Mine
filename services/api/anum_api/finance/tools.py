@@ -42,7 +42,16 @@ READ_TOOLS = (
     "finance.summary", "finance.transactions.search", "finance.bills.upcoming",
     # Stages 3 and 4: safe-to-spend, the Guardian rules and a dry-run check. Read only.
     "finance.safe_to_spend", "finance.guardian.rules", "finance.guardian.check",
+    # Stage 6: the person's SIMULATED paper and shadow portfolios. Read only.
+    "finance.paper.portfolios",
 )
+# Stage 6: an assistant may only PROPOSE a simulated (paper or shadow) order. It waits for the
+# person's own approval with the code shown; there is no tool that approves, trades for real,
+# turns live on, changes a kill switch or sets live limits.
+PAPER_PROPOSE_TOOL = "finance.paper.propose"
+# Stage 9: an assistant may PROPOSE the next wider-live tier; only the owner approves it with the
+# code shown, and it is refused while wider live use is off (always, in this release).
+WIDEN_PROPOSE_TOOL = "finance.live.widening.propose"
 # Stage 4: the one finance tool that writes, and only a proposal: the person confirms it in
 # Finance, Guardian, with the payload hash shown there. It never loosens a rule.
 PROPOSE_TOOL = "finance.guardian.propose"
@@ -361,6 +370,145 @@ async def _guardian_propose(call: ToolCall, context: TenantContext) -> ToolResul
     )
 
 
+async def _paper_portfolios(call: ToolCall, context: TenantContext) -> ToolResult:
+    if not _has(context, Permission.FINANCE_READ):
+        return _denied()
+    import asyncio
+
+    from ..schemas import utc_now
+    from .trading_api import portfolio_view
+
+    def work() -> Any:
+        with open_finance_store(context) as store:
+            now = utc_now()
+            views = [portfolio_view(store, context, p, now) for p in store.list_portfolios(context)]
+            _, pending = store.list_intents(context, status="pending_approval", mode=None, limit=1, offset=0)
+            return views, pending
+
+    views, pending = await asyncio.to_thread(work)
+    if not views:
+        return ToolResult(status="succeeded", summary="SIMULATED: you have no paper or shadow portfolio yet. Create one under Finance, Paper trading.",
+                          output={"simulated": True, "portfolios": [], "pending": pending})
+    lines = []
+    for view in views:
+        cash = describe({r.currency: r.amount for r in view.cash}) if view.cash else "no cash (shadow)"
+        realised = describe({r.currency: r.amount for r in view.realised}) if view.realised else "nothing"
+        unrealised = describe({r.currency: r.amount for r in view.unrealised}) if view.unrealised else "nothing priced"
+        lines.append(f"{view.name} ({view.mode.value}): cash {cash}, {view.positions} position(s), realised {realised}, unrealised {unrealised}")
+    summary = "SIMULATED results with your recorded prices and fee and slippage assumptions, not real trades and no promise of returns. " + "; ".join(lines) + "."
+    if pending:
+        summary += f" {pending} request(s) wait for your approval."
+    output = {
+        "simulated": True, "note": views[0].note, "pending": pending,
+        "portfolios": [v.model_dump(mode="json", include={"id", "name", "mode", "cash", "realised", "unrealised", "positions", "waiting", "assumptions"}) for v in views],
+    }
+    return ToolResult(status="succeeded", summary=summary, output=output, audit_metadata={"portfolios": len(views), "pending": pending})
+
+
+async def _paper_propose(call: ToolCall, context: TenantContext) -> ToolResult:
+    """An assistant's SIMULATED order proposal: it only waits for the person's approval."""
+    if not _has(context, Permission.FINANCE_MANAGE):
+        return ToolResult(status="blocked", summary="Only workspace owners and members can propose paper orders.")
+    import asyncio
+
+    from ..schemas import utc_now
+    from .execution import ExecMode
+    from .gateway import GatewayRefusal, TradeSpec, create_trade_intent
+    from .money import MoneyError, normalize_currency
+    from .trading import InstrumentKind, OrderType, PortfolioMode, Side, TradingError, check_price, check_quantity, normalize_symbol
+
+    args = call.arguments
+    mode = str(args.get("mode") or "paper")
+    if mode not in {"paper", "shadow"}:
+        return ToolResult(status="blocked", summary="An assistant can only propose paper or shadow orders. ANUM places no real orders.")
+    try:
+        kind = InstrumentKind(str(args.get("instrument_kind") or "security"))
+        symbol = normalize_symbol(str(args.get("symbol") or ""))
+        if kind == InstrumentKind.FX:
+            symbol = normalize_currency(symbol)
+        side = Side(str(args.get("side") or ""))
+        quantity = check_quantity(args.get("quantity"))
+        order_type = OrderType(str(args.get("order_type") or "market"))
+        limit = check_price(args["limit_price"]) if args.get("limit_price") not in (None, "") else None
+    except (TradingError, MoneyError, ValueError) as exc:
+        return ToolResult(status="failed", summary=f"No proposal made: {str(exc).splitlines()[0]}")
+    wanted = str(args.get("portfolio") or "").strip().lower()
+
+    def work() -> Any:
+        with open_finance_store(context) as store:
+            candidates = [p for p in store.list_portfolios(context) if p.mode == PortfolioMode(mode)]
+            portfolio = next((p for p in candidates if wanted and (p.id == wanted or p.name.lower() == wanted)), None) or (
+                candidates[0] if candidates and not wanted else None)
+            if portfolio is None:
+                raise LookupError(f"No {mode} portfolio found. Create one under Finance, Paper trading first.")
+            currency = normalize_currency(str(args.get("currency") or (portfolio.starting_cash[0].currency if portfolio.starting_cash else settings_for(store, context).base_currency)))
+            spec = TradeSpec(mode=ExecMode(mode), portfolio_id=portfolio.id, instrument_kind=kind, symbol=symbol, currency=currency, side=side,
+                             order_type=order_type, quantity=quantity, limit_price=limit, reason=str(args.get("reason") or "")[:300] or None)
+            return create_trade_intent(store, context, spec, requested_by="agent", proposer="assistant", now=utc_now()), portfolio.name
+
+    try:
+        intent, name = await asyncio.to_thread(work)
+    except GatewayRefusal as exc:
+        return ToolResult(status="blocked" if exc.status == 409 else "failed", summary=f"No proposal made: {exc.message}")
+    except (LookupError, MoneyError, ValueError) as exc:
+        return ToolResult(status="failed", summary=f"No proposal made: {str(exc).splitlines()[0]}")
+    said = {"pending_approval": "It waits for your approval under Finance, Paper trading", "denied": "Your rules would block it",
+            "refused": intent.refusal or "It cannot be simulated"}.get(intent.status.value, intent.status.value)
+    summary = f"SIMULATED {mode} order proposed in {name}: nothing was bought or sold. {said}."
+    return ToolResult(
+        status="succeeded", summary=summary,
+        output={"intent_id": intent.id, "status": intent.status.value, "simulated": True, "expires_at": intent.expires_at.isoformat(),
+                "guardian": intent.decision.get("outcome")},
+        audit_metadata={"intent_id": intent.id, "mode": mode, "status": intent.status.value},
+    )
+
+
+async def _widen_propose(call: ToolCall, context: TenantContext) -> ToolResult:
+    """An assistant's proposal of the next wider-live tier. It never approves or applies anything."""
+    if not _has(context, Permission.FINANCE_MANAGE):
+        return ToolResult(status="blocked", summary="Only workspace owners and members can propose live limits.")
+    import asyncio
+    from decimal import Decimal
+
+    from ..schemas import utc_now
+    from .live import LiveLimits
+    from .money import quantize
+    from .wider import LIVE_KINDS
+    from .wider_api import WiderRefusal, limits_at, propose, refresh
+
+    try:
+        percent = int(call.arguments.get("percent") or 0)
+    except (TypeError, ValueError):
+        percent = 0
+    add = call.arguments.get("add_kind")
+    if not 1 <= percent <= 100 or (add is not None and add not in LIVE_KINDS):
+        return ToolResult(status="failed", summary="Give a step of 1 to 100 percent, and at most one action type to add.")
+
+    def work() -> Any:
+        with open_finance_store(context) as store:
+            now = utc_now()
+            settings, _ = refresh(store, context, now)
+            current = limits_at(store, context, settings, settings.wider.tier)
+            factor = Decimal(1) + Decimal(percent) / Decimal(100)
+            scaled = current.model_copy(update={
+                name: [{"currency": i.currency, "amount": quantize(i.amount * factor, i.currency)} for i in getattr(current, name)]
+                for name in ("max_per_action", "max_per_day", "max_per_month")
+            })
+            kinds = sorted(set(settings.wider.kinds) | ({add} if add else set()))
+            return propose(store, context, LiveLimits.model_validate(scaled.model_dump()), kinds, proposed_by="agent", proposer="assistant",
+                           reason=str(call.arguments.get("reason") or "")[:300] or None, now=now)
+
+    try:
+        widening = await asyncio.to_thread(work)
+    except WiderRefusal as exc:
+        return ToolResult(status="blocked", summary=f"No proposal made: {exc.message}")
+    return ToolResult(
+        status="succeeded", summary="Proposed the next tier. Nothing changes unless you approve it with its code, and live execution stays off.",
+        output={"widening_id": widening.id, "tier": widening.tier, "status": widening.status},
+        audit_metadata={"widening_id": widening.id, "tier": widening.tier},
+    )
+
+
 SCHEMAS: dict[str, dict[str, Any]] = {
     "finance.summary": {
         "type": "object",
@@ -396,6 +544,34 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "kind": {"type": "string", "enum": ["spend", "bill_payment", "transfer", "trade"]},
         },
         "required": ["amount"],
+        "additionalProperties": False,
+    },
+    "finance.paper.portfolios": {"type": "object", "properties": {}, "additionalProperties": False},
+    PAPER_PROPOSE_TOOL: {
+        "type": "object",
+        "properties": {
+            "mode": {"type": "string", "enum": ["paper", "shadow"], "description": "paper if left out; never live"},
+            "portfolio": {"type": "string", "maxLength": 80, "description": "The portfolio's name or id; the first of that mode if left out"},
+            "instrument_kind": {"type": "string", "enum": ["security", "fx"]},
+            "symbol": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9.\-]{0,19}$"},
+            "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+            "side": {"type": "string", "enum": ["buy", "sell"]},
+            "quantity": {"type": "string", "pattern": r"^\d{1,9}(\.\d{1,8})?$"},
+            "order_type": {"type": "string", "enum": ["market", "limit"]},
+            "limit_price": {"type": "string", "pattern": r"^\d{1,9}(\.\d{1,10})?$"},
+            "reason": {"type": "string", "maxLength": 300},
+        },
+        "required": ["symbol", "side", "quantity"],
+        "additionalProperties": False,
+    },
+    WIDEN_PROPOSE_TOOL: {
+        "type": "object",
+        "properties": {
+            "percent": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How much higher each live limit would be"},
+            "add_kind": {"type": "string", "enum": ["trade", "transfer", "spend", "bill_payment"]},
+            "reason": {"type": "string", "maxLength": 300},
+        },
+        "required": ["percent"],
         "additionalProperties": False,
     },
     PROPOSE_TOOL: {
@@ -437,6 +613,10 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
         "finance.guardian.check": (
             "Check what your Guardian rules say about a spend, without doing anything. Read only: ANUM moves no money.", _guardian_check,
         ),
+        "finance.paper.portfolios": (
+            "Your own SIMULATED paper and shadow portfolios: simulated cash, positions and P&L with the fee and slippage "
+            "assumptions. Read only; not real trades and no promise of returns.", _paper_portfolios,
+        ),
     }
     for name, (description, handler) in tools.items():
         registry.register(
@@ -457,6 +637,30 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
             input_schema=SCHEMAS[PROPOSE_TOOL],
         ),
         _guardian_propose,
+    )
+    registry.register(
+        ToolDefinition(
+            name=PAPER_PROPOSE_TOOL,
+            description=(
+                "Propose a SIMULATED paper or shadow order (buy or sell a quantity of a symbol). It only creates a request that "
+                "your Guardian rules check and that you approve yourself in Finance, Paper trading. Nothing real is bought or sold."
+            ),
+            risk_level=RiskLevel.LOW, idempotent=False, timeout_seconds=30, category="general", action_kind="create",
+            input_schema=SCHEMAS[PAPER_PROPOSE_TOOL],
+        ),
+        _paper_propose,
+    )
+    registry.register(
+        ToolDefinition(
+            name=WIDEN_PROPOSE_TOOL,
+            description=(
+                "Propose the next wider-live tier (higher live limits, or one more action type). Only a proposal: you approve it "
+                "yourself with its code, it is refused while wider live use is off, and ANUM still places no real order."
+            ),
+            risk_level=RiskLevel.LOW, idempotent=False, timeout_seconds=30, category="general", action_kind="create",
+            input_schema=SCHEMAS[WIDEN_PROPOSE_TOOL],
+        ),
+        _widen_propose,
     )
     return registry
 
@@ -555,6 +759,36 @@ def _proposal(text: str) -> ToolCall | None:
     return None
 
 
+_PAPER_WORD = r"(?:paper|simulated|simulate|simulation|practice|shadow|تجريبي|تجريبيا|تجريبية|محاكاة)"
+_PAPER_ORDER = re.compile(
+    rf"(?P<side>\bbuy|\bsell|اشتر|بع)\s+(?P<qty>\d{{1,9}}(?:\.\d{{1,8}})?)\s+(?:shares?\s+of\s+|units?\s+of\s+|سهم\s+)?"
+    rf"(?P<sym>[A-Za-z][A-Za-z0-9.]{{0,19}})\b",
+    re.IGNORECASE,
+)
+_PAPER_MARK = re.compile(rf"(?<!\w){_PAPER_WORD}(?!\w)", re.IGNORECASE)
+_PAPER_READ = re.compile(
+    r"\b(?:paper|shadow|simulated|practice)\s+(?:portfolios?|trading|trades|positions|results|p&l|pnl)\b"
+    r"|المحفظة التجريبية|التداول التجريبي|محفظتي التجريبية|نتائج المحاكاة",
+    re.IGNORECASE,
+)
+
+
+def paper_call(text: str) -> ToolCall | None:
+    """A SIMULATED order or the paper portfolios, asked in the user's own words (never a live order)."""
+    if not _PAPER_MARK.search(text) and not _PAPER_READ.search(text):
+        return None
+    found = _PAPER_ORDER.search(text)
+    if found and _PAPER_MARK.search(text):
+        side = "buy" if found.group("side").lower() in {"buy", "اشتر"} else "sell"
+        mode = "shadow" if re.search(r"\bshadow\b", text, re.IGNORECASE) else "paper"
+        return ToolCall(name=PAPER_PROPOSE_TOOL, arguments={
+            "mode": mode, "side": side, "quantity": found.group("qty"), "symbol": found.group("sym").upper(),
+        })
+    if _PAPER_READ.search(text):
+        return ToolCall(name="finance.paper.portfolios", arguments={})
+    return None
+
+
 def is_money_movement(text: str) -> bool:
     """"pay the DEWA bill", "transfer 500 to Ali": an action, not a question."""
     return bool(_MOVE_MONEY.search(text))
@@ -575,6 +809,11 @@ def _month_from(text: str, today: date) -> str | None:
 def plan_call(prompt: str, today: date | None = None) -> ToolCall | None:
     """The finance tool call the user's own words ask for, or ``None`` (not ours)."""
     text = " ".join(prompt.split())
+    # Stage 6: a SIMULATED order ("paper buy 10 AAPL") is only ever a proposal for the person to
+    # approve. Any other buy, sell, pay or transfer is not ours: it falls through below.
+    simulated = paper_call(text)
+    if simulated is not None:
+        return simulated
     if is_money_movement(text):
         return None
     proposal = _proposal(text)

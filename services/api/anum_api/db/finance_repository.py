@@ -19,6 +19,7 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from anum_api.finance.connectors import Connection
+from anum_api.finance.execution import ExecSettings, GlobalSwitch, Intent, IntentStatus
 from anum_api.finance.guardian import GuardianChange, GuardianPolicy
 from anum_api.finance.models import (
     Account,
@@ -33,7 +34,9 @@ from anum_api.finance.models import (
     Transaction,
 )
 from anum_api.finance.money import quantize
-from anum_api.finance.store import MAX_SUMMARY_ROWS, ItemKind, TransactionFilter
+from anum_api.finance.store import MAX_ORDERS, MAX_SUMMARY_ROWS, ItemKind, TransactionFilter
+from anum_api.finance.trading import PaperOrder, Portfolio, PriceRecord
+from anum_api.finance.wider import Incident, Widening
 from anum_api.schemas import TenantContext
 
 from .models import Base
@@ -252,6 +255,164 @@ class FinanceFxRateRecord(Base, _Owned):
     fetched_at: Mapped[datetime] = mapped_column(TS)
 
 
+class FinancePriceRecord(Base, _Owned):
+    __tablename__ = "finance_prices"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(20))
+    currency: Mapped[str] = mapped_column(String(3))
+    price: Mapped[Decimal] = mapped_column(Numeric(24, 10))
+    as_of: Mapped[date] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(120))
+    connection_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinancePaperPortfolioRecord(Base, _Owned):
+    __tablename__ = "finance_paper_portfolios"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    mode: Mapped[str] = mapped_column(String(10))
+    starting_cash: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    fee_bps: Mapped[Decimal] = mapped_column(Numeric(7, 2))
+    fee_min: Mapped[Decimal] = mapped_column(MONEY)
+    slippage_bps: Mapped[Decimal] = mapped_column(Numeric(7, 2))
+    max_price_age_days: Mapped[int] = mapped_column(Integer)
+    epoch: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+    reset_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
+class FinancePaperOrderRecord(Base, _Owned):
+    __tablename__ = "finance_paper_orders"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    portfolio_id: Mapped[str] = mapped_column(String(80))
+    intent_id: Mapped[str] = mapped_column(String(80))
+    epoch: Mapped[int] = mapped_column(Integer)
+    mode: Mapped[str] = mapped_column(String(10))
+    instrument_kind: Mapped[str] = mapped_column(String(10))
+    symbol: Mapped[str] = mapped_column(String(20))
+    currency: Mapped[str] = mapped_column(String(3))
+    side: Mapped[str] = mapped_column(String(4))
+    order_type: Mapped[str] = mapped_column(String(10))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 8))
+    limit_price: Mapped[Decimal | None] = mapped_column(Numeric(24, 10), nullable=True)
+    status: Mapped[str] = mapped_column(String(10))
+    reason_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    requested_by: Mapped[str] = mapped_column(String(10))
+    market_price: Mapped[Decimal | None] = mapped_column(Numeric(24, 10), nullable=True)
+    fill_price: Mapped[Decimal | None] = mapped_column(Numeric(24, 10), nullable=True)
+    price_as_of: Mapped[date | None] = mapped_column(Date, nullable=True)
+    price_source: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    notional: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    fee: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    slippage: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    guardian_outcome: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    guardian_codes: Mapped[list[str]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    filled_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinanceExecIntentRecord(Base, _Owned):
+    __tablename__ = "finance_exec_intents"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(10))
+    kind: Mapped[str] = mapped_column(String(20))
+    portfolio_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    instrument_kind: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    symbol: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    side: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    order_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    limit_price: Mapped[Decimal | None] = mapped_column(Numeric(24, 10), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    live_profile: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    requested_by: Mapped[str] = mapped_column(String(10))
+    proposer: Mapped[str] = mapped_column(String(160))
+    reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(80))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20))
+    decision: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    guardian_version: Mapped[int] = mapped_column(Integer)
+    estimate: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    refusal_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    refusal: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    expires_at: Mapped[datetime] = mapped_column(TS)
+    approved_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinanceExecSettingsRecord(Base):
+    __tablename__ = "finance_exec_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    kill_switch: Mapped[bool] = mapped_column(Boolean)
+    kill_switch_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    kill_switch_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    live_opt_in: Mapped[bool] = mapped_column(Boolean)
+    live_opt_in_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    live_limits: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    live_version: Mapped[int] = mapped_column(Integer)
+    wider: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinanceLiveWideningRecord(Base, _Owned):
+    __tablename__ = "finance_live_widenings"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    base_tier: Mapped[int] = mapped_column(Integer)
+    tier: Mapped[int] = mapped_column(Integer)
+    limits: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    kinds: Mapped[list[str]] = mapped_column(JSONB)
+    proposed_by: Mapped[str] = mapped_column(String(10))
+    proposer: Mapped[str] = mapped_column(String(160))
+    reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(TS)
+    expires_at: Mapped[datetime] = mapped_column(TS)
+    decided_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    effective_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
+class FinanceLiveIncidentRecord(Base, _Owned):
+    __tablename__ = "finance_live_incidents"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    code: Mapped[str] = mapped_column(String(30))
+    tier_before: Mapped[int] = mapped_column(Integer)
+    tier_after: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    reviewed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
+class FinanceExecGlobalRecord(Base):
+    __tablename__ = "finance_exec_global"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    engaged: Mapped[bool] = mapped_column(Boolean)
+    changed_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    changed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
 ITEM_RECORDS: dict[str, tuple[type[Any], type[BaseModel]]] = {
     "bill": (FinanceBillRecord, Bill),
     "debt": (FinanceDebtRecord, Debt),
@@ -267,6 +428,7 @@ def _fields(model: BaseModel) -> dict[str, Any]:
 
 MONEY_FIELDS = frozenset({
     "amount", "opening_balance", "balance", "minimum_payment", "target_amount", "saved_amount", "cost_basis", "monthly_contribution",
+    "notional", "fee", "slippage",
 })
 
 
@@ -657,9 +819,241 @@ class SqlAlchemyFinanceStore:
         )
         return bool(result.rowcount)
 
+    # Stage 6: prices, portfolios, orders --------------------------------------------------
+
+    @staticmethod
+    def _plain(row: Any, model: type[BaseModel]) -> Any:
+        return model.model_validate({name: getattr(row, name) for name in model.model_fields})
+
+    def list_prices(self, context: TenantContext, *, symbol: str | None, limit: int) -> list[PriceRecord]:
+        record = FinancePriceRecord
+        clauses = list(self._mine(record, context))
+        if symbol is not None:
+            clauses.append(record.symbol == symbol)
+        rows = self.session.scalars(select(record).where(*clauses).order_by(record.as_of.desc(), record.recorded_at.desc(), record.id.desc()).limit(limit))
+        return [self._plain(row, PriceRecord) for row in rows]
+
+    def save_price(self, price: PriceRecord) -> bool:
+        self._require(price)
+        inserted = self.session.execute(
+            insert(FinancePriceRecord).values(**_fields(price)).on_conflict_do_nothing(constraint="uq_finance_prices_day").returning(FinancePriceRecord.id)
+        )
+        return inserted.first() is not None
+
+    def delete_price(self, context: TenantContext, price_id: str) -> bool:
+        record = FinancePriceRecord
+        return bool(self.session.execute(delete(record).where(*self._mine(record, context), record.id == price_id)).rowcount)
+
+    def _portfolio(self, row: FinancePaperPortfolioRecord) -> Portfolio:
+        values = {name: getattr(row, name) for name in Portfolio.model_fields}
+        values["fee_min"] = Decimal(values["fee_min"]).quantize(Decimal("0.01"))
+        return Portfolio.model_validate(values)
+
+    def list_portfolios(self, context: TenantContext) -> list[Portfolio]:
+        record = FinancePaperPortfolioRecord
+        rows = self.session.scalars(select(record).where(*self._mine(record, context)).order_by(record.created_at, record.id))
+        return [self._portfolio(row) for row in rows]
+
+    def get_portfolio(self, context: TenantContext, portfolio_id: str) -> Portfolio | None:
+        record = FinancePaperPortfolioRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.id == portfolio_id))
+        return self._portfolio(row) if row else None
+
+    def save_portfolio(self, portfolio: Portfolio) -> Portfolio:
+        self._require(portfolio)
+        values = {**_fields(portfolio), "starting_cash": [line.model_dump(mode="json") for line in portfolio.starting_cash]}
+        existing = self.session.get(FinancePaperPortfolioRecord, portfolio.id)
+        if existing is None:
+            self.session.add(FinancePaperPortfolioRecord(**values))
+        else:
+            for key, value in values.items():
+                setattr(existing, key, value)
+        self.session.flush()
+        return portfolio
+
+    def delete_portfolio(self, context: TenantContext, portfolio_id: str) -> bool:
+        # Its orders cascade; the execution requests made for it stay as history.
+        record = FinancePaperPortfolioRecord
+        return bool(self.session.execute(delete(record).where(*self._mine(record, context), record.id == portfolio_id)).rowcount)
+
+    def _order(self, row: FinancePaperOrderRecord) -> PaperOrder:
+        return _model(row, PaperOrder)
+
+    def list_orders(self, context: TenantContext, portfolio_id: str, *, epoch: int | None, status: str | None, limit: int, offset: int) -> tuple[list[PaperOrder], int]:
+        record = FinancePaperOrderRecord
+        clauses = [*self._mine(record, context), record.portfolio_id == portfolio_id]
+        if epoch is not None:
+            clauses.append(record.epoch == epoch)
+        if status is not None:
+            clauses.append(record.status == status)
+        total = int(self.session.scalar(select(func.count()).select_from(record).where(*clauses)) or 0)
+        rows = self.session.scalars(select(record).where(*clauses).order_by(record.created_at.desc(), record.id.desc()).limit(limit).offset(offset))
+        return [self._order(row) for row in rows], total
+
+    def portfolio_orders(self, context: TenantContext, portfolio_id: str, epoch: int) -> list[PaperOrder]:
+        record = FinancePaperOrderRecord
+        rows = self.session.scalars(
+            select(record).where(*self._mine(record, context), record.portfolio_id == portfolio_id, record.epoch == epoch)
+            .order_by(record.created_at, record.id).limit(MAX_ORDERS)
+        )
+        return [self._order(row) for row in rows]
+
+    def get_order(self, context: TenantContext, order_id: str) -> PaperOrder | None:
+        record = FinancePaperOrderRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.id == order_id))
+        return self._order(row) if row else None
+
+    def order_for_intent(self, context: TenantContext, intent_id: str) -> PaperOrder | None:
+        record = FinancePaperOrderRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.intent_id == intent_id))
+        return self._order(row) if row else None
+
+    def add_order(self, order: PaperOrder) -> bool:
+        self._require(order)
+        inserted = self.session.execute(
+            insert(FinancePaperOrderRecord).values(**_fields(order))
+            .on_conflict_do_nothing(constraint="uq_finance_paper_orders_intent").returning(FinancePaperOrderRecord.id)
+        )
+        return inserted.first() is not None
+
+    def save_order(self, order: PaperOrder) -> PaperOrder:
+        self._upsert(FinancePaperOrderRecord, order)
+        return order
+
+    # Stage 7 and 8: intents, kill switches, live settings ------------------------------
+
+    def _intent(self, row: FinanceExecIntentRecord) -> Intent:
+        values = {name: getattr(row, name) for name in Intent.model_fields}
+        if values.get("amount") is not None and values.get("currency"):
+            values["amount"] = quantize(Decimal(values["amount"]), values["currency"])
+        return Intent.model_validate(values)
+
+    def list_intents(self, context: TenantContext, *, status: str | None, mode: str | None, limit: int, offset: int) -> tuple[list[Intent], int]:
+        record = FinanceExecIntentRecord
+        clauses = list(self._mine(record, context))
+        if status is not None:
+            clauses.append(record.status == status)
+        if mode is not None:
+            clauses.append(record.mode == mode)
+        total = int(self.session.scalar(select(func.count()).select_from(record).where(*clauses)) or 0)
+        rows = self.session.scalars(select(record).where(*clauses).order_by(record.created_at.desc(), record.id.desc()).limit(limit).offset(offset))
+        return [self._intent(row) for row in rows], total
+
+    def get_intent(self, context: TenantContext, intent_id: str) -> Intent | None:
+        record = FinanceExecIntentRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.id == intent_id))
+        return self._intent(row) if row else None
+
+    def intent_by_key(self, context: TenantContext, key: str) -> Intent | None:
+        record = FinanceExecIntentRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.idempotency_key == key))
+        return self._intent(row) if row else None
+
+    def save_intent(self, intent: Intent) -> bool:
+        self._require(intent)
+        values = _fields(intent)
+        existing = self.session.get(FinanceExecIntentRecord, intent.id)
+        if existing is not None:
+            for key, value in values.items():
+                setattr(existing, key, value)
+            self.session.flush()
+            return True
+        inserted = self.session.execute(
+            insert(FinanceExecIntentRecord).values(**values)
+            .on_conflict_do_nothing(constraint="uq_finance_exec_intents_key").returning(FinanceExecIntentRecord.id)
+        )
+        return inserted.first() is not None
+
+    def claim_intent(self, context: TenantContext, intent_id: str, now: datetime, approver: str) -> bool:
+        """Pending to executing, once: the approval is used by exactly one caller."""
+        record = FinanceExecIntentRecord
+        result = self.session.execute(
+            update(record)
+            .where(*self._mine(record, context), record.id == intent_id, record.status == IntentStatus.PENDING.value,
+                   record.expires_at > now, record.owner_user_id == approver)
+            .values(status=IntentStatus.EXECUTING.value, approved_at=now, approved_by=approver, updated_at=now)
+        )
+        return bool(result.rowcount)
+
+    def get_exec_settings(self, context: TenantContext) -> ExecSettings | None:
+        row = self.session.scalar(select(FinanceExecSettingsRecord).where(*self._mine(FinanceExecSettingsRecord, context)))
+        if row is None:
+            return None
+        return ExecSettings.model_validate({name: getattr(row, name) for name in ExecSettings.model_fields})
+
+    def save_exec_settings(self, context: TenantContext, settings: ExecSettings) -> ExecSettings:
+        require_workspace(self.session, context.tenant_id, context.workspace_id)
+        values = {**settings.model_dump(mode="json", exclude={"live_limits", "updated_at", "kill_switch_at", "live_opt_in_at"}),
+                  "kill_switch_at": settings.kill_switch_at, "live_opt_in_at": settings.live_opt_in_at, "wider": settings.wider.model_dump(mode="json"),
+                  "live_limits": settings.live_limits.model_dump(mode="json"), "updated_at": settings.updated_at or datetime.now().astimezone()}
+        statement = insert(FinanceExecSettingsRecord).values(
+            tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id, **values
+        )
+        self.session.execute(statement.on_conflict_do_update(index_elements=["tenant_id", "workspace_id", "owner_user_id"], set_=values))
+        return settings
+
+    def get_global_switch(self, context: TenantContext) -> GlobalSwitch | None:
+        row = self.session.scalar(select(FinanceExecGlobalRecord).where(FinanceExecGlobalRecord.tenant_id == context.tenant_id))
+        if row is None:
+            return None
+        return GlobalSwitch(engaged=row.engaged, changed_by=row.changed_by, changed_at=row.changed_at, reason=row.reason)
+
+    def save_global_switch(self, context: TenantContext, switch: GlobalSwitch) -> GlobalSwitch:
+        values = switch.model_dump()
+        statement = insert(FinanceExecGlobalRecord).values(tenant_id=context.tenant_id, **values)
+        self.session.execute(statement.on_conflict_do_update(index_elements=["tenant_id"], set_=values))
+        return switch
+
+    # Stage 9: widenings and incidents -----------------------------------------------------
+
+    def list_widenings(self, context: TenantContext, *, status: str | None, limit: int) -> list[Widening]:
+        record = FinanceLiveWideningRecord
+        clauses = list(self._mine(record, context))
+        if status is not None:
+            clauses.append(record.status == status)
+        rows = self.session.scalars(select(record).where(*clauses).order_by(record.created_at.desc(), record.id.desc()).limit(limit))
+        return [self._plain(row, Widening) for row in rows]
+
+    def get_widening(self, context: TenantContext, widening_id: str) -> Widening | None:
+        record = FinanceLiveWideningRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.id == widening_id))
+        return self._plain(row, Widening) if row else None
+
+    def save_widening(self, widening: Widening) -> Widening:
+        self._require(widening)
+        values = {**_fields(widening), "limits": widening.limits.model_dump(mode="json"), "kinds": list(widening.kinds)}
+        existing = self.session.get(FinanceLiveWideningRecord, widening.id)
+        if existing is None:
+            self.session.add(FinanceLiveWideningRecord(**values))
+        else:
+            for key, value in values.items():
+                setattr(existing, key, value)
+        self.session.flush()
+        return widening
+
+    def claim_widening(self, context: TenantContext, widening_id: str, now: datetime, approver: str, effective_at: datetime) -> bool:
+        record = FinanceLiveWideningRecord
+        result = self.session.execute(
+            update(record)
+            .where(*self._mine(record, context), record.id == widening_id, record.status == "pending", record.expires_at > now,
+                   record.owner_user_id == approver)
+            .values(status="approved", decided_at=now, decided_by=approver, effective_at=effective_at)
+        )
+        return bool(result.rowcount)
+
+    def list_incidents(self, context: TenantContext, *, limit: int) -> list[Incident]:
+        record = FinanceLiveIncidentRecord
+        rows = self.session.scalars(select(record).where(*self._mine(record, context)).order_by(record.created_at.desc(), record.id.desc()).limit(limit))
+        return [self._plain(row, Incident) for row in rows]
+
+    def save_incident(self, incident: Incident) -> Incident:
+        self._upsert(FinanceLiveIncidentRecord, incident)
+        return incident
+
     # privacy ------------------------------------------------------------------------------
 
     _ALL = (
+        FinanceLiveIncidentRecord, FinanceLiveWideningRecord, FinancePaperOrderRecord, FinancePaperPortfolioRecord, FinancePriceRecord, FinanceExecIntentRecord, FinanceExecSettingsRecord,
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
         FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianChangeRecord,
         FinanceGuardianVersionRecord, FinancePlanRecord, FinanceAccountRecord, FinanceSettingsRecord,

@@ -952,6 +952,23 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         versions += page
         if not page or len(versions) >= total:
             break
+    portfolios = [p.model_dump(mode="json", exclude=hidden) for p in finance.list_portfolios(context)]
+    orders: list[Any] = []
+    for portfolio in portfolios:
+        mine: list[Any] = []
+        while True:
+            page, total = finance.list_orders(context, portfolio["id"], epoch=None, status=None, limit=200, offset=len(mine))
+            mine += [o.model_dump(mode="json", exclude=hidden) for o in page]
+            if not page or len(mine) >= total:
+                break
+        orders += mine
+    intents: list[Any] = []
+    while True:
+        page, total = finance.list_intents(context, status=None, mode=None, limit=200, offset=len(intents))
+        intents += [i.model_dump(mode="json", exclude=hidden) for i in page]
+        if not page or len(intents) >= total:
+            break
+    exec_settings = finance.get_exec_settings(context)
     return {
         "settings": settings.model_dump(mode="json") if settings is not None else None,
         "accounts": [a.model_dump(mode="json", exclude=hidden) for a in finance.list_accounts(context)],
@@ -971,6 +988,18 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
             for c in finance.list_connections(context)
         ],
         "fx_rates": [r.model_dump(mode="json", exclude=hidden) for r in finance.list_fx_rates(context, limit=10_000)],
+        # Stages 6 to 8: recorded prices, paper and shadow portfolios and their SIMULATED
+        # orders, execution requests with their approvals, and the person's own execution
+        # settings (kill switch, live limits, opt-in). The organisation's kill switch is not
+        # personal data and is not exported.
+        "prices": [p.model_dump(mode="json", exclude=hidden) for p in finance.list_prices(context, symbol=None, limit=10_000)],
+        "paper_portfolios": portfolios,
+        "paper_orders": orders,
+        "execution_requests": intents,
+        "execution_settings": exec_settings.model_dump(mode="json") if exec_settings is not None else None,
+        # Stage 9: proposals to widen live limits and the incidents that stepped them down.
+        "live_widenings": [w.model_dump(mode="json", exclude=hidden) for w in finance.list_widenings(context, status=None, limit=10_000)],
+        "live_incidents": [i.model_dump(mode="json", exclude=hidden) for i in finance.list_incidents(context, limit=10_000)],
     }
 
 

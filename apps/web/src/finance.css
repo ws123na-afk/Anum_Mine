@@ -170,3 +170,45 @@
   .finLayout > .cmTabs > button { flex: none; }
 }
 .finMapping > button.secondary { justify-self: start; }
+
+/* ---- Stages 6 to 8: paper trading (SIMULATED), execution and limited live (off) ---- */
+.finSimNote { align-items: flex-start; display: flex; gap: var(--d-s2); margin: 0; }
+.finSimNote > svg { flex: none; margin-top: 2px; }
+.finSimNote span { overflow-wrap: anywhere; }
+.finSimBadge { letter-spacing: .04em; vertical-align: middle; }
+.finPortfolios { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
+.finPortfolio { inline-size: 100%; block-size: 100%; align-content: start; background: transparent; border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); display: grid; gap: var(--d-s1); min-width: 0; padding: var(--d-s3) var(--d-s4); text-align: start; }
+.finPortfolio small { color: var(--d-muted); font-size: 13px; overflow-wrap: anywhere; }
+.finPortfolio.active { border-color: var(--d-violet); box-shadow: inset 0 0 0 1px var(--d-violet); }
+.finPortfolioHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.finPortfolioHead strong { overflow-wrap: anywhere; }
+.finFigures { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); margin: 0; }
+.finFigures > div { display: grid; gap: 2px; min-width: 0; }
+.finFigures dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.finFigures dd { display: flex; flex-wrap: wrap; font-size: 15px; gap: var(--d-s1) var(--d-s3); margin: 0; overflow-wrap: anywhere; }
+.finFigures dd small { color: var(--d-faint); flex-basis: 100%; font-size: 12px; }
+.finSub { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.finSub h3, .finSubHead { font-size: 15px; margin: 0; }
+.finTradeTable th small, .finTradeTable td small { color: var(--d-faint); display: block; font-size: 12px; font-weight: 400; }
+.finTradeTable .num { text-align: end; white-space: nowrap; }
+.finSymbolInput { max-width: 12ch; text-transform: uppercase; }
+.finQtyInput { max-width: 14ch; }
+.finOrderForm { align-items: end; }
+.finOrderForm > button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4); }
+.finReviewLine { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.finPreconditions li > svg { color: var(--d-ok); }
+.finPreconditions .finUnmet > svg { color: var(--d-warn); }
+.finSteps { display: grid; gap: var(--d-s2); margin: var(--d-s2) 0 0; padding-inline-start: var(--d-s5); }
+.finLiveOff { align-items: flex-start; display: flex; gap: var(--d-s2); margin: 0; }
+.finLiveOff > svg { flex: none; margin-top: 2px; }
+@media (max-width: 760px) {
+  .finOrderForm > * { flex: 1 1 100%; }
+  .finSymbolInput, .finQtyInput { max-width: none; }
+  /* Positions as cards: symbol and value, then quantity, cost, price and result. */
+  .finTradeTable thead { display: none; }
+  .finTradeTable, .finTradeTable tbody { display: block; }
+  .finTradeTable tr { border-top: 1px solid var(--d-line); display: grid; gap: 2px var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding: var(--d-s2) 0; }
+  .finTradeTable th, .finTradeTable td { border: 0; padding: 0; text-align: start; }
+  .finTradeTable .num { text-align: end; }
+  .finTradeTable td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: 12px; text-align: start; }
+}

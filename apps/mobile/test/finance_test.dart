@@ -6,6 +6,7 @@ import 'package:anum_mobile/features/finance/finance_plan_models.dart';
 import 'package:anum_mobile/features/finance/finance_repository.dart';
 import 'package:anum_mobile/features/finance/finance_screen.dart';
 import 'package:anum_mobile/features/finance/finance_strings.dart';
+import 'package:anum_mobile/features/finance/finance_trading_models.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
@@ -314,6 +315,115 @@ class FakeFinance implements FinanceRepository {
 
   @override
   Future<void> syncConnection(String id) async => requests.add('sync $id');
+
+  // Stages 6 to 9.
+  bool killed = false, frozen = true;
+
+  @override
+  Future<List<PortfolioSummary>> portfolios() async {
+    if (deny) throw const ApiException(403, 'Workspace permission denied');
+    return empty
+        ? []
+        : [
+            PortfolioSummary.fromJson(JsonReader.of({
+              'id': 'fin_port_1',
+              'name': 'Practice',
+              'mode': 'paper',
+              'cash': [
+                {'currency': 'USD', 'amount': '8998.50'}
+              ],
+              'realised': <Object>[],
+              'unrealised': [
+                {'currency': 'USD', 'amount': '-1.50'}
+              ],
+              'positions': 1,
+              'waiting': 0,
+              'assumptions': {'fee_bps': '10.00', 'slippage_bps': '5.00'},
+            }))
+          ];
+  }
+
+  @override
+  Future<List<TradeIntent>> pendingIntents() async => empty
+      ? []
+      : [
+          TradeIntent.fromJson(JsonReader.of({
+            'id': 'fin_int_agent',
+            'mode': 'paper',
+            'kind': 'trade',
+            'status': 'pending_approval',
+            'payload_hash': 'cd34' * 16,
+            'expires_at': '2026-10-14T10:00:00Z',
+            'requested_by': 'agent',
+            'symbol': 'EXMPL',
+            'side': 'buy',
+            'quantity': '3.00000000',
+            'currency': 'USD',
+            'portfolio_name': 'Practice',
+            'decision': {
+              'outcome': 'needs_approval',
+              'reasons': [
+                {'code': 'agent_request'}
+              ]
+            },
+            'estimate': {
+              'notional': '300.15',
+              'fee': '1.00',
+              'slippage': '0.15'
+            },
+          }))
+        ];
+
+  @override
+  Future<void> approveIntent(String id, String payloadHash) async =>
+      requests.add('approve $id $payloadHash');
+
+  @override
+  Future<void> rejectIntent(String id) async => requests.add('reject $id');
+
+  @override
+  Future<ExecutionState> executionState() async {
+    if (deny) throw const ApiException(403, 'Workspace permission denied');
+    return ExecutionState.fromJson(JsonReader.of({
+      'person_switch': {'engaged': killed},
+      'global_switch': {'engaged': false, 'can_change': false},
+    }));
+  }
+
+  @override
+  Future<void> setKillSwitch(bool engaged) async {
+    killed = engaged;
+    requests.add('kill $engaged');
+  }
+
+  @override
+  Future<LiveState> liveState() async => LiveState.from(
+      JsonReader.of({
+        'preconditions': [
+          {'code': 'deployment_flag', 'met': false},
+          {'code': 'live_executor', 'met': false},
+        ]
+      }),
+      JsonReader.of({
+        'tier': 0,
+        'frozen': frozen,
+        'frozen_reason': 'kill_switch_person',
+        'ceilings': {'max_tier': 3},
+        'criteria': [
+          {
+            'code': 'executed_actions',
+            'met': false,
+            'value': '0',
+            'needed': '20'
+          }
+        ],
+      }));
+
+  @override
+  Future<void> reviewIncidents() async {
+    frozen = false;
+    requests.add('review');
+  }
 }
 
 Widget app(FinanceController controller,
@@ -498,16 +608,7 @@ void main() {
     expect(find.text('Card: covered by its minimum payment'), findsOneWidget);
   });
 
-  testWidgets('safe to spend reads in Arabic', (tester) async {
-    final ar = FinanceController(FakeFinance());
-    await tester.pumpWidget(app(ar, locale: const Locale('ar')));
-    await tester.tap(find.text('Open Finance'));
-    await tester.pumpAndSettle();
-    await ar.select(FinanceSection.safe);
-    await tester.pumpAndSettle();
-    expect(find.text('المتاح للصرف بعملة AED'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets('safe to spend reads in Arabic', (tester) async {});
 
   testWidgets('empty safe to spend leads to adding an account', (tester) async {
     final c = FinanceController(FakeFinance(empty: true));
@@ -561,5 +662,95 @@ void main() {
     final c = FinanceController(FakeFinance(deny: true));
     await c.loadSafe();
     expect(c.safeState, FinanceLoad.denied);
+  });
+
+  testWidgets(
+      'a simulated order waits for the person and is approved with its code',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = FakeFinance();
+    final c = FinanceController(repo);
+    await tester.pumpWidget(app(c));
+    await open(tester);
+    await c.select(FinanceSection.trading);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SIMULATED.'), findsOneWidget);
+    expect(find.text('Buy 3 EXMPL'), findsOneWidget);
+    expect(find.text('Proposed by an assistant: only you can approve it.'),
+        findsOneWidget);
+    expect(find.text('Practice'), findsWidgets);
+    await tester.ensureVisible(
+        find.widgetWithText(FilledButton, 'Approve this simulated order'));
+    await tester
+        .tap(find.widgetWithText(FilledButton, 'Approve this simulated order'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+        find.widgetWithText(FilledButton, 'Approve this simulated order').last);
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('approve fin_int_agent ${'cd34' * 16}'));
+  });
+
+  testWidgets('live stays off; the kill switch and an incident review work',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = FakeFinance();
+    final c = FinanceController(repo);
+    await tester.pumpWidget(app(c));
+    await open(tester);
+    await c.select(FinanceSection.execution);
+    await tester.pumpAndSettle();
+    expect(
+        find.textContaining('Live execution is not enabled.'), findsOneWidget);
+    expect(find.text('Wider live use is not enabled.'), findsOneWidget);
+    expect(find.text('Live actions carried out'), findsOneWidget);
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('kill true'));
+    await tester.tap(find.text('I have reviewed it'));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('review'));
+  });
+
+  testWidgets('paper trading empty, denied and failed states', (tester) async {
+    final empty = FinanceController(FakeFinance(empty: true));
+    await empty.loadTrading();
+    expect(empty.portfolios, isEmpty);
+    expect(empty.tradingState, FinanceLoad.ready);
+    final denied = FinanceController(FakeFinance(deny: true));
+    await denied.loadTrading();
+    expect(denied.tradingState, FinanceLoad.denied);
+    await denied.loadExecution();
+    expect(denied.executionLoad, FinanceLoad.denied);
+    expect(trimDecimal('10.50000000'), '10.5');
+    expect(trimDecimal('3.00000000'), '3');
+  });
+
+  testWidgets('safe to spend reads in Arabic', (tester) async {
+    final ar = FinanceController(FakeFinance());
+    await tester.pumpWidget(app(ar, locale: const Locale('ar')));
+    await tester.tap(find.text('Open Finance'));
+    await tester.pumpAndSettle();
+    await ar.select(FinanceSection.safe);
+    await tester.pumpAndSettle();
+    expect(find.text('المتاح للصرف بعملة AED'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wider live use reads in Arabic', (tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final ar = FinanceController(FakeFinance());
+    await tester.pumpWidget(app(ar, locale: const Locale('ar')));
+    await tester.tap(find.text('Open Finance'));
+    await tester.pumpAndSettle();
+    await ar.select(FinanceSection.execution);
+    await tester.pumpAndSettle();
+    expect(find.text('التوسّع في التداول الحي غير مفعّل.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

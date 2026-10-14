@@ -508,3 +508,271 @@ export interface FinanceFxRate {
 }
 
 export interface FinanceFxRateInput { base: string; quote: string; rate: string; as_of: string }
+
+// ---- Stage 6: paper and shadow trading, SIMULATED (docs/finance.md#paper-and-shadow-trading) ------
+
+export type FinancePortfolioMode = 'paper' | 'shadow';
+export type FinanceInstrumentKind = 'security' | 'fx';
+export type FinanceOrderSide = 'buy' | 'sell';
+export type FinanceOrderType = 'market' | 'limit';
+export type FinancePaperOrderStatus = 'waiting' | 'filled' | 'refused' | 'cancelled';
+
+/** A price the person recorded. ANUM has no market-price source and never invents a price. */
+export interface FinancePrice { id: string; symbol: string; currency: string; price: string; as_of: string; source: string; recorded_at: string }
+export interface FinancePriceInput { symbol: string; currency: string; price: string; as_of: string }
+export interface FinancePriceSaved { price: FinancePrice; orders_changed: number }
+
+/** The fee and slippage model every simulated result uses (basis points: 10 = 0.10 percent). */
+export interface FinanceTradingAssumptions { fee_bps: string; fee_min: string; slippage_bps: string; max_price_age_days: number }
+
+export interface FinancePortfolioSummary {
+  id: string;
+  name: string;
+  mode: FinancePortfolioMode;
+  epoch: number;
+  assumptions: FinanceTradingAssumptions;
+  starting_cash: FinanceCurrencyAmount[];
+  cash: FinanceCurrencyAmount[];
+  realised: FinanceCurrencyAmount[];
+  unrealised: FinanceCurrencyAmount[];
+  positions: number;
+  waiting: number;
+  created_at: string;
+  reset_at: string | null;
+  /** Always true: nothing here is a real trade. */
+  simulated: true;
+}
+
+export interface FinancePosition {
+  instrument_kind: FinanceInstrumentKind;
+  symbol: string;
+  currency: string;
+  quantity: string;
+  cost: string;
+  average_price: string | null;
+  price: string | null;
+  price_as_of: string | null;
+  price_source: string | null;
+  market_value: string | null;
+  unrealised: string | null;
+}
+
+export interface FinanceShadowEntry {
+  order_id: string;
+  symbol: string;
+  currency: string;
+  side: FinanceOrderSide;
+  quantity: string;
+  fill_price: string;
+  filled_at: string;
+  fee: string;
+  price: string | null;
+  price_as_of: string | null;
+  result: string | null;
+  days: number;
+}
+
+export interface FinancePortfolio extends FinancePortfolioSummary {
+  holdings: FinancePosition[];
+  fees: FinanceCurrencyAmount[];
+  slippage: FinanceCurrencyAmount[];
+  unpriced: string[];
+  shadow: FinanceShadowEntry[];
+  shadow_totals: FinanceCurrencyAmount[];
+  note: string;
+}
+
+export interface FinancePortfolioInput {
+  name: string;
+  mode: FinancePortfolioMode;
+  starting_cash: { currency: string; amount: string }[];
+  fee_bps: string;
+  fee_min: string;
+  slippage_bps: string;
+  max_price_age_days: number;
+}
+
+export interface FinancePaperOrder {
+  id: string;
+  portfolio_id: string;
+  intent_id: string;
+  epoch: number;
+  mode: FinancePortfolioMode;
+  instrument_kind: FinanceInstrumentKind;
+  symbol: string;
+  currency: string;
+  side: FinanceOrderSide;
+  order_type: FinanceOrderType;
+  quantity: string;
+  limit_price: string | null;
+  status: FinancePaperOrderStatus;
+  reason_code: string | null;
+  reason: string | null;
+  requested_by: string;
+  market_price: string | null;
+  fill_price: string | null;
+  price_as_of: string | null;
+  price_source: string | null;
+  notional: string | null;
+  fee: string | null;
+  slippage: string | null;
+  guardian_outcome: string | null;
+  guardian_codes: string[];
+  created_at: string;
+  filled_at: string | null;
+  simulated: true;
+}
+
+// ---- Stage 7: the execution gateway (docs/finance.md#execution-gateway) ---------------------------
+
+export type FinanceExecMode = 'paper' | 'shadow' | 'live' | 'settings';
+export type FinanceIntentStatus = 'pending_approval' | 'denied' | 'refused' | 'executing' | 'executed' | 'failed' | 'expired' | 'rejected';
+
+/** What a simulated order would fill at now, with the assumptions used. */
+export interface FinanceTradeEstimate {
+  market_price: string;
+  fill_price: string;
+  notional: string;
+  fee: string;
+  slippage: string;
+  price_as_of: string;
+  price_source: string;
+  fee_bps: string;
+  fee_min: string;
+  slippage_bps: string;
+  limit_met: boolean;
+  simulated: true;
+  note: string;
+}
+
+/** A request through the gateway. It runs only when the person approves this payload_hash. */
+export interface FinanceIntent {
+  id: string;
+  mode: FinanceExecMode;
+  kind: 'trade' | 'transfer' | 'spend' | 'bill_payment' | 'live_profile';
+  portfolio_id: string | null;
+  portfolio_name: string | null;
+  instrument_kind: FinanceInstrumentKind | null;
+  symbol: string | null;
+  currency: string | null;
+  side: FinanceOrderSide | null;
+  order_type: FinanceOrderType | null;
+  quantity: string | null;
+  limit_price: string | null;
+  amount: string | null;
+  account_id: string | null;
+  live_profile: { base_version: number; limits: FinanceLiveLimits; opt_in: boolean } | null;
+  requested_by: 'person' | 'agent';
+  reason: string | null;
+  payload_hash: string;
+  status: FinanceIntentStatus;
+  decision: FinanceGuardianDecision | Record<string, never>;
+  guardian_version: number;
+  estimate: FinanceTradeEstimate | null;
+  refusal_code: string | null;
+  refusal: string | null;
+  created_at: string;
+  expires_at: string;
+  approved_at: string | null;
+  executed_at: string | null;
+  result: { order_id?: string; order_status?: FinancePaperOrderStatus; reason_code?: string | null; simulated?: boolean; live_version?: number };
+  simulated: boolean;
+}
+
+export interface FinanceIntentInput {
+  mode: 'paper' | 'shadow' | 'live';
+  kind?: 'trade';
+  portfolio_id: string;
+  instrument_kind: FinanceInstrumentKind;
+  symbol: string;
+  currency: string;
+  side: FinanceOrderSide;
+  order_type: FinanceOrderType;
+  quantity: string;
+  limit_price?: string | null;
+  reason?: string | null;
+  idempotency_key?: string | null;
+}
+
+export interface FinanceKillSwitch { engaged: boolean; changed_at: string | null; changed_by_you: boolean; reason: string | null; can_change: boolean }
+
+export interface FinanceExecutionStatus {
+  global_switch: FinanceKillSwitch;
+  person_switch: FinanceKillSwitch;
+  executors: { mode: 'paper' | 'shadow' | 'live'; available: boolean; simulated: boolean; note: string }[];
+  /** Always false in this release: no live executor exists. */
+  live_enabled: false;
+  approval_minutes: number;
+  pending: number;
+}
+
+// ---- Stage 8: limited live, framework only and OFF (docs/finance.md#limited-live) ------------------
+
+export interface FinanceLiveLimits {
+  max_per_action: FinanceAmountLimit[];
+  max_per_day: FinanceAmountLimit[];
+  max_per_month: FinanceAmountLimit[];
+  instruments: string[];
+  accounts: string[];
+  currencies: string[];
+  cooling_off_hours: number;
+}
+
+export interface FinanceLivePrecondition { code: string; met: boolean; message: string }
+
+export interface FinanceLive {
+  enabled: false;
+  opt_in: boolean;
+  opt_in_at: string | null;
+  limits: FinanceLiveLimits;
+  version: number;
+  preconditions: FinanceLivePrecondition[];
+  pending: FinanceIntent[];
+  owner_steps: string[];
+  note: string;
+}
+
+export interface FinanceLiveChangeInput { limits: FinanceLiveLimits; opt_in?: boolean; reason?: string | null }
+
+// ---- Stage 9: wider live use, framework only and OFF (docs/finance.md#wider-live) ----------------
+
+export interface FinanceWiderCriterion { code: string; met: boolean; value: string; needed: string }
+
+/** A proposed step up one tier. It applies only when the owner approves this payload_hash, after a cooling-off. */
+export interface FinanceWidening {
+  id: string;
+  base_tier: number;
+  tier: number;
+  limits: FinanceLiveLimits;
+  kinds: string[];
+  proposed_by: 'person' | 'agent';
+  reason: string | null;
+  payload_hash: string;
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'superseded' | 'cancelled';
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  effective_at: string | null;
+}
+
+export interface FinanceLiveIncident { id: string; code: 'kill_switch_person' | 'kill_switch_global' | 'failed_execution' | 'repeated_denials'; tier_before: number; tier_after: number; created_at: string; reviewed_at: string | null }
+
+export interface FinanceWider {
+  enabled: boolean;
+  /** Always false in this release: the gateway refuses every live request whatever the tier. */
+  live_enabled: false;
+  tier: number;
+  kinds: string[];
+  limits: FinanceLiveLimits;
+  frozen: boolean;
+  frozen_at: string | null;
+  frozen_reason: string | null;
+  graduated: boolean;
+  criteria: FinanceWiderCriterion[];
+  ceilings: { max_tier: number; step_percent: number; cooling_hours: number; window_days: number };
+  widenings: FinanceWidening[];
+  incidents: FinanceLiveIncident[];
+  note: string;
+}
+
+export interface FinanceWideningInput { limits: FinanceLiveLimits; kinds: string[]; reason?: string | null }

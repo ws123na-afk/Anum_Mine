@@ -23,6 +23,7 @@ import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
+import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import './commerce.css';
 import './finance.css';
@@ -110,6 +111,8 @@ export function FinanceView() {
     {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
     {tab === 'guardian' && <GuardianPanel base={base} />}
     {tab === 'connections' && <ConnectionsPanel />}
+    {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
+    {tab === 'execution' && <ExecutionPanel />}
     {tab === 'transactions' && <Transactions accounts={accountList} onChanged={onChanged} onImport={() => pick('import')} />}
     {tab === 'accounts' && <Accounts accounts={accounts} base={base} onChanged={onChanged} />}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}

@@ -104,6 +104,10 @@ refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://exa
 refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://examplekey@localhost:8000/1
 refuses "ANUM_SENTRY_DSN must use https" --set extraEnv.ANUM_SENTRY_DSN=http://examplekey@10.0.0.5:8000/1
 refuses "ANUM_SENTRY_DSN must look like" --set config.ANUM_SENTRY_DSN=https://errors.anum.example/1
+# Finance stage 8 ships off (docs/finance.md#limited-live): the API refuses the live flag at startup.
+refuses "ANUM_FINANCE_LIVE_ENABLED must stay false" --set-string config.ANUM_FINANCE_LIVE_ENABLED=true
+refuses "ANUM_FINANCE_LIVE_ENABLED must stay false" --set-string extraEnv.ANUM_FINANCE_LIVE_ENABLED=1
+refuses "ANUM_FINANCE_WIDER_LIVE_ENABLED must stay false" --set-string config.ANUM_FINANCE_WIDER_LIVE_ENABLED=true
 refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string config.ANUM_FCM_SERVICE_ACCOUNT_JSON=example-service-account
 refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string extraEnv.ANUM_FCM_SERVICE_ACCOUNT_JSON=example
 

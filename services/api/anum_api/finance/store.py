@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
 from .connectors import Connection, ConnectionStatus
+from .execution import ExecSettings, GlobalSwitch, Intent, IntentStatus
 from .guardian import GuardianChange, GuardianPolicy
 from .models import (
     Account,
@@ -36,6 +37,8 @@ from .models import (
     PlanSettings,
     Transaction,
 )
+from .trading import PaperOrder, Portfolio, PriceRecord
+from .wider import Incident, Widening
 
 MAX_PAGE = 200
 MAX_ACCOUNTS = 100
@@ -43,6 +46,10 @@ MAX_ITEMS = 500  # bills, debts, goals and holdings, each
 MAX_SUMMARY_ROWS = 50_000
 MAX_CONNECTIONS = 20
 MAX_FX_RATES = 5_000
+# Stages 6 to 8: recorded prices, paper and shadow portfolios, orders and execution intents.
+MAX_PRICES = 5_000
+MAX_PORTFOLIOS = 20
+MAX_ORDERS = 5_000  # per portfolio, every run together
 
 ItemKind = Literal["bill", "debt", "goal", "holding"]
 ITEM_TYPES: dict[str, type[BaseModel]] = {"bill": Bill, "debt": Debt, "goal": Goal, "holding": Holding}
@@ -104,6 +111,37 @@ class FinanceStore(Protocol):
     def save_fx_rates(self, rates: list[FxRate]) -> int: ...
     def list_fx_rates(self, context: TenantContext, *, limit: int) -> list[FxRate]: ...
     def delete_fx_rate(self, context: TenantContext, rate_id: str) -> bool: ...
+    # Stage 6: recorded prices, paper and shadow portfolios and their orders
+    def list_prices(self, context: TenantContext, *, symbol: str | None, limit: int) -> list[PriceRecord]: ...
+    def save_price(self, price: PriceRecord) -> bool: ...
+    def delete_price(self, context: TenantContext, price_id: str) -> bool: ...
+    def list_portfolios(self, context: TenantContext) -> list[Portfolio]: ...
+    def get_portfolio(self, context: TenantContext, portfolio_id: str) -> Portfolio | None: ...
+    def save_portfolio(self, portfolio: Portfolio) -> Portfolio: ...
+    def delete_portfolio(self, context: TenantContext, portfolio_id: str) -> bool: ...
+    def list_orders(self, context: TenantContext, portfolio_id: str, *, epoch: int | None, status: str | None, limit: int, offset: int) -> tuple[list[PaperOrder], int]: ...
+    def portfolio_orders(self, context: TenantContext, portfolio_id: str, epoch: int) -> list[PaperOrder]: ...
+    def get_order(self, context: TenantContext, order_id: str) -> PaperOrder | None: ...
+    def order_for_intent(self, context: TenantContext, intent_id: str) -> PaperOrder | None: ...
+    def add_order(self, order: PaperOrder) -> bool: ...
+    def save_order(self, order: PaperOrder) -> PaperOrder: ...
+    # Stage 7: execution intents (one approval each), kill switches; stage 8: live settings
+    def list_intents(self, context: TenantContext, *, status: str | None, mode: str | None, limit: int, offset: int) -> tuple[list[Intent], int]: ...
+    def get_intent(self, context: TenantContext, intent_id: str) -> Intent | None: ...
+    def intent_by_key(self, context: TenantContext, key: str) -> Intent | None: ...
+    def save_intent(self, intent: Intent) -> bool: ...
+    def claim_intent(self, context: TenantContext, intent_id: str, now: datetime, approver: str) -> bool: ...
+    def get_exec_settings(self, context: TenantContext) -> ExecSettings | None: ...
+    def save_exec_settings(self, context: TenantContext, settings: ExecSettings) -> ExecSettings: ...
+    def get_global_switch(self, context: TenantContext) -> GlobalSwitch | None: ...
+    def save_global_switch(self, context: TenantContext, switch: GlobalSwitch) -> GlobalSwitch: ...
+    # Stage 9: widening proposals and incidents
+    def list_widenings(self, context: TenantContext, *, status: str | None, limit: int) -> list[Widening]: ...
+    def get_widening(self, context: TenantContext, widening_id: str) -> Widening | None: ...
+    def save_widening(self, widening: Widening) -> Widening: ...
+    def claim_widening(self, context: TenantContext, widening_id: str, now: datetime, approver: str, effective_at: datetime) -> bool: ...
+    def list_incidents(self, context: TenantContext, *, limit: int) -> list[Incident]: ...
+    def save_incident(self, incident: Incident) -> Incident: ...
     # privacy: every finance row of the caller
     def count_everything(self, context: TenantContext) -> int: ...
     def delete_everything(self, context: TenantContext) -> int: ...
@@ -159,6 +197,14 @@ class InMemoryFinanceStore:
         self.changes: dict[str, GuardianChange] = {}
         self.connections: dict[str, Connection] = {}
         self.fx_rates: dict[str, FxRate] = {}
+        self.prices: dict[str, PriceRecord] = {}
+        self.portfolios: dict[str, Portfolio] = {}
+        self.orders: dict[str, PaperOrder] = {}
+        self.intents: dict[str, Intent] = {}
+        self.exec_settings: dict[tuple[str, str, str], ExecSettings] = {}
+        self.global_switches: dict[str, GlobalSwitch] = {}
+        self.widenings: dict[str, Widening] = {}
+        self.incidents: dict[str, Incident] = {}
 
     @staticmethod
     def _key(context: TenantContext) -> tuple[str, str, str]:
@@ -436,18 +482,196 @@ class InMemoryFinanceStore:
             del self.fx_rates[rate_id]
             return True
 
+    # Stage 6: prices, portfolios, orders ---------------------------------------------------
+
+    def list_prices(self, context: TenantContext, *, symbol: str | None, limit: int) -> list[PriceRecord]:
+        with self._lock:
+            found = [p for p in self.prices.values() if mine(p, context) and (symbol is None or p.symbol == symbol)]
+            found.sort(key=lambda p: (p.as_of, p.recorded_at, p.id), reverse=True)
+            return [p.model_copy() for p in found[:limit]]
+
+    def save_price(self, price: PriceRecord) -> bool:
+        with self._lock:
+            key = (price.tenant_id, price.workspace_id, price.owner_user_id, price.symbol, price.currency, price.as_of, price.source)
+            if any((p.tenant_id, p.workspace_id, p.owner_user_id, p.symbol, p.currency, p.as_of, p.source) == key for p in self.prices.values()):
+                return False
+            self.prices[price.id] = price.model_copy()
+            return True
+
+    def delete_price(self, context: TenantContext, price_id: str) -> bool:
+        with self._lock:
+            found = self.prices.get(price_id)
+            if found is None or not mine(found, context):
+                return False
+            del self.prices[price_id]
+            return True
+
+    def list_portfolios(self, context: TenantContext) -> list[Portfolio]:
+        with self._lock:
+            found = [p.model_copy(deep=True) for p in self.portfolios.values() if mine(p, context)]
+            return sorted(found, key=lambda p: (p.created_at, p.id))
+
+    def get_portfolio(self, context: TenantContext, portfolio_id: str) -> Portfolio | None:
+        with self._lock:
+            found = self.portfolios.get(portfolio_id)
+            return found.model_copy(deep=True) if found and mine(found, context) else None
+
+    def save_portfolio(self, portfolio: Portfolio) -> Portfolio:
+        with self._lock:
+            self.portfolios[portfolio.id] = portfolio.model_copy(deep=True)
+            return portfolio
+
+    def delete_portfolio(self, context: TenantContext, portfolio_id: str) -> bool:
+        with self._lock:
+            found = self.portfolios.get(portfolio_id)
+            if found is None or not mine(found, context):
+                return False
+            del self.portfolios[portfolio_id]
+            for key in [k for k, o in self.orders.items() if o.portfolio_id == portfolio_id]:
+                del self.orders[key]
+            return True
+
+    def list_orders(self, context: TenantContext, portfolio_id: str, *, epoch: int | None, status: str | None, limit: int, offset: int) -> tuple[list[PaperOrder], int]:
+        with self._lock:
+            found = [o for o in self.orders.values() if mine(o, context) and o.portfolio_id == portfolio_id
+                     and (epoch is None or o.epoch == epoch) and (status is None or o.status == status)]
+            found.sort(key=lambda o: (o.created_at, o.id), reverse=True)
+            return [o.model_copy() for o in found[offset : offset + limit]], len(found)
+
+    def portfolio_orders(self, context: TenantContext, portfolio_id: str, epoch: int) -> list[PaperOrder]:
+        with self._lock:
+            found = [o.model_copy() for o in self.orders.values() if mine(o, context) and o.portfolio_id == portfolio_id and o.epoch == epoch]
+            return sorted(found, key=lambda o: (o.created_at, o.id))[:MAX_ORDERS]
+
+    def get_order(self, context: TenantContext, order_id: str) -> PaperOrder | None:
+        with self._lock:
+            found = self.orders.get(order_id)
+            return found.model_copy() if found and mine(found, context) else None
+
+    def order_for_intent(self, context: TenantContext, intent_id: str) -> PaperOrder | None:
+        with self._lock:
+            found = next((o for o in self.orders.values() if o.intent_id == intent_id and mine(o, context)), None)
+            return found.model_copy() if found else None
+
+    def add_order(self, order: PaperOrder) -> bool:
+        with self._lock:
+            if any(o.intent_id == order.intent_id for o in self.orders.values()):
+                return False
+            self.orders[order.id] = order.model_copy()
+            return True
+
+    def save_order(self, order: PaperOrder) -> PaperOrder:
+        with self._lock:
+            self.orders[order.id] = order.model_copy()
+            return order
+
+    # Stage 7 and 8: intents, kill switches, live settings ----------------------------------
+
+    def list_intents(self, context: TenantContext, *, status: str | None, mode: str | None, limit: int, offset: int) -> tuple[list[Intent], int]:
+        with self._lock:
+            found = [i for i in self.intents.values() if mine(i, context) and (status is None or i.status == status)
+                     and (mode is None or i.mode == mode)]
+            found.sort(key=lambda i: (i.created_at, i.id), reverse=True)
+            return [i.model_copy(deep=True) for i in found[offset : offset + limit]], len(found)
+
+    def get_intent(self, context: TenantContext, intent_id: str) -> Intent | None:
+        with self._lock:
+            found = self.intents.get(intent_id)
+            return found.model_copy(deep=True) if found and mine(found, context) else None
+
+    def intent_by_key(self, context: TenantContext, key: str) -> Intent | None:
+        with self._lock:
+            found = next((i for i in self.intents.values() if mine(i, context) and i.idempotency_key == key), None)
+            return found.model_copy(deep=True) if found else None
+
+    def save_intent(self, intent: Intent) -> bool:
+        with self._lock:
+            if intent.id not in self.intents and any(
+                mine(i, _ctx(intent)) and i.idempotency_key == intent.idempotency_key for i in self.intents.values()
+            ):
+                return False
+            self.intents[intent.id] = intent.model_copy(deep=True)
+            return True
+
+    def claim_intent(self, context: TenantContext, intent_id: str, now: datetime, approver: str) -> bool:
+        with self._lock:
+            found = self.intents.get(intent_id)
+            if found is None or not mine(found, context) or found.status != IntentStatus.PENDING or now >= found.expires_at:
+                return False
+            if approver != found.owner_user_id:
+                return False
+            found.status, found.approved_at, found.approved_by, found.updated_at = IntentStatus.EXECUTING, now, approver, now
+            return True
+
+    def get_exec_settings(self, context: TenantContext) -> ExecSettings | None:
+        with self._lock:
+            found = self.exec_settings.get(self._key(context))
+            return found.model_copy(deep=True) if found else None
+
+    def save_exec_settings(self, context: TenantContext, settings: ExecSettings) -> ExecSettings:
+        with self._lock:
+            self.exec_settings[self._key(context)] = settings.model_copy(deep=True)
+            return settings
+
+    def get_global_switch(self, context: TenantContext) -> GlobalSwitch | None:
+        with self._lock:
+            found = self.global_switches.get(context.tenant_id)
+            return found.model_copy() if found else None
+
+    def save_global_switch(self, context: TenantContext, switch: GlobalSwitch) -> GlobalSwitch:
+        with self._lock:
+            self.global_switches[context.tenant_id] = switch.model_copy()
+            return switch
+
+    # Stage 9: widenings and incidents -------------------------------------------------------
+
+    def list_widenings(self, context: TenantContext, *, status: str | None, limit: int) -> list[Widening]:
+        with self._lock:
+            found = [w for w in self.widenings.values() if mine(w, context) and (status is None or w.status == status)]
+            found.sort(key=lambda w: (w.created_at, w.id), reverse=True)
+            return [w.model_copy(deep=True) for w in found[:limit]]
+
+    def get_widening(self, context: TenantContext, widening_id: str) -> Widening | None:
+        with self._lock:
+            found = self.widenings.get(widening_id)
+            return found.model_copy(deep=True) if found and mine(found, context) else None
+
+    def save_widening(self, widening: Widening) -> Widening:
+        with self._lock:
+            self.widenings[widening.id] = widening.model_copy(deep=True)
+            return widening
+
+    def claim_widening(self, context: TenantContext, widening_id: str, now: datetime, approver: str, effective_at: datetime) -> bool:
+        with self._lock:
+            found = self.widenings.get(widening_id)
+            if found is None or not mine(found, context) or found.status != "pending" or now >= found.expires_at or approver != found.owner_user_id:
+                return False
+            found.status, found.decided_at, found.decided_by, found.effective_at = "approved", now, approver, effective_at
+            return True
+
+    def list_incidents(self, context: TenantContext, *, limit: int) -> list[Incident]:
+        with self._lock:
+            found = sorted((i for i in self.incidents.values() if mine(i, context)), key=lambda i: (i.created_at, i.id), reverse=True)
+            return [i.model_copy() for i in found[:limit]]
+
+    def save_incident(self, incident: Incident) -> Incident:
+        with self._lock:
+            self.incidents[incident.id] = incident.model_copy()
+            return incident
+
     # privacy ------------------------------------------------------------------------------
 
     def _tables(self) -> tuple[dict[str, Any], ...]:
         return (
             self.transactions, self.imports, self.accounts, *self.items.values(), self.policies, self.changes,
-            self.fx_rates, self.connections,
+            self.fx_rates, self.connections, self.prices, self.orders, self.portfolios, self.intents, self.widenings, self.incidents,
         )
 
     def count_everything(self, context: TenantContext) -> int:
         with self._lock:
             rows = sum(1 for table in self._tables() for v in table.values() if mine(v, context))
-            return rows + int(self._key(context) in self.settings) + int(self._key(context) in self.plans)
+            keyed = (self.settings, self.plans, self.exec_settings)
+            return rows + sum(int(self._key(context) in table) for table in keyed)
 
     def delete_everything(self, context: TenantContext) -> int:
         with self._lock:
@@ -456,7 +680,7 @@ class InMemoryFinanceStore:
                 for key in [k for k, v in table.items() if mine(v, context)]:
                     del table[key]
                     removed += 1
-            for keyed in (self.settings, self.plans):
+            for keyed in (self.settings, self.plans, self.exec_settings):
                 if keyed.pop(self._key(context), None) is not None:
                     removed += 1
             return removed

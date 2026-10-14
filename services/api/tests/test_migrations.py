@@ -903,3 +903,55 @@ def test_finance_stages_migration_is_expand_only_read_only_and_owner_scoped() ->
     assert grants == ['"grant select (id, tenant_id, workspace_id, owner_user_id, enabled, status, next_sync_at) "']
     assert "for select to anum_maintenance" in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "current_user = 'anum_maintenance'" in revision_text
+
+
+def test_finance_trading_migration_is_expand_only_owner_scoped_and_refuses_live() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0058_finance_paper_exec.py").read_text(encoding="utf-8")
+    assert 'revision = "0058_finance_paper_exec"' in revision_text and len("0058_finance_paper_exec") <= 32
+    assert 'down_revision = "0057_finance_plan_guard_conn"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0058_finance_paper_exec.py"]
+    assert not [path for path in others if 'down_revision = "0057_finance_plan_guard_conn"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    owned = ("finance_prices", "finance_paper_portfolios", "finance_paper_orders", "finance_exec_intents", "finance_exec_settings")
+    assert upgrade.count("op.create_table(") == len(owned) + 1
+    for table in owned:
+        assert f'"{table}"' in revision_text and f'_workspace_fk("{table}")' in revision_text
+    # Forced RLS with the tenant policy and a restrictive owner policy on every per-person table;
+    # the organisation's kill switch is tenant scoped.
+    assert "force row level security" in upgrade and "create policy tenant_isolation_{table}" in upgrade
+    assert "create policy owner_only_{table}" in upgrade and "as restrictive" in upgrade
+    assert "alter table finance_exec_global force row level security" in upgrade
+    assert '["tenant_id"], ["tenants.id"]' in revision_text
+    # Expand only, nothing granted, nothing bypassed.
+    assert "drop" not in upgrade and "alter_column" not in upgrade and "add_column" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    # The gateway's guarantees, in the database: one order per intent, only the owner approves,
+    # nothing runs unapproved, agents only simulate, and a live request never runs.
+    for constraint in (
+        "uq_finance_paper_orders_intent", "uq_finance_exec_intents_key", "ck_finance_exec_intents_approver",
+        "ck_finance_exec_intents_approved", "ck_finance_exec_intents_agent", "ck_finance_exec_intents_no_live",
+    ):
+        assert constraint in upgrade
+    assert "approved_by is null or approved_by = owner_user_id" in upgrade
+    assert "mode <> 'live' or (status in ('pending_approval', 'denied', 'refused', 'expired', 'rejected') and approved_by is null)" in upgrade
+
+
+def test_finance_wider_live_migration_is_expand_only_and_one_tier_at_a_time() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0059_finance_wider_live.py").read_text(encoding="utf-8")
+    assert 'revision = "0059_finance_wider_live"' in revision_text and len("0059_finance_wider_live") <= 32
+    assert 'down_revision = "0058_finance_paper_exec"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0059_finance_wider_live.py"]
+    assert not [path for path in others if 'down_revision = "0058_finance_paper_exec"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2
+    for table in ("finance_live_widenings", "finance_live_incidents"):
+        assert f'"{table}"' in revision_text and f'_workspace_fk("{table}")' in revision_text
+    assert "force row level security" in upgrade and "create policy owner_only_{table}" in upgrade and "as restrictive" in upgrade
+    # Expand only: one column with a default and new tables.
+    assert upgrade.count("op.add_column(") == 1 and "server_default=sa.text(\"'{}'::jsonb\")" in upgrade
+    assert "drop" not in upgrade and "alter_column" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "tier = base_tier + 1" in upgrade and "decided_by is null or decided_by = owner_user_id" in upgrade
+    assert "tier_after <= tier_before" in upgrade
