@@ -14,18 +14,22 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, delete, func, or_, select
+from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Text, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from anum_api.finance.connectors import Connection
+from anum_api.finance.guardian import GuardianChange, GuardianPolicy
 from anum_api.finance.models import (
     Account,
     Bill,
     Debt,
     FinanceSettings,
+    FxRate,
     Goal,
     Holding,
     ImportRecord,
+    PlanSettings,
     Transaction,
 )
 from anum_api.finance.money import quantize
@@ -151,6 +155,7 @@ class FinanceGoalRecord(Base, _Owned):
     currency: Mapped[str] = mapped_column(String(3))
     target_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    monthly_contribution: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
@@ -171,6 +176,82 @@ class FinanceHoldingRecord(Base, _Owned):
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
+class FinancePlanRecord(Base):
+    __tablename__ = "finance_plans"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    buffers: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    combine_currencies: Mapped[bool] = mapped_column(Boolean)
+    fx_max_age_days: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinanceGuardianVersionRecord(Base, _Owned):
+    __tablename__ = "finance_guardian_versions"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer)
+    rules: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    change_id: Mapped[str] = mapped_column(String(80))
+    confirmed_by: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinanceGuardianChangeRecord(Base, _Owned):
+    __tablename__ = "finance_guardian_changes"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    base_version: Mapped[int] = mapped_column(Integer)
+    rules: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    proposed_by: Mapped[str] = mapped_column(String(10))
+    proposer: Mapped[str] = mapped_column(String(160))
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    loosens: Mapped[list[str]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(TS)
+    expires_at: Mapped[datetime] = mapped_column(TS)
+    decided_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
+class FinanceConnectionRecord(Base, _Owned):
+    __tablename__ = "finance_connections"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(60))
+    kind: Mapped[str] = mapped_column(String(20))
+    label: Mapped[str] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20))
+    scopes: Mapped[list[str]] = mapped_column(JSONB)
+    credentials_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    credential_hint: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    enabled: Mapped[bool] = mapped_column(Boolean)
+    next_sync_at: Mapped[datetime] = mapped_column(TS)
+    last_sync_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_counts: Mapped[dict[str, int]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinanceFxRateRecord(Base, _Owned):
+    __tablename__ = "finance_fx_rates"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    base: Mapped[str] = mapped_column(String(3))
+    quote: Mapped[str] = mapped_column(String(3))
+    rate: Mapped[Decimal] = mapped_column(Numeric(24, 10))
+    as_of: Mapped[date] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(120))
+    source_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    connection_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(TS)
+
+
 ITEM_RECORDS: dict[str, tuple[type[Any], type[BaseModel]]] = {
     "bill": (FinanceBillRecord, Bill),
     "debt": (FinanceDebtRecord, Debt),
@@ -184,7 +265,9 @@ def _fields(model: BaseModel) -> dict[str, Any]:
     return {key: getattr(value, "value", value) for key, value in model.__dict__.items()}
 
 
-MONEY_FIELDS = frozenset({"amount", "opening_balance", "balance", "minimum_payment", "target_amount", "saved_amount", "cost_basis"})
+MONEY_FIELDS = frozenset({
+    "amount", "opening_balance", "balance", "minimum_payment", "target_amount", "saved_amount", "cost_basis", "monthly_contribution",
+})
 
 
 def _model(record: Any, model: type[BaseModel]) -> Any:
@@ -423,11 +506,163 @@ class SqlAlchemyFinanceStore:
         record = ITEM_RECORDS[kind][0]
         return bool(self.session.execute(delete(record).where(*self._mine(record, context), record.id == item_id)).rowcount)
 
+    # Stage 3: safe-to-spend settings ----------------------------------------------------
+
+    def get_plan(self, context: TenantContext) -> PlanSettings | None:
+        found = self.session.scalar(select(FinancePlanRecord).where(*self._mine(FinancePlanRecord, context)))
+        if found is None:
+            return None
+        return PlanSettings.model_validate({
+            "buffers": found.buffers, "combine_currencies": found.combine_currencies, "fx_max_age_days": found.fx_max_age_days,
+            "updated_at": found.updated_at,
+        })
+
+    def save_plan(self, context: TenantContext, plan: PlanSettings) -> PlanSettings:
+        require_workspace(self.session, context.tenant_id, context.workspace_id)
+        values = {
+            "buffers": [b.model_dump(mode="json") for b in plan.buffers], "combine_currencies": plan.combine_currencies,
+            "fx_max_age_days": plan.fx_max_age_days, "updated_at": plan.updated_at or datetime.now().astimezone(),
+        }
+        statement = insert(FinancePlanRecord).values(
+            tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id, **values
+        )
+        self.session.execute(statement.on_conflict_do_update(index_elements=["tenant_id", "workspace_id", "owner_user_id"], set_=values))
+        return plan
+
+    # Stage 4: Guardian --------------------------------------------------------------------
+
+    @staticmethod
+    def _policy(row: FinanceGuardianVersionRecord) -> GuardianPolicy:
+        return GuardianPolicy.model_validate({name: getattr(row, name) for name in GuardianPolicy.model_fields})
+
+    @staticmethod
+    def _change(row: FinanceGuardianChangeRecord) -> GuardianChange:
+        return GuardianChange.model_validate({name: getattr(row, name) for name in GuardianChange.model_fields})
+
+    def get_policy(self, context: TenantContext) -> GuardianPolicy | None:
+        row = self.session.scalar(
+            select(FinanceGuardianVersionRecord).where(*self._mine(FinanceGuardianVersionRecord, context))
+            .order_by(FinanceGuardianVersionRecord.version.desc()).limit(1)
+        )
+        return self._policy(row) if row else None
+
+    def list_policies(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[GuardianPolicy], int]:
+        clauses = self._mine(FinanceGuardianVersionRecord, context)
+        total = int(self.session.scalar(select(func.count()).select_from(FinanceGuardianVersionRecord).where(*clauses)) or 0)
+        rows = self.session.scalars(
+            select(FinanceGuardianVersionRecord).where(*clauses).order_by(FinanceGuardianVersionRecord.version.desc()).limit(limit).offset(offset)
+        )
+        return [self._policy(row) for row in rows], total
+
+    def add_policy(self, policy: GuardianPolicy) -> bool:
+        self._require(policy)
+        values = {**_fields(policy), "rules": policy.rules.canonical()}
+        inserted = self.session.execute(
+            insert(FinanceGuardianVersionRecord).values(**values)
+            .on_conflict_do_nothing(constraint="uq_finance_guardian_versions_version")
+            .returning(FinanceGuardianVersionRecord.id)
+        )
+        return inserted.first() is not None
+
+    def list_changes(self, context: TenantContext, *, status: str | None, limit: int) -> list[GuardianChange]:
+        clauses = list(self._mine(FinanceGuardianChangeRecord, context))
+        if status is not None:
+            clauses.append(FinanceGuardianChangeRecord.status == status)
+        rows = self.session.scalars(
+            select(FinanceGuardianChangeRecord).where(*clauses)
+            .order_by(FinanceGuardianChangeRecord.created_at.desc(), FinanceGuardianChangeRecord.id.desc()).limit(limit)
+        )
+        return [self._change(row) for row in rows]
+
+    def get_change(self, context: TenantContext, change_id: str) -> GuardianChange | None:
+        row = self.session.scalar(
+            select(FinanceGuardianChangeRecord).where(*self._mine(FinanceGuardianChangeRecord, context), FinanceGuardianChangeRecord.id == change_id)
+        )
+        return self._change(row) if row else None
+
+    def save_change(self, change: GuardianChange) -> GuardianChange:
+        self._require(change)
+        values = {**_fields(change), "rules": change.rules.canonical(), "loosens": list(change.loosens)}
+        existing = self.session.get(FinanceGuardianChangeRecord, change.id)
+        if existing is None:
+            self.session.add(FinanceGuardianChangeRecord(**values))
+        else:
+            for key, value in values.items():
+                setattr(existing, key, value)
+        self.session.flush()
+        return change
+
+    # Stage 5: connections and rates -------------------------------------------------------
+
+    @staticmethod
+    def _connection(row: FinanceConnectionRecord) -> Connection:
+        return Connection.model_validate({name: getattr(row, name) for name in Connection.model_fields})
+
+    def list_connections(self, context: TenantContext) -> list[Connection]:
+        rows = self.session.scalars(
+            select(FinanceConnectionRecord).where(*self._mine(FinanceConnectionRecord, context))
+            .order_by(FinanceConnectionRecord.created_at, FinanceConnectionRecord.id)
+        )
+        return [self._connection(row) for row in rows]
+
+    def get_connection(self, context: TenantContext, connection_id: str) -> Connection | None:
+        row = self.session.scalar(
+            select(FinanceConnectionRecord).where(*self._mine(FinanceConnectionRecord, context), FinanceConnectionRecord.id == connection_id)
+        )
+        return self._connection(row) if row else None
+
+    def save_connection(self, connection: Connection) -> Connection:
+        self._upsert(FinanceConnectionRecord, connection)
+        return connection
+
+    def delete_connection(self, context: TenantContext, connection_id: str) -> bool:
+        # The rates it fetched cascade; transactions it imported stay in the ledger.
+        result = self.session.execute(
+            delete(FinanceConnectionRecord).where(*self._mine(FinanceConnectionRecord, context), FinanceConnectionRecord.id == connection_id)
+        )
+        return bool(result.rowcount)
+
+    def claim_connection(self, context: TenantContext, connection_id: str, now: datetime, until: datetime) -> bool:
+        record = FinanceConnectionRecord
+        result = self.session.execute(
+            update(record)
+            .where(*self._mine(record, context), record.id == connection_id, record.enabled.is_(True), record.next_sync_at <= now)
+            .values(next_sync_at=until)
+        )
+        return bool(result.rowcount)
+
+    def save_fx_rates(self, rates: list[FxRate]) -> int:
+        added = 0
+        for start in range(0, len(rates), 500):
+            chunk = rates[start : start + 500]
+            for item in chunk:
+                self._require(item)
+            inserted = self.session.execute(
+                insert(FinanceFxRateRecord).values([_fields(item) for item in chunk])
+                .on_conflict_do_nothing(constraint="uq_finance_fx_rates_day").returning(FinanceFxRateRecord.id)
+            )
+            added += len(inserted.all())
+        return added
+
+    def list_fx_rates(self, context: TenantContext, *, limit: int) -> list[FxRate]:
+        rows = self.session.scalars(
+            select(FinanceFxRateRecord).where(*self._mine(FinanceFxRateRecord, context))
+            .order_by(FinanceFxRateRecord.as_of.desc(), FinanceFxRateRecord.fetched_at.desc(), FinanceFxRateRecord.id.desc()).limit(limit)
+        )
+        return [FxRate.model_validate({name: getattr(row, name) for name in FxRate.model_fields}) for row in rows]
+
+    def delete_fx_rate(self, context: TenantContext, rate_id: str) -> bool:
+        result = self.session.execute(
+            delete(FinanceFxRateRecord).where(*self._mine(FinanceFxRateRecord, context), FinanceFxRateRecord.id == rate_id)
+        )
+        return bool(result.rowcount)
+
     # privacy ------------------------------------------------------------------------------
 
     _ALL = (
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
-        FinanceGoalRecord, FinanceAccountRecord, FinanceSettingsRecord,
+        FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianChangeRecord,
+        FinanceGuardianVersionRecord, FinancePlanRecord, FinanceAccountRecord, FinanceSettingsRecord,
     )
 
     def count_everything(self, context: TenantContext) -> int:

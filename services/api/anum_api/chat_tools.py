@@ -149,8 +149,8 @@ def chat_intent(question: str, skills: "SkillRegistry", tool_names: set[str]) ->
         return "commerce"
     if call.name in TYRE_READ_TOOLS:
         return "tyre"
-    if call.name in FINANCE_READ_TOOLS:
-        # The caller's own ledger, read only (docs/finance.md#assistant).
+    if call.name in FINANCE_CHAT_TOOLS:
+        # The caller's own ledger, read only, or a rule proposal (docs/finance.md#assistant).
         return "finance"
     if call.name == "anum.respond" and _words(question) & FILE_WORDS:
         return "files"
@@ -437,7 +437,12 @@ def _fleet_items(tool: str, output: dict[str, Any]) -> tuple[list[ChatCardItem],
 COMMERCE_READ_TOOLS = frozenset({"commerce.sales_summary", "commerce.list_orders", "commerce.get_order", "commerce.low_stock"})
 # Personal finance (docs/finance.md#assistant): read only, the caller's own ledger. The card
 # carries the answer only; amounts and descriptions reach the model as untrusted tool output.
-FINANCE_READ_TOOLS = frozenset({"finance.summary", "finance.transactions.search", "finance.bills.upcoming"})
+FINANCE_READ_TOOLS = frozenset({
+    "finance.summary", "finance.transactions.search", "finance.bills.upcoming",
+    "finance.safe_to_spend", "finance.guardian.rules", "finance.guardian.check",
+})
+# A Guardian proposal only waits for the person's own confirmation in Finance, Guardian.
+FINANCE_CHAT_TOOLS = FINANCE_READ_TOOLS | {"finance.guardian.propose"}
 TYRE_READ_TOOLS = frozenset({
     "tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts",
     # Fleet operations (docs/tyre-planning.md#assistant).

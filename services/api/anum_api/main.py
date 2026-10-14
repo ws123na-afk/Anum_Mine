@@ -142,6 +142,8 @@ from .commerce.api import router as commerce_router
 from .commerce.scheduler import build_commerce_scheduler
 from .commerce.tools import register_commerce_tools
 from .finance.api import router as finance_router
+from .finance.plan_api import router as finance_plan_router
+from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
@@ -219,6 +221,11 @@ async def lifespan(_: FastAPI):
     commerce_scheduler = build_commerce_scheduler()
     if commerce_scheduler is not None:
         commerce_scheduler.start()
+    # Syncs due read-only finance connections (exchange rates) when ANUM_FINANCE_SYNC_ENABLED=true
+    # (docs/finance.md#sync), each in its owner's own scope.
+    finance_scheduler = build_finance_scheduler()
+    if finance_scheduler is not None:
+        finance_scheduler.start()
     # Overdue reminders, ANUM follow-ups and notification email retries (docs/team-work.md).
     reminders = build_team_reminder_scheduler(settings)
     if reminders is not None:
@@ -228,6 +235,8 @@ async def lifespan(_: FastAPI):
     finally:
         if reminders is not None:
             await reminders.stop()
+        if finance_scheduler is not None:
+            await finance_scheduler.stop()
         if commerce_scheduler is not None:
             await commerce_scheduler.stop()
         if email_scheduler is not None:
@@ -328,6 +337,7 @@ app.include_router(user_preferences_router)
 app.include_router(push_router)
 app.include_router(commerce_router)
 app.include_router(finance_router)
+app.include_router(finance_plan_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
 # Event triggers and steps waiting on agent tasks (docs/automation.md#triggers).

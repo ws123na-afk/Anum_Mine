@@ -21,8 +21,12 @@ FINANCE_TRIGGERS = frozenset(
     {
         "spent", "spend", "spending", "expenses", "expense", "budget", "bills", "bill", "balance", "balances",
         "income", "debts", "debt", "transactions", "finance", "finances", "subscriptions", "savings",
+        # Stages 3 and 4: safe-to-spend and the Guardian rules (afford, cap, limit, block, rules).
+        "afford", "safe-to-spend", "guardian", "rules", "cap", "limit", "block",
         # Arabic: expenses, I spent, bills, a bill, balance, my balance, budget, debts.
         "مصاريف", "مصروفات", "مصروف", "صرفت", "فواتير", "فاتورة", "رصيد", "رصيدي", "ميزانية", "ديون",
+        # Arabic: (how much can I) spend, available (to spend), rules, limits.
+        "أصرف", "اصرف", "متاح", "قواعد", "حدود",
     }
 )
 
@@ -157,12 +161,13 @@ def default_skill_registry() -> SkillRegistry:
                 version="1.0.0",
                 name="Personal finance",
                 description=(
-                    "Answers questions about your own spending, income, balances, bills and debts from your "
-                    "imported statements. Read only: it never pays, transfers or trades (docs/finance.md)."
+                    "Answers questions about your own spending, income, balances, bills, debts and what is safe to spend, "
+                    "and reads or proposes your Guardian rules (you confirm every change). It never pays, transfers or "
+                    "trades (docs/finance.md)."
                 ),
                 triggers=FINANCE_TRIGGERS,
                 # Selectable where the finance tools are registered (the API and the worker).
-                required_tools=frozenset({"finance.summary", "finance.transactions.search", "finance.bills.upcoming"}),
+                required_tools=frozenset({"finance.summary", "finance.transactions.search", "finance.bills.upcoming", "finance.safe_to_spend"}),
             ),
             SkillManifest(
                 id="anum.tyre-planning",

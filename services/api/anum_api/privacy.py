@@ -945,6 +945,13 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         if not page or len(imports) >= total:
             break
     settings = finance.get_settings(context)
+    plan = finance.get_plan(context)
+    versions: list[Any] = []
+    while True:
+        page, total = finance.list_policies(context, limit=100, offset=len(versions))
+        versions += page
+        if not page or len(versions) >= total:
+            break
     return {
         "settings": settings.model_dump(mode="json") if settings is not None else None,
         "accounts": [a.model_dump(mode="json", exclude=hidden) for a in finance.list_accounts(context)],
@@ -954,6 +961,16 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
             f"{kind}s": [item.model_dump(mode="json", exclude=hidden) for item in finance.list_items(context, kind)]
             for kind in ("bill", "debt", "goal", "holding")
         },
+        # Stages 3 to 5 (docs/finance.md#privacy). A connection's credentials are never
+        # exported, not even encrypted: only whether some are saved.
+        "plan": plan.model_dump(mode="json") if plan is not None else None,
+        "guardian_versions": [p.model_dump(mode="json", exclude=hidden) for p in versions],
+        "guardian_changes": [c.model_dump(mode="json", exclude=hidden) for c in finance.list_changes(context, status=None, limit=1000)],
+        "connections": [
+            {**c.model_dump(mode="json", exclude=hidden | {"credentials_encrypted", "credential_hint"}), "has_credentials": bool(c.credentials_encrypted)}
+            for c in finance.list_connections(context)
+        ],
+        "fx_rates": [r.model_dump(mode="json", exclude=hidden) for r in finance.list_fx_rates(context, limit=10_000)],
     }
 
 

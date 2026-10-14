@@ -2,12 +2,23 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import 'finance_models.dart';
+import 'finance_plan_models.dart';
 import 'finance_repository.dart';
 
 enum FinanceLoad { idle, loading, ready, denied, error }
 
 /// Sections of the phone's Finance screen.
-enum FinanceSection { overview, transactions, accounts, bills, debts, goals }
+enum FinanceSection {
+  overview,
+  safe,
+  transactions,
+  accounts,
+  bills,
+  debts,
+  goals,
+  guardian,
+  connections
+}
 
 /// State of the phone's Finance screen (docs/finance.md): the month's summary,
 /// a searchable, paged transaction list, accounts, bills, debts and goals.
@@ -38,6 +49,18 @@ class FinanceController extends ChangeNotifier {
   final Map<String, FinanceLoad> itemStates = {};
   String? itemsError;
 
+  // Stages 3 to 5.
+  FinanceLoad safeState = FinanceLoad.idle;
+  SafeToSpend? safe;
+  String? safeError;
+  FinanceLoad guardianState = FinanceLoad.idle;
+  GuardianView? guardian;
+  List<GuardianAlert> alerts = const [];
+  String? guardianError;
+  FinanceLoad connectionsState = FinanceLoad.idle;
+  final List<FinanceConnection> connections = [];
+  String? connectionsError;
+
   /// The last change's outcome, shown once by the screen.
   String? message;
 
@@ -59,6 +82,12 @@ class FinanceController extends ChangeNotifier {
         await loadItems('goals');
       case FinanceSection.accounts:
         await loadAccounts();
+      case FinanceSection.safe:
+        await loadSafe();
+      case FinanceSection.guardian:
+        await loadGuardian();
+      case FinanceSection.connections:
+        await loadConnections();
       case FinanceSection.overview:
         break;
     }
@@ -205,6 +234,66 @@ class FinanceController extends ChangeNotifier {
   Future<String?> deleteItem(String kind, String id) =>
       _change(() => repository.deleteItem(kind, id), () => loadItems(kind));
 
+  Future<void> loadSafe() async {
+    safeState = FinanceLoad.loading;
+    safeError = null;
+    notifyListeners();
+    try {
+      safe = await repository.safeToSpend();
+      safeState = FinanceLoad.ready;
+    } catch (error) {
+      safeState = _failed(error);
+      safeError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadGuardian() async {
+    guardianState = FinanceLoad.loading;
+    guardianError = null;
+    notifyListeners();
+    try {
+      final found = await Future.wait(
+          [repository.guardian(), repository.guardianAlerts()]);
+      guardian = found[0] as GuardianView;
+      alerts = found[1] as List<GuardianAlert>;
+      guardianState = FinanceLoad.ready;
+    } catch (error) {
+      guardianState = _failed(error);
+      guardianError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadConnections() async {
+    connectionsState = FinanceLoad.loading;
+    connectionsError = null;
+    notifyListeners();
+    try {
+      final found = await repository.connections();
+      connections
+        ..clear()
+        ..addAll(found);
+      connectionsState = FinanceLoad.ready;
+    } catch (error) {
+      connectionsState = _failed(error);
+      connectionsError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  /// Confirms exactly the change shown, with its payload hash. Agents never
+  /// reach this: only the person's own tap does.
+  Future<String?> confirmChange(GuardianChange change) => _change(
+      () => repository.confirmChange(change.id, change.payloadHash),
+      loadGuardian);
+
+  Future<String?> rejectChange(GuardianChange change) =>
+      _change(() => repository.rejectChange(change.id), loadGuardian);
+
+  Future<String?> syncConnection(String id) =>
+      _change(() => repository.syncConnection(id), loadConnections);
+
   /// Forget everything (sign-out or workspace switch).
   void reset() {
     summary = null;
@@ -215,7 +304,12 @@ class FinanceController extends ChangeNotifier {
     itemStates.clear();
     query = '';
     section = FinanceSection.overview;
+    safe = null;
+    guardian = null;
+    alerts = const [];
+    connections.clear();
     summaryState = accountsState = transactionsState = FinanceLoad.idle;
+    safeState = guardianState = connectionsState = FinanceLoad.idle;
     notifyListeners();
   }
 }

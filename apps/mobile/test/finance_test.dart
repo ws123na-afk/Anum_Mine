@@ -2,6 +2,7 @@ import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/features/finance/finance_controller.dart';
 import 'package:anum_mobile/features/finance/finance_models.dart';
+import 'package:anum_mobile/features/finance/finance_plan_models.dart';
 import 'package:anum_mobile/features/finance/finance_repository.dart';
 import 'package:anum_mobile/features/finance/finance_screen.dart';
 import 'package:anum_mobile/features/finance/finance_strings.dart';
@@ -18,7 +19,7 @@ Map<String, Object?> summaryJson({bool empty = false}) => {
       'month': '2026-10',
       'base_currency': 'AED',
       'accounts': empty
-          ? []
+          ? <Object?>[]
           : [
               {
                 'id': 'fin_acct_1',
@@ -31,7 +32,7 @@ Map<String, Object?> summaryJson({bool empty = false}) => {
               },
             ],
       'balances': empty
-          ? []
+          ? <Object?>[]
           : [
               {'currency': 'AED', 'amount': '15349.50'},
               {'currency': 'USD', 'amount': '-60.25'},
@@ -186,6 +187,133 @@ class FakeFinance implements FinanceRepository {
   @override
   Future<void> deleteItem(String kind, String id) async =>
       requests.add('delete $kind $id');
+
+  @override
+  Future<SafeToSpend> safeToSpend() async {
+    requests.add('safe');
+    if (deny) throw const ApiException(403, 'Workspace permission denied');
+    return SafeToSpend.fromJson(JsonReader.of({
+      'month_end': '2026-10-31',
+      'days_left': 18,
+      'currencies': empty
+          ? <Object?>[]
+          : [
+              {
+                'currency': 'AED',
+                'safe_to_spend': '1466.66',
+                'per_day': '81.48',
+                'short': false,
+                'lines': [
+                  {
+                    'kind': 'balance',
+                    'label': 'Everyday account',
+                    'currency': 'AED',
+                    'amount': '4250.00',
+                    'note': 'account_balance',
+                    'params': <String, Object?>{}
+                  },
+                  {
+                    'kind': 'bill',
+                    'label': 'Rent',
+                    'currency': 'AED',
+                    'amount': '-1500.00',
+                    'note': 'bill_due',
+                    'params': {'date': '2026-10-20'}
+                  },
+                  {
+                    'kind': 'goal',
+                    'label': 'Fund',
+                    'currency': 'AED',
+                    'amount': '-333.34',
+                    'note': 'goal_derived',
+                    'params': {'left': '1000.00', 'months': '3'}
+                  },
+                ],
+              }
+            ],
+      'excluded': [
+        {
+          'kind': 'balance',
+          'label': 'Rewards card',
+          'currency': 'AED',
+          'amount': '-900.00',
+          'note': 'account_card',
+          'params': <String, Object?>{}
+        }
+      ],
+      'combined': null,
+    }));
+  }
+
+  @override
+  Future<GuardianView> guardian() async => GuardianView.fromJson(JsonReader.of({
+        'version': confirmed ? 2 : 1,
+        'rules': {
+          'category_caps': [
+            {'category': 'dining', 'currency': 'AED', 'amount': '800.00'}
+          ],
+          'blocked_merchants': ['casino'],
+        },
+        'pending': confirmed
+            ? <Object?>[]
+            : [
+                {
+                  'id': 'fin_gchg_agent',
+                  'proposed_by': 'agent',
+                  'payload_hash': 'ab12' * 16,
+                  'reason': 'You asked to cut dining',
+                  'rules': {
+                    'category_caps': [
+                      {
+                        'category': 'dining',
+                        'currency': 'AED',
+                        'amount': '500.00'
+                      }
+                    ]
+                  },
+                  'loosens': <String>[],
+                }
+              ],
+      }));
+
+  bool confirmed = false;
+
+  @override
+  Future<List<GuardianAlert>> guardianAlerts() async => [
+        GuardianAlert.fromJson(JsonReader.of({
+          'code': 'cap_near',
+          'severity': 'near',
+          'params': {
+            'category': 'dining',
+            'currency': 'AED',
+            'spent': '700.00',
+            'limit': '800.00'
+          },
+        }))
+      ];
+
+  @override
+  Future<void> confirmChange(String id, String payloadHash) async {
+    requests.add('confirm $id $payloadHash');
+    confirmed = true;
+  }
+
+  @override
+  Future<void> rejectChange(String id) async => requests.add('reject $id');
+
+  @override
+  Future<List<FinanceConnection>> connections() async => [
+        FinanceConnection.fromJson(JsonReader.of({
+          'id': 'fin_conn_1',
+          'label': 'ECB rates',
+          'provider': 'ecb_fx',
+          'status': 'active',
+          'last_success_at': '2026-10-14T08:00:00Z',
+        }))
+      ];
+
+  @override
+  Future<void> syncConnection(String id) async => requests.add('sync $id');
 }
 
 Widget app(FinanceController controller,
@@ -350,5 +478,88 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
     expect(repo.requests, contains('delete bills fin_bill_rent'));
+  });
+
+  testWidgets('safe to spend is shown line by line, in English and Arabic',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final c = FinanceController(FakeFinance());
+    await tester.pumpWidget(app(c, textScale: 2));
+    await open(tester);
+    await c.select(FinanceSection.safe);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('AED 1,466.66'), findsOneWidget);
+    expect(find.text('Rent'), findsOneWidget);
+    expect(find.textContaining('AED 1,000.00 left over 3 month(s)'),
+        findsOneWidget);
+    expect(find.text('Card: covered by its minimum payment'), findsOneWidget);
+  });
+
+  testWidgets('safe to spend reads in Arabic', (tester) async {
+    final ar = FinanceController(FakeFinance());
+    await tester.pumpWidget(app(ar, locale: const Locale('ar')));
+    await tester.tap(find.text('Open Finance'));
+    await tester.pumpAndSettle();
+    await ar.select(FinanceSection.safe);
+    await tester.pumpAndSettle();
+    expect(find.text('المتاح للصرف بعملة AED'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('empty safe to spend leads to adding an account', (tester) async {
+    final c = FinanceController(FakeFinance(empty: true));
+    await tester.pumpWidget(app(c));
+    await open(tester);
+    await c.select(FinanceSection.safe);
+    await tester.pumpAndSettle();
+    expect(find.text('Nothing to work from yet'), findsOneWidget);
+  });
+
+  testWidgets(
+      "an assistant's proposal is confirmed with its payload hash by the person",
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = FakeFinance();
+    final c = FinanceController(repo);
+    await tester.pumpWidget(app(c));
+    await open(tester);
+    await c.select(FinanceSection.guardian);
+    await tester.pumpAndSettle();
+    expect(find.text('Proposed by an assistant'), findsOneWidget);
+    expect(find.text('Dining: at most AED 500.00 a month'), findsOneWidget);
+    expect(find.text('Blocked merchants: casino'), findsOneWidget);
+    expect(find.textContaining('near your cap of AED 800.00'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm rules'));
+    await tester.pumpAndSettle();
+    expect(find.text('Confirm these rules?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm rules').last);
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('confirm fin_gchg_agent ${'ab12' * 16}'));
+    expect(find.text('Your rules, version 2'), findsOneWidget);
+  });
+
+  testWidgets('connections are listed read only and sync on request',
+      (tester) async {
+    final repo = FakeFinance();
+    final c = FinanceController(repo);
+    await tester.pumpWidget(app(c));
+    await open(tester);
+    await c.select(FinanceSection.connections);
+    await tester.pumpAndSettle();
+    expect(find.text('ECB rates'), findsOneWidget);
+    await tester.tap(find.byTooltip('Sync now ECB rates'));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('sync fin_conn_1'));
+  });
+
+  testWidgets('a viewer is denied the new sections too', (tester) async {
+    final c = FinanceController(FakeFinance(deny: true));
+    await c.loadSafe();
+    expect(c.safeState, FinanceLoad.denied);
   });
 }

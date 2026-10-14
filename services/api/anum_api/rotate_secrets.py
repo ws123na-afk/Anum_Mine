@@ -14,8 +14,9 @@ access token and app secret (``whatsapp_accounts``, migration 0033), every mailb
 tokens (``email_accounts.access_token_enc`` and ``refresh_token_enc``, migrations 0035 and
 0050) and every commerce channel credential and stored buyer detail
 (``commerce_connectors``, ``commerce_customers``, migrations 0038 and 0050) and every
-automation webhook trigger secret (``automation_triggers``, migrations 0049 and 0050) in
-every tenant.
+automation webhook trigger secret (``automation_triggers``, migrations 0049 and 0050) and
+every finance connection credential (``finance_connections``, migration 0057, each in its
+owner's own scope because finance rows are private to one person) in every tenant.
 Pending email connections (``email_oauth_requests``) and OAuth ``state`` values live for
 minutes and expire instead; phone push tokens are re-encrypted by the phone. See
 docs/runbooks.md#rotating-anum_secrets_key.
@@ -686,15 +687,22 @@ class _MultiColumnStore:
     discover: Any
     lock: Any
     rewrite: Any
+    # Rows private to one person (finance, owner-only RLS): the owner is set as anum.user_id.
+    user_column: str | None = None
 
 
-def _multi_store(table: str, target_prefix: str, columns: tuple[str, ...], key_columns: tuple[str, ...]) -> _MultiColumnStore:
+def _multi_store(
+    table: str, target_prefix: str, columns: tuple[str, ...], key_columns: tuple[str, ...], *, user_column: str | None = None,
+) -> _MultiColumnStore:
     # Table and column names come from the constants below, never from input.
     keys = ", ".join(key_columns)
     after = ", ".join(f":after_{index}" for index in range(len(key_columns)))
+    selected = keys + (f", {user_column}" if user_column else "")
     where_scope = "tenant_id = :tenant_id and workspace_id = :workspace_id"
     if "id" in key_columns:
         where_scope += " and id = :row_id"
+    if user_column:
+        where_scope += f" and {user_column} = :owner_user_id"
     old_match = " and ".join(
         f"{column} is not distinct from cast(:old_{index} as text)" for index, column in enumerate(columns)
     )
@@ -704,10 +712,11 @@ def _multi_store(table: str, target_prefix: str, columns: tuple[str, ...], key_c
         target_prefix=target_prefix,
         columns=columns,
         key_columns=key_columns,
-        discover=text(f"select {keys} from {table} where ({keys}) > ({after}) order by {keys} limit :limit"),  # nosec B608
+        discover=text(f"select {selected} from {table} where ({keys}) > ({after}) order by {keys} limit :limit"),  # nosec B608
         lock=text(f"select {', '.join(columns)} from {table} where {where_scope} for update"),  # nosec B608
         # Text SQL on purpose: updated_at keeps meaning "a person changed this".
         rewrite=text(f"update {table} set {assignments} where {where_scope} and {old_match}"),  # nosec B608
+        user_column=user_column,
     )
 
 
@@ -725,6 +734,11 @@ COMMERCE_CONNECTORS = _multi_store(
 # Automation webhook triggers (migrations 0049 and 0050): each trigger's HMAC secret.
 AUTOMATION_TRIGGERS = _multi_store(
     "automation_triggers", "automation_trigger", ("secret_ciphertext",), ("tenant_id", "workspace_id", "id")
+)
+# Finance (migration 0057): each read-only connection's credentials, private to its owner.
+FINANCE_CONNECTIONS = _multi_store(
+    "finance_connections", "finance_connection", ("credentials_encrypted",), ("tenant_id", "workspace_id", "id"),
+    user_column="owner_user_id",
 )
 COMMERCE_CUSTOMERS = _multi_store(
     "commerce_customers", "commerce_customer",
@@ -748,7 +762,7 @@ def _rotate_multi(
             store=spec.store, target=target,
         )
 
-    with scoped_unit(session_factory, scope["tenant_id"], scope["workspace_id"]) as session:
+    with scoped_unit(session_factory, scope["tenant_id"], scope["workspace_id"], user_id=scope.get("owner_user_id")) as session:
         row = session.execute(spec.lock, scope).one_or_none()
         if row is None:
             report.changed_concurrently += 1  # disconnected since discovery
@@ -799,6 +813,8 @@ def _rotate_store(
             scope = {"tenant_id": row.tenant_id, "workspace_id": row.workspace_id}
             if "id" in spec.key_columns:
                 scope["row_id"] = row.id
+            if spec.user_column:
+                scope["owner_user_id"] = getattr(row, spec.user_column)
             _rotate_multi(session_factory, cipher, spec, scope, report)
         if len(rows) < batch_size:
             return report
@@ -882,6 +898,23 @@ def rotate_automation_trigger_secrets(
     )
 
 
+def rotate_finance_credentials(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every finance connection's credentials, each in its owner's own scope."""
+    return _rotate_store(
+        FINANCE_CONNECTIONS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
 def _configuration_problem() -> str | None:
     if settings.repository_backend != "postgresql":
         return "rotate_secrets needs ANUM_REPOSITORY_BACKEND=postgresql (the memory backend stores nothing at rest)"
@@ -896,7 +929,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=(
             "Re-encrypt stored provider keys, integration credentials, developer project tokens, tyre source credentials, "
             "meeting connector and marketing tokens, WhatsApp credentials, mailbox tokens, commerce secrets "
-            "and automation webhook secrets "
+            "automation webhook secrets and finance connection credentials "
             "with the first key in ANUM_SECRETS_KEY."
         ),
     )
@@ -924,6 +957,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("email_accounts", rotate_email_tokens),
             ("commerce", rotate_commerce_secrets),
             ("automation_triggers", rotate_automation_trigger_secrets),
+            ("finance_connections", rotate_finance_credentials),
         )
     }
     # Provider keys, integration and tyre credentials at the top level (as before); the rest nested.
