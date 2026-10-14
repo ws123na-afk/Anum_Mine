@@ -30,7 +30,7 @@ services:
       - nats-data:/data
 
   temporal:
-    image: temporalio/auto-setup:1.25
+    image: temporalio/auto-setup:1.29
     environment:
       DB: postgresql
       DB_PORT: 5432
