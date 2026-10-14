@@ -110,7 +110,7 @@ services:
   # Grafana: http://localhost:3000 (anonymous viewer; dashboards from infra/observability).
   prometheus:
     profiles: ["observability"]
-    image: prom/prometheus:v3.5.5
+    image: prom/prometheus:v3.15.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yaml"
       - "--storage.tsdb.retention.time=7d"
