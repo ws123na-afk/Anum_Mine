@@ -81,10 +81,10 @@
 .finOverview { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); }
 .finColumn { align-content: start; display: grid; gap: var(--d-s4); min-width: 0; }
 @media (min-width: 1100px) { .finOverview { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
-/* Money figures are long ("AED 12,899.50"): five columns only where each has room, never a number
-   broken in the middle. */
-.finLayout .pageFigure strong { overflow-wrap: normal; word-break: keep-all; }
+/* Money figures are long ("AED 12,899.50"): as many columns as fit at least 11rem each, a smaller
+   size on mid widths, and a break only as a last resort, so a figure never overflows its cell. */
+.finLayout .pageFigure strong { font-size: clamp(18px, 2.1vw, 24px); }
 @media (min-width: 761px) and (max-width: 1279px) {
-  .finLayout .pageFigures[data-count="5"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .finLayout .pageFigures[data-count="5"] .pageFigure:nth-child(4) { border-inline-start: 0; padding-inline-start: 0; }
+  .finLayout .pageFigures[data-count="5"] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); }
+  .finLayout .pageFigures[data-count="5"] .pageFigure { border-inline-start: 0; padding-inline-start: 0; }
 }
