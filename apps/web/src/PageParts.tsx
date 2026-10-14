@@ -28,13 +28,32 @@ export function useMediaQuery(query: string): boolean {
   return matches;
 }
 
+/** One step of a breadcrumb trail: a link (a URL hash the shell opens) or, last, the current page. */
+export interface Crumb { label: string; href?: string; onClick?: () => void }
+
+/**
+ * The way back from a sub-page (docs/module-checklist.md#navigation): Home, the module, then the
+ * current page. Links are URL hashes, so they also work in a new tab and with Back and Forward.
+ */
+export function Breadcrumbs({ trail }: { trail: Crumb[] }) {
+  return <nav className="breadcrumbs" aria-label={t('page.breadcrumb')}>
+    <ol>{trail.map((crumb, index) => {
+      const last = index === trail.length - 1;
+      return <li key={`${index}-${crumb.label}`}>
+        {last || !crumb.href ? <span aria-current={last ? 'page' : undefined}>{crumb.label}</span>
+          : <a href={crumb.href} onClick={crumb.onClick ? (event) => { event.preventDefault(); crumb.onClick?.(); } : undefined}>{crumb.label}</a>}
+      </li>;
+    })}</ol>
+  </nav>;
+}
+
 /**
  * The page's one header row: the title and a one-line subtitle on the start side, the page's
  * actions on the end side. Used by views that draw their own header (lib/shell.ts OWN_HEADER).
  */
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+export function PageHeader({ title, subtitle, actions, crumbs }: { title: string; subtitle?: string; actions?: ReactNode; crumbs?: Crumb[] }) {
   return <header className="pageHeader">
-    <div className="pageHeaderText"><h1 id="view-title">{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
+    <div className="pageHeaderText">{crumbs && crumbs.length > 0 && <Breadcrumbs trail={crumbs} />}<h1 id="view-title">{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
     {actions && <div className="pageHeaderActions">{actions}</div>}
   </header>;
 }

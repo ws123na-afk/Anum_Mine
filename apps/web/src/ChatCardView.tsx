@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, CircleDot, ExternalLink, FileText, Globe, Inbox, Loader2, MessageCircle, ShieldAlert, ShieldCheck, ShoppingBag, StickyNote, X, type LucideIcon } from 'lucide-react';
+import { Check, CircleDot, ExternalLink, FileText, Globe, Inbox, Loader2, MessageCircle, ShieldAlert, ShieldCheck, ShoppingBag, StickyNote, Wallet, X, type LucideIcon } from 'lucide-react';
 import { cardAfterDecision, type CardCategory, type ChatCard, type ChatCardItem } from './lib/chat';
 import { decideCardApproval } from './lib/chatApi';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -10,9 +10,9 @@ export type ChatTarget =
   | { kind: 'email' | 'whatsapp' | 'file'; id: string }
   | { kind: 'memory'; id: string; title: string | null }
   | { kind: 'task'; id: string }
-  | { kind: 'inbox' | 'whatsappView' | 'files' | 'approvals' | 'commerce' | 'tyre' };
+  | { kind: 'inbox' | 'whatsappView' | 'files' | 'approvals' | 'commerce' | 'tyre' | 'finance' };
 
-const ICONS: Record<CardCategory, LucideIcon> = { email: Inbox, whatsapp: MessageCircle, commerce: ShoppingBag, tyre: CircleDot, web: Globe, files: FileText, action: ShieldAlert };
+const ICONS: Record<CardCategory, LucideIcon> = { email: Inbox, whatsapp: MessageCircle, commerce: ShoppingBag, tyre: CircleDot, finance: Wallet, web: Globe, files: FileText, action: ShieldAlert };
 const KNOWN_BADGES = new Set(['unread', 'priority_high', 'needs_reply', 'window_closed', 'unshipped', 'low_stock']);
 const VIEW_FOR: Partial<Record<CardCategory, { target: ChatTarget; label: MessageKey }>> = {
   email: { target: { kind: 'inbox' }, label: 'chatCard.openInbox' },
@@ -20,6 +20,7 @@ const VIEW_FOR: Partial<Record<CardCategory, { target: ChatTarget; label: Messag
   files: { target: { kind: 'files' }, label: 'chatCard.openFiles' },
   commerce: { target: { kind: 'commerce' }, label: 'chatCard.openCommerce' },
   tyre: { target: { kind: 'tyre' }, label: 'chatCard.openTyre' },
+  finance: { target: { kind: 'finance' }, label: 'chatCard.openFinance' },
 };
 
 function riskLabel(level: string): string {

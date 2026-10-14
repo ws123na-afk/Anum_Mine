@@ -3,6 +3,7 @@
 // (test/i18n.test.ts checks both). Plural messages pick a form by `count`.
 import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
+import { financeEn } from './finance.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { homeEn } from './home.en.ts';
 import { teamEn } from './team.en.ts';
@@ -24,6 +25,8 @@ import { pages2En } from './pages2.en.ts';
 export const en = {
   // ---- Commerce (commerce.en.ts) ----
   ...commerceEn,
+  // ---- Finance (finance.en.ts) ----
+  ...financeEn,
   ...teamEn,
   ...marketingEn,
   ...agentSkillsEn,

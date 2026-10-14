@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("anum.chat_tools")
 
-ChatCategory = Literal["email", "whatsapp", "commerce", "tyre", "web", "files", "action"]
+ChatCategory = Literal["email", "whatsapp", "commerce", "tyre", "finance", "web", "files", "action"]
 CardState = Literal["running", "results", "approval", "failed", "cancelled", "denied"]
 ItemKind = Literal["email", "whatsapp", "web", "file", "memory", "order", "listing", "tyre"]
 
@@ -149,6 +149,9 @@ def chat_intent(question: str, skills: "SkillRegistry", tool_names: set[str]) ->
         return "commerce"
     if call.name in TYRE_READ_TOOLS:
         return "tyre"
+    if call.name in FINANCE_READ_TOOLS:
+        # The caller's own ledger, read only (docs/finance.md#assistant).
+        return "finance"
     if call.name == "anum.respond" and _words(question) & FILE_WORDS:
         return "files"
     # Anything else (plain conversation, a team assignment handled by its own chat path)
@@ -432,6 +435,9 @@ def _fleet_items(tool: str, output: dict[str, Any]) -> tuple[list[ChatCardItem],
 
 
 COMMERCE_READ_TOOLS = frozenset({"commerce.sales_summary", "commerce.list_orders", "commerce.get_order", "commerce.low_stock"})
+# Personal finance (docs/finance.md#assistant): read only, the caller's own ledger. The card
+# carries the answer only; amounts and descriptions reach the model as untrusted tool output.
+FINANCE_READ_TOOLS = frozenset({"finance.summary", "finance.transactions.search", "finance.bills.upcoming"})
 TYRE_READ_TOOLS = frozenset({
     "tyre_fleet_summary", "tyres_due", "purchase_plan", "tyre_alerts",
     # Fleet operations (docs/tyre-planning.md#assistant).
@@ -857,6 +863,7 @@ def needs_summary(card: ChatCard, result: "ToolResult | None") -> bool:
         card.tool in {"search_email", "list_whatsapp_conversations", "web_search"}
         or card.tool in COMMERCE_READ_TOOLS
         or card.tool in TYRE_READ_TOOLS
+        or card.tool in FINANCE_READ_TOOLS
     )
 
 

@@ -31,6 +31,7 @@ const _privateLabels = <String, String>{
   'team_profile': 'Your team profile (name, email, title)',
   'private_agents': 'Your private agents',
   'private_agent_memories': 'Memories of your private agents',
+  'finance_records': 'Finance records',
 };
 
 const _sharedLabels = <String, String>{

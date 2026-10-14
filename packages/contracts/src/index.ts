@@ -248,3 +248,4 @@ export * from './agents.js';
 export * from './conversations.js';
 export * from './setupPlans.js';
 export * from './voice.js';
+export * from './finance.js';

@@ -9,6 +9,7 @@ export const pagesEn = {
   'page.figure.unavailable': 'Unavailable',
   'page.figure.failed': 'Could not load',
   'page.figure.retry': 'Load the figures again',
+  'page.breadcrumb': 'Breadcrumb',
   'page.back': 'Back to the list',
   'page.cancel': 'Cancel',
 

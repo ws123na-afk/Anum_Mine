@@ -97,3 +97,15 @@ test('the posts view has no serious accessibility problems in English', async ({
   expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
   expect(await noOverflow(page)).toBe(true);
 });
+
+test('Marketing tabs are history entries with a breadcrumb back to the posts and Home', async ({ page }) => {
+  await mockMarketing(page);
+  await page.goto('/#marketing');
+  const tabs = page.getByRole('navigation', { name: 'Marketing sections' });
+  await tabs.getByRole('button').nth(1).click();
+  await expect(page).not.toHaveURL(/#marketing-posts$/);
+  const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+  await expect(crumbs.getByRole('link', { name: 'Home' })).toBeVisible();
+  await page.goBack();
+  await expect(tabs.getByRole('button').first()).toHaveAttribute('aria-current', 'page');
+});

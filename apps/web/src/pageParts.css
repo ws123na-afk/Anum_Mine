@@ -8,6 +8,13 @@
 .pageHeaderText h1 { font-size: 28px; line-height: 1.2; }
 .pageHeaderText p { color: var(--d-muted); font-size: 14px; margin-top: 2px; max-width: 80ch; }
 .pageHeaderActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; min-width: 0; }
+/* The way back from a sub-page (docs/module-checklist.md#navigation): small, one line, wraps on phones. */
+.breadcrumbs ol { display: flex; flex-wrap: wrap; font-size: 13px; gap: 2px var(--d-s2); list-style: none; margin: 0 0 var(--d-s1); padding: 0; }
+.breadcrumbs li { align-items: center; color: var(--d-faint); display: inline-flex; gap: var(--d-s2); min-width: 0; }
+.breadcrumbs li + li::before { color: var(--d-faint); content: "/"; }
+.breadcrumbs a { color: var(--d-sky); font-weight: 600; text-decoration: none; }
+.breadcrumbs a:hover, .breadcrumbs a:focus-visible { text-decoration: underline; }
+.breadcrumbs [aria-current="page"] { color: var(--d-muted); overflow-wrap: anywhere; }
 .pageHeaderActions > button, .pageHeaderActions > .chipButton { min-height: 40px; }
 .pageHeaderActions button:not(.secondary):not(.chipButton):not(.iconButton) {
   align-items: center; background: var(--d-primary-grad); border: 0; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow); color: var(--d-on-primary);

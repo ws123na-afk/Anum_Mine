@@ -33,6 +33,8 @@ import '../features/email/email_repository.dart';
 import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
 import '../features/commerce/commerce_repository.dart';
+import '../features/finance/finance_controller.dart';
+import '../features/finance/finance_repository.dart';
 import '../features/reports/workspace_tool_routes.dart';
 import '../features/marketing/marketing_controller.dart';
 import '../features/marketing/marketing_repository.dart';
@@ -178,6 +180,7 @@ class _AnumAppState extends State<AnumApp> {
   late final LibraryRepository library;
   late final PushController push;
   late final CommerceController commerce;
+  late final FinanceController finance;
   late final TyreController tyre;
   late final AgentsController agents;
   late final AgentChatBuilder agentChat;
@@ -282,6 +285,8 @@ class _AnumAppState extends State<AnumApp> {
     // the Assistant and "developer, ..." by voice. The role is checked once.
     // Commerce (docs/commerce.md): sales summary and orders, read-only here.
     commerce = CommerceController(ApiCommerceRepository(api));
+    // Finance (docs/finance.md): the person's own ledger, read only.
+    finance = FinanceController(ApiFinanceRepository(api));
     tyre = TyreController(ApiTyreRepository(api));
     final developerRepository = ApiDeveloperRepository(api);
     developer = DeveloperController(developerRepository);
@@ -341,6 +346,7 @@ class _AnumAppState extends State<AnumApp> {
       automations.reset();
       developer.reset();
       commerce.reset();
+      finance.reset();
       tyre.reset();
       marketing.reset();
       chatDeveloper.reset();
@@ -437,6 +443,7 @@ class _AnumAppState extends State<AnumApp> {
     governance.dispose();
     developer.dispose();
     commerce.dispose();
+    finance.dispose();
     tyre.dispose();
     marketing.dispose();
     push.dispose();
@@ -511,6 +518,7 @@ class _AnumAppState extends State<AnumApp> {
                       whatsappController: whatsapp,
                       emailController: email,
                       commerceController: commerce,
+                      financeController: finance,
                       agentsController: agents,
                       agentChat: agentChat,
                       agentCall: agentCall,
@@ -635,6 +643,7 @@ class _AnumAppState extends State<AnumApp> {
         whatsappController: whatsapp,
         emailController: email,
         commerceController: commerce,
+        financeController: finance,
         agentsController: agents,
         agentChat: agentChat,
         agentCall: agentCall,

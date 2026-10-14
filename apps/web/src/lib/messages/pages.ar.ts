@@ -9,6 +9,7 @@ export const pagesAr: Record<keyof typeof pagesEn, Message> = {
   'page.figure.unavailable': 'غير متاح',
   'page.figure.failed': 'تعذّر التحميل',
   'page.figure.retry': 'أعد تحميل الأرقام',
+  'page.breadcrumb': 'مسار التنقل',
   'page.back': 'العودة إلى القائمة',
   'page.cancel': 'إلغاء',
 

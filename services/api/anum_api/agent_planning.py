@@ -160,6 +160,14 @@ def choose_tool_call(
             if call.name == "anum.respond" and "text" not in call.arguments:
                 call.arguments["text"] = planned_text
             return call
+    if any(skill.id == "anum.finance" for skill in skills):
+        # Questions about the caller's own money, from the user's own words (threat model
+        # G5). Paying or transferring returns None and falls through to external-action.
+        from .finance.tools import plan_call as plan_finance_call
+
+        finance_call = plan_finance_call(prompt)
+        if finance_call is not None:
+            return finance_call
     if any(skill.id == "anum.external-action" for skill in skills):
         return ToolCall(
             name="external.action",

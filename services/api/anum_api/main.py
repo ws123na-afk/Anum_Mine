@@ -141,6 +141,8 @@ from .email_api import router as email_router
 from .commerce.api import router as commerce_router
 from .commerce.scheduler import build_commerce_scheduler
 from .commerce.tools import register_commerce_tools
+from .finance.api import router as finance_router
+from .finance.tools import register_finance_tools
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .user_preferences import router as user_preferences_router
@@ -325,6 +327,7 @@ app.include_router(marketing_router)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 app.include_router(commerce_router)
+app.include_router(finance_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
 # Event triggers and steps waiting on agent tasks (docs/automation.md#triggers).
@@ -349,10 +352,11 @@ app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
+)
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).

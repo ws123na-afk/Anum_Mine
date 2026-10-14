@@ -66,6 +66,7 @@ export interface PrivacyPrivateCounts {
   /** The caller's private custom agents and their memories (docs/agents.md). Absent from older servers. */
   private_agents?: number;
   private_agent_memories?: number;
+  finance_records?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */

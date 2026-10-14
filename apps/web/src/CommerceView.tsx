@@ -58,17 +58,30 @@ function Pager({ page, onPage, label }: { page: CommercePage<unknown>; onPage: (
 
 export function CommerceView({ onOpenApprovals }: { onOpenApprovals?: () => void } = {}) {
   const [setup, setSetup] = useState<Load<CommerceSetup>>({ kind: 'loading' });
+  // A tab is a deep link (#commerce-orders) and a history entry (docs/module-checklist.md#navigation).
   const [tab, setTab] = useState<Tab>(() => {
+    const linked = location.hash.startsWith('#commerce-') ? location.hash.slice(10) : '';
+    if (TABS.includes(linked as Tab)) return linked as Tab;
     try { const saved = sessionStorage.getItem('anum.commerce.tab'); return TABS.includes(saved as Tab) ? saved as Tab : 'overview'; } catch { return 'overview'; }
   });
+  useEffect(() => {
+    const sync = () => { const id = location.hash.slice(10); if (location.hash.startsWith('#commerce-') && TABS.includes(id as Tab)) setTab(id as Tab); else if (location.hash === '#commerce') setTab('overview'); };
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
   const load = useCallback(async () => {
     setSetup({ kind: 'loading' });
     try { setSetup({ kind: 'ready', value: await api.getSetup() }); } catch (e) { setSetup(failed(e)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  const pick = (next: Tab) => { setTab(next); try { sessionStorage.setItem('anum.commerce.tab', next); } catch { /* per page only */ } };
+  const pick = (next: Tab) => {
+    setTab(next);
+    try { sessionStorage.setItem('anum.commerce.tab', next); } catch { /* per page only */ }
+    const hash = next === 'overview' ? '#commerce' : `#commerce-${next}`;
+    if (location.hash !== hash) history.pushState(null, '', hash);
+  };
 
-  const header = <PageHeader title={viewLabel('commerce')} subtitle={t('pages2.commerce.subtitle')} />;
+  const header = <PageHeader title={viewLabel('commerce')} subtitle={t('pages2.commerce.subtitle')} crumbs={tab === 'overview' ? undefined : [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('commerce'), href: '#commerce', onClick: () => pick('overview') }, { label: t(`commerce.tab.${tab}` as MessageKey) }]} />;
   if (setup.kind === 'loading') return <>{header}<Notice busy>{t('commerce.loading')}</Notice></>;
   if (setup.kind === 'denied') return <>{header}<Denied text={t('commerce.denied.read')} /></>;
   if (setup.kind === 'error') return <>{header}<LoadError message={t('commerce.error.load', { message: setup.message })} retry={() => void load()} /></>;

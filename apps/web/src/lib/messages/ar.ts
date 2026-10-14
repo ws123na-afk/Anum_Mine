@@ -4,6 +4,7 @@
 import type { MessageKey } from './en.ts';
 import type { Message } from './types.ts';
 import { commerceAr } from './commerce.ar.ts';
+import { financeAr } from './finance.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
 import { homeAr } from './home.ar.ts';
 import { teamAr } from './team.ar.ts';
@@ -25,6 +26,8 @@ import { pages2Ar } from './pages2.ar.ts';
 export const ar: Record<MessageKey, Message> = {
   // ---- Commerce (commerce.ar.ts) ----
   ...commerceAr,
+  // ---- Finance (finance.ar.ts) ----
+  ...financeAr,
   ...teamAr,
   ...marketingAr,
   ...agentSkillsAr,
