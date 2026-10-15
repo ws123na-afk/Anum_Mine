@@ -369,8 +369,10 @@ class AuthController extends ChangeNotifier {
         ? AuthIssue.invalidSession
         : text.contains('(403,')
             ? AuthIssue.permission
-            : text.toLowerCase().contains('socket') ||
-                    text.toLowerCase().contains('network')
+            : text.contains('ApiException(0,') ||
+                    text.toLowerCase().contains('socket') ||
+                    text.toLowerCase().contains('network') ||
+                    text.toLowerCase().contains('handshake')
                 ? AuthIssue.offline
                 : AuthIssue.unknown;
   }
