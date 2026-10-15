@@ -19,8 +19,8 @@ jobs:
     name: Android app bundle
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ steps.version.outputs.version }}
-      BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+      VERSION: ""
+      BUILD_NUMBER: ""
       PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
       PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
       PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
@@ -34,6 +34,8 @@ jobs:
           build_number=$((GITHUB_RUN_NUMBER + offset))
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
       - name: Check signing secrets and production configuration
         id: config
         env:
@@ -142,8 +144,8 @@ jobs:
     name: Android installable APK
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ steps.version.outputs.version }}
-      BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+      VERSION: ""
+      BUILD_NUMBER: ""
       PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
       PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
       PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
@@ -157,6 +159,8 @@ jobs:
           build_number=$((GITHUB_RUN_NUMBER + offset))
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
       - name: Check the production configuration
         run: |
           for value in "$PRODUCTION_API_URL" "$PRODUCTION_OIDC_ISSUER" "$PRODUCTION_WEB_APP_URL"; do
