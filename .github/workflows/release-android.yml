@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   ANUM_BUILD_NUMBER_OFFSET: ${{ vars.ANUM_BUILD_NUMBER_OFFSET }}
@@ -43,7 +44,9 @@ jobs:
           ANUM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANUM_ANDROID_KEYSTORE_PASSWORD }}
           ANUM_ANDROID_KEY_ALIAS: ${{ secrets.ANUM_ANDROID_KEY_ALIAS }}
           ANUM_ANDROID_KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
-          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          # WIF is used for Play upload; keep this non-empty so the shared release preflight
+          # recognizes that store authentication is configured without requiring a JSON key.
+          PLAY_SERVICE_ACCOUNT_JSON: "workload-identity-federation"
           ANUM_PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
           ANUM_PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
           ANUM_PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
@@ -122,11 +125,21 @@ jobs:
           path: apps/mobile/build/symbols/
           retention-days: 90
           if-no-files-found: error
+      - name: Authenticate to Google Cloud for Play upload
+        if: steps.config.outputs.build == 'true' && steps.config.outputs.play == 'true'
+        id: google-auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/1095200600666/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: anum-play-publisher@anum-os.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+
       - name: Upload to the Play internal track
         if: steps.config.outputs.build == 'true' && steps.config.outputs.play == 'true'
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          serviceAccountJson: ${{ steps.google-auth.outputs.credentials_file_path }}
           packageName: com.anum.app
           releaseFiles: apps/mobile/build/app/outputs/bundle/release/*.aab
           track: internal
@@ -134,7 +147,7 @@ jobs:
           status: ${{ vars.ANUM_PLAY_RELEASE_STATUS || 'completed' }}
       - name: Play upload skipped
         if: steps.config.outputs.build == 'true' && steps.config.outputs.play != 'true'
-        run: echo "::notice title=Play upload skipped::Build-only run. A release tag or the upload input uploads (and then needs the PLAY_SERVICE_ACCOUNT_JSON secret)."
+        run: echo "::notice title=Play upload skipped::Build-only run. Enable the upload input to publish through Google Workload Identity Federation."
 
   android-apk:
     # An installable APK for phones that are not on a Play track (sideloading, the owner's own
