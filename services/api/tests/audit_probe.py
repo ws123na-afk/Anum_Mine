@@ -32,6 +32,7 @@ MODULE_PREFIXES = {
     "developer": "/api/v1/developer",
     "email": "/api/v1/email",
     "learning": "/api/v1/learning",
+    "mail": "/api/v1/mail",
     "whatsapp": "/api/v1/whatsapp",
 }
 EXEMPT: dict[tuple[str, str], str] = {

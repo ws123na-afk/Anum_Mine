@@ -147,6 +147,8 @@ from .finance.trading_api import router as finance_trading_router
 from .finance.wider_api import router as finance_wider_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
+from .mailbox.api import router as mail_router
+from .mailbox.service import register_mail_tools
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .user_preferences import router as user_preferences_router
@@ -333,6 +335,7 @@ app.include_router(model_budget_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(email_router)
+app.include_router(mail_router)
 app.include_router(calendar_router)
 app.include_router(marketing_router)
 app.include_router(user_preferences_router)
@@ -366,11 +369,11 @@ app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
-)
+))
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).

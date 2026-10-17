@@ -67,6 +67,9 @@ export interface PrivacyPrivateCounts {
   private_agents?: number;
   private_agent_memories?: number;
   finance_records?: number;
+  /** Email Center mailboxes (never their password) and messages written in ANUM (docs/email.md#email-center). */
+  mail_mailboxes?: number;
+  mail_messages_written?: number;
 }
 
 /** Workspace-shared records the caller created or decided: kept by a deletion. */

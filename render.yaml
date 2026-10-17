@@ -159,6 +159,10 @@ services:
         sync: false
       - key: ANUM_EMAIL_SYNC_INTERVAL_SECONDS
         value: "300"
+      # Email Center (docs/email.md#email-center): off. To use it, set the mail server's
+      # hosts and allowlists (ANUM_MAILSERVER_*) in the Dashboard and turn it on.
+      - key: ANUM_MAILSERVER_ENABLED
+        value: "false"
       # What ANUM learned (docs/learning.md): "false" stops new learning for everyone.
       - key: ANUM_LEARNING_ENABLED
         value: "true"
