@@ -1,6 +1,6 @@
 # Agent controls
 
-Two owner controls sit on top of the [tool policy and approvals](approvals-and-risk.md), [autonomy](autonomy.md) and the per-organization and per-workspace [model budgets](model-gateway.md): one emergency stop for every agent and outbound send, and monthly cost and token caps per agent (the default assistant included). Code: `services/api/anum_api/agent_controls.py` (stores, enforcement, routes), `services/api/anum_api/db/agent_controls_repository.py` (PostgreSQL), migration `0075_agent_controls`; web `apps/web/src/AgentControlsView.tsx` (Admin, **Agent controls**, `#agentControls`); Flutter `apps/mobile/lib/features/agent_controls/` (Settings, **Agent controls**).
+Two owner controls sit on top of the [tool policy and approvals](approvals-and-risk.md), [autonomy](autonomy.md) and the per-organization and per-workspace [model budgets](model-gateway.md): one emergency stop for every agent and outbound send, and monthly cost and token caps per agent (the default assistant included). Code: `services/api/anum_api/agent_controls.py` (stores, enforcement, routes), `services/api/anum_api/db/agent_controls_repository.py` (PostgreSQL), migration `0076_agent_controls`; web `apps/web/src/AgentControlsView.tsx` (Admin, **Agent controls**, `#agentControls`); Flutter `apps/mobile/lib/features/agent_controls/` (Settings, **Agent controls**).
 
 ## Emergency stop
 
@@ -53,7 +53,7 @@ Owners see the default assistant and every agent they can see (shared agents and
 
 ## Storage
 
-Migration `0075_agent_controls` (expand only): `agent_emergency_stops` (one row per tenant, forced RLS on `anum.tenant_id`), `agent_cost_caps` (cost and token limits, at least one set) and `agent_usage_monthly` (forced RLS on `anum.tenant_id` and `anum.workspace_id`). `anum_maintenance` gets `select (tenant_id, engaged)` on `agent_emergency_stops` and a select policy, only so the scheduled senders' discovery queries can skip a stopped tenant; it never reads the reason or the actor. The in-memory backend keeps the same data in process.
+Migration `0076_agent_controls` (expand only): `agent_emergency_stops` (one row per tenant, forced RLS on `anum.tenant_id`), `agent_cost_caps` (cost and token limits, at least one set) and `agent_usage_monthly` (forced RLS on `anum.tenant_id` and `anum.workspace_id`). `anum_maintenance` gets `select (tenant_id, engaged)` on `agent_emergency_stops` and a select policy, only so the scheduled senders' discovery queries can skip a stopped tenant; it never reads the reason or the actor. The in-memory backend keeps the same data in process.
 
 ## Clients
 

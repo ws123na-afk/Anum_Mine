@@ -1,4 +1,4 @@
-"""Owner agent controls in PostgreSQL (migration ``0075_agent_controls``), as the non-owner app role.
+"""Owner agent controls in PostgreSQL (migration ``0076_agent_controls``), as the non-owner app role.
 
 The emergency stop is one row per tenant under forced RLS: tenant B can neither read nor
 change tenant A's switch. Agent caps and usage are scoped by tenant and workspace.

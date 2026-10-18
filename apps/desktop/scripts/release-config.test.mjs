@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { BASE_CONFIG, DEFAULT_RELEASE_ENV, checkWebBundle, extendCsp, releaseConfig, releaseEnv } from './release-config.mjs';
+import { BASE_CONFIG, DEFAULT_RELEASE_ENV, TWILIO_CSP, checkWebBundle, extendCsp, releaseConfig, releaseEnv } from './release-config.mjs';
 
 const base = JSON.parse(readFileSync(BASE_CONFIG, 'utf8'));
 
@@ -21,6 +21,28 @@ test('production origins are added to connect-src only', () => {
   assert.match(connect, / wss:\/\/api\.anum\.example( |$)/);
   assert.match(csp, /script-src 'self'/);
   assert.doesNotMatch(csp.replace(connect, ''), /anum\.example/);
+});
+
+test('calls through ANUM get only the Twilio hosts the web client needs', () => {
+  const { config } = releaseConfig({}, base);
+  const directives = Object.fromEntries(config.app.security.csp.split(';').map((part) => part.trim().split(/\s+/)).map(([name, ...sources]) => [name, sources]));
+  for (const source of ['wss://*.twilio.com', 'https://eventgw.twilio.com']) assert.ok(directives['connect-src'].includes(source), source);
+  assert.deepEqual(directives['media-src'], ["'self'", 'blob:', 'https://sdk.twilio.com']);
+  assert.deepEqual(directives['script-src'], ["'self'"], 'no Twilio script is loaded: the SDK is bundled');
+  const twilio = config.app.security.csp.match(/[^\s;]*twilio[^\s;]*/g);
+  assert.deepEqual(twilio.sort(), [...TWILIO_CSP['connect-src'], ...TWILIO_CSP['media-src']].sort(), 'no other Twilio host');
+  assert.doesNotMatch(config.app.security.csp, /https:\/\/\*\.twilio\.com|api\.twilio\.com/, 'the REST API is reached by the server, never the app');
+});
+
+test('the macOS bundle asks for the microphone with a usage text and the audio-input entitlement', () => {
+  const dir = new URL('../src-tauri/', import.meta.url);
+  assert.equal(base.bundle.macOS.entitlements, './Entitlements.plist');
+  const entitlements = readFileSync(new URL('Entitlements.plist', dir), 'utf8');
+  assert.match(entitlements, /<key>com\.apple\.security\.device\.audio-input<\/key>\s*<true\/>/);
+  assert.doesNotMatch(entitlements, /camera|app-sandbox/, 'only the microphone');
+  const info = readFileSync(new URL('Info.plist', dir), 'utf8');
+  assert.match(info, /<key>NSMicrophoneUsageDescription<\/key>\s*<string>[^<]{20,}<\/string>/);
+  assert.doesNotMatch(info, /[\u2013\u2014]/);
 });
 
 test('plain-HTTP production origins are refused', () => {

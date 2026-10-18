@@ -210,6 +210,7 @@ class _Content extends StatelessWidget {
               _Heading('Workspace administration'),
               _AdminCard(
                   repository: controller.admin!,
+                  orgAdmin: controller.orgAdmin,
                   workspaceId: session.context.workspaceId),
             ],
             _Heading('Model connection'),
@@ -829,8 +830,10 @@ class _AutonomyCard extends StatelessWidget {
 /// guessing roles. Each pushed screen owns its controller and disposes it
 /// when it is popped ([OwnedController]).
 class _AdminCard extends StatelessWidget {
-  const _AdminCard({required this.repository, required this.workspaceId});
+  const _AdminCard(
+      {required this.repository, required this.workspaceId, this.orgAdmin});
   final AdminRepository repository;
+  final OrgAdminRepository? orgAdmin;
   final String workspaceId;
 
   void _push<T extends ChangeNotifier>(BuildContext context,
@@ -892,5 +895,49 @@ class _AdminCard extends StatelessWidget {
                 () => AcceptInvitationController(repository,
                     currentWorkspaceId: workspaceId),
                 (c) => AcceptInvitationScreen(controller: c))),
+        if (orgAdmin case final org?) ..._orgTiles(context, org),
       ]));
+
+  List<Widget> _orgTiles(BuildContext context, OrgAdminRepository org) {
+    final l = AnumLocalizations.maybeOf(context);
+    ListTile tile(String key, IconData icon, String title, String subtitle,
+            VoidCallback onTap) =>
+        ListTile(
+            key: Key(key),
+            leading: Icon(icon),
+            title: Text(title),
+            subtitle: Text(subtitle),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onTap);
+    return [
+      tile(
+          'open-workspace-settings',
+          Icons.domain_outlined,
+          l.t('oa.entry.ws'),
+          l.t('oa.entry.wsSub'),
+          () => _push(context, () => WorkspaceSettingsController(org),
+              (c) => WorkspaceSettingsScreen(controller: c))),
+      tile(
+          'open-suppressions',
+          Icons.notifications_off_outlined,
+          l.t('oa.entry.supp'),
+          l.t('oa.entry.suppSub'),
+          () => _push(context, () => SuppressionsController(org),
+              (c) => SuppressionsScreen(controller: c))),
+      tile(
+          'open-setup-plans',
+          Icons.assignment_outlined,
+          l.t('oa.entry.plan'),
+          l.t('oa.entry.planSub'),
+          () => _push(context, () => SetupPlansController(org),
+              (c) => SetupPlansScreen(controller: c))),
+      tile(
+          'open-org-chart',
+          Icons.account_tree_outlined,
+          l.t('oa.entry.org'),
+          l.t('oa.entry.orgSub'),
+          () => _push(context, () => OrgChartController(org),
+              (c) => OrgChartScreen(controller: c))),
+    ];
+  }
 }

@@ -20,14 +20,14 @@ discovery skips a stopped tenant's work without reading anything else.
 Expand only: new tables, one column grant, one policy. The previous release never reads
 them and keeps running against this schema.
 
-Chained after ``0074_brevo_campaigns``, the head of ``main``.
+Chained after ``0075_file_scan_status``, the head of ``main``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0075_agent_controls"
-down_revision = "0074_brevo_campaigns"
+revision = "0076_agent_controls"
+down_revision = "0075_file_scan_status"
 branch_labels = None
 depends_on = None
 

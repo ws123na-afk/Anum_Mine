@@ -62,6 +62,7 @@ import '../features/voice/voice_repository.dart';
 import '../features/settings/profile_screen.dart';
 import '../features/settings/settings_controller.dart';
 import '../features/admin/admin_repository.dart';
+import '../features/admin/org_admin_repository.dart';
 import '../features/learning/learning_repository.dart';
 import '../features/privacy/privacy_repository.dart';
 import '../features/library/library_repository.dart';
@@ -307,6 +308,7 @@ class _AnumAppState extends State<AnumApp> {
     settings = SettingsController(
       authRepository,
       admin: ApiAdminRepository(api),
+      orgAdmin: ApiOrgAdminRepository(api),
       autonomy: ApiAutonomyRepository(api),
       privacy: ApiPrivacyRepository(api, saver: const FilePickerExportSaver()),
       push: push,

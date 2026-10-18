@@ -1097,11 +1097,11 @@ def test_mail_writers_migration_is_expand_only() -> None:
 
 def test_agent_controls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0075_agent_controls.py").read_text(encoding="utf-8")
-    assert 'revision = "0075_agent_controls"' in revision_text and len("0075_agent_controls") <= 32
-    assert 'down_revision = "0074_brevo_campaigns"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0075_agent_controls.py"]
-    assert not [path for path in others if 'down_revision = "0074_brevo_campaigns"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0076_agent_controls.py").read_text(encoding="utf-8")
+    assert 'revision = "0076_agent_controls"' in revision_text and len("0076_agent_controls") <= 32
+    assert 'down_revision = "0075_file_scan_status"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0076_agent_controls.py"]
+    assert not [path for path in others if 'down_revision = "0075_file_scan_status"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 3
     for table in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly"):
@@ -1114,3 +1114,18 @@ def test_agent_controls_migration_is_expand_only_with_forced_rls_and_narrow_disc
     assert upgrade.count("grant ") == 1
     assert "grant select (tenant_id, engaged) on agent_emergency_stops to anum_maintenance" in upgrade
     assert "for select to anum_maintenance" in upgrade
+def test_file_scan_status_migration_is_expand_only_with_a_discovery_only_policy() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0075_file_scan_status.py").read_text(encoding="utf-8")
+    assert 'revision = "0075_file_scan_status"' in revision_text and len("0075_file_scan_status") <= 32
+    assert 'down_revision = "0074_brevo_campaigns"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0075_file_scan_status.py"]
+    assert not [path for path in others if 'down_revision = "0074_brevo_campaigns"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.add_column(") == 3 and "nullable=true" in upgrade
+    assert "op.create_table(" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # Discovery only: ids, scope and the scan state of unscanned rows; never the name, key or digest.
+    assert "grant select (id, tenant_id, workspace_id, scan_status) on workspace_files to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade and "using (scan_status is null)" in upgrade
+    assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade

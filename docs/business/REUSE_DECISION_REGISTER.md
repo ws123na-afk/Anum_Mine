@@ -97,7 +97,7 @@ How Harvey's pieces map onto ANUM:
 ### OpenTelemetry Collector (keep existing)
 
 - **Repository:** https://github.com/open-telemetry/opentelemetry-collector, `main`, commit `ebfdf90d82ab` (16 Oct 2026). `LICENSE`: Apache-2.0.
-- **Decision:** keep. ANUM instruments with the OpenTelemetry SDK (`services/api/pyproject.toml`: `opentelemetry-api` 1.45.0 and instrumentations; `anum_api/telemetry.py`) and the development compose runs the contrib collector. On the Oracle VM no collector runs ([Deploying on Oracle](../deploy-oracle.md)); set `ANUM_OTEL_EXPORTER_OTLP_ENDPOINT` to a hosted endpoint when needed.
+- **Decision:** keep. ANUM instruments with the OpenTelemetry SDK (`services/api/pyproject.toml`: `opentelemetry-api` 1.45.1 and instrumentations; `anum_api/telemetry.py`) and the development compose runs the contrib collector. On the Oracle VM no collector runs ([Deploying on Oracle](../deploy-oracle.md)); set `ANUM_OTEL_EXPORTER_OTLP_ENDPOINT` to a hosted endpoint when needed.
 
 ### Keycloak (keep existing)
 
