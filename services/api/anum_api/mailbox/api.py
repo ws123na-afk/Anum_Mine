@@ -5,16 +5,18 @@ drafts and asking to send need ``email:act`` (owners and members; viewers have n
 A mailbox is private to the person who connected it (row policy and every query). Sending
 and deleting for good pause for an approval bound to the exact call (payload hash).
 Every state-changing route writes an audit record with ids and counts, never content.
+Attachments (uploaded through the workspace upload checks and malware-scan hook) and a send
+time are part of the approved call; a scheduled message goes at its time (``outgoing.py``).
 """
 
 from __future__ import annotations
 
 import asyncio
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
 from ..agent_tools import ToolCall
@@ -28,14 +30,15 @@ from ..schemas import Approval, ApprovalStatus, TenantContext, new_id, utc_now
 from .config import mail_settings
 from .mime import (
     Person,
+    attachment_bytes,
     forward_subject,
     new_message_id,
     parse_message,
-    attachment_bytes,
     quoted,
     references_for,
     reply_subject,
 )
+from .outgoing import OutgoingRefused, add_attachment, forget_objects, parse_send_at
 from .server import Folder, MailServer, MailServerError, Summary
 from .service import (
     DELETE_TOOL,
@@ -52,9 +55,15 @@ from .service import (
     send_arguments,
     take_connect_attempt,
     tenant_allowed,
+    utc_iso,
 )
+<<<<<<< HEAD
 from . import monitor, service
 from .store import EDITABLE, AccountStatus, DraftKind, DraftStatus, MailAccount, MailDraft, open_mail_store
+=======
+from . import service
+from .store import EDITABLE, AccountStatus, DraftKind, DraftStatus, MailAccount, MailAttachment, MailDraft, open_mail_store
+>>>>>>> origin/claude/email-center
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
 
@@ -127,6 +136,10 @@ class MailSetup(BaseModel):
     can_act: bool
     max_recipients: int
     send_per_hour: int
+    attachment_max_bytes: int
+    attachments_per_message: int
+    attachments_total_bytes: int
+    schedule_max_days: int
     accounts: list[AccountView]
 
 
@@ -219,6 +232,16 @@ class ActionResult(BaseModel):
     approval: Approval | None = None
 
 
+class OutgoingFileView(BaseModel):
+    id: str
+    filename: str
+    content_type: str
+    size: int
+    sha256: str
+    scanned: bool
+    created_at: str
+
+
 class DraftView(BaseModel):
     id: str
     account_id: str
@@ -236,6 +259,11 @@ class DraftView(BaseModel):
     approval_note: str | None
     saved_to_sent: bool | None
     sent_at: str | None
+    # When a scheduled send goes (UTC); set while scheduled or waiting for approval, kept on a draft
+    # as the last time picked.
+    send_at: str | None
+    attachments: list[OutgoingFileView]
+    attachment_note: str | None
     created_at: str
     updated_at: str
 
@@ -245,6 +273,8 @@ class DraftCreate(BaseModel):
     kind: DraftKind = "new"
     folder: str | None = Field(default=None, max_length=500)
     uid: int | None = Field(default=None, ge=1)
+    # A forward carries the original's attachments (each checked and scanned like an upload).
+    include_attachments: bool = True
 
 
 class DraftUpdate(BaseModel):
@@ -257,6 +287,8 @@ class DraftUpdate(BaseModel):
 
 class SendBody(BaseModel):
     idempotency_key: str = Field(pattern=KEY_PATTERN)
+    # Send at this time instead of on approval (with a zone; one minute to ANUM_MAILSERVER_SCHEDULE_MAX_DAYS ahead).
+    send_at: datetime | None = None
 
 
 class SendResponse(BaseModel):
@@ -292,7 +324,17 @@ def _folder_view(folder: Folder) -> FolderView:
     return FolderView(id=folder.id, name=folder.name, role=folder.role, total=folder.total, unread=folder.unread)
 
 
-def _draft_view(draft: MailDraft, repository: AnumRepository, context: TenantContext) -> DraftView:
+def _file_view(attachment: MailAttachment) -> OutgoingFileView:
+    return OutgoingFileView(
+        id=attachment.id, filename=attachment.filename, content_type=attachment.content_type, size=attachment.size_bytes,
+        sha256=attachment.sha256, scanned=attachment.scanned, created_at=attachment.created_at.isoformat(),
+    )
+
+
+def _draft_view(draft: MailDraft, repository: AnumRepository, context: TenantContext, attachments: list[MailAttachment] | None = None) -> DraftView:
+    if attachments is None:
+        with open_mail_store(context) as store:
+            attachments = store.list_attachments(draft.id)
     approval = None
     note = None
     shown = draft.status
@@ -307,7 +349,9 @@ def _draft_view(draft: MailDraft, repository: AnumRepository, context: TenantCon
         id=draft.id, account_id=draft.account_id, kind=draft.kind, to=draft.to, cc=draft.cc, bcc=draft.bcc,
         subject=draft.subject, body=draft.body, in_reply_to=draft.in_reply_to, message_id=draft.message_id, status=shown,
         error=draft.error, approval=approval, approval_note=note, saved_to_sent=draft.saved_to_sent,
-        sent_at=draft.sent_at.isoformat() if draft.sent_at else None, created_at=draft.created_at.isoformat(), updated_at=draft.updated_at.isoformat(),
+        sent_at=draft.sent_at.isoformat() if draft.sent_at else None, send_at=utc_iso(draft.send_at),
+        attachments=[_file_view(a) for a in attachments], attachment_note=draft.attachment_note,
+        created_at=draft.created_at.isoformat(), updated_at=draft.updated_at.isoformat(),
     )
 
 
@@ -353,7 +397,8 @@ async def get_setup(context: TenantContext = Depends(tenant_context)) -> MailSet
         imap_host=cfg.imap_host or None, imap_port=cfg.imap_port, smtp_host=cfg.smtp_host or None, smtp_port=cfg.smtp_port,
         smtp_security=cfg.smtp_security, allowed_domains=sorted(cfg.domains), can_read=True,
         can_act=has_permission(context, Permission.EMAIL_ACT), max_recipients=cfg.max_recipients, send_per_hour=cfg.send_per_hour,
-        accounts=accounts,
+        attachment_max_bytes=cfg.outbound_attachment_max_bytes, attachments_per_message=cfg.outbound_max_attachments,
+        attachments_total_bytes=cfg.outbound_total_max_bytes, schedule_max_days=cfg.schedule_max_days, accounts=accounts,
     )
 
 
@@ -457,7 +502,9 @@ async def disconnect_account(
         for draft in store.list_drafts(account.id, 1000):
             if draft.status == DraftStatus.PENDING_APPROVAL:
                 _retire(repository, context, draft)  # type: ignore[arg-type]
+        files = store.attachments_of_account(account.id)
         store.delete_account(account.id)
+    forget_objects(files)
     _audit(repository, context, "mail.account.disconnect", account.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -632,7 +679,23 @@ async def list_drafts(
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     with open_mail_store(context) as store:
         drafts = store.list_drafts(account_id, limit)
-    return [_draft_view(d, repository, context) for d in drafts]
+        files = store.attachments_of_account(account_id)
+    return [_draft_view(d, repository, context, [f for f in files if f.draft_id == d.id]) for d in drafts]
+
+
+@router.get("/scheduled", response_model=list[DraftView])
+async def list_scheduled(
+    account_id: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=50, ge=1, le=100),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> list[DraftView]:
+    """Messages with a send time, scheduled or still waiting for approval, soonest first."""
+    _require(context, Permission.EMAIL_READ, READ_DENIED)
+    with open_mail_store(context) as store:
+        drafts = store.list_scheduled(account_id, limit)
+        files = store.attachments_of_account(account_id)
+    return [_draft_view(d, repository, context, [f for f in files if f.draft_id == d.id]) for d in drafts]
 
 
 @router.get("/drafts/{draft_id}", response_model=DraftView)
@@ -680,8 +743,31 @@ async def create_draft(
         draft.source_folder, draft.source_uid = folder, uid
     with open_mail_store(context) as store:
         store.save_draft(draft)
-    _audit(repository, context, "mail.draft.create", draft.id, metadata={"kind": draft.kind})
+    carried = 0
+    if body.kind == "forward" and body.include_attachments:
+        carried, skipped = _carry_attachments(context, draft, raw)
+        if skipped:
+            draft.attachment_note = ("Not carried over: " + "; ".join(skipped))[:1000]
+            with open_mail_store(context) as store:
+                store.save_draft(draft)
+    _audit(repository, context, "mail.draft.create", draft.id, metadata={"kind": draft.kind, "attachments": carried})
     return _draft_view(draft, repository, context)
+
+
+def _carry_attachments(context: TenantContext, draft: MailDraft, raw: bytes) -> tuple[int, list[str]]:
+    """The original's files on a forward, each through the same checks and scan as an upload."""
+    carried, skipped = 0, []
+    for info in parse_message(raw).attachments:
+        found = attachment_bytes(raw, info.index)
+        if found is None:
+            continue
+        data, _ = found
+        try:
+            add_attachment(context, draft, info.filename, info.content_type, data)
+            carried += 1
+        except OutgoingRefused as exc:
+            skipped.append(f"{info.filename[:80]} ({exc.message})")
+    return carried, skipped
 
 
 def _valid_only(values: list[str]) -> list[str]:
@@ -721,14 +807,131 @@ async def update_draft(
         draft.subject = re.sub(r"[\r\n\t]+", " ", body.subject).strip()
     if body.body is not None:
         draft.body = body.body
-    if draft.status == DraftStatus.PENDING_APPROVAL:
-        _retire(repository, context, draft)  # type: ignore[arg-type]
-    draft.status, draft.approval_id, draft.task_id, draft.idempotency_key, draft.error = DraftStatus.DRAFT, None, None, None, None
-    draft.updated_at = utc_now()
+    _back_to_draft(repository, context, draft)
     with open_mail_store(context) as store:
         store.save_draft(draft)
     _audit(repository, context, "mail.draft.update", draft.id, metadata={"recipients": len(draft.to) + len(draft.cc) + len(draft.bcc)})
     return _draft_view(draft, repository, context)
+
+
+def _back_to_draft(repository: AnumRepository, context: TenantContext, draft: MailDraft) -> None:
+    """A change withdraws a pending approval and cancels a schedule (the send time is kept to pick again).
+
+    The status moves by compare-and-set first, so a send the scheduler or an approval has just
+    claimed is never turned back into a draft (and so never sent twice): that answers 409.
+    """
+    if draft.status in {DraftStatus.PENDING_APPROVAL, DraftStatus.SCHEDULED}:
+        with open_mail_store(context) as store:
+            moved = store.reset_to_draft(draft.id, draft.status)
+        if not moved:
+            raise HTTPException(status_code=409, detail="This message is being sent right now. Check its status in a moment.")
+    if draft.status == DraftStatus.PENDING_APPROVAL:
+        _retire(repository, context, draft)  # type: ignore[arg-type]
+    draft.status, draft.approval_id, draft.task_id, draft.idempotency_key, draft.error = DraftStatus.DRAFT, None, None, None, None
+    draft.approved_hash = None
+    draft.updated_at = utc_now()
+
+
+def _editable_draft(context: TenantContext, draft_id: str) -> tuple[MailDraft, MailAccount]:
+    draft, account = _load_draft(context, draft_id)
+    if draft.status not in EDITABLE:
+        raise HTTPException(status_code=409, detail=f"This message is {draft.status.value} and can no longer be edited.")
+    return draft, account
+
+
+@router.post("/drafts/{draft_id}/cancel-schedule", response_model=DraftView)
+async def cancel_schedule(
+    draft_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
+) -> DraftView:
+    """Stop a scheduled send (or its pending approval): the message becomes a draft again."""
+    _require(context, Permission.EMAIL_ACT, ACT_DENIED)
+    draft, _ = _load_draft(context, draft_id)
+    if draft.send_at is None or draft.status not in {DraftStatus.SCHEDULED, DraftStatus.PENDING_APPROVAL}:
+        raise HTTPException(status_code=409, detail="This message is not scheduled.")
+    previous = draft.status
+    _back_to_draft(repository, context, draft)
+    draft.send_at = None
+    with open_mail_store(context) as store:
+        store.save_draft(draft)
+    _audit(repository, context, "mail.send.schedule_cancelled", draft.id, metadata={"was": previous.value})
+    return _draft_view(draft, repository, context)
+
+
+@router.post("/drafts/{draft_id}/attachments", response_model=OutgoingFileView, status_code=status.HTTP_201_CREATED)
+async def upload_attachment(
+    draft_id: str,
+    request: Request,
+    name: str = Query(min_length=1, max_length=255, description="The file name (URL-encoded)"),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> OutgoingFileView:
+    """Attach the raw request body as a file: the workspace upload checks and malware scan, then the caps."""
+    _require(context, Permission.EMAIL_ACT, ACT_DENIED)
+    _available(context)
+    draft, _ = _editable_draft(context, draft_id)
+    from ..files import read_upload_body
+
+    content = await read_upload_body(request, mail_settings.outbound_attachment_max_bytes)
+    if draft.status != DraftStatus.DRAFT:
+        # A new file withdraws the approval or the schedule before it is attached.
+        _back_to_draft(repository, context, draft)
+        with open_mail_store(context) as store:
+            store.save_draft(draft)
+    try:
+        attachment = await asyncio.to_thread(add_attachment, context, draft, name, request.headers.get("content-type"), content)
+    except OutgoingRefused as exc:
+        _audit(repository, context, "mail.attachment.add", draft.id, "denied", {"reason": exc.status})
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+    _audit(repository, context, "mail.attachment.add", draft.id, metadata={"attachment_id": attachment.id, "size": attachment.size_bytes, "scanned": attachment.scanned})
+    return _file_view(attachment)
+
+
+@router.delete("/drafts/{draft_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_attachment(
+    draft_id: str, attachment_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
+) -> Response:
+    _require(context, Permission.EMAIL_ACT, ACT_DENIED)
+    draft, _ = _editable_draft(context, draft_id)
+    with open_mail_store(context) as store:
+        if store.get_attachment(draft.id, attachment_id) is None:
+            raise HTTPException(status_code=404, detail="That file is not attached to this message.")
+    if draft.status != DraftStatus.DRAFT:
+        _back_to_draft(repository, context, draft)
+        with open_mail_store(context) as store:
+            store.save_draft(draft)
+    with open_mail_store(context) as store:
+        removed = store.delete_attachment(draft.id, attachment_id)
+    if removed is None:
+        raise HTTPException(status_code=404, detail="That file is not attached to this message.")
+    forget_objects([removed])
+    _audit(repository, context, "mail.attachment.remove", draft.id, metadata={"attachment_id": attachment_id})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/drafts/{draft_id}/attachments/{attachment_id}")
+async def download_outgoing_attachment(draft_id: str, attachment_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    """One of the person's own attached files, as a download (never shown inline)."""
+    _require(context, Permission.EMAIL_READ, READ_DENIED)
+    with open_mail_store(context) as store:
+        found = store.get_attachment(draft_id, attachment_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="That file is not attached to this message.")
+    from .outgoing import AttachmentGone, read_attachment
+
+    try:
+        data = await asyncio.to_thread(read_attachment, found)
+    except AttachmentGone as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from None
+    return Response(
+        content=data,
+        media_type=found.content_type,
+        headers={
+            "Content-Disposition": content_disposition("attachment", found.filename),
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.delete("/drafts/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -743,7 +946,9 @@ async def delete_draft(
     if draft.status == DraftStatus.PENDING_APPROVAL:
         _retire(repository, context, draft)  # type: ignore[arg-type]
     with open_mail_store(context) as store:
+        files = store.list_attachments(draft.id)
         store.delete_draft(draft.id)
+    forget_objects(files)
     _audit(repository, context, "mail.draft.delete", draft.id, metadata={"status": draft.status.value})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -752,10 +957,12 @@ async def delete_draft(
 async def send_draft(
     draft_id: str, body: SendBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> SendResponse:
-    """Ask to send: a paused ``send_mail`` call with exactly this message.
+    """Ask to send, now or at ``send_at``: a paused ``send_mail`` call with exactly this message.
 
     The same ``idempotency_key`` always answers with the same message and approval; approving
-    goes through ``POST /api/v1/approvals/{id}/approve`` with the payload hash shown.
+    goes through ``POST /api/v1/approvals/{id}/approve`` with the payload hash shown. A new key
+    on a scheduled message asks again (for example for another time): the message then waits
+    for the new approval and is never sent on the old one.
     """
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     _available(context)
@@ -767,33 +974,51 @@ async def send_draft(
         other = store.find_by_key(account.id, body.idempotency_key)
     if other is not None and other.id != draft.id:
         raise HTTPException(status_code=409, detail="This send key was already used for another message.")
-    if draft.status not in {DraftStatus.DRAFT, DraftStatus.FAILED, DraftStatus.PENDING_APPROVAL}:
+    if draft.status not in {DraftStatus.DRAFT, DraftStatus.FAILED, DraftStatus.PENDING_APPROVAL, DraftStatus.SCHEDULED}:
         raise HTTPException(status_code=409, detail=f"This message is {draft.status.value}.")
+    try:
+        send_at = parse_send_at(body.send_at) if body.send_at is not None else None
+    except OutgoingRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
     if account.status == AccountStatus.AUTH_FAILED:
         raise HTTPException(status_code=409, detail="The mail server refused the saved password. Enter it again in Mailbox settings before sending.")
     try:
         check_ready_to_send(draft)
     except MailError as exc:
         raise _http(exc) from None
+    # A scheduled message is counted when it goes (the scheduler checks the limit then).
     with open_mail_store(context) as store:
+<<<<<<< HEAD
         if store.count_sends_since(account.id, utc_now() - timedelta(hours=1)) >= mail_settings.send_per_hour:
             monitor.bump(context, "send_rate_limited")
+=======
+        if send_at is None and store.count_sends_since(account.id, utc_now() - timedelta(hours=1)) >= mail_settings.send_per_hour:
+>>>>>>> origin/claude/email-center
             raise HTTPException(status_code=429, detail=f"This mailbox sent {mail_settings.send_per_hour} messages in the last hour. Try again later.")
-    arguments = send_arguments(draft, account)
+    with open_mail_store(context) as store:
+        attachments = store.list_attachments(draft.id)
+    draft.send_at = send_at
+    arguments = send_arguments(draft, account, attachments)
     if draft.status == DraftStatus.PENDING_APPROVAL and draft.approval_id:
         existing = repository.get_approval(draft.approval_id, context)
-        if existing is not None and existing.status == ApprovalStatus.PENDING and (existing.expires_at is None or existing.expires_at > utc_now()) and existing.arguments.get("body") == arguments["body"]:
+        if existing is not None and existing.status == ApprovalStatus.PENDING and (existing.expires_at is None or existing.expires_at > utc_now()) and existing.arguments == arguments:
             draft.idempotency_key = body.idempotency_key
             with open_mail_store(context) as store:
                 store.save_draft(draft)
-            return SendResponse(draft=_draft_view(draft, repository, context), approval=existing)
-        _retire(repository, context, draft)  # type: ignore[arg-type]
+            return SendResponse(draft=_draft_view(draft, repository, context, attachments), approval=existing)
+    if draft.status in {DraftStatus.PENDING_APPROVAL, DraftStatus.SCHEDULED}:
+        _back_to_draft(repository, context, draft)
+        draft.send_at = send_at
     recipients = ", ".join(draft.to)
+    title = f"Schedule email to {recipients} for {utc_iso(send_at)}" if send_at else f"Send email to {recipients}"
+    files = f" with {len(attachments)} file(s)" if attachments else ""
+    when = f" at {utc_iso(send_at)} (UTC)" if send_at else ""
     task, approval = _pause_for_approval(
-        repository, context, ToolCall(name=SEND_TOOL, arguments=arguments), f"Send email to {recipients}"[:160],
-        f"Send '{draft.subject or '(no subject)'}' from {account.address} to {recipients}.", registry=mail_tool_registry(),
+        repository, context, ToolCall(name=SEND_TOOL, arguments=arguments), title[:160],
+        f"Send '{draft.subject or '(no subject)'}' from {account.address} to {recipients}{files}{when}.", registry=mail_tool_registry(),
     )
     draft.status, draft.approval_id, draft.task_id, draft.error = DraftStatus.PENDING_APPROVAL, approval.id, task.id, None
+    draft.approved_hash = None
     draft.idempotency_key = body.idempotency_key
     draft.updated_at = utc_now()
     try:
@@ -803,6 +1028,9 @@ async def send_draft(
         raise HTTPException(status_code=409, detail="This send key was already used for another message.") from None
     _audit(
         repository, context, "mail.send.requested", draft.id,
-        metadata={"approval_id": approval.id, "task_id": task.id, "recipients": len(draft.to) + len(draft.cc) + len(draft.bcc), "payload_hash": approval.payload_hash},
+        metadata={
+            "approval_id": approval.id, "task_id": task.id, "recipients": len(draft.to) + len(draft.cc) + len(draft.bcc),
+            "attachments": len(attachments), "scheduled": send_at is not None, "payload_hash": approval.payload_hash,
+        },
     )
-    return SendResponse(draft=_draft_view(draft, repository, context), approval=approval)
+    return SendResponse(draft=_draft_view(draft, repository, context, attachments), approval=approval)

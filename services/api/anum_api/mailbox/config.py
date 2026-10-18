@@ -39,6 +39,17 @@ class MailServerSettings(BaseSettings):
     send_per_hour: int = Field(default=30, ge=1, le=1000)
     max_recipients: int = Field(default=50, ge=1, le=500)
     connect_attempts_per_hour: int = Field(default=5, ge=1, le=100)
+    # Outgoing attachments (docs/email.md#attachments): the largest file, the most files and the
+    # largest total per message. Every file passes the workspace upload checks and the malware scan.
+    outbound_attachment_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
+    outbound_max_attachments: int = Field(default=10, ge=1, le=50)
+    outbound_total_max_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
+    # Files held on unsent messages per person (sent ones stay until removed from the list).
+    outbound_storage_per_person_bytes: int = Field(default=200 * 1024 * 1024, ge=1024 * 1024, le=10 * 1024 * 1024 * 1024)
+    # Scheduled send (docs/email.md#scheduled-send): how often each replica looks for due messages
+    # (0 is off: scheduled messages then wait) and how far ahead a message may be scheduled.
+    schedule_poll_seconds: float = Field(default=30.0, ge=0, le=3600)
+    schedule_max_days: int = Field(default=30, ge=1, le=365)
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_MAILSERVER_", env_file=".env", extra="ignore", hide_input_in_errors=True

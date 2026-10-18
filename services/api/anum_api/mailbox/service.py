@@ -6,6 +6,9 @@ Two tools act on mail only after an approval bound to the exact call (payload ha
   same bytes to the Sent folder. The draft is claimed atomically (``pending_approval`` to
   ``sending``), so two approvals or a retried run can never send it twice; a send whose
   connection broke after the message data started is marked ``unknown`` and never retried.
+  A message with a ``send_at`` in the future is only marked ``scheduled`` by the approval;
+  the scheduler (:mod:`.outgoing`) sends it at that time, after checking it still matches
+  the approved call. The approved call covers the attachments' names, sizes and SHA-256.
 * ``delete_mail`` (high risk): deletes messages for good from Trash or Junk.
 
 Mail is untrusted data: nothing in a message can choose a tool, an address or a folder.
@@ -14,10 +17,12 @@ Mail is untrusted data: nothing in a message can choose a tool, an address or a 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections import deque
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, TypeVar
 
@@ -25,10 +30,23 @@ from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from ..schemas import RiskLevel, TenantContext, utc_now
 from ..settings import settings
 from .config import MailServerSettings, mail_settings
-from .mime import Outgoing, build_message, valid_address
+from .mime import Outgoing, OutgoingFile, build_message, valid_address
 from .server import Folder, ImapSmtpServer, MailServer, MailServerError
+<<<<<<< HEAD
 from .store import AccountStatus, DraftStatus, MailAccount, MailDraft, open_mail_store
 from . import monitor
+=======
+from .store import (
+    NOT_APPROVED_IN_TIME,
+    SEND_LEASE,
+    AccountStatus,
+    DraftStatus,
+    MailAccount,
+    MailAttachment,
+    MailDraft,
+    open_mail_store,
+)
+>>>>>>> origin/claude/email-center
 
 logger = logging.getLogger("anum.mail")
 
@@ -36,6 +54,8 @@ SEND_TOOL = "send_mail"
 DELETE_TOOL = "delete_mail"
 _PEOPLE = frozenset({"owner", "member"})
 T = TypeVar("T")
+# An approval that lands this soon after the scheduled time still sends (now); later it does not.
+DUE_GRACE = timedelta(minutes=5)
 
 # Tests replace this with a fake server; production builds the IMAP and SMTP client.
 server_factory: Callable[[MailServerSettings, str, str], MailServer] = ImapSmtpServer
@@ -193,7 +213,19 @@ def check_ready_to_send(draft: MailDraft) -> None:
         raise MailError(422, "The message is empty. Add a subject or some text.", "empty")
 
 
-def send_arguments(draft: MailDraft, account: MailAccount) -> dict[str, Any]:
+def utc_iso(value: datetime | None) -> str | None:
+    """One spelling of a time in UTC whole seconds, whatever the database session's zone."""
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat() if value else None
+
+
+def attachment_arguments(attachments: list[MailAttachment]) -> list[dict[str, Any]]:
+    return [
+        {"id": a.id, "filename": a.filename, "content_type": a.content_type, "size": a.size_bytes, "sha256": a.sha256}
+        for a in attachments
+    ]
+
+
+def send_arguments(draft: MailDraft, account: MailAccount, attachments: list[MailAttachment] | None = None) -> dict[str, Any]:
     """Exactly what the approval shows and binds (the payload hash covers all of it)."""
     return {
         "draft_id": draft.id,
@@ -207,7 +239,14 @@ def send_arguments(draft: MailDraft, account: MailAccount) -> dict[str, Any]:
         "body": draft.body,
         "message_id": draft.message_id,
         "in_reply_to": draft.in_reply_to,
+        "send_at": utc_iso(draft.send_at),
+        "attachments": attachment_arguments(attachments or []),
     }
+
+
+def content_hash(arguments: dict[str, Any]) -> str:
+    """SHA-256 of the canonical send call, kept on a scheduled message and checked when it goes."""
+    return hashlib.sha256(json.dumps(arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
 
 
 def _owner_context(call: ToolCall, context: TenantContext) -> TenantContext:
@@ -221,7 +260,7 @@ def _failed(summary: str, **output: Any) -> ToolResult:
 
 
 async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
-    """Send exactly the approved message, once. Runs only after approval (high risk)."""
+    """Send exactly the approved message, once, or schedule it. Runs only after approval (high risk)."""
     args = call.arguments
     owner = _owner_context(call, context)
     try:
@@ -232,48 +271,83 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     with open_mail_store(owner) as store:
         draft = store.get_draft(draft_id)
         account = store.get_account(str(args.get("account_id") or "")) if draft else None
+        attachments = store.list_attachments(draft.id) if draft else []
     if draft is None or account is None or draft.account_id != account.id:
         return _failed("Not sent: the message or its mailbox is gone.")
     if draft.status == DraftStatus.SENT:
         return ToolResult(status="succeeded", summary="This message was already sent.", output={"draft_id": draft.id})
+    if draft.status == DraftStatus.SCHEDULED:
+        return ToolResult(status="succeeded", summary="This message is already scheduled.", output={"draft_id": draft.id, "send_at": utc_iso(draft.send_at)})
     if draft.status in {DraftStatus.SENDING, DraftStatus.UNKNOWN}:
         return _failed("Not sent again: an earlier attempt may have reached the server. Check Sent.", draft_id=draft.id)
     if draft.status != DraftStatus.PENDING_APPROVAL:
         return _failed("Not sent: the message is no longer waiting for approval.", draft_id=draft.id)
-    if send_arguments(draft, account) != {key: args.get(key) for key in send_arguments(draft, account)}:
+    expected = send_arguments(draft, account, attachments)
+    if expected != {key: args.get(key) for key in expected}:
         return _failed("Not sent: the message changed after it was sent for approval.", draft_id=draft.id)
-    since = utc_now() - timedelta(hours=1)
+    now = utc_now()
+    if draft.send_at is not None and draft.send_at > now:
+        with open_mail_store(owner) as store:
+            if not store.mark_scheduled(draft.id, content_hash(expected)):
+                return _failed("Not scheduled: the message is no longer waiting for approval.", draft_id=draft.id)
+        when = utc_iso(draft.send_at)
+        return ToolResult(
+            status="succeeded",
+            summary=f"Scheduled for {when} from {account.address} to {', '.join(draft.to)}: {draft.subject or '(no subject)'}",
+            output={"draft_id": draft.id, "message_id": draft.message_id, "send_at": when, "scheduled": True},
+            audit_metadata={"tool": SEND_TOOL, "draft_id": draft.id, "scheduled": True, "attachments": len(attachments)},
+        )
+    if draft.send_at is not None and now - draft.send_at > DUE_GRACE:
+        with open_mail_store(owner) as store:
+            store.expire_unapproved(draft.id, now - DUE_GRACE)
+        return _failed(NOT_APPROVED_IN_TIME, draft_id=draft.id)
+    since = now - timedelta(hours=1)
     with open_mail_store(owner) as store:
         if store.count_sends_since(account.id, since) >= cfg().send_per_hour:
             monitor.bump(owner, "send_rate_limited")
             return _failed(f"Not sent: this mailbox already sent {cfg().send_per_hour} messages in the last hour. Try again later.", draft_id=draft.id)
-        if not store.claim_send(draft.id):
+        if not store.claim_send(draft.id, now + SEND_LEASE):
             return _failed("Not sent: another attempt is already sending this message.", draft_id=draft.id)
+    return await deliver(owner, draft, account, attachments)
 
+
+def record_send(owner: TenantContext, draft_id: str, status: DraftStatus, error: str | None, saved: bool | None = None) -> None:
+    """The outcome of a claimed send; the claim's lease ends with it."""
+    with open_mail_store(owner) as store:
+        stored = store.get_draft(draft_id)
+        if stored is None:
+            return
+        stored.status, stored.error, stored.send_lease_until = status, error, None
+        if saved is not None:
+            stored.saved_to_sent = saved
+        if status == DraftStatus.SENT and stored.sent_at is None:
+            stored.sent_at = utc_now()
+        stored.updated_at = utc_now()
+        store.save_draft(stored)
+
+
+async def deliver(owner: TenantContext, draft: MailDraft, account: MailAccount, attachments: list[MailAttachment]) -> ToolResult:
+    """Submit a draft this caller has claimed (status ``sending``), then save it to Sent."""
+    from .outgoing import AttachmentGone, read_attachment
+
+    try:
+        files = tuple([OutgoingFile(a.filename, a.content_type, await asyncio.to_thread(read_attachment, a)) for a in attachments])
+    except AttachmentGone as exc:
+        record_send(owner, draft.id, DraftStatus.FAILED, exc.message)
+        return _failed(f"Not sent: {exc.message}", draft_id=draft.id)
     outgoing = Outgoing(
         sender_name=account.display_name or "", sender_address=account.address, to=draft.to, cc=draft.cc, bcc=draft.bcc,
         subject=draft.subject, body=draft.body, message_id=draft.message_id, in_reply_to=draft.in_reply_to, references=draft.references,
+        attachments=files,
     )
     raw = build_message(outgoing)
     recipients = [*draft.to, *draft.cc, *draft.bcc]
-
-    def record(status: DraftStatus, error: str | None, saved: bool | None = None) -> None:
-        with open_mail_store(owner) as store:
-            stored = store.get_draft(draft.id)
-            if stored is None:
-                return
-            stored.status, stored.error = status, error
-            if saved is not None:
-                stored.saved_to_sent = saved
-            if status == DraftStatus.SENT and stored.sent_at is None:
-                stored.sent_at = utc_now()
-            stored.updated_at = utc_now()
-            store.save_draft(stored)
 
     try:
         report = await on_server(owner, account, lambda server: server.send(account.address, recipients, raw))
     except MailError as exc:
         if exc.kind == "uncertain":
+<<<<<<< HEAD
             record(DraftStatus.UNKNOWN, exc.message[:500])
             monitor.bump(owner, "send_unknown")
             return _failed(exc.message, draft_id=draft.id)
@@ -282,6 +356,13 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
         return _failed(f"Not sent: {exc.message}", draft_id=draft.id)
     record(DraftStatus.SENT, None)
     monitor.bump(owner, "sent")
+=======
+            record_send(owner, draft.id, DraftStatus.UNKNOWN, exc.message[:500])
+            return _failed(exc.message, draft_id=draft.id)
+        record_send(owner, draft.id, DraftStatus.FAILED, exc.message[:500])
+        return _failed(f"Not sent: {exc.message}", draft_id=draft.id)
+    record_send(owner, draft.id, DraftStatus.SENT, None)
+>>>>>>> origin/claude/email-center
 
     def save_copy(server: MailServer) -> bool:
         sent = folder_by_role(server.folders(), "sent")
@@ -301,7 +382,7 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
         saved = await on_server(owner, account, save_copy)
     except MailError as exc:
         logger.warning("mail.sent_copy_failed", extra={"anum_kind": exc.kind})
-    record(DraftStatus.SENT, None if saved else "Sent, but the copy could not be saved to the Sent folder.", saved)
+    record_send(owner, draft.id, DraftStatus.SENT, None if saved else "Sent, but the copy could not be saved to the Sent folder.", saved)
     refused = sorted(report.refused)
     summary = f"Sent from {account.address} to {', '.join(draft.to)}: {draft.subject or '(no subject)'}"
     if refused:
@@ -310,7 +391,10 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
         status="succeeded",
         summary=summary,
         output={"draft_id": draft.id, "message_id": draft.message_id, "saved_to_sent": saved, "refused": refused},
-        audit_metadata={"tool": SEND_TOOL, "draft_id": draft.id, "recipients": len(recipients), "body_chars": len(draft.body), "saved_to_sent": saved},
+        audit_metadata={
+            "tool": SEND_TOOL, "draft_id": draft.id, "recipients": len(recipients), "body_chars": len(draft.body),
+            "attachments": len(files), "saved_to_sent": saved,
+        },
     )
 
 

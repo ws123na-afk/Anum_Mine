@@ -31,6 +31,7 @@ WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
     "mail_ops_counters",
+    "mail_attachments",
     "mail_drafts",
     "mail_accounts",
     "finance_live_incidents",

@@ -1,6 +1,7 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { deleteHash, mockMailApi, sendHash, type MailMockOptions } from './support/mailApi';
-import { mockWorkspaceApi } from './support/workspaceApi';
+import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
 // Email Center (docs/email.md#email-center): folders with unread counts, search and filters, flags
 // and moves on a selection, delete for good only through an approval with the payload hash, the
@@ -180,3 +181,26 @@ test('a reply is written as a draft and sent only after the owner approves the p
   await expect(composer.getByText('Sent to sara@example.com.')).toBeVisible();
   expect(calls.approvals).toEqual([{ payload_hash: sendHash }]);
 });
+
+// Accessibility gate (docs/web-localization.md#accessibility) for the list with a selection, the
+// reader and the composer, in English, Arabic and the light theme.
+for (const mode of ['en', 'ar', 'light'] as const) {
+  test(`Email has no serious or critical axe violations (${mode})`, async ({ page }) => {
+    await mockWorkspaceApi(page);
+    if (mode === 'light') await page.addInitScript(() => { try { localStorage.setItem('anum.theme', 'light'); } catch { /* storage blocked */ } });
+    else await useSavedLocale(page, mode);
+    await mockMailApi(page);
+    await page.goto('/#email');
+    await expect(page.locator('.mailRow').first()).toBeVisible();
+    await page.locator('.mailRow').first().getByRole('checkbox').check();
+    const axe = async () => (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze()).violations
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}`);
+    expect(await axe()).toEqual([]);
+    await page.locator('.mailRowOpen').first().click();
+    await expect(page.locator('.mailReader h2')).toBeVisible();
+    expect(await axe()).toEqual([]);
+    await page.locator('.mailReaderActions button').first().click();
+    await expect(page.locator('.mailComposer textarea')).toBeVisible();
+    expect(await axe()).toEqual([]);
+  });
+}

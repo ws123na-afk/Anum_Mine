@@ -123,7 +123,7 @@ Then restart the API, open **Inbox** in the web app and choose **Connect**.
 
 ## Email Center (own mail server)
 
-The Email Center reads and sends mail through the workspace's **own mail server** (for ANUM: Mailcow at `mail.anum360os.com`) over IMAP (implicit TLS, port 993) and SMTP submission (STARTTLS on 587, or TLS on 465). It is separate from the OAuth inbox above: its own tables, routes (`/api/v1/mail`) and tools. Code: `services/api/anum_api/mailbox/` (`config.py`, `server.py`, `mime.py`, `html_safe.py`, `store.py`, `service.py`, `api.py`), `db/mailbox_repository.py`, migration `0060_email_center`; tests `services/api/tests/test_mail_center.py`.
+The Email Center reads and sends mail through the workspace's **own mail server** (for ANUM: Mailcow at `mail.anum360os.com`) over IMAP (implicit TLS, port 993) and SMTP submission (STARTTLS on 587, or TLS on 465). It is separate from the OAuth inbox above: its own tables, routes (`/api/v1/mail`) and tools. Code: `services/api/anum_api/mailbox/` (`config.py`, `server.py`, `mime.py`, `html_safe.py`, `store.py`, `service.py`, `api.py`, `outgoing.py`), `db/mailbox_repository.py`, migrations `0060_email_center` and `0062_mail_outgoing`; tests `services/api/tests/test_mail_center.py`, `test_mail_outgoing.py` and `test_postgres_mail_outgoing.py`. The web Email page does not show attachments and scheduled send yet (in progress).
 
 It is **off** until the operator sets `ANUM_MAILSERVER_ENABLED=true`.
 
@@ -134,9 +134,10 @@ It is **off** until the operator sets `ANUM_MAILSERVER_ENABLED=true`.
 - **Reading.** Folders, message lists and messages are read live from the server (nothing is copied into ANUM). Opening a message marks it read. HTML is sanitized on the server with an allowlist (no script, style blocks, frames, forms or event handlers; links limited to http, https and mailto; remote and `cid:` images removed and counted), and the web app shows it in a sandboxed iframe with `default-src 'none'`, so opening mail never loads anything from the sender. Attachments download only (`Content-Disposition: attachment`, `nosniff`, a sandbox CSP, at most `ANUM_MAILSERVER_ATTACHMENT_MAX_BYTES`). Messages over `ANUM_MAILSERVER_MESSAGE_MAX_BYTES` are refused with a pointer to webmail.
 - **Writing.** New messages, replies, reply to all and forwards are drafts in ANUM (`mail_drafts`), each with a Message-ID made when it is created on the sender's own domain. Replies carry `In-Reply-To` and `References` and quote the original text.
 - **Sending.** `POST /drafts/{id}/send` with an `idempotency_key` creates a task paused at the high-risk `send_mail` tool with exactly the sender, recipients, subject and text. Nothing is sent until an owner approves with the payload hash (`POST /api/v1/approvals/{id}/approve`). Then the draft is claimed atomically (`pending_approval` to `sending`), submitted once over SMTP to the workspace server (which relays it onward), and the same bytes are saved to the Sent folder (skipped if a message with that Message-ID is already there); a reply also sets `\Answered` on the original. Editing a draft withdraws its approval. The same key always returns the same message and approval; a key used for another message is refused (409). If the connection breaks while the server is taking the message, the draft becomes `unknown` and is never retried by itself: the person checks Sent. At most `ANUM_MAILSERVER_SEND_PER_HOUR` sends per mailbox per hour (30) and `ANUM_MAILSERVER_MAX_RECIPIENTS` recipients per message (50).
+- **Attachments and scheduled send**: see [Attachments](#attachments) and [Scheduled send](#scheduled-send) below. Both are part of the approved call, so the payload hash covers the files and the time.
 - **Deleting for good** (Trash and Junk only) pauses the high-risk `delete_mail` tool for approval of exactly those messages. Archive, Junk, Trash and back to the inbox are plain moves.
 - **Audit.** Every state-changing route writes an audit record with ids and counts only (`tests/audit_probe.py` walks them all).
-- **Privacy.** "Download my data" exports the caller's mailboxes (never the password, not even encrypted) and the messages written in ANUM; "Delete my data" deletes them. Mail on the server is not ANUM's copy and is not touched.
+- **Privacy.** "Download my data" exports the caller's mailboxes (never the password, not even encrypted), the messages written in ANUM and the names, types, sizes and SHA-256 of their attached files; "Delete my data" deletes them and the stored files. Mail on the server is not ANUM's copy and is not touched.
 
 ### Who can do what
 
@@ -152,7 +153,7 @@ Errors use the API's usual body `{"error": {"code", "message", ...}}`; `message`
 
 | Method and path | Body or query | Answer |
 | --- | --- | --- |
-| `GET /setup` | | `MailSetup {enabled, configured, tenant_allowed, imap_host, imap_port, smtp_host, smtp_port, smtp_security, allowed_domains[], can_read, can_act, max_recipients, send_per_hour, accounts: AccountView[]}` |
+| `GET /setup` | | `MailSetup {enabled, configured, tenant_allowed, imap_host, imap_port, smtp_host, smtp_port, smtp_security, allowed_domains[], can_read, can_act, max_recipients, send_per_hour, attachment_max_bytes, attachments_per_message, attachments_total_bytes, schedule_max_days, accounts: AccountView[]}` |
 | `POST /accounts` | `{address, password, display_name?}` | 201 `AccountView {id, address, display_name, status: connected\|auth_failed\|offline\|error, last_error, last_checked_at, created_at}` |
 | `PUT /accounts/{id}/password` | `{password}` | `AccountView` (checked against the server first) |
 | `POST /accounts/{id}/check` | | `AccountView` with fresh health (sync status) |
@@ -165,11 +166,16 @@ Errors use the API's usual body `{"error": {"code", "message", ...}}`; `message`
 | `POST /accounts/{id}/move` | `{folder, uids[], to}` (`to` is a role: inbox, archive, junk, trash, or a folder id) | `ActionResult` |
 | `POST /accounts/{id}/delete` | `{folder, uids[]}` (Trash or Junk only) | `ActionResult {status: waiting_approval, approval}` |
 | `GET /drafts` | `account_id?`, `limit` (100) | `DraftView[]` newest first |
-| `POST /drafts` | `{account_id, kind: new\|reply\|reply_all\|forward, folder?, uid?}` | 201 `DraftView {id, account_id, kind, to[], cc[], bcc[], subject, body, in_reply_to, message_id, status: draft\|pending_approval\|sending\|sent\|failed\|unknown, error, approval: Approval\|null, approval_note, saved_to_sent, sent_at, created_at, updated_at}` |
+| `POST /drafts` | `{account_id, kind: new\|reply\|reply_all\|forward, folder?, uid?, include_attachments? (forward, default true)}` | 201 `DraftView {id, account_id, kind, to[], cc[], bcc[], subject, body, in_reply_to, message_id, status: draft\|pending_approval\|scheduled\|sending\|sent\|failed\|unknown, error, approval: Approval\|null, approval_note, saved_to_sent, sent_at, send_at, attachments: OutgoingFile[], attachment_note, created_at, updated_at}` |
 | `GET /drafts/{id}` | | `DraftView` |
 | `PATCH /drafts/{id}` | `{to?, cc?, bcc?, subject?, body?}` | `DraftView`; withdraws a pending approval |
 | `DELETE /drafts/{id}` | | 204 (mail on the server stays) |
-| `POST /drafts/{id}/send` | `{idempotency_key}` (8 to 120 characters, letters, digits, `._:-`) | `{draft: DraftView, approval: Approval\|null}` |
+| `POST /drafts/{id}/send` | `{idempotency_key, send_at?}` (key: 8 to 120 characters, letters, digits, `._:-`; `send_at`: ISO 8601 with a zone) | `{draft: DraftView, approval: Approval\|null}` |
+| `POST /drafts/{id}/cancel-schedule` | | `DraftView` (back to a draft; 409 when not scheduled or already being sent) |
+| `GET /scheduled` | `account_id?`, `limit` (50) | `DraftView[]` with a `send_at`, scheduled or waiting for approval, soonest first |
+| `POST /drafts/{id}/attachments` | `?name=` and the file as the raw body | 201 `OutgoingFile {id, filename, content_type, size, sha256, scanned, created_at}`; withdraws a pending approval or a schedule |
+| `DELETE /drafts/{id}/attachments/{file_id}` | | 204; withdraws a pending approval or a schedule |
+| `GET /drafts/{id}/attachments/{file_id}` | | the file as a download |
 
 `Approval` is the shape used everywhere (`action`, `arguments`, `payload_hash`, `expires_at`, ...); approve with `POST /api/v1/approvals/{approval.id}/approve {"payload_hash": approval.payload_hash}`.
 
@@ -196,8 +202,32 @@ The platform operator (realm role `platform_operator`, docs/customer-organisatio
 | `ALLOWED_DOMAINS` | `anum360os.com` | Mailbox domains that can be connected (comma-separated). |
 | `ALLOWED_TENANTS` | empty | Organisations (tenant ids) allowed to use the mail server. |
 | `TIMEOUT_SECONDS`, `MESSAGE_MAX_BYTES`, `ATTACHMENT_MAX_BYTES`, `SEND_PER_HOUR`, `MAX_RECIPIENTS`, `CONNECT_ATTEMPTS_PER_HOUR` | 20, 40 MiB, 15 MiB, 30, 50, 5 | Bounds. |
+| `OUTBOUND_ATTACHMENT_MAX_BYTES`, `OUTBOUND_MAX_ATTACHMENTS`, `OUTBOUND_TOTAL_MAX_BYTES`, `OUTBOUND_STORAGE_PER_PERSON_BYTES` | 10 MiB, 10, 20 MiB, 200 MiB | Outgoing files: the largest file, files per message, their total, and what one person's unsent messages may hold. |
+| `SCHEDULE_POLL_SECONDS`, `SCHEDULE_MAX_DAYS` | 30, 30 | How often each API replica sends what is due (0 is off: scheduled messages wait) and how far ahead a message may be scheduled. |
 
 Outside `ANUM_ENVIRONMENT=local`, with `ENABLED=true` the API refuses to start (and the Helm chart refuses to render) when a host is missing, an IP address or not a DNS name, when the SMTP host is a relay service (Brevo, SendGrid and the like: ANUM submits to your own server, which relays), when `SMTP_SECURITY=none`, or when the allowed domains or organisations are empty.
+
+### Attachments
+
+Files are attached to a draft, a reply or a forward with `POST /drafts/{id}/attachments?name=<file name>` and the file as the raw body. Each file passes the same checks as a [workspace upload](files.md): the accepted types (decided by the extension; anything else is refused with 415 naming what is accepted), the content signature (a `.pdf` must be a PDF), not empty, and the [malware-scan hook](files.md#malware-scanning) (a refusal answers 422 with the scanner's reason; a scanner error answers 503 and nothing is kept). Then the caps: `OUTBOUND_ATTACHMENT_MAX_BYTES` per file, `OUTBOUND_MAX_ATTACHMENTS` and `OUTBOUND_TOTAL_MAX_BYTES` per message, and `OUTBOUND_STORAGE_PER_PERSON_BYTES` over a person's unsent messages (413). ANUM ships no scanner: each file records `scanned` (false when none is installed) and the composer says so.
+
+The bytes go to the workspace's object storage (`tenants/<t>/workspaces/<w>/mail/<file id>/<sha256>`); the row in `mail_attachments` (name, type, size, SHA-256) is private to the person, like the draft (forced RLS plus the restrictive owner policy). The send approval lists every file's name, type, size and SHA-256, so the payload hash covers them; when the message is built the bytes are read back and checked against that SHA-256, and a file that is gone or changed is never sent (the message fails with a sentence saying which file). Adding or removing a file withdraws a pending approval or a schedule.
+
+A forward carries the original's attachments (`include_attachments`, default true), each through the same checks and scan; a file that fails is left out and listed in `attachment_note`. Replies start without the original's files. Discarding a message, disconnecting the mailbox and "Delete my data" delete the stored files. Sent messages keep their files in ANUM until they are removed from the list (the copy in Sent holds them on the mail server).
+
+### Scheduled send
+
+`POST /drafts/{id}/send` with `send_at` (one minute to `SCHEDULE_MAX_DAYS` ahead, with a time zone; the web app sends the person's local time) asks to send at that time. The approval shows and binds the time with everything else. Approving it only marks the message `scheduled`; nothing is sent then. A message must be approved **before it is due**: if it is still waiting for approval more than five minutes after its time, the scheduler withdraws the approval and the message goes back to a draft that says so (and an approval that arrives that late does not send it either). `GET /scheduled` lists the person's scheduled messages.
+
+The scheduler runs in every API replica every `SCHEDULE_POLL_SECONDS` (PostgreSQL or memory). It finds due work as `anum_maintenance`, which may read only the id, scope, owner, status, `send_at` and `send_lease_until` of messages that need work (a column grant and a row policy, migration `0062_mail_outgoing`), and acts on each in its owner's scope as the application role, never with `BYPASSRLS`:
+
+- a `scheduled` message whose time has come is claimed with a compare-and-set to `sending` and a ten-minute lease (one replica wins), checked against the hash of the approved call (a message changed behind the API fails instead), the owner's membership (with OIDC), the mail server switch and the hourly send limit, and then sent once with the Message-ID it was given when it was written, then saved to Sent;
+- a `sending` message whose lease ran out (the replica stopped mid-send) becomes `unknown` and is never sent again by itself: it may have reached the server, so the person checks Sent;
+- a message waiting for approval past its time goes back to a draft, as above.
+
+Editing a scheduled message, adding or removing a file, or **Cancel schedule** (`POST /drafts/{id}/cancel-schedule`) turns it back into a draft by compare-and-set, so a message the scheduler has just claimed is never turned back (that answers 409: it is being sent). Picking another time with a new key asks for a new approval; the message waits for it and is never sent on the old one. Each scheduled send is audited (`mail.send.scheduled`, `mail.send.interrupted`, `mail.send.not_approved`) with ids and counts only.
+
+Rolling back past the release that added scheduled send: cancel scheduled messages first (the previous release cannot read a `scheduled` message); the migration's downgrade turns any left into drafts.
 
 ### Turning it on (Oracle VM)
 
@@ -222,10 +252,27 @@ The API container must reach `mail.anum360os.com` on 993 and 587 by its public n
 
 ANUM limits its own login checks (above). The mail server's own protection is the operator's: Mailcow's netfilter container is off on the ANUM VM, so failed logins are not banned there. Options for the owner to review: fail2ban on the host reading Mailcow's Dovecot, Postfix and SOGo logs; Mailcow's netfilter after testing it with the VM's firewall, with ANUM's and Caddy's addresses whitelisted (ANUM signs in from one address, so a ban of it would stop every mailbox); or, at least, Dovecot's and Postfix's own rate limits, app passwords and 2FA for webmail.
 
+### The Email page (web)
+
+**Email** in the main sidebar group (`apps/web/src/EmailView.tsx`, `MailActions.tsx`, `email.css`, `mailCenter.css`; helpers `lib/mail.ts`, `lib/mailApi.ts`, `lib/mailActions.ts`, `lib/mailActionsApi.ts`, `lib/mailUnread.ts`; strings `lib/messages/mail.*.ts` and `mailCenter.*.ts`).
+
+- **States.** Loading; viewers are told owners and members read mail; the Email Center off, the server not set up, or the organisation not allowed each name the operator setting to change; no mailbox yet shows the connect form (address, app password, optional name) to owners and members; a refused password or an offline server says so and how to fix it, with **Try again**.
+- **Layout.** From 1280px three panes fill the window and scroll on their own: folders, the list, the message. From 1024px the folders become a bar above list and message; below 1024px one pane at a time, the folders a select, and the message has **Back to the list**.
+- **Folders and unread counts.** Special folders first with their unread count (not Trash). While the page is visible and online it reads the folder list again every minute (doubling to at most five minutes after failures, at once when the tab comes back), shows when it last checked, and offers **Show new mail** when the open folder gained unread mail. The inbox's unread count is the badge on **Email** in the sidebar (the last count the page saw in this tab; nothing polls the mail server while the page is closed).
+- **List, paging and search.** Newest first, 25 at a time (**Load more** uses `next_before`). Search runs on the mail server (`q`, IMAP SEARCH over sender, recipients, subject and text) in the open folder, with **Unread** and **Starred** filters; a search with no match says so and offers **Clear search and filters**.
+- **Flags and moves.** Each row has a checkbox (Shift+click selects a range) and a star. The bar over the list selects every loaded message and offers read or unread, star or remove star, and the moves the folder allows: Inbox: Archive, Junk, Trash; Archive: Move to inbox, Junk, Trash; Junk: Not junk, Trash, Delete for good; Trash: Restore, Delete for good. Moves to a folder the mailbox lacks are hidden. Selections over 200 messages are sent in calls of 200. Counts and the sidebar badge change at once; a failed call says what failed and leaves the list as it was.
+- **Delete for good** (Trash and Junk only) asks to confirm, then shows the approval the API created for exactly those messages with its payload hash and expiry. An owner approves it there (the hash goes back with the decision); members are told an owner decides and can open Approvals.
+- **Reading.** The sanitized HTML is shown in an iframe with `sandbox="allow-popups allow-popups-to-escape-sandbox"` (no scripts, no same origin), `referrerpolicy="no-referrer"` and its own CSP `default-src 'none'; img-src data:` so nothing loads from the sender; links open in a new tab. **Show plain text** switches to the text part. Blocked remote images and hidden inline images are counted; attachments download through the API, too-large ones point to webmail.
+- **Writing and sending.** Reply, Reply all, Forward and Write create a draft in ANUM; the composer checks the addresses, saves (`PATCH`), and **Send** asks for approval with one idempotency key per attempt (a retry reuses it). The approval shows the sender, recipients and payload hash; an owner approves in place, and the draft then shows Sent, Not sent with the reason, or **Check Sent** when delivery is unknown. "Written in ANUM" lists drafts, messages waiting for approval and sent ones.
+- **Keyboard.** j and k (or the arrow keys) move through the list, Enter or o opens, x selects, e archives, # moves to Trash, s stars, u marks read or unread, / searches. Keys are ignored while typing and in dialogs.
+- **Tests.** Unit `apps/web/test/mailActions.test.ts`; Playwright `apps/web/e2e/email-center.spec.ts` with the fake API in `e2e/support/mailApi.ts` (desktop and phone, axe in English, Arabic and the light theme).
+
 ### Not done yet (Email Center)
 
-- Background sync and push (IDLE): folders and lists are read live when the page asks; there is no unread count in the sidebar yet.
-- Several mailboxes or identities per person, contacts, scheduled send, outbound attachments, labels.
-- The AI assistant tools (summarise, classify, draft) for this mailbox.
-- The operator view has no web page yet: it is the API above (the Flutter and web screens for it are not built).
+- Push (IMAP IDLE) and a server-side background sync: the page refreshes folder counts while it is open; the sidebar badge is not updated while the Email page is closed.
+- Undo for a move: a moved message gets a new UID in its new folder, so the way back is the folder itself (Restore from Trash, Not junk, Move to inbox).
+- Several mailboxes or identities per person, contacts, labels.
+- Attaching an existing workspace file (only files from the device are attached), and an inline preview of attached files.
+- The AI assistant tools (summarise, classify, draft) for this mailbox; the Flutter screens.
+- A screen for the operator view: it is the API above.
 - Bcc recipients are not kept in the Sent copy.

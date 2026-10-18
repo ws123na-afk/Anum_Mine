@@ -43,7 +43,7 @@ export function MailBulkBar({ items, selected, moves, busy, onToggleAll, onClear
   const starAction: MailAction = picked.some((m) => !m.flagged) ? 'star' : 'unstar';
   const button = (action: MailAction) => {
     const Icon = ICONS[action];
-    return <button key={action} type="button" className={`secondary mailcAction ${action === 'deleteForever' ? 'danger' : ''}`} disabled={busy} onClick={() => onAction(action)}>
+    return <button key={action} type="button" className={`secondary mailcAction ${action === 'deleteForever' ? 'danger' : ''}`} title={actionLabel(action)} disabled={busy} onClick={() => onAction(action)}>
       <Icon aria-hidden="true" /><span>{actionLabel(action)}</span>
     </button>;
   };
