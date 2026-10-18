@@ -124,6 +124,12 @@ def _words(text: str) -> set[str]:
 _TOOL_CATEGORIES: dict[str, ChatCategory] = {
     "list_whatsapp_conversations": "whatsapp",
     "search_email": "email",
+    # The Email Center (docs/email.md#assistant).
+    "summarize_mail": "email",
+    "classify_mail": "email",
+    "classify_mail_page": "email",
+    "draft_mail_reply": "email",
+    "request_mail_action": "email",
     "external.action": "action",
     "web_search": "web",
 }

@@ -1,6 +1,6 @@
 """Mailboxes, outgoing messages, shares, identities and contacts of the Email Center.
 
-Migrations ``0060_email_center``, ``0062_mail_outgoing`` and ``0066_mail_sharing_contacts``.
+Migrations ``0060_email_center``, ``0062_mail_outgoing`` and ``0067_mail_sharing_contacts``.
 Every table has forced RLS on tenant and workspace plus restrictive owner policies, and every
 query here repeats the scope:
 

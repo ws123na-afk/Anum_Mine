@@ -27,15 +27,15 @@ reading policy of ``mail_accounts`` looks there for every role that reads mailbo
 Expand only: new tables, one nullable column, one extra unique constraint and replaced
 policies whose reading side is wider; the previous release keeps filtering by owner.
 
-Chained after ``0064_mail_operator_view`` (which made every restrictive policy on
-``mail_accounts`` admit ``anum_platform_reader``; the new reading policy keeps that).
+Chained after ``0066_mail_labels``. ``0064_mail_operator_view`` made every restrictive policy on
+``mail_accounts`` admit ``anum_platform_reader``; the new reading policy keeps that.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0066_mail_sharing_contacts"
-down_revision = "0064_mail_operator_view"
+revision = "0067_mail_sharing_contacts"
+down_revision = "0066_mail_labels"
 branch_labels = None
 depends_on = None
 

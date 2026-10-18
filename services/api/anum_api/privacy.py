@@ -154,7 +154,7 @@ class PrivateCounts(BaseModel):
     # Email Center (migration 0060_email_center, docs/email.md#email-center): the caller's
     # mailboxes on the workspace mail server (never the password) and the messages written in
     # ANUM. Mail on the server is not ANUM's copy and is not touched. Migration
-    # 0066_mail_sharing_contacts adds the caller's address book (their sender identities and
+    # 0067_mail_sharing_contacts adds the caller's address book (their sender identities and
     # shares belong to their mailboxes and go with them).
     mail_mailboxes: int = 0
     mail_messages_written: int = 0
@@ -951,12 +951,16 @@ def mail_privacy_counts(context: TenantContext) -> dict[str, int]:
 def delete_mail_everything(context: TenantContext) -> None:
     """The caller's Email Center mailboxes (with their shares and identities), every message
     they wrote in ANUM (in shared mailboxes too), their address book, and the shares they had."""
+    from .mailbox.labels import open_label_store
     from .mailbox.outgoing import forget_objects
     from .mailbox.store import open_mail_store
 
     with open_mail_store(context) as store:
         files = store.attachments_of_account(None)
         delete_mail_store(store)
+    # AI labels the caller made, also on mailboxes others shared with them.
+    with open_label_store(context) as labels:
+        labels.delete_all()
     forget_objects(files)
 
 
@@ -979,6 +983,8 @@ def delete_mail_store(store: Any) -> None:
 def mail_export(context: TenantContext) -> dict[str, Any]:
     from .mailbox.store import contact_sort_key, open_mail_store
 
+    from .mailbox.labels import open_label_store
+
     with open_mail_store(context) as store:
         accounts = store.list_accounts()
         drafts = store.list_drafts(None, 100_000)
@@ -992,6 +998,8 @@ def mail_export(context: TenantContext) -> dict[str, Any]:
                 break
             contacts += page
         files = store.attachments_of_account(None)
+    with open_label_store(context) as label_store:
+        labels = label_store.list_all()
     return {
         # Never the password, not even encrypted.
         "mailboxes": [a.model_dump(mode="json", exclude={"password_enc"}) for a in accounts],
@@ -1002,6 +1010,8 @@ def mail_export(context: TenantContext) -> dict[str, Any]:
         "contacts": [c.model_dump(mode="json") for c in contacts],
         # The attached files' names, types, sizes and digests (the bytes stay in ANUM's storage).
         "attachments": [f.model_dump(mode="json", exclude={"storage_key"}) for f in files],
+        # Labels AI gave messages for the caller (category, priority, reason; no mail text).
+        "labels": [label.model_dump(mode="json") for label in labels],
     }
 
 

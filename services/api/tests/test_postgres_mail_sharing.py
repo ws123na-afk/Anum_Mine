@@ -1,4 +1,4 @@
-"""Email Center shares, identities and contacts in PostgreSQL (migration 0066_mail_sharing_contacts).
+"""Email Center shares, identities and contacts in PostgreSQL (migration 0067_mail_sharing_contacts).
 
 The API runs as the non-owner ``anum_test_app`` role against the fake mail server of
 ``test_mail_center``. Direct SQL checks run as that role with the tenant, workspace and user

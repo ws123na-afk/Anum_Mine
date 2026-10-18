@@ -1,5 +1,5 @@
 """PostgreSQL store of the Email Center (migrations ``0060_email_center``,
-``0062_mail_outgoing`` and ``0066_mail_sharing_contacts``, docs/email.md#email-center).
+``0062_mail_outgoing`` and ``0067_mail_sharing_contacts``, docs/email.md#email-center).
 
 The session carries the tenant, workspace and user RLS context (``open_mail_store`` opens it
 with ``user_scoped=True``); every table also has restrictive owner policies (a mailbox is

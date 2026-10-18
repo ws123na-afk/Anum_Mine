@@ -123,7 +123,7 @@ Then restart the API, open **Inbox** in the web app and choose **Connect**.
 
 ## Email Center (own mail server)
 
-The Email Center reads and sends mail through the workspace's **own mail server** (for ANUM: Mailcow at `mail.anum360os.com`) over IMAP (implicit TLS, port 993) and SMTP submission (STARTTLS on 587, or TLS on 465). It is separate from the OAuth inbox above: its own tables, routes (`/api/v1/mail`) and tools. Code: `services/api/anum_api/mailbox/` (`config.py`, `server.py`, `mime.py`, `html_safe.py`, `store.py`, `service.py`, `api.py`, `outgoing.py`), `db/mailbox_repository.py`, migrations `0060_email_center`, `0062_mail_outgoing` and `0066_mail_sharing_contacts`; shares, identities and contacts in `mailbox/sharing_api.py`; tests `services/api/tests/test_mail_center.py`, `test_mail_outgoing.py`, `test_postgres_mail_outgoing.py`, `test_mail_sharing.py` and `test_postgres_mail_sharing.py`; web `apps/web/src/MailOutgoing.tsx` (attachments, send later, the Scheduled list) and `apps/web/src/MailDirectory.tsx` (mailboxes, sharing, send as, contacts).
+The Email Center reads and sends mail through the workspace's **own mail server** (for ANUM: Mailcow at `mail.anum360os.com`) over IMAP (implicit TLS, port 993) and SMTP submission (STARTTLS on 587, or TLS on 465). It is separate from the OAuth inbox above: its own tables, routes (`/api/v1/mail`) and tools. Code: `services/api/anum_api/mailbox/` (`config.py`, `server.py`, `mime.py`, `html_safe.py`, `store.py`, `service.py`, `api.py`, `outgoing.py`), `db/mailbox_repository.py`, migrations `0060_email_center`, `0062_mail_outgoing` and `0067_mail_sharing_contacts`; shares, identities and contacts in `mailbox/sharing_api.py`; tests `services/api/tests/test_mail_center.py`, `test_mail_outgoing.py`, `test_postgres_mail_outgoing.py`, `test_mail_sharing.py` and `test_postgres_mail_sharing.py`; web `apps/web/src/MailOutgoing.tsx` (attachments, send later, the Scheduled list) and `apps/web/src/MailDirectory.tsx` (mailboxes, sharing, send as, contacts).
 
 It is **off** until the operator sets `ANUM_MAILSERVER_ENABLED=true`.
 
@@ -210,6 +210,8 @@ The platform operator (realm role `platform_operator`, docs/customer-organisatio
 - **What is counted.** The Email Center adds one to a per-day counter (`mail_ops_counters`: tenant, workspace, UTC day, metric, count) inside the caller's own tenant context when a send succeeds (`sent`), fails (`send_failed`) or ends unknown (`send_unknown`), when the hourly send limit refuses a send (`send_rate_limited`), when the connection-check limit refuses a login check (`connect_rate_limited`), and when the mail server refuses a saved password (`auth_failed`) or cannot be reached (`server_offline`). No person, address, subject or body is stored there. A counter that cannot be written is logged and never breaks the mail action.
 - **Who reads it.** Only callers with `platform:operate`; everyone else gets 403 before anything is read. With PostgreSQL the read runs as `anum_platform_reader` (`SET LOCAL ROLE`), which sees only the organisations in `platform_organizations` with `operator_user_id` = the caller, and only `tenant_id, status, last_checked_at` of `mail_accounts` plus the counters. The restrictive owner policy of `mail_accounts` admits `current_user = 'anum_platform_reader'` for that (the same pattern as `anum_maintenance`); a login that merely inherits the role never matches, and the column grant leaves out the address, display name, password and error text.
 - **Mailcow API (optional, read only).** Off unless `ANUM_MAILCOW_API_ENABLED=true`. `ANUM_MAILCOW_API_URL` is the Mailcow web host (https, host only) and `ANUM_MAILCOW_API_KEY` a Mailcow **read-only** API key, set only in the API's environment or secret store (never in git, chat or the web app). ANUM calls only `GET /api/v1/get/status/version`, `/get/status/containers`, `/get/mailq/all` and `/get/domain/all`, and returns the version, the containers that are not running, the number of queued messages (never their senders or recipients) and per domain the mailbox count and quota use. The key is never returned, logged or audited. Reading and sending mail never use this API: they stay IMAP and SMTP as each person.
+
+- **Web.** The platform console (**Organisations**) shows a **Mail health** pane under the organisations (`apps/web/src/MailHealthPane.tsx`, helpers `lib/mailOps.ts`, `lib/mailOpsApi.ts`, strings `lib/messages/mailOps.*.ts`): organisations needing attention first, search, a period of 1, 7, 30 or 90 days, per organisation the health, mailboxes, not connected, last check, sent, failed, unknown and rate limited (the parts in each cell's tooltip), the totals, the mail server's settings and the Mailcow status (or how to turn it on). Loading, failure with **Retry**, no organisation and no match are each said; people who are not platform operators see the console's operators-only page and no mail data. Tests: unit `apps/web/test/mailOps.test.ts`, Playwright `apps/web/e2e/mail-ops.spec.ts` (with the 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 layout check in English and Arabic).
 
 | Method and path | Query | Answer |
 | --- | --- | --- |
@@ -306,7 +308,7 @@ The Flutter app (`apps/mobile/lib/features/mail_center/`: `mail_center_models.da
 
 ### AI on email
 
-AI on the Email Center (code `services/api/anum_api/mailbox/ai.py`, routes `ai_api.py`, web `MailAssist.tsx`; tests `services/api/tests/test_mail_ai.py`, `apps/web/test/mailAi.test.ts`, `apps/web/e2e/email-ai.spec.ts`). Every action is a registered tool that runs under the runtime's tool policy (governance, workspace policy and autonomy) exactly as an agent's call would; the routes never call a model or the mail server around it. No migration: results are shown, not stored.
+AI on the Email Center (code `services/api/anum_api/mailbox/ai.py`, routes `ai_api.py`, web `MailAssist.tsx`; tests `services/api/tests/test_mail_ai.py`, `apps/web/test/mailAi.test.ts`, `apps/web/e2e/email-ai.spec.ts`). Every action is a registered tool that runs under the runtime's tool policy (governance, workspace policy and autonomy) exactly as an agent's call would; the routes never call a model or the mail server around it. Labels are stored per person (migration `0066_mail_labels`, below); summaries and drafts' wording are not stored outside the draft.
 
 | Action | Tool | Risk | Approval |
 | --- | --- | --- | --- |
@@ -337,6 +339,17 @@ High-risk mail tools carry `always_ask`: workspace autonomy can never lower thei
 | `POST /export` | `{account_id, folder, uids[]}` | `{status: waiting_approval, summary, approval}` (binds each message's Message-ID) |
 | `GET /exports/{approval_id}` | | the mbox download; 409 before approval or when a message changed, 410 an hour after approval |
 
+**Stored labels and Label all.** A label (category, priority, a one-sentence reason, model or rules) is kept in `mail_labels` (migration `0066_mail_labels`): one row per person, mailbox, folder and UID, with the message's Message-ID, forced RLS plus a restrictive owner policy, deleted with the mailbox (foreign key) and by "Delete my data", exported by "Download my data". No subject, sender or body is stored. The list shows a label only while the message at that UID still has that Message-ID. **Label all** (`POST /classify-page`, tool `classify_mail_page`, at most 25 at a time) labels the shown page's unlabelled messages with one model call per message, so no message can steer another's label; `force` labels again.
+
+**On the Email page.** Rows show the label chips (category, and the priority unless normal). The bar over the list offers **Label all (n)** when a model is set up, **Select n newsletters and notifications** after labelling, and for a selection **Archive n with approval** (up to 200) and **Export n (.mbox)** (up to 100). Both show the approval card with the payload hash and expiry; an owner approves in place (members are told an owner approves, and can open Approvals). An approved export shows **Download .mbox** for one hour; a late download says the export expired.
+
+**The assistant (chat and tasks).** With the Email Center on, mail requests in the assistant's own words become one tool call (`mailbox/planning.py`; never from model output or mail): "summarise my latest email from Sara" (`summarize_mail`), "label my last 15 emails" (`classify_mail_page`), "draft a reply to the latest email saying ..." (`draft_mail_reply`, the instructions are the person's words), and "forward my latest email to omar@example.com", "archive my last 5 emails", "export my latest email", "delete the latest email in trash" (`request_mail_action`). The last only picks the messages from the person's words and creates the approval of exactly them (`send_mail`, `archive_mail_bulk`, `export_mail`, `delete_mail`, all `always_ask`); nothing happens until an owner approves. "Send ..." is answered with where to send from (the Email page). With the Email Center off, mail questions go to the OAuth inbox search as before. Tests: `services/api/tests/test_mail_assistant.py` (planner, selectors, approvals, an email ordering a forward asked about in chat gets only a summary) and `test_postgres_mail_labels.py`.
+
+| Method and path (`/api/v1/mail/ai`) | Body or query | Answer |
+| --- | --- | --- |
+| `GET /labels` | `account_id`, `folder`, `uids` (comma-separated, at most 100), `message_ids` (tab-separated, same order) | `{uid, category, priority, reason, source}[]` |
+| `POST /classify-page` | `{account_id, folder, uids[] (at most 25), force?}` | `{labels[], labelled, skipped, failed, summary}`; 503 when no message could be labelled |
+
 ### Not done yet (Email Center)
 
 - Push (IMAP IDLE) and a server-side background sync: the page refreshes folder counts while it is open; the sidebar badge is not updated while the Email page is closed.
@@ -345,6 +358,7 @@ High-risk mail tools carry `always_ask`: workspace autonomy can never lower thei
 - Shared address books (contacts are personal), sharing a mailbox's identities per person, and a workspace wide send limit for shared mailboxes (the limit counts each writer).
 - Attaching an existing workspace file (only files from the device are attached), and an inline preview of attached files.
 - On the phone: attaching files, scheduling and deleting for good (done on the web), and downloading attachments.
-- A screen for the operator view: it is the API above.
-- AI on this mailbox from the chat assistant or the Flutter app (only the web reader and the API have it), and a web screen for bulk archive and export (API only).
+- The operator view on the phone (web only).
+- AI on this mailbox in the Flutter app (the web and the assistant chat have it).
+- AI drafts do not add a sender identity's signature yet (identities are not on `main`).
 - Bcc recipients are not kept in the Sent copy.

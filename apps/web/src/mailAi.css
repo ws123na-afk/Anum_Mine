@@ -29,3 +29,10 @@
 .mailAiSummary p { font-size: 14px; line-height: 1.55; margin: 0; overflow-wrap: anywhere; }
 .mailAiSummary ul { display: grid; font-size: 14px; gap: 2px; margin: 0; padding-inline-start: var(--d-s4); }
 .mailAiSummary li { overflow-wrap: anywhere; }
+/* The list: label chips under a row's subject, and the AI and approvals bar over the list. */
+.mailAiRowLabels { display: flex; flex-wrap: wrap; gap: var(--d-s1); min-width: 0; }
+.mailAiRowLabels .statusBadge { font-size: 11px; line-height: 18px; padding: 0 6px; }
+.mailAiList { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s1); min-width: 0; padding: var(--d-s1) var(--d-s3); }
+.mailAiList button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s1); min-height: 40px; padding: var(--d-s1) var(--d-s2); }
+.mailAiList svg { flex: none; height: 16px; width: 16px; }
+.mailAiListNote { margin: var(--d-s2) var(--d-s3) 0 !important; }
