@@ -1110,3 +1110,16 @@ def test_file_scan_status_migration_is_expand_only_with_a_discovery_only_policy(
     assert "grant select (id, tenant_id, workspace_id, scan_status) on workspace_files to anum_maintenance" in upgrade
     assert "for select to anum_maintenance" in upgrade and "using (scan_status is null)" in upgrade
     assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade
+
+
+def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0076_demo_records.py").read_text(encoding="utf-8")
+    assert 'revision = "0076_demo_records"' in revision_text and len("0076_demo_records") <= 32
+    assert 'down_revision = "0075_file_scan_status"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0076_demo_records.py"]
+    assert not [path for path in others if 'down_revision = "0075_file_scan_status"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert '"demo_records"' in upgrade and "force row level security" in upgrade
+    assert "create policy tenant_isolation_demo_records" in upgrade
+    assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

@@ -15,7 +15,7 @@ Rules:
 * The Demo workspace id is derived from the tenant id (``ws_demo_<hash>``), so it is the
   same on every call and never collides with another tenant's. The ``ws_demo_`` prefix is
   reserved: ``POST /api/v1/organization/workspaces`` refuses it.
-* Every sample record is tagged in ``demo_records`` (migration ``0075_demo_records``)
+* Every sample record is tagged in ``demo_records`` (migration ``0076_demo_records``)
   inside the Demo workspace's RLS scope. Reset removes exactly the tagged records through
   each module's own service functions; records somebody added by hand stay. Tasks and
   approvals have no delete in ANUM, so reset archives demo tasks and expires their

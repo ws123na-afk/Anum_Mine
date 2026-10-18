@@ -11,14 +11,14 @@ RLS: ``tenant_isolation_demo_records`` on ``anum.tenant_id`` and ``anum.workspac
 
 Expand only: one new table. The previous release ignores it.
 
-Chained after ``0074_brevo_campaigns`` (main's head when written).
+Chained after ``0075_file_scan_status`` (main's head when merged).
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0075_demo_records"
-down_revision = "0074_brevo_campaigns"
+revision = "0076_demo_records"
+down_revision = "0075_file_scan_status"
 branch_labels = None
 depends_on = None
 
