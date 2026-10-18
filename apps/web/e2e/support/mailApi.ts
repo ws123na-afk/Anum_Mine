@@ -25,6 +25,9 @@ export interface MailCalls {
   deletes: { folder: string; uids: number[] }[];
   approvals: unknown[];
   listQueries: string[];
+  drafts: unknown[];
+  patches: unknown[];
+  sends: unknown[];
   folderLoads: number;
 }
 
@@ -39,6 +42,7 @@ const FOLDERS: { id: string; name: string; role: MailRole }[] = [
   { id: 'Projects', name: 'Projects', role: null },
 ];
 export const deleteHash = 'ab'.repeat(32);
+export const sendHash = 'cd'.repeat(32);
 
 function seed(count: number): FakeMessage[] {
   const people = [{ name: 'Sara Example', address: 'sara@example.com' }, { name: 'Omar Example', address: 'omar@example.com' }, { name: 'Supplier Example', address: 'orders@supplier.example' }];
@@ -57,7 +61,7 @@ function seed(count: number): FakeMessage[] {
 }
 
 export async function mockMailApi(page: Page, options: MailMockOptions = {}): Promise<{ calls: MailCalls; state: { messages: FakeMessage[]; nextUid: number; addInbox: (subject: string) => void } }> {
-  const calls: MailCalls = { flags: [], moves: [], deletes: [], approvals: [], listQueries: [], folderLoads: 0 };
+  const calls: MailCalls = { flags: [], moves: [], deletes: [], approvals: [], listQueries: [], folderLoads: 0, drafts: [], patches: [], sends: [] };
   const state = {
     messages: seed(options.inboxCount ?? 30), nextUid: 1000,
     addInbox(subject: string) { this.messages.unshift({ uid: this.nextUid++, folder: 'INBOX', subject, sender: { name: 'Sara Example', address: 'sara@example.com' }, date: new Date().toISOString(), seen: false, flagged: false, text: 'New.' }); },
@@ -65,6 +69,12 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
   let failNext = options.failNextAction ?? 0;
   let pendingDelete: { folder: string; uids: number[] } | null = null;
   const role = options.role ?? 'owner';
+  const drafts: Record<string, unknown>[] = [];
+  const sendApproval = (draft: Record<string, unknown>) => ({
+    id: 'approval_send', task_id: 'task_send', action: 'send_mail', risk_level: 'high', status: 'pending', reason: 'Sending mail needs approval.',
+    created_at: new Date().toISOString(), run_id: 'run_send', step_id: 'step_send', payload_hash: sendHash, expires_at: new Date(Date.now() + 6 * 3600_000).toISOString(), target: null,
+    arguments: { from: mailAccount.address, to: draft.to, subject: draft.subject, body: draft.body },
+  });
   const view = (m: FakeMessage) => ({ uid: m.uid, folder: m.folder, subject: m.subject, sender: m.sender, to: [{ name: '', address: mailAccount.address }], cc: [], date: m.date, message_id: `<m${m.uid}@example.com>`, seen: m.seen, flagged: m.flagged, answered: false, size: 1200, maybe_attachments: false });
   const approval = (uids: number[], folder: string) => ({
     id: 'approval_delete', task_id: 'task_delete', action: 'delete_mail', risk_level: 'high', status: 'pending', reason: 'Deleting mail for good needs approval.',
@@ -80,7 +90,7 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     const error = (status: number, message: string, code = 'error') => json({ error: { code, message } }, status);
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role, active: true });
-    if (!path.startsWith('/api/v1/mail') && !path.startsWith('/api/v1/approvals/approval_delete')) return route.fallback();
+    if (!path.startsWith('/api/v1/mail') && !path.startsWith('/api/v1/approvals/approval_')) return route.fallback();
     if (path === '/api/v1/mail/setup') {
       if (role === 'viewer') return error(403, 'Reading email needs the owner or member role in this workspace.', 'forbidden');
       const enabled = options.enabled ?? true;
@@ -151,7 +161,39 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
       const at = new Date().toISOString();
       return json({ task: { id: 'task_delete', title: 'Delete', prompt: 'Delete', status: 'completed', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', created_at: at, updated_at: at }, run: { id: 'run_delete', task_id: 'task_delete', status: 'completed', steps: [], result: 'Deleted for good.' }, approval: { ...approval([], 'Trash'), status: 'approved' } });
     }
-    if (path === '/api/v1/mail/drafts' && method === 'GET') return json([]);
+    const stamp = new Date().toISOString();
+    if (path === '/api/v1/mail/drafts' && method === 'GET') return json(drafts);
+    if (path === '/api/v1/mail/drafts' && method === 'POST') {
+      const body = request.postDataJSON() as { kind: string; uid?: number; folder?: string };
+      calls.drafts.push(body);
+      const original = state.messages.find((m) => m.uid === body.uid);
+      const draft = {
+        id: `maildraft_${drafts.length + 1}`, account_id: mailAccount.id, kind: body.kind, to: body.kind === 'reply' || body.kind === 'reply_all' ? [original?.sender.address ?? ''] : [], cc: [], bcc: [],
+        subject: original ? `${body.kind === 'forward' ? 'Fwd' : 'Re'}: ${original.subject}` : '', body: original ? `\n\n> ${original.text}` : '', in_reply_to: original ? `<m${original.uid}@example.com>` : null,
+        message_id: `<d${drafts.length + 1}@example.com>`, status: 'draft', error: null, approval: null, approval_note: null, saved_to_sent: null, sent_at: null, created_at: stamp, updated_at: stamp,
+      };
+      drafts.unshift(draft);
+      return json(draft, 201);
+    }
+    const draftMatch = /^\/api\/v1\/mail\/drafts\/([^/]+)(\/send)?$/.exec(path);
+    if (draftMatch) {
+      const draft = drafts.find((d) => d.id === draftMatch[1]);
+      if (!draft) return error(404, 'Message not found.', 'not_found');
+      if (draftMatch[2] && method === 'POST') {
+        calls.sends.push(request.postDataJSON());
+        Object.assign(draft, { status: 'pending_approval', approval: sendApproval(draft) });
+        return json({ draft, approval: draft.approval });
+      }
+      if (method === 'PATCH') { calls.patches.push(request.postDataJSON()); Object.assign(draft, request.postDataJSON() as object, { status: 'draft', approval: null, updated_at: stamp }); return json(draft); }
+      if (method === 'DELETE') { drafts.splice(drafts.indexOf(draft), 1); return route.fulfill({ status: 204 }); }
+      return json(draft);
+    }
+    if (path === '/api/v1/approvals/approval_send/approve' && method === 'POST') {
+      calls.approvals.push(request.postDataJSON());
+      const draft = drafts.find((d) => d.status === 'pending_approval');
+      if (draft) Object.assign(draft, { status: 'sent', approval: null, saved_to_sent: true, sent_at: stamp });
+      return json({ task: { id: 'task_send', title: 'Send', prompt: 'Send', status: 'completed', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', created_at: stamp, updated_at: stamp }, run: { id: 'run_send', task_id: 'task_send', status: 'completed', steps: [], result: 'Sent.' }, approval: { ...sendApproval(draft ?? {}), status: 'approved' } });
+    }
     return route.fallback();
   });
   return { calls, state };

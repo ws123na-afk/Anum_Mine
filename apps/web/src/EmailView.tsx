@@ -454,11 +454,15 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
   const sendKey = useRef<string | null>(null);
   const ids = { to: useId(), cc: useId(), bcc: useId(), subject: useId(), body: useId(), hint: useId(), title: useId() };
 
+  // The parent's callback changes on every render; reading it through a ref keeps `load` stable, so a
+  // parent re-render never reloads the draft over what the person is typing.
+  const changed = useRef(onChanged);
+  changed.current = onChanged;
   const adopt = useCallback((d: MailDraft) => {
-    setDraft(d); onChanged(d);
+    setDraft(d); changed.current(d);
     setFields({ to: joinRecipients(d.to), cc: joinRecipients(d.cc), bcc: joinRecipients(d.bcc), subject: d.subject, body: d.body });
     if (d.bcc.length) setShowBcc(true);
-  }, [onChanged]);
+  }, []);
   const load = useCallback(() => { setError(null); getMailDraft(draftId).then(adopt, (e) => setError(mailError(e))); }, [draftId, adopt]);
   useEffect(() => { load(); }, [load]);
 
