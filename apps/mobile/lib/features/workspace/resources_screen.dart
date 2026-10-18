@@ -411,9 +411,14 @@ class _SkillsTab extends StatelessWidget {
               const SizedBox(height: 10),
               Text(s.description,
                   style: TextStyle(color: p.muted, fontSize: 13.5)),
+              if (s.installed && !s.enabled && s.disabledReason != null) ...[
+                const SizedBox(height: 8),
+                Text(s.disabledReason!,
+                    style: TextStyle(color: p.muted, fontSize: 12.5)),
+              ],
               if (s.signature != null && !s.signature!.verified) ...[
                 const SizedBox(height: 8),
-                // Installed but no longer verifies (a revoked key): flagged, still running.
+                // Installed but no longer verifies (a revoked key): flagged.
                 Text(
                     s.installed
                         ? 'Flagged: ${s.signature!.detail}'

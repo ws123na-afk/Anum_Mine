@@ -53,6 +53,8 @@ describe('verification', () => {
     assert.equal(historyLabel(entry('skill.install_refused', { version: '1.0.0' })), 'Install of 1.0.0 refused: not signed by a trusted key');
     assert.equal(historyLabel(entry('skill.rollback_refused', { to_version: '0.9.0' })), 'Rollback to 0.9.0 refused: not signed by a trusted key');
     assert.equal(historyLabel(entry('skill.signed', { version: '1.0.0' })), 'Signed 1.0.0');
+    assert.equal(historyLabel(entry('skill.installation_disabled', { version: '1.0.0' })), 'Turned off 1.0.0 automatically: its signing key was revoked');
+    assert.equal(historyLabel(entry('skill.flagged_reenabled', { version: '1.0.0' })), 'Turned 1.0.0 back on although its signing key was revoked');
   });
 });
 

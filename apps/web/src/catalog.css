@@ -137,3 +137,5 @@
   .publisherKeyActions { grid-column: 1 / -1; justify-content: flex-start; }
   .catalogForm { grid-template-columns: minmax(0, 1fr); }
 }
+.publisherKeySetting { display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); }
+.publisherKeySetting h4 { margin: 0; }

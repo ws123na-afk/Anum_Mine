@@ -31,8 +31,10 @@ async function mockApi(page: Page, options: Options = {}) {
   ];
   const installs: Json[] = [
     { id: 'si_1', skill_id: 'acme.notes', version: '1.0.0', approved_tools: [], enabled: true, installed_by: 'user_local', installed_at: now, verification: verified() },
-    { id: 'si_2', skill_id: 'acme.legacy', version: '1.0.0', approved_tools: [], enabled: true, installed_by: 'user_local', installed_at: now, verification: revoked() },
+    { id: 'si_2', skill_id: 'acme.legacy', version: '1.0.0', approved_tools: [], enabled: false, installed_by: 'user_local', installed_at: now, verification: revoked(),
+      disabled_reason: 'Turned off automatically: the signing key acme-2026 was revoked (Laptop lost).' },
   ];
+  let settings: Json = { disable_flagged: true, updated_by: null, updated_at: null, can_manage: Boolean(options.orgAdmin) };
   let keys: Json[] = options.noKeys ? [] : [key('acme-2026'), key('acme-2024', { status: 'revoked', revoked_at: now, revoked_by: 'admin', revoke_reason: 'Laptop lost' })];
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -55,6 +57,15 @@ async function mockApi(page: Page, options: Options = {}) {
       if (options.keysFail) return json({ error: { code: 'unavailable', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503);
       return json({ keys, platform_keys: [], can_manage: Boolean(options.orgAdmin) });
     }
+    if (path === '/api/v1/skills/signing-settings' && method === 'GET') return json(settings);
+    if (path === '/api/v1/skills/signing-settings' && method === 'PUT') { settings = { ...settings, disable_flagged: (body as Json).disable_flagged, updated_by: 'user_local', updated_at: now }; return json(settings); }
+    const patch = path.match(/^\/api\/v1\/skills\/installations\/([^/]+)$/);
+    if (patch && method === 'PATCH') {
+      const target = installs.find((i) => i.skill_id === decodeURIComponent(patch[1]))!;
+      if ((body as Json).enabled && !(target.verification as Json).installable && !(body as Json).acknowledge_flagged) return json({ error: { code: 'conflict', message: 'Confirm', correlation_id: 'c', details: [] } }, 409);
+      Object.assign(target, { enabled: (body as Json).enabled, disabled_reason: null });
+      return json(target);
+    }
     if (path === '/api/v1/skills/publisher-keys' && method === 'POST') { const created = key((body as Json).id as string, { publisher: (body as Json).publisher }); keys = [...keys, created]; return json(created, 201); }
     const rotate = path.match(/^\/api\/v1\/skills\/publisher-keys\/([^/]+)\/rotate$/);
     if (rotate) {
@@ -65,7 +76,7 @@ async function mockApi(page: Page, options: Options = {}) {
     const revoke = path.match(/^\/api\/v1\/skills\/publisher-keys\/([^/]+)\/revoke$/);
     if (revoke) {
       keys = keys.map((k) => (k.id === revoke[1] ? { ...k, status: 'revoked', revoked_at: now, revoked_by: 'user_local', revoke_reason: (body as Json).reason } : k));
-      return json({ key: keys.find((k) => k.id === revoke[1]), affected_versions: 1, flagged_installations: 1 });
+      return json({ key: keys.find((k) => k.id === revoke[1]), affected_versions: 1, flagged_installations: 1, affected_packages: 0, auto_disable: settings.disable_flagged, disabled_installations: 3 });
     }
     const sign = path.match(/^\/api\/v1\/skills\/versions\/([^/]+)\/([^/]+)\/signature$/);
     if (sign && method === 'PUT') {
@@ -98,6 +109,44 @@ test('cards show the signer, refuse unsigned installs and flag a revoked install
   await expect(card(page, 'Draft helper').getByRole('button', { name: 'Install' })).toBeDisabled();
   await expect(card(page, 'Legacy').getByRole('alert')).toContainText('Flagged: Signed with key acme-2026, which an organization administrator revoked: Laptop lost.');
   await expect(card(page, 'Legacy').getByText('Key revoked')).toBeVisible();
+  await expect(card(page, 'Legacy').getByText(/Turned off automatically: the signing key acme-2026 was revoked/)).toBeVisible();
+});
+
+test('an owner turns a flagged, auto-disabled skill back on only after confirming', async ({ page }) => {
+  const calls = await mockApi(page);
+  await page.goto('/#skills');
+  await card(page, 'Legacy').getByRole('button', { name: 'Enable' }).click();
+  await expect(card(page, 'Legacy').getByText(/Its signing key was revoked/)).toBeVisible();
+  expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  await card(page, 'Legacy').getByRole('button', { name: 'Turn on anyway' }).click();
+  await expect(page.getByText('Skill enabled.', { exact: false })).toBeVisible();
+  expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ enabled: true, acknowledge_flagged: true });
+});
+
+test('an org admin switches automatic disabling, and a revoke reports what it turned off', async ({ page }) => {
+  const calls = await mockApi(page, { orgAdmin: true });
+  await page.goto('/#skills');
+  await page.getByRole('tab', { name: 'Publisher keys' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Publisher keys' });
+  const toggle = panel.getByRole('checkbox', { name: 'Turn off what a revoked key signed' });
+  await expect(toggle).toBeChecked();
+  await panel.getByRole('button', { name: 'Revoke acme-2026' }).click();
+  const revoke = page.getByRole('dialog', { name: 'Revoke acme-2026?' });
+  await revoke.getByLabel(/Reason/).fill('Leaked');
+  await revoke.getByRole('button', { name: 'Revoke key' }).click();
+  await expect(panel.getByText(/Installations turned off in every workspace: 3./)).toBeVisible();
+  await toggle.uncheck();
+  await expect(panel.getByText(/Revoking a key now only flags what it signed/)).toBeVisible();
+  expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/skills/signing-settings')?.body).toEqual({ disable_flagged: false });
+});
+
+test('a member sees the automatic disabling setting read only', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#skills');
+  await page.getByRole('tab', { name: 'Publisher keys' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Publisher keys' });
+  await expect(panel.getByRole('checkbox', { name: 'Turn off what a revoked key signed' })).toBeDisabled();
+  await expect(panel.getByText('Only organization administrators change this setting.')).toBeVisible();
 });
 
 test('an org admin signs an unsigned version from its details', async ({ page }) => {

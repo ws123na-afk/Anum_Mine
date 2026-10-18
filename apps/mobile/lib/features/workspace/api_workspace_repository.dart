@@ -330,7 +330,8 @@ class ApiWorkspaceRepository
         installed: install != null && install['version'] == j['version'],
         installedVersion: install?.optString('version'),
         enabled: install?.optBool('enabled') ?? false,
-        signature: _signature(j.optObject('verification')));
+        signature: _signature(j.optObject('verification')),
+        disabledReason: install?.optString('disabled_reason'));
   }
 
   SkillSignature? _signature(JsonReader? j) => j == null

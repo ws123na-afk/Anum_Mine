@@ -9,7 +9,7 @@ import { pageOf } from './lib/catalog';
 import * as catalog from './lib/catalogApi';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
-import { emptyKeyDraft, filterKeys, keyBody, keyCounts, revokeBody, rotateBody, type KeyDraft, type KeyFilter, type PublisherKey, type PublisherKeyList } from './lib/skillSigning';
+import { emptyKeyDraft, filterKeys, keyBody, keyCounts, revokeBody, rotateBody, type KeyDraft, type KeyFilter, type PublisherKey, type PublisherKeyList, type SigningSettings } from './lib/skillSigning';
 
 const PAGE = 20;
 const refused = (e: unknown) => isPermissionDenied(e) ? t('signing.notAllowed', { error: describeError(e) }) : describeError(e);
@@ -71,7 +71,8 @@ function RevokeForm({ target, onClose, onSaved }: { target: PublisherKey; onClos
     setBusy(true); setError(null);
     try {
       const result = await catalog.revokePublisherKey(target.id, body.value.reason);
-      onSaved(t('keys.revokedNote', { id: target.id, versions: result.affected_versions, installs: result.flagged_installations }));
+      const note = t('keys.revokedNote', { id: target.id, versions: result.affected_versions, installs: result.flagged_installations });
+      onSaved(result.auto_disable ? `${note} ${t('keys.disabledNote', { count: result.disabled_installations ?? 0 })}` : note);
     } catch (e) { setError(refused(e)); } finally { setBusy(false); }
   };
   return <Dialog title={t('keys.revokeTitle', { id: target.id })} onClose={onClose}>
@@ -82,6 +83,32 @@ function RevokeForm({ target, onClose, onSaved }: { target: PublisherKey; onClos
       <div className="actions catalogFormWide"><button type="button" className="secondary" onClick={onClose}>{t('common.cancel')}</button><button type="submit" className="danger" disabled={busy}><ShieldOff aria-hidden="true" />{t('keys.revokeButton')}</button></div>
     </form>
   </Dialog>;
+}
+
+/** "Disable flagged installs automatically": organization administrators switch it; everyone sees it. */
+function AutoDisableSetting() {
+  const [value, setValue] = useState<SigningSettings | null>(null);
+  const [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => catalog.getSigningSettings().then((v) => { setValue(v); setError(null); }).catch((e) => setError(t('keys.settingFailed', { error: describeError(e) }))), []);
+  useEffect(() => { void load(); }, [load]);
+  const change = async (next: boolean) => {
+    const before = value;
+    // Optimistic, so the switch follows the click; restored if the API refuses.
+    if (before) setValue({ ...before, disable_flagged: next });
+    setBusy(true); setError(null); setNote(null);
+    try { const saved = await catalog.saveSigningSettings(next); setValue(saved); setNote(t(next ? 'keys.settingOn' : 'keys.settingOff')); }
+    catch (e) { setValue(before); setError(refused(e)); } finally { setBusy(false); }
+  };
+  return <section className="surface publisherKeySetting" aria-labelledby="auto-disable-h">
+    <h4 id="auto-disable-h">{t('keys.settingTitle')}</h4>
+    <p className="featureMeta">{t('keys.settingHelp')}</p>
+    {!value && !error && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('keys.settingLoading')}</p>}
+    {value && <label className="integrationToggle"><input type="checkbox" checked={value.disable_flagged} disabled={busy || !value.can_manage} onChange={(e) => void change(e.target.checked)} />{t('keys.settingLabel')}</label>}
+    {value && !value.can_manage && <p className="featureMeta">{t('keys.settingReadOnly')}</p>}
+    {error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{error} <button type="button" className="linkButton" onClick={() => void load()}>{t('keys.retry')}</button></p>}
+    {note && <p className="notice" role="status"><CircleDot aria-hidden="true" />{note}</p>}
+  </section>;
 }
 
 function KeyRow({ k, manage, onRotate, onRevoke }: { k: PublisherKey; manage: boolean; onRotate?(): void; onRevoke?(): void }) {
@@ -134,6 +161,7 @@ export function PublisherKeysPanel({ onChanged }: { onChanged?: () => void }) {
     {note && <p className="notice" role="status"><CircleDot aria-hidden="true" />{note}</p>}
     {loading && !data && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('keys.loading')}</p>}
     {data && !manage && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('keys.readOnly')}</p>}
+    {data && <AutoDisableSetting />}
     {data && keys.length > 0 && <div className="surface catalogToolbar" role="search">
       <label className="field"><span>{t('keys.search')}</span><input type="search" value={query} placeholder={t('keys.searchPlaceholder')} onChange={(e) => setQuery(e.target.value)} /></label>
       <fieldset className="catalogSegments"><legend>{t('keys.show')}</legend>{(['all', 'active', 'rotated', 'revoked'] as const).map((f) => <label key={f}><input type="radio" name="key-filter" checked={filter === f} onChange={() => setFilter(f)} />{t(`keys.filter.${f}`)}</label>)}</fieldset>

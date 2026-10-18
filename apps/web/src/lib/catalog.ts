@@ -64,7 +64,7 @@ export function credentialBody(secret: string): Result<{ secret: string }> {
 // --------------------------------------------------------------------------- skills
 
 export interface SkillVersionLike { id: string; skill_id: string; version: string; name: string; description: string; required_tools: string[]; risk_level: string; created_at: string; created_by?: string; verification?: SkillVerification | null; signed_by?: string | null; signed_at?: string | null }
-export interface SkillInstallLike { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; installed_by?: string; verification?: SkillVerification | null }
+export interface SkillInstallLike { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; installed_by?: string; verification?: SkillVerification | null; disabled_reason?: string | null }
 
 export type SkillState = 'available' | 'installed' | 'disabled';
 
@@ -163,6 +163,7 @@ const HISTORY_KEYS = {
   'skill.disabled': 'skills.history.disabled', 'skill.uninstalled': 'skills.history.uninstalled',
   'skill.signed': 'signing.history.signed', 'skill.install_refused': 'signing.history.installRefused',
   'skill.signature_refused': 'signing.history.signatureRefused', 'skill.installation_flagged': 'signing.history.flagged',
+  'skill.installation_disabled': 'signing.history.disabled', 'skill.flagged_reenabled': 'signing.history.reenabled',
 } as const;
 
 /** A history row in words: "Rolled back 2.0.0 → 1.0.0", "Installed 1.2.0", "Published 1.0.0". */
@@ -204,8 +205,12 @@ export function publishBody(d: PublishDraft): Result<{ skill_id: string; version
 
 // --------------------------------------------------------------------------- marketplace
 
-export interface MarketPackage { id: string; name: string; kind: 'skill' | 'integration'; version: string; publisher: string; verified: boolean; permissions: string[]; regions: string[] }
-export interface PackageInstall { package_id: string; version: string; enabled: boolean; installed_by: string; installed_at: string }
+export interface MarketPackage {
+  id: string; name: string; kind: 'skill' | 'integration'; version: string; publisher: string; verified: boolean; permissions: string[]; regions: string[];
+  // Integration packages are signed (docs/governance-and-scale.md#package-signing); verification is computed by the API.
+  signature?: { key_id: string; signature: string } | null; verification?: SkillVerification | null;
+}
+export interface PackageInstall { package_id: string; version: string; enabled: boolean; installed_by: string; installed_at: string; disabled_reason?: string | null; verification?: SkillVerification | null }
 
 export interface MarketFilter { query: string; kind: 'all' | 'skill' | 'integration'; verifiedOnly: boolean; installedOnly: boolean }
 export const emptyMarketFilter = (): MarketFilter => ({ query: '', kind: 'all', verifiedOnly: false, installedOnly: false });

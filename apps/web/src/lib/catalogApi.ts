@@ -4,7 +4,7 @@
 import { apiBaseUrl, apiRequest, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
 import type { IntegrationState, MarketPackage, PackageInstall, SkillDetail, SkillInstallLike, SkillVersionLike, WorkspaceCredential } from './catalog';
-import type { PublisherKey, PublisherKeyList, PublisherKeyRevoked } from './skillSigning';
+import type { PublisherKey, PublisherKeyList, PublisherKeyRevoked, SigningSettings } from './skillSigning';
 
 const get = <T>(path: string) => apiRequest<T>(path, { method: 'GET' });
 const send = <T>(method: string, path: string, body: unknown = {}) => apiRequest<T>(path, { method, body: JSON.stringify(body) });
@@ -30,6 +30,11 @@ export const getPublisherKeys = () => get<PublisherKeyList>('/api/v1/skills/publ
 export const addPublisherKey = (body: { id: string; publisher: string; public_key: string }) => send<PublisherKey>('POST', '/api/v1/skills/publisher-keys', body);
 export const rotatePublisherKey = (keyId: string, body: { new_id: string; public_key: string }) => send<PublisherKey>('POST', `/api/v1/skills/publisher-keys/${id(keyId)}/rotate`, body);
 export const revokePublisherKey = (keyId: string, reason: string) => send<PublisherKeyRevoked>('POST', `/api/v1/skills/publisher-keys/${id(keyId)}/revoke`, { reason });
+export const getSigningSettings = () => get<SigningSettings>('/api/v1/skills/signing-settings');
+export const saveSigningSettings = (disableFlagged: boolean) => send<SigningSettings>('PUT', '/api/v1/skills/signing-settings', { disable_flagged: disableFlagged });
+export const signPackage = (packageId: string, body: { key_id: string; signature: string }) => send<MarketPackage>('PUT', `/api/v1/marketplace/packages/${id(packageId)}/signature`, body);
+export const setPackageEnabled = (packageId: string, enabled: boolean, acknowledgeFlagged = false) =>
+  send<PackageInstall>('PATCH', `/api/v1/marketplace/packages/${id(packageId)}/install`, acknowledgeFlagged ? { enabled, acknowledge_flagged: true } : { enabled });
 
 export const getPackages = () => get<MarketPackage[]>('/api/v1/marketplace/packages');
 export const getPackageInstalls = () => get<PackageInstall[]>('/api/v1/marketplace/installs');

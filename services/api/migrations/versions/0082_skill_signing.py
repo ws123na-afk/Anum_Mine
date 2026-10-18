@@ -22,7 +22,7 @@
 Expand only: new tables, nullable columns, two column grants and two policies. The previous
 release ignores them.
 
-Numbered 0082 and chained after ``0074_brevo_campaigns``, the head of ``main`` when written;
+Numbered 0082 and chained after ``0075_file_scan_status``, the head of ``main`` when written;
 renumber at merge if another migration lands first.
 """
 
@@ -30,7 +30,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0082_skill_signing"
-down_revision = "0074_brevo_campaigns"
+down_revision = "0075_file_scan_status"
 branch_labels = None
 depends_on = None
 

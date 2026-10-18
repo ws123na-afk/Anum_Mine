@@ -58,13 +58,13 @@ function AgentsUsing({ usage, onOpenAgents }: { usage: SkillUsage | undefined; o
   </section>;
 }
 /** Who signed a version and whether it verifies (docs/skills.md#signing). */
-function SignatureBadge({ v }: { v: SkillVerification | null | undefined }) {
+export function SignatureBadge({ v }: { v: SkillVerification | null | undefined }) {
   if (!v) return null;
   return <span className={`statusBadge ${verificationTone(v.status)}`} title={v.detail}>{v.status === 'verified' ? <ShieldCheck size={13} aria-hidden="true" /> : <ShieldAlert size={13} aria-hidden="true" />}{verificationLabel(v)}</span>;
 }
 
 /** Digest, signer and fingerprint of one version; organization administrators can attach a signature. */
-function SignaturePanel({ skillId, version, name, v, admin, onSigned }: { skillId: string; version: string; name: string; v: SkillVerification; admin: boolean; onSigned(text: string): void }) {
+export function SignaturePanel({ version, name, v, admin, onSign, onSigned }: { version: string; name: string; v: SkillVerification; admin: boolean; onSign(body: { key_id: string; signature: string }): Promise<unknown>; onSigned(text: string): void }) {
   const [open, setOpen] = useState(false);
   const [keyId, setKeyId] = useState(''), [signature, setSignature] = useState('');
   const [error, setError] = useState<string | null>(null), [copied, setCopied] = useState<string | null>(null);
@@ -73,7 +73,7 @@ function SignaturePanel({ skillId, version, name, v, admin, onSigned }: { skillI
     const body = signatureBody(keyId, signature);
     if (!body.ok) { setError(body.error); return; }
     setBusy(true); setError(null);
-    try { await catalog.signSkillVersion(skillId, version, body.value); setOpen(false); onSigned(t('signing.signedNote', { version })); }
+    try { await onSign(body.value); setOpen(false); onSigned(t('signing.signedNote', { version })); }
     catch (e) { setError(isPermissionDenied(e) ? t('signing.notAllowed', { error: describeError(e) }) : describeError(e)); } finally { setBusy(false); }
   };
   return <div className="skillSignature">
@@ -114,7 +114,7 @@ export function useSkills() {
     setBusy(true); setError(null); setNote(null);
     try { setNote(await fn()); await load(); return true; } catch (e) { setError(failure(e, who())); return false; } finally { setBusy(false); }
   }, [load]);
-  const toggle = (skillId: string, enabled: boolean) => act(async () => { await api.setSkillEnabled(skillId, enabled); return enabled ? t('skills.enabled') : t('skills.disabled'); });
+  const toggle = (skillId: string, enabled: boolean, acknowledgeFlagged = false) => act(async () => { await api.setSkillEnabled(skillId, enabled, acknowledgeFlagged); return enabled ? t('skills.enabled') : t('skills.disabled'); });
   return { versions, installs, loading, busy, error, note, load, act, toggle };
 }
 
@@ -216,7 +216,7 @@ function DetailDialog({ skillId, owner, usage, onOpenAgents, onInstall, onChange
         <ul className="catalogVersionList">{detail.versions.map((v) => {
           const installed = detail.installation?.version === v.version;
           return <li key={v.id}><div><strong>{v.version}</strong>{installed && <span className="statusBadge success">{t('skills.state.installed')}</span>}<SignatureBadge v={v.verification} /><small>{t('skills.publishedBy', { time: when(v.created_at), user: v.created_by, risk: riskLabel(v.risk_level), tools: t('skills.tools', { count: v.required_tools.length }) })}</small>
-            {v.verification && <SignaturePanel skillId={detail.skill_id} version={v.version} name={detail.name} v={v.verification} admin={detail.can_rollback} onSigned={signedNote} />}</div>
+            {v.verification && <SignaturePanel version={v.version} name={detail.name} v={v.verification} admin={detail.can_rollback} onSign={(body) => catalog.signSkillVersion(detail.skill_id, v.version, body)} onSigned={signedNote} />}</div>
             <div className="catalogVersionActions">
               {!installed && owner && installable(v) && (!detail.installation || !targets.includes(v.version)) && <button type="button" className="secondary" onClick={() => onInstall(v)}>{detail.installation ? t('skills.installVersion') : t('skills.install')}</button>}
               {detail.can_rollback && targets.includes(v.version) && (confirm === v.version
@@ -283,7 +283,7 @@ export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {})
   const { shown, remaining } = pageOf(filtered, pages, PAGE);
   const builtins = filterBuiltins(agentsOf.builtins, query, filter);
   const affects = (skillId: string) => agentsOf.usage.get(skillId)?.count ?? 0;
-  const toggle = (g: SkillGroup) => { setConfirmDisable(null); void s.toggle(g.skillId, g.state === 'disabled').then(() => agentsOf.load()); };
+  const toggle = (g: SkillGroup, acknowledgeFlagged = false) => { setConfirmDisable(null); void s.toggle(g.skillId, g.state === 'disabled', acknowledgeFlagged).then(() => agentsOf.load()); };
   useEffect(() => setPages(1), [query, filter]);
   const install = async (group: SkillGroup, version: SkillVersionLike, tools: string[]) => {
     if (await s.act(async () => { await api.installSkill(group.skillId, version.version, tools); return t('skills.installed', { name: version.name, version: version.version }); })) { setInstalling(null); setDetails(null); }
@@ -329,6 +329,7 @@ export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {})
           <div className="tagRow">{toolsOf.map((x) => <span key={x} dir="ltr">{x}</span>)}</div>
           <small>{g.upgrade ? t('skills.cardMetaUpgrade', { versions, risk: riskLabel(g.latest.risk_level), version: g.upgrade.version }) : t('skills.cardMeta', { versions, risk: riskLabel(g.latest.risk_level) })}</small>
           <UsedBy usage={agentsOf.usage.get(g.skillId)} />
+          {g.install?.disabled_reason && !g.install.enabled && <p className="featureMeta skillFlag" dir="auto">{g.install.disabled_reason}</p>}
           {flagged(g.install) && <p className="notice errorNotice skillFlag" role="alert"><ShieldAlert aria-hidden="true" />{t('signing.flagged', { detail: g.install!.verification!.detail })}</p>}
           {owner && next && !installable(next) && next.verification && <p className="featureMeta skillFlag">{t('signing.cannotInstall', { version: next.version, detail: next.verification.detail })}</p>}
         </div>
@@ -339,9 +340,10 @@ export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {})
           {owner && !g.install && <button type="button" disabled={s.busy || !installable(g.latest)} onClick={() => setInstalling({ group: g, version: g.latest })}>{t('skills.install')}</button>}
           {owner && g.upgrade && <button type="button" className="secondary" disabled={s.busy || !installable(g.upgrade)} onClick={() => setInstalling({ group: g, version: g.upgrade! })}>{t('skills.upgrade', { version: g.upgrade.version })}</button>}
           {owner && g.install && <>
-            {confirmDisable === g.skillId
+            {confirmDisable === `enable-${g.skillId}` && <span className="featureConfirm"><span className="skillAffects">{t('signing.enableFlaggedConfirm')}</span><button type="button" className="danger" disabled={s.busy} onClick={() => toggle(g, true)}>{t('signing.enableAnyway')}</button><button type="button" className="secondary" onClick={() => setConfirmDisable(null)}>{t('common.cancel')}</button></span>}
+            {confirmDisable === `enable-${g.skillId}` ? null : confirmDisable === g.skillId
               ? <span className="featureConfirm"><span className="skillAffects">{t('skills.affectsAgents', { count: affects(g.skillId) })}</span><button type="button" className="danger" disabled={s.busy} onClick={() => toggle(g)}>{t('skills.confirmDisable')}</button><button type="button" className="secondary" onClick={() => setConfirmDisable(null)}>{t('common.cancel')}</button></span>
-              : <button type="button" className="secondary" disabled={s.busy} onClick={() => g.state === 'installed' && affects(g.skillId) > 0 ? setConfirmDisable(g.skillId) : toggle(g)}>{g.state === 'installed' ? <><PauseCircle aria-hidden="true" />{t('skills.disable')}</> : <><PlayCircle aria-hidden="true" />{t('skills.enable')}</>}</button>}
+              : <button type="button" className="secondary" disabled={s.busy} onClick={() => g.state === 'installed' && affects(g.skillId) > 0 ? setConfirmDisable(g.skillId) : g.state === 'disabled' && flagged(g.install) ? setConfirmDisable(`enable-${g.skillId}`) : toggle(g)}>{g.state === 'installed' ? <><PauseCircle aria-hidden="true" />{t('skills.disable')}</> : <><PlayCircle aria-hidden="true" />{t('skills.enable')}</>}</button>}
             {confirmRemove === g.skillId
               ? <span className="featureConfirm">{affects(g.skillId) > 0 && <span className="skillAffects">{t('skills.affectsAgents', { count: affects(g.skillId) })}</span>}<button type="button" className="danger" disabled={s.busy} onClick={() => uninstall(g.skillId)}>{t('skills.uninstall')}</button><button type="button" className="secondary" onClick={() => setConfirmRemove(null)}>{t('common.cancel')}</button></span>
               : <button type="button" className="iconButton" aria-label={t('skills.uninstallNamed', { name: g.name })} onClick={() => setConfirmRemove(g.skillId)}><Trash2 aria-hidden="true" /></button>}

@@ -19,7 +19,12 @@ export interface PublisherKey {
   revoked_at: string | null; revoked_by: string | null; revoke_reason: string | null;
 }
 export interface PublisherKeyList { keys: PublisherKey[]; platform_keys: PublisherKey[]; can_manage: boolean }
-export interface PublisherKeyRevoked { key: PublisherKey; affected_versions: number; flagged_installations: number }
+export interface PublisherKeyRevoked {
+  key: PublisherKey; affected_versions: number; flagged_installations: number;
+  affected_packages?: number; auto_disable?: boolean; disabled_installations?: number;
+}
+/** The tenant's signing settings: whether revocation turns flagged installs off (on by default). */
+export interface SigningSettings { disable_flagged: boolean; updated_by: string | null; updated_at: string | null; can_manage: boolean }
 
 const KEY_ID = /^[a-z0-9][a-z0-9_.-]{2,79}$/;
 

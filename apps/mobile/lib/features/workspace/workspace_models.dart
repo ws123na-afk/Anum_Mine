@@ -278,13 +278,17 @@ class WorkspaceSkill {
       required this.installed,
       this.installedVersion,
       this.enabled = false,
-      this.signature});
+      this.signature,
+      this.disabledReason});
   final String id, skillId, name, version, description, risk;
   final List<String> tools;
 
   /// The API's signature check of this version (docs/skills.md#signing); null from
   /// an API that does not verify yet, which then decides installs itself.
   final SkillSignature? signature;
+
+  /// Why the API turned the installation off (a revoked signing key), if it did.
+  final String? disabledReason;
 
   /// Whether the API would install this version: only a verified signature allows it.
   bool get installable => signature?.installable ?? true;

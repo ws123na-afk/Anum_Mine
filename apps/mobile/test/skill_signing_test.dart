@@ -83,7 +83,9 @@ class _Transport implements ApiTransport {
           'skill_id': 'acme.legacy',
           'version': '1.0.0',
           'approved_tools': const <String>[],
-          'enabled': true,
+          'enabled': false,
+          'disabled_reason':
+              'Turned off automatically: the signing key acme-2026 was revoked (Laptop lost).',
           'installed_by': 'owner',
           'installed_at': _time,
         }
@@ -159,6 +161,12 @@ void main() {
     expect(
         find.text(
             'Flagged: Signed with key acme-2026, which an organization administrator revoked: Laptop lost.'),
+        findsOneWidget);
+    // Turned off automatically when the key was revoked: the reason is shown.
+    expect(find.text('Disabled'), findsOneWidget);
+    expect(
+        find.text(
+            'Turned off automatically: the signing key acme-2026 was revoked (Laptop lost).'),
         findsOneWidget);
 
     // Every not-installed tile has an Install button; only the unsigned one is disabled.

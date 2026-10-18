@@ -166,7 +166,7 @@ export async function approveTask(approval: Approval, reason?: string): Promise<
 export interface MemoryNote { id: string; task_id: string | null; content: string; provenance: { source_type: string; source_id: string | null; created_by_user_id: string; created_at: string; metadata?: Record<string, unknown> }; retention: { kind: string; expires_at: string | null }; created_at: string; owner_user_id?: string | null; updated_at?: string | null; }
 export type FileRecord = ApiFile;
 export interface SkillVersion { id: string; skill_id: string; version: string; name: string; description: string; required_tools: string[]; risk_level: string; created_at: string; verification?: SkillVerification | null; signed_by?: string | null; signed_at?: string | null }
-export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; verification?: SkillVerification | null }
+export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; verification?: SkillVerification | null; disabled_reason?: string | null }
 export interface WorkspaceInfo { id: string; tenant_id: string; name: string; created_at: string; updated_at: string; }
 export interface OnboardingStatus { complete: boolean; tenant: { id: string; name: string } | null; workspace: WorkspaceInfo | null; membership: { role: string } | null; model_configured: boolean; }
 export type { ModelConfig, ModelConnectionTest } from './modelConfig';
@@ -278,7 +278,7 @@ export async function downloadFile(id: string, name: string): Promise<void> {
 export async function getSkillVersions(): Promise<SkillVersion[]> { return request('/api/v1/skills/versions', { method: 'GET' }); }
 export async function getSkillInstallations(): Promise<SkillInstallation[]> { return request('/api/v1/skills/installations', { method: 'GET' }); }
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
-export async function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }); }
+export async function setSkillEnabled(skillId: string, enabled: boolean, acknowledgeFlagged = false): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify(acknowledgeFlagged ? { enabled, acknowledge_flagged: true } : { enabled }) }); }
 export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }
 export async function searchMemories(query: string, onlyChats = false): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query, undefined, onlyChats), { method: 'GET' }); }
 /** The caller's own preferences, including "Remember things from my chats". */
