@@ -100,6 +100,7 @@ class MailServer(Protocol):
     def check_login(self) -> None: ...
     def folders(self) -> list[Folder]: ...
     def messages(self, folder: str, *, before: int | None, limit: int, query: str | None, unread: bool, flagged: bool) -> Page: ...
+    def messages_after(self, folder: str, *, after: int, limit: int) -> Page: ...
     def fetch(self, folder: str, uid: int, *, mark_seen: bool, max_bytes: int) -> bytes: ...
     def set_flag(self, folder: str, uids: list[int], flag: str, value: bool) -> None: ...
     def move(self, folder: str, uids: list[int], target: str) -> None: ...
@@ -350,6 +351,32 @@ class ImapSmtpServer:
             )
             items = sorted(parse_fetch(fetched), key=lambda item: item.uid, reverse=True)
             return Page(items=items, total=len(uids), next_before=page[-1] if len(uids) > limit else None)
+
+    def messages_after(self, folder: str, *, after: int, limit: int) -> Page:
+        """The oldest ``limit`` messages with a UID above ``after``, oldest first.
+
+        ``total`` counts every message above ``after`` (up to MAX_SEARCH), so a caller knows whether
+        more wait. The background forwarding reads new mail forward from its cursor with this.
+        """
+        floor = max(0, int(after))
+        with self._imap() as connection:
+            self._select(connection, folder, readonly=True)
+            data = self._ok(connection.uid("SEARCH", "UID", f"{floor + 1}:*"), "list new messages")
+            found = {int(value) for value in (data[0] or b"").split()[:MAX_SEARCH]} if data and isinstance(data[0], bytes) else set()
+            # "n:*" always matches the newest message, even when its UID is below n (RFC 3501 6.4.8).
+            uids = sorted(uid for uid in found if uid > floor)
+            page = uids[: max(0, limit)]
+            if not page:
+                return Page(items=[], total=len(uids), next_before=None)
+            fetched = self._ok(
+                connection.uid(
+                    "FETCH", uid_set(page),
+                    "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID CONTENT-TYPE)])",
+                ),
+                "read the message list",
+            )
+            items = sorted(parse_fetch(fetched), key=lambda item: item.uid)
+            return Page(items=items, total=len(uids), next_before=None)
 
     def fetch(self, folder: str, uid: int, *, mark_seen: bool, max_bytes: int) -> bytes:
         with self._imap() as connection:
