@@ -312,20 +312,20 @@ def turn_credentials(context: TenantContext, *, now: datetime | None = None, ttl
     issued = now or utc_now()
     lifetime = ttl or settings.calls_turn_ttl_seconds
     expires = int(issued.timestamp()) + lifetime
-    # Random per issue and never read back: coturn's logs and the username name nobody.
+    # Random per issue and never read back: coturn's logs and the TURN username name nobody.
     opaque = secrets.token_hex(12)
-    username = f"{expires}:{opaque}"
-    digest = hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
-    return username, base64.b64encode(digest).decode(), datetime.fromtimestamp(expires, tz=issued.tzinfo)
+    turn_label = f"{expires}:{opaque}"
+    digest = hmac.new(secret.encode(), turn_label.encode(), hashlib.sha1).digest()
+    return turn_label, base64.b64encode(digest).decode(), datetime.fromtimestamp(expires, tz=issued.tzinfo)
 
 
-def turn_credential_valid(username: str, credential: str, *, now: datetime | None = None) -> bool:
-    """What coturn checks: the HMAC matches and the expiry in the username is in the future."""
+def turn_credential_valid(turn_label: str, credential: str, *, now: datetime | None = None) -> bool:
+    """What coturn checks: the HMAC matches and the expiry in the TURN username is in the future."""
     secret = settings.calls_turn_secret.get_secret_value().strip() if settings.calls_turn_secret else ""
-    expiry, _, _ = username.partition(":")
+    expiry, _, _ = turn_label.partition(":")
     if not secret or not expiry.isdigit():
         return False
-    expected = base64.b64encode(hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()).decode()
+    expected = base64.b64encode(hmac.new(secret.encode(), turn_label.encode(), hashlib.sha1).digest()).decode()
     current = (now or utc_now()).timestamp()
     return hmac.compare_digest(expected, credential) and int(expiry) > current
 
@@ -682,9 +682,9 @@ def get_ice_servers(context: TenantContext = Depends(tenant_context)) -> IceServ
     expires_at: datetime | None = None
     ttl: int | None = None
     if mode.mode == CallMode.TURN:
-        username, credential, expires_at = turn_credentials(context)
+        turn_label, credential, expires_at = turn_credentials(context)
         ttl = settings.calls_turn_ttl_seconds
-        servers.append(IceServer(urls=list(mode.turn_urls), username=username, credential=credential))
+        servers.append(IceServer(urls=list(mode.turn_urls), username=turn_label, credential=credential))
     return IceServers(mode=mode.mode, ice_servers=servers, expires_at=expires_at, ttl_seconds=ttl)
 
 
