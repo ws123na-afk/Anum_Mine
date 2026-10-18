@@ -1,0 +1,168 @@
+{
+  "_about": "The owner's own products for the Business catalog, loaded by scripts/business/seed-products.py. Facts come from docs/business/products/<slug>.md, which lists the sources. Prices are not set: every offer is 'quote' until the owner confirms a price. The target_profile block is NOT sent: the business API has no fields for it yet (the Harvey branch adds them).",
+  "products": [
+    {
+      "slug": "anum-os",
+      "aliases": ["ANUM", "ANUM 360", "ANUM 360 OS"],
+      "doc": "docs/business/products/anum-os.md",
+      "product": {
+        "kind": "product",
+        "name": "ANUM OS",
+        "name_ar": "",
+        "summary": "A multi-tenant AI work operating system: agents with approval gates, tasks, memory and knowledge, files, automations, reports, an internal sales desk, email, WhatsApp, calls and commerce connectors, on web, Flutter mobile and desktop. Tenant isolation through PostgreSQL row-level security, Keycloak sign-in, audit trail. Sold first as an assisted team pilot; SaaS plans only after proof (roadmap 2.3).",
+        "maturity": "pilot",
+        "integrations": [
+          "Keycloak OIDC sign-in",
+          "WhatsApp Business Cloud API",
+          "Gmail and Outlook inbox",
+          "Own mail server (IMAP and SMTP)",
+          "Brevo email campaigns",
+          "Amazon Selling Partner API",
+          "noon",
+          "Twilio phone calls",
+          "Facebook, Instagram, LinkedIn, X, TikTok, YouTube"
+        ]
+      },
+      "offer": {
+        "currency": "SAR",
+        "price_type": "quote",
+        "price_min": null,
+        "price_max": null,
+        "deliverables": [
+          "One isolated organization and team workspace on ANUM OS",
+          "Role permissions, approvals and audit log switched on",
+          "Up to two department assistants configured from the owner's documents",
+          "One automation or report built around the customer's chosen workflow",
+          "Onboarding session and written handover"
+        ],
+        "limitations": [
+          "Assisted pilot only: public SaaS plans are not offered yet (roadmap 2.3)",
+          "Model, messaging, storage and telephony usage billed separately with caps",
+          "Provider accounts (WhatsApp, Twilio, Brevo, store channels) are the customer's own",
+          "No unlimited AI usage; no 24/7 support promise"
+        ],
+        "cost": {"labor_hours": 0, "hourly_cost": 0, "external_costs": 0, "contingency_pct": 0},
+        "notes": "Price: '-' (owner to confirm). Recommendation: quote the pilot from the roadmap pricing formula (labor hours x internal hourly cost + verified external costs + contingency + profit) and set SaaS prices only after 5 to 10 buyer interviews and 2 to 3 paid pilots (roadmap 2.3). Cost assumptions are zero until the owner enters them."
+      },
+      "target_profile": {
+        "_pending_api": "Not sent. Waiting for the target-profile fields on the Harvey branch.",
+        "industries": ["Professional services", "Retail and e-commerce operators", "Operations teams with many repeated tasks"],
+        "company_size": "5 to 50 staff",
+        "regions": ["UAE", "Saudi Arabia", "Rest of GCC"],
+        "buyer_roles": ["Owner or founder", "Operations head", "IT lead"],
+        "trigger_events": ["Team adopting AI tools without approvals or audit", "New department or branch", "Customer messages spread across WhatsApp and email"],
+        "disqualifiers": ["Needs unattended autonomous actions without approvals", "Requires on-premises or data residency the owner cannot provide yet", "Wants a fixed price for unlimited AI usage"]
+      }
+    },
+    {
+      "slug": "tyre-pulse",
+      "aliases": ["TyrePulse"],
+      "doc": "docs/business/products/tyre-pulse.md",
+      "product": {
+        "kind": "product",
+        "name": "Tyre Pulse",
+        "name_ar": "",
+        "summary": "Fleet, tyre, inspection, workshop, accident and reporting platform for plant, machinery and vehicle (PMV) operations. Web console for office and managers; Flutter mobile app for inspectors that works offline, in English, Arabic and Urdu. Smart Excel and CSV importer with data quality checks, tyre records, inspections, accidents and insurance claims with recovery, maintenance and work orders, stock and procurement, analytics, executive reports, row-level security per role. Website www.tyrepulse.app.",
+        "maturity": "live",
+        "integrations": [
+          "Excel and CSV import (xlsx, xls, ods, csv, tsv)",
+          "PDF and Excel report export",
+          "QR and barcode labels",
+          "WhatsApp sales contact"
+        ]
+      },
+      "offer": {
+        "currency": "SAR",
+        "price_type": "quote",
+        "price_min": null,
+        "price_max": null,
+        "deliverables": [
+          "30-day pilot on a limited fleet dataset imported from the customer's spreadsheets",
+          "Data quality report from the importer (missing values, bad dates, duplicates)",
+          "Tyre, replacement and cost report for the pilot fleet",
+          "Inspector app set up for the pilot site, offline capable",
+          "One review meeting with findings and next steps"
+        ],
+        "limitations": [
+          "Only functions actually tested in the pilot are promised",
+          "No savings guarantee",
+          "Data migration beyond the pilot dataset and integrations are quoted separately",
+          "Plan after the pilot (Solo, Team, Professional, Enterprise) quoted by fleet size, users, modules, countries and integrations"
+        ],
+        "cost": {"labor_hours": 0, "hourly_cost": 0, "external_costs": 0, "contingency_pct": 0},
+        "notes": "Price: '-' (owner to confirm). Recommendation: the roadmap's test price hypothesis for this pilot is SAR 750 to 1,500 (roadmap 2.2, not market research). The Tyre Pulse website quotes plans on request, never a published figure. Cost assumptions are zero until the owner enters them."
+      },
+      "target_profile": {
+        "_pending_api": "Not sent. Waiting for the target-profile fields on the Harvey branch.",
+        "industries": ["Construction", "Transport and logistics", "Ready-mix concrete", "Equipment rental", "Workshop networks", "Government and enterprise fleets"],
+        "company_size": "Fleets of about 50 or more vehicles and machines, one or more sites",
+        "regions": ["UAE", "Saudi Arabia", "Rest of GCC"],
+        "buyer_roles": ["Fleet manager", "Workshop manager", "Operations manager", "Plant manager", "Finance controller (cost per km)"],
+        "trigger_events": ["Rising tyre spend or tyre failures", "Accident and insurance claims tracked on paper", "New project or site mobilising a fleet", "Audit or client asking for inspection proof"],
+        "disqualifiers": ["Fewer than about 10 vehicles", "Already locked into an enterprise fleet suite with a long contract", "No one able to share tyre or fleet data for the pilot"]
+      }
+    },
+    {
+      "slug": "voicequote",
+      "aliases": ["Voice Quote", "EasyVoiceQuote", "Easy Voice Quote"],
+      "doc": "docs/business/products/voicequote.md",
+      "product": {
+        "kind": "product",
+        "name": "VoiceQuote",
+        "name_ar": "",
+        "summary": "Quotation tool for service businesses with slow quote turnaround (roadmap 2.1). Domain easyvoicequote.com. Verified features are not documented in this repository; the pilot scope comes from roadmap 2.2: configured catalog subset, quote approval and export, training. Owner to confirm the feature list.",
+        "maturity": "idea",
+        "integrations": []
+      },
+      "offer": {
+        "currency": "SAR",
+        "price_type": "quote",
+        "price_min": null,
+        "price_max": null,
+        "deliverables": [
+          "Configured catalog subset for the customer's services",
+          "Quote approval and export",
+          "Training session"
+        ],
+        "limitations": [
+          "Catalog size, quote accuracy and external integrations explicitly bounded in the scope",
+          "Features limited to what the owner has verified (see the product page)"
+        ],
+        "cost": {"labor_hours": 0, "hourly_cost": 0, "external_costs": 0, "contingency_pct": 0},
+        "notes": "Price: '-' (owner to confirm). Recommendation: quote after scoping, as roadmap 2.2 says, using the pricing formula. Maturity is set to 'idea' only because it is not verified here: owner to set it."
+      },
+      "target_profile": {
+        "_pending_api": "Not sent. Waiting for the target-profile fields on the Harvey branch.",
+        "industries": ["Service businesses that send quotations"],
+        "company_size": "-",
+        "regions": ["UAE", "Saudi Arabia", "Rest of GCC"],
+        "buyer_roles": ["Owner", "Operations manager"],
+        "trigger_events": ["Losing jobs because quotes go out late"],
+        "disqualifiers": ["-"]
+      }
+    },
+    {
+      "slug": "anum360-store",
+      "aliases": ["ANUM 360 Store", "ANUM 360 Gallery", "Anum360 Gallery"],
+      "doc": "docs/business/products/anum360-store.md",
+      "product": {
+        "kind": "product",
+        "name": "Anum360 Store",
+        "name_ar": "",
+        "summary": "The owner's online store (FastAPI and MongoDB, admin API under /api/admin), connected to ANUM Commerce as the default own-store channel. Orders include variants and cash on delivery, priced in AED. What it sells, and whether the store software itself is for sale, is not documented here: owner to confirm.",
+        "maturity": "idea",
+        "integrations": ["ANUM Commerce own-store connector"]
+      },
+      "offer": null,
+      "target_profile": {
+        "_pending_api": "Not sent. Waiting for the target-profile fields on the Harvey branch.",
+        "industries": ["-"],
+        "company_size": "-",
+        "regions": ["UAE"],
+        "buyer_roles": ["-"],
+        "trigger_events": ["-"],
+        "disqualifiers": ["-"]
+      }
+    }
+  ]
+}
