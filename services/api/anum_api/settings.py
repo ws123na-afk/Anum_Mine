@@ -403,7 +403,7 @@ class Settings(BaseSettings):
     # sign-up is billed by it. Sign-up stays off until the owner turns it on; the Keycloak
     # provisioning client (a confidential client with a service account allowed to
     # manage users) links a new organisation to the account that created it.
-    billing_issuer_tenant_id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{2,79}$")
+    billing_issuer_tenant_id: str | None = Field(default=None, pattern=r"^(|[a-z0-9][a-z0-9_-]{2,79})$")
     billing_scheduler_enabled: bool = False
     billing_poll_seconds: float = Field(default=3600.0, ge=30, le=86_400)
     web_app_url: str = Field(default="", max_length=500, pattern=r"^(|https?://\S+)$")
