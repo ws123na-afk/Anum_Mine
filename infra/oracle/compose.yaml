@@ -331,6 +331,10 @@ services:
       ANUM_MAILSERVER_SMTP_SECURITY: ${ANUM_MAILSERVER_SMTP_SECURITY:-starttls}
       ANUM_MAILSERVER_ALLOWED_DOMAINS: ${ANUM_MAILSERVER_ALLOWED_DOMAINS:-anum360os.com}
       ANUM_MAILSERVER_ALLOWED_TENANTS: ${ANUM_MAILSERVER_ALLOWED_TENANTS:-}
+      # Optional read-only Mailcow API for the operator's mail health view (docs/email.md#operator-view).
+      ANUM_MAILCOW_API_ENABLED: ${ANUM_MAILCOW_API_ENABLED:-false}
+      ANUM_MAILCOW_API_URL: ${ANUM_MAILCOW_API_URL:-}
+      ANUM_MAILCOW_API_KEY: ${ANUM_MAILCOW_API_KEY:-}
       # Meeting recordings to text (docs/meetings.md); none = transcript files only.
       ANUM_TRANSCRIPTION_PROVIDER: ${ANUM_TRANSCRIPTION_PROVIDER:-none}
       ANUM_TRANSCRIPTION_BASE_URL: ${ANUM_TRANSCRIPTION_BASE_URL:-}

@@ -28,6 +28,7 @@ from .config import MailServerSettings, mail_settings
 from .mime import Outgoing, build_message, valid_address
 from .server import Folder, ImapSmtpServer, MailServer, MailServerError
 from .store import AccountStatus, DraftStatus, MailAccount, MailDraft, open_mail_store
+from . import monitor
 
 logger = logging.getLogger("anum.mail")
 
@@ -128,6 +129,7 @@ async def on_server(context: TenantContext, account: MailAccount, job: Callable[
     except MailServerError as exc:
         if exc.kind in {"auth", "offline", "tls"}:
             _record_health(context, account, _status_for(exc), exc.message)
+            monitor.bump(context, "auth_failed" if exc.kind == "auth" else "server_offline")
         status = HTTP_STATUS.get(exc.kind, 502)
         message = "The mail server refused the saved password. Enter it again in Mailbox settings." if exc.kind == "auth" else exc.message
         raise MailError(status, message, exc.kind) from None
@@ -243,6 +245,7 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     since = utc_now() - timedelta(hours=1)
     with open_mail_store(owner) as store:
         if store.count_sends_since(account.id, since) >= cfg().send_per_hour:
+            monitor.bump(owner, "send_rate_limited")
             return _failed(f"Not sent: this mailbox already sent {cfg().send_per_hour} messages in the last hour. Try again later.", draft_id=draft.id)
         if not store.claim_send(draft.id):
             return _failed("Not sent: another attempt is already sending this message.", draft_id=draft.id)
@@ -272,10 +275,13 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     except MailError as exc:
         if exc.kind == "uncertain":
             record(DraftStatus.UNKNOWN, exc.message[:500])
+            monitor.bump(owner, "send_unknown")
             return _failed(exc.message, draft_id=draft.id)
         record(DraftStatus.FAILED, exc.message[:500])
+        monitor.bump(owner, "send_failed")
         return _failed(f"Not sent: {exc.message}", draft_id=draft.id)
     record(DraftStatus.SENT, None)
+    monitor.bump(owner, "sent")
 
     def save_copy(server: MailServer) -> bool:
         sent = folder_by_role(server.folders(), "sent")

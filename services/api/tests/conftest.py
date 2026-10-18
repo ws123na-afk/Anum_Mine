@@ -30,6 +30,7 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "mail_ops_counters",
     "mail_drafts",
     "mail_accounts",
     "finance_live_incidents",

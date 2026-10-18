@@ -173,6 +173,19 @@ Errors use the API's usual body `{"error": {"code", "message", ...}}`; `message`
 
 `Approval` is the shape used everywhere (`action`, `arguments`, `payload_hash`, `expires_at`, ...); approve with `POST /api/v1/approvals/{approval.id}/approve {"payload_hash": approval.payload_hash}`.
 
+### Operator view
+
+The platform operator (realm role `platform_operator`, docs/customer-organisations.md) sees the mail health of the organisations they run, and nothing from the mail itself. Code: `services/api/anum_api/mailbox/monitor.py`, `mailcow.py`, `operator_api.py`; migration `0064_mail_operator_view`; tests `services/api/tests/test_mail_operator.py` and `test_postgres_mail_operator.py`.
+
+- **What is counted.** The Email Center adds one to a per-day counter (`mail_ops_counters`: tenant, workspace, UTC day, metric, count) inside the caller's own tenant context when a send succeeds (`sent`), fails (`send_failed`) or ends unknown (`send_unknown`), when the hourly send limit refuses a send (`send_rate_limited`), when the connection-check limit refuses a login check (`connect_rate_limited`), and when the mail server refuses a saved password (`auth_failed`) or cannot be reached (`server_offline`). No person, address, subject or body is stored there. A counter that cannot be written is logged and never breaks the mail action.
+- **Who reads it.** Only callers with `platform:operate`; everyone else gets 403 before anything is read. With PostgreSQL the read runs as `anum_platform_reader` (`SET LOCAL ROLE`), which sees only the organisations in `platform_organizations` with `operator_user_id` = the caller, and only `tenant_id, status, last_checked_at` of `mail_accounts` plus the counters. The restrictive owner policy of `mail_accounts` admits `current_user = 'anum_platform_reader'` for that (the same pattern as `anum_maintenance`); a login that merely inherits the role never matches, and the column grant leaves out the address, display name, password and error text.
+- **Mailcow API (optional, read only).** Off unless `ANUM_MAILCOW_API_ENABLED=true`. `ANUM_MAILCOW_API_URL` is the Mailcow web host (https, host only) and `ANUM_MAILCOW_API_KEY` a Mailcow **read-only** API key, set only in the API's environment or secret store (never in git, chat or the web app). ANUM calls only `GET /api/v1/get/status/version`, `/get/status/containers`, `/get/mailq/all` and `/get/domain/all`, and returns the version, the containers that are not running, the number of queued messages (never their senders or recipients) and per domain the mailbox count and quota use. The key is never returned, logged or audited. Reading and sending mail never use this API: they stay IMAP and SMTP as each person.
+
+| Method and path | Query | Answer |
+| --- | --- | --- |
+| `GET /api/v1/platform/mail/health` | `days` (1 to 90, 7) | `MailOperatorView {enabled, days, since, mailboxes, totals: Counts, organisations: {tenant_id, display_name, mailboxes, connected, auth_failed, offline, error, stale, last_sync_at, oldest_sync_at, counts: Counts, health: quiet\|ok\|attention}[]}`; `Counts {sent, send_failed, send_unknown, send_rate_limited, connect_rate_limited, auth_failed, server_offline}`. `stale`: last check older than two days. `attention`: a mailbox is not connected or stale, or a send failed or ended unknown in the window. |
+| `GET /api/v1/platform/mail/server` | | `{server: {enabled, configured, imap_host, smtp_host, allowed_tenants (a count), send_per_hour, connect_attempts_per_hour}, mailcow: {state: off\|misconfigured\|unreachable\|refused\|ok, message, version, containers_total, containers_not_running[], queue_messages, domains: {domain, active, mailboxes, max_mailboxes, quota_used_percent}[]}}` |
+
 ### Operator settings (`ANUM_MAILSERVER_*`)
 
 | Setting | Default | What |
@@ -213,5 +226,6 @@ ANUM limits its own login checks (above). The mail server's own protection is th
 
 - Background sync and push (IDLE): folders and lists are read live when the page asks; there is no unread count in the sidebar yet.
 - Several mailboxes or identities per person, contacts, scheduled send, outbound attachments, labels.
-- The AI assistant tools (summarise, classify, draft) for this mailbox; the Flutter screens; Super Admin monitoring of the mail server.
+- The AI assistant tools (summarise, classify, draft) for this mailbox.
+- The operator view has no web page yet: it is the API above (the Flutter and web screens for it are not built).
 - Bcc recipients are not kept in the Sent copy.

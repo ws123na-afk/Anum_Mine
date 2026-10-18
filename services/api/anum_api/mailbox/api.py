@@ -53,7 +53,7 @@ from .service import (
     take_connect_attempt,
     tenant_allowed,
 )
-from . import service
+from . import monitor, service
 from .store import EDITABLE, AccountStatus, DraftKind, DraftStatus, MailAccount, MailDraft, open_mail_store
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
@@ -376,6 +376,7 @@ async def connect_account(
             raise HTTPException(status_code=409, detail="This mailbox is already connected.")
     if not take_connect_attempt(context):
         _audit(repository, context, "mail.account.connect", address.rsplit("@", 1)[-1], "denied", {"reason": "rate_limited"})
+        monitor.bump(context, "connect_rate_limited")
         raise HTTPException(status_code=429, detail="Too many connection attempts. Wait an hour and try again.")
     server: MailServer = service.server_factory(mail_settings, address, body.password)
     try:
@@ -407,6 +408,7 @@ async def update_password(
     _available(context)
     account = _load_account(context, account_id)
     if not take_connect_attempt(context):
+        monitor.bump(context, "connect_rate_limited")
         raise HTTPException(status_code=429, detail="Too many connection attempts. Wait an hour and try again.")
     server: MailServer = service.server_factory(mail_settings, account.address, body.password)
     try:
@@ -775,6 +777,7 @@ async def send_draft(
         raise _http(exc) from None
     with open_mail_store(context) as store:
         if store.count_sends_since(account.id, utc_now() - timedelta(hours=1)) >= mail_settings.send_per_hour:
+            monitor.bump(context, "send_rate_limited")
             raise HTTPException(status_code=429, detail=f"This mailbox sent {mail_settings.send_per_hour} messages in the last hour. Try again later.")
     arguments = send_arguments(draft, account)
     if draft.status == DraftStatus.PENDING_APPROVAL and draft.approval_id:
