@@ -19,6 +19,7 @@ from anum_api import main
 from anum_api.dependencies import memory_repository
 from anum_api.finance import equity
 from anum_api.finance.models import FxRate
+from anum_api.finance.money import quantize
 from anum_api.finance.store import finance_store
 from anum_api.finance.summary import FinanceSettings, today_in
 from anum_api.finance.trading import (
@@ -216,3 +217,55 @@ def test_route_is_private_needs_finance_read_and_is_bounded() -> None:
     empty = client.get(path, headers=MEMBER).json()
     [usd] = empty["series"]
     assert empty["orders"] == 0 and Decimal(usd["points"][0]["value"]) == 10000 and Decimal(usd["points"][0]["pnl"]) == 0
+
+
+# -- the buy and hold benchmark ----------------------------------------------------------------------
+
+
+def test_benchmark_is_buy_and_hold_of_the_same_symbol_by_hand() -> None:
+    portfolio = _portfolio()
+    orders = [_order(D1, Side.BUY, "10", "50")]
+    prices = [_price(_day(1), "50"), _price(_day(2), "60"), _price(_day(3), "40"), _price(_day(6), "55")]
+    [usd] = equity.equity_curves(portfolio, orders, prices, [], _day(1), _day(6), UTC)
+    bench = usd.benchmark
+    assert bench is not None and bench.symbols == ["EXMPL"] and bench.start == _day(1) and bench.reason is None
+    # Day 1: the portfolio is worth 999 (fee 1), all of it into EXMPL at 50 = 19.98 units, P&L anchored at -1.
+    assert [p.pnl for p in bench.points] == [Decimal("-1.00"), Decimal("198.80"), Decimal("-200.80"), Decimal("-200.80"), None, Decimal("98.90")]
+    assert [p.day for p in bench.points] == [p.day for p in usd.points]
+
+
+def test_benchmark_splits_equally_and_waits_for_every_symbol_to_have_a_price() -> None:
+    portfolio = _portfolio(age=5)
+    orders = [_order(D1, Side.BUY, "4", "50", oid="o1"), _order(_day(2), Side.BUY, "2", "100", symbol="OTHER", oid="o2")]
+    prices = [_price(_day(1), "50"), _price(_day(2), "100", symbol="OTHER"), _price(_day(3), "60"), _price(_day(3), "110", symbol="OTHER")]
+    [usd] = equity.equity_curves(portfolio, orders, prices, [], _day(1), _day(3), UTC)
+    bench = usd.benchmark
+    assert bench is not None and bench.symbols == ["EXMPL", "OTHER"] and bench.start == _day(2)
+    day2 = usd.points[1]
+    assert day2.value == Decimal("998") and bench.points[0].pnl is None and bench.points[1].pnl == day2.pnl
+    # 998 split 499 and 499: 9.98 EXMPL at 50 and 4.99 OTHER at 100, then 60 and 110.
+    assert bench.points[2].pnl == quantize(day2.pnl + Decimal("9.98") * 60 + Decimal("4.99") * 110 - 998, "USD")
+
+
+def test_benchmark_is_absent_with_a_reason_for_shadow_or_no_symbol() -> None:
+    shadow = _portfolio(PortfolioMode.SHADOW)
+    orders = [_order(D1, Side.BUY, "10", "50", mode=PortfolioMode.SHADOW)]
+    [usd] = equity.equity_curves(shadow, orders, [_price(D1, "50")], [], D1, _day(2), UTC)
+    assert usd.benchmark is not None and usd.benchmark.reason == "shadow" and all(p.pnl is None for p in usd.benchmark.points)
+    [cash_only] = equity.equity_curves(_portfolio(), [], [], [], D1, _day(2), UTC)
+    assert cash_only.benchmark is not None and cash_only.benchmark.reason == "no_symbols"
+    [unpriced] = equity.equity_curves(_portfolio(), [_order(D1, Side.BUY, "10", "50")], [], [], D1, _day(2), UTC)
+    assert unpriced.benchmark is not None and unpriced.benchmark.reason == "no_common_price" and unpriced.benchmark.start is None
+
+
+def test_route_returns_the_benchmark_line() -> None:
+    today = today_in(FinanceSettings())
+    start = today - timedelta(days=2)
+    finance_store.save_portfolio(_portfolio(start=start, age=3))
+    finance_store.add_order(_order(start, Side.BUY, "10", "50"))
+    finance_store.save_price(_price(start, "50"))
+    finance_store.save_price(_price(today, "60"))
+    [usd] = client.get(f"{API}/intel/portfolios/port_eq/equity", headers=MEMBER).json()["series"]
+    bench = usd["benchmark"]
+    assert bench["symbols"] == ["EXMPL"] and bench["start"] == start.isoformat() and bench["reason"] is None
+    assert len(bench["points"]) == len(usd["points"]) and Decimal(bench["points"][-1]["pnl"]) == Decimal("198.80")

@@ -39,6 +39,7 @@ from .intel.marketdata import (
 from .intel.markets import VENUES
 from .intel.records import MAX_BARS, MAX_INSTRUMENTS, MAX_STRATEGIES, Agent, StrategyConfig, StrategyState
 from .intel.strategies import StrategyError
+from .intel.report_notice import notify_report_ready
 from .intel.supervisor import PHASES, Supervisor, pause_all
 from .intel_api import RunView, StrategyView, run_view, strategy_view
 from .store import FinanceStore, open_finance_store
@@ -389,6 +390,7 @@ def run_cycle(body: CycleInput, context: TenantContext = Depends(tenant_context)
         raise _invalid(f"Unknown phase: use one of {', '.join(PHASES)}.")
     with open_finance_store(context) as store:
         result = Supervisor(store, context, utc_now()).run(body.phase)
+    notify_report_ready(context, result)
     _audit(repository, context, "finance.intel.supervisor.run", result["cycle_id"], {
         "phase": body.phase, "skipped": result["skipped"], "proposed": result.get("proposed_orders", 0), "suspended": result.get("suspended", 0),
     })

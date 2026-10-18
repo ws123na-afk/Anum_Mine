@@ -3,7 +3,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import type { FinanceEquityPoint, FinanceEquitySeries } from '@anum/contracts';
-import { RANGES, amount, chartSummary, drawdownLine, frame, latest, percent, pick, scale, tableRows, tick } from '../src/lib/financeEquity.ts';
+import {
+  RANGES, amount, benchmarkLine, benchmarkValues, chartSummary, drawdownLine, frame, latest, latestBenchmark, percent, pick, scale, scalePnl, tableRows, tick,
+} from '../src/lib/financeEquity.ts';
 import { setLocale, t } from '../src/lib/i18n.ts';
 import { financeEquityAr } from '../src/lib/messages/financeEquity.ar.ts';
 import { financeEquityEn } from '../src/lib/messages/financeEquity.en.ts';
@@ -109,5 +111,44 @@ describe('catalogs', () => {
   test('nothing promises a profit', () => {
     assert.doesNotMatch(JSON.stringify(financeEquityEn), /guarantee|profitable|sure to|risk[- ]free/i);
     assert.match(financeEquityEn['finance.equity.note'], /not a promise/);
+  });
+});
+
+describe('buy and hold benchmark', () => {
+  const withBench = series(sample.points, {
+    benchmark: { symbols: ['EXMPL'], start: '2026-09-02', reason: null, points: [
+      { day: '2026-09-01', pnl: null }, { day: '2026-09-02', pnl: '99.00' }, { day: '2026-09-03', pnl: '150.00' },
+      { day: '2026-09-04', pnl: null }, { day: '2026-09-05', pnl: '-300.00' },
+    ] },
+  });
+
+  test('values line up with the days and the newest one is read', () => {
+    assert.deepEqual(benchmarkValues(withBench), [null, 99, 150, null, -300]);
+    assert.equal(latestBenchmark(withBench.benchmark), '-300.00');
+    assert.equal(latestBenchmark({ symbols: [], start: null, points: [], reason: 'shadow' }), null);
+    assert.deepEqual(benchmarkValues(sample), [null, null, null, null, null], 'an older server sends no benchmark');
+  });
+
+  test('both lines share one range so they compare', () => {
+    const f = frame(208, 136);
+    const { portfolio, benchmark } = scalePnl(withBench, f);
+    assert.ok(benchmark);
+    assert.equal(portfolio.min, -300);
+    assert.equal(benchmark.min, -300);
+    assert.equal(portfolio.max, benchmark.max);
+    assert.equal(scalePnl(sample, f).benchmark, null);
+  });
+
+  test('says what it is, or why there is none, with no long dashes', () => {
+    assert.match(benchmarkLine(withBench) ?? '', /Buy and hold of EXMPL in equal weights from 2026-09-02/);
+    for (const reason of ['shadow', 'no_symbols', 'no_common_price'] as const) {
+      const text = benchmarkLine(series(sample.points, { benchmark: { symbols: [], start: null, points: [], reason } }));
+      assert.match(text ?? '', /^No buy and hold line/);
+      assert.doesNotMatch(text ?? '', /[\u2013\u2014]/);
+    }
+    assert.equal(benchmarkLine(sample), null);
+    assert.match(chartSummary(withBench, true), /Buy and hold of the same symbols, newest -300 USD/);
+    setLocale('ar');
+    assert.match(benchmarkLine(withBench) ?? '', /الشراء والاحتفاظ/);
   });
 });

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -63,6 +63,24 @@ class CurrencyCurve:
     trough_day: date | None
     gaps: int
     unpriced: list[str]
+    benchmark: Benchmark | None = None
+
+
+@dataclass(frozen=True)
+class BenchmarkPoint:
+    day: date
+    pnl: Decimal | None  # None before the benchmark starts or on a day a symbol has no fresh price
+
+
+@dataclass(frozen=True)
+class Benchmark:
+    """Buy and hold of the same symbols, equal weights, bought on ``start`` with the portfolio's value
+    that day, no costs. Its P&L starts from the portfolio's own P&L on ``start`` so the lines compare."""
+
+    symbols: list[str]
+    start: date | None
+    points: list[BenchmarkPoint]
+    reason: str | None  # why there is no line: "shadow", "no_symbols" or "no_common_price"
 
 
 class _PriceIndex:
@@ -154,7 +172,46 @@ def equity_curves(
             value = quantize(book.cash.get(currency, Decimal(0)) + market.get(currency, Decimal(0)), currency) if paper else None
             points[currency].append(CurvePoint(day, value, pnl, None, None, True))
         day += timedelta(days=1)
-    return [_with_drawdown(c, points[c], paper, sorted(unpriced.get(c, set()))) for c in sorted(currencies)]
+    traded: dict[str, set[str]] = {}
+    for order in filled:
+        if order.instrument_kind != InstrumentKind.FX:
+            traded.setdefault(order.currency, set()).add(order.symbol)
+    out: list[CurrencyCurve] = []
+    for currency in sorted(currencies):
+        curve = _with_drawdown(currency, points[currency], paper, sorted(unpriced.get(currency, set())))
+        bench = buy_and_hold(curve.points, sorted(traded.get(currency, set())), currency, index, age, paper)
+        out.append(replace(curve, benchmark=bench))
+    return out
+
+
+def buy_and_hold(
+    points: list[CurvePoint], symbols: list[str], currency: str, index: _PriceIndex, max_age_days: int, paper: bool,
+) -> Benchmark:
+    """The buy and hold line for one currency's curve (see ``Benchmark``). Gaps stay gaps."""
+    if not paper:
+        return Benchmark(symbols, None, [BenchmarkPoint(p.day, None) for p in points], "shadow")
+    if not symbols:
+        return Benchmark([], None, [BenchmarkPoint(p.day, None) for p in points], "no_symbols")
+    units: dict[str, Decimal] | None = None
+    start: date | None = None
+    anchor = Decimal(0)
+    cost = Decimal(0)
+    out: list[BenchmarkPoint] = []
+    for point in points:
+        prices = {s: index.at(s, currency, point.day, max_age_days) for s in symbols}
+        if units is None:
+            if point.value is None or point.value <= 0 or point.pnl is None or any(v is None or v <= 0 for v in prices.values()):
+                out.append(BenchmarkPoint(point.day, None))
+                continue
+            share = point.value / len(symbols)
+            units = {s: share / prices[s] for s in symbols}  # type: ignore[operator]
+            start, anchor, cost = point.day, point.pnl, point.value
+        if any(v is None for v in prices.values()):
+            out.append(BenchmarkPoint(point.day, None))
+            continue
+        worth = sum((units[s] * prices[s] for s in symbols), Decimal(0))  # type: ignore[operator]
+        out.append(BenchmarkPoint(point.day, quantize(anchor + worth - cost, currency)))
+    return Benchmark(symbols, start, out, None if start is not None else "no_common_price")
 
 
 def _with_drawdown(currency: str, raw: list[CurvePoint], paper: bool, unpriced: list[str]) -> CurrencyCurve:

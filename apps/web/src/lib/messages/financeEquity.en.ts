@@ -36,5 +36,13 @@ export const financeEquityEn = {
   'finance.equity.newer': 'Newer',
   'finance.equity.older': 'Older',
   'finance.equity.rows': 'Days {from} to {to} of {total}',
+  'finance.equity.benchmark.title': 'Buy and hold',
+  'finance.equity.benchmark.legendPortfolio': 'This portfolio',
+  'finance.equity.benchmark.legendBenchmark': 'Buy and hold, same symbols',
+  'finance.equity.benchmark.what': 'Buy and hold of {symbols} in equal weights from {start}, bought with the portfolio\'s value that day, without costs.',
+  'finance.equity.benchmark.shadow': 'No buy and hold line: a shadow portfolio has no cash to invest.',
+  'finance.equity.benchmark.no_symbols': 'No buy and hold line: this run has traded no symbol in this currency.',
+  'finance.equity.benchmark.no_common_price': 'No buy and hold line yet: no day had a fresh recorded price for every symbol traded.',
+  'finance.equity.benchmark.aria': 'Buy and hold of the same symbols, newest {latest}.',
   'finance.equity.note': 'SIMULATED. Rebuilt for each day from this run\'s starting cash, its filled orders and the prices you recorded for that day. Currencies are never mixed. Past simulated results are not a promise of future results.',
 } satisfies Record<string, Message>;

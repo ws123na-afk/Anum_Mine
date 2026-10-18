@@ -172,6 +172,28 @@ def test_scheduled_cycles_run_through_automation_once_per_day(monkeypatch: pytes
     assert client.get(f"{API}/schedules", headers=MEMBER).json() == []
 
 
+def test_a_scheduled_post_close_cycle_announces_its_report(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from datetime import datetime, timezone
+
+    from anum_api import automation
+    from anum_api.finance.intel.report_notice import KIND
+    from anum_api.schemas import WorkspaceMembership
+    from anum_api.team_store import memory_team_store
+
+    monkeypatch.setattr(automation, "engine", automation.LocalAutomationEngine(str(tmp_path / "automation.db")))
+    now = datetime(2026, 10, 18, 9, 0, tzinfo=timezone.utc)
+    memory_repository.save_membership(WorkspaceMembership(
+        tenant_id=TENANT, workspace_id=WORKSPACE, user_id="member_intel", role="member", created_at=now, updated_at=now))
+    schedule = client.post(f"{API}/schedules", json={"phase": "post_close"}, headers=MEMBER).json()
+    before = [n for n in memory_team_store.list_notifications(_me(), limit=100, before=None, unread_only=False) if n.kind == KIND]
+    assert client.post(f"/api/v1/automation/workflows/{schedule['workflow_id']}/runs", headers=MEMBER).status_code == 201
+    after = [n for n in memory_team_store.list_notifications(_me(), limit=100, before=None, unread_only=False) if n.kind == KIND]
+    assert len(after) == len(before) + 1 and after[0].user_id == "member_intel" and "Daily reports" in after[0].body
+    reports = client.get(f"{API}/daily-reports", headers=MEMBER).json()
+    assert reports["total"] >= 1
+    client.delete(f"{API}/schedules/{schedule['id']}", headers=MEMBER)
+
+
 def _me():  # type: ignore[no-untyped-def]
     from anum_api.schemas import TenantContext
 

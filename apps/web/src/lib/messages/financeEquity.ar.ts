@@ -41,5 +41,13 @@ export const financeEquityAr: Record<keyof typeof financeEquityEn, Message> = {
   'finance.equity.newer': 'الأحدث',
   'finance.equity.older': 'الأقدم',
   'finance.equity.rows': 'الأيام {from} إلى {to} من {total}',
+  'finance.equity.benchmark.title': 'الشراء والاحتفاظ',
+  'finance.equity.benchmark.legendPortfolio': 'هذه المحفظة',
+  'finance.equity.benchmark.legendBenchmark': 'الشراء والاحتفاظ، الرموز نفسها',
+  'finance.equity.benchmark.what': 'الشراء والاحتفاظ بـ {symbols} بأوزان متساوية من {start}، بقيمة المحفظة في ذلك اليوم، دون تكاليف.',
+  'finance.equity.benchmark.shadow': 'لا يوجد خط للشراء والاحتفاظ: المحفظة الظلية ليس لديها نقد لاستثماره.',
+  'finance.equity.benchmark.no_symbols': 'لا يوجد خط للشراء والاحتفاظ: لم تتداول هذه الجولة أي رمز بهذه العملة.',
+  'finance.equity.benchmark.no_common_price': 'لا يوجد خط للشراء والاحتفاظ بعد: لم يكن هناك يوم بسعر مسجل حديث لكل رمز متداول.',
+  'finance.equity.benchmark.aria': 'الشراء والاحتفاظ بالرموز نفسها، الأحدث {latest}.',
   'finance.equity.note': 'محاكاة. يُعاد بناؤه لكل يوم من النقد الابتدائي لهذه الجولة وأوامرها المنفذة والأسعار التي سجلتها لذلك اليوم. لا تُخلط العملات أبدًا. النتائج المحاكاة السابقة ليست وعدًا بنتائج مستقبلية.',
 } satisfies Record<string, Message>;

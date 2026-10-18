@@ -24,7 +24,11 @@ export function equityBody(portfolioId: string, days: number, { mode = 'paper', 
       return { day, value: mode === 'paper' ? value.toFixed(2) : null, pnl: pnl.toFixed(2), drawdown: drawdown.toFixed(2), drawdown_pct: pct, complete: true };
     });
     const gaps = points.filter((p) => !p.complete).length;
-    return { currency, points, max_drawdown: worst.toFixed(2), max_drawdown_pct: worstPct, peak_day: peakDay, trough_day: troughDay, gaps, unpriced: gaps ? ['EXMPL'] : [] };
+    // Buy and hold of the same symbol: a steadier line from the first day, anchored at that day's P&L.
+    const benchmark = mode === 'paper'
+      ? { symbols: ['EXMPL'], start: points[0].day, reason: null, points: points.map((p, i) => ({ day: p.day, pnl: p.complete ? ((i * 8 - 1) * (c + 1)).toFixed(2) : null })) }
+      : { symbols: ['EXMPL'], start: null, reason: 'shadow', points: points.map((p) => ({ day: p.day, pnl: null })) };
+    return { currency, points, max_drawdown: worst.toFixed(2), max_drawdown_pct: worstPct, peak_day: peakDay, trough_day: troughDay, gaps, unpriced: gaps ? ['EXMPL'] : [], benchmark };
   });
   return {
     portfolio_id: portfolioId, name: 'Practice', mode, start: series[0]?.points[0]?.day ?? '2026-10-15', end: '2026-10-15', days: count, orders,

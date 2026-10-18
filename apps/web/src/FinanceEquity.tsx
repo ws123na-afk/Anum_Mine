@@ -8,7 +8,8 @@ import type { FinanceEquity, FinanceEquitySeries, FinancePortfolioMode } from '@
 import * as api from './lib/financeApi';
 import { isolate } from './lib/finance';
 import {
-  DEFAULT_RANGE, RANGES, TABLE_PAGE, amount, chartSummary, drawdownLine, frame, latest, percent, pick, scale, tableRows, tick, type Measure, type Range,
+  DEFAULT_RANGE, RANGES, TABLE_PAGE, amount, benchmarkLine, benchmarkValues, chartSummary, drawdownLine, frame, latest, latestBenchmark, percent, pick, scale,
+  scalePnl, tableRows, tick, type Measure, type Range,
 } from './lib/financeEquity';
 import { t } from './lib/i18n';
 import { Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
@@ -69,11 +70,13 @@ function SeriesView({ equity, series, paper, name }: { equity: FinanceEquity; se
     <dl className="finFigures finEquityFigures">
       {paper && <div><dt>{t('finance.equity.value')}</dt><dd dir="ltr">{amount(now?.value ?? null, series.currency)}</dd></div>}
       <div><dt>{t('finance.equity.pnl')}</dt><dd dir="ltr">{amount(now?.pnl ?? null, series.currency)}</dd></div>
+      {paper && <div><dt>{t('finance.equity.benchmark.title')}</dt><dd dir="ltr">{amount(latestBenchmark(series.benchmark), series.currency)}</dd></div>}
       <div><dt>{t('finance.equity.maxDrawdown')}</dt><dd>{isolate(drawdownLine(series, paper))}</dd></div>
       <div><dt>{t('finance.equity.period')}</dt><dd><span dir="ltr">{equity.start} / {equity.end}</span> <small className="muted">{t('finance.equity.filled', { count: equity.orders })}</small></dd></div>
     </dl>
     {series.gaps > 0 && <p className="notice" role="note">{t('finance.equity.gaps', { count: series.gaps, age: equity.max_price_age_days, list: isolate(series.unpriced.join(', ') || '-') })}</p>}
     {equity.prices_truncated && <p className="notice" role="note">{t('finance.equity.truncated')}</p>}
+    {benchmarkLine(series) && <p className="muted finHelp finEquityBench">{isolate(benchmarkLine(series) ?? '')}</p>}
     <div className="finEquityCharts">
       <Chart series={series} measure="pnl" paper={paper} title={t('finance.equity.pnlChart', { currency: series.currency })} />
       <Chart series={series} measure="drawdown" paper={paper} title={paper ? t('finance.equity.drawdownChartPct') : t('finance.equity.drawdownChart', { currency: series.currency })} />
@@ -88,7 +91,9 @@ function Chart({ series, measure, paper, title }: { series: FinanceEquitySeries;
   const width = Math.max(240, Math.round(measured) || 480), height = 176;
   const f = useMemo(() => frame(width, height), [width]);
   const asPercent = measure === 'drawdown' && paper;
-  const scaled = useMemo(() => scale(series.points.map((p) => pick(p, measure, paper)), f), [series, measure, paper, f]);
+  const pair = useMemo(() => (measure === 'pnl' ? scalePnl(series, f) : { portfolio: scale(series.points.map((p) => pick(p, measure, paper)), f), benchmark: null }),
+    [series, measure, paper, f]);
+  const scaled = pair.portfolio, bench = pair.benchmark;
   const titleId = useId();
   const first = series.points[0]?.day ?? '', last = series.points[series.points.length - 1]?.day ?? '';
   return <figure className="finEquityChart" aria-labelledby={titleId}>
@@ -98,6 +103,7 @@ function Chart({ series, measure, paper, title }: { series: FinanceEquitySeries;
         aria-label={measure === 'pnl' ? chartSummary(series, paper) : `${title}. ${drawdownLine(series, paper)}`}>
         <line className="finEquityZero" x1={f.left} x2={width - f.right} y1={scaled.zeroY} y2={scaled.zeroY} />
         {measure === 'drawdown' && <path className="finEquityArea" d={scaled.area} />}
+        {bench && <path className="finEquityBenchLine" d={bench.line} data-testid="equity-benchmark-line" />}
         <path className={measure === 'pnl' ? 'finEquityLine' : 'finEquityLine finEquityDown'} d={scaled.line} />
         {scaled.last && <circle className={measure === 'pnl' ? 'finEquityDot' : 'finEquityDot finEquityDown'} cx={scaled.last.x} cy={scaled.last.y} r={3} />}
         <text className="finLabel" x={f.left} y={f.top - 5}>{tick(scaled.max, asPercent)}</text>
@@ -106,6 +112,10 @@ function Chart({ series, measure, paper, title }: { series: FinanceEquitySeries;
         <text className="finLabel" x={width - f.right} y={height - 2} textAnchor="end">{last}</text>
       </svg>
     </div>
+    {bench && <ul className="finEquityLegend" aria-hidden="true">
+      <li><span className="finEquityKey" />{t('finance.equity.benchmark.legendPortfolio')}</li>
+      <li><span className="finEquityKey finEquityKeyBench" />{t('finance.equity.benchmark.legendBenchmark')}</li>
+    </ul>}
   </figure>;
 }
 
@@ -113,14 +123,17 @@ function Table({ series, paper, name }: { series: FinanceEquitySeries; paper: bo
   const [offset, setOffset] = useState(0);
   const rows = tableRows(series, offset);
   const total = series.points.length;
+  const values = benchmarkValues(series), withBench = paper && values.some((v) => v !== null);
+  const benchByDay = new Map(series.points.map((p, i) => [p.day, values[i]]));
   return <details className="cmChartTable"><summary>{t('finance.equity.table')}</summary>
     <div className="cmTableWrap"><table className="cmTable finTable finIntelCards" aria-label={t('finance.equity.tableOf', { name, currency: series.currency })}>
-      <thead><tr><th scope="col">{t('finance.equity.day')}</th>{paper && <th scope="col">{t('finance.equity.value')}</th>}<th scope="col">{t('finance.equity.pnl')}</th><th scope="col">{t('finance.equity.drawdown')}</th></tr></thead>
+      <thead><tr><th scope="col">{t('finance.equity.day')}</th>{paper && <th scope="col">{t('finance.equity.value')}</th>}<th scope="col">{t('finance.equity.pnl')}</th><th scope="col">{t('finance.equity.drawdown')}</th>{withBench && <th scope="col">{t('finance.equity.benchmark.title')}</th>}</tr></thead>
       <tbody>{rows.map((p) => <tr key={p.day}>
         <th scope="row" dir="ltr">{p.day}</th>
         {paper && <td data-label={t('finance.equity.value')}><span dir="ltr">{p.complete ? amount(p.value, series.currency) : t('finance.equity.gap')}</span></td>}
         <td data-label={t('finance.equity.pnl')}><span dir="ltr">{p.complete ? amount(p.pnl, series.currency) : t('finance.equity.gap')}</span></td>
         <td data-label={t('finance.equity.drawdown')}><span dir="ltr">{!p.complete ? t('finance.equity.gap') : paper ? `${amount(p.drawdown, series.currency)} (${percent(p.drawdown_pct)})` : amount(p.drawdown, series.currency)}</span></td>
+        {withBench && <td data-label={t('finance.equity.benchmark.title')}><span dir="ltr">{amount(benchByDay.get(p.day)?.toFixed(2) ?? null, series.currency)}</span></td>}
       </tr>)}</tbody>
     </table></div>
     {total > TABLE_PAGE && <nav className="cmPager" aria-label={t('finance.equity.tablePages')}>

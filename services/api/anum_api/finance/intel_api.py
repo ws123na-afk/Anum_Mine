@@ -437,6 +437,20 @@ class EquityPointView(BaseModel):
     complete: bool
 
 
+class EquityBenchmarkPointView(BaseModel):
+    day: date
+    pnl: Decimal | None
+
+
+class EquityBenchmarkView(BaseModel):
+    """Buy and hold of the symbols this run traded, equal weights, no costs (SIMULATED comparison)."""
+
+    symbols: list[str]
+    start: date | None
+    points: list[EquityBenchmarkPointView]
+    reason: str | None
+
+
 class EquitySeriesView(BaseModel):
     currency: str
     points: list[EquityPointView]
@@ -446,6 +460,7 @@ class EquitySeriesView(BaseModel):
     trough_day: date | None
     gaps: int
     unpriced: list[str]
+    benchmark: EquityBenchmarkView | None = None
 
 
 class EquityView(BaseModel):
@@ -466,7 +481,8 @@ class EquityView(BaseModel):
 
 EQUITY_NOTE = (
     "SIMULATED. Rebuilt each day from this run's starting cash, its filled paper or shadow orders and the prices you recorded for that day. "
-    "A day with a holding that has no fresh enough price is left as a gap, not guessed. Currencies are never mixed. Past simulated results are not a promise of future results."
+    "A day with a holding that has no fresh enough price is left as a gap, not guessed. Currencies are never mixed. "
+    "The benchmark is buy and hold of the same symbols in equal weights, bought with the portfolio's value on its first priced day, without costs. Past simulated results are not a promise of future results."
 )
 
 
@@ -498,6 +514,10 @@ def get_equity(
                                                          complete=p.complete) for p in c.points],
             max_drawdown=c.max_drawdown, max_drawdown_pct=c.max_drawdown_pct, peak_day=c.peak_day, trough_day=c.trough_day, gaps=c.gaps,
             unpriced=c.unpriced[:50],
+            benchmark=EquityBenchmarkView(
+                symbols=c.benchmark.symbols[:50], start=c.benchmark.start, reason=c.benchmark.reason,
+                points=[EquityBenchmarkPointView(day=b.day, pnl=b.pnl) for b in c.benchmark.points],
+            ) if c.benchmark is not None else None,
         ) for c in curves[:20]],
         note=EQUITY_NOTE, generated_at=now,
     )

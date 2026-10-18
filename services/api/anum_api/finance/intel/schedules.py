@@ -20,6 +20,7 @@ from ...authorization import Permission
 from ...dependencies import has_permission, lookup_membership
 from ...schemas import TenantContext, utc_now
 from ..store import open_finance_store
+from .report_notice import notify_report_ready
 from .supervisor import PHASES, Supervisor
 
 logger = logging.getLogger("anum.finance.intel.schedules")
@@ -59,7 +60,9 @@ def run_cycle_step(run: automation.WorkflowRun, step: automation.RunStepState, s
         logger.warning("Finance intel schedule %s skipped: its creator may no longer manage finance", run.schedule_id)
         return None
     with open_finance_store(context) as store:
-        return Supervisor(store, context, utc_now()).run(str(phase))
+        result = Supervisor(store, context, utc_now()).run(str(phase))
+    notify_report_ready(context, result)
+    return result
 
 
 automation.register_step_handler(STEP_ACTION, run_cycle_step)

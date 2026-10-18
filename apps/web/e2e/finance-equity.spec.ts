@@ -88,6 +88,21 @@ test('a paper portfolio shows its simulated P&L and drawdown from the stored his
   await expect(charts.getByRole('button', { name: 'Older' })).toBeDisabled();
 });
 
+test('the P&L chart compares the portfolio with buy and hold of the same symbols', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#finance-intel');
+  const charts = region(page);
+  await expect(charts.getByTestId('equity-benchmark-line')).toHaveCount(1);
+  await expect(charts.getByText('Buy and hold, same symbols')).toBeVisible();
+  await expect(charts.locator('dt').filter({ hasText: /^Buy and hold$/ })).toBeVisible();
+  await expect(charts).toContainText('311 USD');
+  await expect(charts).toContainText('Buy and hold of EXMPL in equal weights from 2026-09-06');
+  await expect(charts.getByRole('img', { name: /Buy and hold of the same symbols, newest 311 USD/ })).toBeVisible();
+  await charts.getByText('Show the figures as a table').click();
+  const table = charts.getByRole('table', { name: 'Daily simulated figures of Practice in USD' });
+  await expect(table.locator('td[data-label="Buy and hold"]').first()).toContainText('311 USD');
+});
+
 test('the period and the currency can be changed; currencies are never mixed', async ({ page }) => {
   const { asked } = await mockApi(page, { equity: { currencies: ['AED', 'USD'] } });
   await page.goto('/#finance-intel');
@@ -106,6 +121,8 @@ test('a shadow portfolio has no cash: P&L and its drawdown in the currency', asy
   const charts = region(page);
   await expect(charts.getByRole('img', { name: /Drawdown of P&L from its running high, in USD/ })).toBeVisible();
   await expect(charts.locator('dt').filter({ hasText: /^Value$/ })).toHaveCount(0);
+  await expect(charts.getByTestId('equity-benchmark-line')).toHaveCount(0);
+  await expect(charts).toContainText('No buy and hold line: a shadow portfolio has no cash to invest.');
 });
 
 test('no filled order yet: an empty state with the next step', async ({ page }) => {

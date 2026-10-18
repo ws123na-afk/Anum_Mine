@@ -912,6 +912,49 @@ export interface FinanceStrategyInput { key: string; instrument_ids: string[]; p
 export interface FinanceIntelCycle {
   cycle_id: string; phase: FinanceIntelPhase; skipped: boolean; reason?: string; simulated: true; active_strategies?: number;
   proposed_orders?: number; refused_signals?: number; suspended?: number; halted?: number; decisions: number;
+  /** Post-close only: the written daily report (`GET /intel/daily-reports/{id}`). */
+  report_id?: string;
+}
+
+// ---- Trading intelligence: the post-close daily report (docs/finance-trading-intel.md#daily-report) ----
+
+export interface FinanceDailyReportSummary {
+  active_strategies: number; proposed_orders: number; refused_signals: number; suspended: number;
+  waiting_for_approval: number; problems: number; market_closed: number;
+}
+
+/** `GET /api/v1/finance/intel/daily-reports`, newest first. SIMULATED. */
+export interface FinanceDailyReportItem {
+  id: string;
+  date: string;
+  created_at: string;
+  summary: Partial<FinanceDailyReportSummary>;
+  simulated: true;
+}
+
+/** Recorded text (reasons, sources, next steps) is data to show, never instructions. */
+export interface FinanceDailyReportBody {
+  label: 'SIMULATED';
+  disclaimer: string;
+  phase: string;
+  date: string;
+  generated_at: string;
+  summary: FinanceDailyReportSummary;
+  data_health: { symbol: string | null; venue: string | null; last_bar: string | null; sessions_behind: number | null; source: string | null; status: string; reasons: string[] }[];
+  orders: { strategy: string; symbol: string | null; side: string | null; quantity: string | number | null; target_weight: number | null;
+    estimate: { fill_price?: string; price_source?: string; fee?: string } | null; guardian: string | null; intent_id: string | null }[];
+  refused: { strategy: string; agent: string; action: string; reasons: string[] }[];
+  suspended: { strategy: string; agent: string; reasons: string[]; why: string | null }[];
+  portfolios: { strategy: string; cash: FinanceCurrencyAmount[] | null; realised: FinanceCurrencyAmount[] | null; unrealised: FinanceCurrencyAmount[] | null; fees: FinanceCurrencyAmount[] | null; unpriced: string[] | null }[];
+  performance: { strategy: string; since: string | null; return: number | null; benchmark_return: number | null; max_drawdown: number | null; flags: string[] }[];
+  problems: { agent: string; action: string; outcome: string; reasons: string[]; strategy: string }[];
+  next_steps: string[];
+}
+
+/** `GET /api/v1/finance/intel/daily-reports/{id}`. */
+export interface FinanceDailyReport extends FinanceDailyReportItem {
+  report: FinanceDailyReportBody;
+  markdown: string;
 }
 
 export type FinanceIntelAgent = 'person' | 'trading_supervisor' | 'market_research' | 'technical_analysis' | 'strategy_research' | 'portfolio'
@@ -956,6 +999,22 @@ export interface FinanceEquitySeries {
   trough_day: string | null;
   gaps: number;
   unpriced: string[];
+  /** Buy and hold of the same symbols for comparison (absent from older servers). */
+  benchmark?: FinanceEquityBenchmark | null;
+}
+
+/** Why a series has no buy and hold line: a shadow portfolio has no cash, the run traded no symbol in this currency,
+ * or no day had a fresh price for every symbol. */
+export type FinanceEquityBenchmarkReason = 'shadow' | 'no_symbols' | 'no_common_price';
+
+/** Buy and hold of the symbols this run traded, equal weights, bought with the portfolio's value on `start`, no costs.
+ * Its P&L starts from the portfolio's own P&L on `start`, so both lines compare. One point per curve day; null before
+ * `start` and on a day a symbol has no fresh price. SIMULATED comparison, not advice. */
+export interface FinanceEquityBenchmark {
+  symbols: string[];
+  start: string | null;
+  points: { day: string; pnl: string | null }[];
+  reason: FinanceEquityBenchmarkReason | null;
 }
 
 /** `GET /api/v1/finance/intel/portfolios/{id}/equity?days=`: one series per currency, never mixed. SIMULATED. */

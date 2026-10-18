@@ -22,6 +22,7 @@ import { IntelWorkbench, StrategyActions, SupervisorPanel } from './FinanceIntel
 import { Denied, Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
 import { reasonText } from './FinancePlan';
 import { EquityCharts } from './FinanceEquity';
+import { DailyReports } from './FinanceReports';
 
 const PAGE = 10;
 const RUN_PAGE = 5;
@@ -59,6 +60,7 @@ export function IntelPanel({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
     <IntelWorkbench venues={o.venues} onChanged={changed} />
     <Strategies counts={o.strategies} portfolios={o.portfolios} refresh={refresh} onChanged={changed} onOpen={onOpen} />
     <SupervisorPanel activeCount={o.strategies.find((c) => c.state === 'PAPER_ACTIVE')?.count ?? 0} onRan={changed} />
+    <DailyReports refresh={refresh} />
     <Positions portfolios={o.portfolios} onOpen={onOpen} />
     <AgentDecisions refresh={refresh} />
     <GuardianDecisions />

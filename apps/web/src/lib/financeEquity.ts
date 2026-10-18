@@ -1,7 +1,7 @@
 // SIMULATED P&L and drawdown over time (docs/finance-trading-intel.md#pl-and-drawdown-over-time), pure so
 // the unit tests cover it. The API rebuilds every day from stored orders and recorded prices; this file
 // only scales those figures into SVG paths and words. It never fills a gap, smooths a line or forecasts.
-import type { FinanceEquityPoint, FinanceEquitySeries } from '@anum/contracts';
+import type { FinanceEquityBenchmark, FinanceEquityPoint, FinanceEquitySeries } from '@anum/contracts';
 import { formatDecimal } from './financeTrading.ts';
 import { getLocale, intlLocale, t } from './i18n.ts';
 
@@ -45,10 +45,12 @@ export interface Scaled {
   plotted: number;
 }
 
-/** Scale values into the frame. Zero is always inside the range so gains and losses read against it. */
-export function scale(values: (number | null)[], f: Frame): Scaled {
+/** Scale values into the frame. Zero is always inside the range so gains and losses read against it.
+ * `alongside` widens the range only, so a second line drawn with the same range lines up with this one. */
+export function scale(values: (number | null)[], f: Frame, alongside: (number | null)[] = []): Scaled {
   const known = values.filter((v): v is number => v !== null);
-  let min = Math.min(0, ...known), max = Math.max(0, ...known);
+  const both = [...known, ...alongside.filter((v): v is number => v !== null)];
+  let min = Math.min(0, ...both), max = Math.max(0, ...both);
   if (min === max) { min -= 1; max += 1; }
   const innerW = f.width - f.left - f.right, innerH = f.height - f.top - f.bottom;
   const x = (i: number) => (values.length <= 1 ? f.left + innerW / 2 : f.left + (i * innerW) / (values.length - 1));
@@ -114,10 +116,41 @@ export function chartSummary(series: FinanceEquitySeries, paper: boolean): strin
     currency: series.currency, start: first, end: last, latest: amount(now.pnl, series.currency),
     low: amount(Math.min(...values).toFixed(2), series.currency), high: amount(Math.max(...values).toFixed(2), series.currency),
     drawdown: drawdownLine(series, paper), gaps: series.gaps,
-  });
+  }) + (latestBenchmark(series.benchmark) !== null ? ` ${t('finance.equity.benchmark.aria', { latest: amount(latestBenchmark(series.benchmark), series.currency) })}` : '');
 }
 
 /** One page of the table fallback, newest day first. */
 export function tableRows(series: FinanceEquitySeries, offset: number, size = TABLE_PAGE): FinanceEquityPoint[] {
   return [...series.points].reverse().slice(offset, offset + size);
+}
+
+/** The buy and hold P&L for each point of the series, by day (null where there is none). */
+export function benchmarkValues(series: FinanceEquitySeries): (number | null)[] {
+  const bench = series.benchmark;
+  if (!bench || bench.reason) return series.points.map(() => null);
+  const byDay = new Map(bench.points.map((b) => [b.day, b.pnl]));
+  return series.points.map((p) => number(byDay.get(p.day) ?? null));
+}
+
+/** The newest buy and hold P&L, as the API sent it. */
+export function latestBenchmark(bench: FinanceEquityBenchmark | null | undefined): string | null {
+  if (!bench || bench.reason) return null;
+  for (let i = bench.points.length - 1; i >= 0; i -= 1) if (bench.points[i].pnl !== null) return bench.points[i].pnl;
+  return null;
+}
+
+/** What the benchmark is, or why there is none, in words. */
+export function benchmarkLine(series: FinanceEquitySeries): string | null {
+  const bench = series.benchmark;
+  if (!bench) return null;
+  if (bench.reason) return t(`finance.equity.benchmark.${bench.reason}`);
+  return t('finance.equity.benchmark.what', { symbols: bench.symbols.join(', '), start: bench.start ?? '-' });
+}
+
+/** The P&L chart's two lines, scaled to one range: the portfolio and buy and hold. */
+export function scalePnl(series: FinanceEquitySeries, f: Frame): { portfolio: Scaled; benchmark: Scaled | null } {
+  const own = series.points.map((p) => pick(p, 'pnl', true));
+  const bench = benchmarkValues(series);
+  const hasBench = bench.some((v) => v !== null);
+  return { portfolio: scale(own, f, bench), benchmark: hasBench ? scale(bench, f, own) : null };
 }

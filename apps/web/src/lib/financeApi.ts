@@ -11,7 +11,7 @@ import type {
   FinancePaperOrderStatus, FinanceWider, FinanceWidening, FinanceWideningInput, FinancePortfolio, FinancePortfolioInput, FinancePortfolioSummary, FinancePrice, FinancePriceInput, FinancePriceSaved,
   FinanceAgentDecision, FinanceEquity, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
   FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
-  FinanceIntelRule, FinanceStrategyInput,
+  FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -171,3 +171,6 @@ export const runSupervisor = (phase: FinanceIntelPhase) => send<FinanceIntelCycl
 export const pauseAllStrategies = (reason: string) => send<{ paused: string[]; simulated: true }>('POST', '/intel/pause-all', { reason });
 export const listAgentDecisions = (q: { agent?: FinanceIntelAgent | ''; strategy_id?: string; limit: number; offset: number }) =>
   get<FinancePage<FinanceAgentDecision>>(`/intel/decisions${query({ ...q })}`);
+// Post-close daily reports (docs/finance-trading-intel.md#daily-report): read only, the caller's own.
+export const listDailyReports = (q: { limit: number; offset: number }) => get<FinancePage<FinanceDailyReportItem>>(`/intel/daily-reports${query({ ...q })}`);
+export const getDailyReport = (reportId: string) => get<FinanceDailyReport>(`/intel/daily-reports/${id(reportId)}`);

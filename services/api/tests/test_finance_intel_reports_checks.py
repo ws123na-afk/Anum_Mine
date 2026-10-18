@@ -100,6 +100,47 @@ def test_report_routes_and_tool() -> None:
     finance_store.clear()
 
 
+def test_a_post_close_report_sends_one_in_app_notice_with_counts_only() -> None:
+    from anum_api.finance.intel.report_notice import KIND, notice_text
+    from anum_api.team_store import memory_team_store
+
+    finance_store.clear()
+    _store_with_data_into(finance_store)
+    _active(finance_store)
+    client = TestClient(main.app)
+    headers = {"x-tenant-id": ME.tenant_id, "x-workspace-id": ME.workspace_id, "x-user-id": ME.user_id, "x-user-roles": "member"}
+
+    def notices() -> list:  # type: ignore[type-arg]
+        return [n for n in memory_team_store.list_notifications(ME, limit=100, before=None, unread_only=False) if n.kind == KIND]
+
+    before = len(notices())
+    assert client.post("/api/v1/finance/intel/supervisor/run", json={"phase": "intraday"}, headers=headers).status_code == 200
+    assert len(notices()) == before, "only the post-close report is announced"
+    result = client.post("/api/v1/finance/intel/supervisor/run", json={"phase": "post_close"}, headers=headers).json()
+    assert result["report_id"]
+    found = notices()
+    assert len(found) == before + 1
+    notice = found[0]
+    assert notice.user_id == ME.user_id and "SIMULATED" in notice.title and "No real order was placed" in notice.body
+    assert f"Active paper strategies: {result['active_strategies']}." in notice.body
+    assert f"proposed for your approval: {result['proposed_orders']}." in notice.body
+    symbols = [i.symbol for i in finance_store.instruments.values()]
+    assert symbols and not any(sym in notice.body or sym in notice.title for sym in symbols), "no symbol leaves ANUM by email or push"
+    assert all(ch not in notice.body for ch in (chr(0x2013), chr(0x2014)))
+    again = client.post("/api/v1/finance/intel/supervisor/run", json={"phase": "post_close"}, headers=headers).json()
+    assert again["skipped"] is True and len(notices()) == before + 1, "a repeated cycle never notifies twice"
+    assert notice.push_status.value in {"not_requested", "not_configured"}, "the fixed push text says Team work: no push"
+    from anum_api.dependencies import memory_repository
+    from anum_api.push import intent_for
+
+    events = [e for e in memory_repository.store.events if e.type == "notification.created" and e.subject == notice.id]
+    assert len(events) == 1 and events[0].payload == {"recipient": ME.user_id, "kind": KIND, "work_item_id": None}
+    assert intent_for(events[0]) is None
+    title, body = notice_text({"report_id": "x", "halted": 1})
+    assert "halted" in body and "SIMULATED" in title
+    finance_store.clear()
+
+
 def _store_with_data_into(store) -> None:  # type: ignore[no-untyped-def]
     built, _, _ = _store_with_data()
     for i in built.instruments.values():

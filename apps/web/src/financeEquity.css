@@ -13,6 +13,11 @@
 .finEquityLine { fill: none; stroke: rgb(var(--c-sky)); stroke-linejoin: round; stroke-width: 2; }
 .finEquityLine.finEquityDown { stroke: var(--d-danger); }
 .finEquityArea { fill: var(--d-danger); fill-opacity: 0.16; }
+.finEquityBenchLine { fill: none; stroke: var(--d-muted); stroke-dasharray: 6 4; stroke-linejoin: round; stroke-width: 1.5; }
+.finEquityLegend { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: var(--d-s1) var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.finEquityLegend li { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.finEquityKey { border-top: 2px solid rgb(var(--c-sky)); display: inline-block; width: 18px; }
+.finEquityKey.finEquityKeyBench { border-top: 2px dashed var(--d-muted); }
 .finEquityDot { fill: rgb(var(--c-sky)); }
 .finEquityDot.finEquityDown { fill: var(--d-danger); }
 @media (min-width: 1440px) {

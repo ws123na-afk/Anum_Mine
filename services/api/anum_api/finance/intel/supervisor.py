@@ -127,9 +127,10 @@ class Supervisor:
         halt = self._halted()
         if halt:
             self._decide(Agent.SUPERVISOR, "cycle", "halted", [halt], details={"phase": phase})
+            summary = self._summary(phase)
             if phase == "post_close":
-                self.write_report(phase)
-            return self._summary(phase)
+                summary["report_id"] = self.write_report(phase).id
+            return summary
         strategies = self.active()
         if phase in {"pre_open", "weekly"}:
             for strategy in strategies:
