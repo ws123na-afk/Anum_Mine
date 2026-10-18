@@ -6,7 +6,12 @@
   and content hash; anything changed after the request is refused and nothing is accepted.
 
 Accepting is an internal record (the client's acceptance confirmed by the owner); it sends
-nothing. There is no send tool in this release.
+nothing.
+
+* ``business.send_outreach`` (high risk, always asks; ``outreach.py``): sends one approved outbox
+  message after the send-time checks. Sending is off by default (docs/business.md#outreach).
+* ``web.fetch_page`` (low risk, read only; ``fetch.py``): reads one public https page for the
+  prospecting pipeline, obeying robots.txt behind the SSRF guard.
 """
 
 from __future__ import annotations
@@ -144,29 +149,52 @@ def register_business_tools(registry: ToolRegistry) -> ToolRegistry:
     """Add the business tools to a runtime's registry (the API's and the Temporal worker's).
 
     The research skill runs its web searches through this same registry."""
+    from .fetch import FETCH_TOOL, fetch_definition, page_fetcher
+    from .outreach import SEND_TOOL, send_definition, send_outreach
+
     if ACCEPT_TOOL not in registry.names:
         registry.register(accept_definition(), accept_proposal)
+    if SEND_TOOL not in registry.names:
+        registry.register(send_definition(), send_outreach)
+    if FETCH_TOOL not in registry.names:
+        registry.register(fetch_definition(), page_fetcher)
     research.configure(registry)
     return registry
 
 
-def request_approval(repository: AnumRepository, context: TenantContext, arguments: dict[str, Any], title: str) -> tuple[Task, Approval]:
-    """A paused call of ``business.accept_proposal`` waiting for an owner (as marketing does)."""
-    call = ToolCall(name=ACCEPT_TOOL, arguments=arguments)
+def _approval_registry() -> ToolRegistry:
+    """The business tools' definitions for planning an approval, without re-pointing the
+    research skill at a registry that has no ``web_search`` (``register_business_tools`` does)."""
+    from .fetch import fetch_definition, page_fetcher
+    from .outreach import send_definition, send_outreach
+
+    registry = ToolRegistry()
+    registry.register(accept_definition(), accept_proposal)
+    registry.register(send_definition(), send_outreach)
+    registry.register(fetch_definition(), page_fetcher)
+    return registry
+
+
+def request_approval(repository: AnumRepository, context: TenantContext, arguments: dict[str, Any], title: str, *,
+                     tool: str = ACCEPT_TOOL, prompt: str | None = None) -> tuple[Task, Approval]:
+    """A paused call of a business tool (``business.accept_proposal`` or ``business.send_outreach``)
+    waiting for an owner (as marketing does)."""
+    call = ToolCall(name=tool, arguments=arguments)
     now = utc_now()
     task = Task(
-        id=new_id("task"), title=title[:160], prompt=f"Record the client's acceptance of {title}.", status=TaskStatus.CREATED,
+        id=new_id("task"), title=title[:160], prompt=prompt or f"Record the client's acceptance of {title}.", status=TaskStatus.CREATED,
         tenant_id=context.tenant_id, workspace_id=context.workspace_id, created_at=now, updated_at=now, created_by=context.user_id,
     )
     repository.create_task(task)
     repository.record_event(create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title}, correlation_id=task.id, created_at=now).event)
-    runtime = AgentRuntime(MockModelGateway(), repository, tools=register_business_tools(ToolRegistry()))
+    runtime = AgentRuntime(MockModelGateway(), repository, tools=_approval_registry())
     run = runtime.new_run(task)
     decision = runtime.evaluate(call, context)
     proposal_step = AgentRunStep(
-        id=new_id("step"), type="tool_proposal", summary=f"Proposed tool call: {ACCEPT_TOOL}", created_at=utc_now(),
-        metadata={"tool": ACCEPT_TOOL, "risk_level": decision.risk_level.value, "policy_outcome": decision.outcome.value,
-                  "governance_rules": list(decision.governance_rules), "proposal_id": arguments["proposal_id"]},
+        id=new_id("step"), type="tool_proposal", summary=f"Proposed tool call: {tool}", created_at=utc_now(),
+        metadata={"tool": tool, "risk_level": decision.risk_level.value, "policy_outcome": decision.outcome.value,
+                  "governance_rules": list(decision.governance_rules),
+                  **({"proposal_id": arguments["proposal_id"]} if "proposal_id" in arguments else {"outbox_id": arguments.get("outbox_id")})},
     )
     run.steps.append(proposal_step)
     run.checkpoint.phase = RunPhase.TOOL_READY
@@ -183,7 +211,7 @@ def request_approval(repository: AnumRepository, context: TenantContext, argumen
     repository.save_run(run)
     if run.checkpoint.phase != RunPhase.WAITING_APPROVAL or not run.checkpoint.approval_id:
         reason = run.steps[-1].summary if run.steps else "Blocked by policy."
-        raise http_error(403, f"Acceptance is blocked: {reason}")
+        raise http_error(403, f"{'Acceptance' if tool == ACCEPT_TOOL else 'Sending'} is blocked: {reason}")
     approval = repository.get_approval(run.checkpoint.approval_id, context)
     if approval is None:  # pragma: no cover - saved just above
         raise http_error(500, "Approval was not stored")

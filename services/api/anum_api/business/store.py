@@ -38,6 +38,7 @@ from .models import (
     ProposalVersion,
     ResearchRun,
 )
+from .outreach_models import Observation, OutboxItem, OutreachSettings, PipelineRun, ReplyEvent, TargetProfile
 
 MAX_PAGE = 100
 # Rows read at most for a summary (the KPI window); more is reported as truncated.
@@ -59,6 +60,13 @@ KINDS: dict[str, type[BaseModel]] = {
     "milestones": Milestone,
     "drafts": Draft,
     "research_runs": ResearchRun,
+    # The prospecting pipeline and the outbox (migration 0080_business_pipeline).
+    "outreach_settings": OutreachSettings,
+    "observations": Observation,
+    "pipeline_runs": PipelineRun,
+    "outbox": OutboxItem,
+    "replies": ReplyEvent,
+    "target_profiles": TargetProfile,
 }
 
 ModelT = TypeVar("ModelT", bound=BaseModel)

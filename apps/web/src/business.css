@@ -125,3 +125,18 @@
 .bzArgs dt { color: var(--d-muted); font-size: 13px; }
 .bzArgs dd { margin: 0; overflow-wrap: anywhere; }
 .bzHash { align-items: center; display: flex; font-size: 13px; gap: var(--d-s2); margin: 0; }
+
+/* Prospecting and Outreach (BusinessProspecting.tsx, BusinessOutreach.tsx). */
+.bzList { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.bzList > li { line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.bzList > li > .bzInline, .bzList > li > .bzLeadHead { margin-top: var(--d-s1); }
+.bzOutbox > li { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
+.bzOutbox > li:first-child { border-top: 0; padding-top: 0; }
+.bzSignals { border: 0; display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: 0; }
+.bzSignals > legend { font-size: 14px; font-weight: 600; margin-bottom: var(--d-s1); padding: 0; }
+.bzSignal { align-items: flex-start; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr); }
+.bzSignal input { margin-top: 4px; }
+.bzPick { display: grid; gap: var(--d-s1); grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); max-height: 320px; overflow-y: auto; }
+.bzDetails summary { cursor: pointer; font-size: 14px; }
+.bzCheck > input[type="radio"], .bzCheck > input[type="checkbox"], .bzSignal > input { block-size: 18px; flex: none; inline-size: 18px; margin: 0; }
+.bzCheck { white-space: normal; }

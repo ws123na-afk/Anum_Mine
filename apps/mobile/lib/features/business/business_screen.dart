@@ -7,6 +7,9 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
+import 'business_pipeline_repository.dart';
+import 'business_pipeline_screen.dart';
+import 'business_repository.dart';
 
 /// Business on the phone (docs/business.md): the owner's summary, leads with
 /// their evidence and state, the pipeline, proposals waiting for acceptance
@@ -16,10 +19,12 @@ class BusinessScreen extends StatefulWidget {
   const BusinessScreen({
     required this.controller,
     this.onOpenApprovals,
+    this.pipelineRepository,
     super.key,
   });
   final BusinessController controller;
   final VoidCallback? onOpenApprovals;
+  final BusinessPipelineRepository? pipelineRepository;
 
   @override
   State<BusinessScreen> createState() => _BusinessScreenState();
@@ -40,6 +45,15 @@ AnumTone stateTone(String state) => switch (state) {
 class _BusinessScreenState extends State<BusinessScreen> {
   _Section section = _Section.overview;
   final search = TextEditingController();
+
+  /// Prospecting and outreach (business_pipeline_screen.dart), over the same API client.
+  BusinessPipelineRepository? get _pipeline {
+    if (widget.pipelineRepository != null) return widget.pipelineRepository;
+    final repository = widget.controller.repository;
+    return repository is ApiBusinessRepository
+        ? ApiBusinessPipelineRepository(repository.api)
+        : null;
+  }
 
   @override
   void initState() {
@@ -111,6 +125,24 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       l.t('biz.sendingOff'),
                       style: TextStyle(color: context.palette.muted),
                     ),
+                    if (_pipeline != null)
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: OutlinedButton.icon(
+                          key: const Key('biz-open-pipeline'),
+                          icon: const Icon(Icons.travel_explore),
+                          label: Text(l.t('biz.openPipeline')),
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => BusinessPipelineScreen(
+                                repository: _pipeline!,
+                                canWrite: c.setup?.permissions.write ?? false,
+                                onOpenApprovals: widget.onOpenApprovals,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,

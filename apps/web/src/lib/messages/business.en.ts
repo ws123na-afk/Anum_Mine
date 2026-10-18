@@ -3,7 +3,7 @@ import type { Message } from './types.ts';
 
 export const businessEn = {
   'nav.business': 'Business',
-  'biz.subtitle': 'Products, leads, pipeline, proposals and projects for your own sales. Nothing is sent from here.',
+  'biz.subtitle': 'Products, leads, prospecting, outreach, pipeline, proposals and projects for your own sales. Nothing is sent without an owner\'s approval.',
   'biz.sections': 'Business sections',
   'biz.tab.overview': 'Overview',
   'biz.tab.leads': 'Leads',
@@ -26,7 +26,7 @@ export const businessEn = {
   'biz.failed': '{what} failed: {message}',
   'biz.errorTitle': 'Business could not be loaded',
   'biz.errorText': '{message} Check your connection and try again.',
-  'biz.sendingOff': 'Sending is off: ANUM drafts messages and records what you did, but it never contacts anyone from Business.',
+  'biz.sendingOff': 'Sending is off by default: ANUM drafts messages and records what you did. An owner can turn sending on in Outreach, and every message still waits for an approval.',
 
   'biz.kpi.label': 'Sales summary',
   'biz.kpi.leads': 'Leads created',
@@ -507,7 +507,7 @@ export const businessEn = {
   'biz.settings.ownersOnly': 'Only workspace owners change the caps.',
   'biz.settings.status': 'What is on',
   'biz.settings.sending': 'Sending messages',
-  'biz.settings.sendingOff': 'Off in this release: there is no send path.',
+  'biz.settings.sendingOff': 'Off (the default): an owner turns it on in Outreach.',
   'biz.settings.webSearch': 'Web search',
   'biz.settings.on': 'On',
   'biz.settings.webSearchOff': 'Not set up on this server',

@@ -4,7 +4,7 @@ import type { Message } from './types.ts';
 
 export const businessAr: Record<keyof typeof businessEn, Message> = {
   'nav.business': 'الأعمال',
-  'biz.subtitle': 'المنتجات والعملاء المحتملون والفرص والعروض والمشاريع لمبيعاتك. لا يُرسل شيء من هنا.',
+  'biz.subtitle': 'المنتجات والعملاء المحتملون والبحث والتواصل والفرص والعروض والمشاريع لمبيعاتك. لا يُرسل شيء دون موافقة المالك.',
   'biz.sections': 'أقسام الأعمال',
   'biz.tab.overview': 'نظرة عامة',
   'biz.tab.leads': 'العملاء المحتملون',
@@ -27,7 +27,7 @@ export const businessAr: Record<keyof typeof businessEn, Message> = {
   'biz.failed': 'تعذّر {what}: {message}',
   'biz.errorTitle': 'تعذّر تحميل الأعمال',
   'biz.errorText': '{message} تحقّق من الاتصال وحاول مرة أخرى.',
-  'biz.sendingOff': 'الإرسال متوقف: يكتب ANUM مسودات الرسائل ويسجّل ما فعلته، لكنه لا يتواصل مع أحد من قسم الأعمال.',
+  'biz.sendingOff': 'الإرسال متوقف افتراضيًا: يكتب ANUM مسودات الرسائل ويسجّل ما فعلته. يمكن للمالك تفعيل الإرسال من التواصل، وتبقى كل رسالة بانتظار موافقة.',
 
   'biz.kpi.label': 'ملخص المبيعات',
   'biz.kpi.leads': 'عملاء محتملون جدد',
@@ -508,7 +508,7 @@ export const businessAr: Record<keyof typeof businessEn, Message> = {
   'biz.settings.ownersOnly': 'يغيّر الحدود مالكو مساحة العمل فقط.',
   'biz.settings.status': 'ما هو مفعَّل',
   'biz.settings.sending': 'إرسال الرسائل',
-  'biz.settings.sendingOff': 'متوقف في هذا الإصدار: لا يوجد مسار للإرسال.',
+  'biz.settings.sendingOff': 'متوقف (افتراضيًا): يفعّله المالك من التواصل.',
   'biz.settings.webSearch': 'البحث على الويب',
   'biz.settings.on': 'مفعَّل',
   'biz.settings.webSearchOff': 'غير مُعدّ على هذا الخادم',

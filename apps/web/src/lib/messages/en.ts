@@ -15,6 +15,7 @@ import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
+import { businessPipelineEn } from './businessPipeline.en.ts';
 import { brevoEn } from './brevo.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
@@ -52,6 +53,7 @@ export const en = {
   ...appCallsEn,
   ...marketingEn,
   ...businessEn,
+  ...businessPipelineEn,
   ...brevoEn,
   ...agentSkillsEn,
   ...orgChartEn,

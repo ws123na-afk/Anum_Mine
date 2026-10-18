@@ -20,6 +20,8 @@ WALKS = {
     "calls": "test_calls.py",
     "brevo": "test_brevo.py",
     "business": "test_business.py",
+    "business_pipeline": "test_business_pipeline.py",
+    "business_outreach": "test_business_pipeline.py",
     "autonomy": "test_autonomy.py",
     "developer": "test_developer.py",
     "email": "test_email.py",

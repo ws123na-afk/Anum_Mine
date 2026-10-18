@@ -178,9 +178,11 @@ def test_viewers_are_refused_members_work_owners_manage() -> None:
     assert client.put(f"{BASE}/settings", headers=MEMBER, json={"research_runs_per_day": 1, "research_searches_per_day": 1}).status_code == 403
 
 
-def test_no_route_sends_anything() -> None:
-    paths = [path for path in main.app.openapi()["paths"] if path.startswith(BASE)]
+def test_only_the_outreach_outbox_can_send_and_sending_is_off_by_default() -> None:
+    # Sending lives only under /business/outreach, behind an approval per message (test_business_pipeline.py).
+    paths = [path for path in main.app.openapi()["paths"] if path.startswith(BASE) and not path.startswith(f"{BASE}/outreach")]
     assert paths and not [path for path in paths if "send" in path or "outbox" in path]
+    assert ok(client.get(f"{BASE}/setup", headers=OWNER))["sending_enabled"] is False
 
 
 # -- catalog ---------------------------------------------------------------------------------------

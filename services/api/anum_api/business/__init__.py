@@ -3,20 +3,28 @@
 A catalog of products and service packages with priced versions; accounts, contacts and
 leads with a state machine, a deterministic six-criterion score, evidence kept apart from
 inferences, duplicate detection, do-not-contact and the tenant's opt-out list; a lead
-research skill over the existing ``web_search`` tool within daily caps; an opportunity
-pipeline with assumed values; versioned proposals whose acceptance is an owner approval
-bound to the exact version; projects and milestones from an accepted proposal; outbound
-drafts only (sending is off: there is no send path); and the owner's KPI summary.
+research skill over the existing ``web_search`` tool within daily caps; the prospecting
+pipeline (discover and profile runs that are estimated, confirmed and kept within budget,
+over ``web_search`` and the read-only ``web.fetch_page`` tool, collecting only the signals
+an owner confirmed); an opportunity pipeline with assumed values; versioned proposals whose
+acceptance is an owner approval bound to the exact version; projects and milestones from an
+accepted proposal; outbound drafts and the outreach outbox (a deterministic gate, an
+approval bound to the payload hash for every message, sending off by default, quotas,
+stop-on-reply and a bounce kill switch); and the owner's KPI summary.
 """
 
 from fastapi import APIRouter
 
 from .api import router as _records_router
 from .api_deals import router as _deals_router
+from .api_outreach import router as _outreach_router
+from .api_pipeline import router as _pipeline_router
 from .tools import register_business_tools
 
 router = APIRouter()
 router.include_router(_records_router)
 router.include_router(_deals_router)
+router.include_router(_pipeline_router)
+router.include_router(_outreach_router)
 
 __all__ = ["register_business_tools", "router"]

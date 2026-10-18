@@ -946,6 +946,7 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
         await asyncio.to_thread(auto_route_inbound, stored.tenant_id, stored.workspace_id, "email", arrived)
     inbound = [m for m in fresh if m.from_address.lower() != stored.address.lower() and not m.is_archived]
     _record_unsubscribes(context, [m for m in fresh if m.from_address.lower() != stored.address.lower()])
+    await asyncio.to_thread(_note_business_replies, context, [m for m in fresh if m.from_address.lower() != stored.address.lower()])
     if inbound:
         from .automation_triggers import record_inbound_events
 
@@ -984,6 +985,19 @@ def _record_unsubscribes(context: TenantContext, messages: list[EmailMessage]) -
         subject = re.sub(r"^\s*((re|fwd?|aw)\s*:\s*)+", "", message.subject or "", flags=re.IGNORECASE)
         if message.from_address and normalize_keyword(subject) in EMAIL_STOP_SUBJECTS:
             apply_inbound_keyword(context, SuppressionChannel.EMAIL, message.from_address, "stop", f"e-mail {message.id}")
+
+
+def _note_business_replies(context: TenantContext, messages: list[EmailMessage]) -> None:
+    """A reply from a Business lead ANUM reached out to stops that lead's follow-ups; a bounce naming a sent
+    recipient counts toward the outreach bounce kill switch (docs/business.md#outreach). Never fails the sync."""
+    if not messages:
+        return
+    try:
+        from .business.outreach import note_inbound_emails
+
+        note_inbound_emails(context, messages)
+    except Exception as exc:
+        logger.warning("business_reply_hook_failed error_class=%s", type(exc).__name__)
 
 
 def _arrived_for_routing(store: EmailStoreProtocol, account: EmailAccount, incoming: list[EmailMessage]) -> list[Any]:

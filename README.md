@@ -84,6 +84,7 @@ x-user-roles: owner,member
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)
 - [P0 CI remediation: commerce tests, journey 403, Rust advisories](docs/business/P0_CI_REMEDIATION.md)
 - [P1 acceptance tests for the Business section](docs/business/P1_ACCEPTANCE_TESTS.md)
+- [Harvey parity: prospecting and outreach capabilities in ANUM](docs/business/HARVEY_PARITY.md)
 - [Security](docs/security.md)
 - [Threat model: agent tool use and prompt injection](docs/threat-model.md)
 - [Email Center: external penetration test plan](docs/email-pentest-plan.md)

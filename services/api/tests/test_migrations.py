@@ -1093,3 +1093,23 @@ def test_mail_writers_migration_is_expand_only() -> None:
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "grant select (disconnecting_at) on mail_accounts to anum_maintenance" in upgrade
     assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade
+
+
+def test_business_pipeline_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0080_business_pipeline.py").read_text(encoding="utf-8")
+    assert 'revision = "0080_business_pipeline"' in revision_text and len("0080_business_pipeline") <= 32
+    assert 'down_revision = "0074_brevo_campaigns"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = revision_text.split("TABLES = (", 1)[1].split(")", 1)[0]
+    names = [name.strip().strip('"') for name in tables.split(",") if name.strip()]
+    assert names == ["business_outreach_settings", "business_target_profiles", "business_observations", "business_pipeline_runs",
+                     "business_outbox", "business_replies"]
+    assert upgrade.count("op.create_table(") == len(names) and "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "force row level security" in revision_text.lower() and "with check (" in revision_text.lower()
+    assert '["tenant_id", "workspace_id", column]' in revision_text
+    # Sending is off by default; one open outbox row per draft.
+    assert '"sending_enabled", sa.boolean(), nullable=false, server_default=sa.false()' in upgrade
+    assert "uq_business_outbox_open_draft" in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade

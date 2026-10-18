@@ -77,7 +77,6 @@ from .service import (
     record_activity,
     stamp_state,
     url_key,
-    usage_today,
 )
 from .store import BusinessStore, Query, open_business_store
 
@@ -115,12 +114,17 @@ class BusinessSetup(BaseModel):
 @router.get("/setup", response_model=BusinessSetup)
 def get_setup(context: TenantContext = Depends(tenant_context)) -> BusinessSetup:
     read(context)
+    from .pipeline import load_settings, usage
+
     with open_business_store(context) as store:
         settings = store.get_settings()
-        runs, searches = usage_today(store, utc_now())
+        today = usage(store, utc_now())
+        runs, searches = today["runs"], today["searches"]
+        sending = load_settings(store, context).sending_enabled
     from .models import CONVERSATION_CRITERIA
 
     return BusinessSetup(
+        sending_enabled=sending,
         permissions=Permissions(
             read=True,
             write=has_permission(context, Permission.BUSINESS_WRITE),
@@ -1206,7 +1210,7 @@ def _draft_inputs(store: BusinessStore, lead: Lead) -> tuple[Account, Contact | 
 async def create_draft(lead_id: str, payload: DraftCreate, context: TenantContext = Depends(tenant_context)) -> DraftResult:
     write(context)
 
-    def load() -> tuple[Lead, Account, Contact | None, Product | None, Offer | None, list[Evidence]]:
+    def load() -> tuple[Lead, Account, Contact | None, Product | None, Offer | None, list[Evidence], str]:
         with open_business_store(context) as store:
             lead = get_or_404(store, "leads", lead_id, "Lead")
             account, contact, product, offer, evidence = _draft_inputs(store, lead)
@@ -1215,11 +1219,18 @@ async def create_draft(lead_id: str, payload: DraftCreate, context: TenantContex
             block = contact_block(context, contact, account.do_not_contact)
             if block:
                 raise http_error(409, f"{block} No message is drafted.")
-            return lead, account, contact, product, offer, evidence
+            from .pipeline import load_settings, value_proposition
 
-    lead, account, contact, product, offer, evidence = await asyncio.to_thread(load)
-    text, generator, note = await assist.draft_message(context, payload.channel, payload.language, account, contact, product, offer, evidence)
-    facts = assist.facts_text(product, offer, evidence, account)
+            paused = load_settings(store, context)
+            if paused.paused:
+                raise http_error(409, f"Business outreach is paused: {paused.paused_reason or 'an owner paused it'}. No message is drafted.")
+            # Drafts use the lead's product's own value proposition (its target customer profile).
+            return lead, account, contact, product, offer, evidence, value_proposition(store, lead.product_id, payload.language)
+
+    lead, account, contact, product, offer, evidence, pitch = await asyncio.to_thread(load)
+    text, generator, note = await assist.draft_message(context, payload.channel, payload.language, account, contact, product, offer, evidence,
+                                                       value_proposition=pitch or None)
+    facts = assist.facts_text(product, offer, evidence, account, pitch)
     now = utc_now()
     draft = Draft(
         id=new_id("bdraft"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, lead_id=lead.id, contact_id=contact.id if contact else None,
@@ -1243,7 +1254,10 @@ async def create_draft(lead_id: str, payload: DraftCreate, context: TenantContex
 def _recheck(store: BusinessStore, draft: Draft) -> list[str]:
     lead = get_or_404(store, "leads", draft.lead_id, "Lead")
     account, _, product, offer, evidence = _draft_inputs(store, lead)
-    return assist.check_draft(draft.channel, draft.language, draft.subject, draft.body, assist.facts_text(product, offer, evidence, account))
+    from .pipeline import value_proposition
+
+    facts = assist.facts_text(product, offer, evidence, account, value_proposition(store, lead.product_id))
+    return assist.check_draft(draft.channel, draft.language, draft.subject, draft.body, facts)
 
 
 @router.patch("/drafts/{draft_id}", response_model=Draft)

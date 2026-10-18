@@ -743,6 +743,20 @@ def process_value(
     return None
 
 
+def _note_business_replies(context: TenantContext, senders: list[str]) -> int:
+    """A WhatsApp message from a Business lead ANUM reached out to stops that lead's follow-ups
+    (docs/business.md#outreach). Never fails the webhook."""
+    matched = 0
+    try:
+        from .business.outreach import note_inbound
+
+        for wa_id in senders:
+            matched += note_inbound(context, "whatsapp", "+" + wa_id.lstrip("+"), source="whatsapp")
+    except Exception as exc:
+        logger.warning("business_reply_hook_failed error_class=%s", type(exc).__name__)
+    return matched
+
+
 def _route_to_assistants(context: TenantContext, arrived: list[tuple[str, str, str]]) -> int:
     """Hand new inbound messages to department assistants that opted into WhatsApp.
 
@@ -1821,6 +1835,7 @@ async def receive_webhook(request: Request, background: BackgroundTasks) -> Resp
         if counts.arrived:
             background.add_task(_route_to_assistants, context, list(counts.arrived))
         if counts.received:
+            background.add_task(_note_business_replies, context, sorted({str(item["from"]) for item in counts.received}))
             from .automation_triggers import record_inbound_events
 
             record_inbound_events(
