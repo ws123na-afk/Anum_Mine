@@ -859,12 +859,33 @@ def test_clamd_scans_every_upload_privately_and_fails_closed(monkeypatch: pytest
     assert clamd["image"].startswith("clamav/clamav:") and clamd["image"].endswith("-debian13-slim")
     assert any(str(volume).startswith("clamav-db:") for volume in clamd["volumes"])
     # A bounded share of the 24 GB VM, and clamd accepts a full-size upload.
-    assert clamd["mem_limit"] == "3g"
+    assert clamd["mem_limit"] == "2g"
     assert _env(clamd)["CLAMD_CONF_StreamMaxLength"] == "26M"
+    # One copy of the signatures in memory: no concurrent reload, no test load by freshclam.
+    assert _env(clamd)["CLAMD_CONF_ConcurrentDatabaseReload"] == "no"
+    assert _env(clamd)["FRESHCLAM_CONF_TestDatabases"] == "no"
     settings = _settings(monkeypatch, _api_environment())
     assert settings.file_scanner == "clamav" and settings.file_scan_required is True
     assert (settings.clamav_host, settings.clamav_port) == ("clamd", 3310)
     assert 26 * 1024 * 1024 > settings.max_upload_body_bytes
+
+
+def _mebibytes(value: str) -> int:
+    number, unit = int(value[:-1]), value[-1].lower()
+    return number * {"m": 1, "g": 1024}[unit]
+
+
+def test_the_default_stack_fits_a_12_gb_vm_with_headroom() -> None:
+    """docs/deploy-oracle.md#memory-budget: the ceilings of everything `up -d` starts
+    stay at or below 11 GiB, leaving at least 1 GiB of a 12 GB VM for the OS."""
+    services = _services()
+    default = {name for name, service in services.items() if not service.get("profiles") and name in LONG_RUNNING}
+    assert default == {"caddy", "postgres", "api", "web", "keycloak", "valkey", "searxng", "clamd"}
+    total = sum(_mebibytes(services[name]["mem_limit"]) for name in default)
+    assert total <= 11 * 1024, total
+    budget = (REPO_ROOT / "docs" / "deploy-oracle.md").read_text(encoding="utf-8")
+    for name in default:
+        assert f"| `{name}` | {services[name]['mem_limit']} |" in budget, name
 
 
 # --------------------------------------------------------------------------- monitoring

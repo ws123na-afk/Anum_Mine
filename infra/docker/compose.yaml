@@ -189,7 +189,8 @@ services:
   # (INSTREAM), bound to 127.0.0.1 only because clamd has no authentication. Point a
   # host-run API at it with ANUM_FILE_SCANNER=clamav and ANUM_CLAMAV_HOST=127.0.0.1.
   # The image ships a signature database; freshclam refreshes it (CLAMAV_NO_FRESHCLAMD=true
-  # skips that, as CI does). clamd holds the signatures in memory: about 1.2 GB.
+  # skips that, as CI does). clamd holds one copy of the signatures in memory (about
+  # 1.2 GB): no concurrent reload and no test load by freshclam, so 2 GB is enough.
   clamd:
     image: clamav/clamav:1.5.4-debian13-slim
     environment:
@@ -199,9 +200,10 @@ services:
       CLAMD_CONF_StreamMaxLength: 26M
       # Reload signatures in place: no second copy in memory during an update.
       CLAMD_CONF_ConcurrentDatabaseReload: "no"
+      FRESHCLAM_CONF_TestDatabases: "no"
     ports:
       - "127.0.0.1:3310:3310"
-    mem_limit: 3g
+    mem_limit: 2g
     healthcheck:
       test: ["CMD", "clamdcheck.sh"]
       interval: 30s

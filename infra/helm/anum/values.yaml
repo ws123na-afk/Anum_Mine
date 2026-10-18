@@ -141,7 +141,7 @@ config:
 
   # Upload malware scanning (docs/files.md#malware-scanning). clamav streams every
   # upload to a ClamAV clamd (TCP, INSTREAM) that you run as its own Service, for
-  # example clamav/clamav:1.5.4-debian13-slim with about 3 GiB of memory; the chart
+  # example clamav/clamav:1.5.4-debian13-slim with about 2 GiB of memory (ConcurrentDatabaseReload no); the chart
   # does not deploy it. networkPolicy.appEgress allows port 3310. With clamav,
   # ANUM_FILE_SCAN_REQUIRED must stay true (uploads fail with 503 while clamd is down);
   # the chart and the API refuse false. off: uploads are not scanned.
