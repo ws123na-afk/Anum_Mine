@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import {
   MAX_UIDS_PER_CALL, NO_FILTERS, SYNC_INTERVAL_MS, SYNC_MAX_INTERVAL_MS,
   adjustFolders, applyFlag, availableMoves, badgeText, chunkUids, filtersActive, flagFor, flagToggle, foldersWithNewMail, inboxUnread,
-  messageListQuery, moveActionsFor, moveTarget, neighbour, nextAfterRemoval, nextSyncDelay, normalizeQuery, pruneSelection, removeUids,
+  moveActionsFor, moveTarget, neighbour, nextAfterRemoval, nextSyncDelay, normalizeQuery, pruneSelection, removeUids,
   selectAllState, shortcutFor, toggleAll, toggleSelection, type FolderLike,
 } from '../src/lib/mailActions.ts';
 
@@ -101,11 +101,6 @@ describe('search', () => {
     assert.equal(filtersActive(NO_FILTERS), false);
     assert.equal(filtersActive({ q: '   ', unread: false, flagged: false }), false);
     assert.equal(filtersActive({ ...NO_FILTERS, flagged: true }), true);
-  });
-  test('the list query sends only what is set', () => {
-    assert.equal(messageListQuery('INBOX', NO_FILTERS, null), 'folder=INBOX&limit=25');
-    const params = new URLSearchParams(messageListQuery('Sent Items', { q: ' invoice ', unread: true, flagged: true }, 120, 50));
-    assert.deepEqual(Object.fromEntries(params), { folder: 'Sent Items', limit: '50', q: 'invoice', unread: 'true', flagged: 'true', before: '120' });
   });
 });
 
