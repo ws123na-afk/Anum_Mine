@@ -16,6 +16,7 @@ import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
 import { brevoEn } from './brevo.en.ts';
+import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
@@ -53,6 +54,7 @@ export const en = {
   ...marketingEn,
   ...businessEn,
   ...brevoEn,
+  ...publicSiteEn,
   ...agentSkillsEn,
   ...orgChartEn,
   ...mailCenterEn,

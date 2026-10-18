@@ -22,6 +22,8 @@ COPY packages/contracts/package.json packages/contracts/
 RUN pnpm install --frozen-lockfile --ignore-scripts --filter "@anum/web..."
 COPY packages/contracts packages/contracts
 COPY apps/web apps/web
+# The public legal pages render docs/legal at build time (docs/legal-pages.md).
+COPY docs/legal docs/legal
 # The API URL is compiled into the bundle. Pass the public API origin per environment.
 ARG VITE_ANUM_API_URL=http://localhost:8000
 ARG VITE_ANUM_TTS_URL=
@@ -36,13 +38,17 @@ ARG VITE_ANUM_WORKSPACE_ID=
 # the bundle contains no reporting code. Its origin is added to the CSP's connect-src below.
 ARG VITE_SENTRY_DSN=
 ARG VITE_SENTRY_ENVIRONMENT=production
+# Legal documents shown without the DRAFT banner (docs/legal-pages.md): comma-separated ids
+# (terms, privacy, dpa, aup, subprocessors) or `all`. Empty: every document is a draft.
+ARG VITE_ANUM_LEGAL_PUBLISHED=
 ENV VITE_ANUM_API_URL=$VITE_ANUM_API_URL \
     VITE_ANUM_TTS_URL=$VITE_ANUM_TTS_URL \
     VITE_ANUM_OIDC_ISSUER=$VITE_ANUM_OIDC_ISSUER \
     VITE_ANUM_OIDC_CLIENT_ID=$VITE_ANUM_OIDC_CLIENT_ID \
     VITE_ANUM_WORKSPACE_ID=$VITE_ANUM_WORKSPACE_ID \
     VITE_SENTRY_DSN=$VITE_SENTRY_DSN \
-    VITE_SENTRY_ENVIRONMENT=$VITE_SENTRY_ENVIRONMENT
+    VITE_SENTRY_ENVIRONMENT=$VITE_SENTRY_ENVIRONMENT \
+    VITE_ANUM_LEGAL_PUBLISHED=$VITE_ANUM_LEGAL_PUBLISHED
 RUN pnpm --filter @anum/contracts build && pnpm --filter @anum/web build \
     && node --experimental-strip-types apps/web/scripts/sentry-csp-origin.ts > /repo/csp-error-reporting-origin
 
