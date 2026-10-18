@@ -217,7 +217,7 @@ def test_change_orders_and_the_ledger_under_rls(db: Engine) -> None:
     assert approved["status"] == "approved" and approved["result_version"] == 2
     assert ok(client.get(f"{BASE}/projects/{project['id']}", headers=A))["contract_total"] == 2250.0
     entry = ok(client.post(f"{BASE}/usage", headers=A, json={"project_id": project["id"], "kind": "labour", "description": "Build pages",
-                                                               "occurred_on": "2026-11-02", "quantity": 4, "unit_cost": 60}), 201)
+                                                               "occurred_on": "2026-11-02", "quantity": 4, "unit_cost": 60, "currency": "AED"}), 201)
     money = ok(client.get(f"{BASE}/projects/{project['id']}/profitability", headers=A))
     assert money["revenue"] == 2250.0 and money["labour_cost"] == 240.0 and money["gross_margin"] == 2010.0 and money["reconciled"]
     for other in (A2, B):
