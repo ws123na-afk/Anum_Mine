@@ -6,14 +6,14 @@ older clients leave it empty and get English, as before.
 
 Expand only: one nullable column with a check; the previous release ignores it.
 
-Chained after ``0065_finance_intel``.
+Chained after ``0070_business``.
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0070_push_device_language"
-down_revision = "0065_finance_intel"
+revision = "0071_push_device_language"
+down_revision = "0070_business"
 branch_labels = None
 depends_on = None
 
