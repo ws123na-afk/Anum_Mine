@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
+import '../calls/calls_controller.dart';
+import '../calls/calls_repository.dart';
+import '../calls/calls_screen.dart';
 import '../calendar/calendar_controller.dart';
 import '../calendar/calendar_repository.dart';
 import '../calendar/calendar_screen.dart';
@@ -24,6 +27,8 @@ import '../library/library_screens.dart';
 /// * `/email/summary` (`?tab=urgent|replied|other`)
 /// * `/mail`: the Email Center on the workspace's own mail server
 ///   (docs/email.md#email-center)
+/// * `/calls`: phone calls through the phone's own dialer, with the call
+///   log and contacts (docs/calls.md#mobile)
 class WorkspaceToolRoutes {
   WorkspaceToolRoutes(
       {required this.api,
@@ -42,12 +47,14 @@ class WorkspaceToolRoutes {
   static const calendar = '/calendar';
   static const emailSummary = '/email/summary';
   static const mailCenter = '/mail';
+  static const calls = '/calls';
 
   late final calendarController =
       CalendarController(ApiCalendarRepository(api));
   late final mailCenterController = MailCenterController(
       ApiMailCenterRepository(api),
       transfer: mailTransfer);
+  late final callsController = CallsController(ApiCallsRepository(api));
 
   /// The route for [settings], wrapped by [guard] (the signed-in check), or
   /// null when the name is not one of these.
@@ -78,6 +85,8 @@ class WorkspaceToolRoutes {
       );
     } else if (uri.path == mailCenter) {
       screen = MailCenterScreen(controller: mailCenterController);
+    } else if (uri.path == calls) {
+      screen = CallsScreen(controller: callsController);
     }
     if (screen == null) return null;
     final child = screen;
@@ -89,10 +98,12 @@ class WorkspaceToolRoutes {
     calendarController.events = const [];
     calendarController.steps = const [];
     mailCenterController.reset();
+    callsController.reset();
   }
 
   void dispose() {
     calendarController.dispose();
     mailCenterController.dispose();
+    callsController.dispose();
   }
 }

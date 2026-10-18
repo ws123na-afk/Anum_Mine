@@ -125,7 +125,8 @@ class _CallsScreenState extends State<CallsScreen>
     _asking = false;
     c.clearPending();
     if (logged != null && mounted) {
-      setState(() => _note = AnumLocalizations.of(context).t('calls.log.saved'));
+      setState(
+          () => _note = AnumLocalizations.of(context).t('calls.log.saved'));
       _tabs.animateTo(2);
       unawaited(c.recents.load());
     }
@@ -338,12 +339,12 @@ class _ContactsTab extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => ContactFormSheet(
-          repository: controller.repository, from: from),
+      builder: (_) =>
+          ContactFormSheet(repository: controller.repository, from: from),
     );
     if (saved != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.f('calls.contact.added', {'name': saved.name}))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(l.f('calls.contact.added', {'name': saved.name}))));
       unawaited(controller.contacts.load());
     }
   }
@@ -356,7 +357,8 @@ class _ContactsTab extends StatelessWidget {
     } on PlatformException catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(l.f('calls.pickFailed', {'message': e.message ?? e.code}))));
+            content: Text(
+                l.f('calls.pickFailed', {'message': e.message ?? e.code}))));
       }
       return;
     }
@@ -382,18 +384,21 @@ class _ContactsTab extends StatelessWidget {
           Text(l.t('calls.intro'),
               style: TextStyle(color: context.palette.muted)),
           if (canLog)
-            Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
-              FilledButton.icon(
-                onPressed: () => _add(context),
-                icon: const Icon(Icons.person_add_alt_1_outlined),
-                label: Text(l.t('calls.add')),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _pick(context),
-                icon: const Icon(Icons.contacts_outlined),
-                label: Text(l.t('calls.pickFromPhone')),
-              ),
-            ]),
+            Wrap(
+                spacing: AnumSpacing.xs,
+                runSpacing: AnumSpacing.xs,
+                children: [
+                  FilledButton.icon(
+                    onPressed: () => _add(context),
+                    icon: const Icon(Icons.person_add_alt_1_outlined),
+                    label: Text(l.t('calls.add')),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _pick(context),
+                    icon: const Icon(Icons.contacts_outlined),
+                    label: Text(l.t('calls.pickFromPhone')),
+                  ),
+                ]),
           _Search(
               label: l.t('calls.search.contacts'),
               onSearch: (q) => unawaited(list.load(query: q))),
@@ -415,7 +420,8 @@ class _ContactsTab extends StatelessWidget {
                       contact.id, {'favourite': !contact.favourite});
                   await list.load();
                 },
-                onOpen: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                onOpen: () =>
+                    Navigator.of(context).push(MaterialPageRoute<void>(
                   builder: (_) => ContactDetailScreen(
                     controller: controller,
                     contactId: contact.id,
@@ -426,7 +432,8 @@ class _ContactsTab extends StatelessWidget {
           if (list.hasMore && list.phase == CallsPhase.ready)
             Center(
               child: OutlinedButton(
-                onPressed: list.loadingMore ? null : () => unawaited(list.more()),
+                onPressed:
+                    list.loadingMore ? null : () => unawaited(list.more()),
                 child: Text(l.t('calls.more')),
               ),
             ),
@@ -465,7 +472,8 @@ class _ContactRow extends StatelessWidget {
         ),
         const SizedBox(width: AnumSpacing.sm),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(contact.name,
                 style: const TextStyle(fontWeight: FontWeight.w600)),
             Text(contact.phone,
@@ -566,7 +574,8 @@ class _DialTabState extends State<_DialTab> {
               ),
               IconButton(
                 tooltip: l.t('calls.dial.delete'),
-                onPressed: _number.isEmpty ? null : () => _set(backspace(_number)),
+                onPressed:
+                    _number.isEmpty ? null : () => _set(backspace(_number)),
                 onLongPress: _number.isEmpty ? null : () => _set(''),
                 icon: const Icon(Icons.backspace_outlined),
               ),
@@ -596,9 +605,11 @@ class _DialTabState extends State<_DialTab> {
                       child: OutlinedButton(
                         key: Key('dial-$key'),
                         onPressed: () => _set(pressKey(_number, key)),
-                        onLongPress:
-                            key == '0' ? () => _set(longPressZero(_number)) : null,
-                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        onLongPress: key == '0'
+                            ? () => _set(longPressZero(_number))
+                            : null,
+                        child:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
                           Text(key, style: const TextStyle(fontSize: 22)),
                           if (key == '0')
                             const Text('+', style: TextStyle(fontSize: 11)),
@@ -665,7 +676,8 @@ class _RecentsTab extends StatelessWidget {
             for (final call in list.items)
               _CallRow(
                 call: call,
-                onOpen: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                onOpen: () =>
+                    Navigator.of(context).push(MaterialPageRoute<void>(
                   builder: (_) => CallDetailScreen(
                     controller: controller,
                     callId: call.id,
@@ -676,7 +688,8 @@ class _RecentsTab extends StatelessWidget {
           if (list.hasMore && list.phase == CallsPhase.ready)
             Center(
               child: OutlinedButton(
-                onPressed: list.loadingMore ? null : () => unawaited(list.more()),
+                onPressed:
+                    list.loadingMore ? null : () => unawaited(list.more()),
                 child: Text(l.t('calls.more')),
               ),
             ),
@@ -709,13 +722,15 @@ class _CallRow extends StatelessWidget {
             color: p.sky),
         const SizedBox(width: AnumSpacing.sm),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Wrap(
                 spacing: AnumSpacing.xs,
                 runSpacing: AnumSpacing.xxs,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Text(who, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(who,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
                   AnumPill(
                       label: call.live
                           ? l.t('calls.live')
@@ -762,7 +777,8 @@ class LogCallSheet extends StatefulWidget {
 class _LogCallSheetState extends State<LogCallSheet> {
   String _direction = 'outbound', _outcome = 'answered';
   late final _duration = TextEditingController(
-      text: durationText(elapsedSeconds(widget.pending.startedAt, widget.now())));
+      text:
+          durationText(elapsedSeconds(widget.pending.startedAt, widget.now())));
   final _notes = TextEditingController();
   bool _busy = false;
   String? _error;
@@ -851,14 +867,17 @@ class _LogCallSheetState extends State<LogCallSheet> {
             ]),
             const SizedBox(height: AnumSpacing.sm),
             Text(l.t('calls.log.outcome')),
-            Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xxs, children: [
-              for (final value in logOutcomes)
-                ChoiceChip(
-                  label: Text(l.t('calls.outcome.$value')),
-                  selected: _outcome == value,
-                  onSelected: (_) => setState(() => _outcome = value),
-                ),
-            ]),
+            Wrap(
+                spacing: AnumSpacing.xs,
+                runSpacing: AnumSpacing.xxs,
+                children: [
+                  for (final value in logOutcomes)
+                    ChoiceChip(
+                      label: Text(l.t('calls.outcome.$value')),
+                      selected: _outcome == value,
+                      onSelected: (_) => setState(() => _outcome = value),
+                    ),
+                ]),
             const SizedBox(height: AnumSpacing.sm),
             TextField(
               key: const Key('log-duration'),
@@ -1109,8 +1128,8 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     }
   }
 
-  Future<void> _act(String name, Future<CallEntry> Function() run,
-      String done) async {
+  Future<void> _act(
+      String name, Future<CallEntry> Function() run, String done) async {
     setState(() {
       _busy = name;
       _note = null;
@@ -1158,13 +1177,18 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
                         }),
               )
             : _ListPage(children: [
-                Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xxs, children: [
-                  AnumPill(
-                      label: call.live ? l.t('calls.live') : _outcome(l, call.outcome),
-                      tone: _tone(call.outcome)),
-                  AnumPill(label: l.t('calls.direction.${call.direction}')),
-                  AnumPill(label: l.t('calls.kind.${call.kind}')),
-                ]),
+                Wrap(
+                    spacing: AnumSpacing.xs,
+                    runSpacing: AnumSpacing.xxs,
+                    children: [
+                      AnumPill(
+                          label: call.live
+                              ? l.t('calls.live')
+                              : _outcome(l, call.outcome),
+                          tone: _tone(call.outcome)),
+                      AnumPill(label: l.t('calls.direction.${call.direction}')),
+                      AnumPill(label: l.t('calls.kind.${call.kind}')),
+                    ]),
                 Text(
                   [
                     _when(context, call.startedAt),
@@ -1204,7 +1228,8 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
                             ? null
                             : () => _act(
                                 'notes',
-                                () => _repo.updateCall(call.id, {'notes': _notes.text}),
+                                () => _repo.updateCall(
+                                    call.id, {'notes': _notes.text}),
                                 l.t('calls.detail.notesSaved')),
                         child: Text(l.t('calls.detail.saveNotes')),
                       ),
@@ -1231,7 +1256,9 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
                         onPressed: _busy != null ||
                                 (call.notes == null && call.transcript == null)
                             ? null
-                            : () => _act('summary', () => _repo.summarize(call.id),
+                            : () => _act(
+                                'summary',
+                                () => _repo.summarize(call.id),
                                 l.t('calls.detail.summary')),
                         icon: const Icon(Icons.auto_awesome),
                         label: Text(call.summary == null
@@ -1252,32 +1279,39 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
                           labelText: l.t('calls.detail.followUpField'),
                           border: const OutlineInputBorder()),
                     ),
-                    Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
-                      OutlinedButton(
-                        onPressed: _busy != null
-                            ? null
-                            : () {
-                                if (_follow.text.trim().isEmpty) return;
-                                unawaited(_act(
-                                    'follow',
-                                    () => _repo.saveFollowUp(call.id,
-                                        _follow.text.trim(), call.followUp?.dueDate),
-                                    l.t('calls.detail.followUpSaved')));
-                              },
-                        child: Text(l.t('calls.detail.saveFollowUp')),
-                      ),
-                      if (call.followUp != null &&
-                          call.followUp!.taskId == null &&
-                          (setup?.canCreateTasks ?? false))
-                        FilledButton(
-                          key: const Key('detail-task'),
-                          onPressed: _busy != null
-                              ? null
-                              : () => _act('task', () => _repo.followUpTask(call.id),
-                                  l.t('calls.detail.taskSaved')),
-                          child: Text(l.t('calls.detail.task')),
-                        ),
-                    ]),
+                    Wrap(
+                        spacing: AnumSpacing.xs,
+                        runSpacing: AnumSpacing.xs,
+                        children: [
+                          OutlinedButton(
+                            onPressed: _busy != null
+                                ? null
+                                : () {
+                                    if (_follow.text.trim().isEmpty) return;
+                                    unawaited(_act(
+                                        'follow',
+                                        () => _repo.saveFollowUp(
+                                            call.id,
+                                            _follow.text.trim(),
+                                            call.followUp?.dueDate),
+                                        l.t('calls.detail.followUpSaved')));
+                                  },
+                            child: Text(l.t('calls.detail.saveFollowUp')),
+                          ),
+                          if (call.followUp != null &&
+                              call.followUp!.taskId == null &&
+                              (setup?.canCreateTasks ?? false))
+                            FilledButton(
+                              key: const Key('detail-task'),
+                              onPressed: _busy != null
+                                  ? null
+                                  : () => _act(
+                                      'task',
+                                      () => _repo.followUpTask(call.id),
+                                      l.t('calls.detail.taskSaved')),
+                              child: Text(l.t('calls.detail.task')),
+                            ),
+                        ]),
                   ] else
                     Text(call.followUp?.text ?? l.t('calls.detail.noFollowUp')),
                   if (call.followUp == null && call.canEdit)
@@ -1294,7 +1328,9 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
                     child: TextButton.icon(
                       onPressed: () async {
                         final navigator = Navigator.of(context);
-                        if (!await _confirm(context, l.t('calls.detail.deleteTitle'),
+                        if (!await _confirm(
+                            context,
+                            l.t('calls.detail.deleteTitle'),
                             l.t('calls.detail.deleteText'))) {
                           return;
                         }
@@ -1419,7 +1455,8 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                     child: FilledButton.icon(
                       onPressed: () => widget.onDial(contact.phone, contact),
                       icon: const Icon(Icons.call),
-                      label: Text(l.f('calls.callName', {'name': contact.name})),
+                      label:
+                          Text(l.f('calls.callName', {'name': contact.name})),
                     ),
                   ),
                 AnumPill(
@@ -1464,7 +1501,8 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                         final messenger = ScaffoldMessenger.of(context);
                         if (!await _confirm(
                             context,
-                            l.f('calls.contact.deleteTitle', {'name': contact.name}),
+                            l.f('calls.contact.deleteTitle',
+                                {'name': contact.name}),
                             l.t('calls.contact.deleteText'))) {
                           return;
                         }
@@ -1472,8 +1510,8 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                           await _repo.deleteContact(contact.id);
                           unawaited(widget.controller.contacts.load());
                           messenger.showSnackBar(SnackBar(
-                              content: Text(l.f(
-                                  'calls.contact.deleted', {'name': contact.name}))));
+                              content: Text(l.f('calls.contact.deleted',
+                                  {'name': contact.name}))));
                           navigator.pop();
                         } on Object catch (e) {
                           if (mounted) setState(() => _error = _message(e));

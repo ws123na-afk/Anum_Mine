@@ -22,8 +22,7 @@ const callsEn = <String, String>{
   'calls.contacts.noMatch': 'No contact matches',
   'calls.add': 'Add contact',
   'calls.pickFromPhone': 'Pick from phone',
-  'calls.pickFailed':
-      "Couldn't open your phone's contacts: {message}",
+  'calls.pickFailed': "Couldn't open your phone's contacts: {message}",
   'calls.pickNoNumber': 'That contact has no phone number.',
   'calls.star': 'Add {name} to favourites',
   'calls.unstar': 'Remove {name} from favourites',
@@ -38,13 +37,15 @@ const callsEn = <String, String>{
   'calls.dial.call': 'Call',
   'calls.dial.hint': 'Hold 0 for +. Your phone places the call.',
   'calls.dial.invalid': 'Enter at least 3 digits.',
-  'calls.dial.failed': "The phone app didn't open. Check that this device can make calls.",
+  'calls.dial.failed':
+      "The phone app didn't open. Check that this device can make calls.",
   'calls.log.title': 'Log the call',
   'calls.log.with': 'Call with {name}',
   'calls.log.direction': 'Direction',
   'calls.log.outcome': 'Outcome',
   'calls.log.duration': 'Duration (minutes:seconds)',
-  'calls.log.durationHint': 'Measured while you were away; change it if needed.',
+  'calls.log.durationHint':
+      'Measured while you were away; change it if needed.',
   'calls.log.badDuration':
       'Write the duration as minutes:seconds, for example 2:30.',
   'calls.log.notes': 'Notes',
@@ -78,7 +79,8 @@ const callsEn = <String, String>{
   'calls.detail.noSummary': 'No summary yet. Add notes, then summarise.',
   'calls.detail.noModel':
       'Summaries need a model. A workspace owner connects one in Settings; your notes are saved.',
-  'calls.detail.aiLabel': 'AI generated · {model}. Check it against your notes.',
+  'calls.detail.aiLabel':
+      'AI generated · {model}. Check it against your notes.',
   'calls.detail.followUp': 'Follow-up',
   'calls.detail.followUpField': 'Next step',
   'calls.detail.saveFollowUp': 'Save follow-up',
@@ -101,7 +103,8 @@ const callsEn = <String, String>{
   'calls.contact.name': 'Name',
   'calls.contact.phone': 'Phone number',
   'calls.contact.company': 'Company',
-  'calls.contact.phoneHint': 'With the country code, for example +971 50 123 4567.',
+  'calls.contact.phoneHint':
+      'With the country code, for example +971 50 123 4567.',
   'calls.contact.badPhone':
       'Enter a phone number: digits, an optional + at the start, 3 to 20 characters.',
   'calls.contact.nameRequired': 'Enter a name.',
@@ -138,8 +141,7 @@ const callsAr = <String, String>{
   'calls.search.contacts': 'البحث في جهات الاتصال',
   'calls.search.calls': 'البحث في المكالمات',
   'calls.contacts.empty': 'لا توجد جهات اتصال بعد',
-  'calls.contacts.emptyText':
-      'أضف الأشخاص الذين تتصل بهم، أو اخترهم من هاتفك.',
+  'calls.contacts.emptyText': 'أضف الأشخاص الذين تتصل بهم، أو اخترهم من هاتفك.',
   'calls.contacts.noMatch': 'لا توجد جهة اتصال مطابقة',
   'calls.add': 'إضافة جهة اتصال',
   'calls.pickFromPhone': 'اختيار من الهاتف',
@@ -158,7 +160,8 @@ const callsAr = <String, String>{
   'calls.dial.call': 'اتصال',
   'calls.dial.hint': 'اضغط مطولا على 0 لكتابة +. يجري هاتفك المكالمة.',
   'calls.dial.invalid': 'أدخل 3 أرقام على الأقل.',
-  'calls.dial.failed': 'لم يفتح تطبيق الهاتف. تأكد أن هذا الجهاز يستطيع إجراء المكالمات.',
+  'calls.dial.failed':
+      'لم يفتح تطبيق الهاتف. تأكد أن هذا الجهاز يستطيع إجراء المكالمات.',
   'calls.log.title': 'تسجيل المكالمة',
   'calls.log.with': 'مكالمة مع {name}',
   'calls.log.direction': 'الاتجاه',
@@ -197,7 +200,8 @@ const callsAr = <String, String>{
   'calls.detail.noSummary': 'لا يوجد ملخص بعد. أضف ملاحظات ثم لخص.',
   'calls.detail.noModel':
       'يحتاج التلخيص إلى نموذج. يربطه مالك مساحة العمل من الإعدادات؛ ملاحظاتك محفوظة.',
-  'calls.detail.aiLabel': 'من إنشاء الذكاء الاصطناعي · {model}. راجعه مقابل ملاحظاتك.',
+  'calls.detail.aiLabel':
+      'من إنشاء الذكاء الاصطناعي · {model}. راجعه مقابل ملاحظاتك.',
   'calls.detail.followUp': 'المتابعة',
   'calls.detail.followUpField': 'الخطوة التالية',
   'calls.detail.saveFollowUp': 'حفظ المتابعة',

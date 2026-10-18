@@ -2,7 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
-import '../../data/json_read.dart';
+import '../../data/api_models.dart';
 import 'calls_models.dart';
 
 /// Phone calls API (docs/calls.md#api). The server checks call:read,
@@ -12,7 +12,10 @@ abstract interface class CallsRepository {
   Future<CallsPage<CallContact>> contacts(
       {String query, bool favourites, int offset});
   Future<CallContact> createContact(
-      {required String name, required String phone, String? company, String source});
+      {required String name,
+      required String phone,
+      String? company,
+      String source});
   Future<CallContact> updateContact(String id, Map<String, Object?> changes);
   Future<void> deleteContact(String id);
   Future<CallsPage<CallEntry>> calls(
@@ -129,7 +132,8 @@ class ApiCallsRepository implements CallsRepository {
         'direction': direction,
         'outcome': outcome,
         if (durationSeconds != null) 'duration_seconds': durationSeconds,
-        if (startedAt != null) 'started_at': startedAt.toUtc().toIso8601String(),
+        if (startedAt != null)
+          'started_at': startedAt.toUtc().toIso8601String(),
         if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
       }));
 
@@ -147,7 +151,8 @@ class ApiCallsRepository implements CallsRepository {
       _call(await api.request('POST', _one('log', id, '/summarize')));
 
   @override
-  Future<CallEntry> saveFollowUp(String id, String text, String? dueDate) async =>
+  Future<CallEntry> saveFollowUp(
+          String id, String text, String? dueDate) async =>
       _call(await api.request('PUT', _one('log', id, '/follow-up'),
           body: {'text': text, if (dueDate != null) 'due_date': dueDate}));
 
@@ -174,5 +179,6 @@ Future<DeviceContact?> pickDeviceContact() async {
       await _contactsChannel.invokeMapMethod<String, Object?>('pickContact');
   final name = picked?['name'], phone = picked?['phone'];
   if (name is! String || phone is! String || phone.trim().isEmpty) return null;
-  return DeviceContact(name: name.trim().isEmpty ? phone : name.trim(), phone: phone);
+  return DeviceContact(
+      name: name.trim().isEmpty ? phone : name.trim(), phone: phone);
 }

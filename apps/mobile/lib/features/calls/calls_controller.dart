@@ -72,8 +72,8 @@ class CallsList<T> extends ChangeNotifier {
 /// phone's dialer was opened for (logged when the person comes back).
 class CallsController extends ChangeNotifier {
   CallsController(this.repository) {
-    contacts = CallsList<CallContact>((query, offset) =>
-        repository.contacts(query: query, offset: offset));
+    contacts = CallsList<CallContact>(
+        (query, offset) => repository.contacts(query: query, offset: offset));
     recents = CallsList<CallEntry>(
         (query, offset) => repository.calls(query: query, offset: offset));
   }

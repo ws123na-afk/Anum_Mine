@@ -7,7 +7,9 @@ const logOutcomes = ['answered', 'no_answer', 'busy', 'voicemail'];
 
 class AiConsent {
   const AiConsent(
-      {required this.grantedAt, required this.recordedBy, required this.method});
+      {required this.grantedAt,
+      required this.recordedBy,
+      required this.method});
   factory AiConsent.fromJson(JsonReader j) => AiConsent(
         grantedAt: j.date('granted_at'),
         recordedBy: j.string('recorded_by'),
@@ -227,8 +229,8 @@ int? parseDuration(String text) {
   if (clock != null) {
     return int.parse(clock.group(1)!) * 60 + int.parse(clock.group(2)!);
   }
-  final minutes = RegExp(r'^(\d{1,3})\s*m(in)?$', caseSensitive: false)
-      .firstMatch(value);
+  final minutes =
+      RegExp(r'^(\d{1,3})\s*m(in)?$', caseSensitive: false).firstMatch(value);
   if (minutes != null) return int.parse(minutes.group(1)!) * 60;
   if (RegExp(r'^\d{1,5}$').hasMatch(value)) {
     final seconds = int.parse(value);
