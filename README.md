@@ -85,6 +85,7 @@ x-user-roles: owner,member
 - [P0 CI remediation: commerce tests, journey 403, Rust advisories](docs/business/P0_CI_REMEDIATION.md)
 - [P1 acceptance tests for the Business section](docs/business/P1_ACCEPTANCE_TESTS.md)
 - [Security](docs/security.md)
+- [Third-party licenses, notices and SBOMs](docs/licenses.md)
 - [Threat model: agent tool use and prompt injection](docs/threat-model.md)
 - [Email Center: external penetration test plan](docs/email-pentest-plan.md)
 - [Identity and sign-in](docs/identity.md)

@@ -20,7 +20,8 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 6. **Brevo** (`docs/brevo.md`): paste the API key in Marketing, Email campaigns, Connection (never in chat); authenticate sending domains in Brevo (DKIM, brevo-code).
 7. **Audit leftovers** (`docs/business/P0_CI_REMEDIATION.md`): staging smoke test, migration dry run and restore drill on the VM; turn on branch protection.
 8. **Finance** (`docs/finance-trading-readiness.md`): choose market-data providers; live trading stays off.
-9. **Codex review limit** is used up; reviews resume when the owner adds credits.
+9. **License decisions** (`docs/licenses.md#current-result-scan-of-18-october-2026`): the CI job "Licenses and SBOMs" fails until the owner decides on the LGPL packages `psycopg`/`psycopg-binary` (API) and the `sharp` libvips binaries (web, desktop), either by adding reviewed exceptions to `scripts/licenses/exceptions.toml` or by replacing them; also confirm `CDLA-Permissive-2.0` in the allowed list.
+10. **Codex review limit** is used up; reviews resume when the owner adds credits.
 
 ## Build work still open (with reasons)
 
@@ -31,4 +32,5 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 - **Finance:** market-data fetch waits on the provider decision.
 - **Business (roadmap P2 and later):** human-approved sending, change orders, invoices, support tickets, customer portal; per-agent cost caps and a general agent kill switch (gap register `docs/business/ANUM_BUSINESS_GAP_REGISTER.md`).
 - **Email domains page in ANUM** (adding Mailcow domains from ANUM with approvals) was offered, not started.
+- **Licenses:** the scan does not yet cover the native Android and iOS libraries Flutter plugins pull in (Gradle, CocoaPods), the Tauri WebView runtime or OS packages in images (those are in the deploy Trivy SBOMs); full license texts are not yet bundled into the installers or shown on an in-app licenses screen (`docs/licenses.md`).
 - **"All inboxes" view** across separate mailboxes was offered, not started.
