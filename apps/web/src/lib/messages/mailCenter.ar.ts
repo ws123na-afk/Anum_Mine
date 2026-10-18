@@ -66,6 +66,8 @@ export const mailCenterAr: Record<keyof typeof mailCenterEn, Message> = {
   'mailc.sync.showNew': 'عرض البريد الجديد',
   'mailc.sync.now': 'تحقق الآن',
   'mailc.unreadBadge': few('{count} غير مقروءة', '{count} غير مقروءتين', '{count} غير مقروءة'),
+  'mailc.showPlain': 'عرض النص فقط',
+  'mailc.showFormatted': 'عرض المنسق',
   'mailc.shortcuts.title': 'اختصارات لوحة المفاتيح',
   'mailc.shortcuts.text': 'j و k للتنقل، x للتحديد، e للأرشفة، # للمهملات، s للنجمة، u للمقروء وغير المقروء، / للبحث.',
 };

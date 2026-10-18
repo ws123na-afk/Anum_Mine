@@ -64,6 +64,8 @@ export const mailCenterEn = {
   'mailc.sync.showNew': 'Show new mail',
   'mailc.sync.now': 'Check now',
   'mailc.unreadBadge': { one: '{count} unread', other: '{count} unread' },
+  'mailc.showPlain': 'Show plain text',
+  'mailc.showFormatted': 'Show formatted',
   'mailc.shortcuts.title': 'Keyboard shortcuts',
   'mailc.shortcuts.text': 'j and k move, x selects, e archives, # moves to Trash, s stars, u marks read or unread, / searches.',
 } satisfies Record<string, Message>;
