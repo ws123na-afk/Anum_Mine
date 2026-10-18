@@ -48,7 +48,8 @@ exclude = ["migrations*", "tests*"]
 [tool.setuptools.package-data]
 # The coding workflow developer mode installs in target repositories (docs/developer-mode.md).
 # The checked-in setup plan blueprints (docs/setup-plan.md).
-anum_api = ["workflow_templates/*.yml", "blueprints/*.json"]
+# The trading knowledge library, read at startup (docs/finance-trading-intel.md#skills-and-tools).
+anum_api = ["workflow_templates/*.yml", "blueprints/*.json", "finance/intel/skills/*/SKILL.md", "finance/intel/skills/*/tools.json", "finance/intel/skills/*/references/*.md"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"

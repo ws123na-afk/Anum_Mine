@@ -52,6 +52,21 @@ class Costs:
         return {k: str(v) for k, v in self.__dict__.items()}
 
 
+class SeriesCache:
+    """Closes, bars and indicator series of one aligned data set, computed once.
+
+    Walk-forward validation runs the same bars dozens of times (every fold and grid choice);
+    sharing this cache makes the indicators cost O(bars) once instead of once per run.
+    Indicators are causal, so a value read at bar ``t`` is the same whichever run reads it.
+    """
+
+    def __init__(self, data: Mapping[str, Sequence[Candle]]) -> None:
+        self.data = data
+        self.closes = {s: [float(c.close) for c in bars] for s, bars in data.items()}
+        self.bars = {s: [c.bar() for c in bars] for s, bars in data.items()}
+        self.indicators: dict[tuple[Any, ...], Any] = {}
+
+
 class History:
     """What a strategy may see at the close of bar ``t``: bars ``0..t`` and nothing later.
 
@@ -60,11 +75,12 @@ class History:
     re-runs strategies on cut series to prove the signals do not change.
     """
 
-    def __init__(self, data: Mapping[str, Sequence[Candle]]) -> None:
+    def __init__(self, data: Mapping[str, Sequence[Candle]], shared: SeriesCache | None = None) -> None:
+        cache = shared if shared is not None and shared.data is data else SeriesCache(data)
         self._data = data
-        self._closes = {s: [float(c.close) for c in bars] for s, bars in data.items()}
-        self._bars = {s: [c.bar() for c in bars] for s, bars in data.items()}
-        self._cache: dict[tuple[Any, ...], Any] = {}
+        self._closes = cache.closes
+        self._bars = cache.bars
+        self._cache = cache.indicators
         self.t = 0
         self.weights: dict[str, float] = {}
         self.symbols = tuple(data)
@@ -148,20 +164,21 @@ def _round_qty(value: Decimal) -> Decimal:
 
 
 def run(data: Mapping[str, Sequence[Candle]], strategy: Strategy, *, cash: Decimal = Decimal("100000"),
-        costs: Costs | None = None, start_index: int = 0, end_index: int | None = None, final_signal: bool = False) -> Result:
+        costs: Costs | None = None, start_index: int = 0, end_index: int | None = None, final_signal: bool = False,
+        shared: SeriesCache | None = None) -> Result:
     """Run ``strategy`` over aligned bars. Trading starts at ``start_index``; earlier bars only warm up indicators.
 
     The strategy is not asked on the last bar (there is no next open to fill at) unless
     ``final_signal``: the look-ahead probe needs that signal to compare it with a longer run.
     """
     costs = costs or Costs()
-    bars = align(data)
+    bars = shared.data if shared is not None and shared.data is data else align(data)  # a shared cache holds aligned bars
     symbols = list(bars)
     n = len(bars[symbols[0]])
     end = n if end_index is None else min(end_index, n)
     if end - start_index < 2:
         raise BacktestError("Not enough bars to trade: at least two after the warm-up.")
-    history = History(bars)
+    history = History(bars, shared)
     holdings = {s: Decimal("0") for s in symbols}
     cost_basis = {s: Decimal("0") for s in symbols}
     money = cash

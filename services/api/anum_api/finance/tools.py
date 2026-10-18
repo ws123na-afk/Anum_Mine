@@ -662,6 +662,10 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
         ),
         _widen_propose,
     )
+    # Trading intelligence (docs/finance-trading-intel.md#skills-and-tools): four read tools and the pause.
+    from .intel.agent_tools import register_intel_tools
+
+    register_intel_tools(registry)
     return registry
 
 
@@ -809,6 +813,12 @@ def _month_from(text: str, today: date) -> str | None:
 def plan_call(prompt: str, today: date | None = None) -> ToolCall | None:
     """The finance tool call the user's own words ask for, or ``None`` (not ours)."""
     text = " ".join(prompt.split())
+    # Trading intelligence questions ("what did the trading agents do today", "pause all paper trading").
+    from .intel.agent_tools import intel_call
+
+    asked = intel_call(text)
+    if asked is not None:
+        return asked
     # Stage 6: a SIMULATED order ("paper buy 10 AAPL") is only ever a proposal for the person to
     # approve. Any other buy, sell, pay or transfer is not ours: it falls through below.
     simulated = paper_call(text)
