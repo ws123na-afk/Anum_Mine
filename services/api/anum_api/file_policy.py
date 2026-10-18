@@ -267,11 +267,17 @@ class ScanVerdict:
     scanned: bool = True
 
 
+class ScannerStarting(RuntimeError):
+    """The scanner has not answered since this process started, e.g. clamd is still
+    loading its signatures after a restart. Uploads answer ``503`` saying so."""
+
+
 class FileScanner(Protocol):
     """Called with every upload's bytes before they are stored (docs/files.md#malware-scanning).
 
     Return ``ScanVerdict(clean=False, reason=...)`` to refuse the upload (``422``); raise
-    to fail it (``503``, nothing stored). It runs inside the request, so keep it bounded.
+    to fail it (``503``, nothing stored; raise :class:`ScannerStarting` while the scanner
+    is still starting). It runs in a worker thread inside the request, so keep it bounded.
     """
 
     def scan(self, name: str, content_type: str, content: bytes) -> ScanVerdict: ...

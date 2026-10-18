@@ -569,9 +569,9 @@ services:
   # --- ClamAV clamd (upload malware scanning) ----------------------------------------
   # No published port and no Caddy route: the API streams each upload to
   # clamd:3310 (INSTREAM) on the internal backend network; egress lets freshclam fetch
-  # signature updates. The signatures live in memory (about 1.2 GB; in-place reloads
-  # keep a second copy out), so the limit leaves room for freshclam and scanning
-  # without touching ANUM's other services (docs/deploy-oracle.md#malware-scanning).
+  # signature updates. clamd keeps the signatures in memory (about 1.2 GB; in-place
+  # reloads keep a second copy out of clamd) and freshclam loads a downloaded set once
+  # to test it, so the limit covers both (docs/deploy-oracle.md#malware-scanning).
   clamd:
     image: clamav/clamav:1.5.4-debian13-slim
     restart: unless-stopped
@@ -598,6 +598,9 @@ services:
       # The first start loads (or downloads) the signature database.
       start_period: 600s
     mem_limit: 3g
+    # Loading signatures is single-threaded; one core keeps scans of large files from
+    # starving PostgreSQL and the API on a 2 OCPU VM.
+    cpus: 1.0
     logging: *logging
 
   # --- Scheduled jobs (profile `jobs`; started by systemd timers, never by `up`) ----

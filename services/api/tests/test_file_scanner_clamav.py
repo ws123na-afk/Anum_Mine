@@ -5,6 +5,7 @@ the startup refusal. The real clamd is exercised in test_file_scanner_clamav_int
 
 from __future__ import annotations
 
+import json
 import socket
 import struct
 import threading
@@ -266,3 +267,112 @@ def test_the_helm_chart_mirrors_the_scanner_refusals() -> None:
     lint = (helm / "ci" / "lint.sh").read_text(encoding="utf-8")
     for refusal in ("ANUM_FILE_SCAN_REQUIRED must stay true", "ANUM_CLAMAV_HOST is required", "ANUM_FILE_SCANNER"):
         assert refusal in validate and refusal in lint, refusal
+
+
+# --------------------------------------------------------------------------- starting up
+
+
+def test_a_clamd_that_never_answered_reports_that_it_is_starting() -> None:
+    from anum_api import file_scanner_clamav
+
+    port = _unused_port()
+    scanner = ClamdScanner(host="127.0.0.1", port=port, timeout_seconds=1)
+    with pytest.raises(file_scanner_clamav.ClamdStarting):
+        scanner.scan("a.txt", "text/plain", b"x")
+    file_policy.set_file_scanner(scanner)
+    starting = _upload("notes.txt", b"clean notes")
+    assert starting.status_code == 503
+    assert starting.headers["retry-after"] == "60"
+    assert starting.json()["error"]["message"] == files.SCANNER_STARTING
+    # Once clamd has answered, a later refusal means it is down, not starting.
+    file_scanner_clamav._mark_answered("127.0.0.1", port)
+    down = _upload("notes.txt", b"clean notes")
+    assert down.status_code == 503 and down.json()["error"]["message"] == files.SCANNER_UNAVAILABLE
+    assert not file_store.records
+
+
+def test_a_successful_scan_marks_clamd_as_answered(clamd: FakeClamd) -> None:
+    from anum_api.file_scanner_clamav import has_answered
+
+    assert not has_answered("127.0.0.1", clamd.port)
+    clamd.scanner().scan("ok.txt", "text/plain", b"hello")
+    assert has_answered("127.0.0.1", clamd.port)
+
+
+# --------------------------------------------------------------------------- quarantine and rescan
+
+
+def _stored(name: str, content: bytes) -> dict:
+    response = _upload(name, content)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_scanned_uploads_are_marked_clean_and_unscanned_ones_stay_unmarked(clamd: FakeClamd) -> None:
+    unscanned = _stored("before.txt", b"stored before scanning")
+    assert unscanned["scan_status"] is None and unscanned["scanned_at"] is None
+    file_policy.set_file_scanner(clamd.scanner())
+    scanned = _stored("after.txt", b"stored after")
+    assert scanned["scan_status"] == "clean" and scanned["scanned_at"]
+
+
+def test_the_rescan_job_quarantines_infected_files_and_skips_scanned_ones(
+    clamd: FakeClamd, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from anum_api import file_rescan
+
+    old_bad = _stored("old-invoice.txt", b"MALWARE from last year")
+    old_good = _stored("old-notes.txt", b"plain notes")
+    file_policy.set_file_scanner(clamd.scanner())
+    new_good = _stored("new.txt", b"new notes")
+    file_policy.set_file_scanner(None)
+    scans_before = len(clamd.received)
+
+    assert file_rescan.main(["--dry-run"], discovery=file_rescan.memory_discovery()) == 0
+    dry = json.loads(capsys.readouterr().out)
+    assert dry["unscanned"] == 2 and dry["scanned"] == 0 and len(clamd.received) == scans_before
+
+    assert file_rescan.main([], scanner=clamd.scanner(), discovery=file_rescan.memory_discovery()) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert (result["scanned"], result["clean"], result["quarantined"]) == (2, 1, 1)
+    assert result["quarantined_ids"] == [old_bad["id"]]
+    assert "old-invoice" not in str(result)
+    assert file_store.records[old_bad["id"]].scan_status == "infected"
+    assert file_store.records[old_bad["id"]].scan_signature == "Eicar-Test-Signature"
+    assert file_store.records[old_good["id"]].scan_status == "clean"
+    assert file_store.records[new_good["id"]].scan_status == "clean"
+    # A second run finds nothing left to scan.
+    assert file_rescan.main([], scanner=clamd.scanner(), discovery=file_rescan.memory_discovery()) == 0
+    assert json.loads(capsys.readouterr().out)["unscanned"] == 0
+
+    # Quarantined: listed (to be deleted), never served.
+    listed = client.get("/api/v1/files", headers=MEMBER).json()
+    bad = next(item for item in listed if item["id"] == old_bad["id"])
+    assert bad["scan_status"] == "infected" and bad["previewable"] is False
+    for response in (
+        client.get(f"/api/v1/files/{old_bad['id']}/content", headers=MEMBER),
+        client.get(f"/api/v1/files/{old_bad['id']}/preview", headers=MEMBER),
+        client.post(f"/api/v1/files/{old_bad['id']}/links", headers=MEMBER, json={}),
+    ):
+        assert response.status_code == 409
+        assert "is quarantined: the malware scanner found Eicar-Test-Signature" in response.json()["error"]["message"]
+    assert client.get(f"/api/v1/files/{old_good['id']}/content", headers=MEMBER).status_code == 200
+    assert client.delete(f"/api/v1/files/{old_bad['id']}", headers=MEMBER).status_code == 204
+
+
+def test_the_rescan_job_stops_without_recording_when_clamd_fails(capsys: pytest.CaptureFixture[str]) -> None:
+    from anum_api import file_rescan
+
+    stored = _stored("old.txt", b"plain")
+    down = ClamdScanner(host="127.0.0.1", port=_unused_port(), timeout_seconds=1)
+    assert file_rescan.main([], scanner=down, discovery=file_rescan.memory_discovery()) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["scanned"] == 0 and "nothing was recorded" in result["stopped"]
+    assert file_store.records[stored["id"]].scan_status is None
+
+
+def test_the_rescan_job_refuses_to_run_without_a_scanner(capsys: pytest.CaptureFixture[str]) -> None:
+    from anum_api import file_rescan
+
+    assert file_rescan.main([], discovery=file_rescan.memory_discovery()) == 2
+    assert "ANUM_FILE_SCANNER=clamav" in capsys.readouterr().err

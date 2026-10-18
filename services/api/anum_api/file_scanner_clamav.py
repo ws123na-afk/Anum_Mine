@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import socket
 import struct
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,6 +41,29 @@ class ScannerUnavailable(RuntimeError):
     """clamd could not be reached, timed out or answered with an error."""
 
 
+class ClamdStarting(ScannerUnavailable, file_policy.ScannerStarting):
+    """clamd refuses connections and has not answered since this process started.
+
+    clamd opens its port only after it has loaded its signatures (up to a few minutes
+    after a start), so a refused connection before the first answer means "starting".
+    """
+
+
+# (host, port) of every clamd that has answered since this process started.
+_answered: set[tuple[str, int]] = set()
+_answered_lock = threading.Lock()
+
+
+def _mark_answered(host: str, port: int) -> None:
+    with _answered_lock:
+        _answered.add((host, port))
+
+
+def has_answered(host: str, port: int) -> bool:
+    with _answered_lock:
+        return (host, port) in _answered
+
+
 @dataclass(frozen=True)
 class ClamdScanner:
     host: str
@@ -54,7 +78,10 @@ class ClamdScanner:
         try:
             return socket.create_connection((self.host, self.port), timeout=self.timeout_seconds)
         except OSError as exc:
-            raise ScannerUnavailable(f"clamd at {self.host}:{self.port} is unreachable ({exc.__class__.__name__})") from exc
+            message = f"clamd at {self.host}:{self.port} is unreachable ({exc.__class__.__name__})"
+            if not has_answered(self.host, self.port):
+                raise ClamdStarting(f"{message}; it has not answered since the API started") from exc
+            raise ScannerUnavailable(message) from exc
 
     @staticmethod
     def _read_reply(conn: socket.socket) -> str:
@@ -73,9 +100,12 @@ class ClamdScanner:
         try:
             with self._connect() as conn:
                 conn.sendall(b"zPING\0")
-                return self._read_reply(conn) == "PONG"
+                answered = self._read_reply(conn) == "PONG"
         except (OSError, ScannerUnavailable):
             return False
+        if answered:
+            _mark_answered(self.host, self.port)
+        return answered
 
     def _instream(self, content: bytes) -> str:
         with self._connect() as conn:
@@ -114,15 +144,19 @@ class ClamdScanner:
 
     def scan(self, name: str, content_type: str, content: bytes) -> file_policy.ScanVerdict:
         try:
-            return self.parse_reply(self._instream(content))
+            verdict = self.parse_reply(self._instream(content))
         except (ScannerUnavailable, OSError) as exc:
             if self.required:
+                if isinstance(exc, ScannerUnavailable):
+                    raise
                 raise ScannerUnavailable(str(exc)) from exc
             logger.warning(
                 "Upload accepted without a malware scan: clamd failed and ANUM_FILE_SCAN_REQUIRED is false",
                 extra={"anum_scanner_error": str(exc)},
             )
             return file_policy.ScanVerdict(clean=True, reason="not scanned", scanned=False)
+        _mark_answered(self.host, self.port)
+        return verdict
 
 
 def scanner_from_settings(config: Any) -> ClamdScanner | None:
