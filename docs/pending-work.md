@@ -31,4 +31,4 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 - **Finance:** market-data fetch waits on the provider decision.
 - **Business (roadmap P2 and later):** human-approved sending, change orders, invoices, support tickets, customer portal; per-agent cost caps and a general agent kill switch (gap register `docs/business/ANUM_BUSINESS_GAP_REGISTER.md`).
 - **Email domains page in ANUM** (adding Mailcow domains from ANUM with approvals) was offered, not started.
-- **"All inboxes" view**: built (docs/email.md#all-inboxes); it reads each inbox live per page, so a person with many slow mailboxes waits for the slowest one.
+- **"All inboxes" view**: built (docs/email.md#all-inboxes); each inbox is read live per page with an 8 second timeout; a slow one is left out of that page and flagged.

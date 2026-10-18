@@ -4,7 +4,7 @@
 import type { MailAccount, MailFolder, MailMessage } from './mail';
 
 export type MailAccess = 'owner' | 'send' | 'read';
-export type AllInboxState = 'ok' | 'auth_failed' | 'offline' | 'error' | 'done';
+export type AllInboxState = 'ok' | 'auth_failed' | 'offline' | 'error' | 'slow' | 'done';
 
 export interface AllInboxMessage extends MailMessage {
   account_id: string; account_address: string; account_name: string | null; access: MailAccess;
@@ -12,7 +12,8 @@ export interface AllInboxMessage extends MailMessage {
 export interface AllInboxMailbox {
   account_id: string; address: string; display_name: string | null; access: MailAccess; state: AllInboxState; error: string | null; total: number | null;
 }
-export interface AllInboxPage { items: AllInboxMessage[]; total: number; next_cursor: string | null; mailboxes: AllInboxMailbox[] }
+/** `partial`: at least one inbox was left out of this page (too slow, offline, refused or failed). */
+export interface AllInboxPage { items: AllInboxMessage[]; total: number; next_cursor: string | null; partial?: boolean; mailboxes: AllInboxMailbox[] }
 
 /** Search, the Unread and Starred chips, one mailbox ('' for all) and a received-date range (YYYY-MM-DD, inclusive). */
 export interface AllInboxFilters { q: string; unread: boolean; flagged: boolean; accountId: string; since: string; until: string }

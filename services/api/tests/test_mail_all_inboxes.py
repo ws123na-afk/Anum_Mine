@@ -5,6 +5,9 @@ Every address and password here is a plainly fake fixture.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -19,7 +22,7 @@ from anum_api.mailbox import service
 from anum_api.mailbox.config import MailServerSettings, mail_settings
 from anum_api.mailbox.server import Page, imap_date
 from anum_api.mailbox.store import mail_backend
-from anum_api.schemas import WorkspaceMembership, utc_now
+from anum_api.schemas import TenantContext, WorkspaceMembership, utc_now
 from anum_api.store import store
 
 MAIL = "/api/v1/mail"
@@ -45,6 +48,9 @@ class DatedBound(Bound):
 
     def messages(self, folder: str, *, before: int | None, limit: int, query: str | None, unread: bool, flagged: bool, since: date | None = None, until: date | None = None) -> Page:
         self.fake.calls += 1  # type: ignore[attr-defined]
+        hold = getattr(self.fake, "hold", None)
+        if hold is not None:
+            hold.wait(5)  # a slow mail server: answers only when the test lets it
         if since is None and until is None:
             return super().messages(folder, before=before, limit=limit, query=query, unread=unread, flagged=flagged)
         kept = [i for i in self._folder(folder) if (since is None or self.fake.dates[i.uid] >= since) and (until is None or self.fake.dates[i.uid] <= until)]  # type: ignore[attr-defined]
@@ -231,3 +237,33 @@ def test_merge_keeps_each_inbox_in_its_own_order_and_imap_dates() -> None:
     assert inboxes_module.decode_cursor(inboxes_module.encode_cursor({"a": 3}, "f1"), "f1") == {"a": 3}
     with pytest.raises(HTTPException):
         inboxes_module.decode_cursor(inboxes_module.encode_cursor({"a": -1}, "f1"), "f1")
+
+
+def test_a_slow_inbox_does_not_hold_the_page(servers: dict[str, FakeServer], mailboxes: dict[str, dict], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(inboxes_module, "INBOX_TIMEOUT_SECONDS", 0.3)
+    hold = threading.Event()
+    servers["member@example.test"].hold = hold  # type: ignore[attr-defined]
+    context = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_mc", roles=["owner"])
+    # The route on a loop that stays open, as in the server (a TestClient request closes its loop,
+    # which waits for the slow server's thread before answering).
+    loop = asyncio.new_event_loop()
+    try:
+        started = time.monotonic()
+        result = loop.run_until_complete(inboxes_module.list_all_inboxes(
+            account_id=[], cursor=None, limit=50, q=None, unread=False, flagged=False, since=None, until=None, context=context,
+        ))
+        elapsed = time.monotonic() - started
+    finally:
+        hold.set()
+        loop.close()
+    assert elapsed < 3, elapsed  # the page went out after the timeout, not after the slow server
+    page = result.model_dump()
+    assert page["partial"] is True
+    assert {m["account_address"] for m in page["items"]} == {"owner@example.test"}
+    states = {m["address"]: m for m in page["mailboxes"]}
+    assert states["member@example.test"]["state"] == "slow" and states["member@example.test"]["total"] is None
+    assert "did not answer in time" in states["member@example.test"]["error"]
+    # Once it answers again, the next load includes it and the page is whole.
+    del servers["member@example.test"].hold  # type: ignore[attr-defined]
+    again = all_inboxes(limit=50)
+    assert again["partial"] is False and "member@example.test" in {m["account_address"] for m in again["items"]}

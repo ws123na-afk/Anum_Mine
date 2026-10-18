@@ -38,11 +38,13 @@ router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
 
 INBOX = "INBOX"
 CONCURRENCY = 6
+# How long one inbox may take before the page goes out without it (it is flagged "slow").
+INBOX_TIMEOUT_SECONDS = 8.0
 MAX_MAILBOXES = 50
 MAX_CURSOR = 8_000
 EPOCH = datetime.fromtimestamp(0, timezone.utc)
 
-MailboxState = Literal["ok", "auth_failed", "offline", "error", "done"]
+MailboxState = Literal["ok", "auth_failed", "offline", "error", "slow", "done"]
 
 
 class AllInboxMessage(MessageView):
@@ -57,7 +59,8 @@ class AllInboxMailbox(BaseModel):
     address: str
     display_name: str | None
     access: Access
-    # ok: read for this page; done: no more matching mail below the cursor; otherwise why it was not read.
+    # ok: read for this page; done: no more matching mail below the cursor; slow: it did not answer
+    # within INBOX_TIMEOUT_SECONDS and was left out of this page; otherwise why it was not read.
     state: MailboxState
     error: str | None
     # Matching messages in this inbox from the cursor on (null when it was not read).
@@ -69,6 +72,8 @@ class AllInboxPage(BaseModel):
     # Matching messages from this page on, over the mailboxes that were read.
     total: int
     next_cursor: str | None
+    # True when at least one inbox was left out of this page (slow, offline, refused, error).
+    partial: bool
     mailboxes: list[AllInboxMailbox]
 
 
@@ -179,7 +184,10 @@ async def _read_inbox(
 
     async with gate:
         try:
-            page: Page = await on_server(context, account, job)
+            page: Page = await asyncio.wait_for(on_server(context, account, job), timeout=INBOX_TIMEOUT_SECONDS)
+        except TimeoutError:
+            # The page goes out with the inboxes that answered; this one keeps its place in the cursor.
+            return _Read(account, access, None, "slow", "This mailbox did not answer in time. Load the list again to include it.")
         except MailError as exc:
             state: MailboxState = "auth_failed" if exc.kind == "auth" else "offline" if exc.kind in {"offline", "tls"} else "error"
             return _Read(account, access, None, state, exc.message)
@@ -244,4 +252,5 @@ async def list_all_inboxes(
         for read, item in taken
     ]
     total = sum(read.page.total for read in reads if read.page)
-    return AllInboxPage(items=items, total=total, next_cursor=encode_cursor(nxt, fingerprint) if more else None, mailboxes=states)
+    partial = any(read.page is None for read in reads)
+    return AllInboxPage(items=items, total=total, next_cursor=encode_cursor(nxt, fingerprint) if more else None, partial=partial, mailboxes=states)
