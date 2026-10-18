@@ -8,12 +8,20 @@ export function start(dsn: string, environment: string, tenantId: () => string |
   Sentry.init({
     dsn,
     environment,
-    sendDefaultPii: false,
+    // SDK 11 replaced `sendDefaultPii` with per-category data collection: collect none of it.
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+      urlQueryParams: false,
+    },
     // Only the integrations that report errors and the scrubbed network/navigation breadcrumbs.
+    // SDK 11 records console breadcrumbs in its own `Console` integration, so it is dropped too.
     integrations: (defaults) => [
-      ...defaults.filter((integration) => !['BrowserSession', 'Breadcrumbs'].includes(integration.name)),
+      ...defaults.filter((integration) => !['BrowserSession', 'Breadcrumbs', 'Console'].includes(integration.name)),
       // Console text and clicked element names can hold what someone typed: off.
-      Sentry.breadcrumbsIntegration({ console: false, dom: false, fetch: true, xhr: true, history: true, sentry: false }),
+      Sentry.breadcrumbsIntegration({ dom: false, fetch: true, xhr: true, history: true, sentry: false }),
     ],
     maxBreadcrumbs: 30,
     beforeBreadcrumb: (crumb) => scrubBreadcrumb(crumb as unknown as Record<string, unknown>) as unknown as Sentry.Breadcrumb | null,
