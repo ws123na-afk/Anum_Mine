@@ -37,6 +37,7 @@ Every record title starts with `Demo: ` and uses `example.com` addresses:
 ## The demo tag and reset
 
 - Every sample record is tagged in `demo_records` (migration `0075_demo_records`, forced RLS on `anum.tenant_id` and `anum.workspace_id`): the module and the record's id.
+- Tags are written ahead: each record's tag is committed before the record itself. A seed that fails part way never leaves an untagged sample record; the next reset removes what was written (a tag whose record never got written is skipped) and seeds again from the start, without duplicates.
 - Reset removes exactly the tagged records, inside the Demo workspace's tenant context, through each module's own service and store functions (`business.store`, `calendar_api`, `email_inbox`, `files`, `knowledge_base`, `marketing.store`). Records somebody added to the Demo workspace by hand stay.
 - Tasks and approvals have no delete in ANUM: reset archives demo tasks and expires their pending approvals, so they leave the active lists.
 - Social accounts have no delete: the sample company page is created once and reused.
@@ -46,8 +47,9 @@ Every record title starts with `Demo: ` and uses `example.com` addresses:
 
 Nothing leaves a Demo workspace (`anum_api/demo.py`, `send_refusal`):
 
-- The tool registry (`ToolRegistry.execute`) refuses, before the handler runs, every tool with a delivery channel or an integration target, every outward action kind (send, reply, publish, payment, price or stock change, merge, or an unknown effect) and every call whose arguments name recipients. Reads, drafts and internal changes still run.
-- Routes that send without a tool refuse too: Email Center delivery (`mailbox.service.deliver`, which also covers scheduled sends), auto-forwarding, Brevo test sends, WhatsApp test messages, browser phone calls (the call token and the provider webhook) and marketing publishing.
+- The tool registry (`ToolRegistry.execute`) decides by the tool's action kind (declared, else guessed from its name by `autonomy.kind_of`), never by the mere fact that a tool talks to an integration. A tool with a delivery channel is refused. Reads and drafts run, even against an integration (web search, Brevo lists, reports and drafts). Outward kinds are refused: send, reply, publish, payment, price or stock change, merge, or an unknown effect. Any other change runs unless its arguments name recipients.
+- Routes that send without a tool refuse too: Email Center delivery (`mailbox.service.deliver`, which also covers scheduled sends), auto-forwarding, Brevo test sends, WhatsApp test messages, browser phone calls (the call token and the provider webhook), marketing publishing, and Developer mode's workflow install and coding requests.
+- The GitHub client of a demo workspace's project is read-only (`GitHubClient(read_only=True)`): any method other than `GET` or `HEAD` is refused before a request is made, so no route can push, dispatch, open, merge or close anything.
 - Covered by `services/api/tests/test_demo_workspace.py`, together with seeding, reset and per-tenant isolation.
 
 ## Related

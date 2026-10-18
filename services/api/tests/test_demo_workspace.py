@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+
+import httpx
+from pydantic import SecretStr
 from collections.abc import Iterator
 
 import pytest
@@ -11,7 +14,9 @@ from fastapi.testclient import TestClient
 from anum_api.agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from anum_api.business.store import Query, business_store, open_business_store
 from anum_api.calendar_api import calendar_backend
+from anum_api import demo as demo_module
 from anum_api.demo import demo_store, demo_workspace_id, open_demo_store, send_refusal
+from anum_api.developer_github import GitHubClient, GitHubError
 from anum_api.email_inbox import email_backend, open_email_store
 from anum_api.files import file_store, open_file_metadata_store
 from anum_api.knowledge_base import knowledge_store
@@ -196,3 +201,78 @@ def test_deciding_a_demo_approval_never_sends(client: TestClient) -> None:
     assert decided.json()["approval"]["status"] == "approved"
     # A demo approval has no agent run behind it: approving it records the decision only.
     assert decided.json()["approval"]["run_id"] is None
+
+
+def test_reads_and_drafts_against_integrations_still_run_in_the_demo() -> None:
+    demo = demo_context(TENANT_A)
+    allowed = (
+        ToolDefinition(name="web_search", description="Search", risk_level=RiskLevel.LOW, target="search.example.com", action_kind="read"),
+        ToolDefinition(name="brevo.campaigns.list", description="List", risk_level=RiskLevel.LOW, target="api.brevo.com", action_kind="read"),
+        ToolDefinition(name="brevo.campaigns.report", description="Report", risk_level=RiskLevel.LOW, target="api.brevo.com", action_kind="read"),
+        ToolDefinition(name="brevo.campaigns.draft", description="Draft", risk_level=RiskLevel.LOW, target="api.brevo.com", action_kind="draft"),
+        ToolDefinition(name="email.draft_reply", description="Draft", risk_level=RiskLevel.LOW, action_kind="draft"),
+    )
+    for definition in allowed:
+        assert send_refusal(demo, definition.name, definition, {"to": "a@example.com"}) is None, definition.name
+    refused = (
+        ToolDefinition(name="brevo.campaigns.send", description="Send", risk_level=RiskLevel.HIGH, target="api.brevo.com", action_kind="publish"),
+        ToolDefinition(name="email.send", description="Send", risk_level=RiskLevel.HIGH, delivery_channel="email"),
+        ToolDefinition(name="whatsapp.reply", description="Reply", risk_level=RiskLevel.HIGH, target="graph.facebook.com"),
+        ToolDefinition(name="commerce.update_price", description="Price", risk_level=RiskLevel.HIGH, target="sellingpartnerapi.amazon.com"),
+        ToolDefinition(name="mystery.tool", description="Unknown", risk_level=RiskLevel.MEDIUM),
+    )
+    for definition in refused:
+        assert send_refusal(demo, definition.name, definition, {}), definition.name
+
+
+def test_github_changes_never_leave_the_demo_workspace(client: TestClient) -> None:
+    workspace = client.post("/api/v1/demo/reset", headers=headers(TENANT_A, f"main_{TENANT_A}")).json()["workspace_id"]
+    demo = headers(TENANT_A, workspace)
+    install = client.post("/api/v1/developer/projects/proj_x/install-workflow", headers=demo)
+    assert install.status_code == 403 and "demo workspace" in install.text, install.text
+    request = client.post("/api/v1/developer/requests", headers=demo, json={"text": "Add a footer link to the privacy page"})
+    assert request.status_code == 403 and "demo workspace" in request.text, request.text
+
+    # The client layer refuses too, so no other route can push, dispatch or merge.
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        return httpx.Response(200, json={})
+
+    github = GitHubClient("owner/repo", SecretStr("example"), transport=httpx.MockTransport(handler), read_only=True)
+    with pytest.raises(GitHubError):
+        asyncio.run(github.dispatch({"request_id": "dev_x"}))
+    with pytest.raises(GitHubError):
+        asyncio.run(github.create_branch("anum/x", "a" * 40))
+    asyncio.run(github.branch_sha("main"))
+    assert calls == ["GET"]
+
+
+def test_a_seed_that_fails_part_way_is_tagged_and_reset_cleans_it(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    owner = headers(TENANT_A, f"main_{TENANT_A}")
+    healthy = client.post("/api/v1/demo/reset", headers=owner).json()
+
+    def broken(*args: object) -> None:
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr(demo_module, "_seed_marketing", broken)
+    failing = TestClient(app, raise_server_exceptions=False)
+    assert failing.post("/api/v1/demo/reset", headers=owner).status_code == 500
+    # Everything written before the failure is tagged, so nothing is orphaned.
+    with open_business_store(demo_context(TENANT_A)) as business:
+        accounts, total = business.find("accounts", Query())
+    with open_demo_store(demo_context(TENANT_A)) as tags:
+        tagged = {record_id for kind, record_id, _ in tags.tagged() if kind == "business_accounts"}
+    assert total == 3 and {a.id for a in accounts} == tagged
+
+    monkeypatch.undo()
+    monkeypatch.setattr(settings, "repository_backend", "memory")
+    monkeypatch.setattr(settings, "auth_mode", "headers")
+    again = client.post("/api/v1/demo/reset", headers=owner)
+    assert again.status_code == 200, again.text
+    assert again.json()["records"] == healthy["records"]
+    with open_business_store(demo_context(TENANT_A)) as business:
+        assert business.find("accounts", Query())[1] == 3
+    with open_file_metadata_store(demo_context(TENANT_A)) as files:
+        assert len(files.list_files(demo_context(TENANT_A), 100)) == 3

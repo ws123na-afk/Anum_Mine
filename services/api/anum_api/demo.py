@@ -77,6 +77,8 @@ SEND_REFUSED = (
 )
 # Tool kinds that reach people or systems outside ANUM (autonomy.ActionKind values).
 _OUTWARD_KINDS = {"send", "reply", "publish", "payment", "price_change", "stock_change", "merge_code", "other"}
+# Kinds that never reach anyone outside ANUM, whatever integration the tool reads from.
+_ALLOWED_KINDS = {"read", "draft"}
 _RECIPIENT_KEYS = ("to", "cc", "bcc", "recipient", "recipients", "phone", "phone_number", "to_phone")
 
 
@@ -102,10 +104,16 @@ def send_refusal(context: TenantContext, tool_name: str | None = None, definitio
     """Why this call may not run in a Demo workspace, or None.
 
     Without a tool name it answers for a direct send (a route that sends without a tool).
-    For a tool, anything that reaches outside ANUM is refused: a delivery channel, an
-    integration target, an outward action kind (sends, replies, publishing, payments,
-    price and stock changes, merges and unknown effects) or recipients in the arguments.
-    Reads, drafts and internal changes still run, so the demo stays explorable.
+    For a tool the decision is the action kind (``autonomy.kind_of``: the declared kind, else
+    a cautious guess from the name), never the mere fact that it talks to an integration:
+
+    * a tool that delivers to people (``delivery_channel``) is refused;
+    * reads and drafts run, even against an integration (web search, Brevo lists, reports and
+      drafts), so the demo stays explorable;
+    * outward kinds are refused: sends, replies, publishing, payments, price and stock
+      changes, merges and unknown effects (``other``);
+    * any other change (create, update, archive, delete, pause) runs unless its arguments
+      name recipients.
     """
     if not is_demo(context):
         return None
@@ -113,9 +121,12 @@ def send_refusal(context: TenantContext, tool_name: str | None = None, definitio
         return SEND_REFUSED
     from .autonomy import kind_of
 
-    if getattr(definition, "delivery_channel", None) or getattr(definition, "target", None):
+    if getattr(definition, "delivery_channel", None):
         return SEND_REFUSED
-    if kind_of(tool_name, definition).value in _OUTWARD_KINDS:
+    kind = kind_of(tool_name, definition).value
+    if kind in _ALLOWED_KINDS:
+        return None
+    if kind in _OUTWARD_KINDS:
         return SEND_REFUSED
     if arguments and any(arguments.get(key) for key in _RECIPIENT_KEYS):
         return SEND_REFUSED
@@ -378,20 +389,38 @@ def wipe_demo_records(demo: TenantContext) -> int:
 # ------------------------------------------------------------------------------ seed
 
 
-def seed_demo_records(demo: TenantContext) -> int:
-    """Fill the Demo workspace with labelled sample records and tag each one."""
-    tags: list[tuple[str, str]] = []
-    now = utc_now().replace(microsecond=0)
-    _seed_tasks(demo, now, tags)
-    _seed_email(demo, now, tags)
-    _seed_calendar(demo, now, tags)
-    _seed_business(demo, now, tags)
-    _seed_marketing(demo, now, tags)
-    _seed_files_and_knowledge(demo, tags)
-    with open_demo_store(demo) as store:
-        for kind, record_id in tags:
+class _Tagger:
+    """Write-ahead demo tags: each record's tag is committed before the record is written.
+
+    A seed that fails part way therefore never leaves an untagged sample record behind: the
+    next reset removes whatever was written (a tag whose record never got written is simply
+    skipped) and seeds again from the start, so nothing is duplicated.
+    """
+
+    def __init__(self, demo: TenantContext) -> None:
+        self.demo = demo
+        self.count = 0
+
+    def id(self, kind: str, prefix: str) -> str:
+        record_id = new_id(prefix)
+        self.fixed(kind, record_id)
+        return record_id
+
+    def fixed(self, kind: str, record_id: str) -> str:
+        with open_demo_store(self.demo) as store:
             store.tag(kind, record_id)
-    return len([tag for tag in tags if tag[0] != "marketing_accounts"])
+        if kind != "marketing_accounts":
+            self.count += 1
+        return record_id
+
+
+def seed_demo_records(demo: TenantContext) -> int:
+    """Fill the Demo workspace with labelled sample records, tagging each one first."""
+    tag = _Tagger(demo)
+    now = utc_now().replace(microsecond=0)
+    for step in (_seed_tasks, _seed_email, _seed_calendar, _seed_business, _seed_marketing, _seed_files_and_knowledge):
+        step(demo, now, tag)
+    return tag.count
 
 
 _TASKS = (
@@ -402,11 +431,11 @@ _TASKS = (
 )
 
 
-def _seed_tasks(demo: TenantContext, now: datetime, tags: list[tuple[str, str]]) -> None:
+def _seed_tasks(demo: TenantContext, now: datetime, tag: _Tagger) -> None:
     with _unit_of_work(demo, require_membership=False) as unit:
         for title, prompt, priority, due_days in _TASKS:
             task = Task(
-                id=new_id("task"),
+                id=tag.id("tasks", "task"),
                 title=LABEL + title,
                 prompt=prompt,
                 status=TaskStatus.CREATED,
@@ -423,7 +452,6 @@ def _seed_tasks(demo: TenantContext, now: datetime, tags: list[tuple[str, str]])
                 create_event(CanonicalEventName.TASK_CREATED, demo, task.id, {"title": task.title},
                              correlation_id=task.id, created_at=now).event
             )
-            tags.append(("tasks", task.id))
         # Two decisions waiting in the approval queue, proposed by a sample teammate so the
         # owner may decide them under the two-person rule. Sending stays blocked anyway.
         for action, reason, arguments in (
@@ -433,7 +461,7 @@ def _seed_tasks(demo: TenantContext, now: datetime, tags: list[tuple[str, str]])
              {"platform": "linkedin", "title": "Demo: Winter tyre safety"}),
         ):
             task = Task(
-                id=new_id("task"),
+                id=tag.id("tasks", "task"),
                 title=LABEL + reason,
                 prompt=reason,
                 status=TaskStatus.WAITING_APPROVAL,
@@ -446,7 +474,7 @@ def _seed_tasks(demo: TenantContext, now: datetime, tags: list[tuple[str, str]])
             )
             unit.create_task(task)
             approval = Approval(
-                id=new_id("approval"),
+                id=tag.id("approvals", "approval"),
                 task_id=task.id,
                 action=action,
                 risk_level=RiskLevel.HIGH,
@@ -459,7 +487,6 @@ def _seed_tasks(demo: TenantContext, now: datetime, tags: list[tuple[str, str]])
                 requested_by="demo_teammate",
             )
             unit.save_approval(approval)
-            tags.extend([("tasks", task.id), ("approvals", approval.id)])
 
 
 _THREADS = (
@@ -472,11 +499,11 @@ _THREADS = (
 )
 
 
-def _seed_email(demo: TenantContext, now: datetime, tags: list[tuple[str, str]]) -> None:
+def _seed_email(demo: TenantContext, now: datetime, tag: _Tagger) -> None:
     from .email_inbox import AccountStatus, EmailAccount, EmailMessage, EmailProvider, open_email_store
 
     account = EmailAccount(
-        id=new_id("mailacct"),
+        id=tag.id("email_accounts", "mailacct"),
         tenant_id=demo.tenant_id,
         workspace_id=demo.workspace_id,
         provider=EmailProvider.GMAIL,
@@ -516,11 +543,10 @@ def _seed_email(demo: TenantContext, now: datetime, tags: list[tuple[str, str]])
     with open_email_store(demo) as store:
         store.add_account(account)
         store.upsert_messages(messages)
-    tags.append(("email_accounts", account.id))
 
 
-def _seed_calendar(demo: TenantContext, now: datetime, tags: list[tuple[str, str]]) -> None:
-    from .calendar_api import AttendeeInput, EventCreate, EventKind, create_event_for
+def _seed_calendar(demo: TenantContext, now: datetime, tag: _Tagger) -> None:
+    from .calendar_api import Attendee, CalendarEvent, EventKind, open_calendar_store
 
     start = now.replace(minute=0, second=0) + timedelta(days=1)
     for offset, hours, title, kind, attendee in (
@@ -529,22 +555,26 @@ def _seed_calendar(demo: TenantContext, now: datetime, tags: list[tuple[str, str
         (3, 1, "Pricing review", EventKind.REVIEW, None),
     ):
         starts = start + timedelta(days=offset, hours=offset * 2)
-        event = create_event_for(
-            demo,
-            EventCreate(
-                title=LABEL + title,
-                starts_at=starts,
-                ends_at=starts + timedelta(hours=hours),
-                kind=kind,
-                description="Sample event in the demo workspace. No invitations are sent.",
-                attendees=[AttendeeInput(name=attendee[0], role=attendee[1])] if attendee else [],
-                source="demo",
-            ),
+        event = CalendarEvent(
+            id=tag.id("calendar_events", "event"),
+            tenant_id=demo.tenant_id,
+            workspace_id=demo.workspace_id,
+            title=LABEL + title,
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=hours),
+            kind=kind,
+            description="Sample event in the demo workspace. No invitations are sent.",
+            attendees=[Attendee(id=new_id("attendee"), name=attendee[0], role=attendee[1])] if attendee else [],
+            source="demo",
+            created_by=demo.user_id,
+            created_at=now,
+            updated_at=now,
         )
-        tags.append(("calendar_events", event.id))
+        with open_calendar_store(demo) as store:
+            store.add(event)
 
 
-def _seed_business(demo: TenantContext, now: datetime, tags: list[tuple[str, str]]) -> None:
+def _seed_business(demo: TenantContext, now: datetime, tag: _Tagger) -> None:
     from .business.models import (
         Account,
         Contact,
@@ -572,19 +602,17 @@ def _seed_business(demo: TenantContext, now: datetime, tags: list[tuple[str, str
              "Maintenance plan for 40 buses", LeadState.DISCOVERED, Stage.DISCOVERY, None),
         ):
             account_name = LABEL + name
-            account = store.add("accounts", Account(id=new_id("acct"), name=account_name, name_key=name_key(account_name),
+            account = store.add("accounts", Account(id=tag.id("business_accounts", "acct"), name=account_name, name_key=name_key(account_name),
                                                     industry=industry, country="Saudi Arabia", city=city,
                                                     notes="Sample account in the demo workspace.", **base, **people))
-            person = store.add("contacts", Contact(id=new_id("contact"), account_id=account.id, name=contact[0],
+            person = store.add("contacts", Contact(id=tag.id("business_contacts", "contact"), account_id=account.id, name=contact[0],
                                                    role_title=contact[1], email=contact[2], created_by=demo.user_id, **base))
-            lead = store.add("leads", Lead(id=new_id("lead"), account_id=account.id, contact_id=person.id,
+            lead = store.add("leads", Lead(id=tag.id("business_leads", "lead"), account_id=account.id, contact_id=person.id,
                                            title=LABEL + lead_title, state=state, next_step="Prepare the next meeting",
                                            **base, **people))
-            tags.extend([("business_accounts", account.id), ("business_contacts", person.id), ("business_leads", lead.id)])
-            opportunity = store.add("opportunities", Opportunity(id=new_id("opp"), lead_id=lead.id, account_id=account.id,
+            opportunity = store.add("opportunities", Opportunity(id=tag.id("business_opportunities", "opp"), lead_id=lead.id, account_id=account.id,
                                                                  name=LABEL + lead_title, stage=stage, value_amount=value,
                                                                  assumption_note="Sample value for the demo.", **base, **people))
-            tags.append(("business_opportunities", opportunity.id))
             if stage != Stage.QUOTE:
                 continue
             content = ProposalContent(
@@ -596,43 +624,40 @@ def _seed_business(demo: TenantContext, now: datetime, tags: list[tuple[str, str
                 payment_terms="30 days from invoice.",
                 valid_until=date.fromordinal(now.date().toordinal() + 30),
             )
-            proposal = store.add("proposals", Proposal(id=new_id("prop"), opportunity_id=opportunity.id, account_id=account.id,
+            proposal = store.add("proposals", Proposal(id=tag.id("business_proposals", "prop"), opportunity_id=opportunity.id, account_id=account.id,
                                                        title=LABEL + "Fleet renewal proposal", created_by=demo.user_id, **base))
             version = store.add("proposal_versions", ProposalVersion(
-                **content.model_dump(), id=new_id("propv"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id,
+                **content.model_dump(), id=tag.id("business_proposal_versions", "propv"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id,
                 proposal_id=proposal.id, version=1, content_hash=content_hash(content), created_by=demo.user_id, created_at=now))
-            tags.extend([("business_proposals", proposal.id), ("business_proposal_versions", version.id)])
 
 
-def _seed_marketing(demo: TenantContext, now: datetime, tags: list[tuple[str, str]]) -> None:
+def _seed_marketing(demo: TenantContext, now: datetime, tag: _Tagger) -> None:
     from .marketing.models import AccountStatus, Campaign, Language, Platform, Post, Provider, SocialAccount
     from .marketing.store import open_marketing_store
 
     account_id = "demo_social_" + demo.workspace_id[len(DEMO_PREFIX):]
     with open_marketing_store(demo) as store:
+        tag.fixed("marketing_accounts", account_id)
         if store.get_account(demo, account_id) is None:
             store.add_account(SocialAccount(
                 id=account_id, tenant_id=demo.tenant_id, workspace_id=demo.workspace_id, platform=Platform.LINKEDIN,
                 provider=Provider.LINKEDIN, external_id=account_id, display_name="Demo company page (not connected)",
                 status=AccountStatus.NEEDS_REAUTH, connected_by=demo.user_id, created_at=now, updated_at=now))
-        tags.append(("marketing_accounts", account_id))
         campaign = store.add_campaign(Campaign(
-            id=new_id("mkc"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id, name=LABEL + "Winter fleet safety",
+            id=tag.id("marketing_campaigns", "mkc"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id, name=LABEL + "Winter fleet safety",
             objective="Awareness", product="Tyre inspection service",
             brief="Remind fleet managers to check tread depth and pressure before the winter rains.",
             platforms=[Platform.LINKEDIN], created_by=demo.user_id, created_at=now, updated_at=now))
-        tags.append(("marketing_campaigns", campaign.id))
         group = new_id("mkg")
         for language, title, text in (
             (Language.EN, "Winter tyre safety", "Rain is coming. Check tread depth and pressure on every truck this week."),
             (Language.AR, "سلامة الإطارات في الشتاء", "موسم الأمطار قادم. افحص عمق المداس وضغط الإطارات في كل شاحنة هذا الأسبوع."),
         ):
             post = store.add_post(Post(
-                id=new_id("mkp"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id, campaign_id=campaign.id,
+                id=tag.id("marketing_posts", "mkp"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id, campaign_id=campaign.id,
                 group_id=group, account_id=account_id, platform=Platform.LINKEDIN, language=language,
                 title=LABEL + title, text=text, hashtags=["fleetsafety"], created_by=demo.user_id,
                 created_at=now, updated_at=now))
-            tags.append(("marketing_posts", post.id))
 
 
 _FILES = (
@@ -645,23 +670,35 @@ _FILES = (
 )
 
 
-def _seed_files_and_knowledge(demo: TenantContext, tags: list[tuple[str, str]]) -> None:
-    from .files import store_workspace_file
+def _seed_files_and_knowledge(demo: TenantContext, now: datetime, tag: _Tagger) -> None:
+    from .files import FileRecord, file_store, open_file_metadata_store, workspace_object_key
     from .knowledge_base import Collection, ItemKind, _new_item, open_knowledge_store
+    from .settings import settings
 
     records = []
     for name, body in _FILES:
-        content_type = "text/csv" if name.endswith(".csv") else "text/markdown"
-        record = store_workspace_file(demo, name, body.encode("utf-8"), content_type)
+        content = body.encode("utf-8")
+        digest = hashlib.sha256(content).hexdigest()
+        file_id = tag.id("files", "file")
+        key = workspace_object_key(demo.tenant_id, demo.workspace_id, "files", file_id, digest)
+        record = FileRecord(
+            id=file_id, tenant_id=demo.tenant_id, workspace_id=demo.workspace_id, name=name,
+            content_type="text/csv" if name.endswith(".csv") else "text/markdown", size_bytes=len(content),
+            sha256=digest, storage_key=key, created_by=demo.user_id, created_at=utc_now())
+        file_store.storage.put(key, content, record.content_type)
+        try:
+            with open_file_metadata_store(demo) as store:
+                store.add(record, settings.files_workspace_quota_bytes)
+        except BaseException:
+            file_store.storage.delete(key)
+            raise
         records.append(record)
-        tags.append(("files", record.id))
-    now = utc_now()
     collection = Collection(
-        id=new_id("kbc"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id, name=LABEL + "Sales playbook",
+        id=tag.id("kb_collections", "kbc"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id,
+        name=LABEL + "Sales playbook",
         description="Sample collection in the demo workspace: the brief, the pricing sheet and objection handling.",
         created_by=demo.user_id, created_at=now, updated_at=now)
     with open_knowledge_store(demo) as store:
         store.save_collection(collection)
         for record in records:
             store.save_item(_new_item(demo, collection, ItemKind.FILE, record.id, record.name, ["demo", "sales"]))
-    tags.append(("kb_collections", collection.id))
