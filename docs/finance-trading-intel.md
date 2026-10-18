@@ -203,3 +203,20 @@ DRAFT -> BACKTESTING -> VALIDATION -> PAPER_ACTIVE <-> PAPER_SUSPENDED -> RETIRE
 | backtrader | GPL 3.0 | Unmaintained since 2021, and GPL |
 
 Conclusion: a small pure-Python package inside the API, deterministic and tested, with one order path (the existing gateway).
+
+## Dashboard
+
+Finance, tab **Trading intelligence** (`#finance-intel`, `apps/web/src/FinanceIntel.tsx`). Read only and SIMULATED; the readiness report for loop 10 is [Trading readiness](finance-trading-readiness.md).
+
+API (`finance/intel_api.py`, `finance:read`, every row the caller's own under forced RLS; GET only, nothing is written or audited):
+
+| Route | Returns |
+|---|---|
+| `GET /api/v1/finance/intel/overview` | Simulation status (`live_enabled` is always false), the person's and the organisation's kill switches, venue sessions now, each paper and shadow portfolio with cash, realised and unrealised P&L, fees, slippage and up to 50 positions, the Guardian rules (read only), how many strategy versions are in each lifecycle state, requests waiting and requests proposed by assistants |
+| `GET /api/v1/finance/intel/strategies?state=&limit=&offset=` | Strategy versions with lifecycle state, rule and code version, symbols, parameters, reason and who moved it last. `state` is one of the six lifecycle states (anything else is 422) |
+| `GET /api/v1/finance/intel/strategies/{id}/runs?limit=&offset=` | Backtest and walk-forward runs of that version: data source and SHA-256, costs, metrics, benchmark, verdict, reasons, warnings, folds, whether it was reproduced. 404 for a version that is not the caller's |
+| `GET /api/v1/finance/intel/decisions?agent=&strategy_id=&cycle_id=&limit=&offset=` | Decisions of the Trading Supervisor, the specialist agents and the person, with reasons, newest first |
+
+Pages take `limit` 1 to 200 and `offset`. Recorded reasons are returned as text to show and are never followed as instructions. Changes (lifecycle moves, runs, Supervisor cycles) belong to `intel_control_api`, not to these routes.
+
+The page shows a "Simulation only, no real orders" banner, live off, the kill switch (the one change it offers: it stops every paper and shadow executor, after a confirmation), venue sessions, strategies filtered by lifecycle state with paging, a strategy's runs with metrics against the benchmark and its walk-forward folds, positions and P&L per portfolio, agent decisions filtered by agent, every Guardian decision through the gateway with its reasons, and the Guardian rules read only with a link to change them on the Guardian tab. Loading, empty with a next action, error with retry and permission denied are handled; tables become stacked cards below 1024 pixels so nothing scrolls sideways. English and Arabic.
