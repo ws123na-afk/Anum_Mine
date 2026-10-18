@@ -14,7 +14,15 @@ from typing import Any
 from sqlalchemy import and_, delete, func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
-from anum_api.app_calls import MISSED_OUTCOMES, AppCall, CallMedia, CallOutcome, CallSignal, CallStatus, SignalKind
+from anum_api.app_calls import (
+    MISSED_OUTCOMES,
+    AppCall,
+    CallMedia,
+    CallOutcome,
+    CallSignal,
+    CallStatus,
+    SignalKind,
+)
 from anum_api.schemas import TenantContext
 
 from .models import AppCallRecord, AppCallSignalRecord

@@ -222,8 +222,8 @@ class IceCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate: str = Field(max_length=MAX_CANDIDATE_CHARS)
-    sdpMid: str | None = Field(default=None, max_length=64)  # noqa: N815 - WebRTC's own name
-    sdpMLineIndex: int | None = Field(default=None, ge=0, le=64)  # noqa: N815
+    sdpMid: str | None = Field(default=None, max_length=64)
+    sdpMLineIndex: int | None = Field(default=None, ge=0, le=64)
 
 
 class SignalBody(BaseModel):

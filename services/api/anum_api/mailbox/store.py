@@ -1,12 +1,20 @@
-"""Mailboxes and outgoing messages of the Email Center (migration ``0060_email_center``).
+"""Mailboxes, outgoing messages, shares, identities and contacts of the Email Center.
 
-Three tables, all private to the person who connected the mailbox: forced RLS on tenant and
-workspace plus a restrictive ``owner_user_id = anum.user_id`` policy, and every query here
-repeats the owner. Mail itself stays on the mail server: ANUM stores only the mailbox (with
-its password as Fernet ciphertext), the messages a person writes in ANUM (drafts and
-sends, with their idempotency key and Message-ID, and a time for a scheduled send) and the
-files attached to them (``mail_attachments``, migration ``0062_mail_outgoing``; the bytes are
-in object storage).
+Migrations ``0060_email_center``, ``0062_mail_outgoing`` and ``0067_mail_sharing_contacts``.
+Every table has forced RLS on tenant and workspace plus restrictive owner policies, and every
+query here repeats the scope:
+
+* a mailbox is visible to its owner and to people the owner granted access
+  (``mail_account_grants``); only the owner changes it;
+* a message written in ANUM (``mail_drafts``) and its attachments (``mail_attachments``) are
+  private to the person who wrote it;
+* sender identities are visible to the owner and to people granted ``send``;
+* contacts are private to their owner.
+
+Mail itself stays on the mail server: ANUM stores only the mailbox (with its password as
+Fernet ciphertext), the messages a person writes in ANUM (drafts and sends, with their
+idempotency key and Message-ID, and a time for a scheduled send), the files attached to them
+(the bytes are in object storage), the shares, the identities and the address book.
 """
 
 from __future__ import annotations
@@ -53,6 +61,14 @@ INTERRUPTED = (
 )
 NOT_APPROVED_IN_TIME = "Not sent: it was not approved before its scheduled time. Pick a new time and send it again."
 DraftKind = Literal["new", "reply", "reply_all", "forward"]
+# What a person may do with a mailbox: their own, or shared with them to send or only to read.
+Access = Literal["owner", "send", "read"]
+GrantAccess = Literal["read", "send"]
+ACCESS_RANK = {"read": 1, "send": 2, "owner": 3}
+
+
+def allows(access: Access | None, needed: Access) -> bool:
+    return access is not None and ACCESS_RANK[access] >= ACCESS_RANK[needed]
 
 
 class MailAccount(BaseModel):
@@ -87,6 +103,7 @@ class MailDraft(BaseModel):
     source_folder: str | None = None
     source_uid: int | None = None
     message_id: str
+    identity_id: str | None = None
     idempotency_key: str | None = None
     status: DraftStatus = DraftStatus.DRAFT
     approval_id: str | None = None
@@ -123,11 +140,84 @@ class MailAttachment(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class MailGrant(BaseModel):
+    """A mailbox shared by its owner with another member of the workspace."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    owner_user_id: str
+    account_id: str
+    grantee_user_id: str
+    access: GrantAccess = "read"
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class MailIdentity(BaseModel):
+    """An address and name a mailbox sends as (an alias on the mail server), with a signature."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    owner_user_id: str
+    account_id: str
+    address: str
+    display_name: str | None = None
+    signature: str = ""
+    is_default: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class MailContact(BaseModel):
+    """One entry of a person's own address book (the email is stored in lower case)."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    owner_user_id: str
+    name: str = ""
+    email: str
+    company: str = ""
+    phone: str = ""
+    notes: str = ""
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+def contact_sort_key(contact: MailContact) -> tuple[str, str]:
+    """Contacts list by name (or the address when there is no name), then id: the paging key."""
+    return ((contact.name or contact.email).lower(), contact.id)
+
+
+def contact_matches(contact: MailContact, query: str) -> bool:
+    needle = query.lower()
+    return any(needle in value.lower() for value in (contact.name, contact.email, contact.company))
+
+
 class MailStoreProtocol(Protocol):
     def list_accounts(self) -> list[MailAccount]: ...
     def get_account(self, account_id: str) -> MailAccount | None: ...
+    def list_shared_accounts(self) -> list[tuple[MailAccount, MailGrant]]: ...
+    def get_accessible_account(self, account_id: str) -> tuple[MailAccount, Access] | None: ...
+    def list_grants(self, account_id: str) -> list[MailGrant]: ...
+    def get_grant(self, grant_id: str) -> MailGrant | None: ...
+    def save_grant(self, grant: MailGrant) -> MailGrant: ...
+    def delete_grant(self, grant_id: str) -> bool: ...
+    def list_identities(self, account_id: str) -> list[MailIdentity]: ...
+    def get_identity(self, identity_id: str) -> MailIdentity | None: ...
+    def save_identity(self, identity: MailIdentity) -> MailIdentity: ...
+    def delete_identity(self, identity_id: str) -> bool: ...
+    def list_contacts(self, query: str | None, after: tuple[str, str] | None, limit: int) -> tuple[list[MailContact], int]: ...
+    def get_contact(self, contact_id: str) -> MailContact | None: ...
+    def find_contact(self, email: str) -> MailContact | None: ...
+    def save_contact(self, contact: MailContact) -> MailContact: ...
+    def delete_contact(self, contact_id: str) -> bool: ...
+    def count_contacts(self) -> int: ...
     def save_account(self, account: MailAccount) -> MailAccount: ...
     def delete_account(self, account_id: str) -> bool: ...
+    def mark_disconnecting(self, account_id: str) -> None: ...
     def list_drafts(self, account_id: str | None, limit: int) -> list[MailDraft]: ...
     def get_draft(self, draft_id: str) -> MailDraft | None: ...
     def find_by_key(self, account_id: str, key: str) -> MailDraft | None: ...
@@ -155,6 +245,9 @@ class InMemoryMailBackend:
     def __init__(self) -> None:
         self.accounts: dict[str, MailAccount] = {}
         self.drafts: dict[str, MailDraft] = {}
+        self.grants: dict[str, MailGrant] = {}
+        self.identities: dict[str, MailIdentity] = {}
+        self.contacts: dict[str, MailContact] = {}
         self.attachments: dict[str, MailAttachment] = {}
         self.lock = RLock()
 
@@ -162,6 +255,9 @@ class InMemoryMailBackend:
         with self.lock:
             self.accounts.clear()
             self.drafts.clear()
+            self.grants.clear()
+            self.identities.clear()
+            self.contacts.clear()
             self.attachments.clear()
 
     def due_work(self, now: datetime, unapproved_before: datetime, limit: int) -> list[tuple[str, str, str, str]]:
@@ -184,8 +280,17 @@ class MemoryMailScope:
         self.b = backend
         self.scope = (context.tenant_id, context.workspace_id, context.user_id)
 
-    def _mine(self, item: MailAccount | MailDraft | MailAttachment) -> bool:
+    def _mine(self, item: MailAccount | MailDraft | MailAttachment | MailGrant | MailIdentity | MailContact) -> bool:
         return (item.tenant_id, item.workspace_id, item.owner_user_id) == self.scope
+
+    def _in_workspace(self, item: MailAccount | MailGrant | MailIdentity) -> bool:
+        return (item.tenant_id, item.workspace_id) == self.scope[:2]
+
+    def _my_grant(self, account_id: str) -> MailGrant | None:
+        return next(
+            (g for g in self.b.grants.values() if self._in_workspace(g) and g.account_id == account_id and g.grantee_user_id == self.scope[2]),
+            None,
+        )
 
     def list_accounts(self) -> list[MailAccount]:
         with self.b.lock:
@@ -209,20 +314,168 @@ class MemoryMailScope:
             self.b.accounts[account.id] = account.model_copy()
         return account
 
+    def mark_disconnecting(self, account_id: str) -> None:
+        """Memory mode finds every writer directly (writers.py); nothing to mark."""
+
     def delete_account(self, account_id: str) -> bool:
         with self.b.lock:
             found = self.b.accounts.get(account_id)
             if not found or not self._mine(found):
                 return False
             del self.b.accounts[account_id]
+            # Like the foreign keys' ON DELETE CASCADE: everyone's drafts (with their attachments),
+            # the shares, the identities.
             for draft_id in [d.id for d in self.b.drafts.values() if d.account_id == account_id]:
                 self._drop_draft(draft_id)
+            for table in (self.b.grants, self.b.identities):
+                for key in [k for k, v in table.items() if v.account_id == account_id]:  # type: ignore[attr-defined]
+                    del table[key]
             return True
 
     def _drop_draft(self, draft_id: str) -> None:
         del self.b.drafts[draft_id]
         for attachment_id in [a.id for a in self.b.attachments.values() if a.draft_id == draft_id]:
             del self.b.attachments[attachment_id]
+
+    # -- shared mailboxes -------------------------------------------------------------------
+
+    def list_shared_accounts(self) -> list[tuple[MailAccount, MailGrant]]:
+        with self.b.lock:
+            found = [
+                (self.b.accounts[g.account_id].model_copy(), g.model_copy())
+                for g in self.b.grants.values()
+                if self._in_workspace(g) and g.grantee_user_id == self.scope[2] and g.account_id in self.b.accounts
+            ]
+        return sorted(found, key=lambda pair: pair[0].created_at)
+
+    def get_accessible_account(self, account_id: str) -> tuple[MailAccount, Access] | None:
+        with self.b.lock:
+            found = self.b.accounts.get(account_id)
+            if found is None or not self._in_workspace(found):
+                return None
+            if found.owner_user_id == self.scope[2]:
+                return found.model_copy(), "owner"
+            grant = self._my_grant(account_id)
+            return (found.model_copy(), grant.access) if grant else None
+
+    def list_grants(self, account_id: str) -> list[MailGrant]:
+        with self.b.lock:
+            items = [g.model_copy() for g in self.b.grants.values() if self._mine(g) and g.account_id == account_id]
+        return sorted(items, key=lambda g: (g.created_at, g.id))
+
+    def get_grant(self, grant_id: str) -> MailGrant | None:
+        with self.b.lock:
+            found = self.b.grants.get(grant_id)
+            if found is None or not self._in_workspace(found) or self.scope[2] not in {found.owner_user_id, found.grantee_user_id}:
+                return None
+            return found.model_copy()
+
+    def save_grant(self, grant: MailGrant) -> MailGrant:
+        with self.b.lock:
+            account = self.b.accounts.get(grant.account_id)
+            # The policy's check and the foreign key on (tenant, workspace, account, owner).
+            if not self._mine(grant) or account is None or account.owner_user_id != grant.owner_user_id or not self._in_workspace(account):
+                raise PermissionError("row outside the caller's scope")
+            if grant.grantee_user_id == grant.owner_user_id:
+                raise ValueError("a mailbox cannot be shared with its owner")
+            clash = next((g for g in self.b.grants.values() if g.id != grant.id and g.account_id == grant.account_id and g.grantee_user_id == grant.grantee_user_id), None)
+            if clash is not None:
+                raise ValueError("already shared with this person")
+            self.b.grants[grant.id] = grant.model_copy()
+        return grant
+
+    def delete_grant(self, grant_id: str) -> bool:
+        with self.b.lock:
+            found = self.b.grants.get(grant_id)
+            if found is None or not self._in_workspace(found) or self.scope[2] not in {found.owner_user_id, found.grantee_user_id}:
+                return False
+            del self.b.grants[grant_id]
+            return True
+
+    # -- identities -------------------------------------------------------------------------
+
+    def _sees_identity(self, identity: MailIdentity) -> bool:
+        if self._mine(identity):
+            return True
+        grant = self._my_grant(identity.account_id)
+        return self._in_workspace(identity) and grant is not None and grant.access == "send"
+
+    def list_identities(self, account_id: str) -> list[MailIdentity]:
+        with self.b.lock:
+            items = [i.model_copy() for i in self.b.identities.values() if i.account_id == account_id and self._sees_identity(i)]
+        return sorted(items, key=lambda i: (not i.is_default, i.address, i.id))
+
+    def get_identity(self, identity_id: str) -> MailIdentity | None:
+        with self.b.lock:
+            found = self.b.identities.get(identity_id)
+            return found.model_copy() if found and self._sees_identity(found) else None
+
+    def save_identity(self, identity: MailIdentity) -> MailIdentity:
+        with self.b.lock:
+            account = self.b.accounts.get(identity.account_id)
+            if not self._mine(identity) or account is None or account.owner_user_id != identity.owner_user_id:
+                raise PermissionError("row outside the caller's scope")
+            for other in self.b.identities.values():
+                if other.id != identity.id and other.account_id == identity.account_id:
+                    if other.address == identity.address:
+                        raise ValueError("this mailbox already sends as that address")
+                    if other.is_default and identity.is_default:
+                        raise ValueError("only one default identity")
+            self.b.identities[identity.id] = identity.model_copy()
+        return identity
+
+    def delete_identity(self, identity_id: str) -> bool:
+        with self.b.lock:
+            found = self.b.identities.get(identity_id)
+            if not found or not self._mine(found):
+                return False
+            del self.b.identities[identity_id]
+            for draft in self.b.drafts.values():  # ON DELETE SET NULL
+                if draft.identity_id == identity_id:
+                    draft.identity_id = None
+            return True
+
+    # -- contacts ---------------------------------------------------------------------------
+
+    def list_contacts(self, query: str | None, after: tuple[str, str] | None, limit: int) -> tuple[list[MailContact], int]:
+        with self.b.lock:
+            items = [c.model_copy() for c in self.b.contacts.values() if self._mine(c) and (not query or contact_matches(c, query))]
+        items.sort(key=contact_sort_key)
+        total = len(items)
+        if after is not None:
+            items = [c for c in items if contact_sort_key(c) > after]
+        return items[:limit], total
+
+    def get_contact(self, contact_id: str) -> MailContact | None:
+        with self.b.lock:
+            found = self.b.contacts.get(contact_id)
+            return found.model_copy() if found and self._mine(found) else None
+
+    def find_contact(self, email: str) -> MailContact | None:
+        with self.b.lock:
+            found = next((c for c in self.b.contacts.values() if self._mine(c) and c.email == email.lower()), None)
+            return found.model_copy() if found else None
+
+    def save_contact(self, contact: MailContact) -> MailContact:
+        if not self._mine(contact):
+            raise PermissionError("row outside the caller's scope")
+        with self.b.lock:
+            if any(c.id != contact.id and self._mine(c) and c.email == contact.email for c in self.b.contacts.values()):
+                raise ValueError("a contact with this address already exists")
+            self.b.contacts[contact.id] = contact.model_copy()
+        return contact
+
+    def delete_contact(self, contact_id: str) -> bool:
+        with self.b.lock:
+            found = self.b.contacts.get(contact_id)
+            if not found or not self._mine(found):
+                return False
+            del self.b.contacts[contact_id]
+            return True
+
+    def count_contacts(self) -> int:
+        with self.b.lock:
+            return sum(1 for c in self.b.contacts.values() if self._mine(c))
 
     def list_drafts(self, account_id: str | None, limit: int) -> list[MailDraft]:
         with self.b.lock:

@@ -1,6 +1,8 @@
 // Mocked /api/v1/finance answers (docs/finance.md) shared by finance.spec.ts and the workspace mock
 // (accessibility, localization and page-layout specs). Synthetic values only: example merchants and
 // round amounts, never real account numbers.
+import { equityBody } from './financeEquity';
+import { reportDetail, reportList } from './financeReports';
 const now = new Date();
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -9,6 +11,8 @@ const month = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
 const stamp = now.toISOString();
 
 export interface FinanceState {
+  /** How many post-close daily reports the mocked API has (none unless a spec sets it). */
+  reports?: number;
   settings: { base_currency: string; timezone: string; category_rules: { match: string; category: string }[]; updated_at: string | null };
   accounts: Record<string, unknown>[];
   transactions: Record<string, unknown>[];
@@ -460,6 +464,17 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   const sub = path.slice('/api/v1/finance'.length);
   const stages = financeStagesReply(state, method, sub, body, url);
   if (stages) return stages;
+  const equity = /^\/intel\/portfolios\/([^/]+)\/equity$/.exec(sub);
+  if (equity && method === 'GET') return ok(equityBody(decodeURIComponent(equity[1]), Number(url.searchParams.get('days') ?? 90)));
+  if (sub === '/intel/daily-reports' && method === 'GET') {
+    const all = reportList(state.reports ?? 0), limit = Number(url.searchParams.get('limit') ?? 20), offset = Number(url.searchParams.get('offset') ?? 0);
+    return ok({ items: all.slice(offset, offset + limit), total: all.length, limit, offset });
+  }
+  const report = /^\/intel\/daily-reports\/([^/]+)$/.exec(sub);
+  if (report && method === 'GET') {
+    const id = decodeURIComponent(report[1]);
+    return reportList(state.reports ?? 0).some((r) => r.id === id) ? ok(reportDetail(id)) : ok({ error: { code: 'not_found', message: 'Report not found.', correlation_id: 'c', details: [] } }, 404);
+  }
   if (sub === '/summary') return state.failSummary ? { status: 503, body: { error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } } } : ok(summary(state, url.searchParams.get('month')));
   if (sub === '/settings') return method === 'PUT' ? ok((state.settings = { ...state.settings, ...(body as object), updated_at: stamp })) : ok(state.settings);
   if (sub === '/formats') return ok({ presets: [{ id: 'emirates_nbd', label: 'Emirates NBD' }, { id: 'generic', label: 'Generic (date, description, amount)' }], date_formats: ['%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d'], categories: [], account_kinds: [], limits: { max_bytes: 2_000_000, max_rows: 5000, max_page: 200 } });

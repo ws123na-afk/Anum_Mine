@@ -16,8 +16,8 @@ only the sender inserts a signal. No role is granted anything new.
 
 Expand only: two new tables. The previous release ignores them.
 
-Chained after ``0065_finance_intel`` (main's head when written). Parallel branches hold
-0066 to 0071: re-chain ``down_revision`` onto whatever is the head at merge time.
+Chained after ``0070_business`` (main's head when merged). The parallel calls branch adds
+``0071_calls``: if that lands first, re-chain ``down_revision`` onto it.
 """
 
 import sqlalchemy as sa
@@ -25,7 +25,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0072_app_calls"
-down_revision = "0065_finance_intel"
+down_revision = "0070_business"
 branch_labels = None
 depends_on = None
 

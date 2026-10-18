@@ -19,6 +19,7 @@ from anum_api.agent_planning import AgentPlanner
 from anum_api.agent_skills import default_skill_registry
 from anum_api.authorization import ROLE_PERMISSIONS, Permission, Role
 from anum_api.commerce import http as commerce_http
+from anum_api.commerce import insights as commerce_insights
 from anum_api.commerce.clients import amazon as amazon_client
 from anum_api.commerce.clients import own_store as own_store_client
 from anum_api.commerce.config import commerce_config
@@ -595,7 +596,31 @@ def test_the_commerce_skill_is_selectable() -> None:
     assert "anum.commerce" in {skill.id for skill in selected}
 
 
-def test_asking_for_sales_runs_the_read_tool_without_approval() -> None:
+def _midday_zone() -> str:
+    """A fixed-offset zone where it is about noon now, so orders a few hours old fall on "today".
+
+    The noon fixture's order is four hours old; in the default zone (Riyadh, UTC+3) that is
+    yesterday for the first hour after 00:00 UTC, which made this test fail at that time.
+    """
+    offset = 12 - datetime.now(timezone.utc).hour  # -11..12; Etc/GMT signs are inverted
+    return "Etc/GMT" + (f"+{-offset}" if offset < 0 else f"-{offset}")
+
+
+@pytest.fixture
+def midday_default_zone(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Make the default zone (used when the assistant, voice or chat asks without a ``tz``) one
+    where it is about noon now.
+
+    The Amazon fixture's orders are two and three hours old; in Asia/Riyadh that is yesterday
+    from 21:00 to 24:00 UTC, which failed CI run 38814995240 (started 22:08 UTC). The answer
+    "no orders yet" was right for Riyadh at that hour; the test's clock was the problem.
+    """
+    name = _midday_zone()
+    monkeypatch.setattr(commerce_insights, "DEFAULT_TZ", name)
+    return name
+
+
+def test_asking_for_sales_runs_the_read_tool_without_approval(midday_default_zone: str) -> None:
     created = connect(AMAZON)
     sync(created["id"])
     result = _run_task("ANUM, how were Amazon sales today?")
@@ -638,7 +663,7 @@ def _ask(text: str, locale: str = "en-US", headers: dict = OWNER) -> dict:
     return response.json()
 
 
-def test_voice_answers_sales_questions_from_the_synced_data() -> None:
+def test_voice_answers_sales_questions_from_the_synced_data(midday_default_zone: str) -> None:
     voice_store.clear()
     assert "No sales channel" in _ask("Anum, how were Amazon sales today?")["reply"]
     created = connect(AMAZON)
@@ -654,16 +679,6 @@ def test_voice_answers_sales_questions_from_the_synced_data() -> None:
     change = _ask("Set the price of SKU MX-2055516 on Amazon.sa to 445")
     assert change["risk_tier"] == "confirm" and change["proposed_task"]
     assert len(client.get("/api/v1/approvals", headers=OWNER).json()) == before  # voice only proposes
-
-
-def _midday_zone() -> str:
-    """A fixed-offset zone where it is about noon now, so orders a few hours old fall on "today".
-
-    The noon fixture's order is four hours old; in the default zone (Riyadh, UTC+3) that is
-    yesterday for the first hour after 00:00 UTC, which made this test fail at that time.
-    """
-    offset = 12 - datetime.now(timezone.utc).hour  # -11..12; Etc/GMT signs are inverted
-    return "Etc/GMT" + (f"+{-offset}" if offset < 0 else f"-{offset}")
 
 
 def test_summary_endpoint_in_both_languages() -> None:
@@ -764,7 +779,7 @@ def _chat(question: str, headers: dict = OWNER) -> list[dict]:
     return [json.loads(frame["data"])["card"] for frame in frames if frame["event"] == "tool"]
 
 
-def test_store_questions_in_chat_answer_with_commerce_cards() -> None:
+def test_store_questions_in_chat_answer_with_commerce_cards(midday_default_zone: str) -> None:
     created = connect(AMAZON)
     sync(created["id"])
     skills, tools = default_skill_registry(), main.tool_registry.names

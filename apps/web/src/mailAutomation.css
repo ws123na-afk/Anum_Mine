@@ -1,0 +1,19 @@
+/* Email Center phase 6 (MailAutomation.tsx): retention, background sync and forwarding rules in the
+   Mailbox settings drawer. Spacing, radii and colour from the shared tokens in styles.css. */
+.mailrKeep { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); min-width: 0; }
+.mailrKeep .field { margin-top: 0; min-width: 0; }
+.mailrKeep select { min-height: 40px; min-width: 0; width: 100%; }
+.mailrKeep .actions { margin: 0; }
+.mailrWide, .mailrSync { grid-column: 1 / -1; }
+.mailrSyncLine { margin: 0; overflow-wrap: anywhere; }
+.mailrApproval { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.mailrApproval .actions { margin-bottom: 0; }
+.mailrRule { align-items: flex-start; }
+.mailrRule > .mailrApproval { flex: 1 1 100%; }
+.mailrRule bdi { overflow-wrap: anywhere; }
+.mailrError { color: var(--d-warn, var(--d-muted)); }
+.mailrRuleForm { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.mailrRuleForm h4 { font-size: 14px; margin: 0; }
+.mailrRuleForm .field { margin-top: 0; min-width: 0; }
+.mailrRuleForm .notice { margin: 0; }
+.mailrRuleForm .actions { margin: 0; }

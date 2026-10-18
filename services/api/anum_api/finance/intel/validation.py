@@ -37,7 +37,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from .backtest import Costs, Metrics, Result, align, metrics, run
+from .backtest import Costs, Metrics, Result, SeriesCache, align, metrics, run
 from .marketdata import Candle
 from .strategies import build, spec
 
@@ -154,6 +154,7 @@ def walk_forward(data: Mapping[str, Sequence[Candle]], key: str, *, train_bars: 
         reasons.append("data_issues")
     if not listing_known:
         warnings.append("survivorship_unknown")
+    shared = SeriesCache(bars)  # one indicator cache for every run on these bars
     folds: list[Fold] = []
     start = train_bars
     oos_equity: list[tuple[str, float]] = []
@@ -164,7 +165,7 @@ def walk_forward(data: Mapping[str, Sequence[Candle]], key: str, *, train_bars: 
         for choice in candidates:
             merged = {**s.defaults, **choice}
             try:
-                res = run(bars, build(key, symbols, merged), cash=cash, costs=costs, start_index=train_from, end_index=start)
+                res = run(bars, build(key, symbols, merged), cash=cash, costs=costs, start_index=train_from, end_index=start, shared=shared)
             except ValueError:
                 continue
             m = metrics(res, periods_per_year)
@@ -174,7 +175,7 @@ def walk_forward(data: Mapping[str, Sequence[Candle]], key: str, *, train_bars: 
             break
         _, chosen, in_m = best
         test_from = max(0, start - warmup) if s.warmup else start
-        res = run(bars, build(key, symbols, chosen), cash=cash, costs=costs, start_index=test_from, end_index=start + test_bars)
+        res = run(bars, build(key, symbols, chosen), cash=cash, costs=costs, start_index=test_from, end_index=start + test_bars, shared=shared)
         # Only the test window counts: re-base the run at the first test bar.
         offset = start - test_from
         window = Result(days=res.days[offset:], equity=res.equity[offset:], trades=[t for t in res.trades if t.day >= days[start]],
@@ -210,7 +211,7 @@ def walk_forward(data: Mapping[str, Sequence[Candle]], key: str, *, train_bars: 
         if changes > len(folds) / 2:
             reasons.append("unstable")
     # The benchmark holds from the first test bar to the last one, the same span as the joined line.
-    bench_res = run(bars, build("buy_and_hold", symbols), cash=cash, costs=costs, start_index=train_bars,
+    bench_res = run(bars, build("buy_and_hold", symbols), cash=cash, costs=costs, start_index=train_bars, shared=shared,
                     end_index=train_bars + len(folds) * test_bars)
     bench = metrics(bench_res, periods_per_year)
     b0 = bench_res.equity[0]

@@ -60,7 +60,7 @@ Both tables have forced RLS: `tenant_isolation_*` on `anum.tenant_id` and `anum.
 
 The audit log records `app_call.placed`, `app_call.answered` and `app_call.ended` with the actor, the call id, audio or video, the outcome and the duration; it never names the other participant. Calls older than `ANUM_CALLS_RETENTION_DAYS` (365) are purged when either participant places a new call.
 
-**Renumbering.** Written as `0072_app_calls` on main's head `0065_finance_intel` while parallel branches hold 0066 to 0071; re-chain `down_revision` onto the head at merge time (and the migration test reads it from the file).
+**Renumbering.** `0072_app_calls` is chained on `0070_business` (main's head). The parallel calls branch adds `0071_calls`; whichever lands second re-chains its `down_revision` onto the other (the migration test reads `down_revision` from the file).
 
 ### Privacy
 

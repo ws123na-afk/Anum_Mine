@@ -205,3 +205,19 @@
 .teamView > *, .assistantsView > *, .orgsView > * { min-width: 0; }
 .orgsTable thead th { white-space: normal; }
 .orgsTable tbody th { min-width: 150px; }
+
+/* Mail health in the platform console (MailHealthPane.tsx, docs/email.md#operator-view). */
+.mailHealthPane .paneHead h2, .mailServerCard h3 { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.mailHealthPane .paneHead h2 svg, .mailServerCard h3 svg { height: 18px; width: 18px; }
+.mailHealthToolbar { flex: 1 1 320px; justify-content: flex-end; }
+.mailHealthToolbar input[type="search"] { max-width: 260px; }
+.mailHealthIntro { max-width: 70ch; }
+/* The pane hides its optional columns when it is narrow (the sidebar takes room on tablets). */
+.mailHealthPane .paneBody { container-type: inline-size; }
+@container (max-width: 820px) { .mailHealthTable .optional { display: none; } }
+.mailHealthTable tbody th { min-width: 150px; }
+.mailHealthTable thead th { white-space: normal; }
+.mailServerCard { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.mailServerCard h3 { font-size: 14px; font-weight: 650; }
+.mailServerCard p { overflow-wrap: anywhere; }
+.mailcowFacts { display: grid; gap: var(--d-s1); margin: 0; overflow-wrap: anywhere; padding-inline-start: var(--d-s4); }

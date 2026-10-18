@@ -50,6 +50,12 @@ class MailServerSettings(BaseSettings):
     # (0 is off: scheduled messages then wait) and how far ahead a message may be scheduled.
     schedule_poll_seconds: float = Field(default=30.0, ge=0, le=3600)
     schedule_max_days: int = Field(default=30, ge=1, le=365)
+    # Background sync (docs/email.md#background-sync): how often each replica looks for mailboxes
+    # due a check (0 is off: counts then come only from the open Email page), how long a mailbox
+    # waits between checks, and how many messages forwarding rules may forward per mailbox per pass.
+    sync_poll_seconds: float = Field(default=60.0, ge=0, le=3600)
+    sync_interval_seconds: int = Field(default=300, ge=60, le=86_400)
+    forward_per_pass: int = Field(default=20, ge=1, le=200)
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_MAILSERVER_", env_file=".env", extra="ignore", hide_input_in_errors=True

@@ -9,14 +9,14 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 | Loop | Scope | State |
 |---|---|---|
 | 1 | Gap assessment | Done ([gap assessment](finance-trading-gap-assessment.md)) |
-| 2 | Trading knowledge library and agent skills | **In progress** |
+| 2 | Trading knowledge library and agent skills | Done: six skill packages with sourced references, registered skills, five agent tools and the owner's commands |
 | 3 | Calendars, market data, storage | Done: calendars, CSV and recorded-provider parsing with checks, instruments and bars stored (migration `0065_finance_intel`), import API. Network fetch from providers is off until the owner accepts their terms |
 | 4 | Indicators, backtester, the six candidates, walk-forward validation, reports | Done, with tests |
 | 5 | Strategy signals into SIMULATED paper orders | Done: the Supervisor's Execution Coordinator through the existing gateway and Guardian; every order waits for the person's approval |
 | 6 | Scheduled agent operations | Done: `finance.intel.cycle` automation step, phases by venue calendar, idempotent cycles |
-| 7 | Dashboard | Done on the web: the read view (`intel_api.py`) and the actions (market data, new strategies, evaluations, lifecycle moves, Supervisor cycles, pause). P&L and drawdown charts and the Flutter screens are built separately |
-| 8 | Daily reports, monitoring, incidents | Partly: each cycle records its summary and every agent decision; the post-close report document is open |
-| 9 | Security, performance, regression, Oracle checks | Open |
+| 7 | Dashboard | Done on the web: the read view (`intel_api.py`), the actions (market data, new strategies, evaluations, lifecycle moves, Supervisor cycles, pause), P&L and drawdown charts with a buy and hold line, and the daily reports. Phone: see [P&L and drawdown over time](#pl-and-drawdown-over-time) |
+| 8 | Daily reports, monitoring, incidents | Done: the written post-close report (stored, API, assistant tool, web and phone views) with an in-app notification after each one, and every agent decision and cycle summary recorded |
+| 9 | Security, performance, regression, Oracle checks | Done: see [Checks](#checks); walk-forward made 25 to 50 times faster, evaluations bounded, bar storage capped |
 | 10 | Live-trading readiness assessment (nothing enabled) | [Readiness report](finance-trading-readiness.md) |
 
 No code here can place a real order. A strategy signal becomes, at most, a SIMULATED paper order request through the existing Guardian `gate` and execution gateway, approved by the person.
@@ -170,6 +170,88 @@ Write routes, `finance:manage`, in `finance/intel_control_api.py` under `/api/v1
 
 Audit records carry ids, kinds, states, phases, counts and codes only; never a symbol, price or amount.
 
+## Skills and tools
+
+**Knowledge library** (`finance/intel/skills/`, loaded and checked by `finance/intel/knowledge.py`): six packages in the Claude skill format, each a folder with `SKILL.md` (front matter with name, description, version and ANUM skill id; when to use, inputs, outputs, permitted tools, prohibited actions, failure handling), `references/*.md` and `tools.json`.
+
+| Skill | Covers |
+|---|---|
+| `anum.trading.market-data` | Terminology, instrument types, venues and hours, providers and broker or exchange API behaviour, liquidity, spread, volatility and slippage |
+| `anum.trading.technical-analysis` | Exact indicator definitions as implemented, regimes and contradictions |
+| `anum.trading.strategy-research` | The six candidate families and their evidence, backtesting methodology and biases, risk-adjusted measures, fundamentals and valuation |
+| `anum.trading.portfolio` | Paper portfolios, diversification and portfolio theory, benchmarks |
+| `anum.trading.risk` | ANUM's controls in order, regulatory and geographic restrictions (UAE, Saudi Arabia, United States, European Union), psychology and automated-system failures |
+| `anum.trading.operations` | Cycles, phases, the lifecycle and the owner's commands |
+
+Every reference ends with a sources table (source, link, source date, licence, limitations): peer-reviewed papers, regulators, exchanges and provider documentation. Copyrighted works are summarised, not reproduced. The loader refuses a package with a missing section, a reference without sources, a broken link or a long dash; tests keep each `tools.json` equal to the registered tools and check that no package promises profit and that every one says it is SIMULATED with live trading off. Each package is an agent skill in the runtime registry (selected by its words, only where its tools are registered) and can be published as a skill version (`knowledge.skill_version`).
+
+**Agent tools** (`finance/intel/agent_tools.py`, registered with the finance tools in the API and the worker):
+
+| Tool | Does |
+|---|---|
+| `finance.intel.activity` | What the Supervisor and its agents did on a day, with counts and what was proposed, refused or suspended |
+| `finance.intel.strategies` | Versions with their newest evaluation: return after costs, worst drawdown, buy and hold, and whether an active one needs revalidation (missing, failed or older than 30 days) |
+| `finance.intel.explain_order` | Why a SIMULATED order request was refused or denied: the Guardian decision, the gateway refusal and the agents' decisions |
+| `finance.intel.benchmark` | Each active strategy's paper period against buy and hold of the same symbols |
+| `finance.intel.pause_all` | Suspends every active paper strategy (tightens only; resuming is the person's action) |
+
+No tool promotes, resumes or retires a strategy, approves an order, changes a limit or trades live. The request planner maps the owner's own words to these tools: "what did the trading agents do today", "which paper strategy performed best after transaction costs", "explain why the Guardian rejected this simulated trade", "show the worst drawdown for each strategy", "pause all paper trading", "compare my paper portfolio against an appropriate benchmark", "which strategy needs revalidation" (and Arabic forms).
+
+## Daily report
+
+`intel/daily_report.py`. At the end of every `post_close` cycle (also a halted one, which then says why nothing ran) the Supervisor writes a report from that cycle's own decisions, nothing recomputed or invented, and stores it as an owner-only decision (`action = "daily_report"`) with the structured report and its Markdown:
+
+- summary: active strategies, orders proposed for approval and all waiting, signals refused, suspensions, problems, market-closed days;
+- data health per instrument: newest bar, sessions behind, source, status and reasons;
+- orders proposed: strategy and version, side and quantity, target weight, estimated fill with its price source, fee, the Guardian's outcome;
+- refusals and suspensions with the agents' reasons;
+- the paper portfolio: cash, realised and unrealised P&L, fees, holdings without a recent price;
+- each active strategy against buy and hold over its paper period;
+- problems (failed checks, degrading strategies, halts) and next steps for the person.
+
+It is labelled SIMULATED, says that no real order was placed, quotes agent reasons as data and has no long dashes (tested). Read it with `GET /api/v1/finance/intel/daily-reports` (newest first, paged) and `GET /api/v1/finance/intel/daily-reports/{id}` (`finance:read`, own reports only), or ask the assistant to "prepare my daily trading report" (`finance.intel.daily_report`). After each post-close cycle that wrote a report (run by hand or by a schedule) the person gets one in-app notification through the existing notification path (`intel/report_notice.py`, kind `finance_daily_report`): the web bell and the phone's Notifications screen list it; opening it in the web bell goes to the reports (`#finance-intel-reports`, newest selected; `#finance-intel-report=<id>` opens one), and on the phone it opens Finance, Trading intelligence (`NotificationsScreen.openers`, registered by the app). Its text is counts only (active strategies, orders proposed, signals refused, suspensions) and says no real order was placed: no symbol, price, amount or recorded reason, because email leaves ANUM. Email follows the person's own email preference over the server's existing SMTP settings, with no new credentials. There is no phone push for it: the push dispatcher's fixed text for notifications says "Team work", which would mislead, so the row records push `not_requested`. A repeated or skipped cycle sends nothing; a failed notice is logged and never undoes the stored report.
+
+**Web** (`apps/web/src/FinanceReports.tsx`, helpers in `apps/web/src/lib/financeReports.ts`): Trading intelligence has a **Daily reports** panel, a paged list (10 a page, newest first, "Needs you" when orders wait, a strategy was suspended or a problem was recorded) and the selected report: summary figures, next steps, orders proposed, refused and suspended, data health, the paper portfolio, against buy and hold and problems, with recorded text shown as data, and **Download as Markdown**. On screens below 1024 pixels the open report comes before the list. Loading, empty with the next step, error with retry (list and report separately) and permission denied are handled; English and Arabic (the report's own sentences, such as next steps, are recorded in English and shown as written). Tests: `apps/web/test/financeReports.test.ts`, `apps/web/e2e/finance-reports.spec.ts` (the responsive gate at the five sizes).
+
+## Checks
+
+Loop 9, all read only and without any paid resource.
+
+**Security.** bandit (whole API and migrations), gitleaks over the full history, ruff on the new code: clean. No Python or web dependency was added, so the last pip-audit and OSV results stand; the desktop's `rustls` and `zip` advisories are fixed ([Security](security.md#scanning-in-ci)). The new code makes no network, shell, `eval` or unpickling call. Reviewed and tested:
+
+| Area | Check | Evidence |
+|---|---|---|
+| Tenant and owner isolation | Five tables under forced RLS with owner-only restrictive policies; every route and tool reads only the caller's rows | `test_postgres_finance_intel.py`, the API and report tests (another person and another tenant see nothing) |
+| Agent permissions | Agents cannot promote, resume or retire (code and database check), approve orders, loosen limits or trade live; the only write tool pauses | `test_finance_intel_lifecycle.py`, `test_finance_intel_supervisor.py`, `test_finance_intel_knowledge.py` |
+| Approval integrity | Agent orders go through the gateway as `requested_by = agent`, priced from stored bars, and wait for the person's hash-bound approval | `test_finance_intel_supervisor.py` |
+| Duplicate orders and restarts | Deterministic order keys per version, bar, symbol and side; one cycle per person, phase and day | Supervisor and API schedule tests |
+| Prompt injection | Agent reasons, provider text and file contents are data; tools cannot act on them | Report and tool notes; e2e shows an injected reason as text |
+| Data validation | Corrupt, duplicated or future bars refuse an import; gaps are never filled; abnormal moves stop signals | `test_finance_intel.py`, API tests |
+| Resource limits | 2 MB and 10,000 bars per import, at most 50,000 bars per instrument (now enforced), 200 instruments, 200 versions, 200 runs per version, 10 symbols per run | API tests |
+
+**Performance.** Measured on the development container (x86_64, 4 cores) before and after the shared indicator cache (`backtest.SeriesCache`: walk-forward shares one set of indicator series across its runs; results are identical, tested for every rule):
+
+| Workload | Before | After | Peak memory |
+|---|---|---|---|
+| Walk-forward, 1 symbol, 2,500 bars, 8 parameter choices | 25.7 s | 1.0 s | 3 MB |
+| Walk-forward, 10 symbols, 5,000 bars | 143 s | 2.6 s | 18 MB |
+| Walk-forward, 1 symbol, 20,000 bars (the old cap) | not measured | 131 s | 36 MB |
+| Supervisor `post_close`, 10 active strategies, 900 bars | 1.7 s | 1.7 s | 2 MB |
+
+Evaluations run inside the API process, so they are bounded: only the newest 3,000 aligned bars are evaluated (the run carries `trimmed_to_recent_bars`), and one evaluation per person runs at a time (a second gets "already running"). A walk-forward evaluation of a stored version is then a few seconds.
+
+**Oracle VM** (`infra/oracle/compose.yaml`, `docs/deploy-oracle.md`; read only, nothing changed):
+
+| Check | Finding |
+|---|---|
+| Architecture | Ampere A1 arm64, 4 OCPU, 24 GB (Always Free). The trading code is pure Python with no new dependency, so the existing `aarch64` wheels cover it |
+| Memory | The API container is limited to 2 GB. The largest measured run peaks at 36 MB of Python memory; a test process with every workload above stayed under 220 MB resident |
+| CPU | Cycles and evaluations run on the API's worker threads. Monthly revalidation is scheduled at 07:00, outside business hours; evaluations are capped and serialized per person |
+| Disk | An estimated 200 to 300 bytes per stored bar in PostgreSQL, indexes included (not measured on the VM). The 50,000-bar cap per instrument and 200 instruments bound one person's market data at roughly 2.5 GB in the worst case; typical use (10 instruments, 15 years of daily bars) is about 10 MB |
+| Paid resources | None created or needed. Provider fetch stays off; a paid data licence (Gulf exchanges) is an owner decision |
+
+The owner can confirm on the VM, read only: `uname -m` (aarch64), `nproc`, `free -h`, `df -h /`, `docker stats --no-stream` while a Supervisor cycle runs.
+
 ## Storage
 
 Migration `0065_finance_intel`. Five tables, each under forced RLS with the tenant policy and a restrictive owner-only policy, like the rest of Finance: nobody but the owner sees a row, not even a workspace owner.
@@ -239,7 +321,26 @@ API (`finance/intel_api.py`, `finance:read`, every row the caller's own under fo
 | `GET /api/v1/finance/intel/strategies?state=&limit=&offset=` | Strategy versions with lifecycle state, rule and code version, symbols, parameters, reason and who moved it last. `state` is one of the six lifecycle states (anything else is 422) |
 | `GET /api/v1/finance/intel/strategies/{id}/runs?limit=&offset=` | Backtest and walk-forward runs of that version: data source and SHA-256, costs, metrics, benchmark, verdict, reasons, warnings, folds, whether it was reproduced. 404 for a version that is not the caller's |
 | `GET /api/v1/finance/intel/decisions?agent=&strategy_id=&cycle_id=&limit=&offset=` | Decisions of the Trading Supervisor, the specialist agents and the person, with reasons, newest first |
+| `GET /api/v1/finance/intel/portfolios/{id}/equity?days=` | Daily SIMULATED value, P&L and drawdown of one paper or shadow portfolio per currency, rebuilt from its stored orders and recorded prices ([P&L and drawdown over time](#pl-and-drawdown-over-time)). 404 for a portfolio that is not the caller's |
 
 Pages take `limit` 1 to 200 and `offset`. Recorded reasons are returned as text to show and are never followed as instructions. Changes (lifecycle moves, runs, Supervisor cycles) belong to `intel_control_api`, not to these routes.
 
 The page shows a "Simulation only, no real orders" banner, live off, the kill switch (the one change it offers: it stops every paper and shadow executor, after a confirmation), venue sessions, strategies filtered by lifecycle state with paging, a strategy's runs with metrics against the benchmark and its walk-forward folds, positions and P&L per portfolio, agent decisions filtered by agent, every Guardian decision through the gateway with its reasons, and the Guardian rules read only with a link to change them on the Guardian tab. Loading, empty with a next action, error with retry and permission denied are handled; tables become stacked cards below 1024 pixels so nothing scrolls sideways. English and Arabic.
+
+## P&L and drawdown over time
+
+Each portfolio on the dashboard shows two charts: SIMULATED P&L and drawdown, day by day (`apps/web/src/FinanceEquity.tsx`, pure helpers in `apps/web/src/lib/financeEquity.ts`). The API computes the curve (`finance/equity.py`, route `GET /api/v1/finance/intel/portfolios/{id}/equity?days=` in `finance/intel_api.py`, `finance:read`, owner only under forced RLS, GET only):
+
+* **From stored records only.** For each day of the portfolio's current run, the API applies the run's starting cash and its filled paper or shadow orders up to that day, with the same average-cost rules as the portfolio view, and values every holding at the newest recorded price (or exchange rate, for currency holdings) dated on or before that day and no older than the portfolio's price age limit. A price dated after the day is never used for it.
+* **Gaps, never guesses.** A day on which something held has no price that fresh is returned with `complete: false` and no figures; the chart breaks the line there and the table says "Gap". The days and symbols are listed.
+* **Currencies never mixed.** One series per currency, nothing converted between them.
+* **Paper and shadow.** A paper portfolio has a value (cash plus priced holdings), P&L (realised plus unrealised, fees and slippage included) and a drawdown from the running high value, as an amount and a percentage. A shadow portfolio has no cash: P&L only, and its drawdown is measured on P&L as an amount.
+* **Buy and hold benchmark.** Each paper series also carries `benchmark`: buy and hold of the symbols this run traded in that currency (FX holdings excluded), in equal weights, bought with the portfolio's value on the first day of the window on which every one of them has a fresh price, without costs. Its P&L starts from the portfolio's own P&L that day, so the two lines compare; later, a day on which a symbol has no fresh price is a gap. There is no line, with a `reason`, for a shadow portfolio (`shadow`: no cash to invest), a run that traded nothing in that currency (`no_symbols`) or when no day had every price (`no_common_price`). The web draws it as a dashed line on the P&L chart with a legend, shows its newest P&L next to the portfolio's, says in words what it is (or why there is none) and adds a column to the table.
+* **Bounded.** `days` is 1 to 730 (default 180; the page offers 30, 90, 180 and 365, default 90), at most 20 currencies, and the newest 5,000 recorded prices (`prices_truncated` says when more exist, so older days may show gaps).
+
+The page shows the newest value and P&L, the deepest drawdown with its high and low dates, the period and filled orders, a range and currency picker, the two SVG charts (each with a text alternative) and the same figures as a paged table (31 days a page, newest first). Loading, no filled order yet (with a link to Paper trading), error with retry and permission denied are handled. English and Arabic; the time axis stays left to right in Arabic. Past simulated results are not a promise of future results.
+
+On the phone, Finance has a **Trading intelligence** section (`apps/mobile/lib/features/finance/finance_intel_*.dart`): the simulation banner with live off, "Stop all simulated trading" behind a confirmation (the existing person kill switch; a second confirmation allows it again), strategies filtered by lifecycle state with paging and their runs, positions with P&L, the last 90 days of P&L as a line with the deepest drawdown in words, Supervisor and agent decisions with reasons shown as text, and the Guardian rules read only. It also shows the market sessions (each venue's state and its own wall clock, with the note where holidays are announced each year), **New strategy** (its own screen: a rule grouped by research candidate with its idea, entry and exit, instruments with stored bars, a reason, then a confirmation; created in Draft), **Move** on each strategy (the states the lifecycle allows, a reason, then a confirmation that is stronger for starting paper trading or retiring; the server's refusal is shown as is), the **Trading Supervisor** (a phase, "Run now" after a confirmation with what the cycle did, and "Pause all paper strategies" after a confirmation, off when none is active), the **Daily reports** (a paged list with "Needs you", and a report on its own screen with the summary, next steps, orders, refused, suspended, data health, portfolio, against buy and hold and problems, recorded text shown as written, and "Copy as Markdown"), and the buy and hold line dashed on the same scale as the P&L line with its newest value and what it is, or why there is none. People without `finance:manage` are told who can give access instead of seeing the actions. No new plugin: the lines are drawn with a `CustomPainter`.
+
+Tests: `services/api/tests/test_finance_intel_equity.py` (hand-worked values, sales, other runs and unfilled orders ignored, shadow, currencies kept apart, recorded rates, no later price used early, window bounds, privacy, permission, read only), `services/api/tests/test_postgres_finance_intel_equity.py` (RLS as the app role), `apps/web/test/financeEquity.test.ts`, `apps/web/e2e/finance-equity.spec.ts` (states, paging, ranges, currencies, shadow, Arabic, the responsive gate at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844), `apps/mobile/test/finance_intel_test.dart`.
+

@@ -225,14 +225,16 @@ async def handle_due(tenant_id: str, workspace_id: str, owner_user_id: str, draf
     if outcome != "claimed":
         return outcome
 
-    def load() -> tuple[MailDraft | None, Any, list[MailAttachment]]:
+    def load() -> tuple[MailDraft | None, Any, str | None, Any, list[MailAttachment]]:
+        # The writer's own mailbox, or one its owner shared with them (checked again at send time).
         with open_mail_store(context) as store:
             draft = store.get_draft(draft_id)
-            account = store.get_account(draft.account_id) if draft else None
-            return draft, account, store.list_attachments(draft_id) if draft else []
+            found = store.get_accessible_account(draft.account_id) if draft else None
+            identity = store.get_identity(draft.identity_id) if draft and draft.identity_id else None
+            return draft, found[0] if found else None, found[1] if found else None, identity, store.list_attachments(draft_id) if draft else []
 
-    draft, account, attachments = await asyncio.to_thread(load)
-    if draft is None or account is None:
+    draft, account, access, identity, attachments = await asyncio.to_thread(load)
+    if draft is None:
         return "gone"
 
     async def fail(message: str, reason: str) -> str:
@@ -242,13 +244,17 @@ async def handle_due(tenant_id: str, workspace_id: str, owner_user_id: str, draf
         await asyncio.to_thread(_audit, context, "mail.send.scheduled", draft_id, "failure", {"reason": reason})
         return "failed"
 
+    if account is None or access not in {"owner", "send"}:
+        return await fail("Not sent: the mailbox's owner no longer lets the writer send from it.", "share")
+    if draft.identity_id and identity is None:
+        return await fail("Not sent: the sender identity was removed. Pick a sender and schedule it again.", "identity")
     if not await asyncio.to_thread(_still_a_member, context):
         return await fail("Not sent: the person who scheduled it is no longer a member of this workspace.", "membership")
     try:
         require_available(context)
     except MailError as exc:
         return await fail(f"Not sent: {exc.message}", exc.kind)
-    if draft.approved_hash != content_hash(send_arguments(draft, account, attachments)):
+    if draft.approved_hash != content_hash(send_arguments(draft, account, attachments, identity)):
         return await fail("Not sent: the message changed after it was approved. Check it and schedule it again.", "changed")
 
     def over_limit() -> bool:
@@ -261,7 +267,7 @@ async def handle_due(tenant_id: str, workspace_id: str, owner_user_id: str, draf
     if await asyncio.to_thread(over_limit):
         await asyncio.to_thread(monitor.bump, context, "send_rate_limited")
         return await fail(f"Not sent: this mailbox already sent {mail_settings.send_per_hour} messages in the last hour. Schedule it again.", "rate_limited")
-    result = await deliver(context, draft, account, attachments)
+    result = await deliver(context, draft, account, attachments, identity)
     await asyncio.to_thread(
         _audit, context, "mail.send.scheduled", draft_id, "success" if result.status == "succeeded" else "failure",
         {"recipients": len(draft.to) + len(draft.cc) + len(draft.bcc), "attachments": len(attachments)},

@@ -7,12 +7,15 @@ import { commerceAr } from './commerce.ar.ts';
 import { financeAr } from './finance.ar.ts';
 import { financeTradingAr } from './financeTrading.ar.ts';
 import { financeIntelAr } from './financeIntel.ar.ts';
+import { financeEquityAr } from './financeEquity.ar.ts';
+import { financeReportsAr } from './financeReports.ar.ts';
 import { financeIntelActionsAr } from './financeIntelActions.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
 import { homeAr } from './home.ar.ts';
 import { teamAr } from './team.ar.ts';
 import { appCallsAr } from './appCalls.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
+import { businessAr } from './business.ar.ts';
 import { ownerAr } from './ar.owner.ts';
 import { governanceAr } from './ar.governance.ts';
 import { setupPlanAr } from './setupPlan.ar.ts';
@@ -24,6 +27,9 @@ import { orgChartAr } from './orgChart.ar.ts';
 import { mailCenterAr } from './mailCenter.ar.ts';
 import { mailOutgoingAr } from './mailOutgoing.ar.ts';
 import { mailAiAr } from './mailAi.ar.ts';
+import { mailShareAr } from './mailShare.ar.ts';
+import { mailRulesAr } from './mailRules.ar.ts';
+import { mailOpsAr } from './mailOps.ar.ts';
 import { mailAr } from './mail.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
@@ -38,15 +44,21 @@ export const ar: Record<MessageKey, Message> = {
   ...financeAr,
   ...financeTradingAr,
   ...financeIntelAr,
+  ...financeEquityAr,
+  ...financeReportsAr,
   ...financeIntelActionsAr,
   ...teamAr,
   ...appCallsAr,
   ...marketingAr,
+  ...businessAr,
   ...agentSkillsAr,
   ...orgChartAr,
   ...mailCenterAr,
   ...mailOutgoingAr,
   ...mailAiAr,
+  ...mailShareAr,
+  ...mailRulesAr,
+  ...mailOpsAr,
   ...mailAr,
   ...chatAr,
   ...setupAr,

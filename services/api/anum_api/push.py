@@ -524,6 +524,10 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
             return None
         if event.payload.get("kind") == "missed_call":
             return PushIntent(**{**common, "kind": PushKind.MISSED_CALL}, recipient=recipient)
+        from .notifications import IN_APP_ONLY_KINDS
+
+        if event.payload.get("kind") in IN_APP_ONLY_KINDS:
+            return None  # not team work: in-app and email only
         return PushIntent(**common, recipient=recipient, work_item_id=item if isinstance(item, str) and item else None)
     if kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
         if task_id is None:
