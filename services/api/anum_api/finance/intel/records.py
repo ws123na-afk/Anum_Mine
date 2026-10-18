@@ -1,4 +1,4 @@
-"""Stored trading intelligence records (migration ``0060_finance_intel``, docs/finance-trading-intel.md#storage).
+"""Stored trading intelligence records (migration ``0065_finance_intel``, docs/finance-trading-intel.md#storage).
 
 * ``StrategyConfig``: one **version** of a strategy: rule key, code version, symbols and
   parameters, its lifecycle state and why it is in it. A version is never edited after it

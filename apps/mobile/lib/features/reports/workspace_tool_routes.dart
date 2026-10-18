@@ -9,6 +9,9 @@ import '../email/email_controller.dart';
 import '../email/email_summary.dart';
 import '../email/email_summary_screen.dart';
 import '../library/library_repository.dart';
+import '../mail_center/mail_center_controller.dart';
+import '../mail_center/mail_center_repository.dart';
+import '../mail_center/mail_center_screens.dart';
 import '../library/library_screens.dart';
 
 /// The routes of the ANUM 360 command-result screens: reports (the
@@ -18,6 +21,8 @@ import '../library/library_screens.dart';
 /// * `/reports`, `/reports/<id>`
 /// * `/calendar`, `/calendar/events/<id>`
 /// * `/email/summary` (`?tab=urgent|replied|other`)
+/// * `/mail`: the Email Center on the workspace's own mail server
+///   (docs/email.md#email-center)
 class WorkspaceToolRoutes {
   WorkspaceToolRoutes(
       {required this.api, required this.library, required this.email});
@@ -29,9 +34,12 @@ class WorkspaceToolRoutes {
   static const reports = '/reports';
   static const calendar = '/calendar';
   static const emailSummary = '/email/summary';
+  static const mailCenter = '/mail';
 
   late final calendarController =
       CalendarController(ApiCalendarRepository(api));
+  late final mailCenterController =
+      MailCenterController(ApiMailCenterRepository(api));
 
   /// The route for [settings], wrapped by [guard] (the signed-in check), or
   /// null when the name is not one of these.
@@ -60,6 +68,8 @@ class WorkspaceToolRoutes {
             tab: SummaryTabQuery.parse(uri.queryParameters['tab'])),
         inbox: email,
       );
+    } else if (uri.path == mailCenter) {
+      screen = MailCenterScreen(controller: mailCenterController);
     }
     if (screen == null) return null;
     final child = screen;
@@ -70,9 +80,11 @@ class WorkspaceToolRoutes {
   void reset() {
     calendarController.events = const [];
     calendarController.steps = const [];
+    mailCenterController.reset();
   }
 
   void dispose() {
     calendarController.dispose();
+    mailCenterController.dispose();
   }
 }

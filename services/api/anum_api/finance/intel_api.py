@@ -8,7 +8,7 @@ and every record is the caller's own (the store reads in the owner's scope, unde
 PostgreSQL mode).
 
 Strategies, their backtest and walk-forward runs, and the Supervisor's and specialist agents'
-decisions come from the records of migration ``0060_finance_intel`` (``intel/records.py``). The
+decisions come from the records of migration ``0065_finance_intel`` (``intel/records.py``). The
 changes (lifecycle moves, runs, Supervisor cycles) live in ``intel_control_api``, not here.
 """
 

@@ -1,4 +1,4 @@
-"""Trading intelligence storage in PostgreSQL (migration 0060_finance_intel).
+"""Trading intelligence storage in PostgreSQL (migration 0065_finance_intel).
 
 Runs as the non-owner ``anum_test_app`` role: forced RLS and the restrictive owner-only
 policy decide every count. The database also refuses an agent promoting a strategy, a

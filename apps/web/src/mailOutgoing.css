@@ -1,0 +1,39 @@
+/* Email Center outgoing mail (MailOutgoing.tsx): attached files, the send-later picker and the
+   scheduled list in the rail. Spacing, radii and colour from the shared tokens in styles.css. */
+.statusBadge.scheduledTone { background: rgb(var(--c-violet) / .12); border-color: rgb(var(--c-violet) / .3); color: var(--d-violet); }
+.statusBadge svg { flex: none; height: 13px; margin-inline-end: 4px; width: 13px; }
+
+.mailoFiles { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.mailoFilesHead { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); justify-content: space-between; min-width: 0; }
+.mailoFilesHead h3 { align-items: center; display: inline-flex; font-size: 14px; gap: var(--d-s1); margin: 0; }
+.mailoFilesHead h3 svg { color: var(--d-violet); height: 16px; width: 16px; }
+.mailoFilesHead .muted { font-size: 12.5px; }
+.mailoFileList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.mailoFile { align-items: center; background: var(--d-glass-1); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); min-height: 44px; min-width: 0; padding: 2px var(--d-s1) 2px var(--d-s2); }
+.mailoFileName { flex: 1 1 140px; font-size: 13.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailoFile small { flex: none; font-variant-numeric: tabular-nums; }
+.mailoFile progress { flex: 1 1 120px; height: 8px; min-width: 80px; }
+.mailoFileActions { display: inline-flex; flex: none; gap: 2px; margin-inline-start: auto; }
+.mailoIcon { align-items: center; display: inline-flex; justify-content: center; min-height: 40px; min-width: 40px; padding: 0; }
+.mailoIcon svg { height: 16px; width: 16px; }
+.mailoFilesAttach { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); min-width: 0; }
+.mailoFilesAttach small { flex: 1 1 240px; font-size: 12.5px; min-width: 0; }
+.mailoSmall { font-size: 12.5px; margin: 0; }
+
+.mailoSchedule { border: 1px solid rgb(var(--c-violet) / .3); border-radius: var(--d-r-control); display: grid; flex: 1 1 100%; gap: var(--d-s2); min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.mailoSchedule.current { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.mailoSchedule.current > svg { color: var(--d-violet); flex: none; height: 18px; width: 18px; }
+.mailoSchedule.current p { flex: 1 1 220px; font-size: 13.5px; margin: 0; min-width: 0; }
+.mailoScheduleTitle { align-items: center; display: inline-flex; font-size: 14px; gap: var(--d-s1); margin: 0; }
+.mailoScheduleTitle svg { color: var(--d-violet); height: 16px; width: 16px; }
+.mailoSchedule .field { margin-top: 0; max-width: 320px; }
+.mailoSchedule .field input { min-height: 40px; width: 100%; }
+.mailoSchedule small { font-size: 12.5px; }
+.mailoQuick { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.mailoQuick button { min-height: 40px; }
+.mailoSchedule .actions { margin-top: 0; }
+
+.mailoRail { margin-top: 0; }
+.mailoRail time { font-variant-numeric: tabular-nums; }
+/* In the composer's action row the open picker and the scheduled notice sit after the buttons, on their own line. */
+.mailFormActions > .mailoSchedule { order: 1; }

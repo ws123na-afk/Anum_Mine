@@ -21,6 +21,10 @@ import { voiceAr } from './ar.voice.ts';
 import { voiceActionsAr } from './ar.voiceActions.ts';
 import { agentSkillsAr } from './agentSkills.ar.ts';
 import { orgChartAr } from './orgChart.ar.ts';
+import { mailCenterAr } from './mailCenter.ar.ts';
+import { mailOutgoingAr } from './mailOutgoing.ar.ts';
+import { mailAiAr } from './mailAi.ar.ts';
+import { mailAr } from './mail.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
@@ -40,6 +44,10 @@ export const ar: Record<MessageKey, Message> = {
   ...marketingAr,
   ...agentSkillsAr,
   ...orgChartAr,
+  ...mailCenterAr,
+  ...mailOutgoingAr,
+  ...mailAiAr,
+  ...mailAr,
   ...chatAr,
   ...setupAr,
   ...pagesAr,

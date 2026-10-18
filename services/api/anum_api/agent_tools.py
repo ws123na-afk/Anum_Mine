@@ -37,6 +37,9 @@ class ToolDefinition(BaseModel):
     # docs/voice.md#grounded-answers). None: an object with any properties; the description
     # then names the arguments.
     input_schema: dict[str, Any] | None = None
+    # Never lowered by workspace autonomy: every call waits for a person's approval, whatever
+    # the autonomy level or rules (the Email Center's send, delete, bulk archive and export).
+    always_ask: bool = False
 
 
 class ToolCall(BaseModel):
@@ -199,6 +202,7 @@ class ToolPolicy:
                 governance_rules=match.approval_labels,
                 # An organization rule or a workspace two-person rule keeps it asking.
                 lowerable=not match.requires_approval
+                and not definition.always_ask
                 and not (workspace_policy is not None and workspace_policy.two_person_rule),
             )
         if match.requires_approval:

@@ -1,0 +1,140 @@
+/* Email Center (EmailView.tsx). Spacing, radii and colour from the shared tokens in styles.css.
+   From 1280px: folders, list and message are three panes that fill the window and scroll on their own.
+   1024 to 1279px: the folder bar runs across the top, then list and message. Below 1024px one pane at a
+   time (SplitView data-show), and the folders become a select so the list starts near the top. */
+.mailLayout { display: grid; gap: var(--d-s3); min-width: 0; }
+.mailLayout > .pageHeader { margin-bottom: 0; }
+.mailLayout > .notice { margin: 0; }
+.mailLayout .actions { margin-top: 0; }
+.mailPad { padding: var(--d-s4); }
+.mailPad .actions { margin-top: var(--d-s3); }
+.mailSmall { font-size: 13px; margin: 0; }
+
+.mailPanel { align-items: flex-start; display: grid; gap: var(--d-s4); grid-template-columns: 28px minmax(0, 1fr); padding: var(--d-s5); }
+.mailPanelIcon svg { color: var(--d-violet); height: 24px; width: 24px; }
+.mailPanel h2 { margin-bottom: var(--d-s1); }
+
+.mailConnect { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); padding: var(--d-s5); }
+.mailConnectText { display: grid; gap: var(--d-s2); }
+.mailConnectText > svg { color: var(--d-violet); height: 28px; width: 28px; }
+.mailConnectText h2 { font-size: 18px; }
+.mailConnectForm, .mailForm { display: grid; gap: var(--d-s3); min-width: 0; }
+.mailConnectForm .field, .mailForm .field { margin-top: 0; }
+
+/* Panes */
+.mailNav { align-content: start; display: grid; gap: var(--d-s3); padding: var(--d-s3); }
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .splitView.three.mailSplit { grid-template-columns: minmax(300px, 2fr) minmax(0, 3fr); grid-template-rows: auto minmax(0, 1fr); }
+  .mailSplit > .mailNav { grid-column: 1 / -1; overflow: visible; }
+  .mailNav .mailFolders { display: none; }
+  .mailNav .mailFolderSelect { display: block; }
+}
+@media (min-width: 1280px) {
+  .splitView.three.mailSplit { grid-template-columns: minmax(210px, 240px) minmax(320px, 380px) minmax(0, 1fr); }
+}
+@media (max-width: 1023px) {
+  .mailSplit[data-show="detail"] > .mailNav { display: none; }
+  .mailNav .mailFolders { display: none; }
+  .mailNav .mailFolderSelect { display: block; }
+}
+/* Below 1280px the folder pane is a bar: search, filters, the folder select and the refresh share rows. */
+@media (max-width: 1279px) {
+  .mailNav { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+  .mailNav .mailcSearch { align-items: center; display: flex; flex: 1 1 300px; flex-wrap: wrap; gap: var(--d-s2); }
+  .mailNav .mailcSearchRow { flex: 1 1 200px; }
+  .mailNav .mailFolderSelect { flex: 1 1 160px; }
+  .mailNav .mailSync { flex: 0 1 auto; }
+  .mailNav .mailOutbox { border-top: 0; flex: 1 1 100%; padding-top: 0; }
+  .mailNav .mailOutbox:not([open]) > :not(summary) { display: none; }
+}
+.mailFolderSelect { display: none; min-width: 0; }
+.mailFolderSelect select { min-height: 40px; width: 100%; }
+.mailFolders ul { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.mailFolder {
+  align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); display: flex;
+  font-size: 14px; gap: var(--d-s2); min-height: 40px; padding: var(--d-s1) var(--d-s3); text-align: start; width: 100%;
+}
+.mailFolder:hover { background: var(--d-glass-1); }
+.mailFolder.active { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); font-weight: 650; }
+.mailFolder > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailOutbox { border-top: 1px solid var(--d-line); min-width: 0; padding-top: var(--d-s2); }
+.mailOutbox summary { align-items: center; cursor: pointer; display: flex; font-size: 13.5px; font-weight: 650; gap: var(--d-s2); list-style: none; min-height: 36px; }
+.mailOutbox summary::-webkit-details-marker { display: none; }
+.mailOutbox summary svg { color: var(--d-violet); height: 16px; width: 16px; }
+.mailOutbox > p { font-size: 12.5px; margin: 0 0 var(--d-s1); }
+.mailOutboxCount { background: var(--d-glass-3); border-radius: 999px; font-size: 12px; margin-inline-start: auto; min-width: 24px; padding: 1px var(--d-s2); text-align: center; }
+.mailOutbox .railItem small { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; overflow-wrap: anywhere; }
+.mailOutbox .statusBadge { font-size: 11px; padding: 0 6px; }
+
+/* List */
+.mailList, .mailDetail { min-width: 0; }
+.mailNewMail { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: var(--d-s2) var(--d-s3) 0 !important; }
+.mailNewMail button { margin-inline-start: auto; min-height: 36px; }
+.mailRows { display: grid; list-style: none; margin: 0; padding: var(--d-s1) var(--d-s2) var(--d-s2); }
+.mailRow { align-items: center; border: 1px solid transparent; border-radius: var(--d-r-control); display: flex; gap: 2px; min-width: 0; }
+.mailRow:hover { background: var(--d-glass-1); }
+.mailRow.picked { background: rgb(var(--c-violet) / .07); }
+.mailRow.selected { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); }
+.mailRowOpen {
+  background: transparent; border: 0; color: var(--d-text); display: grid; flex: 1 1 auto; gap: 2px; min-height: 52px; min-width: 0;
+  padding: var(--d-s2) var(--d-s2) var(--d-s2) var(--d-s1); text-align: start;
+}
+.mailRowTop { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
+.mailRowTop strong { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailRowTop time { color: var(--d-faint); flex: none; font-size: 12px; }
+.mailRow.unread .mailRowTop strong, .mailRow.unread .mailRowSubject { font-weight: 700; }
+.mailRowSubject { align-items: center; display: flex; font-size: 13.5px; gap: var(--d-s2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailUnreadDot { background: var(--d-sky); border-radius: 50%; flex: none; height: 8px; width: 8px; }
+.mailClip { color: var(--d-faint); flex: none; height: 14px; width: 14px; }
+
+/* Reader and composer */
+.mailReader, .mailComposer { display: flex; flex-direction: column; gap: var(--d-s3); min-height: 100%; min-width: 0; padding: var(--d-s4) var(--d-s5) var(--d-s5); }
+.mailReader > .notice, .mailComposer > .notice { margin: 0; }
+.mailReaderBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.mailReaderActions { display: flex; flex-wrap: wrap; gap: var(--d-s1); margin-inline-start: auto; }
+.mailReaderActions button, .mailBack, .mailFiles button {
+  align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13.5px; font-weight: 600; gap: var(--d-s1); min-height: 40px; padding: var(--d-s1) var(--d-s2);
+}
+.mailReaderActions svg, .mailBack svg, .mailFiles svg { height: 16px; width: 16px; }
+.mailReaderActions .danger { color: var(--d-stop); }
+.mailBack { display: none !important; }
+.mailReaderHead { display: grid; gap: var(--d-s3); }
+.mailReaderHead h2, .mailComposer > h2 { font-size: 20px; overflow-wrap: anywhere; }
+.mailReaderHead h2:focus { outline: none; }
+.mailReaderHead h2:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+.mailMeta { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); margin: 0; }
+.mailMeta dt { color: var(--d-muted); font-size: 12.5px; }
+.mailMeta dd { font-size: 14px; font-weight: 500; margin: 0; overflow-wrap: anywhere; }
+.mailBlocked { align-items: center; display: flex; gap: var(--d-s2); margin: 0; }
+.mailBlocked svg { color: var(--d-ok); flex: none; height: 16px; width: 16px; }
+.mailBodyToggle { justify-content: flex-end; }
+/* The frame fills what is left of the pane (it cannot report its own height: no scripts, no same origin). */
+.mailFrame { background: #fff; border: 1px solid var(--d-line); border-radius: var(--d-r-control); flex: 1 1 auto; min-height: 360px; width: 100%; }
+.mailText {
+  background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); font-size: 14px;
+  line-height: 1.6; overflow-wrap: anywhere; padding: var(--d-s3) var(--d-s4); unicode-bidi: plaintext; white-space: pre-wrap;
+}
+.mailFiles h3 { font-size: 15px; margin-bottom: var(--d-s2); }
+.mailFiles ul { display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.mailFiles button { max-width: 100%; overflow-wrap: anywhere; text-align: start; }
+.mailFiles small { color: var(--d-muted); font-weight: 400; }
+.mailFrom { font-size: 14px; margin: 0; overflow-wrap: anywhere; }
+.mailForm textarea { min-height: 220px; }
+.mailBccToggle { justify-self: start; }
+.mailFormActions { flex-wrap: wrap; }
+.mailApproval { background: rgb(var(--c-warn) / .07); border: 1px solid rgb(var(--c-warn) / .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); }
+.mailApproval p { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); font-size: 14px; margin: 0; }
+.mailApproval p svg { color: var(--d-warn); height: 16px; width: 16px; }
+.mailApproval .actions { align-items: center; flex-wrap: wrap; }
+.mailSettings { display: grid; gap: var(--d-s4); }
+.mailSettings > .notice { margin: 0; }
+
+@media (max-width: 1023px) {
+  .mailBack { display: inline-flex !important; }
+  .mailConnect { grid-template-columns: minmax(0, 1fr); padding: var(--d-s4); }
+  .mailFrame { min-height: 60vh; }
+}
+@media (max-width: 760px) {
+  .mailReader, .mailComposer { padding: var(--d-s3); }
+  .mailReaderActions { margin-inline-start: 0; }
+}

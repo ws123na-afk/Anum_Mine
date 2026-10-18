@@ -149,6 +149,11 @@ from .finance.wider_api import router as finance_wider_router
 from .finance.intel_api import router as finance_intel_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
+from .mailbox.ai_api import router as mail_ai_router
+from .mailbox.api import router as mail_router
+from .mailbox.operator_api import router as mail_operator_router
+from .mailbox.outgoing import build_schedule_runner
+from .mailbox.service import register_mail_tools
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .user_preferences import router as user_preferences_router
@@ -221,6 +226,10 @@ async def lifespan(_: FastAPI):
     email_scheduler = email_inbox.build_email_scheduler(settings)
     if email_scheduler is not None:
         email_scheduler.start()
+    # Sends scheduled Email Center messages when they are due (docs/email.md#scheduled-send).
+    mail_schedule = build_schedule_runner()
+    if mail_schedule is not None:
+        mail_schedule.start()
     # Syncs due sales-channel connectors when ANUM_COMMERCE_SYNC_ENABLED=true (docs/commerce.md#sync).
     commerce_scheduler = build_commerce_scheduler()
     if commerce_scheduler is not None:
@@ -243,6 +252,8 @@ async def lifespan(_: FastAPI):
             await finance_scheduler.stop()
         if commerce_scheduler is not None:
             await commerce_scheduler.stop()
+        if mail_schedule is not None:
+            await mail_schedule.stop()
         if email_scheduler is not None:
             await email_scheduler.stop()
         if scheduler is not None:
@@ -335,6 +346,9 @@ app.include_router(model_budget_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(email_router)
+app.include_router(mail_ai_router)
+app.include_router(mail_router)
+app.include_router(mail_operator_router)
 app.include_router(calendar_router)
 app.include_router(marketing_router)
 app.include_router(user_preferences_router)
@@ -370,11 +384,11 @@ app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
-)
+))
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).

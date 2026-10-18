@@ -20,15 +20,15 @@ RLS with ``tenant_isolation_<table>`` and a restrictive ``owner_only_<table>`` p
 
 Expand only: new tables. The previous release ignores them.
 
-Chained after ``0059_finance_wider_live``.
+Chained after ``0064_mail_operator_view``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0060_finance_intel"
-down_revision = "0059_finance_wider_live"
+revision = "0065_finance_intel"
+down_revision = "0064_mail_operator_view"
 branch_labels = None
 depends_on = None
 

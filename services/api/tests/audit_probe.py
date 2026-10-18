@@ -32,6 +32,8 @@ MODULE_PREFIXES = {
     "developer": "/api/v1/developer",
     "email": "/api/v1/email",
     "learning": "/api/v1/learning",
+    "mail": "/api/v1/mail",
+    "mail_ai": "/api/v1/mail/ai",
     "whatsapp": "/api/v1/whatsapp",
 }
 EXEMPT: dict[tuple[str, str], str] = {
@@ -69,12 +71,20 @@ def audit_text(records: Iterable[Any]) -> str:
 
 
 def mutating_routes(prefix: str) -> set[tuple[str, str]]:
-    """``(METHOD, path template)`` of every state-changing route under ``prefix``."""
+    """``(METHOD, path template)`` of every state-changing route under ``prefix``.
+
+    A route under a longer module prefix (``/api/v1/mail/ai`` inside ``/api/v1/mail``) belongs
+    to that module's walk only."""
     paths = app.openapi()["paths"]
+    inner = [other for other in MODULE_PREFIXES.values() if other.startswith(prefix + "/")]
+
+    def under(path: str, base: str) -> bool:
+        return path.startswith(base + "/") or path == base
+
     return {
         (method.upper(), path)
         for path, operations in paths.items()
-        if path.startswith(prefix + "/") or path == prefix
+        if under(path, prefix) and not any(under(path, other) for other in inner)
         for method in operations
         if method in MUTATING
     }
