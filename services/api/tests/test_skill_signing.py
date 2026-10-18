@@ -343,7 +343,12 @@ def test_migration_is_expand_only_with_forced_tenant_rls() -> None:
     assert any(f'revision = "{down}"' in path.read_text(encoding="utf-8") for path in others)
     assert not [path for path in others if f'down_revision = "{down}"' in path.read_text(encoding="utf-8")]
     upgrade = text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
-    assert upgrade.count("op.create_table(") == 1 and "force row level security" in text
+    assert upgrade.count("op.create_table(") == 2 and "force row level security" in text
+    assert 'TABLES = ("skill_publisher_keys", "skill_signing_settings")' in text and "for table in tables:\n        _enable_rls(table)" in upgrade
     assert "current_setting('anum.tenant_id', true)" in text and "with check (" in text
     assert "nullable=true" in upgrade.replace(" ", "") and "drop" not in upgrade and "alter_column" not in upgrade
-    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    # anum_maintenance discovers scope, id, version and the enabled flag only, and cannot write.
+    assert "grant select (tenant_id, workspace_id, skill_id, version, enabled) on skill_installations to anum_maintenance" in upgrade
+    assert "grant select (tenant_id, workspace_id, package_id, enabled) on marketplace_installs to anum_maintenance" in upgrade
+    assert upgrade.count("grant ") == 2 and "approved_tools" not in upgrade.split("grant ", 1)[1]
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade

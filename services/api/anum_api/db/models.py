@@ -568,6 +568,19 @@ class SkillPublisherKeyRecord(Base):
     __table_args__ = (_tenant_fk("skill_publisher_keys"),)
 
 
+class SkillSigningSettingsRecord(Base):
+    """The tenant's skill signing settings (0082, docs/skills.md#signing)."""
+
+    __tablename__ = "skill_signing_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    disable_flagged: Mapped[bool] = mapped_column(nullable=False, default=True)
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_tenant_fk("skill_signing_settings"),)
+
+
 class SkillInstallationRecord(Base, WorkspaceScopedMixin):
     __tablename__ = "skill_installations"
 
@@ -579,6 +592,8 @@ class SkillInstallationRecord(Base, WorkspaceScopedMixin):
     enabled: Mapped[bool] = mapped_column(nullable=False)
     installed_by: Mapped[str] = mapped_column(String(160), nullable=False)
     installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Why the API turned the installation off (0082: a revoked signing key).
+    disabled_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     __table_args__ = (
         _workspace_fk("skill_installations"),
@@ -672,6 +687,11 @@ class MarketplacePackageRecord(Base):
     permissions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     regions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Integration package signature (0082, docs/governance-and-scale.md#package-signing).
+    signature_key_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    signature: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signed_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
     __table_args__ = (_tenant_fk("marketplace_packages"),)
 
@@ -686,6 +706,8 @@ class MarketplaceInstallRecord(Base):
     enabled: Mapped[bool] = mapped_column(nullable=False)
     installed_by: Mapped[str] = mapped_column(String(160), nullable=False)
     installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Why the API turned the install off (0082: a revoked signing key).
+    disabled_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     __table_args__ = (
         _workspace_fk("marketplace_installs"),

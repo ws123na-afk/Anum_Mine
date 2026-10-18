@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from conftest import APP_ROLE, TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B
 from fastapi.testclient import TestClient
-from skill_signing_support import KEYS, private_key, public_key, sign, trust
+from skill_signing_support import KEYS, private_key, public_key, sign, sign_package, trust
 from sqlalchemy import Engine, event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
@@ -133,3 +133,50 @@ def test_publisher_keys_are_isolated_by_tenant_under_rls(db: None, database_engi
             # A revoked key must say when; the check constraint refuses a half-revoked row.
             connection.execute(text("update skill_publisher_keys set status = 'revoked' where id = 'test-publisher'"))
     assert ok(client.get(KEYS, headers=A))["keys"][0]["status"] == "active"
+
+
+PACKAGE = {"id": "acme.crm-sync", "name": "CRM sync", "kind": "integration", "version": "1.0.0", "publisher": "Acme",
+           "verified": True, "permissions": ["integration:read"], "regions": ["eu-west"]}
+
+
+def test_revocation_disables_signed_installs_in_every_workspace_under_rls(db: None, database_engine: Engine) -> None:
+    """Discovery as anum_maintenance, then each workspace changed in its own RLS scope (docs/skills.md#signing)."""
+    with database_engine.begin() as connection:
+        for workspace, user in ((WORKSPACE_A, "owner_a"), (WORKSPACE_A2, "owner_a2"), (WORKSPACE_B, "owner_b")):
+            tenant = TENANT_B if workspace == WORKSPACE_B else TENANT_A
+            connection.execute(text(
+                "insert into workspace_memberships (user_id, tenant_id, workspace_id, role, active) "
+                "values (:u, :t, :w, 'owner', true) on conflict do nothing"), {"u": user, "t": tenant, "w": workspace})
+    trust(client, A)
+    trust(client, B)
+    for h in (A, B):
+        ok(client.post(VERSIONS, headers=h, json={**skill("1.0.0"), "signature": sign(skill("1.0.0"))}), 201)
+    ok(client.put(f"/api/v1/marketplace/packages/{PACKAGE['id']}", headers=A, json={**PACKAGE, "signature": sign_package(PACKAGE)}))
+    for h in (A, A2, B):
+        ok(client.post(INSTALLS, headers=h, json={"skill_id": "acme.notes", "version": "1.0.0", "approved_tools": []}), 201)
+    for h in (A, A2):
+        ok(client.post(f"/api/v1/marketplace/packages/{PACKAGE['id']}/install", headers=h, json={}), 201)
+
+    revoked = ok(client.post(f"{KEYS}/test-publisher/revoke", headers=A, json={"reason": "Leaked"}))
+    assert revoked["auto_disable"] is True and revoked["disabled_installations"] == 4
+    forget()
+    for h in (A, A2):
+        [installed] = ok(client.get(INSTALLS, headers=h))
+        assert installed["enabled"] is False and "revoked" in installed["disabled_reason"]
+        [package] = ok(client.get("/api/v1/marketplace/installs", headers=h))
+        assert package["enabled"] is False
+    # Tenant B's key of the same id is its own: nothing there changes.
+    assert [i["enabled"] for i in ok(client.get(INSTALLS, headers=B))] == [True]
+    with database_engine.connect() as connection:
+        rows = connection.execute(text(
+            "select workspace_id, action, outcome from audit_records where action in "
+            "('skill.installation_disabled', 'marketplace.package_disabled') order by workspace_id, action")).all()
+        assert {(r.workspace_id, r.action, r.outcome) for r in rows} == {
+            (w, a, "flagged") for w in (WORKSPACE_A, WORKSPACE_A2)
+            for a in ("skill.installation_disabled", "marketplace.package_disabled")}
+        notices = connection.execute(text(
+            "select workspace_id, user_id, kind from user_notifications where kind = 'skill_signing' order by workspace_id")).all()
+        assert [(n.workspace_id, n.user_id) for n in notices] == sorted([(WORKSPACE_A, "owner_a"), (WORKSPACE_A2, "owner_a2")])
+    # Turning one back on is explicit.
+    assert client.patch(f"{INSTALLS}/acme.notes", headers=A2, json={"enabled": True}).status_code == 409
+    assert ok(client.patch(f"{INSTALLS}/acme.notes", headers=A2, json={"enabled": True, "acknowledge_flagged": True}))["enabled"] is True

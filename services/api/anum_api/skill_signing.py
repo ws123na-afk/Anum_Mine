@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 PACKAGE_FORMAT = "anum-skill-v1"
 SIGNATURE_CONTEXT = b"anum-skill-signature-v1\n"
+# Integration packages in the marketplace catalog (docs/governance-and-scale.md#package-signing).
+INTEGRATION_FORMAT = "anum-integration-v1"
+INTEGRATION_SIGNATURE_CONTEXT = b"anum-integration-signature-v1\n"
 KEY_ID_PATTERN = r"^[a-z0-9][a-z0-9_.-]{2,79}$"
 PLATFORM_PUBLISHER = "ANUM platform"
 FIRST_PARTY_SIGNER = "ANUM (shipped with this release)"
@@ -133,8 +136,30 @@ def package_digest(
     )).hexdigest()
 
 
-def signing_message(digest: str) -> bytes:
-    return SIGNATURE_CONTEXT + digest.encode("ascii")
+def signing_message(digest: str, context: bytes = SIGNATURE_CONTEXT) -> bytes:
+    return context + digest.encode("ascii")
+
+
+def canonical_integration(
+    *, package_id: str, name: str, kind: str, version: str, publisher: str,
+    permissions: Iterable[str], regions: Iterable[str],
+) -> bytes:
+    """The bytes an integration package's digest covers: what installing it grants and where."""
+    document = {
+        "format": INTEGRATION_FORMAT,
+        "id": package_id,
+        "name": name,
+        "kind": kind,
+        "version": version,
+        "publisher": publisher,
+        "permissions": sorted(set(permissions)),
+        "regions": sorted(set(regions)),
+    }
+    return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def integration_digest(**fields: object) -> str:
+    return hashlib.sha256(canonical_integration(**fields)).hexdigest()  # type: ignore[arg-type]
 
 
 def decode_public_key(value: str) -> bytes:
@@ -160,10 +185,10 @@ def key_fingerprint(public_key: str) -> str:
     return ":".join(digest[i:i + 4] for i in range(0, len(digest), 4))
 
 
-def signature_matches(public_key: str, digest: str, signature: str) -> bool:
+def signature_matches(public_key: str, digest: str, signature: str, context: bytes = SIGNATURE_CONTEXT) -> bool:
     try:
         raw_signature = base64.b64decode(signature.strip(), validate=True)
-        Ed25519PublicKey.from_public_bytes(decode_public_key(public_key)).verify(raw_signature, signing_message(digest))
+        Ed25519PublicKey.from_public_bytes(decode_public_key(public_key)).verify(raw_signature, signing_message(digest, context))
     except (binascii.Error, ValueError, InvalidSignature, SigningError):
         return False
     return True
@@ -237,10 +262,18 @@ def verify(
             signer=FIRST_PARTY_SIGNER, key_source=KeySource.FIRST_PARTY,
             detail="First-party skill: its content matches a skill shipped with this ANUM release.",
         )
+    return verify_digest(digest=digest, signature=signature, signed_at=signed_at, keys=keys)
+
+
+def verify_digest(
+    *, digest: str, signature: SkillSignature | None, signed_at: datetime | None, keys: Iterable[PublisherKey],
+    context: bytes = SIGNATURE_CONTEXT, what: str = "version",
+) -> SkillVerification:
+    """Check a signature over ``digest`` against the trusted keys as they are now."""
     if signature is None:
         return SkillVerification(
             status=VerificationStatus.UNSIGNED, installable=False, digest=digest,
-            detail="This version is not signed. An organization administrator signs it with a trusted publisher key before anyone can install it.",
+            detail=f"This {what} is not signed. An organization administrator signs it with a trusted publisher key before anyone can install it.",
         )
     key = next((item for item in keys if item.id == signature.key_id), None)
     base = {"digest": digest, "key_id": signature.key_id, "signed_at": signed_at}
@@ -256,10 +289,10 @@ def verify(
             status=VerificationStatus.REVOKED, installable=False, **base,
             detail=f"Signed with key {key.id}, which an organization administrator revoked{reason}. Sign it again with a trusted key, or roll back to another signed version.",
         )
-    if not signature_matches(key.public_key, digest, signature.signature):
+    if not signature_matches(key.public_key, digest, signature.signature, context):
         return SkillVerification(
             status=VerificationStatus.INVALID, installable=False, **base,
-            detail="The signature does not match this version's content: it was changed after signing, or signed with a different key.",
+            detail=f"The signature does not match this {what}'s content: it was changed after signing, or signed with a different key.",
         )
     if key.status == PublisherKeyStatus.ROTATED and key.rotated_at is not None and (signed_at is None or signed_at > key.rotated_at):
         return SkillVerification(

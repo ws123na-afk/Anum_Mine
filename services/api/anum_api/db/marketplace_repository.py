@@ -14,6 +14,7 @@ from anum_api.phase5 import (
 )
 from anum_api.audit import AuditRecord
 from anum_api.schemas import TenantContext, utc_now
+from anum_api.skill_signing import SkillSignature
 
 from .models import MarketplaceInstallRecord, MarketplacePackageRecord, RoutingTargetRecord
 from .scope import require_tenant, require_workspace
@@ -56,6 +57,10 @@ class SqlAlchemyScaleStore:
         record.verified = package.verified
         record.permissions = list(package.permissions)
         record.regions = list(package.regions)
+        record.signature_key_id = package.signature.key_id if package.signature else None
+        record.signature = package.signature.signature if package.signature else None
+        record.signed_at = package.signed_at if package.signature else None
+        record.signed_by = package.signed_by if package.signature else None
         record.updated_at = utc_now()
         self.session.flush()
         return package
@@ -93,9 +98,19 @@ class SqlAlchemyScaleStore:
                 enabled=record.enabled,
                 installed_by=record.installed_by,
                 installed_at=record.installed_at,
+                disabled_reason=record.disabled_reason,
             )
             for record in records
         ]
+
+    def set_install(self, context: TenantContext, install: PackageInstall) -> PackageInstall:
+        record = self.session.get(MarketplaceInstallRecord, (context.tenant_id, context.workspace_id, install.package_id))
+        if record is None:
+            raise LookupError(install.package_id)
+        record.enabled = install.enabled
+        record.disabled_reason = install.disabled_reason
+        self.session.flush()
+        return install
 
     def install(self, package: MarketplacePackage, context: TenantContext, version: str | None) -> PackageInstall:
         item = new_package_install(package, context, version)
@@ -110,6 +125,7 @@ class SqlAlchemyScaleStore:
             self.session.add(record)
         record.version = item.version
         record.enabled = item.enabled
+        record.disabled_reason = None
         record.installed_by = item.installed_by
         record.installed_at = item.installed_at
         self.session.flush()
@@ -177,4 +193,10 @@ def _package(record: MarketplacePackageRecord) -> MarketplacePackage:
         verified=record.verified,
         permissions=list(record.permissions),
         regions=list(record.regions),
+        signature=(
+            SkillSignature(key_id=record.signature_key_id, signature=record.signature)
+            if record.signature_key_id and record.signature else None
+        ),
+        signed_at=record.signed_at,
+        signed_by=record.signed_by,
     )

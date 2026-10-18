@@ -94,6 +94,12 @@ class PublisherKeyRevoked(BaseModel):
     affected_versions: int
     # Installations in this workspace now flagged.
     flagged_installations: int
+    # Integration packages of this tenant signed with the key: no longer installable.
+    affected_packages: int = 0
+    # Whether the tenant's "disable flagged installs" setting was on.
+    auto_disable: bool = True
+    # Skill installations and integration installs turned off, in every workspace of the tenant.
+    disabled_installations: int = 0
 
 
 class SkillInstallCreate(BaseModel):
@@ -113,6 +119,8 @@ class SkillInstallation(BaseModel):
     enabled: bool
     installed_by: str
     installed_at: datetime
+    # Why the API turned the installation off (a revoked signing key), if it did.
+    disabled_reason: str | None = None
     # The installed version's signature check, computed on read: anything other than
     # ``verified`` flags the installation (for example after its key was revoked).
     verification: SkillVerification | None = None
@@ -126,6 +134,25 @@ class SkillResolveRequest(BaseModel):
 
 class SkillInstallationUpdate(BaseModel):
     enabled: bool
+    # Required to turn on an installation whose version no longer verifies (a revoked key).
+    acknowledge_flagged: bool = False
+
+
+class SigningSettings(BaseModel):
+    """The tenant's signing settings (docs/skills.md#signing)."""
+
+    # Turn off, in every workspace, each installation a revoked key signed. On by default.
+    disable_flagged: bool = True
+    updated_by: str | None = None
+    updated_at: datetime | None = None
+
+
+class SigningSettingsUpdate(BaseModel):
+    disable_flagged: bool
+
+
+class SigningSettingsView(SigningSettings):
+    can_manage: bool = False
 
 
 class SkillRollbackRequest(BaseModel):
@@ -208,6 +235,8 @@ class SkillRegistryStore(Protocol):
     def record_audit(self, record: AuditRecord) -> AuditRecord: ...
     def skill_history(self, context: TenantContext, skill_id: str, limit: int) -> list[AuditRecord]: ...
     def list_publisher_keys(self, context: TenantContext) -> list[PublisherKey]: ...
+    def get_signing_settings(self, context: TenantContext) -> SigningSettings | None: ...
+    def save_signing_settings(self, context: TenantContext, value: SigningSettings) -> SigningSettings: ...
     def add_publisher_key(self, key: PublisherKey) -> PublisherKey: ...
     def save_publisher_key(self, key: PublisherKey) -> PublisherKey: ...
     def set_signature(
@@ -223,6 +252,7 @@ class SkillStore:
         self.versions: dict[tuple[str, str, str], SkillVersion] = {}
         self.installations: dict[tuple[str, str, str], SkillInstallation] = {}
         self.publisher_keys: dict[tuple[str, str], PublisherKey] = {}
+        self.signing_settings: dict[str, SigningSettings] = {}
         self._lock = RLock()
 
     def clear(self) -> None:
@@ -230,6 +260,17 @@ class SkillStore:
             self.versions.clear()
             self.installations.clear()
             self.publisher_keys.clear()
+            self.signing_settings.clear()
+
+    def get_signing_settings(self, context: TenantContext) -> SigningSettings | None:
+        with self._lock:
+            found = self.signing_settings.get(context.tenant_id)
+            return found.model_copy() if found else None
+
+    def save_signing_settings(self, context: TenantContext, value: SigningSettings) -> SigningSettings:
+        with self._lock:
+            self.signing_settings[context.tenant_id] = value.model_copy()
+        return value
 
     def list_publisher_keys(self, context: TenantContext) -> list[PublisherKey]:
         with self._lock:
@@ -566,8 +607,17 @@ def rotate_publisher_key(key_id: str, payload: PublisherKeyRotate, context: Tena
 
 @router.post("/skills/publisher-keys/{key_id}/revoke", response_model=PublisherKeyRevoked)
 def revoke_publisher_key(key_id: str, payload: PublisherKeyRevoke, context: TenantContext = Depends(tenant_context)) -> PublisherKeyRevoked:
-    """Stop trusting a key: its versions cannot be installed and installed ones are flagged."""
+    """Stop trusting a key: its versions cannot be installed and installed ones are flagged.
+
+    With the tenant's ``disable_flagged`` setting on (the default), every installation the key
+    signed is then turned off in every workspace, audited there, and the owners are notified.
+    """
     require_permission(context, Permission.ORG_POLICY_MANAGE)
+    from .phase5 import open_scale_store, requires_signature
+
+    with open_scale_store(context) as scale:
+        signed_packages = {p.id for p in scale.catalog(context)
+                           if requires_signature(p) and p.signature is not None and p.signature.key_id == key_id}
     with open_skill_store(context) as store:
         old = next((key for key in store.list_publisher_keys(context) if key.id == key_id), None)
         if old is None:
@@ -586,12 +636,23 @@ def revoke_publisher_key(key_id: str, payload: PublisherKeyRevoke, context: Tena
             _audit(store, context, "skill.installation_flagged", installation.skill_id, {
                 "version": installation.version, "key_id": key_id, "reason": revoked.revoke_reason,
             }, outcome="flagged")
+        auto_disable = (store.get_signing_settings(context) or SigningSettings()).disable_flagged
         _audit(store, context, "skill.publisher_key_revoked", "", {
             "key_id": key_id, "publisher": old.publisher, "fingerprint": old.fingerprint,
             "reason": revoked.revoke_reason, "affected_versions": len(signed),
-            "flagged_installations": len(flagged),
+            "affected_packages": len(signed_packages), "flagged_installations": len(flagged),
+            "auto_disable": auto_disable,
         }, target=key_target(key_id))
-    return PublisherKeyRevoked(key=revoked, affected_versions=len(signed), flagged_installations=len(flagged))
+    disabled = 0
+    if auto_disable and (signed or signed_packages):
+        # After the revocation commits: each workspace in its own short unit of work.
+        from .skill_flagging import disable_signed_installs
+
+        disabled = disable_signed_installs(context, key_id, revoked.revoke_reason or "", signed, signed_packages)
+    return PublisherKeyRevoked(
+        key=revoked, affected_versions=len(signed), flagged_installations=len(flagged),
+        affected_packages=len(signed_packages), auto_disable=auto_disable, disabled_installations=disabled,
+    )
 
 
 @router.get("/skills/versions", response_model=list[SkillVersion])
@@ -669,10 +730,43 @@ def update_installation(skill_id: str, payload: SkillInstallationUpdate, context
         installation = store.get_installation(context, skill_id)
         if installation is None:
             raise HTTPException(404, "Skill installation not found")
-        result = store.save_installation(installation.model_copy(update={"enabled": payload.enabled}))
-        _audit(store, context, "skill.enabled" if payload.enabled else "skill.disabled", skill_id,
-               {"version": installation.version})
-        return result
+        version = store.get_version(context, skill_id, installation.version)
+        check = verification_of(version, trusted_keys(store, context)) if version is not None else None
+        flagged = check is not None and not check.installable
+        if payload.enabled and flagged and not payload.acknowledge_flagged:
+            # An explicit owner decision: agents would load instructions no trusted key vouches for.
+            raise HTTPException(409, f"{skill_id} {installation.version} no longer verifies: {check.detail if check else ''} "
+                                     "Confirm that you want to turn it on anyway.")
+        result = store.save_installation(installation.model_copy(update={
+            "enabled": payload.enabled,
+            "disabled_reason": None if payload.enabled else "Turned off by a workspace owner.",
+        }))
+        action = ("skill.flagged_reenabled" if flagged else "skill.enabled") if payload.enabled else "skill.disabled"
+        _audit(store, context, action, skill_id, {
+            "version": installation.version, **(_signing_metadata(check) if check else {})})
+        return result.model_copy(update={"verification": check})
+
+
+@router.get("/skills/signing-settings", response_model=SigningSettingsView)
+def get_signing_settings(context: TenantContext = Depends(tenant_context)) -> SigningSettingsView:
+    require_permission(context, Permission.POLICY_READ)
+    with open_skill_store(context) as store:
+        current = store.get_signing_settings(context) or SigningSettings()
+    return SigningSettingsView(**current.model_dump(), can_manage=has_permission(context, Permission.ORG_POLICY_MANAGE))
+
+
+@router.put("/skills/signing-settings", response_model=SigningSettingsView)
+def update_signing_settings(payload: SigningSettingsUpdate, context: TenantContext = Depends(tenant_context)) -> SigningSettingsView:
+    """Organization administrators choose whether revocation turns flagged installations off."""
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+    with open_skill_store(context) as store:
+        before = store.get_signing_settings(context) or SigningSettings()
+        saved = store.save_signing_settings(context, SigningSettings(
+            disable_flagged=payload.disable_flagged, updated_by=context.user_id, updated_at=utc_now()))
+        _audit(store, context, "skill.signing_settings_updated", "", {
+            "disable_flagged": payload.disable_flagged, "previous": before.disable_flagged,
+        }, target="skill_signing_settings")
+    return SigningSettingsView(**saved.model_dump(), can_manage=True)
 
 
 @router.post("/skills/installations/{skill_id}/rollback", response_model=SkillInstallation)

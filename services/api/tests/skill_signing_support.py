@@ -14,7 +14,7 @@ from typing import Any
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from anum_api.skill_signing import package_digest, signing_message
+from anum_api.skill_signing import INTEGRATION_SIGNATURE_CONTEXT, integration_digest, package_digest, signing_message
 
 TEST_KEY_ID = "test-publisher"
 KEYS = "/api/v1/skills/publisher-keys"
@@ -51,3 +51,21 @@ def signed(client: Any, headers: dict[str, str], payload: dict[str, Any]) -> dic
     """Trust the test key for the caller's tenant and return the payload signed with it."""
     trust(client, headers)
     return {**payload, "signature": sign(payload)}
+
+
+def package_digest_of(payload: dict[str, Any]) -> str:
+    return integration_digest(
+        package_id=payload["id"], name=payload["name"], kind=payload["kind"], version=payload["version"],
+        publisher=payload["publisher"], permissions=payload.get("permissions", []), regions=payload.get("regions", []),
+    )
+
+
+def sign_package(payload: dict[str, Any], signer: Ed25519PrivateKey | None = None, key_id: str = TEST_KEY_ID) -> dict[str, str]:
+    signature = (signer or private_key()).sign(signing_message(package_digest_of(payload), INTEGRATION_SIGNATURE_CONTEXT))
+    return {"key_id": key_id, "signature": base64.b64encode(signature).decode("ascii")}
+
+
+def signed_package(client: Any, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    """Trust the test key and return an integration package payload signed with it."""
+    trust(client, headers)
+    return {**payload, "signature": sign_package(payload)}

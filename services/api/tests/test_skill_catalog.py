@@ -9,7 +9,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
-from skill_signing_support import signed
+from skill_signing_support import signed, signed_package
 
 from anum_api import main
 from anum_api.dependencies import memory_repository
@@ -144,7 +144,9 @@ PACKAGE = {"id": "acme.crm-sync", "name": "CRM sync", "kind": "integration", "ve
 
 def test_marketplace_search_filters_validation_and_audit() -> None:
     client = TestClient(main.app)
-    assert client.put("/api/v1/marketplace/packages/acme.crm-sync", headers=ORG_ADMIN, json=PACKAGE).status_code == 200
+    # Integration packages are signed (docs/governance-and-scale.md#package-signing).
+    assert client.put("/api/v1/marketplace/packages/acme.crm-sync", headers=ORG_ADMIN,
+                      json=signed_package(client, ORG_ADMIN, PACKAGE)).status_code == 200
     second = {**PACKAGE, "id": "beta.notes", "name": "Notes", "kind": "skill", "publisher": "Beta", "verified": False}
     assert client.put("/api/v1/marketplace/packages/beta.notes", headers=ORG_ADMIN, json=second).status_code == 200
     bad = {**PACKAGE, "id": "Bad Id", "version": "one"}
@@ -163,10 +165,10 @@ def test_marketplace_search_filters_validation_and_audit() -> None:
     assert client.post("/api/v1/marketplace/packages/acme.crm-sync/install", headers=OWNER, json={}).status_code == 201
     assert client.delete("/api/v1/marketplace/packages/acme.crm-sync/install", headers=OWNER).status_code == 204
     assert client.put("/api/v1/marketplace/packages/acme.crm-sync", headers=ORG_ADMIN,
-                      json={**PACKAGE, "version": "1.1.0"}).status_code == 200
+                      json=signed_package(client, ORG_ADMIN, {**PACKAGE, "version": "1.1.0"})).status_code == 200
     assert client.delete("/api/v1/marketplace/packages/beta.notes", headers=ORG_ADMIN).status_code == 204
 
-    actions = [(r.action, r.target) for r in governance_store.query_audit(CONTEXT)]
+    actions = [(r.action, r.target) for r in governance_store.query_audit(CONTEXT) if r.target.startswith("marketplace_package:")]
     assert actions == [
         ("marketplace.package_published", "marketplace_package:acme.crm-sync"),
         ("marketplace.package_published", "marketplace_package:beta.notes"),

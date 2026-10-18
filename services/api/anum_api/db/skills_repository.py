@@ -9,13 +9,20 @@ from anum_api.schemas import RiskLevel, TenantContext
 from anum_api.skill_signing import KeySource, PublisherKey, PublisherKeyStatus, SkillSignature
 from anum_api.skills_api import (
     PublisherKeyExistsError,
+    SigningSettings,
     SkillInstallation,
     SkillVersion,
     SkillVersionExistsError,
     skill_target,
 )
 
-from .models import AuditRecordRow, SkillInstallationRecord, SkillPublisherKeyRecord, SkillVersionRecord
+from .models import (
+    AuditRecordRow,
+    SkillInstallationRecord,
+    SkillPublisherKeyRecord,
+    SkillSigningSettingsRecord,
+    SkillVersionRecord,
+)
 from .scope import require_tenant, require_workspace
 
 
@@ -99,6 +106,24 @@ class SqlAlchemySkillStore:
         self.session.flush()
         return _version(record)
 
+    def get_signing_settings(self, context: TenantContext) -> SigningSettings | None:
+        record = self.session.get(SkillSigningSettingsRecord, context.tenant_id)
+        if record is None:
+            return None
+        return SigningSettings(disable_flagged=record.disable_flagged, updated_by=record.updated_by, updated_at=record.updated_at)
+
+    def save_signing_settings(self, context: TenantContext, value: SigningSettings) -> SigningSettings:
+        require_tenant(self.session, context.tenant_id)
+        record = self.session.get(SkillSigningSettingsRecord, context.tenant_id)
+        if record is None:
+            record = SkillSigningSettingsRecord(tenant_id=context.tenant_id)
+            self.session.add(record)
+        record.disable_flagged = value.disable_flagged
+        record.updated_by = value.updated_by or context.user_id
+        record.updated_at = value.updated_at or datetime.now().astimezone()
+        self.session.flush()
+        return value
+
     def list_publisher_keys(self, context: TenantContext) -> list[PublisherKey]:
         records = self.session.scalars(
             select(SkillPublisherKeyRecord)
@@ -172,6 +197,7 @@ class SqlAlchemySkillStore:
         record.version = installation.version
         record.approved_tools = list(installation.approved_tools)
         record.enabled = installation.enabled
+        record.disabled_reason = installation.disabled_reason
         record.installed_by = installation.installed_by
         record.installed_at = installation.installed_at
         self.session.flush()
@@ -285,4 +311,5 @@ def _installation(record: SkillInstallationRecord) -> SkillInstallation:
         enabled=record.enabled,
         installed_by=record.installed_by,
         installed_at=record.installed_at,
+        disabled_reason=record.disabled_reason,
     )
