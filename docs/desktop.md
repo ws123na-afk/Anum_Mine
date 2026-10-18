@@ -59,7 +59,7 @@ Private material never reaches the repository or the overlay: the Tauri CLI read
 
 ## Updates
 
-`tauri-plugin-updater` (pinned to 2.12.0) is registered at startup only when the build carries `plugins.updater` with a public key and an endpoint, that is, a release build made with `ANUM_TAURI_UPDATER_PUBKEY` and `ANUM_TAURI_UPDATER_ENDPOINT` (`src-tauri/src/updater.rs`). Otherwise the plugin is not loaded, nothing contacts an update server, and the tray menu has no update item. When configured:
+`tauri-plugin-updater` (pinned to 2.12.0, built without its `zip` feature: the updater artifacts are raw installers and the macOS `.app.tar.gz`, never zipped v1 bundles, and the zip crate has advisories fixed only in zip 9) is registered at startup only when the build carries `plugins.updater` with a public key and an endpoint, that is, a release build made with `ANUM_TAURI_UPDATER_PUBKEY` and `ANUM_TAURI_UPDATER_ENDPOINT` (`src-tauri/src/updater.rs`). Otherwise the plugin is not loaded, nothing contacts an update server, and the tray menu has no update item. When configured:
 
 - The app checks once at startup and the tray menu gains "Check for updates". A found update is offered in a dialog ("Install and restart" or "Later"). The startup check stays silent when there is nothing new or the server is unreachable; the tray check reports either.
 - The updater downloads the platform's artifact named in the manifest, verifies its minisign signature against the public key compiled into the build, installs it and restarts. An unsigned or wrongly signed artifact is refused.
