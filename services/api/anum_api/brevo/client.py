@@ -308,13 +308,16 @@ class BrevoClient:
         return [parse_campaign(item) for item in raw[:MAX_LIMIT] if isinstance(item, dict)], _int(data.get("count"))
 
     async def campaign(self, campaign_id: int) -> Campaign:
-        data = await self._call("GET", f"/emailCampaigns/{int(campaign_id)}", params={"statistics": "globalStats,campaignStats"})
+        # No ``statistics`` filter: Brevo's parameter takes one value, and without it the
+        # answer carries both the global numbers and the per-list ``campaignStats``.
+        data = await self._call("GET", f"/emailCampaigns/{int(campaign_id)}")
         return parse_campaign(data)
 
     @staticmethod
-    def _content(*, name: str, subject: str, sender_id: int, html: str, list_ids: list[int], tag: str, scheduled_at: datetime | None) -> dict[str, Any]:
+    def _content(*, name: str, subject: str, sender_id: int, html: str, list_ids: list[int], tag: str, scheduled_at: datetime | None,
+                 preview_text: str = "") -> dict[str, Any]:
         body: dict[str, Any] = {
-            "name": name, "subject": subject, "sender": {"id": int(sender_id)}, "htmlContent": html,
+            "name": name, "subject": subject, "previewText": preview_text, "sender": {"id": int(sender_id)}, "htmlContent": html,
             "recipients": {"listIds": [int(item) for item in list_ids]}, "tag": tag,
         }
         if scheduled_at is not None:
@@ -322,18 +325,20 @@ class BrevoClient:
         return body
 
     async def create_campaign(self, *, name: str, subject: str, sender_id: int, html: str, list_ids: list[int], tag: str,
-                              scheduled_at: datetime | None = None) -> int:
+                              scheduled_at: datetime | None = None, preview_text: str = "") -> int:
         data = await self._call("POST", "/emailCampaigns", body=self._content(
-            name=name, subject=subject, sender_id=sender_id, html=html, list_ids=list_ids, tag=tag, scheduled_at=scheduled_at))
+            name=name, subject=subject, sender_id=sender_id, html=html, list_ids=list_ids, tag=tag, scheduled_at=scheduled_at,
+            preview_text=preview_text))
         campaign_id = _int(data.get("id")) if isinstance(data, dict) else 0
         if not campaign_id:
             raise BrevoError(502, "Brevo did not return the new campaign's id. Check Email campaigns in Brevo before trying again.")
         return campaign_id
 
     async def update_campaign(self, campaign_id: int, *, name: str, subject: str, sender_id: int, html: str, list_ids: list[int], tag: str,
-                              scheduled_at: datetime | None = None) -> None:
+                              scheduled_at: datetime | None = None, preview_text: str = "") -> None:
         await self._call("PUT", f"/emailCampaigns/{int(campaign_id)}", body=self._content(
-            name=name, subject=subject, sender_id=sender_id, html=html, list_ids=list_ids, tag=tag, scheduled_at=scheduled_at))
+            name=name, subject=subject, sender_id=sender_id, html=html, list_ids=list_ids, tag=tag, scheduled_at=scheduled_at,
+            preview_text=preview_text))
 
     async def send_now(self, campaign_id: int) -> None:
         await self._call("POST", f"/emailCampaigns/{int(campaign_id)}/sendNow")

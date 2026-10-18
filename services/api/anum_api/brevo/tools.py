@@ -351,7 +351,7 @@ async def send_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
         return await fail("auth" if error.auth_failed else "check_failed", error.message, "Fix it in Brevo or on the Connection tab, then ask again.")
     campaign_id = draft.brevo_campaign_id
     content = {"name": draft.name, "subject": draft.subject, "sender_id": draft.sender_id, "html": draft.html,
-               "list_ids": draft.list_ids, "tag": campaign_tag(draft.id), "scheduled_at": when}
+               "list_ids": draft.list_ids, "tag": campaign_tag(draft.id), "scheduled_at": when, "preview_text": draft.preview_text}
     try:
         if campaign_id is None and draft.send_attempts > 1:
             campaign_id = await _existing_campaign(client, draft)
@@ -362,7 +362,9 @@ async def send_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
         else:
             await client.update_campaign(campaign_id, **content)
     except BrevoError as error:
-        unknown = error.status == 0 and campaign_id is None
+        # A timed-out create may have made the campaign; a timed-out update that sets
+        # scheduledAt may have scheduled it. Both need a look in Brevo, never a blind retry.
+        unknown = error.status == 0 and (campaign_id is None or when is not None)
         return await fail(
             "unknown" if unknown else ("auth" if error.auth_failed else "rejected"), error.message,
             "Check Email campaigns in Brevo before asking again." if unknown else "Fix the campaign and ask for approval again.",

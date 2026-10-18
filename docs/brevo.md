@@ -10,7 +10,7 @@ Code: `services/api/anum_api/brevo/` (API, client, tools), `services/api/anum_ap
 - The key is sent only in the `api-key` header. Each call has a 15 second timeout, asks for an uncompressed answer and reads at most 2 MB; a larger, compressed or redirected answer fails with a plain message. Errors never carry the key, headers or body.
 - Brevo's answers (list names, campaign names, subjects) are untrusted data: parsers keep only the fields ANUM shows and cut every string; the web and the app show them as text, never as HTML; tools return them with provenance (`tool_output`, origin `api.brevo.com`) and they reach a model only through `tool_output_prompt_block` (`prompt_provenance.label_untrusted`).
 
-Endpoints used: `GET /account` (check the key, the account's own address and plan), `GET /contacts/lists`, `GET /contacts/lists/{id}`, `GET /senders`, `GET /emailCampaigns?statistics=globalStats`, `GET /emailCampaigns/{id}?statistics=globalStats,campaignStats`, `POST /emailCampaigns`, `PUT /emailCampaigns/{id}`, `POST /emailCampaigns/{id}/sendNow`, `POST /emailCampaigns/{id}/sendTest`.
+Endpoints used: `GET /account` (check the key, the account's own address and plan), `GET /contacts/lists`, `GET /contacts/lists/{id}`, `GET /senders`, `GET /emailCampaigns?statistics=globalStats`, `GET /emailCampaigns/{id}` (no statistics filter, so the answer has the global and per-list numbers), `POST /emailCampaigns`, `PUT /emailCampaigns/{id}`, `POST /emailCampaigns/{id}/sendNow`, `POST /emailCampaigns/{id}/sendTest`.
 
 ## Connection (owners)
 
@@ -34,19 +34,19 @@ A draft is written in ANUM: name, subject, preview text, a sender, up to 10 cont
 - The HTML goes to Brevo exactly as written. The detail read (`GET /drafts/{id}`) also returns a sanitized preview (`mailbox/html_safe.py`: no scripts, handlers or remote images) that the web shows in a sandboxed frame under a `default-src 'none'` policy.
 - `content_hash` binds the name, subject, preview text, sender, HTML and lists.
 - Editing a draft that waits for approval retires that approval first and returns it to draft. Drafts the assistant wrote say so (`source: assistant`).
-- `GET /drafts?q&status&limit&offset` searches names and subjects; `DELETE /drafts/{id}` deletes from ANUM (not while sending or scheduled).
+- `GET /drafts?q&status&limit&offset` searches names and subjects; `DELETE /drafts/{id}` deletes from ANUM (not while sending or scheduled, and not while `unknown`: that draft is the record of a send that may have gone out).
 
 ## Test send (owners, no approval)
 
-`POST /drafts/{id}/test` sends the draft only to **the Brevo account's own address** (from `GET /account`; it cannot be chosen), so it reaches no contact and needs no approval. The draft's one Brevo campaign is created on the first test (a Brevo draft, which sends nothing) and updated on later tests; the approved send updates and sends that same campaign.
+`POST /drafts/{id}/test` sends the draft only to **the Brevo account's own address** (from `GET /account`; it cannot be chosen), so it reaches no contact and needs no approval. The draft's one Brevo campaign is created on the first test (a Brevo draft, which sends nothing), its id recorded before the test is sent, and updated on later tests; the approved send updates and sends that same campaign.
 
 ## Sending and scheduling (always an owner's approval)
 
 1. `POST /drafts/{id}/send {scheduled_at?}` (members and owners) reads the lists and the sender from Brevo again and pauses a `brevo.send_campaign` call for approval. The approver sees the campaign, subject, preview text, sender, lists, how many contacts they hold, when, the Brevo account and the text of the email; the payload hash binds all of it plus the content hash. A scheduled time must be 10 minutes to one year away.
 2. An owner approves with the payload hash shown (`POST /api/v1/approvals/{id}/approve`). The tool is `always_ask` and of the protected `publish` kind: workspace autonomy can never let it run without a person.
-3. At execution the tool checks again, in one short transaction, that the draft still hashes to the approved content and has the approved lists, sender and time, and claims the send (`sending`). Then, with no transaction open, it checks with Brevo that the sender is still verified and active and every list still exists, creates (or updates) the draft's one Brevo campaign with the approved content and the tag `anum:<draft id>`, records the campaign id at once, and calls `sendNow` or leaves Brevo to send at `scheduledAt`.
+3. At execution the tool checks again, in one short transaction, that the draft still hashes to the approved content and has the approved lists, sender and time, and claims the send (`sending`). Then, with no transaction open, it checks with Brevo that the sender is still verified and active and every list still exists, creates (or updates) the draft's one Brevo campaign with the approved content (preview text included as `previewText`) and the tag `anum:<draft id>`, records the campaign id at once, and calls `sendNow` or leaves Brevo to send at `scheduledAt`.
 4. **One Brevo campaign per draft**: the id is stored as soon as Brevo returns it and a partial unique index allows one draft per campaign in a workspace. A later attempt reuses that campaign (and, after an interrupted first attempt, finds it by its tag). Running the same approved call again sends nothing more.
-5. Failures say what to fix and are never retried blindly: a refusal leaves the draft `failed` (ask again after fixing it); a timeout after the campaign was created or on `sendNow` leaves it `unknown` ("check this campaign in Brevo"). A claim older than 15 minutes is shown as interrupted.
+5. Failures say what to fix and are never retried blindly: a refusal leaves the draft `failed` (ask again after fixing it); a timeout while creating the campaign, while updating it with a schedule, or on `sendNow` leaves it `unknown`, which cannot be edited, sent again or deleted ("check this campaign in Brevo"). A claim older than 15 minutes is shown as interrupted.
 
 A rejected or lapsed approval returns the draft to draft with the reason; `POST /drafts/{id}/cancel` withdraws a request.
 

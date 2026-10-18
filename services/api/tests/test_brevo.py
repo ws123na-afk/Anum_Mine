@@ -71,6 +71,7 @@ class FakeBrevo:
         self.sent_now: list[int] = []
         self.tests: list[tuple[int, list[str]]] = []
         self.fail: dict[str, httpx.Response] = {}
+        self.timeouts: set[str] = set()
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -79,6 +80,8 @@ class FakeBrevo:
         if request.headers.get("api-key") not in {API_KEY, NEW_KEY} or not self.key_ok:
             return httpx.Response(401, json={"code": "unauthorized", "message": "Key not found"})
         key = f"{request.method} {request.url.path}"
+        if key in self.timeouts:
+            raise httpx.ReadTimeout("timed out", request=request)
         if key in self.fail:
             return self.fail[key]
         path = request.url.path[3:]
@@ -395,6 +398,52 @@ def test_an_interrupted_send_reuses_the_campaign_it_already_created(brevo: FakeB
     pending = ok(client.post(f"{BASE}/drafts/{draft['id']}/send", headers=MEMBER, json={}))
     assert approve(pending["approval"]).status_code == 200
     assert len(brevo.calls("POST", "/emailCampaigns")) == 1 and brevo.sent_now == [failed["brevo_campaign_id"]]
+
+
+def test_a_report_asks_brevo_without_a_statistics_filter(brevo: FakeBrevo) -> None:
+    connect()
+    ok(client.get(f"{BASE}/campaigns/101", headers=VIEWER))
+    request = brevo.calls("GET", "/emailCampaigns/101")[0]
+    # Brevo's statistics parameter takes one value; without it the per-list numbers come too.
+    assert "statistics" not in request.url.params
+
+
+def test_the_preview_text_reaches_brevo_on_create_and_update(brevo: FakeBrevo) -> None:
+    connect()
+    draft = new_draft(preview_text="Book this week")
+    ok(client.post(f"{BASE}/drafts/{draft['id']}/test", headers=OWNER))
+    ok(client.post(f"{BASE}/drafts/{draft['id']}/test", headers=OWNER))
+    created = json.loads(brevo.calls("POST", "/emailCampaigns")[0].content)
+    updated = json.loads(brevo.calls("PUT", f"/emailCampaigns/{brevo.next_id}")[0].content)
+    assert created["previewText"] == "Book this week" and updated["previewText"] == "Book this week"
+
+
+def test_a_failed_first_test_still_records_the_campaign_it_created(brevo: FakeBrevo) -> None:
+    connect()
+    draft = new_draft()
+    brevo.fail[f"POST /v3/emailCampaigns/{brevo.next_id + 1}/sendTest"] = httpx.Response(400, json={"code": "invalid_parameter", "message": "Email not valid"})
+    assert client.post(f"{BASE}/drafts/{draft['id']}/test", headers=OWNER).status_code == 422
+    assert ok(client.get(f"{BASE}/drafts/{draft['id']}", headers=OWNER))["brevo_campaign_id"] == brevo.next_id
+    brevo.fail.clear()
+    ok(client.post(f"{BASE}/drafts/{draft['id']}/test", headers=OWNER))
+    assert len(brevo.calls("POST", "/emailCampaigns")) == 1
+
+
+def test_a_timed_out_scheduling_update_is_unknown_and_locked(brevo: FakeBrevo) -> None:
+    connect()
+    draft = new_draft()
+    campaign_id = ok(client.post(f"{BASE}/drafts/{draft['id']}/test", headers=OWNER))["brevo_campaign_id"]
+    when = (datetime.now(timezone.utc) + timedelta(days=3)).replace(microsecond=0).isoformat()
+    pending = ok(client.post(f"{BASE}/drafts/{draft['id']}/send", headers=MEMBER, json={"scheduled_at": when}))
+    brevo.timeouts.add(f"PUT /v3/emailCampaigns/{campaign_id}")
+    approve(pending["approval"])
+    stuck = ok(client.get(f"{BASE}/drafts/{draft['id']}", headers=OWNER))
+    assert stuck["status"] == "unknown" and stuck["last_error"]["code"] == "unknown" and stuck["brevo_campaign_id"] == campaign_id
+    # No retry, edit or delete until someone has looked in Brevo.
+    assert client.post(f"{BASE}/drafts/{draft['id']}/send", headers=MEMBER, json={}).status_code == 409
+    assert client.put(f"{BASE}/drafts/{draft['id']}", headers=MEMBER, json=draft_body()).status_code == 409
+    assert client.delete(f"{BASE}/drafts/{draft['id']}", headers=MEMBER).status_code == 409
+    assert not brevo.sent_now
 
 
 # -- agent tools -----------------------------------------------------------------------------------------------

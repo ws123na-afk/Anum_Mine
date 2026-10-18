@@ -82,7 +82,7 @@ export function draftActions(draft: Pick<Draft, 'status'>, perms: { can_write: b
     test: perms.can_manage && connected && (open || draft.status === 'pending_approval'),
     ask: perms.can_write && connected && open,
     withdraw: perms.can_write && draft.status === 'pending_approval',
-    remove: perms.can_write && draft.status !== 'sending' && draft.status !== 'scheduled',
+    remove: perms.can_write && draft.status !== 'sending' && draft.status !== 'scheduled' && draft.status !== 'unknown',
   };
 }
 

@@ -387,10 +387,21 @@ async def send_test(draft_id: str, context: TenantContext = Depends(tenant_conte
         if not connection.account_email:
             raise http_error(409, "The Brevo account's own address is unknown. Check the connection first.")
         content = {"name": draft.name, "subject": draft.subject, "sender_id": draft.sender_id, "html": draft.html,
-                   "list_ids": draft.list_ids, "tag": campaign_tag(draft.id)}
+                   "list_ids": draft.list_ids, "tag": campaign_tag(draft.id), "preview_text": draft.preview_text}
         campaign_id = draft.brevo_campaign_id
         if campaign_id is None:
             campaign_id = await _brevo(context, client.create_campaign(**content))
+            created = campaign_id
+
+            def keep() -> None:
+                # Recorded before the test is sent: a failed sendTest never orphans the campaign.
+                with open_brevo_store(context) as store:
+                    fresh = _get_or_404(store, draft_id, for_update=True)
+                    if fresh.brevo_campaign_id is None:
+                        fresh.brevo_campaign_id = created
+                        store.save_draft(fresh)
+
+            await asyncio.to_thread(keep)
         else:
             await _brevo(context, client.update_campaign(campaign_id, **content))
         await _brevo(context, client.send_test(campaign_id, connection.account_email))

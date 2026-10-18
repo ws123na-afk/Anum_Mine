@@ -33,7 +33,9 @@ class DraftStatus(StrEnum):
 
 
 EDITABLE = frozenset({DraftStatus.DRAFT, DraftStatus.PENDING_APPROVAL, DraftStatus.FAILED})
-DELETABLE = frozenset({DraftStatus.DRAFT, DraftStatus.PENDING_APPROVAL, DraftStatus.FAILED, DraftStatus.SENT, DraftStatus.UNKNOWN})
+# An ``unknown`` draft is the only record of a send that may have gone out: it stays until
+# someone has checked the campaign in Brevo.
+DELETABLE = frozenset({DraftStatus.DRAFT, DraftStatus.PENDING_APPROVAL, DraftStatus.FAILED, DraftStatus.SENT})
 
 
 class BrevoConnection(BaseModel):

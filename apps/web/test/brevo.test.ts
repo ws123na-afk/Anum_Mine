@@ -36,6 +36,7 @@ describe('Brevo email campaigns helpers', () => {
     assert.deepEqual(draftActions({ status: 'pending_approval' }, member, true), { edit: true, test: false, ask: false, withdraw: true, remove: true });
     assert.deepEqual(draftActions({ status: 'sent' }, ownerPerms, true), { edit: false, test: false, ask: false, withdraw: false, remove: true });
     assert.equal(draftActions({ status: 'sending' }, ownerPerms, true).remove, false);
+    assert.deepEqual(draftActions({ status: 'unknown' }, ownerPerms, true), { edit: false, test: false, ask: false, withdraw: false, remove: false });
     assert.deepEqual(draftActions({ status: 'draft' }, viewer, true), { edit: false, test: false, ask: false, withdraw: false, remove: false });
   });
 
