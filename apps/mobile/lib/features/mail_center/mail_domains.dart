@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
 import '../../src/localization/anum_localizations.dart';
+import '../../src/localization/mail_center_strings.dart';
 import '../../src/theme/anum_theme.dart';
 import 'mail_center_controller.dart';
 import 'mail_center_screens.dart';
@@ -57,18 +58,46 @@ class MailDomainsOverview {
 
 class DomainCheck {
   const DomainCheck(
-      {required this.status, required this.message, this.found = const []});
+      {required this.status,
+      required this.message,
+      this.code,
+      this.params = const {},
+      this.found = const []});
 
-  factory DomainCheck.fromJson(JsonReader? j) => j == null
-      ? const DomainCheck(status: 'error', message: '')
-      : DomainCheck(
-          status: j.optString('status') ?? 'error',
-          message: j.optString('message') ?? '',
-          found: j.optStrings('found') ?? const [],
-        );
+  factory DomainCheck.fromJson(JsonReader? j) {
+    if (j == null) return const DomainCheck(status: 'error', message: '');
+    final raw = j.optObject('params');
+    return DomainCheck(
+      status: j.optString('status') ?? 'error',
+      message: j.optString('message') ?? '',
+      code: j.optString('code'),
+      params: {
+        for (final key in const ['host', 'hosts', 'name', 'policy', 'record'])
+          if (raw?.optString(key) != null) key: raw!.optString(key)!,
+      },
+      found: j.optStrings('found') ?? const [],
+    );
+  }
 
+  /// The English sentence, used when this app does not know [code].
   final String status, message;
+
+  /// What the app translates (`mc.dom.code.<code>`), with [params] filled in.
+  final String? code;
+  final Map<String, String> params;
   final List<String> found;
+}
+
+/// A DNS judgement or record note in the reader's language, or [fallback]
+/// for a code this app does not know. Host and record names stay as they are.
+String dnsCodeText(AnumLocalizations l, String? code,
+    Map<String, String> params, String fallback) {
+  if (code == null || !RegExp(r'^[a-z_]{2,40}$').hasMatch(code)) {
+    return fallback;
+  }
+  final key = 'mc.dom.code.$code';
+  if (!mailCenterEn.containsKey(key)) return fallback;
+  return l.f(key, params);
 }
 
 class DomainRecord {
@@ -76,16 +105,21 @@ class DomainRecord {
       {required this.kind,
       required this.type,
       required this.name,
-      required this.value});
+      required this.value,
+      this.note,
+      this.noteCode});
 
   factory DomainRecord.fromJson(JsonReader j) => DomainRecord(
         kind: j.string('kind'),
         type: j.string('type'),
         name: j.string('name'),
-        value: j.string('value'),
+        value: j.optString('value') ?? '',
+        note: j.optString('note'),
+        noteCode: j.optString('note_code'),
       );
 
   final String kind, type, name, value;
+  final String? note, noteCode;
 }
 
 class DomainDnsReport {
@@ -302,13 +336,20 @@ class _MailDomainsScreenState extends State<MailDomainsScreen> {
           ),
           title: Text(
               '${kind.toUpperCase()}: ${l.t('mc.dom.status.${report.checks[kind]!.status}')}'),
-          subtitle: Text(report.checks[kind]!.message),
+          subtitle: Text(dnsCodeText(l, report.checks[kind]!.code,
+              report.checks[kind]!.params, report.checks[kind]!.message)),
         ),
       Text(l.t('mc.dom.records'), style: theme.textTheme.titleSmall),
       for (final r in report.records)
         Padding(
           padding: const EdgeInsets.only(top: AnumSpacing.xs),
-          child: SelectableText('${r.type}  ${r.name}\n${r.value}',
+          child: SelectableText(
+              [
+                '${r.type}  ${r.name}',
+                if (r.value.isNotEmpty) r.value,
+                if (r.note != null)
+                  dnsCodeText(l, r.noteCode, const {}, r.note!),
+              ].join('\n'),
               textDirection: TextDirection.ltr,
               style:
                   theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace')),

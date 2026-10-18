@@ -38,21 +38,27 @@ final _overview = MailDomainsOverview.fromJson(JsonReader({
 DomainDnsReport _report() => DomainDnsReport.fromJson(JsonReader({
       'mx': {
         'status': 'ok',
+        'code': 'mx_ok',
+        'params': {'host': 'mail.example.com'},
         'message': 'MX points to mail.example.com.',
         'found': ['10 mail.example.com']
       },
       'spf': {
         'status': 'danger',
+        'code': 'spf_dangerous_all',
         'message': "Dangerous: '+all' lets any server send as this domain.",
         'found': ['v=spf1 +all']
       },
       'dkim': {
         'status': 'missing',
+        'code': 'dkim_missing',
+        'params': {'name': 'dkim._domainkey'},
         'message': 'No DKIM record.',
         'found': <String>[]
       },
       'dmarc': {
         'status': 'warning',
+        'code': 'a_code_from_a_newer_api',
         'message': "DMARC policy 'none' only reports.",
         'found': <String>[]
       },
@@ -61,7 +67,9 @@ DomainDnsReport _report() => DomainDnsReport.fromJson(JsonReader({
           'kind': 'spf',
           'type': 'TXT',
           'name': 'risky.example',
-          'value': 'v=spf1 mx ~all'
+          'value': 'v=spf1 mx ~all',
+          'note': 'One SPF record only.',
+          'note_code': 'record_spf_one'
         },
       ],
     }));
@@ -124,7 +132,7 @@ void main() {
     expect(repo.checked, ['risky.example']);
     expect(find.text('SPF: Dangerous'), findsOneWidget);
     expect(find.text('DKIM: Missing'), findsOneWidget);
-    expect(find.textContaining("'+all'"), findsOneWidget);
+    expect(find.text(_en('mc.dom.code.spf_dangerous_all')), findsOneWidget);
     expect(find.text(_en('mc.dom.records')), findsOneWidget);
     expect(find.textContaining('v=spf1 mx ~all'), findsOneWidget);
   });
@@ -152,6 +160,45 @@ void main() {
   });
 
   // Tall views so the whole list is built: the check is the width, at 200% text.
+  testWidgets('DNS judgements are translated; DNS values are not',
+      (tester) async {
+    final repo = FakeDomains();
+    await _pump(tester, repo,
+        size: const Size(1440, 2400), locale: const Locale('ar'));
+    await tester.tap(find.byIcon(Icons.travel_explore_outlined).first);
+    await tester.pumpAndSettle();
+    final ar = mailCenterAr;
+    expect(
+        find.text(
+            ar['mc.dom.code.mx_ok']!.replaceAll('{host}', 'mail.example.com')),
+        findsOneWidget);
+    expect(find.text(ar['mc.dom.code.spf_dangerous_all']!), findsOneWidget);
+    expect(
+        find.text(ar['mc.dom.code.dkim_missing']!
+            .replaceAll('{name}', 'dkim._domainkey')),
+        findsOneWidget);
+    // A code this app does not know falls back to the API's sentence.
+    expect(find.text("DMARC policy 'none' only reports."), findsOneWidget);
+    // The record value stays exactly as DNS needs it; its note is translated.
+    expect(
+        find.textContaining(
+            'v=spf1 mx ~all\n${ar['mc.dom.code.record_spf_one']}'),
+        findsOneWidget);
+  });
+
+  test('every DNS code has English and Arabic text with the same placeholders',
+      () {
+    final codes = mailCenterEn.keys.where((k) => k.startsWith('mc.dom.code.'));
+    expect(codes.length, greaterThanOrEqualTo(29));
+    final placeholder = RegExp(r'\{(\w+)\}');
+    for (final key in codes) {
+      expect(mailCenterAr.containsKey(key), isTrue, reason: key);
+      Set<String> names(String text) =>
+          {for (final m in placeholder.allMatches(text)) m.group(1)!};
+      expect(names(mailCenterAr[key]!), names(mailCenterEn[key]!), reason: key);
+    }
+  });
+
   for (final size in const [
     Size(320, 3200),
     Size(390, 3200),

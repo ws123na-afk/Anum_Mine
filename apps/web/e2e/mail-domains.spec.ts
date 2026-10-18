@@ -14,7 +14,7 @@ test('domains show their DNS, flag a dangerous SPF and list the records to set',
   await expect(main.getByText('In Mailcow', { exact: true })).toBeVisible();
   await expect(main.getByText('3 mailboxes')).toBeVisible();
   // Allowed domains in Mailcow are checked on load.
-  await expect(main.getByText('MX points to mail.anum360os.com.')).toBeVisible();
+  await expect(main.getByText(/^MX points to \u2068mail\.anum360os\.com\u2069\.$/)).toBeVisible();
   await expect(main.getByRole('cell', { name: 'dkim._domainkey.anum360os.com' })).toBeVisible();
   const risky = pane.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'easyvoicequote.com' }) });
   await expect(risky.getByText('Not in Mailcow yet')).toBeVisible();
@@ -98,6 +98,9 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024
       await mockWorkspaceApi(page, { mailDomains: 'ok' });
       await page.goto('/#organisations');
       await expect(page.locator('.mailDnsRecords').first()).toBeVisible();
+      // DNS judgements come as codes and are shown in the reader's language; the records stay as they are.
+      await expect(page.locator('.mailDnsMessage').first()).toHaveText(locale === 'ar' ? /يشير MX إلى/ : /MX points to/);
+      await expect(page.getByText('v=spf1 mx ~all').first()).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.dir)).toBe(locale === 'ar' ? 'rtl' : 'ltr');
       expect(await noHorizontalOverflow(page)).toBe(true);
       const pane = page.locator('.mailDomainsPane');

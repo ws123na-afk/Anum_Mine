@@ -8,9 +8,9 @@ import * as api from './lib/api';
 import { mapApproval } from './lib/api';
 import { expiryLabel, shortHash } from './lib/approvals';
 import { describeError, isPermissionDenied } from './lib/errors';
-import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { CATALOGS, formatDateTime, t, type MessageKey } from './lib/i18n';
 import {
-  DNS_KINDS, cleanAlias, dnsTone, domainMatches, parseGoto, pendingFor, recordLine,
+  DNS_KINDS, cleanAlias, dnsCodeKey, dnsTone, domainMatches, parseGoto, pendingFor, recordLine,
   type DnsReport, type DomainChangeBody, type MailDomain, type MailDomainsView, type PendingDomainChange,
 } from './lib/mailDomains';
 import { askDomainChange, getDomainDns, getMailDomains, withdrawDomainChange } from './lib/mailDomainsApi';
@@ -25,6 +25,13 @@ const AUTO_DNS = 5;
 type Load = { state: 'loading' } | { state: 'ready'; value: MailDomainsView } | { state: 'error' | 'denied'; message: string };
 type Dns = { state: 'loading' } | { state: 'ready'; value: DnsReport } | { state: 'error'; message: string };
 type Note = { text: string; error?: boolean } | null;
+
+/** A DNS judgement or record note in the reader's language; host and record names are kept as they are. */
+function codeText(code: string | null | undefined, params: Record<string, string>, fallback: string): string {
+  const key = dnsCodeKey(code, (k) => k in CATALOGS.en);
+  if (!key) return fallback;
+  return t(key as MessageKey, Object.fromEntries(Object.entries(params).map(([name, value]) => [name, iso(value)])));
+}
 
 function changeSummary(change: Pick<PendingDomainChange, 'operation' | 'domain' | 'address' | 'goto'>): string {
   return t(`maildom.op.${change.operation}` as MessageKey, { domain: iso(change.domain), address: iso(change.address ?? ''), goto: iso(change.goto.join(', ')) });
@@ -220,7 +227,7 @@ function DnsPanel({ dns }: { dns: Dns }) {
       return <li key={kind}>
         <strong>{t(`maildom.dns.${kind}` as MessageKey)}</strong>
         <span className={`statusBadge ${dnsTone(item.status)}`}>{t(`maildom.status.${item.status}` as MessageKey)}</span>
-        <span className="mailDnsMessage">{item.message}</span>
+        <span className="mailDnsMessage">{codeText(item.code, item.params, item.message)}</span>
         {item.found.length > 0 && <code dir="ltr" className="mailDnsFound">{item.found.join('\n')}</code>}
       </li>;
     })}</ul>
@@ -231,7 +238,7 @@ function DnsPanel({ dns }: { dns: Dns }) {
       <tbody>{report.records.map((record) => <tr key={record.kind}>
         <td>{record.type}</td>
         <td><code dir="ltr">{record.name}</code></td>
-        <td><code dir="ltr">{record.value}</code>{record.note && <small className="muted">{record.note}</small>}</td>
+        <td>{record.value && <code dir="ltr">{record.value}</code>}{record.note && <small className="muted">{codeText(record.note_code, {}, record.note)}</small>}</td>
         <td><button type="button" className="secondary iconButton" aria-label={t('maildom.copyRecord', { kind: t(`maildom.dns.${record.kind}` as MessageKey) })} onClick={() => void copy(record.kind, recordLine(record))}><Copy aria-hidden="true" /></button>
           {copied === record.kind && <small role="status">{t('maildom.copied')}</small>}
           {copied === `fail:${record.kind}` && <small role="alert">{t('maildom.copyFailed')}</small>}</td>

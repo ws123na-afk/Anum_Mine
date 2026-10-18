@@ -1,12 +1,15 @@
 // Unit tests for the mail domains helpers (src/lib/mailDomains.ts, docs/email.md#mail-domains).
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
+import { mailDomainsAr } from '../src/lib/messages/mailDomains.ar.ts';
+import { mailDomainsEn } from '../src/lib/messages/mailDomains.en.ts';
 import {
-  cleanAlias, cleanDomain, dnsTone, domainMatches, parseGoto, pendingFor, recordLine, worstStatus,
+  cleanAlias, cleanDomain, dnsCodeKey, dnsTone, domainMatches, parseGoto, pendingFor, recordLine, worstStatus,
   type DnsCheck, type DnsReport, type MailDomain, type PendingDomainChange,
 } from '../src/lib/mailDomains.ts';
 
-const check = (status: DnsCheck['status']): DnsCheck => ({ status, found: [], message: '' });
+const check = (status: DnsCheck['status']): DnsCheck => ({ status, code: 'mx_ok', params: {}, found: [], message: '' });
 const report = (mx: DnsCheck['status'], spf: DnsCheck['status'], dkim: DnsCheck['status'], dmarc: DnsCheck['status']): DnsReport => ({
   domain: 'example.com', checked_at: '2026-10-19T10:00:00Z', mail_host: 'mail.example.com', mx: check(mx), spf: check(spf), dkim: check(dkim), dmarc: check(dmarc), records: [],
 });
@@ -60,6 +63,27 @@ describe('mail domains helpers', () => {
   });
   test('a record becomes one zone line, TXT values quoted', () => {
     assert.equal(recordLine({ kind: 'mx', type: 'MX', name: 'example.com', value: '10 mail.example.com.', note: null }), 'example.com. MX 10 mail.example.com.');
-    assert.equal(recordLine({ kind: 'spf', type: 'TXT', name: 'example.com', value: 'v=spf1 mx ~all', note: null }), 'example.com. TXT "v=spf1 mx ~all"');
+    assert.equal(recordLine({ kind: 'spf', type: 'TXT', name: 'example.com', value: 'v=spf1 mx ~all', note: null, note_code: null }), 'example.com. TXT "v=spf1 mx ~all"');
+  });
+  test('a DNS code maps to its catalog key only when the catalog has it', () => {
+    const known = (key: string) => key in mailDomainsEn;
+    assert.equal(dnsCodeKey('spf_dangerous_all', known), 'maildom.code.spf_dangerous_all');
+    assert.equal(dnsCodeKey('something_new', known), null);
+    assert.equal(dnsCodeKey(null, known), null);
+    assert.equal(dnsCodeKey('../x', known), null);
+  });
+  test('every code the API sends has an English and an Arabic message with the same placeholders', () => {
+    const source = readFileSync(new URL('../../../services/api/anum_api/mailbox/domain_dns.py', import.meta.url), 'utf8');
+    const codes = new Set([...source.matchAll(/\b(?:code|note_code)="([a-z_]+)"/g)].map((m) => m[1]));
+    for (const [, inner] of source.matchAll(/else "([a-z_]+)"\)/g)) codes.add(inner);
+    assert.ok(codes.has('spf_dangerous_all') && codes.has('lookup_timeout') && codes.has('record_dkim_create'));
+    for (const code of codes) {
+      const key = `maildom.code.${code}` as keyof typeof mailDomainsEn;
+      assert.ok(key in mailDomainsEn, `${key} is missing in English`);
+      assert.ok(key in mailDomainsAr, `${key} is missing in Arabic`);
+      assert.deepEqual(placeholders(String(mailDomainsAr[key])), placeholders(String(mailDomainsEn[key])), key);
+    }
   });
 });
+
+const placeholders = (text: string): string[] => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();

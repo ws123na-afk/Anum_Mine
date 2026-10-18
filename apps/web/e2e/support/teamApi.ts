@@ -162,18 +162,18 @@ export function createTeamMock(options: TeamMockOptions = {}) {
     if (dnsMatch && method === 'GET') {
       const domain = decodeURIComponent(dnsMatch[1]);
       const risky = domain === 'easyvoicequote.com';
-      const check = (status: string, message: string, found: string[] = []) => ({ status, message, found });
+      const check = (status: string, code: string, message: string, found: string[] = [], params: Record<string, string> = {}) => ({ status, code, params, message, found });
       return json({
         domain, checked_at: now(), mail_host: 'mail.anum360os.com',
-        mx: check('ok', 'MX points to mail.anum360os.com.', ['10 mail.anum360os.com']),
-        spf: risky ? check('danger', "Dangerous: '+all' lets any server on the internet send as this domain. Replace it with '~all' or '-all'.", ['v=spf1 +all']) : check('ok', "One SPF record that ends with a safe 'all'.", ['v=spf1 mx ~all']),
-        dkim: check(risky ? 'missing' : 'ok', risky ? 'No DKIM record at dkim._domainkey: receivers cannot verify signed mail.' : "The DKIM key in DNS matches Mailcow's key.", risky ? [] : ['v=DKIM1;k=rsa;p=examplepublickey']),
-        dmarc: check('warning', "DMARC policy 'none' only reports. Move to 'quarantine' once the reports show only your servers.", ['v=DMARC1; p=none']),
+        mx: check('ok', 'mx_ok', 'MX points to mail.anum360os.com.', ['10 mail.anum360os.com'], { host: 'mail.anum360os.com' }),
+        spf: risky ? check('danger', 'spf_dangerous_all', "Dangerous: '+all' lets any server on the internet send as this domain. Replace it with '~all' or '-all'.", ['v=spf1 +all']) : check('ok', 'spf_ok', "One SPF record that ends with a safe 'all'.", ['v=spf1 mx ~all']),
+        dkim: risky ? check('missing', 'dkim_missing', 'No DKIM record at dkim._domainkey: receivers cannot verify signed mail.', [], { name: 'dkim._domainkey' }) : check('ok', 'dkim_ok', "The DKIM key in DNS matches Mailcow's key.", ['v=DKIM1;k=rsa;p=examplepublickey']),
+        dmarc: check('warning', 'dmarc_none', "DMARC policy 'none' only reports. Move to 'quarantine' once the reports show only your servers.", ['v=DMARC1; p=none']),
         records: [
-          { kind: 'mx', type: 'MX', name: domain, value: '10 mail.anum360os.com.', note: null },
-          { kind: 'spf', type: 'TXT', name: domain, value: 'v=spf1 mx ~all', note: "One SPF record only. Never '+all'." },
-          { kind: 'dkim', type: 'TXT', name: `dkim._domainkey.${domain}`, value: 'v=DKIM1;k=rsa;t=s;s=email;p=examplepublickey', note: null },
-          { kind: 'dmarc', type: 'TXT', name: `_dmarc.${domain}`, value: `v=DMARC1; p=none; rua=mailto:postmaster@${domain}`, note: 'Start with p=none.' },
+          { kind: 'mx', type: 'MX', name: domain, value: '10 mail.anum360os.com.', note: null, note_code: null },
+          { kind: 'spf', type: 'TXT', name: domain, value: 'v=spf1 mx ~all', note: "One SPF record only. Never '+all'.", note_code: 'record_spf_one' },
+          { kind: 'dkim', type: 'TXT', name: `dkim._domainkey.${domain}`, value: 'v=DKIM1;k=rsa;t=s;s=email;p=examplepublickey', note: null, note_code: null },
+          { kind: 'dmarc', type: 'TXT', name: `_dmarc.${domain}`, value: `v=DMARC1; p=none; rua=mailto:postmaster@${domain}`, note: 'Start with p=none.', note_code: 'record_dmarc_start' },
         ],
       });
     }

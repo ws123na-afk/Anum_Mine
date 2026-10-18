@@ -37,8 +37,8 @@ export interface MailDomainsView {
   pending: PendingDomainChange[];
 }
 
-export interface DnsCheck { status: DnsStatus; found: string[]; message: string }
-export interface ExpectedRecord { kind: 'mx' | 'spf' | 'dkim' | 'dmarc'; type: 'MX' | 'TXT'; name: string; value: string; note: string | null }
+export interface DnsCheck { status: DnsStatus; code: string; params: Record<string, string>; found: string[]; message: string }
+export interface ExpectedRecord { kind: 'mx' | 'spf' | 'dkim' | 'dmarc'; type: 'MX' | 'TXT'; name: string; value: string; note: string | null; note_code: string | null }
 
 export interface DnsReport {
   domain: string;
@@ -106,6 +106,13 @@ export function domainMatches(domain: MailDomain, query: string): boolean {
 /** The change waiting for a domain or alias, if any (one at a time per target). */
 export function pendingFor(pending: PendingDomainChange[], domain: string, address?: string): PendingDomainChange | undefined {
   return pending.find((p) => p.domain === domain && (address === undefined ? !p.address : p.address === address));
+}
+
+/** The catalog key of a DNS judgement or record note code (`maildom.code.<code>`), or null for a code this client does not know. */
+export function dnsCodeKey(code: string | null | undefined, known: (key: string) => boolean): string | null {
+  if (!code || !/^[a-z_]{2,40}$/.test(code)) return null;
+  const key = `maildom.code.${code}`;
+  return known(key) ? key : null;
 }
 
 /** One record as a line to paste into a DNS host's zone editor. */
