@@ -868,7 +868,7 @@ def sbom(app: str, results: list[dict], commit: str) -> dict:
         if result["effective"]:
             component["licenses"] = [{"expression": result["effective"]}]
         if result["source"]:
-            component["externalReferences"] = [{"type": "vcs" if "github.com" in result["source"] else "website",
+            component["externalReferences"] = [{"type": "vcs" if urllib.parse.urlsplit(result["source"]).hostname in ("github.com", "gitlab.com") else "website",
                                                 "url": result["source"]}]
         components.append(component)
     return {
