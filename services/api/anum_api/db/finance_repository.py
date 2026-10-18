@@ -21,6 +21,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from anum_api.finance.connectors import Connection
 from anum_api.finance.execution import ExecSettings, GlobalSwitch, Intent, IntentStatus
 from anum_api.finance.guardian import GuardianChange, GuardianPolicy
+from anum_api.finance.intel.marketdata import Instrument, StoredCandle
+from anum_api.finance.intel.records import AgentDecision, StrategyConfig, StrategyRun
 from anum_api.finance.models import (
     Account,
     Bill,
@@ -403,6 +405,101 @@ class FinanceLiveIncidentRecord(Base, _Owned):
     reviewed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
 
 
+class FinanceInstrumentRecord(Base, _Owned):
+    __tablename__ = "finance_instruments"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    asset_class: Mapped[str] = mapped_column(String(12))
+    venue: Mapped[str] = mapped_column(String(10))
+    currency: Mapped[str] = mapped_column(String(10))
+    provider_symbols: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    listed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    delisted_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinanceMarketBarRecord(Base, _Owned):
+    __tablename__ = "finance_market_bars"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    instrument_id: Mapped[str] = mapped_column(String(80))
+    day: Mapped[date] = mapped_column(Date)
+    open: Mapped[Decimal] = mapped_column(Numeric(24, 10))
+    high: Mapped[Decimal] = mapped_column(Numeric(24, 10))
+    low: Mapped[Decimal] = mapped_column(Numeric(24, 10))
+    close: Mapped[Decimal] = mapped_column(Numeric(24, 10))
+    volume: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    source: Mapped[str] = mapped_column(String(120))
+    provider: Mapped[str] = mapped_column(String(30))
+    delayed: Mapped[bool] = mapped_column(Boolean)
+    fetched_at: Mapped[datetime] = mapped_column(TS)
+
+
+class FinanceStrategyRecord(Base, _Owned):
+    __tablename__ = "finance_strategies"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    lineage_id: Mapped[str] = mapped_column(String(80))
+    version: Mapped[int] = mapped_column(Integer)
+    key: Mapped[str] = mapped_column(String(40))
+    code_version: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(120))
+    state: Mapped[str] = mapped_column(String(20))
+    symbols: Mapped[list[str]] = mapped_column(JSONB)
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    instrument_ids: Mapped[list[str]] = mapped_column(JSONB)
+    portfolio_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reason: Mapped[str] = mapped_column(String(300))
+    parent_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    evidence_run_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+    state_changed_at: Mapped[datetime] = mapped_column(TS)
+    state_changed_by: Mapped[str] = mapped_column(String(40))
+
+
+class FinanceStrategyRunRecord(Base, _Owned):
+    __tablename__ = "finance_strategy_runs"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    strategy_id: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(14))
+    created_at: Mapped[datetime] = mapped_column(TS)
+    data_source: Mapped[str] = mapped_column(String(120))
+    data_hash: Mapped[str] = mapped_column(String(64))
+    code_version: Mapped[str] = mapped_column(String(20))
+    symbols: Mapped[list[str]] = mapped_column(JSONB)
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    costs: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    benchmark: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    verdict: Mapped[str] = mapped_column(String(20))
+    reasons: Mapped[list[str]] = mapped_column(JSONB)
+    warnings: Mapped[list[str]] = mapped_column(JSONB)
+    folds: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    reproduced: Mapped[bool] = mapped_column(Boolean)
+    report: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    requested_by: Mapped[str] = mapped_column(String(40))
+
+
+class FinanceAgentDecisionRecord(Base, _Owned):
+    __tablename__ = "finance_agent_decisions"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    cycle_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    agent: Mapped[str] = mapped_column(String(40))
+    action: Mapped[str] = mapped_column(String(60))
+    outcome: Mapped[str] = mapped_column(String(30))
+    reasons: Mapped[list[str]] = mapped_column(JSONB)
+    strategy_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    intent_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(TS)
+
+
 class FinanceExecGlobalRecord(Base):
     __tablename__ = "finance_exec_global"
 
@@ -442,6 +539,10 @@ def _model(record: Any, model: type[BaseModel]) -> Any:
             if values[name] is not None:
                 values[name] = quantize(Decimal(values[name]), currency)
     return model.model_validate(values)
+
+
+def _owner(item: Any) -> TenantContext:
+    return TenantContext(tenant_id=item.tenant_id, workspace_id=item.workspace_id, user_id=item.owner_user_id)
 
 
 class SqlAlchemyFinanceStore:
@@ -1050,9 +1151,143 @@ class SqlAlchemyFinanceStore:
         self._upsert(FinanceLiveIncidentRecord, incident)
         return incident
 
+    # Trading intelligence ---------------------------------------------------------------------
+
+    def _put(self, record: type[Any], item: BaseModel) -> None:
+        """Insert or update one JSON-friendly row (enums as values, JSON columns as plain data)."""
+        self._require(item)
+        values = item.model_dump(mode="json")
+        for name, column in record.__table__.columns.items():
+            if name in values and not isinstance(column.type, JSONB):
+                values[name] = getattr(item, name)
+                values[name] = getattr(values[name], "value", values[name])
+        existing = self.session.get(record, values["id"])
+        if existing is None:
+            self.session.add(record(**values))
+        else:
+            for key, value in values.items():
+                setattr(existing, key, value)
+        self.session.flush()
+
+    def list_instruments(self, context: TenantContext) -> list[Instrument]:
+        record = FinanceInstrumentRecord
+        rows = self.session.scalars(select(record).where(*self._mine(record, context)).order_by(record.symbol, record.id))
+        return [self._plain(row, Instrument) for row in rows]
+
+    def get_instrument(self, context: TenantContext, instrument_id: str) -> Instrument | None:
+        record = FinanceInstrumentRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.id == instrument_id))
+        return self._plain(row, Instrument) if row else None
+
+    def save_instrument(self, instrument: Instrument) -> Instrument:
+        record = FinanceInstrumentRecord
+        clash = self.session.scalar(select(record.id).where(*self._mine(record, _owner(instrument)), record.symbol == instrument.symbol,
+                                                            record.venue == instrument.venue, record.id != instrument.id))
+        if clash is not None:
+            raise ValueError("duplicate_instrument")
+        self._put(record, instrument)
+        return instrument
+
+    def delete_instrument(self, context: TenantContext, instrument_id: str) -> bool:
+        bars, record = FinanceMarketBarRecord, FinanceInstrumentRecord
+        self.session.execute(delete(bars).where(*self._mine(bars, context), bars.instrument_id == instrument_id))
+        return bool(self.session.execute(delete(record).where(*self._mine(record, context), record.id == instrument_id)).rowcount)
+
+    def save_bars(self, bars: list[StoredCandle]) -> int:
+        """Insert or replace by (instrument, day) in one statement per bar; returns rows new or changed."""
+        record = FinanceMarketBarRecord
+        changed = 0
+        for bar in bars:
+            self._require(bar)
+            values = {name: getattr(bar, name) for name in StoredCandle.model_fields}
+            update_values = {k: v for k, v in values.items() if k not in {"id", "tenant_id", "workspace_id", "owner_user_id", "instrument_id", "day"}}
+            statement = insert(record).values(**values).on_conflict_do_update(
+                constraint="uq_finance_market_bars_day", set_=update_values,
+                where=or_(record.open != bar.open, record.high != bar.high, record.low != bar.low, record.close != bar.close,
+                          record.volume.is_distinct_from(bar.volume), record.source != bar.source),
+            ).returning(record.id)
+            changed += len(self.session.execute(statement).all())
+        return changed
+
+    def list_bars(self, context: TenantContext, instrument_id: str, *, start: date | None = None, end: date | None = None,
+                  limit: int = 10_000) -> list[StoredCandle]:
+        record = FinanceMarketBarRecord
+        clauses = [*self._mine(record, context), record.instrument_id == instrument_id]
+        if start is not None:
+            clauses.append(record.day >= start)
+        if end is not None:
+            clauses.append(record.day <= end)
+        rows = list(self.session.scalars(select(record).where(*clauses).order_by(record.day.desc()).limit(limit)))
+        return [self._plain(row, StoredCandle) for row in reversed(rows)]
+
+    def list_strategies(self, context: TenantContext, *, state: str | None = None, lineage_id: str | None = None, limit: int,
+                        offset: int) -> tuple[list[StrategyConfig], int]:
+        record = FinanceStrategyRecord
+        clauses = list(self._mine(record, context))
+        if state is not None:
+            clauses.append(record.state == state)
+        if lineage_id is not None:
+            clauses.append(record.lineage_id == lineage_id)
+        total = int(self.session.scalar(select(func.count()).select_from(record).where(*clauses)) or 0)
+        rows = self.session.scalars(select(record).where(*clauses).order_by(record.updated_at.desc(), record.id.desc()).limit(limit).offset(offset))
+        return [self._plain(row, StrategyConfig) for row in rows], total
+
+    def get_strategy(self, context: TenantContext, strategy_id: str) -> StrategyConfig | None:
+        record = FinanceStrategyRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.id == strategy_id))
+        return self._plain(row, StrategyConfig) if row else None
+
+    def latest_version(self, context: TenantContext, lineage_id: str) -> int:
+        record = FinanceStrategyRecord
+        return int(self.session.scalar(select(func.max(record.version)).where(*self._mine(record, context), record.lineage_id == lineage_id)) or 0)
+
+    def save_strategy(self, strategy: StrategyConfig) -> StrategyConfig:
+        record = FinanceStrategyRecord
+        clash = self.session.scalar(select(record.id).where(record.lineage_id == strategy.lineage_id, record.version == strategy.version,
+                                                            record.id != strategy.id))
+        if clash is not None:
+            raise ValueError("duplicate_version")
+        self._put(record, strategy)
+        return strategy
+
+    def list_strategy_runs(self, context: TenantContext, strategy_id: str, *, limit: int, offset: int) -> tuple[list[StrategyRun], int]:
+        record = FinanceStrategyRunRecord
+        clauses = [*self._mine(record, context), record.strategy_id == strategy_id]
+        total = int(self.session.scalar(select(func.count()).select_from(record).where(*clauses)) or 0)
+        rows = self.session.scalars(select(record).where(*clauses).order_by(record.created_at.desc(), record.id.desc()).limit(limit).offset(offset))
+        return [self._plain(row, StrategyRun) for row in rows], total
+
+    def get_strategy_run(self, context: TenantContext, run_id: str) -> StrategyRun | None:
+        record = FinanceStrategyRunRecord
+        row = self.session.scalar(select(record).where(*self._mine(record, context), record.id == run_id))
+        return self._plain(row, StrategyRun) if row else None
+
+    def save_strategy_run(self, run: StrategyRun) -> StrategyRun:
+        self._put(FinanceStrategyRunRecord, run)
+        return run
+
+    def list_agent_decisions(self, context: TenantContext, *, agent: str | None = None, strategy_id: str | None = None,
+                             cycle_id: str | None = None, limit: int, offset: int) -> tuple[list[AgentDecision], int]:
+        record = FinanceAgentDecisionRecord
+        clauses = list(self._mine(record, context))
+        if agent is not None:
+            clauses.append(record.agent == agent)
+        if strategy_id is not None:
+            clauses.append(record.strategy_id == strategy_id)
+        if cycle_id is not None:
+            clauses.append(record.cycle_id == cycle_id)
+        total = int(self.session.scalar(select(func.count()).select_from(record).where(*clauses)) or 0)
+        rows = self.session.scalars(select(record).where(*clauses).order_by(record.created_at.desc(), record.id.desc()).limit(limit).offset(offset))
+        return [self._plain(row, AgentDecision) for row in rows], total
+
+    def save_agent_decision(self, decision: AgentDecision) -> AgentDecision:
+        self._put(FinanceAgentDecisionRecord, decision)
+        return decision
+
     # privacy ------------------------------------------------------------------------------
 
     _ALL = (
+        FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
         FinanceLiveIncidentRecord, FinanceLiveWideningRecord, FinancePaperOrderRecord, FinancePaperPortfolioRecord, FinancePriceRecord, FinanceExecIntentRecord, FinanceExecSettingsRecord,
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
         FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianChangeRecord,

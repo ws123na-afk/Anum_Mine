@@ -5,6 +5,8 @@ import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
 import { financeEn } from './finance.en.ts';
 import { financeTradingEn } from './financeTrading.en.ts';
+import { financeIntelEn } from './financeIntel.en.ts';
+import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { homeEn } from './home.en.ts';
 import { teamEn } from './team.en.ts';
@@ -33,6 +35,8 @@ export const en = {
   // ---- Finance (finance.en.ts) ----
   ...financeEn,
   ...financeTradingEn,
+  ...financeIntelEn,
+  ...financeIntelActionsEn,
   ...teamEn,
   ...marketingEn,
   ...agentSkillsEn,

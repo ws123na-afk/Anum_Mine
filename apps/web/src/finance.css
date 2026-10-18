@@ -212,3 +212,90 @@
   .finTradeTable .num { text-align: end; }
   .finTradeTable td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: 12px; text-align: start; }
 }
+
+/* ---- Trading intelligence dashboard (read only, SIMULATED) ---- */
+.finIntel { display: grid; gap: var(--d-s4); min-width: 0; }
+.finIntel > section { display: grid; gap: var(--d-s3); min-width: 0; }
+.finIntel .cmTableWrap, .finIntel details, .finIntelRuns, .finIntelRun { min-width: 0; }
+.finIntel .sectionHeader { align-items: end; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.finIntelSimOnly { align-items: flex-start; border-inline-start: 4px solid var(--d-warn); display: flex; gap: var(--d-s2); margin: 0; }
+.finIntelSimOnly > svg, .finIntelNotRecorded > svg { flex: none; margin-top: 2px; }
+.finIntelSimOnly span, .finIntelNotRecorded span { overflow-wrap: anywhere; }
+.finIntelNotRecorded { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
+.finIntelNotRecorded > span { flex: 1 1 18rem; }
+.finIntelFacts { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); margin: 0; }
+.finIntelFacts > div { display: grid; gap: 2px; min-width: 0; }
+.finIntelFacts dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.finIntelFacts dd { display: grid; gap: 2px; justify-items: start; margin: 0; }
+.finIntelFacts dd small { color: var(--d-faint); font-size: 12px; }
+.finIntelActions { flex-wrap: wrap; margin: 0; }
+.finIntelActions > button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 40px; }
+.finIntelFilter { margin: 0; min-width: min(100%, 12rem); }
+.finIntelFilter select { min-height: 40px; }
+.finIntel .finIntelCards tbody th, .finIntel .finIntelCardsSm tbody th { color: var(--d-text); font-size: 14px; font-weight: 600; white-space: normal; }
+.finIntelReason { color: var(--d-muted); display: block; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+.finIntelStrategies td button { min-height: 36px; white-space: nowrap; }
+.finIntelStrategies tr[aria-current="true"] { background: var(--d-glass-2); }
+.finIntelRuns { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.finIntelRuns h3, .finIntelBook h3 { align-items: center; display: flex; flex-wrap: wrap; font-size: 15px; gap: var(--d-s2); margin: 0; }
+.finIntelRunList, .finIntelPortfolios, .finIntelRules { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.finIntelRun, .finIntelBook { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.finIntelRunHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
+.finIntelSub { color: var(--d-muted); font-size: 13px; margin: 0; }
+.finIntelMetrics { grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr)); }
+.finIntelReasons { display: grid; gap: 2px; margin: 0; padding-inline-start: var(--d-s5); }
+.finIntel .finIntelReasons li { border: 0; display: list-item; min-width: 0; overflow-wrap: anywhere; padding: 0; }
+.finIntel .finIntelTimeline > li { align-items: stretch; display: grid; gap: var(--d-s1); justify-content: stretch; }
+.finIntel .finIntelRunList > li { display: block; }
+.finIntelTimeline p { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); margin: 0; }
+.finIntelVerdict { margin: 0; }
+.finIntelRules li { border-inline-start: 3px solid var(--d-line-strong); padding-inline-start: var(--d-s2); }
+.finIntelRisk > button, .finIntel section > button.secondary { justify-self: start; }
+@media (min-width: 1100px) {
+  .finIntelPortfolios:has(> :nth-child(2)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Tablets and phones: the wide dashboard tables become stacked cards (the venue table only on
+   phones), so nothing scrolls sideways. */
+@media (max-width: 1023px) {
+  .finIntelCards thead { display: none; }
+  .finIntelCards, .finIntelCards tbody { display: block; }
+  .finIntelCards tr { border-top: 1px solid var(--d-line); display: grid; gap: 2px var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--d-s2) 0; }
+  .finIntelCards tr > th { grid-column: 1 / -1; }
+  .finIntel .finIntelCards th, .finIntel .finIntelCards td { background: transparent; border: 0; padding: 0; text-align: start; white-space: normal; }
+  .finIntelCards td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: 12px; }
+}
+@media (min-width: 561px) and (max-width: 1023px) {
+  .finIntelStrategies.finIntelCards tr { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .finIntelCardsSm thead { display: none; }
+  .finIntelCardsSm, .finIntelCardsSm tbody { display: block; }
+  .finIntelCardsSm tr { border-top: 1px solid var(--d-line); display: grid; gap: 2px var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--d-s2) 0; }
+  .finIntelCardsSm tr > th { grid-column: 1 / -1; }
+  .finIntel .finIntelCardsSm th, .finIntel .finIntelCardsSm td { background: transparent; border: 0; padding: 0; text-align: start; white-space: normal; }
+  .finIntelCardsSm td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: 12px; }
+}
+@media (max-width: 760px) {
+  .finIntelActions > button { flex: 1 1 100%; justify-content: center; }
+}
+/* Trading intelligence actions (FinanceIntelActions.tsx) */
+.finIntelStrategyActions { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.finIntelStrategyActions h3 { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.finIntel .cmFilters { align-items: end; flex-wrap: wrap; min-width: 0; }
+.finIntel .cmFilters > .field { flex: 1 1 12rem; min-width: 0; }
+.finIntel .cmFilters > button { align-items: center; display: inline-flex; gap: var(--d-s2); justify-content: center; min-height: 44px; }
+.finIntel .cmFilters > button:not(.secondary):not(.danger) {
+  background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
+  color: #fff; font-size: 14px; font-weight: 650; padding: 10px var(--d-s4);
+}
+.finIntel .cmFilters > button:not(.secondary):not(.danger):hover:not(:disabled) { background: var(--d-primary-grad-hover); }
+.finIntel .cmFilters > button.danger { padding: 0 var(--d-s4); }
+.finIntelRule { background: var(--d-glass-1); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: 0; padding: var(--d-s3); }
+.finIntelRule > div { display: grid; gap: 2px; min-width: 0; }
+.finIntelRule dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.finIntelRule dd { margin: 0; overflow-wrap: anywhere; }
+.finIntelPick { border: 1px solid var(--d-line); border-radius: var(--d-r-control); margin: 0; min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.finIntelPick legend { font-size: 13px; font-weight: 600; padding: 0 var(--d-s1); }
+.finIntelPick.finChecks { grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); }
+.finIntelPick .finCheck { flex-wrap: wrap; }
+.finIntelImport button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 36px; white-space: nowrap; }

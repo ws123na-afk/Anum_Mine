@@ -144,7 +144,9 @@ from .commerce.tools import register_commerce_tools
 from .finance.api import router as finance_router
 from .finance.plan_api import router as finance_plan_router
 from .finance.trading_api import router as finance_trading_router
+from .finance.intel_control_api import router as finance_intel_control_router
 from .finance.wider_api import router as finance_wider_router
+from .finance.intel_api import router as finance_intel_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
@@ -356,6 +358,8 @@ app.include_router(finance_router)
 app.include_router(finance_plan_router)
 app.include_router(finance_trading_router)
 app.include_router(finance_wider_router)
+app.include_router(finance_intel_router)
+app.include_router(finance_intel_control_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
 # Event triggers and steps waiting on agent tasks (docs/automation.md#triggers).

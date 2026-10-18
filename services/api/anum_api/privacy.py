@@ -998,6 +998,8 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         if not page or len(versions) >= total:
             break
     portfolios = [p.model_dump(mode="json", exclude=hidden) for p in finance.list_portfolios(context)]
+    instruments = finance.list_instruments(context)
+    strategies = finance.list_strategies(context, limit=200, offset=0)[0]
     orders: list[Any] = []
     for portfolio in portfolios:
         mine: list[Any] = []
@@ -1045,6 +1047,16 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         # Stage 9: proposals to widen live limits and the incidents that stepped them down.
         "live_widenings": [w.model_dump(mode="json", exclude=hidden) for w in finance.list_widenings(context, status=None, limit=10_000)],
         "live_incidents": [i.model_dump(mode="json", exclude=hidden) for i in finance.list_incidents(context, limit=10_000)],
+        # Trading intelligence (migration 0065_finance_intel): instruments and their daily bars,
+        # strategy versions with their SIMULATED evaluation runs, and the agents' decisions.
+        "instruments": [i.model_dump(mode="json", exclude=hidden) for i in instruments],
+        "market_bars": [b.model_dump(mode="json", exclude=hidden) for i in instruments for b in finance.list_bars(context, i.id, limit=50_000)],
+        "strategies": [s.model_dump(mode="json", exclude=hidden) for s in strategies],
+        "strategy_runs": [
+            r.model_dump(mode="json", exclude=hidden)
+            for s in strategies for r in finance.list_strategy_runs(context, s.id, limit=2_000, offset=0)[0]
+        ],
+        "agent_decisions": [d.model_dump(mode="json", exclude=hidden) for d in finance.list_agent_decisions(context, limit=20_000, offset=0)[0]],
     }
 
 
