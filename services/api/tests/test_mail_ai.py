@@ -375,6 +375,7 @@ def test_every_state_changing_ai_route_is_audited_without_content(fake: FakeServ
     summary = "Sara asks for a quote for 40 tyres by Friday."
     probe.call("POST", "/api/v1/mail/ai/summarize", OWNER, sent=[summary, "Quote request 3"], json=ref(account))
     probe.call("POST", "/api/v1/mail/ai/classify", OWNER, sent=["A customer wants a quote soon."], json=ref(account))
+    probe.call("POST", "/api/v1/mail/ai/classify-page", OWNER, sent=["Quote request 5"], json={"account_id": account["id"], "folder": "INBOX", "uids": [4, 5]})
     probe.call("POST", "/api/v1/mail/ai/draft-reply", OWNER, sent=["The quote follows today", "private wording"], json={**ref(account), "instructions": "private wording"})
     probe.call("POST", "/api/v1/mail/ai/forward", OWNER, sent=["colleague@example.test", "a private note"], json={**ref(account), "to": ["colleague@example.test"], "note": "a private note", "idempotency_key": "fwd-key-0101"})
     probe.call("POST", "/api/v1/mail/ai/archive", OWNER, json={"account_id": account["id"], "folder": "INBOX", "uids": [7]})

@@ -101,7 +101,7 @@ Migration `0070_business` creates `business_settings`, `business_products`, `bus
 - References between business tables are composite foreign keys on `(tenant_id, workspace_id, id)`, so a row can never point into another tenant or workspace by a guessed id, even though foreign key checks ignore row policies.
 - Every store query also filters on the caller's scope; a record of another workspace reads as missing (404).
 - Activities are idempotent per key (`Idempotency-Key` on `POST /leads/{id}/activities`).
-- Expand only: new tables, a trigger function and indexes. Numbered 0070 and chained after `0065_finance_intel`, the head of `main` when it was written; 0066 to 0069 are on open email branches, so `down_revision` is re-chained onto the newest migration when this lands.
+- Expand only: new tables, a trigger function and indexes. Numbered 0070 and chained after `0069_mail_writers_uidvalidity`, the head of `main`.
 
 Every state-changing route writes an audit record with ids and counts only (never contact details or message text); `tests/test_business.py` walks all of them through `audit_probe.AuditProbe`.
 

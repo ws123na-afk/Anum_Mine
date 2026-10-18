@@ -1019,3 +1019,38 @@ def test_business_migration_is_expand_only_with_forced_rls_on_every_table_and_sc
     assert "when (old.locked)" in upgrade and "security invoker" in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
+
+
+def test_mail_rules_retention_migration_is_expand_only_and_discovery_reads_no_content() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0068_mail_rules_retention.py").read_text(encoding="utf-8")
+    assert 'revision = "0068_mail_rules_retention"' in revision_text and len("0068_mail_rules_retention") <= 32
+    assert 'down_revision = "0067_mail_sharing_contacts"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0068_mail_rules_retention.py"]
+    assert not [path for path in others if 'down_revision = "0067_mail_sharing_contacts"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 4 and "force row level security" in upgrade
+    assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # An active rule always carries the hash that was approved.
+    assert "status <> 'active' or (approved_hash is not null and approved_hash = rule_hash)" in upgrade
+    # The maintenance role gets scheduling and retention columns only, never content.
+    import re
+
+    columns = {column.replace("\"", "").strip() for found in re.findall(r"grant select \(([^)]*)\)", upgrade) for column in found.split(",")}
+    assert columns == {
+        "status", "account_id", "tenant_id", "workspace_id", "owner_user_id", "background_sync", "sent_retention_days",
+        "draft_retention_days", "label_retention_days", "next_sync_at", "lease_until",
+    }
+
+
+def test_mail_writers_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0069_mail_writers_uidvalidity.py").read_text(encoding="utf-8")
+    assert 'revision = "0069_mail_writers_uidvalidity"' in revision_text and len("0069_mail_writers_uidvalidity") <= 32
+    assert 'down_revision = "0068_mail_rules_retention"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "op.create_table(" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "grant select (disconnecting_at) on mail_accounts to anum_maintenance" in upgrade
+    assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade

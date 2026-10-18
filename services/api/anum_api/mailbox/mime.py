@@ -229,6 +229,8 @@ class Outgoing:
     references: str | None = None
     date: datetime | None = None
     attachments: tuple[OutgoingFile, ...] = ()
+    # Extra headers (name, value), such as ``Auto-Submitted`` on a message a forwarding rule sends.
+    headers: tuple[tuple[str, str], ...] = ()
 
 
 def _address(text: str, name: str = "") -> Address:
@@ -250,6 +252,8 @@ def build_message(outgoing: Outgoing) -> bytes:
         message["In-Reply-To"] = outgoing.in_reply_to
     if outgoing.references:
         message["References"] = outgoing.references
+    for name, value in outgoing.headers:
+        message[name] = value
     message["MIME-Version"] = "1.0"
     message.set_content(outgoing.body or "", subtype="plain", charset="utf-8")
     for item in outgoing.attachments:

@@ -10,7 +10,8 @@ import {
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
-import { mailUnread, subscribeMailUnread } from './lib/mailUnread';
+import { mailUnread, pollMailUnread, subscribeMailUnread } from './lib/mailUnread';
+import { getMailUnread } from './lib/mailRulesApi';
 import * as admin from './lib/adminApi';
 import { workspaceIdInput, workspaceName } from './lib/audit';
 import { describeError } from './lib/errors';
@@ -67,6 +68,9 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
   });
   const allowed = new Set(views);
   const mailUnreadCount = useSyncExternalStore(subscribeMailUnread, mailUnread, () => 0);
+  // The open Email page publishes its own counts; elsewhere the background sync's counts keep the badge current.
+  const pollMail = allowed.has('email') && view !== 'email';
+  useEffect(() => (pollMail ? pollMailUnread(getMailUnread) : undefined), [pollMail]);
   // The nav scrolls on its own: a view opened by link, the palette or a page button brings its
   // entry into sight (to the nearest edge, so an entry already in view never moves), again once the
   // views the person may open are known, since an owner-only entry appears only then. It moves the

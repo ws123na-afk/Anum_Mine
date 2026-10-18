@@ -469,6 +469,7 @@ class SqlAlchemyPrivacyStore:
             finance_records=self.finance().count_everything(self.context),
             mail_mailboxes=len(self.mail().list_accounts()),
             mail_messages_written=len(self.mail().list_drafts(None, 100_000)),
+            mail_contacts=self.mail().count_contacts(),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -511,9 +512,14 @@ class SqlAlchemyPrivacyStore:
         # Before the private memories go: a private collection's notes are among them.
         self.library().delete_all()
         self.finance().delete_everything(self.context)
-        mail = self.mail()
-        for account in mail.list_accounts():
-            mail.delete_account(account.id)
+        from ..privacy import delete_mail_store
+
+        delete_mail_store(self.mail())
+        # AI labels the caller made on mailboxes others shared with them (their own went with
+        # their mailboxes, by the foreign key).
+        from .mail_labels_repository import SqlAlchemyLabelStore
+
+        SqlAlchemyLabelStore(self.session, self.context).delete_all()
         # The caller's unsent drafts anywhere, then their private mailboxes (synced message
         # metadata and every draft in them cascade), then their pending connections.
         self.session.execute(

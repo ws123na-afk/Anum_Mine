@@ -17,6 +17,12 @@ class MailSetup {
     required this.maxRecipients,
     required this.sendPerHour,
     required this.accounts,
+    this.attachmentMaxBytes = 10 * 1024 * 1024,
+    this.attachmentsPerMessage = 10,
+    this.attachmentsTotalBytes = 20 * 1024 * 1024,
+    this.attachmentExtensions = const [],
+    this.attachmentsAccepted = '',
+    this.scheduleMaxDays = 30,
   });
 
   factory MailSetup.fromJson(JsonReader j) => MailSetup(
@@ -28,12 +34,49 @@ class MailSetup {
         maxRecipients: j.optInt('max_recipients') ?? 50,
         sendPerHour: j.optInt('send_per_hour') ?? 30,
         accounts: j.optObjects('accounts', MailAccount.fromJson),
+        attachmentMaxBytes:
+            j.optInt('attachment_max_bytes') ?? 10 * 1024 * 1024,
+        attachmentsPerMessage: j.optInt('attachments_per_message') ?? 10,
+        attachmentsTotalBytes:
+            j.optInt('attachments_total_bytes') ?? 20 * 1024 * 1024,
+        attachmentExtensions: j.optStrings('attachment_extensions') ?? const [],
+        attachmentsAccepted: j.optString('attachments_accepted') ?? '',
+        scheduleMaxDays: j.optInt('schedule_max_days') ?? 30,
       );
 
   final bool enabled, configured, tenantAllowed, canAct;
   final List<String> allowedDomains;
   final int maxRecipients, sendPerHour;
   final List<MailAccount> accounts;
+
+  /// Outgoing files: the largest file, files per message and their total.
+  final int attachmentMaxBytes, attachmentsPerMessage, attachmentsTotalBytes;
+
+  /// Accepted file types by extension, with the dot (`.pdf`).
+  final List<String> attachmentExtensions;
+
+  /// The API's sentence naming the accepted types.
+  final String attachmentsAccepted;
+
+  /// How far ahead a message may be scheduled.
+  final int scheduleMaxDays;
+
+  MailSetup withAccounts(List<MailAccount> list) => MailSetup(
+        enabled: enabled,
+        configured: configured,
+        tenantAllowed: tenantAllowed,
+        canAct: canAct,
+        allowedDomains: allowedDomains,
+        maxRecipients: maxRecipients,
+        sendPerHour: sendPerHour,
+        accounts: list,
+        attachmentMaxBytes: attachmentMaxBytes,
+        attachmentsPerMessage: attachmentsPerMessage,
+        attachmentsTotalBytes: attachmentsTotalBytes,
+        attachmentExtensions: attachmentExtensions,
+        attachmentsAccepted: attachmentsAccepted,
+        scheduleMaxDays: scheduleMaxDays,
+      );
 
   /// Switched on, set up and allowed for this organisation.
   bool get available => enabled && configured && tenantAllowed;
@@ -47,6 +90,10 @@ class MailAccount {
     this.displayName,
     this.lastError,
     this.lastCheckedAt,
+    this.access = 'owner',
+    this.ownerUserId,
+    this.sharedWith = 0,
+    this.grantId,
   });
 
   factory MailAccount.fromJson(JsonReader j) => MailAccount(
@@ -56,14 +103,32 @@ class MailAccount {
         status: j.optString('status') ?? 'connected',
         lastError: j.optString('last_error'),
         lastCheckedAt: j.optDate('last_checked_at'),
+        access: j.optString('access') ?? 'owner',
+        ownerUserId: j.optString('owner_user_id'),
+        sharedWith: j.optInt('shared_with') ?? 0,
+        grantId: j.optString('grant_id'),
       );
 
   final String id, address, status;
   final String? displayName, lastError;
   final DateTime? lastCheckedAt;
 
+  /// owner (the caller's own), send or read (shared with the caller).
+  final String access;
+  final String? ownerUserId;
+
+  /// How many people the owner shared it with (0 for a shared mailbox).
+  final int sharedWith;
+
+  /// The caller's own share of a mailbox shared with them (to leave it).
+  final String? grantId;
+
   bool get needsPassword => status == 'auth_failed';
   bool get healthy => status == 'connected';
+  bool get isOwn => access == 'owner';
+
+  /// Flags, moves, drafts and asking to send: the owner or a send share.
+  bool get canWrite => access == 'owner' || access == 'send';
 }
 
 class MailFolder {
@@ -115,6 +180,7 @@ class MailMessage {
     this.sender,
     this.to = const [],
     this.cc = const [],
+    this.messageId,
   });
 
   factory MailMessage.fromJson(JsonReader j) => MailMessage(
@@ -131,6 +197,7 @@ class MailMessage {
         flagged: j.optBool('flagged') ?? false,
         answered: j.optBool('answered') ?? false,
         maybeAttachments: j.optBool('maybe_attachments') ?? false,
+        messageId: j.optString('message_id'),
       );
 
   final int uid;
@@ -139,6 +206,9 @@ class MailMessage {
   final List<MailPerson> to, cc;
   final DateTime date;
   final bool seen, flagged, answered, maybeAttachments;
+
+  /// The Message-ID header, which stored labels are matched against.
+  final String? messageId;
 
   MailMessage copyWith({bool? seen, bool? flagged}) => MailMessage(
         uid: uid,
@@ -152,6 +222,7 @@ class MailMessage {
         flagged: flagged ?? this.flagged,
         answered: answered,
         maybeAttachments: maybeAttachments,
+        messageId: messageId,
       );
 }
 
@@ -163,16 +234,53 @@ class MailPage {
 }
 
 class MailAttachment {
-  const MailAttachment(this.filename, this.contentType, this.size);
+  const MailAttachment(this.filename, this.contentType, this.size,
+      {this.index = 0, this.downloadable = true});
 
   factory MailAttachment.fromJson(JsonReader j) => MailAttachment(
         j.optString('filename') ?? '',
         j.optString('content_type') ?? 'application/octet-stream',
         j.optInt('size') ?? 0,
+        index: j.optInt('index') ?? 0,
+        downloadable: j.optBool('downloadable') ?? true,
       );
 
   final String filename, contentType;
+  final int size, index;
+
+  /// False when it is over the download limit: open it in webmail.
+  final bool downloadable;
+
+  /// A name to save it under.
+  String get saveName =>
+      filename.trim().isEmpty ? 'attachment-$index' : filename;
+}
+
+/// A file attached to a message written in ANUM (`OutgoingFile`).
+class MailOutgoingFile {
+  const MailOutgoingFile({
+    required this.id,
+    required this.filename,
+    required this.contentType,
+    required this.size,
+    this.sha256 = '',
+    this.scanned = false,
+  });
+
+  factory MailOutgoingFile.fromJson(JsonReader j) => MailOutgoingFile(
+        id: j.optString('id') ?? '',
+        filename: j.optString('filename') ?? '',
+        contentType: j.optString('content_type') ?? 'application/octet-stream',
+        size: j.optInt('size') ?? 0,
+        sha256: j.optString('sha256') ?? '',
+        scanned: j.optBool('scanned') ?? false,
+      );
+
+  final String id, filename, contentType, sha256;
   final int size;
+
+  /// False when the server has no malware scanner installed.
+  final bool scanned;
 }
 
 class MailDetail {
@@ -258,6 +366,10 @@ class MailDraft {
     this.updatedAt,
     this.sendAt,
     this.attachments = const [],
+    this.identityId,
+    this.fromAddress,
+    this.fromName,
+    this.attachmentNote,
   });
 
   factory MailDraft.fromJson(JsonReader j) => MailDraft(
@@ -278,10 +390,11 @@ class MailDraft {
         savedToSent: j.optBool('saved_to_sent'),
         updatedAt: j.optDate('updated_at'),
         sendAt: j.optDate('send_at'),
-        attachments: [
-          for (final file in j.optObjects('attachments', (a) => a))
-            file.optString('filename') ?? '',
-        ],
+        attachments: j.optObjects('attachments', MailOutgoingFile.fromJson),
+        identityId: j.optString('identity_id'),
+        fromAddress: j.optString('from_address'),
+        fromName: j.optString('from_name'),
+        attachmentNote: j.optString('attachment_note'),
       );
 
   final String id, accountId, kind, subject, body, status;
@@ -291,18 +404,35 @@ class MailDraft {
   final bool? savedToSent;
   final DateTime? updatedAt;
 
-  /// When a scheduled send goes (set on the web; shown here).
+  /// When a scheduled send goes (UTC); on a draft, the last time picked.
   final DateTime? sendAt;
 
-  /// Names of files attached on the web (the app does not add files).
-  final List<String> attachments;
+  /// The files that go with the message.
+  final List<MailOutgoingFile> attachments;
 
-  /// Still editable: a draft, a failed send, or one waiting for approval
-  /// (editing withdraws the approval).
+  /// The sender identity, or null for the mailbox address itself.
+  final String? identityId;
+  final String? fromAddress, fromName;
+
+  /// A forward's files that were left out, and why.
+  final String? attachmentNote;
+
+  /// Still editable: a draft, a failed send, one waiting for approval or a
+  /// scheduled one (editing withdraws the approval or the schedule).
   bool get editable =>
-      status == 'draft' || status == 'failed' || status == 'pending_approval';
+      status == 'draft' ||
+      status == 'failed' ||
+      status == 'pending_approval' ||
+      status == 'scheduled';
   bool get waiting =>
       status == 'pending_approval' && approval?.status == 'pending';
+  bool get scheduled => status == 'scheduled';
+
+  /// The time it is scheduled for (approved or waiting), else null.
+  DateTime? get scheduledFor =>
+      status == 'scheduled' || status == 'pending_approval' ? sendAt : null;
+
+  int get attachedBytes => attachments.fold(0, (sum, f) => sum + f.size);
 }
 
 /// The draft as edited on the phone, sent with `PATCH /drafts/{id}`.
@@ -313,13 +443,26 @@ class MailDraftEdit {
     required this.bcc,
     required this.subject,
     required this.body,
+    this.identityId,
+    this.setIdentity = false,
   });
 
   final List<String> to, cc, bcc;
   final String subject, body;
 
-  Map<String, Object?> toJson() =>
-      {'to': to, 'cc': cc, 'bcc': bcc, 'subject': subject, 'body': body};
+  /// With [setIdentity], the sender identity to use (null: the mailbox
+  /// address itself).
+  final String? identityId;
+  final bool setIdentity;
+
+  Map<String, Object?> toJson() => {
+        'to': to,
+        'cc': cc,
+        'bcc': bcc,
+        'subject': subject,
+        'body': body,
+        if (setIdentity) 'identity_id': identityId,
+      };
 
   /// Comma, semicolon or space separated addresses, trimmed, empties dropped.
   static List<String> split(String text) => [
