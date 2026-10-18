@@ -30,7 +30,12 @@ class LookupFailed(Exception):
 
 
 class DnsCheck(BaseModel):
+    """One judged record. ``code`` and ``params`` are what clients translate (docs/email.md#mail-domains);
+    ``message`` is the same in English, for logs and API readers. ``found`` holds the raw DNS values."""
+
     status: CheckStatus
+    code: str
+    params: dict[str, str] = Field(default_factory=dict)
     found: list[str] = Field(default_factory=list)
     message: str
 
@@ -43,6 +48,8 @@ class ExpectedRecord(BaseModel):
     name: str
     value: str
     note: str | None = None
+    # The note as a code clients translate (the value itself is never translated).
+    note_code: str | None = None
 
 
 class DnsReport(BaseModel):
@@ -94,27 +101,27 @@ def lookup(name: str, rdtype: Literal["MX", "TXT"], timeout: float) -> list[str]
 
 
 def _failed(kind: str, what: str) -> DnsCheck:
-    if kind in {"nxdomain", "empty"}:
-        return DnsCheck(status="missing", message=f"No {what} record found.")
     if kind == "timeout":
-        return DnsCheck(status="error", message=f"The {what} lookup timed out. Check again in a moment.")
-    return DnsCheck(status="error", message=f"The {what} lookup failed. Check again in a moment.")
+        return DnsCheck(status="error", code="lookup_timeout", params={"record": what}, message=f"The {what} lookup timed out. Check again in a moment.")
+    return DnsCheck(status="error", code="lookup_failed", params={"record": what}, message=f"The {what} lookup failed. Check again in a moment.")
 
 
 def check_mx(found: list[str], mail_host: str | None) -> DnsCheck:
     hosts = [_host(item.split(" ", 1)[-1]) for item in found]
     if not hosts:
-        return DnsCheck(status="missing", message="No MX record: mail for this domain has nowhere to go.")
+        return DnsCheck(status="missing", code="mx_missing", message="No MX record: mail for this domain has nowhere to go.")
     if hosts == [""] or "" in hosts:
-        return DnsCheck(status="danger", found=found, message="A null MX record says this domain receives no mail.")
+        return DnsCheck(status="danger", code="mx_null", found=found, message="A null MX record says this domain receives no mail.")
     if mail_host is None:
-        return DnsCheck(status="ok", found=found, message="MX records exist. Set ANUM_MAILCOW_MAIL_HOST to check they point to the mail server.")
+        return DnsCheck(status="ok", code="mx_unverified", found=found, message="MX records exist. Set ANUM_MAILCOW_MAIL_HOST to check they point to the mail server.")
     if mail_host in hosts:
         others = [h for h in hosts if h != mail_host]
         if others:
-            return DnsCheck(status="warning", found=found, message=f"MX also points to {', '.join(others)}: mail may go to another server.")
-        return DnsCheck(status="ok", found=found, message=f"MX points to {mail_host}.")
-    return DnsCheck(status="warning", found=found, message=f"MX points to {', '.join(hosts)}, not to the mail server {mail_host}.")
+            return DnsCheck(status="warning", code="mx_also_elsewhere", params={"hosts": ", ".join(others)}, found=found,
+                            message=f"MX also points to {', '.join(others)}: mail may go to another server.")
+        return DnsCheck(status="ok", code="mx_ok", params={"host": mail_host}, found=found, message=f"MX points to {mail_host}.")
+    return DnsCheck(status="warning", code="mx_elsewhere", params={"hosts": ", ".join(hosts), "host": mail_host}, found=found,
+                    message=f"MX points to {', '.join(hosts)}, not to the mail server {mail_host}.")
 
 
 def spf_records(txt: list[str]) -> list[str]:
@@ -124,22 +131,22 @@ def spf_records(txt: list[str]) -> list[str]:
 def check_spf(txt: list[str], mail_host: str | None) -> DnsCheck:
     found = spf_records(txt)
     if not found:
-        return DnsCheck(status="missing", message="No SPF record: receivers cannot tell which servers may send as this domain.")
+        return DnsCheck(status="missing", code="spf_missing", message="No SPF record: receivers cannot tell which servers may send as this domain.")
     if len(found) > 1:
-        return DnsCheck(status="danger", found=found, message="More than one SPF record: receivers treat SPF as broken. Keep exactly one.")
+        return DnsCheck(status="danger", code="spf_multiple", found=found, message="More than one SPF record: receivers treat SPF as broken. Keep exactly one.")
     terms = found[0].lower().split()[1:]
     if any(term in {"+all", "all"} for term in terms):
-        return DnsCheck(status="danger", found=found, message="Dangerous: '+all' lets any server on the internet send as this domain. Replace it with '~all' or '-all'.")
+        return DnsCheck(status="danger", code="spf_dangerous_all", found=found, message="Dangerous: '+all' lets any server on the internet send as this domain. Replace it with '~all' or '-all'.")
     if "?all" in terms:
-        return DnsCheck(status="warning", found=found, message="'?all' is neutral: it does not stop other servers sending as this domain. Use '~all' or '-all'.")
+        return DnsCheck(status="warning", code="spf_neutral_all", found=found, message="'?all' is neutral: it does not stop other servers sending as this domain. Use '~all' or '-all'.")
     if not any(term.lstrip("+-~?") == "all" for term in terms) and not any(term.startswith("redirect=") for term in terms):
-        return DnsCheck(status="warning", found=found, message="The SPF record has no 'all' at the end. End it with '~all' or '-all'.")
+        return DnsCheck(status="warning", code="spf_no_all", found=found, message="The SPF record has no 'all' at the end. End it with '~all' or '-all'.")
     names_server = any(term in {"mx", "+mx", "a", "+a"} or term.startswith(("mx:", "+mx:", "include:", "+include:", "ip4:", "+ip4:", "ip6:", "+ip6:", "redirect=")) for term in terms)
     if mail_host and any(term in {f"a:{mail_host}", f"+a:{mail_host}"} for term in terms):
         names_server = True
     if not names_server:
-        return DnsCheck(status="warning", found=found, message="The SPF record does not name the mail server. Add 'mx' before the 'all'.")
-    return DnsCheck(status="ok", found=found, message="One SPF record that ends with a safe 'all'.")
+        return DnsCheck(status="warning", code="spf_no_server", found=found, message="The SPF record does not name the mail server. Add 'mx' before the 'all'.")
+    return DnsCheck(status="ok", code="spf_ok", found=found, message="One SPF record that ends with a safe 'all'.")
 
 
 def _tags(record: str) -> dict[str, str]:
@@ -154,43 +161,46 @@ def _tags(record: str) -> dict[str, str]:
 def check_dkim(txt: list[str], public_key: str | None, selector: str) -> DnsCheck:
     found = [item.strip() for item in txt if "p=" in item.replace(" ", "").lower()]
     if not found:
-        return DnsCheck(status="missing", message=f"No DKIM record at {selector}._domainkey: receivers cannot verify signed mail.")
+        return DnsCheck(status="missing", code="dkim_missing", params={"name": f"{selector}._domainkey"}, message=f"No DKIM record at {selector}._domainkey: receivers cannot verify signed mail.")
     key = "".join(_tags(found[0]).get("p", "").split())
     if not key:
-        return DnsCheck(status="danger", found=found, message="The DKIM record has an empty key: it revokes signing for this selector.")
+        return DnsCheck(status="danger", code="dkim_empty", found=found, message="The DKIM record has an empty key: it revokes signing for this selector.")
     if public_key and key != public_key:
-        return DnsCheck(status="warning", found=found, message="The DKIM key in DNS differs from Mailcow's key. Set the value shown below.")
+        return DnsCheck(status="warning", code="dkim_mismatch", found=found, message="The DKIM key in DNS differs from Mailcow's key. Set the value shown below.")
     if not public_key:
-        return DnsCheck(status="ok", found=found, message="A DKIM key is published. Mailcow's key was not read, so it was not compared.")
-    return DnsCheck(status="ok", found=found, message="The DKIM key in DNS matches Mailcow's key.")
+        return DnsCheck(status="ok", code="dkim_unverified", found=found, message="A DKIM key is published. Mailcow's key was not read, so it was not compared.")
+    return DnsCheck(status="ok", code="dkim_ok", found=found, message="The DKIM key in DNS matches Mailcow's key.")
 
 
 def check_dmarc(txt: list[str]) -> DnsCheck:
     found = [item.strip() for item in txt if item.strip().lower().startswith("v=dmarc1")]
     if not found:
-        return DnsCheck(status="missing", message="No DMARC record: receivers get no policy for mail that fails SPF and DKIM.")
+        return DnsCheck(status="missing", code="dmarc_missing", message="No DMARC record: receivers get no policy for mail that fails SPF and DKIM.")
     if len(found) > 1:
-        return DnsCheck(status="danger", found=found, message="More than one DMARC record: receivers ignore DMARC. Keep exactly one.")
+        return DnsCheck(status="danger", code="dmarc_multiple", found=found, message="More than one DMARC record: receivers ignore DMARC. Keep exactly one.")
     policy = _tags(found[0]).get("p", "").lower()
     if policy in {"quarantine", "reject"}:
-        return DnsCheck(status="ok", found=found, message=f"DMARC policy '{policy}'.")
+        return DnsCheck(status="ok", code="dmarc_ok", params={"policy": policy}, found=found, message=f"DMARC policy '{policy}'.")
     if policy == "none":
-        return DnsCheck(status="warning", found=found, message="DMARC policy 'none' only reports. Move to 'quarantine' once the reports show only your servers.")
-    return DnsCheck(status="warning", found=found, message="The DMARC record has no valid policy (p=none, quarantine or reject).")
+        return DnsCheck(status="warning", code="dmarc_none", found=found, message="DMARC policy 'none' only reports. Move to 'quarantine' once the reports show only your servers.")
+    return DnsCheck(status="warning", code="dmarc_no_policy", found=found, message="The DMARC record has no valid policy (p=none, quarantine or reject).")
 
 
 def expected_records(domain: str, mail_host: str | None, dkim_selector: str, dkim_txt: str | None) -> list[ExpectedRecord]:
     """What the owner sets at the DNS host for mail of ``domain`` to work through this server."""
     host = mail_host or "<your mail server host>"
     return [
-        ExpectedRecord(kind="mx", type="MX", name=domain, value=f"10 {host}.", note=None if mail_host else "Set ANUM_MAILCOW_MAIL_HOST to show the real host."),
+        ExpectedRecord(kind="mx", type="MX", name=domain, value=f"10 {host}.", note=None if mail_host else "Set ANUM_MAILCOW_MAIL_HOST to show the real host.",
+                       note_code=None if mail_host else "record_mx_set_host"),
         ExpectedRecord(kind="spf", type="TXT", name=domain, value="v=spf1 mx ~all",
-                       note="One SPF record only. Keep any include: the domain really sends through (for example spf.brevo.com). Never '+all'."),
-        ExpectedRecord(kind="dkim", type="TXT", name=f"{dkim_selector}._domainkey.{domain}",
-                       value=dkim_txt or "Create the DKIM key in Mailcow first (Configuration, ARC/DKIM keys), then check again.",
-                       note=None if dkim_txt else "No DKIM key in Mailcow yet."),
+                       note="One SPF record only. Keep any include: the domain really sends through (for example spf.brevo.com). Never '+all'.",
+                       note_code="record_spf_one"),
+        # Without a DKIM key in Mailcow there is no value to set yet: the value stays empty.
+        ExpectedRecord(kind="dkim", type="TXT", name=f"{dkim_selector}._domainkey.{domain}", value=dkim_txt or "",
+                       note=None if dkim_txt else "Create the DKIM key in Mailcow first (Configuration, ARC/DKIM keys), then check again.",
+                       note_code=None if dkim_txt else "record_dkim_create"),
         ExpectedRecord(kind="dmarc", type="TXT", name=f"_dmarc.{domain}", value=f"v=DMARC1; p=none; rua=mailto:postmaster@{domain}",
-                       note="Start with p=none, then move to p=quarantine once the reports show only your servers."),
+                       note="Start with p=none, then move to p=quarantine once the reports show only your servers.", note_code="record_dmarc_start"),
     ]
 
 

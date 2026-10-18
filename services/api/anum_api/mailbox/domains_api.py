@@ -30,7 +30,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolPolicyOutcome, ToolResult
+from ..agent_tools import ToolCall, ToolDefinition, ToolPolicyOutcome, ToolResult, holds_organization_permission
 from ..authorization import Permission
 from ..dependencies import repository_context, require_permission, tenant_context
 from ..email_api import _pause_for_approval, _retire
@@ -337,6 +337,10 @@ def _failed(summary: str, kind: str) -> ToolResult:
 
 async def change_mail_domains(call: ToolCall, context: TenantContext) -> ToolResult:
     """Make an approved domain or alias change, after checking it again against Mailcow."""
+    # Whoever runs the approved call (the person who decided it, or a replayed task) must be a
+    # platform operator: a workspace owner alone never changes the deployment's mail server.
+    if not holds_organization_permission(context, Permission.PLATFORM_OPERATE.value):
+        return _failed("Not changed: only a platform operator can change mail domains and aliases.", "forbidden")
     args = dict(call.arguments)
     operation = args.get("operation")
     if operation not in {"add_domain", "remove_domain", "add_alias", "remove_alias"}:
@@ -377,8 +381,10 @@ DOMAIN_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
         ToolDefinition(
             name=DOMAIN_TOOL,
             description="Add or remove a mail domain or alias on the Mailcow server, after approval of exactly that change.",
-            risk_level=RiskLevel.HIGH, required_roles=frozenset({"owner"}), timeout_seconds=60, category="email", action_kind="update",
-            always_ask=True,
+            # No workspace role gate: only platform operators (an organization role), whatever their
+            # workspace role, may plan, decide or run it. Checked by the runtime policy and the handler.
+            risk_level=RiskLevel.HIGH, timeout_seconds=60, category="email", action_kind="update", always_ask=True,
+            required_organization_permission=Permission.PLATFORM_OPERATE.value,
         ),
         change_mail_domains,
     ),

@@ -1103,17 +1103,15 @@ class _MessageTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             if (label != null) MailLabelChips(label: label!),
-          ],
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(mailWhen(context, message.date),
-                style: Theme.of(context).textTheme.bodySmall),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            // The date and markers sit under the subject, not in a trailing
+            // slot: a trailing column took the whole tile on a 320 px phone
+            // at 200% text and squeezed the sender out.
+            Wrap(
+              spacing: AnumSpacing.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                Text(mailWhen(context, message.date),
+                    style: Theme.of(context).textTheme.bodySmall),
                 if (message.maybeAttachments)
                   const Icon(Icons.attach_file, size: 16),
                 if (message.flagged)
