@@ -50,9 +50,9 @@ export const createMailDraft = (body: { account_id: string; kind: MailDraftKind;
 export const updateMailDraft = (draftId: string, body: { to?: string[]; cc?: string[]; bcc?: string[]; subject?: string; body?: string }): Promise<MailDraft> =>
   apiRequest(`${base}/drafts/${id(draftId)}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteMailDraft = (draftId: string): Promise<void> => apiRequestVoid(`${base}/drafts/${id(draftId)}`, { method: 'DELETE' });
-/** Ask to send: answers with the approval an owner decides with the payload hash shown. */
-export const sendMailDraft = (draftId: string, idempotencyKey: string): Promise<MailSendResult> =>
-  apiRequest(`${base}/drafts/${id(draftId)}/send`, { method: 'POST', body: JSON.stringify({ idempotency_key: idempotencyKey }) });
+/** Ask to send, now or at `sendAt` (ISO with a zone): answers with the approval an owner decides with the payload hash shown. */
+export const sendMailDraft = (draftId: string, idempotencyKey: string, sendAt?: string): Promise<MailSendResult> =>
+  apiRequest(`${base}/drafts/${id(draftId)}/send`, { method: 'POST', body: JSON.stringify({ idempotency_key: idempotencyKey, ...(sendAt ? { send_at: sendAt } : {}) }) });
 
 /** The approval in the client's shape (for api.approveTask, which sends its payload hash). */
 export function toApproval(approval: ApiApproval): Approval {

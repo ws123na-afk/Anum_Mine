@@ -5,12 +5,15 @@ import type { ApiApproval } from './api';
 export type MailAccountStatus = 'connected' | 'auth_failed' | 'offline' | 'error';
 export type MailFolderRole = 'inbox' | 'drafts' | 'sent' | 'archive' | 'junk' | 'trash';
 export type MailDraftKind = 'new' | 'reply' | 'reply_all' | 'forward';
-export type MailDraftStatus = 'draft' | 'pending_approval' | 'sending' | 'sent' | 'failed' | 'unknown';
+export type MailDraftStatus = 'draft' | 'pending_approval' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'unknown';
 
 export interface MailAccount { id: string; address: string; display_name: string | null; status: MailAccountStatus; last_error: string | null; last_checked_at: string | null; created_at: string }
 export interface MailSetup {
   enabled: boolean; configured: boolean; tenant_allowed: boolean; imap_host: string | null; imap_port: number; smtp_host: string | null; smtp_port: number;
   smtp_security: string; allowed_domains: string[]; can_read: boolean; can_act: boolean; max_recipients: number; send_per_hour: number; accounts: MailAccount[];
+  // Outgoing attachments and scheduled send (docs/email.md#attachments, #scheduled-send). Optional: an older API omits them.
+  attachment_max_bytes?: number; attachments_per_message?: number; attachments_total_bytes?: number; attachment_extensions?: string[];
+  attachments_accepted?: string; schedule_max_days?: number;
 }
 export interface MailFolder { id: string; name: string; role: MailFolderRole | null; total: number; unread: number }
 export interface MailPerson { name: string; address: string }
@@ -28,7 +31,11 @@ export interface MailDraft {
   id: string; account_id: string; kind: MailDraftKind; to: string[]; cc: string[]; bcc: string[]; subject: string; body: string; in_reply_to: string | null;
   message_id: string; status: MailDraftStatus; error: string | null; approval: ApiApproval | null; approval_note: string | null; saved_to_sent: boolean | null;
   sent_at: string | null; created_at: string; updated_at: string;
+  /** When a scheduled send goes (UTC); kept on a draft as the last time picked. */
+  send_at?: string | null; attachments?: MailOutgoingFile[]; attachment_note?: string | null;
 }
+/** A file attached to a message written in ANUM (checked and scanned when attached). */
+export interface MailOutgoingFile { id: string; filename: string; content_type: string; size: number; sha256: string; scanned: boolean; created_at: string }
 export interface MailSendResult { draft: MailDraft; approval: ApiApproval | null }
 
 /** Special folders first, in the order people expect; other folders by name. */
@@ -73,7 +80,15 @@ export function joinRecipients(values: string[]): string { return values.join(',
 
 /** Drafts the person can still change (a pending approval is withdrawn by an edit). */
 export function isEditable(draft: MailDraft): boolean {
-  return draft.status === 'draft' || draft.status === 'failed' || draft.status === 'pending_approval';
+  return draft.status === 'draft' || draft.status === 'failed' || draft.status === 'pending_approval' || draft.status === 'scheduled';
+}
+
+/** The badge tone of a draft's status. */
+export function draftTone(status: MailDraftStatus): 'warning' | 'success' | 'dangerTone' | 'scheduledTone' | 'neutral' {
+  if (status === 'pending_approval') return 'warning';
+  if (status === 'sent') return 'success';
+  if (status === 'scheduled') return 'scheduledTone';
+  return status === 'failed' || status === 'unknown' ? 'dangerTone' : 'neutral';
 }
 
 /** A fresh idempotency key for one send request (letters, digits and dashes, 8 to 120 characters). */

@@ -12,7 +12,7 @@ import { shortHash } from './lib/approvals';
 import { ApiError, describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import {
-  defaultFolder, formatBytes, isEditable, joinRecipients, listPerson, newSendKey, parseRecipients, personLabel, readerDocument, sortFolders,
+  defaultFolder, draftTone, formatBytes, isEditable, joinRecipients, listPerson, newSendKey, parseRecipients, personLabel, readerDocument, sortFolders,
   type MailAccount, type MailDetail, type MailDraft, type MailDraftKind, type MailFolder, type MailMessage, type MailSetup,
 } from './lib/mail';
 import {
@@ -24,6 +24,9 @@ import {
   pruneSelection, removeUids, toggleAll, toggleSelection, type MailAction, type MailFilters,
 } from './lib/mailActions';
 import { moveMail, requestMailDelete, setMailFlag } from './lib/mailActionsApi';
+import { approvalSendAt } from './lib/mailOutgoing';
+import { cancelMailSchedule } from './lib/mailOutgoingApi';
+import { ComposerFiles, ScheduledRail, SchedulePicker } from './MailOutgoing';
 import { publishMailUnread } from './lib/mailUnread';
 import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
@@ -331,10 +334,11 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
           {drafts && drafts.length > 0 && <ul className="railList">{drafts.slice(0, 20).map((d) => <li key={d.id}>
             <button type="button" className="railItem" aria-current={pane?.kind === 'draft' && pane.id === d.id ? 'true' : undefined} onClick={() => setPane({ kind: 'draft', id: d.id })}>
               <strong dir="auto">{d.subject || t('mail.list.noSubject')}</strong>
-              <small><span className={`statusBadge ${d.status === 'pending_approval' ? 'warning' : d.status === 'sent' ? 'success' : d.status === 'failed' || d.status === 'unknown' ? 'dangerTone' : 'neutral'}`}>{t(`mail.draft.status.${d.status}` as MessageKey)}</span> {d.to.join(', ') || t('mail.draft.noRecipient')}</small>
+              <small><span className={`statusBadge ${draftTone(d.status)}`}>{t(`mail.draft.status.${d.status}` as MessageKey)}</span> {d.to.join(', ') || t('mail.draft.noRecipient')}</small>
             </button>
           </li>)}</ul>}
         </details>
+        <ScheduledRail accountId={account.id} version={drafts} open={widest} current={pane?.kind === 'draft' ? pane.id : null} onOpen={(id) => setPane({ kind: 'draft', id })} />
       </aside>
 
       <section data-pane="list" className="pane mailList" aria-labelledby={listTitleId} aria-busy={listState === 'loading'}>
@@ -465,6 +469,9 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
     if (d.bcc.length) setShowBcc(true);
   }, []);
   const load = useCallback(() => { setError(null); getMailDraft(draftId).then(adopt, (e) => setError(mailError(e))); }, [draftId, adopt]);
+  // Files and the schedule change the draft's status and files only: what the person typed stays.
+  const refreshMeta = useCallback(async () => { const d = await getMailDraft(draftId); setDraft(d); changed.current(d); }, [draftId]);
+  const scheduleKey = useRef<{ at: string; key: string } | null>(null);
   useEffect(() => { load(); }, [load]);
 
   if (error) return <div className="mailPad"><Notice note={{ text: t('mail.composer.startFailed', { reason: error }), error: true }} /><div className="actions"><button type="button" onClick={load}><RefreshCw aria-hidden="true" />{t('mail.retry')}</button><button type="button" className="secondary" onClick={onBack}><ArrowLeft aria-hidden="true" />{t('mail.reader.back')}</button></div></div>;
@@ -473,6 +480,8 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
   const editable = isEditable(draft);
   const dirty = fields.to !== joinRecipients(draft.to) || fields.cc !== joinRecipients(draft.cc) || fields.bcc !== joinRecipients(draft.bcc) || fields.subject !== draft.subject || fields.body !== draft.body;
   const approval = draft.approval && draft.status === 'pending_approval' ? toApproval(draft.approval) : null;
+  const approvalAt = approval ? approvalSendAt(approval.arguments) : null;
+  const fileCount = draft.attachments?.length ?? 0;
   const title = draft.kind === 'new' ? t('mail.composer.newTitle') : draft.kind === 'forward' ? t('mail.composer.forwardTitle') : t('mail.composer.replyTitle');
 
   async function run(kind: string, fn: () => Promise<void>) {
@@ -496,11 +505,22 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
     const result = await sendMailDraft(current.id, sendKey.current);
     adopt(result.draft);
   }
+  async function schedule(iso: string): Promise<boolean> {
+    const current = dirty ? await save() : draft;
+    if (!current) return false;
+    // One key per picked time: a retry of the same time reuses it; another time asks again.
+    if (scheduleKey.current?.at !== iso) scheduleKey.current = { at: iso, key: newSendKey() };
+    const result = await sendMailDraft(current.id, scheduleKey.current.key, iso);
+    adopt(result.draft);
+    return true;
+  }
   async function approve(a: Approval) {
     const result = await api.approveTask(a);
     const fresh = await getMailDraft(draft!.id);
     adopt(fresh);
     if (fresh.status === 'sent') { setNote({ text: t('mail.approval.sent', { to: fresh.to.join(', ') }) }); onSent(); }
+    // A scheduled message says so in its schedule box (a status region), so no second note.
+    else if (fresh.status === 'scheduled') onSent();
     else if (fresh.status === 'failed' || fresh.status === 'unknown') setNote({ text: t('mail.approval.failed', { reason: fresh.error ?? result.run?.result ?? '' }), error: true });
   }
 
@@ -508,7 +528,7 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
   return <article className="mailComposer" aria-labelledby={ids.title}>
     <div className="mailReaderBar">
       <button type="button" className="secondary mailBack" onClick={onBack}><ArrowLeft aria-hidden="true" />{t('mail.reader.back')}</button>
-      <span className={`statusBadge ${draft.status === 'pending_approval' ? 'warning' : draft.status === 'sent' ? 'success' : draft.status === 'failed' || draft.status === 'unknown' ? 'dangerTone' : 'neutral'}`}>{t(`mail.draft.status.${draft.status}` as MessageKey)}</span>
+      <span className={`statusBadge ${draftTone(draft.status)}`}>{t(`mail.draft.status.${draft.status}` as MessageKey)}</span>
     </div>
     <h2 id={ids.title}>{title}</h2>
     {draft.error && <Notice note={{ text: t('mail.approval.failed', { reason: draft.error }), error: true }} />}
@@ -524,20 +544,24 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
       <small id={ids.hint} className="muted">{t('mail.composer.recipientsHint', { max: setup.max_recipients })}</small>
       <label className="field" htmlFor={ids.subject}><span>{t('mail.composer.subject')}</span><input id={ids.subject} dir="auto" maxLength={500} value={fields.subject} disabled={!editable} onChange={set('subject')} /></label>
       <label className="field" htmlFor={ids.body}><span>{t('mail.composer.body')}</span><textarea id={ids.body} dir="auto" rows={12} maxLength={100_000} value={fields.body} disabled={!editable} onChange={set('body')} /></label>
+      <ComposerFiles draft={draft} setup={setup} editable={editable} onRefresh={refreshMeta} />
       <Notice note={note} />
       {approval && <div className="mailApproval" role="group" aria-label={t('mail.approval.title')}>
         <p><Send aria-hidden="true" /> <strong>{t('mail.approval.title')}</strong></p>
-        <p className="muted">{t('mail.approval.text', { from: account.address, to: draft.to.join(', ') })}</p>
+        <p className="muted">{approvalAt ? t('mailo.approval.scheduleText', { when: when(approvalAt), from: account.address, to: draft.to.join(', ') }) : t('mail.approval.text', { from: account.address, to: draft.to.join(', ') })}{fileCount > 0 ? ` ${t('mailo.approval.files', { count: fileCount })}` : ''}</p>
         <p className="mailHash"><span className="muted">{t('mail.approval.hash')}</span> <code title={approval.payloadHash ?? ''}>{shortHash(approval.payloadHash)}</code></p>
         {dirty && <p className="muted">{t('email.approval.dirty')}</p>}
         <div className="actions">
-          {owner ? <button type="button" disabled={busy !== null || dirty} onClick={() => void run('approve', () => approve(approval))}><Send aria-hidden="true" />{busy === 'approve' ? t('mail.approval.sending') : t('mail.approval.approve')}</button>
+          {owner ? <button type="button" disabled={busy !== null || dirty} onClick={() => void run('approve', () => approve(approval))}><Send aria-hidden="true" />{busy === 'approve' ? t('mail.approval.sending') : approvalAt ? t('mailo.approval.approveSchedule') : t('mail.approval.approve')}</button>
             : <p className="muted">{t('mail.approval.waitOwner')}</p>}
           {onOpenApprovals && <button type="button" className="secondary" onClick={onOpenApprovals}>{t('mail.approval.openApprovals')}</button>}
         </div>
       </div>}
       {editable && <div className="actions mailFormActions">
-        {(!approval || dirty) && <button type="submit" disabled={busy !== null || !fields.to.trim()}><Send aria-hidden="true" />{busy === 'send' ? t('mail.composer.preparing') : t('mail.composer.send')}</button>}
+        {(!approval || dirty) && draft.status !== 'scheduled' && <button type="submit" disabled={busy !== null || !fields.to.trim()}><Send aria-hidden="true" />{busy === 'send' ? t('mail.composer.preparing') : t('mail.composer.send')}</button>}
+        <SchedulePicker draft={draft} setup={setup} disabled={busy !== null || !fields.to.trim()} busy={busy === 'schedule'}
+          onSchedule={async (iso) => { let done = false; await run('schedule', async () => { done = await schedule(iso); }); return done; }}
+          onCancel={() => run('cancelSchedule', async () => { const d = await cancelMailSchedule(draft.id); setDraft(d); changed.current(d); setNote({ text: t('mailo.schedule.cancelled') }); })} />
         <button type="button" className="secondary" disabled={busy !== null || !dirty} onClick={() => void run('save', async () => { if (await save()) setNote({ text: t('mail.composer.saved') }); })}>{t('mail.composer.save')}</button>
         <button type="button" className="secondary danger" disabled={busy !== null} onClick={() => { if (!window.confirm(t('mail.composer.discardConfirm'))) return; void run('discard', async () => { await deleteMailDraft(draft.id); onChanged(null); onClosed(); }); }}><Trash2 aria-hidden="true" />{t('mail.composer.discard')}</button>
       </div>}

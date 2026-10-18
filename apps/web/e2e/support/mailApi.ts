@@ -1,6 +1,7 @@
 // A stateful fake of the Email Center API (/api/v1/mail, docs/email.md#email-center) for the e2e
 // specs: folders with unread counts, paged lists, IMAP-style search, flags, moves and delete for good
-// that pauses for an approval with a payload hash. Plainly fake, low-entropy fixtures only.
+// that pauses for an approval with a payload hash, attached files (checked and scanned) and scheduled
+// send. Plainly fake, low-entropy fixtures only.
 import type { Page, Route } from '@playwright/test';
 
 export type MailRole = 'inbox' | 'drafts' | 'sent' | 'archive' | 'junk' | 'trash' | null;
@@ -17,6 +18,12 @@ export interface MailMockOptions {
   offline?: boolean;
   /** A move or flag answers this status once. */
   failNextAction?: number;
+  /** The server has no malware scanner (attached files are marked not scanned). */
+  noScanner?: boolean;
+  /** File names the fake malware scanner refuses. */
+  scannerRefuses?: string[];
+  /** The scheduled list answers 503. */
+  scheduledFails?: boolean;
 }
 
 export interface MailCalls {
@@ -28,6 +35,9 @@ export interface MailCalls {
   drafts: unknown[];
   patches: unknown[];
   sends: unknown[];
+  uploads: string[];
+  removals: string[];
+  cancels: string[];
   folderLoads: number;
 }
 
@@ -61,7 +71,7 @@ function seed(count: number): FakeMessage[] {
 }
 
 export async function mockMailApi(page: Page, options: MailMockOptions = {}): Promise<{ calls: MailCalls; state: { messages: FakeMessage[]; nextUid: number; addInbox: (subject: string) => void } }> {
-  const calls: MailCalls = { flags: [], moves: [], deletes: [], approvals: [], listQueries: [], folderLoads: 0, drafts: [], patches: [], sends: [] };
+  const calls: MailCalls = { flags: [], moves: [], deletes: [], approvals: [], listQueries: [], folderLoads: 0, drafts: [], patches: [], sends: [], uploads: [], removals: [], cancels: [] };
   const state = {
     messages: seed(options.inboxCount ?? 30), nextUid: 1000,
     addInbox(subject: string) { this.messages.unshift({ uid: this.nextUid++, folder: 'INBOX', subject, sender: { name: 'Sara Example', address: 'sara@example.com' }, date: new Date().toISOString(), seen: false, flagged: false, text: 'New.' }); },
@@ -73,7 +83,7 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
   const sendApproval = (draft: Record<string, unknown>) => ({
     id: 'approval_send', task_id: 'task_send', action: 'send_mail', risk_level: 'high', status: 'pending', reason: 'Sending mail needs approval.',
     created_at: new Date().toISOString(), run_id: 'run_send', step_id: 'step_send', payload_hash: sendHash, expires_at: new Date(Date.now() + 6 * 3600_000).toISOString(), target: null,
-    arguments: { from: mailAccount.address, to: draft.to, subject: draft.subject, body: draft.body },
+    arguments: { from: mailAccount.address, to: draft.to, subject: draft.subject, body: draft.body, send_at: draft.send_at ?? null, attachments: draft.attachments ?? [] },
   });
   const view = (m: FakeMessage) => ({ uid: m.uid, folder: m.folder, subject: m.subject, sender: m.sender, to: [{ name: '', address: mailAccount.address }], cc: [], date: m.date, message_id: `<m${m.uid}@example.com>`, seen: m.seen, flagged: m.flagged, answered: false, size: 1200, maybe_attachments: false });
   const approval = (uids: number[], folder: string) => ({
@@ -97,6 +107,8 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
       return json({
         enabled, configured: enabled, tenant_allowed: enabled, imap_host: enabled ? 'mail.example.com' : null, imap_port: 993, smtp_host: enabled ? 'mail.example.com' : null, smtp_port: 587,
         smtp_security: 'starttls', allowed_domains: ['example.com'], can_read: true, can_act: true, max_recipients: 50, send_per_hour: 30,
+        attachment_max_bytes: 10 * 1024 * 1024, attachments_per_message: 10, attachments_total_bytes: 20 * 1024 * 1024,
+        attachment_extensions: ['.csv', '.docx', '.jpg', '.pdf', '.png', '.txt', '.xlsx'], attachments_accepted: 'text, images, PDF and Office files', schedule_max_days: 30,
         accounts: options.noAccount || !enabled ? [] : [mailAccount],
       });
     }
@@ -171,16 +183,53 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
         id: `maildraft_${drafts.length + 1}`, account_id: mailAccount.id, kind: body.kind, to: body.kind === 'reply' || body.kind === 'reply_all' ? [original?.sender.address ?? ''] : [], cc: [], bcc: [],
         subject: original ? `${body.kind === 'forward' ? 'Fwd' : 'Re'}: ${original.subject}` : '', body: original ? `\n\n> ${original.text}` : '', in_reply_to: original ? `<m${original.uid}@example.com>` : null,
         message_id: `<d${drafts.length + 1}@example.com>`, status: 'draft', error: null, approval: null, approval_note: null, saved_to_sent: null, sent_at: null, created_at: stamp, updated_at: stamp,
+        send_at: null, attachments: [], attachment_note: null,
       };
       drafts.unshift(draft);
       return json(draft, 201);
+    }
+    if (path === '/api/v1/mail/scheduled' && method === 'GET') {
+      if (options.scheduledFails) return error(503, 'The ANUM server did not answer. Try again in a minute.', 'unavailable');
+      return json(drafts.filter((d) => d.send_at && (d.status === 'scheduled' || d.status === 'pending_approval')).sort((a, b) => String(a.send_at).localeCompare(String(b.send_at))));
+    }
+    const fileMatch = /^\/api\/v1\/mail\/drafts\/([^/]+)\/attachments(?:\/([^/]+))?$/.exec(path);
+    if (fileMatch) {
+      const draft = drafts.find((d) => d.id === fileMatch[1]);
+      if (!draft) return error(404, 'Message not found.', 'not_found');
+      const files = draft.attachments as { id: string; filename: string; size: number }[];
+      const unapprove = () => { if (draft.status === 'pending_approval' || draft.status === 'scheduled') Object.assign(draft, { status: 'draft', approval: null }); };
+      if (!fileMatch[2] && method === 'POST') {
+        const name = url.searchParams.get('name') ?? '';
+        calls.uploads.push(name);
+        if (name.endsWith('.exe')) return error(415, 'This workspace does not accept .exe files.', 'unsupported_media_type');
+        if (options.scannerRefuses?.includes(name)) return error(422, `The malware scanner refused ${name}: Example.Test.Signature`, 'validation_error');
+        unapprove();
+        const file = { id: `mailfile_${files.length + 1}`, filename: name, content_type: name.endsWith('.pdf') ? 'application/pdf' : 'text/plain', size: request.postDataBuffer()?.length ?? 0, sha256: 'ef'.repeat(32), scanned: !options.noScanner, created_at: stamp };
+        files.push(file);
+        return json(file, 201);
+      }
+      const file = files.find((f) => f.id === fileMatch[2]);
+      if (!file) return error(404, 'That file is not attached to this message.', 'not_found');
+      if (method === 'DELETE') { calls.removals.push(file.id); unapprove(); files.splice(files.indexOf(file), 1); return route.fulfill({ status: 204 }); }
+      return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: 'example file body' });
+    }
+    const cancelMatch = /^\/api\/v1\/mail\/drafts\/([^/]+)\/cancel-schedule$/.exec(path);
+    if (cancelMatch && method === 'POST') {
+      const draft = drafts.find((d) => d.id === cancelMatch[1]);
+      if (!draft) return error(404, 'Message not found.', 'not_found');
+      calls.cancels.push(draft.id as string);
+      if (!draft.send_at) return error(409, 'This message is not scheduled.');
+      Object.assign(draft, { status: 'draft', approval: null, send_at: null, updated_at: stamp });
+      return json(draft);
     }
     const draftMatch = /^\/api\/v1\/mail\/drafts\/([^/]+)(\/send)?$/.exec(path);
     if (draftMatch) {
       const draft = drafts.find((d) => d.id === draftMatch[1]);
       if (!draft) return error(404, 'Message not found.', 'not_found');
       if (draftMatch[2] && method === 'POST') {
-        calls.sends.push(request.postDataJSON());
+        const body = request.postDataJSON() as { send_at?: string };
+        calls.sends.push(body);
+        Object.assign(draft, { send_at: body.send_at ? new Date(body.send_at).toISOString() : null });
         Object.assign(draft, { status: 'pending_approval', approval: sendApproval(draft) });
         return json({ draft, approval: draft.approval });
       }
@@ -191,7 +240,8 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
     if (path === '/api/v1/approvals/approval_send/approve' && method === 'POST') {
       calls.approvals.push(request.postDataJSON());
       const draft = drafts.find((d) => d.status === 'pending_approval');
-      if (draft) Object.assign(draft, { status: 'sent', approval: null, saved_to_sent: true, sent_at: stamp });
+      if (draft && draft.send_at) Object.assign(draft, { status: 'scheduled', approval: null });
+      else if (draft) Object.assign(draft, { status: 'sent', approval: null, saved_to_sent: true, sent_at: stamp });
       return json({ task: { id: 'task_send', title: 'Send', prompt: 'Send', status: 'completed', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', created_at: stamp, updated_at: stamp }, run: { id: 'run_send', task_id: 'task_send', status: 'completed', steps: [], result: 'Sent.' }, approval: { ...sendApproval(draft ?? {}), status: 'approved' } });
     }
     return route.fallback();
