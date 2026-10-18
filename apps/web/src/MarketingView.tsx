@@ -18,13 +18,14 @@ import { listConversations } from './lib/whatsappApi';
 import { contactLabel, type WaConversation } from './lib/whatsapp';
 import { useIsOwner } from './useIsOwner';
 import { Drawer } from './Dialog';
+import { BrevoCampaigns } from './BrevoCampaigns';
 import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, PageSummary } from './PageParts';
 import './marketing.css';
 
-type Tab = 'posts' | 'calendar' | 'campaigns' | 'accounts' | 'analytics';
-const TABS: Tab[] = ['posts', 'calendar', 'campaigns', 'accounts', 'analytics'];
+type Tab = 'posts' | 'calendar' | 'campaigns' | 'email' | 'accounts' | 'analytics';
+const TABS: Tab[] = ['posts', 'calendar', 'campaigns', 'email', 'accounts', 'analytics'];
 const PAGE = 20;
 
 function Note({ children, error, id }: { children: ReactNode; error?: boolean; id?: string }) {
@@ -88,7 +89,7 @@ export function MarketingView({ onOpenBudgets, onOpenFiles }: { onOpenBudgets?: 
   return <div className="mkLayout">
     <PageHeader title={title} subtitle={t('pages.mk.subtitle')} crumbs={tab === 'posts' ? undefined : [{ label: viewLabel('home'), href: '#home' }, { label: title, href: '#marketing-posts', onClick: () => pick('posts') }, { label: t(`marketing.tab.${tab}`) }]} actions={setup.can_write ? <button type="button" onClick={() => setComposer({})} disabled={connected.length === 0} aria-describedby={connected.length === 0 ? 'mk-no-accounts' : undefined}><Plus aria-hidden="true" />{t('marketing.newPost')}</button> : undefined} />
     <MarketingSummary key={`s${version}`} />
-    {connected.length === 0 && <Note id="mk-no-accounts">{setup.can_manage ? t('marketing.noAccountsOwner') : t('marketing.noAccountsMember')}</Note>}
+    {connected.length === 0 && tab !== 'email' && <Note id="mk-no-accounts">{setup.can_manage ? t('marketing.noAccountsOwner') : t('marketing.noAccountsMember')}</Note>}
     {notice && <Note>{notice}</Note>}
     <nav className="settingsTabs mkTabs" aria-label={t('marketing.sections')}>{TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`marketing.tab.${id}`)}</button>)}</nav>
     {composer && <Composer setup={setup} accounts={connected} campaigns={campaigns} post={composer.post} day={composer.day} onOpenBudgets={onOpenBudgets} onOpenFiles={onOpenFiles}
@@ -96,6 +97,7 @@ export function MarketingView({ onOpenBudgets, onOpenFiles }: { onOpenBudgets?: 
     {tab === 'posts' && <PostsTab key={`p${version}`} setup={setup} campaigns={campaigns} owner={owner === true} onEdit={(post) => setComposer({ post })} onNotice={setNotice} />}
     {tab === 'calendar' && <CalendarTab key={`c${version}`} setup={setup} onEdit={(post) => setComposer({ post })} onNew={(day) => setComposer({ day })} onNotice={setNotice} />}
     {tab === 'campaigns' && <CampaignsTab setup={setup} accounts={connected} owner={owner === true} onChanged={refreshAll} onNotice={setNotice} />}
+    {tab === 'email' && <BrevoCampaigns owner={owner === true} />}
     {tab === 'accounts' && <AccountsTab setup={setup} accounts={accounts} onChanged={load} onNotice={setNotice} />}
     {tab === 'analytics' && <AnalyticsTab setup={setup} campaigns={campaigns} onNotice={setNotice} />}
   </div>;

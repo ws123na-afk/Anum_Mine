@@ -163,6 +163,7 @@ from .calls.webhooks import router as calls_webhook_router
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .business import register_business_tools, router as business_router
+from .brevo import register_brevo_tools, router as brevo_router
 from .user_preferences import router as user_preferences_router
 from .home import router as home_router
 from .setup_plans import router as setup_plans_router
@@ -371,6 +372,7 @@ app.include_router(mail_operator_router)
 app.include_router(calendar_router)
 app.include_router(marketing_router)
 app.include_router(business_router)
+app.include_router(brevo_router)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 app.include_router(commerce_router)
@@ -405,11 +407,11 @@ app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_brevo_tools(register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
-))))
+)))))
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).

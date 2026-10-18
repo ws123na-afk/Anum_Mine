@@ -114,6 +114,18 @@ The Helm chart, the Oracle compose stack and `render.yaml` pass these settings; 
 
 Then restart the API, open **Inbox** in the web app and choose **Connect**.
 
+## Sending domains for Brevo
+
+Email campaigns go out through the owner's Brevo account ([Email campaigns (Brevo)](brevo.md)). Brevo sends in the name of a domain only when that domain's DNS says it may; ANUM never changes DNS records, the owner does at the DNS host.
+
+What the owner's records showed (checked October 2026):
+
+- `easyvoicequote.com` has the SPF record `v=spf1 +all`. `+all` lets **any server on the internet** send as the domain, so receivers distrust it and spoofing is trivial. Replace it with one record that names only the real senders, for example `v=spf1 mx include:spf.brevo.com ~all` (keep any other `include:` the domain really sends through, such as the mailbox provider's; one SPF record per domain, at most 10 DNS lookups).
+- Brevo also needs, on **every** domain it sends for: the DKIM record Brevo shows for the domain (Brevo, **Senders, domains and IPs**, **Domains**, **Authenticate**) and the `brevo-code` TXT record that proves ownership. Add both exactly as Brevo shows them, then press **Authenticate** in Brevo.
+- Recommended: a DMARC record (`_dmarc` TXT), starting with `v=DMARC1; p=none; rua=mailto:<a mailbox you read>` and tightening to `quarantine` once reports show only Brevo and the mailbox provider sending.
+
+Until a domain is authenticated, Brevo either refuses the sender or sends through its shared domain, and campaign mail lands in spam more often. The sender a draft uses must be a verified, active sender in Brevo; ANUM checks that when the draft is saved and again when the send runs.
+
 ## Limits and what is not done yet
 
 - Mailboxes are connected from the web app; the Flutter app lists, reads, drafts and approves sending, and points to the web for connecting and attachment downloads.

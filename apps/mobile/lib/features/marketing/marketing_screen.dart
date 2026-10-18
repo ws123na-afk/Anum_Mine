@@ -5,6 +5,7 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../workspace/workspace_models.dart';
+import '../brevo/brevo_screen.dart';
 import 'marketing_controller.dart';
 import 'marketing_models.dart';
 
@@ -105,6 +106,13 @@ class _MarketingScreenState extends State<MarketingScreen> {
         appBar: AppBar(
           title: Text(l.t('mk.title')),
           actions: [
+            if (c.brevo != null)
+              IconButton(
+                  onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => BrevoScreen(controller: c.brevo!))),
+                  tooltip: l.t('bv.open'),
+                  icon: const Icon(Icons.mail_outline)),
             IconButton(
                 onPressed: c.load,
                 tooltip: l.t('refresh'),
