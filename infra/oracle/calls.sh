@@ -113,7 +113,7 @@ port_range() {
   min="$(get_env ANUM_TURN_MIN_PORT)"; max="$(get_env ANUM_TURN_MAX_PORT)"
   min="${min:-49160}"; max="${max:-49200}"
   [[ "$min" =~ ^[0-9]+$ && "$max" =~ ^[0-9]+$ ]] || die "ANUM_TURN_MIN_PORT and ANUM_TURN_MAX_PORT must be numbers"
-  [ "$min" -ge 1024 ] && [ "$max" -le 65535 ] && [ "$min" -lt "$max" ] || die "the relay range must be inside 1024-65535 and min < max"
+  if [ "$min" -lt 1024 ] || [ "$max" -gt 65535 ] || [ "$min" -ge "$max" ]; then die "the relay range must be inside 1024-65535 and min < max"; fi
   printf '%s:%s' "$min" "$max"
 }
 
@@ -206,7 +206,7 @@ cmd_enable() {
     esac
   done
   host="$(get_env ANUM_API_HOST)"
-  [ -n "$host" ] && [[ "$host" != *replace-me* ]] || die "ANUM_API_HOST is not set in $ENV_FILE"
+  if [ -z "$host" ] || [[ "$host" == *replace-me* ]]; then die "ANUM_API_HOST is not set in $ENV_FILE"; fi
   log "Ports to open in the Oracle security list first"
   print_security_list
   if [ -z "$external" ]; then

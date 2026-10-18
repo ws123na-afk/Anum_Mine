@@ -72,7 +72,7 @@ A separate branch adds a call log with an entry kind `in_app`. Once both are mer
 
 ## Relay (TURN) and STUN
 
-WebRTC connects directly when it can. Behind strict NATs and firewalls (many office and some mobile networks) it needs a TURN relay. ANUM uses coturn's REST credential scheme (`use-auth-secret`): `GET /api/v1/calls/ice-servers` mints, per request, a username `<expiry unix time>:<digest>` and a password, the base64 HMAC-SHA1 of the username under the shared secret. coturn checks the HMAC and refuses the username after its expiry. The digest is a hash of the tenant and user, so coturn's logs name nobody. Credentials last `ANUM_CALLS_TURN_TTL_SECONDS` (default 7200, 300 to 86400): a client fetches fresh ones for every call, and an allocation cannot be refreshed after expiry, so a single relayed call is limited to that time.
+WebRTC connects directly when it can. Behind strict NATs and firewalls (many office and some mobile networks) it needs a TURN relay. ANUM uses coturn's REST credential scheme (`use-auth-secret`): `GET /api/v1/calls/ice-servers` mints, per request, a username `<expiry unix time>:<random id>` and a password, the base64 HMAC-SHA1 of the username under the shared secret. coturn checks the HMAC and refuses the username after its expiry. The id is random for every issue and nothing maps it back, so coturn's logs name nobody. Credentials last `ANUM_CALLS_TURN_TTL_SECONDS` (default 7200, 300 to 86400): a client fetches fresh ones for every call, and an allocation cannot be refreshed after expiry, so a single relayed call is limited to that time.
 
 | Setting | Meaning |
 | --- | --- |

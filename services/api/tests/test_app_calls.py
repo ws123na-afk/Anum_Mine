@@ -144,6 +144,8 @@ def test_turn_mode_mints_credentials_that_expire() -> None:
     assert turn_credential_valid(turn["username"], turn["credential"])
     # The username is "<expiry>:<digest>": no user id, no tenant id.
     assert "alice" not in turn["username"] and TENANT not in turn["username"]
+    # Random per issue: two credentials for the same person share nothing but the expiry format.
+    assert turn_credentials(ctx("alice"))[0].split(":")[1] != turn_credentials(ctx("alice"))[0].split(":")[1]
     now = utc_now()
     username, credential, expires_at = turn_credentials(ctx("alice"), now=now, ttl=600)
     assert expires_at - now <= timedelta(seconds=600)

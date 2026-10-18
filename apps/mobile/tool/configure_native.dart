@@ -82,7 +82,8 @@ String configureAndroidManifest(String manifest) {
     'android.permission.ACCESS_NETWORK_STATE',
   ]) {
     if (!value.contains(permission)) {
-      value = value.replaceFirst('<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+      value = value.replaceFirst(
+          '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
           '<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="$permission" />');
     }
   }

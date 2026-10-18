@@ -28,7 +28,7 @@ outlive request dependencies"): every poll opens its own short session in a work
 ICE servers. ``GET /calls/ice-servers`` returns the STUN URLs and, in ``turn`` mode,
 short-lived TURN credentials in coturn's REST scheme (``use-auth-secret``): the username
 is ``<expiry unix time>:<opaque id>`` and the credential the base64 HMAC-SHA1 of it under
-``ANUM_CALLS_TURN_SECRET``. The opaque id is a digest, so coturn's logs name no user.
+``ANUM_CALLS_TURN_SECRET``. The opaque id is random per issue, so coturn's logs name no user.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import secrets
 import threading
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -311,7 +312,8 @@ def turn_credentials(context: TenantContext, *, now: datetime | None = None, ttl
     issued = now or utc_now()
     lifetime = ttl or settings.calls_turn_ttl_seconds
     expires = int(issued.timestamp()) + lifetime
-    opaque = hashlib.sha256(f"{context.tenant_id}\x1f{context.user_id}".encode()).hexdigest()[:24]
+    # Random per issue and never read back: coturn's logs and the username name nobody.
+    opaque = secrets.token_hex(12)
     username = f"{expires}:{opaque}"
     digest = hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
     return username, base64.b64encode(digest).decode(), datetime.fromtimestamp(expires, tz=issued.tzinfo)

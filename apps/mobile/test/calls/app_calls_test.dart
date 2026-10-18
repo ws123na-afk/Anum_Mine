@@ -258,7 +258,8 @@ void main() {
     final media = FakeMedia();
     final controller = await _pump(tester, repository, media: media);
     repository.events.add(CallChanged(_call()));
-    await tester.pump();    await tester.pump();
+    await tester.pump();
+    await tester.pump();
     expect(find.text('Ahmed Saleh'), findsWidgets);
     expect(find.text('Voice call · is calling you'), findsOneWidget);
     await tester.tap(find.bySemanticsLabel('Answer'));
@@ -273,7 +274,8 @@ void main() {
       'kind': 'offer',
       'payload': {'type': 'offer', 'sdp': 'v=0'}
     }))));
-    await tester.pump();    await tester.pump();
+    await tester.pump();
+    await tester.pump();
     expect(media.log, contains('handle:offer'));
     media.onState!(CallLinkState.connected);
     await tester.pump();
@@ -300,7 +302,8 @@ void main() {
     final repository = FakeCallRepository();
     final controller = await _pump(tester, repository);
     repository.events.add(CallChanged(_call()));
-    await tester.pump();    await tester.pump();
+    await tester.pump();
+    await tester.pump();
     await tester.tap(find.bySemanticsLabel('Decline'));
     await tester.pumpAndSettle();
     expect(repository.log, contains('end:call_1:decline'));
@@ -312,11 +315,13 @@ void main() {
     final repository = FakeCallRepository();
     final controller = await _pump(tester, repository);
     repository.events.add(CallChanged(_call()));
-    await tester.pump();    await tester.pump();
+    await tester.pump();
+    await tester.pump();
     final elsewhere = _callJson(status: 'accepted')
       ..['answered_elsewhere'] = true;
     repository.events.add(CallChanged(AppCall.fromJson(JsonReader(elsewhere))));
-    await tester.pump();    await tester.pump();
+    await tester.pump();
+    await tester.pump();
     expect(controller.phase, CallPhase.idle);
     expect(
         find.text('You answered this call on another device.'), findsOneWidget);
@@ -337,7 +342,8 @@ void main() {
         direction: 'outgoing',
         status: 'accepted',
         answeredAt: '2026-10-18T09:00:05Z')));
-    await tester.pump();    await tester.pump();
+    await tester.pump();
+    await tester.pump();
     expect(media.log, contains('offer'));
     repository.events.add(CallChanged(
         _call(direction: 'outgoing', status: 'ended', outcome: 'declined')));
@@ -400,7 +406,8 @@ void main() {
     final repository = FakeCallRepository();
     await _pump(tester, repository, locale: const Locale('ar'));
     repository.events.add(CallChanged(_call(media: 'video')));
-    await tester.pump();    await tester.pump();
+    await tester.pump();
+    await tester.pump();
     expect(find.text('مكالمة فيديو · يتصل بك'), findsOneWidget);
     expect(find.bySemanticsLabel('رد بالفيديو'), findsOneWidget);
     expect(
@@ -422,7 +429,8 @@ void main() {
       final repository = FakeCallRepository();
       await _pump(tester, repository, size: size);
       repository.events.add(CallChanged(_call(media: 'video')));
-      await tester.pump();      await tester.pump();
+      await tester.pump();
+      await tester.pump();
       expect(tester.takeException(), isNull);
       expect(find.bySemanticsLabel('Decline'), findsOneWidget);
     });
