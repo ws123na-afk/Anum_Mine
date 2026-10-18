@@ -61,7 +61,7 @@ export function MailHealthPane() {
     })}</p>}
     {view && !view.organisations.length && <div className="paneEmpty"><Mail aria-hidden="true" /><h3>{t('mailops.empty')}</h3><p>{t('mailops.emptyText')}</p></div>}
     {view && view.organisations.length > 0 && !rows.length && <div className="paneEmpty"><h3>{t('mailops.noMatch')}</h3></div>}
-    {rows.length > 0 && <div className="dataTableWrap"><table className="dataTable mailHealthTable">
+    {rows.length > 0 && <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('mailops.title')}><table className="dataTable mailHealthTable">
       <caption className="visuallyHidden">{t('mailops.title')}</caption>
       <thead><tr>
         <th scope="col">{t('mailops.col.organisation')}</th><th scope="col">{t('mailops.col.health')}</th>
