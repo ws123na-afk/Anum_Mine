@@ -135,6 +135,20 @@ class TeamTransport implements ApiTransport {
             'email_error': null,
             'push_status': 'queued',
             'created_at': '2026-10-11T10:00:00Z',
+          },
+          {
+            'id': 'ntf_2',
+            'user_id': 'user_owner',
+            'kind': 'finance_daily_report',
+            'title': 'Daily trading report ready (SIMULATED)',
+            'body': 'After the close. Active paper strategies: 1.',
+            'work_item_id': null,
+            'read_at': '2026-10-11T11:00:00Z',
+            'email_status': 'not_requested',
+            'email_attempts': 0,
+            'email_error': null,
+            'push_status': 'not_requested',
+            'created_at': '2026-10-11T10:30:00Z',
           }
         ],
         'unread': 1,
@@ -284,6 +298,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('New work: Call the supplier'), findsOneWidget);
     expect(find.byTooltip('Mark all read'), findsOneWidget);
+    // A notice that is not about a work item opens where the app registered
+    // its kind (the trading report opens Finance).
+    var opened = 0;
+    NotificationsScreen.openers['finance_daily_report'] = (_) async => opened++;
+    addTearDown(
+        () => NotificationsScreen.openers.remove('finance_daily_report'));
+    await tester.tap(find.text('Daily trading report ready (SIMULATED)'));
+    await tester.pumpAndSettle();
+    expect(opened, 1);
     await tester.pumpWidget(_app(WorkloadScreen(repository: repo)));
     await tester.pumpAndSettle();
     expect(find.text('85% of capacity'), findsOneWidget);

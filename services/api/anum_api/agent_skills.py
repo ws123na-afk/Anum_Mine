@@ -228,5 +228,14 @@ def default_skill_registry() -> SkillRegistry:
                 required_tools=frozenset({"external.action"}),
                 risk_level=RiskLevel.HIGH,
             ),
+            # The trading knowledge library: six SKILL.md packages under finance/intel/skills
+            # (docs/finance-trading-intel.md#skills-and-tools), selected where their tools are registered.
+            *_trading_skills(),
         ]
     )
+
+
+def _trading_skills() -> list[SkillManifest]:
+    from .finance.intel.knowledge import skill_manifests
+
+    return skill_manifests()
