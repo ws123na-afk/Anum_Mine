@@ -90,6 +90,7 @@ class History:
                 "rsi": lambda: ind.rsi(closes, *args), "momentum": lambda: ind.momentum(closes, *args),
                 "atr": lambda: ind.atr(bars, *args), "adx": lambda: ind.adx(bars, *args),
                 "volatility": lambda: ind.volatility(closes, *args),
+                "prior_high": lambda: ind.prior_high(closes, *args), "prior_low": lambda: ind.prior_low(closes, *args),
             }
             if name not in fn:
                 raise BacktestError(f"Unknown indicator {name!r}.")

@@ -203,6 +203,27 @@ def momentum(closes: Sequence[float], period: int = 20) -> Series:
     return out
 
 
+def prior_high(values: Sequence[float], period: int = 20) -> Series:
+    """Highest value of the ``period`` bars **before** bar ``t`` (the upper Donchian channel).
+
+    Bar ``t`` itself is left out, so "close above the prior high" is a breakout on bar ``t``.
+    """
+    _check_period(period)
+    out: Series = [None] * len(values)
+    for i in range(period, len(values)):
+        out[i] = max(values[i - period:i])
+    return out
+
+
+def prior_low(values: Sequence[float], period: int = 20) -> Series:
+    """Lowest value of the ``period`` bars before bar ``t`` (the lower Donchian channel)."""
+    _check_period(period)
+    out: Series = [None] * len(values)
+    for i in range(period, len(values)):
+        out[i] = min(values[i - period:i])
+    return out
+
+
 @dataclass(frozen=True)
 class Snapshot:
     """The indicators at the last bar, the regime labels and any signals that disagree."""

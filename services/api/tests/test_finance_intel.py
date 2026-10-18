@@ -257,7 +257,20 @@ def test_atr_adx_volatility_momentum_basics() -> None:
     assert ind.momentum([100.0, 105.0, 110.0], 2)[-1] == pytest.approx(0.10)
 
 
-@pytest.mark.parametrize("name", ["sma", "ema", "rsi", "volatility", "momentum"])
+def test_donchian_channels_leave_out_the_current_bar() -> None:
+    values = [1.0, 3.0, 2.0, 5.0, 4.0]
+    assert ind.prior_high(values, 2) == [None, None, 3.0, 3.0, 5.0]
+    assert ind.prior_low(values, 2) == [None, None, 1.0, 2.0, 2.0]
+
+
+def test_every_registered_rule_passes_the_look_ahead_probe() -> None:
+    a, b = _bars(1, 700, regime_every=120), _bars(2, 700, regime_every=120)
+    for key, item in REGISTRY.items():
+        data = {"A": a} if item.min_symbols == 1 else {"A": a, "B": b}
+        assert probe_look_ahead(data, key, dict(item.defaults)), key
+
+
+@pytest.mark.parametrize("name", ["sma", "ema", "rsi", "volatility", "momentum", "prior_high", "prior_low"])
 def test_close_indicators_never_look_ahead(name: str) -> None:
     closes = [float(c.close) for c in _bars(5, 400)]
     fn = getattr(ind, name)
@@ -376,7 +389,8 @@ def test_realised_pnl_after_fees_on_a_round_trip() -> None:
 
 
 def test_registry_has_the_benchmark_strategies_with_versions() -> None:
-    assert set(REGISTRY) == {"buy_and_hold", "trend_sma", "rsi_reversion", "momentum", "periodic", "rebalance", "pair_ratio"}
+    assert set(REGISTRY) == {"buy_and_hold", "trend_sma", "trend_vol", "rsi_reversion", "rsi_regime", "momentum", "breakout", "periodic",
+                             "rebalance", "pair_ratio", "crypto_trend"}
     assert all(s.version and s.description for s in REGISTRY.values())
     with pytest.raises(StrategyError, match="Unknown strategy"):
         spec("martingale")

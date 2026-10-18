@@ -136,8 +136,12 @@ def _score(m: Metrics) -> float:
 
 def walk_forward(data: Mapping[str, Sequence[Candle]], key: str, *, train_bars: int = 500, test_bars: int = 125,
                  costs: Costs | None = None, cash: Decimal = Decimal("100000"), periods_per_year: int = 252,
-                 blocking_issues: int = 0, listing_known: bool = True, warmup: int = 250) -> Validation:
+                 blocking_issues: int = 0, listing_known: bool = True, warmup: int = 250,
+                 params: dict[str, Any] | None = None) -> Validation:
+    """Walk-forward validation. With ``params`` the version's own parameters are fixed in every
+    fold (what a stored version is promoted on); without, each fold picks from the rule's grid."""
     s = spec(key)
+    candidates = [dict(params)] if params is not None else grid(key)
     costs = costs or Costs()
     bars = align(data)
     symbols = tuple(bars)
@@ -157,8 +161,8 @@ def walk_forward(data: Mapping[str, Sequence[Candle]], key: str, *, train_bars: 
     while start + test_bars <= n:
         train_from = max(0, start - train_bars)
         best: tuple[float, dict[str, Any], Metrics] | None = None
-        for params in grid(key):
-            merged = {**s.defaults, **params}
+        for choice in candidates:
+            merged = {**s.defaults, **choice}
             try:
                 res = run(bars, build(key, symbols, merged), cash=cash, costs=costs, start_index=train_from, end_index=start)
             except ValueError:
@@ -201,7 +205,7 @@ def walk_forward(data: Mapping[str, Sequence[Candle]], key: str, *, train_bars: 
         reasons.append("overfit")
     if oos.sharpe is None or oos.sharpe <= 0:
         reasons.append("no_edge")
-    if len(grid(key)) > 1:
+    if len(candidates) > 1:
         changes = sum(1 for a, b in zip(folds, folds[1:]) if a.params != b.params)
         if changes > len(folds) / 2:
             reasons.append("unstable")
