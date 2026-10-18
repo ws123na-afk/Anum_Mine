@@ -106,6 +106,7 @@ x-user-roles: owner,member
 - [Trading intelligence readiness report (loop 10, live stays off)](docs/finance-trading-readiness.md)
 - [Tyre planning](docs/tyre-planning.md)
 - [Social media marketing](docs/marketing.md)
+- [Business: the internal sales desk (catalog, leads, research, pipeline, proposals, projects; sending off)](docs/business.md)
 - [Memory](docs/memory.md)
 - [What ANUM learned: feedback, style, routines and improvement notes](docs/learning.md)
 - [Knowledge base and favorites](docs/knowledge-base.md)
