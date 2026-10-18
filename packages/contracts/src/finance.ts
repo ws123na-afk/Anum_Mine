@@ -776,3 +776,92 @@ export interface FinanceWider {
 }
 
 export interface FinanceWideningInput { limits: FinanceLiveLimits; kinds: string[]; reason?: string | null }
+
+// ---- Trading intelligence dashboard, read only (docs/finance-trading-intel.md#dashboard) ------------
+
+export type FinanceStrategyState = 'DRAFT' | 'BACKTESTING' | 'VALIDATION' | 'PAPER_ACTIVE' | 'PAPER_SUSPENDED' | 'RETIRED';
+
+export interface FinanceIntelVenue { code: string; name: string; timezone: string; state: 'open' | 'closed' | 'holiday'; local_time: string; holidays_known: boolean; reason: string; note: string }
+
+export interface FinanceIntelPortfolio {
+  id: string;
+  name: string;
+  mode: FinancePortfolioMode;
+  cash: FinanceCurrencyAmount[];
+  realised: FinanceCurrencyAmount[];
+  unrealised: FinanceCurrencyAmount[];
+  fees: FinanceCurrencyAmount[];
+  slippage: FinanceCurrencyAmount[];
+  holdings: FinancePosition[];
+  holdings_total: number;
+  unpriced: string[];
+  waiting: number;
+  simulated: true;
+}
+
+export interface FinanceIntelRisk {
+  version: number;
+  rules: FinanceGuardianRules;
+  /** Paper and shadow orders always wait for the person's approval of the code shown. */
+  paper_always_needs_approval: boolean;
+  read_only: true;
+  note: string;
+}
+
+/** The dashboard's first read. `simulation.live_enabled` is always false: live trading stays off. */
+export interface FinanceIntelOverview {
+  simulation: { simulation_only: true; live_enabled: boolean; wider_live_enabled: boolean; note: string };
+  switches: { person_engaged: boolean; global_engaged: boolean; can_change_global: boolean };
+  venues: FinanceIntelVenue[];
+  portfolios: FinanceIntelPortfolio[];
+  risk: FinanceIntelRisk;
+  recording: { strategies: boolean; runs: boolean; decisions: boolean };
+  pending_requests: number;
+  agent_requests: number;
+  note: string;
+  generated_at: string;
+}
+
+/** A page that also says whether the backend records this kind of row yet. */
+export interface FinanceIntelPage<T> extends FinancePage<T> { recording: boolean; note: string | null }
+
+export interface FinanceStrategy {
+  id: string;
+  key: string | null;
+  name: string;
+  version: number | null;
+  state: FinanceStrategyState;
+  symbols: string[];
+  params: Record<string, string | number | boolean | null>;
+  reason: string | null;
+  updated_at: string | null;
+  simulated: true;
+}
+
+export interface FinanceStrategyFold { index: number; train_start: string | null; train_end: string | null; test_start: string | null; test_end: string | null; metrics: Record<string, number | null> }
+
+export interface FinanceStrategyRun {
+  id: string;
+  kind: string;
+  created_at: string | null;
+  data_source: string | null;
+  data_hash: string | null;
+  metrics: Record<string, number | null>;
+  benchmark: Record<string, number | null>;
+  verdict: string | null;
+  reasons: string[];
+  folds: FinanceStrategyFold[];
+  simulated: true;
+}
+
+export interface FinanceAgentDecision {
+  id: string;
+  agent: string;
+  action: string;
+  outcome: string | null;
+  reasons: string[];
+  strategy_id: string | null;
+  intent_id: string | null;
+  created_at: string | null;
+  simulated: true;
+}

@@ -9,6 +9,7 @@ import type {
   FinanceSafeToSpend, FinanceSyncReport,
   FinanceExecutionStatus, FinanceIntent, FinanceIntentInput, FinanceIntentStatus, FinanceLive, FinanceLiveChangeInput, FinancePaperOrder,
   FinancePaperOrderStatus, FinanceWider, FinanceWidening, FinanceWideningInput, FinancePortfolio, FinancePortfolioInput, FinancePortfolioSummary, FinancePrice, FinancePriceInput, FinancePriceSaved,
+  FinanceAgentDecision, FinanceIntelOverview, FinanceIntelPage, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -143,3 +144,13 @@ export const proposeWidening = (body: FinanceWideningInput) => send<FinanceWiden
 export const approveWidening = (wideningId: string, payloadHash: string) => send<FinanceWidening>('POST', `/execution/wider/widenings/${id(wideningId)}/approve`, { payload_hash: payloadHash });
 export const rejectWidening = (wideningId: string) => send<FinanceWidening>('POST', `/execution/wider/widenings/${id(wideningId)}/reject`, {});
 export const reviewIncidents = () => send<FinanceWider>('POST', '/execution/wider/review', {});
+
+// ---- Trading intelligence dashboard, read only (docs/finance-trading-intel.md#dashboard) ---------------
+
+export const getIntelOverview = () => get<FinanceIntelOverview>('/intel/overview');
+export const listStrategies = (q: { state?: FinanceStrategyState | ''; limit: number; offset: number }) =>
+  get<FinanceIntelPage<FinanceStrategy>>(`/intel/strategies${query({ ...q })}`);
+export const listStrategyRuns = (strategyId: string, q: { limit: number; offset: number }) =>
+  get<FinanceIntelPage<FinanceStrategyRun>>(`/intel/strategies/${id(strategyId)}/runs${query({ ...q })}`);
+export const listAgentDecisions = (q: { agent?: string; limit: number; offset: number }) =>
+  get<FinanceIntelPage<FinanceAgentDecision>>(`/intel/decisions${query({ ...q })}`);
