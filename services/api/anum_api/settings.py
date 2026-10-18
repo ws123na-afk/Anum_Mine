@@ -360,11 +360,14 @@ class Settings(BaseSettings):
     calls_turn_ttl_seconds: int = Field(default=7200, ge=300, le=86_400)
     calls_ring_timeout_seconds: int = Field(default=45, ge=10, le=120)
     calls_video_enabled: bool = True
-    # The signaling stream polls the database (in a thread, with its own short session)
+    # The signaling stream reads the database (in a thread, with its own short session)
+    # when a call event wakes it (anum_api/app_call_wake.py) and, as a fallback, polls:
     # every ``calls_poll_seconds`` while idle and every ``calls_active_poll_seconds``
-    # while the caller has a call ringing or in progress.
+    # while the caller has a call ringing or in progress, or only every
+    # ``calls_bus_fallback_poll_seconds`` while NATS delivers the wake-ups.
     calls_poll_seconds: float = Field(default=1.0, ge=0.1, le=10)
     calls_active_poll_seconds: float = Field(default=0.25, ge=0.05, le=5)
+    calls_bus_fallback_poll_seconds: float = Field(default=10.0, ge=1, le=60)
     # Calls (and their signaling rows) older than this are purged lazily.
     calls_retention_days: int = Field(default=365, ge=7, le=3650)
     # Calls & Meetings (anum_api/meetings.py, docs/meetings.md). Recording uploads are
