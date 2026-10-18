@@ -19,9 +19,9 @@ Row policies (all tables forced RLS, the standard tenant and workspace policy, p
 * ``mail_identities``: the owner, and people granted ``send``, see the row; only the owner writes it.
 * ``mail_contacts``: owner only.
 
-The grants policy never reads ``mail_accounts`` (no policy recursion). ``anum_maintenance``
-gets ``select (account_id, grantee_user_id)`` on grants because the reading policy of
-``mail_accounts`` looks there for every role.
+The grants policy never reads ``mail_accounts`` (no policy recursion). ``anum_maintenance`` and
+``anum_platform_reader`` get ``select (account_id, grantee_user_id)`` on grants because the
+reading policy of ``mail_accounts`` looks there for every role that reads mailboxes.
 
 Expand only: new tables, one nullable column, one extra unique constraint and replaced
 policies whose reading side is wider; the previous release keeps filtering by owner.
@@ -181,7 +181,10 @@ def upgrade() -> None:
     _policy("owner_insert_mail_accounts", "mail_accounts", command="insert", check=OWNER)
     _policy("owner_update_mail_accounts", "mail_accounts", command="update", using=OWNER, check=OWNER)
     _policy("owner_delete_mail_accounts", "mail_accounts", command="delete", using=OWNER)
+    # Every role that reads mailboxes evaluates the reading policy, so each needs these two columns
+    # (they see no share rows: the tenant and owner policies of the shares still apply).
     op.execute("grant select (account_id, grantee_user_id) on mail_account_grants to anum_maintenance")
+    op.execute("grant select (account_id, grantee_user_id) on mail_account_grants to anum_platform_reader")
 
 
 def downgrade() -> None:
@@ -191,6 +194,9 @@ def downgrade() -> None:
         begin
           if exists (select 1 from pg_roles where rolname = 'anum_maintenance') then
             revoke all on mail_account_grants from anum_maintenance;
+          end if;
+          if exists (select 1 from pg_roles where rolname = 'anum_platform_reader') then
+            revoke all on mail_account_grants from anum_platform_reader;
           end if;
         end
         $$

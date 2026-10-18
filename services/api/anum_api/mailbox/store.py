@@ -1,25 +1,27 @@
 """Mailboxes, outgoing messages, shares, identities and contacts of the Email Center.
 
-Migrations ``0060_email_center`` and ``0061_mail_sharing_contacts``. Every table has forced
-RLS on tenant and workspace plus restrictive owner policies, and every query here repeats
-the scope:
+Migrations ``0060_email_center``, ``0061_mail_sharing_contacts`` and ``0062_mail_outgoing``.
+Every table has forced RLS on tenant and workspace plus restrictive owner policies, and every
+query here repeats the scope:
 
 * a mailbox is visible to its owner and to people the owner granted access
   (``mail_account_grants``); only the owner changes it;
-* a message written in ANUM (``mail_drafts``) is private to the person who wrote it;
+* a message written in ANUM (``mail_drafts``) and its attachments (``mail_attachments``) are
+  private to the person who wrote it;
 * sender identities are visible to the owner and to people granted ``send``;
 * contacts are private to their owner.
 
 Mail itself stays on the mail server: ANUM stores only the mailbox (with its password as
 Fernet ciphertext), the messages a person writes in ANUM (drafts and sends, with their
-idempotency key and Message-ID), the shares, the identities and the address book.
+idempotency key and Message-ID, and a time for a scheduled send), the files attached to them
+(the bytes are in object storage), the shares, the identities and the address book.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from threading import RLock
 from typing import Literal, Protocol
@@ -45,9 +47,19 @@ class DraftStatus(StrEnum):
     FAILED = "failed"
     # The connection broke while the server was taking the message: never retried by itself.
     UNKNOWN = "unknown"
+    # Approved, waiting for its ``send_at``; the scheduler sends it then (docs/email.md#scheduled-send).
+    SCHEDULED = "scheduled"
 
 
-EDITABLE = frozenset({DraftStatus.DRAFT, DraftStatus.FAILED, DraftStatus.PENDING_APPROVAL})
+# Editing any of these withdraws a pending approval or cancels the schedule (back to a draft).
+EDITABLE = frozenset({DraftStatus.DRAFT, DraftStatus.FAILED, DraftStatus.PENDING_APPROVAL, DraftStatus.SCHEDULED})
+# A claimed send whose lease ran out may have reached the server: it becomes ``unknown``.
+SEND_LEASE = timedelta(minutes=10)
+INTERRUPTED = (
+    "The send was interrupted (the ANUM server restarted) and may have reached the mail server. "
+    "Check Sent before sending it again."
+)
+NOT_APPROVED_IN_TIME = "Not sent: it was not approved before its scheduled time. Pick a new time and send it again."
 DraftKind = Literal["new", "reply", "reply_all", "forward"]
 # What a person may do with a mailbox: their own, or shared with them to send or only to read.
 Access = Literal["owner", "send", "read"]
@@ -99,8 +111,33 @@ class MailDraft(BaseModel):
     error: str | None = None
     saved_to_sent: bool | None = None
     sent_at: datetime | None = None
+    # Scheduled send: when to send (UTC), the hash of the approved send call, and the lease of a
+    # claimed send (past it, the send counts as interrupted and becomes ``unknown``).
+    send_at: datetime | None = None
+    approved_hash: str | None = None
+    send_lease_until: datetime | None = None
+    # Why some of a forwarded message's attachments were not carried over (shown in the composer).
+    attachment_note: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class MailAttachment(BaseModel):
+    """A file attached to a message written in ANUM; checked and scanned before it is kept."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    owner_user_id: str
+    draft_id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    storage_key: str
+    # False when no malware scanner is installed on this server (docs/files.md#malware-scanning).
+    scanned: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class MailGrant(BaseModel):
@@ -185,8 +222,20 @@ class MailStoreProtocol(Protocol):
     def find_by_key(self, account_id: str, key: str) -> MailDraft | None: ...
     def save_draft(self, draft: MailDraft) -> MailDraft: ...
     def delete_draft(self, draft_id: str) -> bool: ...
-    def claim_send(self, draft_id: str) -> bool: ...
+    def claim_send(self, draft_id: str, lease_until: datetime) -> bool: ...
     def count_sends_since(self, account_id: str, since: datetime) -> int: ...
+    def mark_scheduled(self, draft_id: str, approved_hash: str) -> bool: ...
+    def reset_to_draft(self, draft_id: str, expected: DraftStatus) -> bool: ...
+    def claim_scheduled(self, draft_id: str, now: datetime, lease_until: datetime) -> bool: ...
+    def list_scheduled(self, account_id: str | None, limit: int) -> list[MailDraft]: ...
+    def release_interrupted(self, draft_id: str, now: datetime) -> bool: ...
+    def expire_unapproved(self, draft_id: str, before: datetime) -> MailDraft | None: ...
+    def list_attachments(self, draft_id: str) -> list[MailAttachment]: ...
+    def attachments_of_account(self, account_id: str | None) -> list[MailAttachment]: ...
+    def get_attachment(self, draft_id: str, attachment_id: str) -> MailAttachment | None: ...
+    def save_attachment(self, attachment: MailAttachment) -> MailAttachment: ...
+    def delete_attachment(self, draft_id: str, attachment_id: str) -> MailAttachment | None: ...
+    def pending_attachment_bytes(self) -> int: ...
 
 
 class InMemoryMailBackend:
@@ -198,6 +247,7 @@ class InMemoryMailBackend:
         self.grants: dict[str, MailGrant] = {}
         self.identities: dict[str, MailIdentity] = {}
         self.contacts: dict[str, MailContact] = {}
+        self.attachments: dict[str, MailAttachment] = {}
         self.lock = RLock()
 
     def clear(self) -> None:
@@ -207,6 +257,19 @@ class InMemoryMailBackend:
             self.grants.clear()
             self.identities.clear()
             self.contacts.clear()
+            self.attachments.clear()
+
+    def due_work(self, now: datetime, unapproved_before: datetime, limit: int) -> list[tuple[str, str, str, str]]:
+        """The scheduler's discovery in memory mode (PostgreSQL asks as ``anum_maintenance``)."""
+        with self.lock:
+            found = [
+                (d.tenant_id, d.workspace_id, d.owner_user_id, d.id)
+                for d in self.drafts.values()
+                if (d.status == DraftStatus.SCHEDULED and d.send_at is not None and d.send_at <= now)
+                or (d.status == DraftStatus.PENDING_APPROVAL and d.send_at is not None and d.send_at < unapproved_before)
+                or (d.status == DraftStatus.SENDING and d.send_lease_until is not None and d.send_lease_until < now)
+            ]
+        return found[:limit]
 
 
 class MemoryMailScope:
@@ -216,7 +279,7 @@ class MemoryMailScope:
         self.b = backend
         self.scope = (context.tenant_id, context.workspace_id, context.user_id)
 
-    def _mine(self, item: MailAccount | MailDraft | MailGrant | MailIdentity | MailContact) -> bool:
+    def _mine(self, item: MailAccount | MailDraft | MailAttachment | MailGrant | MailIdentity | MailContact) -> bool:
         return (item.tenant_id, item.workspace_id, item.owner_user_id) == self.scope
 
     def _in_workspace(self, item: MailAccount | MailGrant | MailIdentity) -> bool:
@@ -256,11 +319,19 @@ class MemoryMailScope:
             if not found or not self._mine(found):
                 return False
             del self.b.accounts[account_id]
-            # Like the foreign keys' ON DELETE CASCADE: everyone's drafts, the shares, the identities.
-            for table in (self.b.drafts, self.b.grants, self.b.identities):
+            # Like the foreign keys' ON DELETE CASCADE: everyone's drafts (with their attachments),
+            # the shares, the identities.
+            for draft_id in [d.id for d in self.b.drafts.values() if d.account_id == account_id]:
+                self._drop_draft(draft_id)
+            for table in (self.b.grants, self.b.identities):
                 for key in [k for k, v in table.items() if v.account_id == account_id]:  # type: ignore[attr-defined]
                     del table[key]
             return True
+
+    def _drop_draft(self, draft_id: str) -> None:
+        del self.b.drafts[draft_id]
+        for attachment_id in [a.id for a in self.b.attachments.values() if a.draft_id == draft_id]:
+            del self.b.attachments[attachment_id]
 
     # -- shared mailboxes -------------------------------------------------------------------
 
@@ -435,17 +506,98 @@ class MemoryMailScope:
             found = self.b.drafts.get(draft_id)
             if not found or not self._mine(found):
                 return False
-            del self.b.drafts[draft_id]
+            self._drop_draft(draft_id)
             return True
 
-    def claim_send(self, draft_id: str) -> bool:
+    def _move(self, draft_id: str, expected: DraftStatus, new: DraftStatus, **changes: object) -> MailDraft | None:
         with self.b.lock:
             found = self.b.drafts.get(draft_id)
-            if not found or not self._mine(found) or found.status != DraftStatus.PENDING_APPROVAL:
-                return False
-            found.status = DraftStatus.SENDING
+            if not found or not self._mine(found) or found.status != expected:
+                return None
+            found.status = new
+            for key, value in changes.items():
+                setattr(found, key, value)
             found.updated_at = utc_now()
-            return True
+            return found.model_copy()
+
+    def claim_send(self, draft_id: str, lease_until: datetime) -> bool:
+        return self._move(draft_id, DraftStatus.PENDING_APPROVAL, DraftStatus.SENDING, send_lease_until=lease_until) is not None
+
+    def mark_scheduled(self, draft_id: str, approved_hash: str) -> bool:
+        return self._move(draft_id, DraftStatus.PENDING_APPROVAL, DraftStatus.SCHEDULED, approved_hash=approved_hash, error=None) is not None
+
+    def reset_to_draft(self, draft_id: str, expected: DraftStatus) -> bool:
+        return self._move(draft_id, expected, DraftStatus.DRAFT, approved_hash=None) is not None
+
+    def claim_scheduled(self, draft_id: str, now: datetime, lease_until: datetime) -> bool:
+        with self.b.lock:
+            found = self.b.drafts.get(draft_id)
+            if not found or found.send_at is None or found.send_at > now:
+                return False
+            return self._move(draft_id, DraftStatus.SCHEDULED, DraftStatus.SENDING, send_lease_until=lease_until) is not None
+
+    def list_scheduled(self, account_id: str | None, limit: int) -> list[MailDraft]:
+        with self.b.lock:
+            items = [
+                d.model_copy() for d in self.b.drafts.values()
+                if self._mine(d) and d.send_at is not None and d.status in {DraftStatus.SCHEDULED, DraftStatus.PENDING_APPROVAL}
+                and (account_id is None or d.account_id == account_id)
+            ]
+        return sorted(items, key=lambda d: (d.send_at or d.updated_at, d.id))[:limit]
+
+    def release_interrupted(self, draft_id: str, now: datetime) -> bool:
+        with self.b.lock:
+            found = self.b.drafts.get(draft_id)
+            if not found or found.send_lease_until is None or found.send_lease_until >= now:
+                return False
+            return self._move(draft_id, DraftStatus.SENDING, DraftStatus.UNKNOWN, error=INTERRUPTED, send_lease_until=None) is not None
+
+    def expire_unapproved(self, draft_id: str, before: datetime) -> MailDraft | None:
+        with self.b.lock:
+            found = self.b.drafts.get(draft_id)
+            if not found or found.send_at is None or found.send_at >= before:
+                return None
+            previous = found.model_copy()
+            moved = self._move(draft_id, DraftStatus.PENDING_APPROVAL, DraftStatus.DRAFT, error=NOT_APPROVED_IN_TIME, approval_id=None, task_id=None, idempotency_key=None)
+            return previous if moved is not None else None
+
+    def list_attachments(self, draft_id: str) -> list[MailAttachment]:
+        with self.b.lock:
+            items = [a.model_copy() for a in self.b.attachments.values() if self._mine(a) and a.draft_id == draft_id]
+        return sorted(items, key=lambda a: (a.created_at, a.id))
+
+    def attachments_of_account(self, account_id: str | None) -> list[MailAttachment]:
+        with self.b.lock:
+            drafts = {d.id for d in self.b.drafts.values() if self._mine(d) and (account_id is None or d.account_id == account_id)}
+            return [a.model_copy() for a in self.b.attachments.values() if self._mine(a) and a.draft_id in drafts]
+
+    def get_attachment(self, draft_id: str, attachment_id: str) -> MailAttachment | None:
+        with self.b.lock:
+            found = self.b.attachments.get(attachment_id)
+            return found.model_copy() if found and self._mine(found) and found.draft_id == draft_id else None
+
+    def save_attachment(self, attachment: MailAttachment) -> MailAttachment:
+        if not self._mine(attachment):
+            raise PermissionError("row outside the caller's scope")
+        with self.b.lock:
+            draft = self.b.drafts.get(attachment.draft_id)
+            if draft is None or not self._mine(draft):
+                raise LookupError("draft not found")
+            self.b.attachments[attachment.id] = attachment.model_copy()
+        return attachment
+
+    def delete_attachment(self, draft_id: str, attachment_id: str) -> MailAttachment | None:
+        with self.b.lock:
+            found = self.b.attachments.get(attachment_id)
+            if not found or not self._mine(found) or found.draft_id != draft_id:
+                return None
+            del self.b.attachments[attachment_id]
+            return found
+
+    def pending_attachment_bytes(self) -> int:
+        with self.b.lock:
+            unsent = {d.id for d in self.b.drafts.values() if self._mine(d) and d.status != DraftStatus.SENT}
+            return sum(a.size_bytes for a in self.b.attachments.values() if self._mine(a) and a.draft_id in unsent)
 
     def count_sends_since(self, account_id: str, since: datetime) -> int:
         with self.b.lock:

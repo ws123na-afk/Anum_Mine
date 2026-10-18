@@ -31,7 +31,7 @@ import { Drawer } from './Dialog';
 import { DeleteApproval, MailBulkBar, MailSearchBar, StarButton, SyncStatus, actionDone, actionLabel, useMailShortcuts, useMailSync } from './MailActions';
 import { ContactsPanel, FromPicker, IdentitiesPanel, LeaveShared, MailboxPicker, RecipientField, SharedNotice, SharingPanel } from './MailDirectory';
 import { canSendFrom, ownsMailbox, pickAccount, senderLabel, type MailContact } from './lib/mailDirectory';
-import { PageHeader, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
+import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
 import './email.css';
 
@@ -182,6 +182,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
   openDraft?: string | null; onDraftOpened?: () => void;
 }) {
   const wide = useMediaQuery(SPLIT_QUERY);
+  const widest = useMediaQuery(RAIL_QUERY);
   // A mailbox shared to read only: nothing here changes it (the API refuses the same).
   const canAct = setup.can_act && canSendFrom(account);
   const [folders, setFolders] = useState<MailFolder[]>([]);
@@ -374,7 +375,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
           </li>)}</ul></nav>
         </>}
         <SyncStatus state={sync} onCheckNow={sync.checkNow} />
-        <details className="mailOutbox" open={wide || undefined}>
+        <details className="mailOutbox" open={widest || undefined}>
           <summary><FileText aria-hidden="true" />{t('mail.outbox')}{drafts && <span className="mailOutboxCount">{formatNumber(draftsWaiting.length)}</span>}</summary>
           <p className="muted">{t('mail.outboxHint')}</p>
           {draftsFailed && <p className="muted">{t('mail.list.moreFailed')} <button type="button" className="linkButton" onClick={loadDrafts}>{t('mail.retry')}</button></p>}

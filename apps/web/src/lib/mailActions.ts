@@ -162,17 +162,6 @@ export function filtersActive(filters: MailFilters): boolean {
   return Boolean(normalizeQuery(filters.q) || filters.unread || filters.flagged);
 }
 
-/** Query string for GET /api/v1/mail/accounts/{id}/messages. */
-export function messageListQuery(folder: string, filters: MailFilters, before: number | null, limit = 25): string {
-  const params = new URLSearchParams({ folder, limit: String(limit) });
-  const q = normalizeQuery(filters.q);
-  if (q) params.set('q', q);
-  if (filters.unread) params.set('unread', 'true');
-  if (filters.flagged) params.set('flagged', 'true');
-  if (before !== null) params.set('before', String(before));
-  return params.toString();
-}
-
 // -- unread counts and background refresh ----------------------------------------------------------
 
 /** Unread messages that matter for a badge: the inbox, never Junk or Trash. */

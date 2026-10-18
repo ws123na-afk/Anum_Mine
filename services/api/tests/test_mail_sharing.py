@@ -258,3 +258,34 @@ def test_privacy_covers_contacts_identities_and_shares(fake: FakeServer, members
     assert [c.email for c in mail_backend.contacts.values()] == ["sara@client.example"]
     assert mail_backend.grants == {} and all(d.owner_user_id != "member_mc" for d in mail_backend.drafts.values())
     assert len(mail_backend.identities) == 1 and account["id"] in mail_backend.accounts
+
+
+def test_a_scheduled_send_from_a_shared_mailbox_needs_the_share_when_it_goes(fake: FakeServer, members: None) -> None:
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    from anum_api.mailbox import outgoing
+
+    account = connect()
+    grant = share(account["id"], "send")
+    sales = client.post(f"{MAIL}/accounts/{account['id']}/identities", headers=OWNER, json={"address": "sales@example.test", "is_default": True}).json()
+    when = (datetime.now(timezone.utc) + timedelta(minutes=30)).replace(microsecond=0)
+    drafts = []
+    for index in range(2):
+        draft = client.post(f"{MAIL}/drafts", headers=MEMBER, json={"account_id": account["id"]}).json()
+        client.patch(f"{MAIL}/drafts/{draft['id']}", headers=MEMBER, json={"to": ["buyer@client.example"], "subject": f"Later {index}", "body": "Text"})
+        asked = client.post(f"{MAIL}/drafts/{draft['id']}/send", headers=MEMBER, json={"idempotency_key": f"send-key-later-{index}", "send_at": when.isoformat()})
+        assert asked.status_code == 200, asked.text
+        assert asked.json()["approval"]["arguments"]["from"] == "sales@example.test"
+        assert approve(asked.json()["approval"]) == 200
+        drafts.append(draft["id"])
+    assert all(client.get(f"{MAIL}/drafts/{d}", headers=MEMBER).json()["status"] == "scheduled" for d in drafts)
+    # The first goes from the identity while the share holds.
+    assert asyncio.run(outgoing.handle_due(TENANT, WORKSPACE, "member_mc", drafts[0], when + timedelta(seconds=1))) == "sent"
+    assert fake.sent[0][0] == sales["address"]
+    # Read only before the second's time: it is not sent.
+    client.patch(f"{MAIL}/grants/{grant['id']}", headers=OWNER, json={"access": "read"})
+    assert asyncio.run(outgoing.handle_due(TENANT, WORKSPACE, "member_mc", drafts[1], when + timedelta(seconds=1))) == "failed"
+    assert len(fake.sent) == 1
+    failed = client.get(f"{MAIL}/drafts/{drafts[1]}", headers=MEMBER).json()
+    assert failed["status"] == "failed" and "no longer lets the writer send" in failed["error"]

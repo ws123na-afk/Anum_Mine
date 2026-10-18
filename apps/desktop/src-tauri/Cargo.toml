@@ -21,4 +21,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 # Exact pin: 2.13 needs tauri 2.12. Registered only when the build carries an updater config.
-tauri-plugin-updater = "=2.12.0"
+# No `zip` feature: our updater artifacts are raw installers (NSIS, MSI, AppImage, deb, rpm) and
+# the macOS .app.tar.gz, never zipped v1 bundles, and the zip crate it pulls in has open
+# advisories (RUSTSEC-2026-0367/0368/0369, fixed only in zip 9, which no updater release uses).
+tauri-plugin-updater = { version = "=2.12.0", default-features = false, features = ["rustls-tls", "system-proxy"] }

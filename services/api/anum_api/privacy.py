@@ -951,10 +951,13 @@ def mail_privacy_counts(context: TenantContext) -> dict[str, int]:
 def delete_mail_everything(context: TenantContext) -> None:
     """The caller's Email Center mailboxes (with their shares and identities), every message
     they wrote in ANUM (in shared mailboxes too), their address book, and the shares they had."""
+    from .mailbox.outgoing import forget_objects
     from .mailbox.store import open_mail_store
 
     with open_mail_store(context) as store:
+        files = store.attachments_of_account(None)
         delete_mail_store(store)
+    forget_objects(files)
 
 
 def delete_mail_store(store: Any) -> None:
@@ -988,6 +991,7 @@ def mail_export(context: TenantContext) -> dict[str, Any]:
             if not page:
                 break
             contacts += page
+        files = store.attachments_of_account(None)
     return {
         # Never the password, not even encrypted.
         "mailboxes": [a.model_dump(mode="json", exclude={"password_enc"}) for a in accounts],
@@ -996,6 +1000,8 @@ def mail_export(context: TenantContext) -> dict[str, Any]:
         "shares_given": [g.model_dump(mode="json") for g in grants],
         "shares_received": [g.model_dump(mode="json") for g in shared],
         "contacts": [c.model_dump(mode="json") for c in contacts],
+        # The attached files' names, types, sizes and digests (the bytes stay in ANUM's storage).
+        "attachments": [f.model_dump(mode="json", exclude={"storage_key"}) for f in files],
     }
 
 

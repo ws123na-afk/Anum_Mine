@@ -955,3 +955,20 @@ def test_finance_wider_live_migration_is_expand_only_and_one_tier_at_a_time() ->
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "tier = base_tier + 1" in upgrade and "decided_by is null or decided_by = owner_user_id" in upgrade
     assert "tier_after <= tier_before" in upgrade
+
+
+def test_mail_operator_view_migration_is_expand_only_and_reads_counts_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0064_mail_operator_view.py").read_text(encoding="utf-8")
+    assert 'revision = "0064_mail_operator_view"' in revision_text and len("0064_mail_operator_view") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 1 and "force row level security" in upgrade
+    # The platform reader gets counted columns only, never the address, password or error text.
+    assert "grant select (tenant_id, status, last_checked_at) on mail_accounts to anum_platform_reader" in upgrade
+    assert "grant select (tenant_id, day, metric, count) on mail_ops_counters to anum_platform_reader" in upgrade
+    for column in ("address", "password_enc", "display_name", "last_error", "owner_user_id"):
+        assert f"{column})" not in upgrade and f"{column}," not in upgrade
+    # Expand only, no widening of the app role.
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "_extend_restrictive(add=true)" in upgrade and "or current_user = %l" in revision_text.lower()

@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from email.message import EmailMessage
 from email.utils import format_datetime
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -443,7 +443,13 @@ def test_every_state_changing_route_is_audited_without_content(fake: FakeServer)
     draft = probe.call("POST", "/api/v1/mail/drafts", OWNER, json={"account_id": account["id"]}).json()
     body = "A private message text"
     probe.call("PATCH", f"/api/v1/mail/drafts/{draft['id']}", OWNER, sent=[body, "buyer@client.example"], json={"to": ["buyer@client.example"], "body": body})
-    probe.call("POST", f"/api/v1/mail/drafts/{draft['id']}/send", OWNER, json={"idempotency_key": "send-key-0401"})
+    attached = probe.call(
+        "POST", f"/api/v1/mail/drafts/{draft['id']}/attachments", OWNER, params={"name": "notes.txt"}, content=b"plain example text",
+    ).json()
+    probe.call("DELETE", f"/api/v1/mail/drafts/{draft['id']}/attachments/{attached['id']}", OWNER)
+    later = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    probe.call("POST", f"/api/v1/mail/drafts/{draft['id']}/send", OWNER, json={"idempotency_key": "send-key-0401", "send_at": later})
+    probe.call("POST", f"/api/v1/mail/drafts/{draft['id']}/cancel-schedule", OWNER)
     probe.call("DELETE", f"/api/v1/mail/drafts/{draft['id']}", OWNER)
     # Phase 3 part A: shares, sender identities and contacts.
     from anum_api.schemas import WorkspaceMembership, utc_now
