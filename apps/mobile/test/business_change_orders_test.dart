@@ -29,6 +29,7 @@ class FakeMoney implements ProjectMoneyRepository {
   FakeMoney({this.fail = false, this.deny = false});
   final bool fail, deny;
   final calls = <String>[];
+  final bodies = <Map<String, Object?>>[];
   final changes = <Map<String, Object?>>[];
   final entries = <Map<String, Object?>>[];
   double contract = 2500;
@@ -74,9 +75,14 @@ class FakeMoney implements ProjectMoneyRepository {
   Future<ChangeOrder> createChangeOrder(
       String projectId, Map<String, Object?> body) async {
     calls.add('create');
+    bodies.add(body);
     final lines = body['lines']! as List;
-    final delta =
-        lines.fold<double>(0, (s, l) => s + ((l as Map)['unit_price']! as num));
+    final delta = lines.fold<double>(0, (s, l) {
+      final line = l as Map;
+      final amount =
+          ((line['quantity'] ?? 1) as num) * (line['unit_price']! as num);
+      return s + (line['action'] == 'remove' ? -amount : amount);
+    });
     final change = <String, Object?>{
       'id': 'bchg_${changes.length + 1}',
       'number': changes.length + 1,
@@ -185,8 +191,8 @@ void main() {
     await tester.enterText(
         find.byKey(const Key('biz-change-title')), 'Fuel dashboard');
     await tester.enterText(
-        find.byKey(const Key('biz-change-item')), 'Fuel dashboard');
-    await tester.enterText(find.byKey(const Key('biz-change-price')), '800');
+        find.byKey(const Key('biz-change-item-0')), 'Fuel dashboard');
+    await tester.enterText(find.byKey(const Key('biz-change-price-0')), '800');
     await tester.enterText(find.byKey(const Key('biz-change-days')), '10');
     await tester.tap(find.byKey(const Key('biz-change-save')));
     await tester.pumpAndSettle();
@@ -213,6 +219,79 @@ void main() {
     expect(find.text('Build the dashboard'), findsOneWidget);
     expect(find.text('SAR 600.00'), findsWidgets);
     expect(find.textContaining('+SAR 2700.00'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a change order takes several lines, removals, kinds, quantities and a cost change',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = FakeMoney();
+    await tester.pumpWidget(screen(repo, owner));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('biz-change-new')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('biz-change-title')), 'Swap the dashboard');
+    await tester.enterText(
+        find.byKey(const Key('biz-change-requested-by')), 'Sara Khan');
+    // Line 1 removes a contract line exactly as written.
+    await tester.tap(find.text('Remove').first);
+    await tester.enterText(
+        find.byKey(const Key('biz-change-item-0')), 'Reporting Quick Win');
+    await tester.enterText(find.byKey(const Key('biz-change-price-0')), '2500');
+    // Line 2 adds two days of labour; line 3 is added then deleted again.
+    await tester.tap(find.byKey(const Key('biz-change-add-line')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('biz-change-item-1')), 'Fuel dashboard');
+    await tester.tap(find.byKey(const Key('biz-change-kind-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Labor').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('biz-change-quantity-1')), '2');
+    await tester.enterText(
+        find.byKey(const Key('biz-change-price-1')), '900.5');
+    await tester.tap(find.byKey(const Key('biz-change-add-line')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('biz-change-line-2')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('biz-change-remove-line-2')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('biz-change-line-2')), findsNothing);
+    await tester.enterText(find.byKey(const Key('biz-change-cost')), '-150');
+    // A bad price on a line names the line.
+    await tester.enterText(
+        find.byKey(const Key('biz-change-price-1')), '9.999');
+    await tester.tap(find.byKey(const Key('biz-change-save')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Line 2: give'), findsOneWidget);
+    await tester.enterText(
+        find.byKey(const Key('biz-change-price-1')), '900.5');
+    await tester.tap(find.byKey(const Key('biz-change-save')));
+    await tester.pumpAndSettle();
+
+    final body = repo.bodies.single;
+    expect(body['title'], 'Swap the dashboard');
+    expect(body['requested_by'], 'Sara Khan');
+    expect(body['internal_cost_delta'], -150);
+    expect(body['lines'], [
+      {
+        'action': 'remove',
+        'description': 'Reporting Quick Win',
+        'kind': 'service',
+        'quantity': 1.0,
+        'unit_price': 2500.0,
+      },
+      {
+        'action': 'add',
+        'description': 'Fuel dashboard',
+        'kind': 'labor',
+        'quantity': 2.0,
+        'unit_price': 900.5,
+      },
+    ]);
+    expect(find.text('Price -SAR 699.00, timeline 0 days'), findsOneWidget);
   });
 
   testWidgets('a member sends but an owner decides', (tester) async {

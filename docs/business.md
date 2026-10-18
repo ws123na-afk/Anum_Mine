@@ -119,7 +119,7 @@ Money uses `models.money` (two places, half up) like proposals. The deltas are t
 - `POST /usage/import-ai {project_id, month, share_pct, billable}` reads one finished month of this workspace's estimated model spend from the model budget (`anum_api/model_budget.py`, USD) and records the share the owner attributes to the project. Each month is imported once per project (a partial unique index backs it); the current month is refused while it is still growing, and a month without usage is refused rather than recorded as zero. An imported row keeps the budget's figures; only its description and billable flag change.
 - `GET /projects/{id}/profitability`: revenue is the accepted proposal plus approved change orders, before tax (with the accepted part and the change orders part shown apart, and `reconciled` true when they add up to the current contract); tax and the contract total; cash collected is only the milestone payments a person recorded, with what is not yet collected; labour hours and cost, direct costs by kind, billable and non-billable costs; gross margin and its percentage. Costs in another currency are listed apart and never converted. A figure with nothing behind it is null and shows "-" (no payments recorded, no costs recorded, no margin without costs).
 
-On the web these are three blocks of the project drawer (`apps/web/src/BusinessProjectMoney.tsx`); on the phone, "Change orders and costs" on a project card (`apps/mobile/lib/features/business/project_money.dart`), where a change order has one added line and a timeline change (removing a line is on the web).
+On the web these are three blocks of the project drawer (`apps/web/src/BusinessProjectMoney.tsx`); on the phone, "Change orders and costs" on a project card (`apps/mobile/lib/features/business/project_money.dart`), with the same change order form as the web (several added or removed lines with kind, quantity and price, who asked, the request, the timeline and internal cost changes).
 
 ## KPI summary
 
@@ -127,7 +127,7 @@ On the web these are three blocks of the project drawer (`apps/web/src/BusinessP
 
 - **Funnel**: of the leads created in the window, how many reached qualified, contacted, meeting, offered and won by now, each with its denominator (`reached of created`) and the rate from the previous step.
 - **Pipeline**: open opportunities' assumed values and the weighted values, per currency, labelled as assumptions.
-- **Contracted**: totals of proposals accepted in the window. **Cash collected**: milestone payments recorded with a date in the window. Neither is called revenue.
+- **Contracted**: totals of proposals accepted in the window, plus the total change (with tax, negative for a reduction) of change orders approved in the window. **Cash collected**: milestone payments recorded with a date in the window. Neither is called revenue.
 - Won and lost opportunities, proposals sent and accepted, research runs and searches in the window. When there are more than 5000 records the summary says it covers the newest.
 
 ## Storage and isolation

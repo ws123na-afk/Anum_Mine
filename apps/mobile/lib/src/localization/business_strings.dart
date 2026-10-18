@@ -147,15 +147,11 @@ const businessEn = <String, String>{
   'biz.money.reasonRequired': 'Give a reason of at least 3 characters.',
   'biz.money.cancel': 'Cancel',
   'biz.money.changeWhat': 'What changes',
-  'biz.money.item': 'Added line (optional)',
-  'biz.money.price': 'Price of the added line',
   'biz.money.days': 'Timeline change in days (minus for sooner)',
   'biz.money.saveDraft': 'Save draft',
   'biz.money.titleRequired': 'Say what changes (at least 2 characters).',
   'biz.money.daysInvalid':
       'The timeline change is a whole number of days between -3650 and 3650.',
-  'biz.money.priceInvalid':
-      'Enter the price as a number with at most two decimals.',
   'biz.money.nothing': 'Add a line or change the timeline.',
   'biz.money.ledgerTitle': 'Usage and costs',
   'biz.money.newCost': 'Record a cost',
@@ -178,6 +174,25 @@ const businessEn = <String, String>{
   'biz.money.descriptionRequired': 'Describe the cost (at least 2 characters).',
   'biz.money.costInvalid':
       'Enter a quantity above zero and a cost, each with at most two decimals.',
+  'biz.money.requestedBy': 'Asked by',
+  'biz.money.request': 'The request',
+  'biz.money.scopeHint':
+      'Add new lines, or remove a line of the current contract exactly as it is written (description, kind, quantity and price).',
+  'biz.money.add': 'Add',
+  'biz.money.remove': 'Remove',
+  'biz.money.removeLine': 'Remove line {n}',
+  'biz.money.lineItem': 'Line {n}: item',
+  'biz.money.lineKind.service': 'Service',
+  'biz.money.lineKind.labor': 'Labor',
+  'biz.money.lineKind.external_cost': 'External cost',
+  'biz.money.lineKind.other': 'Other',
+  'biz.money.unitPrice': 'Unit price',
+  'biz.money.addLine': 'Add line',
+  'biz.money.costDelta': 'Internal cost change (minus for less)',
+  'biz.money.costDeltaInvalid':
+      'The internal cost change is a number with at most two decimals.',
+  'biz.money.lineInvalid':
+      'Line {n}: give a description, a quantity above zero and a price with at most two decimals.',
 };
 
 const businessAr = <String, String>{
@@ -323,13 +338,10 @@ const businessAr = <String, String>{
   'biz.money.reasonRequired': 'اكتب سببا من 3 أحرف على الأقل.',
   'biz.money.cancel': 'إلغاء',
   'biz.money.changeWhat': 'ما الذي يتغير',
-  'biz.money.item': 'بند مضاف (اختياري)',
-  'biz.money.price': 'سعر البند المضاف',
   'biz.money.days': 'تغيير المدة بالأيام (بالسالب للأقرب)',
   'biz.money.saveDraft': 'حفظ المسودة',
   'biz.money.titleRequired': 'اذكر ما يتغير (حرفان على الأقل).',
   'biz.money.daysInvalid': 'تغيير المدة عدد صحيح من الأيام بين -3650 و3650.',
-  'biz.money.priceInvalid': 'أدخل السعر رقما بخانتين عشريتين على الأكثر.',
   'biz.money.nothing': 'أضف بندا أو غير المدة.',
   'biz.money.ledgerTitle': 'الاستخدام والتكاليف',
   'biz.money.newCost': 'تسجيل تكلفة',
@@ -351,4 +363,23 @@ const businessAr = <String, String>{
   'biz.money.descriptionRequired': 'صف التكلفة (حرفان على الأقل).',
   'biz.money.costInvalid':
       'أدخل كمية أكبر من صفر وتكلفة، كل منهما بخانتين عشريتين على الأكثر.',
+  'biz.money.requestedBy': 'بطلب من',
+  'biz.money.request': 'الطلب',
+  'biz.money.scopeHint':
+      'أضف بنودا جديدة، أو احذف بندا من العقد الحالي كما هو مكتوب تماما (الوصف والنوع والكمية والسعر).',
+  'biz.money.add': 'إضافة',
+  'biz.money.remove': 'حذف',
+  'biz.money.removeLine': 'حذف البند {n}',
+  'biz.money.lineItem': 'البند {n}: الوصف',
+  'biz.money.lineKind.service': 'خدمة',
+  'biz.money.lineKind.labor': 'عمل',
+  'biz.money.lineKind.external_cost': 'تكلفة خارجية',
+  'biz.money.lineKind.other': 'أخرى',
+  'biz.money.unitPrice': 'سعر الوحدة',
+  'biz.money.addLine': 'إضافة بند',
+  'biz.money.costDelta': 'تغيير التكلفة الداخلية (بالسالب للأقل)',
+  'biz.money.costDeltaInvalid':
+      'تغيير التكلفة الداخلية رقم بخانتين عشريتين على الأكثر.',
+  'biz.money.lineInvalid':
+      'البند {n}: أدخل وصفا وكمية أكبر من صفر وسعرا بخانتين عشريتين على الأكثر.',
 };

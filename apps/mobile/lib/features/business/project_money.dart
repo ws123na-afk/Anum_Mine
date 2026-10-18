@@ -621,8 +621,29 @@ double? _amount(String text, {bool signed = false}) {
   return double.parse(clean);
 }
 
-/// A change order with one added line and a timeline change; the web form
-/// also removes lines of the contract.
+/// One line of the scope change: added to the contract, or a line of the
+/// current contract removed (matched exactly by the API, as on the web).
+class _LineFields {
+  String action = 'add';
+  String kind = 'service';
+  final description = TextEditingController();
+  final quantity = TextEditingController(text: '1');
+  final price = TextEditingController();
+
+  bool get blank =>
+      description.text.trim().isEmpty && price.text.trim().isEmpty;
+
+  void dispose() {
+    description.dispose();
+    quantity.dispose();
+    price.dispose();
+  }
+}
+
+const _lineKinds = ['service', 'labor', 'external_cost', 'other'];
+
+/// The change order form: what changes, who asked, the request, any number of
+/// added or removed lines, the timeline change and the internal cost change.
 class _ChangeDialog extends StatefulWidget {
   const _ChangeDialog({required this.l});
   final AnumLocalizations l;
@@ -631,53 +652,147 @@ class _ChangeDialog extends StatefulWidget {
 }
 
 class _ChangeDialogState extends State<_ChangeDialog> {
-  final title = TextEditingController(), item = TextEditingController();
-  final price = TextEditingController(),
-      days = TextEditingController(text: '0');
+  final title = TextEditingController(), requestedBy = TextEditingController();
+  final request = TextEditingController();
+  final days = TextEditingController(text: '0');
+  final cost = TextEditingController(text: '0');
+  final lines = <_LineFields>[_LineFields()];
   String? problem;
 
   @override
   void dispose() {
-    for (final c in [title, item, price, days]) {
+    for (final c in [title, requestedBy, request, days, cost]) {
       c.dispose();
+    }
+    for (final line in lines) {
+      line.dispose();
     }
     super.dispose();
   }
 
   void save() {
     final l = widget.l;
-    final name = title.text.trim();
-    final shift =
-        int.tryParse(days.text.trim().isEmpty ? '0' : days.text.trim());
-    final amount = price.text.trim().isEmpty ? null : _amount(price.text);
+    final name = title.text.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (name.length < 2) {
       return setState(() => problem = l.t('biz.money.titleRequired'));
     }
+    final body = <Map<String, Object?>>[];
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (line.blank) continue;
+      final description =
+          line.description.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+      final quantity =
+          _amount(line.quantity.text.trim().isEmpty ? '1' : line.quantity.text);
+      final price = _amount(line.price.text);
+      if (description.isEmpty ||
+          quantity == null ||
+          quantity <= 0 ||
+          price == null) {
+        return setState(
+            () => problem = l.f('biz.money.lineInvalid', {'n': i + 1}));
+      }
+      body.add({
+        'action': line.action,
+        'description': description,
+        'kind': line.kind,
+        'quantity': quantity,
+        'unit_price': price,
+      });
+    }
+    final shift =
+        int.tryParse(days.text.trim().isEmpty ? '0' : days.text.trim());
     if (shift == null || shift.abs() > 3650) {
       return setState(() => problem = l.t('biz.money.daysInvalid'));
     }
-    if (item.text.trim().isNotEmpty && amount == null) {
-      return setState(() => problem = l.t('biz.money.priceInvalid'));
+    final costDelta =
+        _amount(cost.text.trim().isEmpty ? '0' : cost.text, signed: true);
+    if (costDelta == null) {
+      return setState(() => problem = l.t('biz.money.costDeltaInvalid'));
     }
-    final lines = item.text.trim().isEmpty
-        ? <Map<String, Object?>>[]
-        : [
-            {
-              'action': 'add',
-              'description': item.text.trim(),
-              'kind': 'service',
-              'quantity': 1,
-              'unit_price': amount,
-            }
-          ];
-    if (lines.isEmpty && shift == 0) {
+    if (body.isEmpty && shift == 0 && costDelta == 0) {
       return setState(() => problem = l.t('biz.money.nothing'));
     }
     Navigator.pop(context, {
       'title': name,
-      'lines': lines,
+      'requested_by': requestedBy.text.trim(),
+      'request': request.text.trim(),
+      'lines': body,
       'timeline_days': shift,
+      'internal_cost_delta': costDelta,
     });
+  }
+
+  Widget _line(BuildContext context, int index) {
+    final l = widget.l;
+    final line = lines[index];
+    final n = index + 1;
+    return Padding(
+      key: Key('biz-change-line-$index'),
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            children: [
+              SegmentedButton<String>(
+                key: Key('biz-change-action-$index'),
+                segments: [
+                  ButtonSegment(
+                      value: 'add', label: Text(l.t('biz.money.add'))),
+                  ButtonSegment(
+                      value: 'remove', label: Text(l.t('biz.money.remove'))),
+                ],
+                selected: {line.action},
+                onSelectionChanged: (value) =>
+                    setState(() => line.action = value.first),
+              ),
+              IconButton(
+                key: Key('biz-change-remove-line-$index'),
+                tooltip: l.f('biz.money.removeLine', {'n': n}),
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => setState(() {
+                  lines.removeAt(index).dispose();
+                }),
+              ),
+            ],
+          ),
+          TextField(
+            key: Key('biz-change-item-$index'),
+            controller: line.description,
+            decoration:
+                InputDecoration(labelText: l.f('biz.money.lineItem', {'n': n})),
+          ),
+          DropdownButton<String>(
+            key: Key('biz-change-kind-$index'),
+            isExpanded: true,
+            value: line.kind,
+            items: [
+              for (final kind in _lineKinds)
+                DropdownMenuItem(
+                    value: kind, child: Text(l.t('biz.money.lineKind.$kind'))),
+            ],
+            onChanged: (value) =>
+                setState(() => line.kind = value ?? line.kind),
+          ),
+          TextField(
+            key: Key('biz-change-quantity-$index'),
+            controller: line.quantity,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(labelText: l.t('biz.money.quantity')),
+          ),
+          TextField(
+            key: Key('biz-change-price-$index'),
+            controller: line.price,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(labelText: l.t('biz.money.unitPrice')),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -685,38 +800,69 @@ class _ChangeDialogState extends State<_ChangeDialog> {
     final l = widget.l;
     return AlertDialog(
       title: Text(l.t('biz.money.newChange')),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-                key: const Key('biz-change-title'),
-                controller: title,
-                decoration:
-                    InputDecoration(labelText: l.t('biz.money.changeWhat'))),
-            TextField(
-                key: const Key('biz-change-item'),
-                controller: item,
-                decoration: InputDecoration(labelText: l.t('biz.money.item'))),
-            TextField(
-                key: const Key('biz-change-price'),
-                controller: price,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(labelText: l.t('biz.money.price'))),
-            TextField(
-                key: const Key('biz-change-days'),
-                controller: days,
-                keyboardType:
-                    const TextInputType.numberWithOptions(signed: true),
-                decoration: InputDecoration(labelText: l.t('biz.money.days'))),
-            if (problem != null)
+      content: SizedBox(
+        width: 480,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                  key: const Key('biz-change-title'),
+                  controller: title,
+                  decoration:
+                      InputDecoration(labelText: l.t('biz.money.changeWhat'))),
+              TextField(
+                  key: const Key('biz-change-requested-by'),
+                  controller: requestedBy,
+                  decoration:
+                      InputDecoration(labelText: l.t('biz.money.requestedBy'))),
+              TextField(
+                  key: const Key('biz-change-request'),
+                  controller: request,
+                  maxLines: 3,
+                  minLines: 1,
+                  decoration:
+                      InputDecoration(labelText: l.t('biz.money.request'))),
               Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(problem!,
-                    style: TextStyle(color: context.palette.stop)),
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(l.t('biz.money.scopeHint'),
+                    style: TextStyle(color: context.palette.muted)),
               ),
-          ],
+              for (var i = 0; i < lines.length; i++) _line(context, i),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  key: const Key('biz-change-add-line'),
+                  onPressed: lines.length >= 40
+                      ? null
+                      : () => setState(() => lines.add(_LineFields())),
+                  icon: const Icon(Icons.add),
+                  label: Text(l.t('biz.money.addLine')),
+                ),
+              ),
+              TextField(
+                  key: const Key('biz-change-days'),
+                  controller: days,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(signed: true),
+                  decoration:
+                      InputDecoration(labelText: l.t('biz.money.days'))),
+              TextField(
+                  key: const Key('biz-change-cost'),
+                  controller: cost,
+                  keyboardType: const TextInputType.numberWithOptions(
+                      signed: true, decimal: true),
+                  decoration:
+                      InputDecoration(labelText: l.t('biz.money.costDelta'))),
+              if (problem != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(problem!,
+                      style: TextStyle(color: context.palette.stop)),
+                ),
+            ],
+          ),
         ),
       ),
       actions: [

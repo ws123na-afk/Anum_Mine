@@ -315,3 +315,25 @@ def test_ai_usage_is_imported_from_the_model_budget_once_per_month() -> None:
         assert other.status_code == 409  # another tenant has no usage that month (and could not see the project)
     finally:
         memory_model_budget_store._usage.clear()
+
+
+def test_contracted_kpi_includes_approved_change_orders_only() -> None:
+    started = project()
+    assert ok(client.get(f"{BASE}/kpi?days=30", headers=MEMBER))["contracted"] == [{"currency": "SAR", "amount": 2500.0}]
+    increase = draft(started["id"])
+    ok(decide(submit(increase["id"])))
+    pending = draft(started["id"], title="Training", lines=[{"description": "Training", "unit_price": 400}])
+    submit(pending["id"])  # waiting for an owner: not contracted yet
+    rejected = draft(started["id"], title="Extra", lines=[{"description": "Extra", "unit_price": 50}])
+    submit(rejected["id"])
+    ok(client.post(f"{BASE}/change-orders/{rejected['id']}/reject", headers=OWNER, json={"reason": "Too much"}))
+    assert ok(client.get(f"{BASE}/kpi?days=30", headers=MEMBER))["contracted"] == [{"currency": "SAR", "amount": 3300.0}]
+    reduction = draft(started["id"], title="Drop the dashboard", lines=[{"action": "remove", "description": "Fuel dashboard", "unit_price": 800}])
+    ok(decide(submit(reduction["id"])))
+    kpi = ok(client.get(f"{BASE}/kpi?days=30", headers=MEMBER))
+    assert kpi["contracted"] == [{"currency": "SAR", "amount": 2500.0}]
+    assert kpi["contracted"][0]["amount"] == ok(client.get(f"{BASE}/projects/{started['id']}", headers=MEMBER))["contract_total"]
+    # A window holding only a reduction is negative: shown, never clipped to zero.
+    from anum_api.business.api_deals import SignedMoneyFigure
+
+    assert SignedMoneyFigure(currency="SAR", amount=Decimal("-800")).model_dump(mode="json")["amount"] == -800.0
